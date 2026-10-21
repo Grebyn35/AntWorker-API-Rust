@@ -9,4 +9,17 @@ disallowed-methods = [
     { path = "std::fs::read", reason = "blocking file I/O stalls the async runtime (CODE-05)" },
     { path = "std::fs::read_to_string", reason = "blocking file I/O stalls the async runtime (CODE-05)" },
     { path = "std::fs::write", reason = "blocking file I/O stalls the async runtime (CODE-05)" },
+    { path = "sqlx::query", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::query_with", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::query_as", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::query_as_with", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::query_scalar", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::query_scalar_with", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::raw_sql", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+]
+
+disallowed-types = [
+    { path = "sqlx::Pool", reason = "queries run in a unit of work, never on a pool (DATA-21)" },
+    { path = "sqlx::PgConnection", reason = "queries run in a unit of work, never on a connection (DATA-21)" },
+    { path = "sqlx::Transaction", reason = "the unit of work is the only transaction (DATA-21, ARCH-11)" },
 ]

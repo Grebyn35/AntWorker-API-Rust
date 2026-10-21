@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT tablename AS \"name!\", tableowner AS \"owner!\"\n            FROM pg_tables\n            WHERE schemaname = 'public' AND tablename <> '_sqlx_migrations'\n            ORDER BY tablename\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name!",
+        "type_info": "Name",
+        "origin": {
+          "Table": {
+            "table": "pg_tables",
+            "name": "tablename"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "owner!",
+        "type_info": "Name",
+        "origin": {
+          "Table": {
+            "table": "pg_tables",
+            "name": "tableowner"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "d9f23dadbebba6abe10d7e8442364b3b857867638a746f66dc45e9fe2b14030b"
+}

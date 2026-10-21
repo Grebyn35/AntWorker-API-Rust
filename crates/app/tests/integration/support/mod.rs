@@ -1,0 +1,401 @@
+//! Test support (TEST-06, TEST-10).
+//!
+//! Every test gets a database of its own. A migrated one is cloned from a template that the
+//! production `migrate` migrated, and the production `bootstrap` creates the roles and grants,
+//! so the API under test connects as `app` with exactly its production privileges. Settings
+//! come from the environment, or from `.env` when a test runs outside `just`.
+#![expect(
+    clippy::disallowed_types,
+    clippy::disallowed_methods,
+    reason = "the harness creates and drops databases and roles, and runs ad hoc SQL to arrange \
+              tests, none of which a unit of work can do"
+)]
+
+use std::{
+    error::Error,
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::{
+        Mutex, PoisonError,
+        atomic::{AtomicU32, Ordering},
+    },
+};
+
+use platform::{
+    config::BootstrapConfig,
+    db::{Admin, Database, DatabaseUrl, migrate},
+};
+use sqlx::{AssertSqlSafe, Connection, PgConnection, migrate::Migrator};
+use tokio::sync::OnceCell;
+
+/// The advisory lock that serializes creating the roles and the template, across processes.
+const SETUP_LOCK: i64 = 7_300_154_123;
+
+/// The template every migrated test database is cloned from, created once per process.
+static TEMPLATE: OnceCell<String> = OnceCell::const_new();
+
+/// Numbers the databases and roles this process creates.
+static NEXT: AtomicU32 = AtomicU32::new(0);
+
+/// A database for one test, with the roles' grants. Dropping it drops the database and the
+/// roles the test created.
+pub struct TestDatabase {
+    name: String,
+    settings: BootstrapConfig,
+    roles: Mutex<Vec<String>>,
+}
+
+impl TestDatabase {
+    /// A database migrated with the API's migrations.
+    pub async fn migrated() -> Self {
+        let settings = settings();
+        let template = template(&settings).await;
+        Self::create(settings, Some(template)).await
+    }
+
+    /// A database with the roles' grants and no migrations.
+    pub async fn empty() -> Self {
+        let settings = settings();
+        template(&settings).await;
+        Self::create(settings, None).await
+    }
+
+    async fn create(settings: BootstrapConfig, template: Option<&str>) -> Self {
+        let name = unique(&settings, "test");
+        let mut admin = connect(&settings.admin).await;
+        let template = template
+            .map(|template| format!(" TEMPLATE {}", identifier(template)))
+            .unwrap_or_default();
+        execute(
+            &mut admin,
+            &format!("CREATE DATABASE {}{template}", identifier(&name)),
+        )
+        .await;
+        close(admin).await;
+        let database = Self {
+            name,
+            settings,
+            roles: Mutex::default(),
+        };
+        let mut grants = Admin::connect(&database.admin_url())
+            .await
+            .expect("connect as the administrator");
+        grants
+            .grant_database()
+            .await
+            .expect("grant the roles their privileges");
+        grants.close().await.expect("close the connection");
+        database
+    }
+
+    /// The URL the API connects with, as `app`.
+    pub fn app_url(&self) -> DatabaseUrl {
+        self.settings.app.with_database(&self.name)
+    }
+
+    /// The URL `migrate` connects with, as `owner`.
+    pub fn owner_url(&self) -> DatabaseUrl {
+        self.settings.owner.with_database(&self.name)
+    }
+
+    fn admin_url(&self) -> DatabaseUrl {
+        self.settings.admin.with_database(&self.name)
+    }
+
+    /// The settings `bootstrap` reads, pointing at this database.
+    pub fn bootstrap_config(&self) -> BootstrapConfig {
+        BootstrapConfig {
+            admin: self.admin_url(),
+            owner: self.owner_url(),
+            app: self.app_url(),
+        }
+    }
+
+    /// The API's pool, after the startup checks against the API's migrations.
+    pub async fn app(&self) -> Database {
+        Database::connect(&self.app_url(), 4, &app::MIGRATIONS)
+            .await
+            .expect("connect as app")
+    }
+
+    /// Runs `sql` as `owner`, to arrange what a migration would create.
+    pub async fn owner_executes(&self, sql: &str) {
+        let mut owner = connect(&self.owner_url()).await;
+        execute(&mut owner, sql).await;
+        close(owner).await;
+    }
+
+    /// Runs `sql` as the administrator, to arrange what no role of the API may do.
+    pub async fn admin_executes(&self, sql: &str) {
+        let mut admin = connect(&self.admin_url()).await;
+        execute(&mut admin, sql).await;
+        close(admin).await;
+    }
+
+    /// The first column of every row `sql` returns, read as `owner` (TEST-06), for tables a
+    /// test created itself.
+    pub async fn owner_reads(&self, sql: &str) -> Vec<String> {
+        let mut owner = connect(&self.owner_url()).await;
+        let values = sqlx::query_scalar(AssertSqlSafe(sql.to_owned()))
+            .fetch_all(&mut owner)
+            .await
+            .map_err(|error| format!("{sql}: {error}"))
+            .unwrap();
+        close(owner).await;
+        values
+    }
+
+    /// Runs `sql` on a connection with `url`, and returns the database's error message if it
+    /// fails.
+    pub async fn try_execute(&self, url: &DatabaseUrl, sql: &str) -> Result<(), String> {
+        let mut conn = connect(url).await;
+        let result = sqlx::raw_sql(AssertSqlSafe(sql.to_owned()))
+            .execute(&mut conn)
+            .await
+            .map(|_| ())
+            .map_err(|error| error.to_string());
+        close(conn).await;
+        result
+    }
+
+    /// The value of a setting for a connection with `url`.
+    pub async fn setting(&self, url: &DatabaseUrl, name: &str) -> String {
+        let mut conn = connect(url).await;
+        let value = sqlx::query_scalar!(r#"SELECT current_setting($1) AS "value!""#, name)
+            .fetch_one(&mut conn)
+            .await
+            .expect("read the setting");
+        close(conn).await;
+        value
+    }
+
+    /// The migration versions recorded in this database, in order.
+    pub async fn applied_versions(&self) -> Vec<i64> {
+        let mut owner = connect(&self.owner_url()).await;
+        let versions = sqlx::query_scalar!("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&mut owner)
+            .await
+            .expect("read the applied migrations");
+        close(owner).await;
+        versions
+    }
+
+    /// Each table in the schema, other than the migrations table, with its owner, by name.
+    pub async fn tables(&self) -> Vec<(String, String)> {
+        let mut owner = connect(&self.owner_url()).await;
+        let tables = sqlx::query!(
+            r#"
+            SELECT tablename AS "name!", tableowner AS "owner!"
+            FROM pg_tables
+            WHERE schemaname = 'public' AND tablename <> '_sqlx_migrations'
+            ORDER BY tablename
+            "#
+        )
+        .fetch_all(&mut owner)
+        .await
+        .expect("read the tables");
+        close(owner).await;
+        tables.into_iter().map(|t| (t.name, t.owner)).collect()
+    }
+
+    /// Creates a login role for this test only, with `attributes` such as `SUPERUSER`, and
+    /// returns its name and a URL that connects to this database as it.
+    pub async fn role(&self, attributes: &str) -> (String, DatabaseUrl) {
+        let name = unique(&self.settings, "role");
+        self.roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(name.clone());
+        self.admin_executes(&format!(
+            "CREATE ROLE {} LOGIN PASSWORD '{name}' {attributes}",
+            identifier(&name)
+        ))
+        .await;
+        let options = self.settings.admin.connect_options();
+        let url = format!(
+            "postgres://{name}:{name}@{}:{}/{}",
+            options.get_host(),
+            options.get_port(),
+            self.name
+        )
+        .parse()
+        .expect("a role URL");
+        (name, url)
+    }
+}
+
+impl Drop for TestDatabase {
+    fn drop(&mut self) {
+        let admin = self.settings.admin.clone();
+        let name = self.name.clone();
+        let roles = std::mem::take(self.roles.get_mut().unwrap_or_else(PoisonError::into_inner));
+        // Drop can't await, so the cleanup runs on a runtime of its own.
+        let dropped = std::thread::spawn(move || -> Result<(), Box<dyn Error + Send + Sync>> {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?
+                .block_on(async move {
+                    let mut conn = PgConnection::connect_with(&admin.connect_options()).await?;
+                    // Each statement goes alone: DROP DATABASE can't run in the implicit
+                    // transaction that a batch of statements shares.
+                    let database =
+                        format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", identifier(&name));
+                    let roles = roles
+                        .iter()
+                        .map(|role| format!("DROP ROLE IF EXISTS {}", identifier(role)));
+                    for statement in std::iter::once(database).chain(roles) {
+                        sqlx::raw_sql(AssertSqlSafe(statement))
+                            .execute(&mut conn)
+                            .await?;
+                    }
+                    conn.close().await?;
+                    Ok(())
+                })
+        })
+        .join();
+        if !std::thread::panicking() {
+            dropped
+                .expect("the cleanup thread")
+                .expect("drop the test database and roles");
+        }
+    }
+}
+
+/// Runs `sql` through `executor`, such as a unit of work's.
+pub async fn execute_on(executor: &mut PgConnection, sql: &str) {
+    execute(executor, sql).await;
+}
+
+fn settings() -> BootstrapConfig {
+    if let Err(error) = dotenvy::dotenv() {
+        assert!(error.not_found(), "can't read .env: {error}");
+    }
+    platform::config::from_process()
+        .bootstrap()
+        .expect("DATABASE_ADMIN_URL, DATABASE_OWNER_URL and DATABASE_URL; run `just setup`")
+}
+
+/// The name of the template database, which holds the API's migrations. The first test in a
+/// process creates the roles, and creates the template unless one with the same migrations
+/// exists, all under an advisory lock that other test processes wait on.
+async fn template(settings: &BootstrapConfig) -> &'static str {
+    TEMPLATE
+        .get_or_init(|| async {
+            let name = format!(
+                "{}_template_{:016x}",
+                settings.admin.database(),
+                fingerprint(&app::MIGRATIONS)
+            );
+            let mut admin = connect(&settings.admin).await;
+            execute(
+                &mut admin,
+                &format!("SELECT pg_advisory_lock({SETUP_LOCK})"),
+            )
+            .await;
+            let mut roles = Admin::connect(&settings.admin)
+                .await
+                .expect("connect as the administrator");
+            roles
+                .create_roles(&settings.owner, &settings.app)
+                .await
+                .expect("create the roles");
+            roles.close().await.expect("close the connection");
+            if !database_exists(&mut admin, &name).await {
+                build_template(&mut admin, settings, &name).await;
+            }
+            close(admin).await;
+            name
+        })
+        .await
+}
+
+async fn build_template(admin: &mut PgConnection, settings: &BootstrapConfig, name: &str) {
+    let prefix = format!("{}_template_", settings.admin.database());
+    let stale = sqlx::query_scalar!(
+        r#"SELECT datname AS "name!" FROM pg_database WHERE starts_with(datname, $1)"#,
+        prefix
+    )
+    .fetch_all(&mut *admin)
+    .await
+    .expect("list the templates");
+    for template in stale {
+        let template = identifier(&template);
+        execute(
+            admin,
+            &format!("ALTER DATABASE {template} IS_TEMPLATE false"),
+        )
+        .await;
+        execute(admin, &format!("DROP DATABASE {template} WITH (FORCE)")).await;
+    }
+    let building = format!("{name}_building");
+    execute(admin, &format!("CREATE DATABASE {}", identifier(&building))).await;
+    let mut grants = Admin::connect(&settings.admin.with_database(&building))
+        .await
+        .expect("connect as the administrator");
+    grants
+        .grant_database()
+        .await
+        .expect("grant the roles their privileges");
+    grants.close().await.expect("close the connection");
+    migrate(&settings.owner.with_database(&building), &app::MIGRATIONS)
+        .await
+        .expect("migrate the template");
+    let name = identifier(name);
+    execute(
+        admin,
+        &format!("ALTER DATABASE {} RENAME TO {name}", identifier(&building)),
+    )
+    .await;
+    execute(admin, &format!("ALTER DATABASE {name} IS_TEMPLATE true")).await;
+}
+
+async fn database_exists(admin: &mut PgConnection, name: &str) -> bool {
+    sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AS "exists!""#,
+        name
+    )
+    .fetch_one(admin)
+    .await
+    .expect("look up the database")
+}
+
+/// A hash of every migration's version and content, which names the template they built.
+fn fingerprint(migrations: &Migrator) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for migration in migrations.iter() {
+        migration.version.hash(&mut hasher);
+        migration.checksum.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// A name no other database or role on the server has, such as `antworker_test_4120_7`.
+fn unique(settings: &BootstrapConfig, kind: &str) -> String {
+    format!(
+        "{}_{kind}_{}_{}",
+        settings.admin.database(),
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+async fn connect(url: &DatabaseUrl) -> PgConnection {
+    PgConnection::connect_with(&url.connect_options())
+        .await
+        .expect("connect to the test database")
+}
+
+async fn close(conn: PgConnection) {
+    conn.close().await.expect("close the connection");
+}
+
+async fn execute(conn: &mut PgConnection, sql: &str) {
+    sqlx::raw_sql(AssertSqlSafe(sql.to_owned()))
+        .execute(conn)
+        .await
+        .map_err(|error| format!("{sql}: {error}"))
+        .unwrap();
+}
+
+fn identifier(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}

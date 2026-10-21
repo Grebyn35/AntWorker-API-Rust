@@ -15,10 +15,13 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 | `job_schedules` | One row per periodic job, holding its lease and next run |
 | `idempotency_records` | Reserved and completed idempotency keys, with their stored results |
 | `rate_limit_buckets` | Rate-limit counters, keyed by HMAC |
+| `_sqlx_migrations` | The applied migrations, recorded by `migrate` |
 
 ## Interface
 
-- **Unit of work:** `UnitOfWork`, opened by the route (Design: Unit of work), with `commit`, `enqueue` and `publish`.
+- **Database:** `Database`, the pool of connections as the role `app`, which the composition root connects once. Connecting runs the startup checks (PLATFORM-009, PLATFORM-030), and `begin` opens a unit of work.
+- **Unit of work:** `UnitOfWork`, opened by the route (Design: Unit of work), with `executor`, `commit`, `enqueue` and `publish`.
+- **Tasks:** `bootstrap` and `migrate`, run by the binary's subcommands of the same names (ARCH-14).
 - **Proof types:** `Principal`, `Authorized<P>`, `Memberships` and `JobContext`.
 - **Traits that modules implement** (ARCH-13):
   - `SessionVerifier`, implemented by `auth`.
@@ -40,13 +43,22 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 
 IDs 001 to 005, 007 and 008 are retired.
 
-### Database and authorization
+### Database
+
+| ID | Behavior | Rules | Test prefix |
+|---|---|---|---|
+| PLATFORM-009 | `serve` refuses to start unless it connects as the role `app`, and that role isn't a superuser, can't create databases or roles, can't start replication, doesn't bypass row-level security, owns nothing, and belongs to no other role. | DATA-13 | `platform_009_` |
+| PLATFORM-010 | `bootstrap` creates the roles `owner` and `app` with their attributes and the `app` role's timeouts, and grants them their privileges on the database. Running it again leaves the roles, their attributes and settings, and the grants unchanged, and sets each role's password to the one in its URL. | DATA-12, DATA-19 | `platform_010_` |
+| PLATFORM-027 | `migrate` connects as the role `owner`, and refuses any other role. It applies every embedded migration the database hasn't recorded, in version order. Running it again applies nothing, and concurrent runs apply each migration once. | DATA-09, DATA-12 | `platform_027_` |
+| PLATFORM-028 | A migration that fails leaves no trace: its changes roll back, it isn't recorded, and `migrate` fails. | DATA-09 | `platform_028_` |
+| PLATFORM-029 | `migrate` applies nothing while an applied migration differs from its file. It ignores a recorded migration that the binary doesn't contain, so an earlier release can run it after a later one. | DATA-09, DATA-10 | `platform_029_` |
+| PLATFORM-030 | `serve` never applies migrations. It refuses to start until every embedded migration is applied, unchanged, and it starts against a schema that also holds a later release's migrations. | DATA-10, D9 | `platform_030_` |
+
+### Units of work and authorization
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
 | PLATFORM-006 | A unit of work that records a security failure commits that record, and the response is the failure. A failed sign-in answers 401. | ARCH-11, DATA-27, D36 | `platform_006_` |
-| PLATFORM-009 | Startup refuses an `app` role that is a superuser or owns any table. | DATA-13 | `platform_009_` |
-| PLATFORM-010 | `bootstrap` creates the two roles with their attributes, and running it again changes nothing. | DATA-12 | `platform_010_` |
 | PLATFORM-024 | On a workspace route, authorization runs inside the request's unit of work, so the operation runs under the membership it was authorized with. | ARCH-11, D2 | `platform_024_` |
 | PLATFORM-025 | A rank refusal inside an operation answers 403 `request.permission_denied`, records the refusal, and rolls the operation back. | SEC-08, DATA-27 | `platform_025_` |
 | PLATFORM-026 | A rate-limit count commits in its own short transaction, so a request that fails afterwards is still counted. | SEC-05, SEC-12 | `platform_026_` |
@@ -86,14 +98,36 @@ IDs 001 to 005, 007 and 008 are retired.
 
 ## Design
 
+### Database roles
+
+`bootstrap` connects with `DATABASE_ADMIN_URL`, as an administrator such as the bundled Postgres superuser or a managed provider's admin role. The three database URLs must name the same database.
+- It creates the roles `owner` and `app` with `LOGIN` and no other attribute. A role that already exists keeps its attributes, because changing some of them takes a superuser, which a managed provider's admin role isn't. PLATFORM-009 refuses an `app` role whose attributes are unsafe.
+- It sets each role's password from its URL. The password travels as a SCRAM-SHA-256 verifier that the API computes, so the clear text never reaches the server, where statement logs could record it.
+- It sets the `app` role's `statement_timeout` to 30 seconds and its `idle_in_transaction_session_timeout` to 15 seconds (DATA-19).
+- On the database, it revokes `TEMPORARY` from `PUBLIC`, grants `CONNECT` to both roles, and grants `CREATE` on the schema `public` to `owner` only.
+
+The first migration grants `app` `SELECT`, `INSERT`, `UPDATE` and `DELETE` on every table `owner` creates, revokes `EXECUTE` on new functions from `PUBLIC`, and lets `app` read the migrations table. Roles belong to the whole Postgres server, so every database on a server shares them, test databases included.
+
+### Migrations
+
+`migrations/` holds one file per change, named `<timestamp>_<module>_<description>.sql` (DATA-09), and the `app` crate embeds them as `MIGRATIONS`. `migrate` takes an advisory lock on the database, compares every applied migration with its file before it applies anything, then applies each missing migration in its own transaction together with its record. It never applies a down migration.
+
+Queries are checked against the database while compiling (DATA-20), and `migrate` is part of the same binary. A migration is therefore applied with `just migrate` before the queries that use it are written.
+
+### Connections
+
+`Database::connect` opens a pool of up to `DATABASE_MAX_CONNECTIONS` connections as `app`, 10 by default. An operation waits up to 5 seconds for a free connection. The startup checks run on the first connection: the role (PLATFORM-009), then the schema (PLATFORM-030).
+
+Pools, connections and transactions stay inside `platform::db`. Code elsewhere reaches the database through a unit of work, and clippy refuses `sqlx::Pool`, `sqlx::PgConnection` and `sqlx::Transaction` outside it (DATA-21). The test support is the one other place that names them, to create and drop test databases (TEST-06).
+
 ### Unit of work
 
-A unit of work is one transaction on the `app` pool. The route opens it, and the service receives it:
-- A workspace route opens it through `Authorized<P>`. The extractor opens the transaction, asks `AccessPolicy::authorize` inside it, and hands the open unit of work to the handler with the proof (PLATFORM-024).
-- A user route opens it from its `Principal`.
+A unit of work is one transaction on the `app` pool. The route opens it after authentication, the rate-limit checks, the idempotency reservation and parsing, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one:
+- A workspace route opens it together with `Authorized<P>`: the transaction opens, `AccessPolicy::authorize` runs inside it, and the handler receives the open unit of work with the proof (PLATFORM-024).
+- A user route opens it from its `Principal`, and a public route from the `Database`.
 - A job handler opens it with `for_job`, from the job's `JobContext`.
 
-Every query in it filters by tenant itself (DATA-22). The unit of work sets no database context, because there is no row-level security (D4).
+The service performs the writes and commits. A unit of work dropped without a commit rolls back, and nothing retries it. Every query in it filters by tenant itself (DATA-22). The unit of work sets no database context, because there is no row-level security (D4).
 
 ### Request authentication
 

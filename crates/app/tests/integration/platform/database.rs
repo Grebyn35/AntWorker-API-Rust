@@ -1,0 +1,222 @@
+use platform::db::{ConnectError, Database, DatabaseUrl, RoleProblem};
+
+use crate::support::{TestDatabase, execute_on};
+
+/// Asserts that `serve` refuses to start as the role `url` connects as, for `problem`.
+async fn assert_refused(url: &DatabaseUrl, problem: &RoleProblem) {
+    let refused = Database::connect(url, 1, &app::MIGRATIONS).await.err();
+    assert!(
+        matches!(&refused, Some(ConnectError::UnsafeRole(problems)) if problems.contains(problem)),
+        "expected {problem:?}, got {refused:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_06_the_api_under_test_connects_as_the_app_role() {
+    let db = TestDatabase::migrated().await;
+
+    let app = db.app().await;
+
+    let mut uow = app.begin().await.unwrap();
+    let role = sqlx::query_scalar!(r#"SELECT current_user AS "role!""#)
+        .fetch_one(uow.executor())
+        .await
+        .unwrap();
+    assert_eq!(role, "app");
+}
+
+#[tokio::test]
+async fn platform_009_serve_refuses_a_role_with_power_beyond_logging_in() {
+    let db = TestDatabase::migrated().await;
+    for (attribute, problem) in [
+        ("SUPERUSER", RoleProblem::Superuser),
+        ("CREATEDB", RoleProblem::CreatesDatabases),
+        ("CREATEROLE", RoleProblem::CreatesRoles),
+        ("REPLICATION", RoleProblem::Replicates),
+        ("BYPASSRLS", RoleProblem::BypassesRowSecurity),
+    ] {
+        let (_, url) = db.role(attribute).await;
+
+        assert_refused(&url, &problem).await;
+    }
+}
+
+#[tokio::test]
+async fn platform_009_serve_refuses_a_role_that_owns_objects() {
+    let db = TestDatabase::migrated().await;
+    let (role, url) = db.role("").await;
+    db.admin_executes(&format!(
+        "CREATE TABLE owned (id integer); ALTER TABLE owned OWNER TO {role}"
+    ))
+    .await;
+
+    assert_refused(&url, &RoleProblem::OwnsObjects).await;
+}
+
+#[tokio::test]
+async fn platform_009_serve_refuses_a_role_that_belongs_to_another_role() {
+    let db = TestDatabase::migrated().await;
+    let (role, url) = db.role("").await;
+    db.admin_executes(&format!("GRANT owner TO {role}")).await;
+
+    assert_refused(&url, &RoleProblem::MemberOfRoles).await;
+}
+
+#[tokio::test]
+async fn platform_009_serve_refuses_a_role_other_than_app() {
+    let db = TestDatabase::migrated().await;
+    let (role, url) = db.role("").await;
+
+    let refused = Database::connect(&url, 1, &app::MIGRATIONS).await.err();
+
+    assert!(
+        matches!(&refused, Some(ConnectError::UnsafeRole(problems)) if *problems == [RoleProblem::NotApp(role)]),
+        "{refused:?}"
+    );
+}
+
+#[tokio::test]
+async fn platform_010_bootstrap_creates_the_roles_with_their_attributes_and_grants() {
+    let db = TestDatabase::migrated().await;
+    let mut uow = db.app().await.begin().await.unwrap();
+
+    let roles = sqlx::query!(
+        r#"
+        SELECT rolname AS "name!", rolcanlogin AS "login!",
+               rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls AS "more_power!"
+        FROM pg_roles WHERE rolname IN ('owner', 'app') ORDER BY rolname
+        "#
+    )
+    .fetch_all(uow.executor())
+    .await
+    .unwrap();
+    let grants = sqlx::query!(
+        r#"
+        SELECT has_database_privilege('owner', current_database(), 'CONNECT') AS "owner_connects!",
+               has_database_privilege('app', current_database(), 'CONNECT') AS "app_connects!",
+               has_database_privilege('app', current_database(), 'TEMPORARY') AS "app_creates_temporary_tables!",
+               has_schema_privilege('owner', 'public', 'CREATE') AS "owner_creates_objects!",
+               has_schema_privilege('app', 'public', 'CREATE') AS "app_creates_objects!"
+        "#
+    )
+    .fetch_one(uow.executor())
+    .await
+    .unwrap();
+
+    let roles: Vec<_> = roles
+        .into_iter()
+        .map(|r| (r.name, r.login, r.more_power))
+        .collect();
+    assert_eq!(
+        roles,
+        [
+            ("app".to_owned(), true, false),
+            ("owner".to_owned(), true, false)
+        ]
+    );
+    assert!(grants.owner_connects && grants.app_connects && grants.owner_creates_objects);
+    assert!(!grants.app_creates_temporary_tables && !grants.app_creates_objects);
+}
+
+#[tokio::test]
+async fn platform_010_running_bootstrap_again_changes_nothing() {
+    let db = TestDatabase::migrated().await;
+    let before = snapshot(&db).await;
+
+    platform::db::bootstrap(&db.bootstrap_config())
+        .await
+        .unwrap();
+
+    assert_eq!(snapshot(&db).await, before);
+    db.app().await;
+}
+
+/// The roles' attributes and settings, and the grants on the database and its schema, sorted.
+async fn snapshot(db: &TestDatabase) -> Vec<String> {
+    let mut uow = db.app().await.begin().await.unwrap();
+    let mut lines = sqlx::query_scalar!(
+        r#"
+        SELECT concat_ws(' ', r.rolname, r.rolcanlogin, r.rolsuper, r.rolinherit, r.rolcreaterole,
+                         r.rolcreatedb, r.rolreplication, r.rolbypassrls, r.rolconnlimit,
+                         s.setconfig::text) AS "line!"
+        FROM pg_roles r
+        LEFT JOIN pg_db_role_setting s ON s.setrole = r.oid AND s.setdatabase = 0
+        WHERE r.rolname IN ('owner', 'app')
+        UNION ALL
+        SELECT datacl::text FROM pg_database WHERE datname = current_database()
+        UNION ALL
+        SELECT nspacl::text FROM pg_namespace WHERE nspname = 'public'
+        "#
+    )
+    .fetch_all(uow.executor())
+    .await
+    .unwrap();
+    lines.sort();
+    lines
+}
+
+#[tokio::test]
+async fn data_19_the_app_role_reads_and_writes_rows_and_changes_nothing_else() {
+    let db = TestDatabase::migrated().await;
+    db.owner_executes(
+        "CREATE TABLE notes (id uuid PRIMARY KEY DEFAULT uuidv7(), body text NOT NULL);
+         CREATE FUNCTION answer() RETURNS integer LANGUAGE sql AS 'SELECT 42';",
+    )
+    .await;
+    let app = db.app_url();
+
+    for allowed in [
+        "INSERT INTO notes (body) VALUES ('first')",
+        "SELECT body FROM notes",
+        "UPDATE notes SET body = 'second'",
+        "DELETE FROM notes",
+        "SELECT version FROM _sqlx_migrations",
+    ] {
+        assert_eq!(db.try_execute(&app, allowed).await, Ok(()), "{allowed}");
+    }
+    for refused in [
+        "TRUNCATE notes",
+        "DROP TABLE notes",
+        "ALTER TABLE notes ADD COLUMN extra text",
+        "CREATE TABLE more (id integer)",
+        "CREATE TEMPORARY TABLE scratch (id integer)",
+        "SELECT answer()",
+        "DELETE FROM _sqlx_migrations",
+    ] {
+        assert!(
+            db.try_execute(&app, refused).await.is_err(),
+            "{refused} must be refused"
+        );
+    }
+    assert_eq!(db.setting(&app, "statement_timeout").await, "30s");
+    assert_eq!(
+        db.setting(&app, "idle_in_transaction_session_timeout")
+            .await,
+        "15s"
+    );
+}
+
+#[tokio::test]
+async fn arch_11_a_unit_of_work_commits_all_its_writes_or_none() {
+    let db = TestDatabase::migrated().await;
+    db.owner_executes("CREATE TABLE notes (body text NOT NULL)")
+        .await;
+    let app = db.app().await;
+
+    let mut committed = app.begin().await.unwrap();
+    execute_on(committed.executor(), "INSERT INTO notes VALUES ('kept')").await;
+    execute_on(
+        committed.executor(),
+        "INSERT INTO notes VALUES ('also kept')",
+    )
+    .await;
+    committed.commit().await.unwrap();
+    let mut dropped = app.begin().await.unwrap();
+    execute_on(dropped.executor(), "INSERT INTO notes VALUES ('lost')").await;
+    drop(dropped);
+
+    assert_eq!(
+        db.owner_reads("SELECT body FROM notes ORDER BY body").await,
+        ["also kept", "kept"]
+    );
+}

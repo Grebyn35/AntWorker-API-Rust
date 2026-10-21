@@ -27,7 +27,7 @@ A behavior's ID is the module name in capitals plus a three-digit number, such a
 
 | Module | Spec | Status |
 |---|---|---|
-| `platform` | [platform.md](platform.md) | written for the first slice, not yet built |
+| `platform` | [platform.md](platform.md) | written for the first slice; the database area is built |
 | `accounts` | [accounts.md](accounts.md) | written for the first slice, not yet built |
 | `auth` | [auth.md](auth.md) | written for the first slice, not yet built |
 | `access` | [access.md](access.md) | written for the first slice, not yet built |

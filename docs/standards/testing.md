@@ -5,7 +5,7 @@ A test exists to prove a behavior from a module spec or a rule from these standa
 ## What is tested
 
 ### TEST-01 Every behavior has a test, and every test has an ID
-Every behavior in `docs/spec/` has at least one test whose name starts with the behavior's ID, for example `workspaces_005_owner_cannot_be_removed`. A test that proves a rule starts with the rule ID instead, for example `data_13_startup_refuses_bypassrls_role`. Every test name starts with an ID that exists.
+Every behavior in `docs/spec/` has at least one test whose name starts with the behavior's ID, for example `workspaces_006_the_owner_cannot_be_removed`. A test that proves a rule starts with the rule ID instead, for example `data_19_the_app_role_reads_and_writes_rows_and_changes_nothing_else`. Every test name starts with an ID that exists.
 - Why: the map from spec to tests is checked by a machine, not by a reviewer's sense of what is missing (D23).
 - Check: `ci: check-test-map`.
 

@@ -1,0 +1,45 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT rolname AS \"name!\", rolcanlogin AS \"login!\",\n               rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls AS \"more_power!\"\n        FROM pg_roles WHERE rolname IN ('owner', 'app') ORDER BY rolname\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name!",
+        "type_info": "Name",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolname"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "login!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolcanlogin"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "more_power!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "90e32831528f60917cbb1998c5bb77fbadaa46f44e4dfd85c86d69233d49ae6c"
+}

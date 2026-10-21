@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            r.rolname AS \"name!\",\n            r.rolsuper AS \"superuser!\",\n            r.rolcreatedb AS \"creates_databases!\",\n            r.rolcreaterole AS \"creates_roles!\",\n            r.rolreplication AS \"replicates!\",\n            r.rolbypassrls AS \"bypasses_row_security!\",\n            EXISTS (\n                SELECT 1 FROM pg_shdepend d\n                WHERE d.refclassid = 'pg_authid'::regclass\n                  AND d.refobjid = r.oid\n                  AND d.deptype = 'o'\n                  AND d.dbid IN (0, (SELECT oid FROM pg_database WHERE datname = current_database()))\n            ) AS \"owns_objects!\",\n            EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member = r.oid) AS \"member_of_roles!\"\n        FROM pg_roles r\n        WHERE r.rolname = current_user\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name!",
+        "type_info": "Name",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolname"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "superuser!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolsuper"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "creates_databases!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolcreatedb"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "creates_roles!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolcreaterole"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "replicates!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolreplication"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "bypasses_row_security!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolbypassrls"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "owns_objects!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "member_of_roles!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "2e1f8cd27a2f7022558eef0f3b59bf61c381cb33fc9ecd973be7d0c15feeedb1"
+}

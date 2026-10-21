@@ -1,14 +1,14 @@
 # AntWorker API
 
-A Rust API for workspace-based products, built as a template to fork. Users sign in, create workspaces, invite members with roles, and see changes live. Every change is audited, and every response carries a trace ID that leads to its logs.
+A Rust API for workspace-based products, built as a template to fork. It is built module by module: [docs/spec/](docs/spec/README.md) states what each module guarantees, and [docs/MIGRATION.md](docs/MIGRATION.md) tracks what exists so far.
 
 ## Quickstart
 
-Requires Rust (through rustup) and [just](https://github.com/casey/just).
+Requires Rust (through rustup), [just](https://github.com/casey/just) and Docker.
 
 ```
-just setup   # writes .env from .env.example
-just run     # starts the API on the address in .env
+just setup   # writes .env from .env.example, with generated passwords
+just run     # starts Postgres, creates the database roles, migrates, and runs the API
 just ci      # runs every check CI runs
 ```
 

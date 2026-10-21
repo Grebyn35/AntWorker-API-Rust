@@ -130,9 +130,9 @@ An update made with `If-Match` includes `WHERE version = $expected`. Zero rows u
 
 ## Transactions
 
-### DATA-25 Read committed, with stronger guarantees where the spec says so
-Transactions use `READ COMMITTED`. An operation whose correctness depends on concurrent rows uses `SELECT ... FOR UPDATE`, or runs `SERIALIZABLE`, as its module spec states. `platform` retries serialization failures and deadlocks up to three times. Services never retry.
-- Why: correctness under concurrency is designed, not left to chance.
+### DATA-25 Read committed, with row locks where the spec says so
+Transactions use `READ COMMITTED`. An operation whose correctness depends on rows that another request may change at the same time does one of two things, as its module spec states: it locks them with `SELECT ... FOR UPDATE`, taking locks in a consistent order, or it changes them with an update that checks what it read (DATA-24). Nothing inside the API retries a transaction. A deadlock is a defect, and surfaces as an internal error. A failed job is retried by the job system (OPS-10).
+- Why: no layer can re-run an operation, because the route opens its unit of work and the service commits it. Under `READ COMMITTED` there are no serialization failures, so a deadlock means two operations took locks in different orders: a bug to fix, not to retry.
 - Check: `review`.
 
 ### DATA-26 No external calls inside a transaction

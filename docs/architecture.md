@@ -62,13 +62,13 @@ The workspace has two crates. Cargo forbids `platform` from depending on `app`, 
 | Area | What it provides | Decisions |
 |---|---|---|
 | `config` | Typed configuration loaded once at startup. Values are trimmed, empty means unset, `*_FILE` secret files are supported, and every failure is reported in one format. | D9, D26 |
-| `db` | One connection pool and the unit of work. A unit of work is one transaction, opened by the route, with a writer for jobs and events. Every query in it filters by tenant itself (DATA-22). | D1, D4, D24 |
+| `db` | One connection pool, the unit of work, and the `bootstrap` and `migrate` tasks. A unit of work is one transaction, opened by the route, with a writer for jobs and events. Every query in it filters by tenant itself (DATA-22). | D1, D4, D24 |
 | `jobs` | A durable job queue with retry, backoff and dead letters, plus a scheduler that runs each periodic job once per interval across the fleet. A job records the user or workspace it was enqueued for, and its handler filters by them. | D1, D13 |
 | `listener` | One `LISTEN` connection per instance, routing notifications to subscribers such as the real-time hub and the job dispatcher. | D20 |
 | `events` | The event log and the real-time hub. A unit of work publishes events. The hub loads each new event once and delivers it to the streams allowed to receive it (SEC-17). It also replays missed events, closes or re-filters streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). | D1, D5, D20 |
 | `http` | The middleware stack, extractors (JSON, path, query, pagination), RFC 9457 responses, idempotency, rate limiting, timeouts and load shedding. | D8, D11, D12, D20 |
 | `authn` | Reads credentials through a credential source, a closed enum whose one variant reads the Bearer header, and verifies them through the `SessionVerifier` that `auth` implements, producing a `Principal`. | D18 |
-| `authz` | The `Authorized<P>` extractor and the `Memberships` type, generic over the `Permission` trait. The extractor opens the request's unit of work and asks the `AccessPolicy` that `access` implements inside it. Refusals are reported to the `SecurityEventSink` that `audit` implements. | D2, D3, D6 |
+| `authz` | The `Authorized<P>` proof and the `Memberships` type, generic over the `Permission` trait. Producing `Authorized<P>` opens the request's unit of work and asks the `AccessPolicy` that `access` implements inside it. Refusals are reported to the `SecurityEventSink` that `audit` implements. | D2, D3, D6 |
 | `errors` | Error categories, the `ErrorCode` trait, and the single conversion to an HTTP response. | D17 |
 | `telemetry` | Tracing and OpenTelemetry setup, the metric declaration macro, and the trace-ID response header. | D10, D19 |
 | `storage` | An object storage client. | D1, D14 |
@@ -151,7 +151,7 @@ Every module uses the same file names, and only the files it needs:
 modules/workspaces/
   mod.rs             public API: what other modules may use, plus routes()
   routes.rs          handlers and route table: extract, authorize, call the service, shape the response
-  service.rs         business rules and the unit-of-work boundary
+  service.rs         business rules, and the commit that ends the unit of work
   repo.rs            SQL only (private)
   model.rs           domain types
   error.rs           the module's error enum (D17)
@@ -203,10 +203,11 @@ sequenceDiagram
    - concurrency limit with load shedding (D20)
    - body size limit
    - pre-authentication IP rate limit (D11)
-3. **Extractors** run in the module's route:
+3. **The route** prepares the request, in this order:
    - `Principal` authenticates the caller (D18).
-   - On workspace routes, `Authorized<P>` opens the request's unit of work and, inside it, loads the caller's membership in the workspace from the path and checks permission `P` (D2, D3). On other routes, the unit of work opens from the `Principal`. A missing membership is a 404, so the response never reveals whether the workspace exists.
-   - Then the per-user rate limit, the idempotency check for keyed `POST`s (D12), and parsing of the body into request types and then domain types (D25).
+   - The per-user rate limit, then the idempotency reservation for keyed `POST`s (D12), each in its own short transaction.
+   - The body is parsed into request types, then domain types (D25).
+   - The unit of work opens last, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one. On workspace routes, opening it produces `Authorized<P>`: inside the unit of work, the caller's membership in the workspace from the path is loaded and permission `P` checked (D2, D3). A missing membership is a 404, so the response never reveals whether the workspace exists. On other routes, the unit of work opens from the `Principal`.
 4. **The handler** calls the service with domain types only.
 5. **The service** performs its writes in the unit of work the route opened, and in the same transaction records audit entries, publishes events and enqueues jobs (D1, D6). For a request with an `Idempotency-Key`, the same transaction stores the operation's result under the key (API-12). Then it commits.
 6. **The response.** The handler maps the result to the response. A module error goes through the single conversion to an RFC 9457 problem that carries the trace ID (D17).
@@ -259,7 +260,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 ## 9. Runtime topology
 
 - **The binary** has these subcommands:
-  - `bootstrap` creates the database roles once, with an administrator connection (DATA-12).
+  - `bootstrap` creates the database roles and their grants, with an administrator connection. Running it again changes nothing (DATA-12).
   - `serve` binds one HTTP port and runs the HTTP server, the real-time hub, the job dispatcher and the scheduler.
   - `migrate` is the one-shot migration step.
   - `seed` loads development data.

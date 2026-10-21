@@ -171,7 +171,7 @@ The exact role set and permission matrix are decided in the `access` module spec
 - Outbound calls get client spans. Trace context is sent only to our own infrastructure, never to third parties such as OAuth providers.
 - In `opentelemetry` mode, an exporter that fails to build fails startup.
 - Identity attributes on spans come from the authenticated context, never from client-supplied baggage.
-- Phase 6 checks the guarantee end to end: trigger a 4xx and a 5xx, copy the trace ID, find the trace and the logs.
+- An end-to-end test checks the guarantee: trigger a 4xx and a 5xx, copy the trace ID, find the trace and the logs.
 
 **Resolves:** `OBS Q1` to `OBS Q8`, `HTTP Q14`.
 
@@ -399,7 +399,7 @@ This elaborates the CI part of D15.
   - Unit tests for pure logic (domain types, the permission matrix, cursors), with no mocks of our own code.
   - Integration tests through HTTP against real Postgres and S3. This is the main level.
   - End-to-end tests against the built image for the cross-cutting guarantees: trace IDs, deploys and alerts (D21).
-- Each test gets its own database, cloned from a migrated template database, so tests stay fast. Tests run as the real `app` role so RLS applies. The clock can be injected, and tests never sleep.
+- Each test gets its own database, cloned from a migrated template database, so tests stay fast. Tests run as the real `app` role, with exactly its production privileges. The clock can be injected, and tests never sleep.
 - A script checks the mapping both ways: every kept behavior has at least one test, and every test names an existing ID. That mapping is the coverage measure (D15).
 
 ### D24. Data access conventions
@@ -415,10 +415,10 @@ This elaborates the CI part of D15.
 - IDs are UUIDv7: time-ordered, index-friendly and safe to expose. Postgres 18's `uuidv7()` generates them as column defaults.
 - Persisted timestamps come from the database clock (`now()`), stored as `timestamptz` at full precision. Expiry checks run in SQL against `now()`. The app clock is used only for values that are never persisted.
 - SQL is checked at compile time with `sqlx::query!`. The offline query cache is committed, so CI builds without a database.
-- One transaction API opens each unit of work. It sets the RLS context (D4) and collects the outbox writes (D1), so neither can be forgotten.
+- One transaction API opens each unit of work. It collects the outbox writes (D1), so none can be forgotten.
 - Optimistic concurrency on editable resources. Responses carry an `ETag`, and a client that sends `If-Match` gets 412 instead of overwriting a newer change. Clients that don't send it keep today's last-write-wins.
 - Hard deletes, with cascades declared in the schema and no soft delete (recorded as an ADR).
-- Migrations are forward-only and follow expand and contract (D15). The rewrite starts from one fresh baseline migration.
+- Migrations are forward-only and follow expand and contract (D15). Each migration is one file, named by the module that owns it.
 - Naming of tables, indexes and constraints is part of the standards.
 
 ### D25. Domain types and input validation
@@ -450,7 +450,7 @@ This elaborates the CI part of D15.
 - Every outbound request to a URL supplied by a third party, such as the OAuth avatar, goes through one client. That client allows HTTPS only, blocks private and loopback addresses, re-checks every redirect, and limits size and time.
 - API responses carry security headers. Caddy handles TLS and sets HSTS.
 - A short threat model covers assets, actors and trust boundaries, with each mitigation mapped to a rule ID. A `SECURITY.md` states the disclosure policy.
-- OWASP ASVS Level 2 is the security bar. Phase 6 includes a conformance pass against it, with each requirement mapped to a rule ID or marked not applicable.
+- OWASP ASVS Level 2 is the security bar. A conformance pass checks it, with each requirement mapped to a rule ID or marked not applicable.
 
 **Resolves:** `FILE Q14`.
 
@@ -512,7 +512,7 @@ Forks inherit all of this, so the template is ready for Claude Code from the fir
 - The repo is published as a GitHub template repository, so a fork starts with clean history.
 - `just rename <name>` rewrites the product name everywhere: crates, the binary, the image, service names, telemetry service names and email branding.
 - Adding a feature:
-  - A guide walks through copying the golden module (phase 4).
+  - A guide walks through adding a module.
   - `just new-module <name>` scaffolds the module's files, migration, route registration, permissions and test file.
 - Removing a feature: each OAuth provider is one file plus one registry line, and the client telemetry module is registered only in the composition root. A fork removes one by deleting it and its registration. The core modules, including files, are not removable, because avatars and workspace pictures depend on files. There are no Cargo feature flags for modules.
 - Updates: forks diverge by design. Each template release ships a changelog with upgrade notes, and security fixes are flagged, so forks can port them by hand.

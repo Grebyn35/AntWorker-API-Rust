@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT has_database_privilege('owner', current_database(), 'CONNECT') AS \"owner_connects!\",\n               has_database_privilege('app', current_database(), 'CONNECT') AS \"app_connects!\",\n               has_database_privilege('app', current_database(), 'TEMPORARY') AS \"app_creates_temporary_tables!\",\n               has_schema_privilege('owner', 'public', 'CREATE') AS \"owner_creates_objects!\",\n               has_schema_privilege('app', 'public', 'CREATE') AS \"app_creates_objects!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owner_connects!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "app_connects!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "app_creates_temporary_tables!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "owner_creates_objects!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "app_creates_objects!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "72580ba08475adfa1a569cde8a496960b30140fc5f23087626a014c44f46994c"
+}
