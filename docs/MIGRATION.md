@@ -16,7 +16,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 
 **Built:** the workspace scaffold (`platform` and `app` crates), strict configuration with the startup-failure format (PLATFORM-023, OPS-03), and the liveness probe (PLATFORM-019). `just ci` passes locally: formatting, clippy, 9 tests and `cargo-deny`.
 
-**Blocked:** GitHub Actions doesn't start, because the account's billing needs attention (a failed payment or a spending limit). The workflow is unverified until a run starts.
+**To verify:** the first GitHub Actions run of the workflow. Check its result before building on it.
 
 **Next, in order:**
 1. `platform::db`: Postgres 18 in `compose.yaml`, the first migrations for the slice's tables, the `bootstrap` subcommand (PLATFORM-010), the startup role check (PLATFORM-009), the unit of work (PLATFORM-024), and the test harness with one database per test (TEST-06).
