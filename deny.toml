@@ -1,0 +1,40 @@
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+confidence-threshold = 0.93
+unused-allowed-license = "allow"
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+    { name = "openssl", reason = "cryptography comes from RustCrypto and rustls with ring (SEC-14)" },
+    { name = "openssl-sys", reason = "cryptography comes from RustCrypto and rustls with ring (SEC-14)" },
+    { name = "native-tls", reason = "cryptography comes from RustCrypto and rustls with ring (SEC-14)" },
+    { name = "aws-lc-rs", reason = "rustls uses the ring provider (SEC-14)" },
+    { name = "aws-lc-sys", reason = "rustls uses the ring provider (SEC-14)" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+# The workspace's own crates are unpublished, and their license is chosen before the first public release.
+[licenses.private]
+ignore = true

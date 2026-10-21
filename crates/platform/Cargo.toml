@@ -1,0 +1,16 @@
+[package]
+name = "platform"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true
