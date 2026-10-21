@@ -6,11 +6,23 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 
 | Document | Status |
 |---|---|
-| [architecture.md](architecture.md) | draft, under review |
+| [architecture.md](architecture.md) | draft |
 | [standards/](standards/README.md) | Review stopped after pass 4; its resolutions are D32 to D36. Tenancy is enforced by the application, with no row-level security (D4). |
 | [spec/](spec/README.md) | The first slice's nine specs are written. The triage behind them is in [inventory/triage-slice.md](inventory/triage-slice.md). |
 | `docs/adr/` | not started. ADR-00NN records decision DNN. Before `docs/inventory/` is deleted, every `DNN` citation is replaced with a link to its ADR. |
 | [CLAUDE.md](../CLAUDE.md) | written |
+
+## Current work
+
+**Built:** the workspace scaffold (`platform` and `app` crates), strict configuration with the startup-failure format (PLATFORM-023, OPS-03), and the liveness probe (PLATFORM-019). `just ci` passes locally: formatting, clippy, 9 tests and `cargo-deny`.
+
+**Blocked:** GitHub Actions doesn't start, because the account's billing needs attention (a failed payment or a spending limit). The workflow is unverified until a run starts.
+
+**Next, in order:**
+1. `platform::db`: Postgres 18 in `compose.yaml`, the first migrations for the slice's tables, the `bootstrap` subcommand (PLATFORM-010), the startup role check (PLATFORM-009), the unit of work (PLATFORM-024), and the test harness with one database per test (TEST-06).
+2. `accounts` and `auth`, test-first from their specs.
+3. `access` and `workspaces`, then `audit`, `mail`, `invitations` and `realtime`, with the rest of `platform` (errors, jobs, events, idempotency, rate limits) built as each needs it.
+4. The first custom CI checks: `check-tenancy`, `check-deps`, `check-layers`, `check-test-map`, `check-schema` and `openapi`.
 
 ## Build order
 
