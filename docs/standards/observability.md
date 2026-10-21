@@ -25,7 +25,7 @@ Every log line carries `service.name`, `service.version` and `deployment.environ
 - Check: `review`.
 
 ### OBS-04 No personal data or secrets in telemetry
-Logs, spans and metric labels never contain personal data or secrets. The `Email` and `Secret` types redact themselves when formatted. Every `#[instrument]` uses `skip_all` and lists its fields explicitly.
+Logs, spans and metric labels never contain personal data or secrets. The `EmailAddress` and `Secret` types redact themselves when formatted. Every `#[instrument]` uses `skip_all` and lists its fields explicitly.
 - Why: telemetry is copied widely and kept for a long time (D7).
 - Check: `compiler` (the redacting types), `ci: check-instrument` (every `#[instrument]` has `skip_all`), plus `review`.
 

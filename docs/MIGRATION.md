@@ -7,10 +7,10 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 | Document | Status |
 |---|---|
 | [architecture.md](architecture.md) | draft, under review |
-| [standards/](standards/README.md) | Review stopped after pass 4; resolutions accepted as D32 to D36. The mechanics of DATA-15 to DATA-18, SEC-06, SEC-17, API-12 and ARCH-11 now live in the platform spec, and the rules keep the guarantees. |
+| [standards/](standards/README.md) | Review stopped after pass 4; its resolutions are D32 to D36. Tenancy is enforced by the application, with no row-level security (D4). |
 | [spec/](spec/README.md) | The first slice's nine specs are written. The triage behind them is in [inventory/triage-slice.md](inventory/triage-slice.md). |
 | `docs/adr/` | not started. ADR-00NN records decision DNN. Before `docs/inventory/` is deleted, every `DNN` citation is replaced with a link to its ADR. |
-| `CLAUDE.md` | not started |
+| [CLAUDE.md](../CLAUDE.md) | written |
 
 ## Build order
 
@@ -25,8 +25,8 @@ The design is settled by building, not by further review of the documents.
    Together these exercise every mechanism the document reviews couldn't settle: D32 to D36, idempotency, jobs, email and the real-time hub.
 
    Three constraints apply to the slice:
-   - **RLS stays contained.** Module code never touches RLS, and every query filters by tenant itself (DATA-22). Removing RLS, or only its pre-sign-in part, would be a change to `platform::db` and the migrations alone. The afternoon test decides whether RLS earns its cost.
-   - **A short list of custom CI checks.** Alongside the standard tools, the slice builds only `check-deps`, `check-layers`, `check-schema`, `openapi` and `check-test-map`, as one checker tool.
+   - **Tenancy is enforced by the application.** Every query filters by tenant itself, checked by `check-tenancy` and by the foreign-workspace probes (TEST-09). There is no row-level security (D4).
+   - **A short list of custom CI checks.** Alongside the standard tools, the slice builds only `check-deps`, `check-layers`, `check-schema`, `check-tenancy`, `openapi` and `check-test-map`, as one checker tool.
    - **A typed client generated from `openapi.json`.** The integration tests call the API through it, and the desktop client uses it later.
 2. **Rule fixes.** Apply one round of rule changes from what the slice taught, through [Changing a rule](standards/README.md#changing-a-rule).
 3. **Afternoon test.** A developer or agent new to the codebase, using only the docs, adds a small feature to the slice. Anything that slows them down is fixed by removing complexity, not by adding it.
@@ -76,9 +76,9 @@ Follows the review procedure in [standards/README.md](standards/README.md#review
 
 | # | Finding | Resolution | Status |
 |---|---|---|---|
-| R1 | Key rotation: a lookup must match a key under every active key version (DATA-15 to DATA-17) | Prove, then decide. Proven against Postgres 18.6: an array of hashes matches through index scans. | accepted as D32 |
-| R2 | Creating a workspace fails RLS, because its ID doesn't exist yet (DATA-08, DATA-15, DATA-16) | Prove, then decide. Proven: generating the ID first and opening the unit of work in that workspace context passes RLS. | accepted as D33 |
-| R3 | An invitee can't see or accept an invitation under RLS (DATA-15, DATA-17) | Prove, then decide. Proven: an "addressed to the caller's email" policy plus a switch into the invitation's workspace context passes RLS. | accepted as D34 |
+| R1 | Key rotation: a lookup must match a key under every active key version | Prove, then decide. Proven against Postgres 18.6. | accepted as D32, which D4 (c) later simplified |
+| R2 | Creating a workspace fails RLS, because its ID doesn't exist yet | Prove, then decide. Proven: generating the ID first and opening the unit of work in that workspace context passes RLS. | accepted as D33, which D4 (c) later simplified |
+| R3 | An invitee can't see or accept an invitation under RLS | Prove, then decide. Proven: an "addressed to the caller's email" policy plus a switch into the invitation's workspace context passes RLS. | accepted as D34, which D4 (c) later simplified |
 | R4 | Erasure deletes the access-change event that should close a deleted user's streams (SEC-06, DATA-28) | Decide | accepted as D35 |
 | R5 | ARCH-11 says a commit means success, but a recorded security failure commits and answers 401 (ARCH-11, DATA-27) | Decide | accepted as D36 |
 
@@ -103,7 +103,7 @@ From [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). [coverage.md](coverage.md
 | D1 | Side effects commit atomically with the change | accepted |
 | D2 | Authorization model | accepted |
 | D3 | Tenancy scoping, with no server-side active workspace | accepted |
-| D4 | What row-level security is for | accepted: (b), tenant-isolation backstop |
+| D4 | Tenancy without row-level security | accepted: (c), no row-level security |
 | D5 | Access changes take effect immediately | accepted |
 | D6 | Audit policy | accepted |
 | D7 | Privacy and data minimization | accepted |
@@ -131,7 +131,7 @@ From [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). [coverage.md](coverage.md
 | D29 | Fork and extension model | accepted |
 | D30 | Backups and recovery | accepted |
 | D31 | Personal data contract: export and erasure (new feature) | accepted |
-| D32 | Lookups during a key rotation | accepted |
+| D32 | Hashing tokens, codes and emails | accepted |
 | D33 | Creating a workspace | accepted |
 | D34 | Seeing and accepting invitations | accepted |
 | D35 | Access-change signals | accepted |

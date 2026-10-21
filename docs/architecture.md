@@ -62,24 +62,24 @@ The workspace has two crates. Cargo forbids `platform` from depending on `app`, 
 | Area | What it provides | Decisions |
 |---|---|---|
 | `config` | Typed configuration loaded once at startup. Values are trimmed, empty means unset, `*_FILE` secret files are supported, and every failure is reported in one format. | D9, D26 |
-| `db` | Two connection pools and the unit of work. The `app` pool serves requests, with RLS always on. The `worker` pool exists only inside the job runner and the real-time hub. A unit of work is a transaction with the RLS context set and a writer for jobs. Its constructors accept only `platform` proof types (DATA-16). | D1, D4, D24 |
-| `jobs` | A durable job queue with retry, backoff and dead letters, plus a scheduler that runs each periodic job once per interval across the fleet. A job enqueued by a unit of work runs with that unit of work's RLS context. A scheduled job that spans tenants runs on the `worker` pool. | D1, D13 |
+| `db` | One connection pool and the unit of work. A unit of work is one transaction, opened by the route, with a writer for jobs and events. Every query in it filters by tenant itself (DATA-22). | D1, D4, D24 |
+| `jobs` | A durable job queue with retry, backoff and dead letters, plus a scheduler that runs each periodic job once per interval across the fleet. A job records the user or workspace it was enqueued for, and its handler filters by them. | D1, D13 |
 | `listener` | One `LISTEN` connection per instance, routing notifications to subscribers such as the real-time hub and the job dispatcher. | D20 |
-| `events` | The event log and the real-time hub. A unit of work publishes events. The hub loads each new event once through the `worker` pool and delivers it to the streams allowed to receive it (SEC-17). It also replays missed events, closes or re-filters streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). | D1, D5, D20 |
+| `events` | The event log and the real-time hub. A unit of work publishes events. The hub loads each new event once and delivers it to the streams allowed to receive it (SEC-17). It also replays missed events, closes or re-filters streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). | D1, D5, D20 |
 | `http` | The middleware stack, extractors (JSON, path, query, pagination), RFC 9457 responses, idempotency, rate limiting, timeouts and load shedding. | D8, D11, D12, D20 |
-| `authn` | Reads credentials through a credential source, a closed enum whose one variant reads the Bearer header, and verifies them through the `SessionVerifier` that `auth` implements, producing a `Principal`. Defines `PresentedKey` (DATA-17). | D18 |
-| `authz` | The `Authorized<P>` extractor and the `Memberships` type, generic over the `Permission` trait. Decisions come from the `AccessPolicy` that `access` implements, and refusals are reported to the `SecurityEventSink` that `audit` implements. | D2, D3, D6 |
+| `authn` | Reads credentials through a credential source, a closed enum whose one variant reads the Bearer header, and verifies them through the `SessionVerifier` that `auth` implements, producing a `Principal`. | D18 |
+| `authz` | The `Authorized<P>` extractor and the `Memberships` type, generic over the `Permission` trait. The extractor opens the request's unit of work and asks the `AccessPolicy` that `access` implements inside it. Refusals are reported to the `SecurityEventSink` that `audit` implements. | D2, D3, D6 |
 | `errors` | Error categories, the `ErrorCode` trait, and the single conversion to an HTTP response. | D17 |
 | `telemetry` | Tracing and OpenTelemetry setup, the metric declaration macro, and the trace-ID response header. | D10, D19 |
 | `storage` | An object storage client. | D1, D14 |
 | `mail` | The SMTP transport and the template engine. The templates themselves live in `app`. | D1, D9 |
 | `outbound` | The only HTTP clients: one for URLs from configuration, and one for URLs supplied by third parties, with SSRF protection (SEC-09). | D26 |
-| `types` | Shared domain types: `Secret`, `Email`, the ID types. | D7, D25 |
+| `types` | Shared domain types: `Secret`, `EmailAddress`, the ID types. | D7, D25 |
 | `clock`, `random` | The injectable clock and the operating system's secure random source (CODE-06). | D23, D26 |
 | `personal_data` | The export and erasure contract that modules implement. | D31 |
 | `lifecycle` | Liveness, readiness and bounded graceful shutdown. | D9, D20 |
 
-`platform` knows two tenancy keys, a user ID and a workspace ID, because RLS context and job scoping need them. It knows nothing about memberships, roles, invitations or any other product rule.
+`platform` knows two tenancy keys, a user ID and a workspace ID, because authorization, job scoping and event delivery need them. It knows nothing about memberships, roles, invitations or any other product rule.
 
 ### `app`
 
@@ -185,9 +185,9 @@ sequenceDiagram
   C->>P: request
   P->>P: trace context, timeout, load shedding,<br/>body limit, IP rate limit
   P->>H: routed request
-  H->>H: Principal (authn), Authorized<P> (authz),<br/>user rate limit, idempotency, parse to domain types
-  H->>S: call with domain types
-  S->>DB: BEGIN, set RLS context
+  H->>H: Principal (authn), user rate limit,<br/>idempotency, parse to domain types
+  H->>DB: BEGIN, and on workspace routes authorize (authz)
+  H->>S: call with the unit of work and domain types
   S->>DB: domain writes + audit entries + events + jobs
   S->>DB: COMMIT
   DB-->>P: NOTIFY (events, jobs)
@@ -205,10 +205,10 @@ sequenceDiagram
    - pre-authentication IP rate limit (D11)
 3. **Extractors** run in the module's route:
    - `Principal` authenticates the caller (D18).
-   - On workspace routes, `Authorized<P>` loads the caller's membership in the workspace from the path and checks permission `P` (D2, D3). A missing membership is a 404, so the response never reveals whether the workspace exists.
+   - On workspace routes, `Authorized<P>` opens the request's unit of work and, inside it, loads the caller's membership in the workspace from the path and checks permission `P` (D2, D3). On other routes, the unit of work opens from the `Principal`. A missing membership is a 404, so the response never reveals whether the workspace exists.
    - Then the per-user rate limit, the idempotency check for keyed `POST`s (D12), and parsing of the body into request types and then domain types (D25).
 4. **The handler** calls the service with domain types only.
-5. **The service** opens a unit of work, which sets the RLS context (D4). It performs its writes, and in the same transaction records audit entries, publishes events and enqueues jobs (D1, D6). For a request with an `Idempotency-Key`, the same transaction stores the operation's result under the key (API-12). Then it commits.
+5. **The service** performs its writes in the unit of work the route opened, and in the same transaction records audit entries, publishes events and enqueues jobs (D1, D6). For a request with an `Idempotency-Key`, the same transaction stores the operation's result under the key (API-12). Then it commits.
 6. **The response.** The handler maps the result to the response. A module error goes through the single conversion to an RFC 9457 problem that carries the trace ID (D17).
 7. **After the commit**, Postgres notifies the listeners:
    - Each instance's real-time hub loads a new event once and delivers it to the streams allowed to see it (D5, D20).
@@ -218,14 +218,15 @@ Nothing runs after the response except background work driven by committed rows.
 
 ## 7. Data and consistency
 
-- **Database roles (D4):**
+- **Database roles:**
   - `owner` runs migrations and owns the tables. It is never used at runtime.
-  - `app` serves every request, with RLS always on. Requests never bypass RLS, including before sign-in.
-  - `worker` bypasses RLS. It is used only for work that spans tenants by nature: background jobs such as retention, job dispatch and orphan sweeps, and the real-time hub loading each new event once for fan-out. Its grants cover only the tables that work touches. Its pool is never handed to a route, so no handler can reach it, and a CI check confirms that only the job runner and the hub reference it.
-- **The context comes from proof types.** A unit of work sets its RLS context only from a value that proves the context is earned, such as an authenticated principal or an authorization. [The platform spec](spec/platform.md#proofs-and-contexts) lists every such value (DATA-16). Before sign-in, and for anonymous public downloads, the key a request presents exposes exactly one row (DATA-17), so even a buggy query on that path sees nothing else. No business logic lives in SQL, and there are no `SECURITY DEFINER` functions.
-- **Startup checks the roles.** The server refuses to start if the `app` role is a superuser, has `BYPASSRLS`, or owns tables. A role created by hand with any of those attributes would otherwise turn RLS off without anyone noticing.
-- **RLS is a backstop, not the authorization decision.** Every policy is a simple comparison of a column against the context, in one of the forms DATA-15 lists. The application filters tenant data itself (DATA-22), and every authorization decision is made in `access`.
-- **What RLS can't protect against.** RLS stops query bugs in trusted code. It can't stop a compromised API process, because that process sets its own context. The defenses for that case are elsewhere:
+  - `app` serves every request and runs every job. It can read and change data, but not the schema, and it is never a superuser (DATA-12, DATA-13).
+- **Tenancy is enforced by the application (D4).** There is no row-level security. Every query on tenant data filters by tenant itself (DATA-22): workspace data by the workspace ID from `Authorized<P>` or a job's recorded scope, and user data by the caller's ID. Three things keep that true:
+  - Repository functions for workspace data take the workspace ID as a parameter.
+  - A CI check fails any query on a workspace table that doesn't filter by `workspace_id`.
+  - A generated test sends every workspace route an ID from another workspace the caller belongs to (TEST-09).
+- **No business logic lives in SQL**, and there are no stored procedures or `SECURITY DEFINER` functions (DATA-07).
+- **What the role can't protect against.** A compromised API process can read and change anything `app` can. The defenses for that case are:
   - The database is not reachable from outside the private network.
   - Roles have least privilege: no DDL, no superuser, no other schemas.
   - Secrets are handled under D26.
@@ -264,7 +265,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   - `seed` loads development data.
   - `openapi` writes the contract for the CI drift check.
 - **The single-host reference deployment** runs Caddy, N API replicas, Postgres and SeaweedFS from `compose.yaml`, with the observability stack behind a profile. The deploy script rolls replicas with no downtime (D15), and scheduled backups go to object storage (D30).
-- **Scaling out** means adding replicas. The connection budget is replicas × (`app` pool + `worker` pool + 1 listener), and it must fit within Postgres's `max_connections`. The listener needs a direct connection, which rules out PgBouncer in transaction mode. Under load, each replica sheds requests with 503 and `Retry-After` instead of queuing without bound (D20).
+- **Scaling out** means adding replicas. The connection budget is replicas × (pool size + 1 listener), and it must fit within Postgres's `max_connections`. The listener needs a direct connection, which rules out PgBouncer in transaction mode. Under load, each replica sheds requests with 503 and `Retry-After` instead of queuing without bound (D20).
 - **Multiple hosts.** The image and its environment contract don't depend on a platform. The operations docs state what any platform must provide.
 
 ## 10. Technology
@@ -305,7 +306,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Role | A named set of permissions, defined in code in `access` (D2). |
 | Permission | One thing a role allows on a workspace resource, such as `members.update`. |
 | Invitation | An offer to join a workspace with a role, sent to an email address. |
-| Unit of work | One database transaction, with its RLS context and its side effects: audit entries, events and jobs (D1). |
+| Unit of work | One database transaction, opened by the route, with its side effects: audit entries, events and jobs (D1). |
 | Job | Durable background work, delivered at least once (D13). |
 | Event | A record of a change, delivered to clients over SSE and replayable after a reconnect (D5). |
 | Stream | One client's open SSE connection. |

@@ -63,7 +63,7 @@ A handler in `routes.rs` extracts its inputs, receives its authorization through
 - Check: `review`.
 
 ### ARCH-11 One unit of work per operation, and the commit decides the outcome
-An operation that spans modules passes one `&mut UnitOfWork` through every call. A service never opens a second transaction for the same operation. Once the unit of work commits, the response reports what it recorded. A unit of work that recorded a security failure ([the platform spec](../spec/platform.md#proofs-and-contexts), PLATFORM-006) answers with that failure, such as 401 for a failed sign-in, and any other commit answers with success. Work after the commit happens only through jobs and events, so it can't turn a committed change into an error.
+An operation that spans modules passes one `&mut UnitOfWork` through every call. A service never opens a second transaction for the same operation. Once the unit of work commits, the response reports what it recorded. A unit of work that recorded a security failure (PLATFORM-006) answers with that failure, such as 401 for a failed sign-in, and any other commit answers with success. Work after the commit happens only through jobs and events, so it can't turn a committed change into an error.
 - Why: the whole operation commits or none of it does, and the response always matches what was committed (D1, D36).
 - Check: `review`, plus `test` (PLATFORM-006).
 

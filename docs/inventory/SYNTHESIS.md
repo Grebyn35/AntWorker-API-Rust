@@ -73,23 +73,18 @@ The exact role set and permission matrix are decided in the `access` module spec
 
 **Resolves:** `WS Q1`, `WS Q3`, `WS Q4`, `WS Q5`, `WS Q16`, `AUTH Q2`.
 
-### D4. What row-level security is for
+### D4. Tenancy without row-level security
 
-**Evidence:** `DATA O1` to `DATA O8`, `DATA O14`, `AUDIT O15`, `AUDIT O16`. Today it takes about 2,100 lines of stored procedures, `SECURITY DEFINER` bypasses and per-request database context, and it still checks only membership.
+**Evidence:** `DATA O1` to `DATA O8`, `DATA O14`, `AUDIT O15`, `AUDIT O16`, and the first slice's spec check, where 5 of 8 must-fix findings came from designing around RLS.
 
-**Options:**
+**Options considered:**
 - (a) RLS as the main authorization layer, including permissions. This duplicates the D2 policy module in SQL.
-- (b) RLS as a backstop for tenant isolation only.
-  - Workspace tables get a uniform policy on `workspace_id`, and user tables a uniform policy on `user_id`.
-  - Requests always run as `app`, with RLS on, including before sign-in. A lookup before sign-in puts the hash of the secret the request presents (an access or refresh token, the sign-in email, a verification code or a provider subject) into the RLS context, and the policy exposes only the matching row.
-  - Only work that spans tenants by nature bypasses RLS: background jobs such as retention and dispatch, and the real-time hub loading each new event once for fan-out. It uses a `worker` role whose grants cover only the tables that work touches, and no route can reach it.
-  - The server refuses to start if the request role can bypass RLS.
-  - No business rules in SQL and no `SECURITY DEFINER` procedures. `EXECUTE` is revoked from `PUBLIC`.
-- (c) No RLS. Tenant isolation comes from the scoped repository API in D3, plus tests.
+- (b) RLS as a backstop for tenant isolation, with key-scoped lookups before sign-in.
+- (c) No RLS. Tenant isolation comes from the scoped repository API in D3, a CI check and tests.
 
-**Recommendation:** (b). A query bug still can't leak another tenant's data, and the policies are simple enough for someone forking the template to understand in minutes. (c) is the simpler choice if you value developer experience over a second line of defense.
+**Decision:** (c). Even as a backstop, RLS shaped the module design: it needed proof types, key-scoped lookups, context changes and copied names to work around it, and that made the template harder to fork. The application's own filters are the guarantee, and they are checked by machine (`check-tenancy`) and by a generated test on every workspace route (DATA-22, TEST-09). The cost: a query that forgets its workspace filter is caught by those checks, not by the database.
 
-**Status:** accepted, option (b), on 2026-10-20.
+**Status:** accepted, option (c), on 2026-10-21.
 
 **Resolves:** `DATA Q1`, `DATA Q2`.
 
@@ -125,7 +120,7 @@ The exact role set and permission matrix are decided in the `access` module spec
 
 **Recommendation:**
 - SSE events carry IDs and non-sensitive fields only. Clients fetch details over REST, which enforces permissions.
-- Logs never contain personal data. Redaction is by type: wrapper types such as `Email` and `Secret` redact themselves when formatted. This replaces today's lint on field names.
+- Logs never contain personal data. Redaction is by type: wrapper types such as `EmailAddress` and `Secret` redact themselves when formatted. This replaces today's lint on field names.
 - Account enumeration is accepted on registration and on the email-change pre-flight. Both are rate limited, and the trade-off is recorded in an ADR. It is never possible on login or forgot-password.
 - The telemetry proxy enforces telemetry consent on the server.
 - Public files never expose their original file name, on any route.
@@ -431,12 +426,12 @@ This elaborates the CI part of D15.
 **Evidence:** validation is spread across the extractors, `validation/mod.rs` (1,422 lines) and the services. OAuth names and emails skip validation (`AUTH O20`). Device fingerprints are stored in mixed case (`AUTH O21`). Permission strings are stored non-canonically (`WS O7`). The same rules are checked in both SQL and Rust (`DATA O13`).
 
 **Recommendation:**
-- Parse, don't validate. Request bodies deserialize into request types that reject unknown fields, then convert at the boundary into domain types such as `Email`, `DisplayName`, `WorkspaceName`, `Password` and `FileName`.
+- Parse, don't validate. Request bodies deserialize into request types that reject unknown fields, then convert at the boundary into domain types such as `EmailAddress`, `DisplayName`, `WorkspaceName`, `Password` and `FileName`.
 - Each type's constructor trims, normalizes and checks limits. For example, emails are lowercased and names are put in Unicode NFC form.
 - Code past the boundary accepts only domain types. A value can't skip validation, whatever its source: HTTP, an OAuth provider or configuration.
 - Each limit is defined once, on its type, and appears in the OpenAPI schema.
 - A validation failure lists every invalid field, each with its own error code (D8).
-- The same mechanism provides the redacting `Email` and `Secret` types (D7).
+- The same mechanism provides the redacting `EmailAddress` and `Secret` types (D7).
 
 ### D26. Secrets and security baseline
 
@@ -451,7 +446,7 @@ This elaborates the CI part of D15.
 **Recommendation:**
 - Secrets arrive as environment variables or as `*_FILE` variables pointing at mounted secret files, the Docker and Kubernetes convention. They are held in the `Secret` type, so they are never logged and never baked into images.
 - Passwords are hashed with Argon2id at current OWASP parameters, in PHC format so parameters can be raised later. A login rehashes passwords stored with older parameters.
-- Tokens are 256-bit random values stored as keyed hashes. Every comparison involving a secret is constant-time.
+- Tokens are 256-bit random values stored as SHA-256 hashes, and short codes as keyed hashes (D32). Every comparison involving a secret is constant-time.
 - Every outbound request to a URL supplied by a third party, such as the OAuth avatar, goes through one client. That client allows HTTPS only, blocks private and loopback addresses, re-checks every redirect, and limits size and time.
 - API responses carry security headers. Caddy handles TLS and sets HSTS.
 - A short threat model covers assets, actors and trust boundaries, with each mitigation mapped to a rule ID. A `SECURITY.md` states the disclosure policy.
@@ -556,23 +551,23 @@ A capability beyond the old API's functionality (owner question Q2). GDPR gives 
 
 ## Decisions from the standards review
 
-The standards review settled these five questions after its fourth pass. Each was tested against PostgreSQL 18.6 where it concerned database behavior.
+These five decisions settle questions raised by the standards review and the first slice's spec check.
 
-### D32. Lookups during a key rotation
+### D32. Hashing tokens, codes and emails
 
-A key presented before sign-in, and a user's own email hash, are matched under every active key version: the context holds the HMAC under each version, and the policy matches any of them. Tested with 100,000 users stored under two key versions: the right row is found, through index scans. See DATA-15 and DATA-17.
+Emails are stored as plain normalized addresses with a unique index, so lookups and uniqueness need no hash. Session tokens are 256-bit random values, stored as SHA-256 hashes. A keyed hash (HMAC) is used only where the input is guessable: verification codes and rate-limit keys. Rotating that key invalidates outstanding codes, which expire within minutes anyway. See SEC-03 and ACCOUNTS-004.
 
 **Status:** accepted on 2026-10-21.
 
 ### D33. Creating a workspace
 
-`platform` generates a new workspace's ID before the insert, and the creating unit of work runs in that workspace's context, so the workspace row and the owner's membership pass RLS. This is the one exception to "the database generates IDs". Tested: a database-generated ID fails the policy, and a pre-generated ID passes. See DATA-08 and DATA-16.
+The workspace row and the owner's membership are created in one unit of work, and the database generates the workspace's ID. See WORKSPACES-001.
 
 **Status:** accepted on 2026-10-21.
 
 ### D34. Seeing and accepting invitations
 
-A user's context carries their email hash, and invitations have an "addressed to the caller" policy, so an invitee sees exactly their own invitations in every workspace. Accepting one moves the unit of work into the invitation's workspace through an `Admission` that only `invitations` can build. Tested: the invitee sees only their invitations, through an index, and joining succeeds only after the move, inside one transaction. See DATA-15, DATA-16 and DATA-22.
+An invitee sees their invitations in every workspace, found by their own email, with the workspace and inviter names read when listed. Accepting adds the membership and deletes the invitation in one unit of work. When the invited email belongs to an account, the invitee also receives `invitation.received` live. See INVITATIONS-004, INVITATIONS-005 and INVITATIONS-008.
 
 **Status:** accepted on 2026-10-21.
 

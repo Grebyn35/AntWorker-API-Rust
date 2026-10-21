@@ -1,6 +1,6 @@
 # Data rules (`DATA`)
 
-Schema, migrations, database roles, row-level security (RLS), queries and transactions.
+Schema, migrations, database roles, tenancy, queries and transactions.
 
 ## Schema
 
@@ -43,14 +43,14 @@ Rows are deleted, not flagged. No table has a soft-delete column.
 - Check: `ci: check-schema` (no `deleted_at` or `is_deleted` columns).
 
 ### DATA-07 No business logic in SQL
-Migrations define no stored procedures and no `SECURITY DEFINER` functions. The only functions allowed are the context accessors (DATA-15) and the `updated_at` and `version` trigger (DATA-02).
+Migrations define no stored procedures and no `SECURITY DEFINER` functions. The only function allowed is the trigger function that maintains `updated_at` and `version` (DATA-02).
 - Why: business rules are read, tested and changed in Rust (D4).
 - Check: `ci: check-migrations` (`CREATE FUNCTION` only for allowlisted names).
 
-### DATA-08 The database generates IDs, with one exception
-Inserts take their IDs from the column default, using `RETURNING`. The one exception is a new workspace, whose ID `platform` generates before the insert, so the creating unit of work can run in that workspace's context (D33). Application code creates no other IDs.
-- Why: one source of IDs, and a workspace can be created without bypassing RLS (D24, D33).
-- Check: `clippy` (`Uuid::new_v4` and `Uuid::now_v7` are in `disallowed_methods` everywhere except `platform::authz`).
+### DATA-08 The database generates IDs
+Inserts take their IDs from the column default, using `RETURNING`. Application code creates no IDs.
+- Why: one source of IDs (D24).
+- Check: `clippy` (`Uuid::new_v4` and `Uuid::now_v7` are in `disallowed_methods`).
 
 ## Migrations
 
@@ -69,54 +69,26 @@ CI applies every migration to an empty database, and applies the new migrations 
 - Why: fresh installs and upgrades both work.
 - Check: `ci: test-migrations`.
 
-## Roles and row-level security
+## Roles
 
-### DATA-12 Three database roles
+### DATA-12 Two database roles
 | Role | Used by | Attributes |
 |---|---|---|
 | `owner` | the `migrate` subcommand only | owns the schema and tables |
-| `app` | every request | no superuser, no `BYPASSRLS`, owns nothing, DML only |
-| `worker` | the job runner and the real-time hub only (DATA-18) | `BYPASSRLS`, no superuser, owns nothing, grants only on the tables that work touches |
-The `bootstrap` subcommand creates the three roles with these attributes and sets the role-level timeouts (DATA-19). It runs once per database, with an administrator connection: the bundled Postgres superuser, or a managed provider's admin role. Running it again changes nothing.
-- Why: requests can never bypass RLS, and cross-tenant work can only touch what it needs (D4).
-- Check: `test` (DATA-13, and `bootstrap` run twice), plus `ci: check-schema` (grants).
+| `app` | every request and every job | no superuser, owns nothing, DML only (DATA-19) |
 
-### DATA-13 Startup refuses unsafe roles
-The server refuses to start if the `app` role is a superuser, has `BYPASSRLS`, or owns any table. It also refuses if the `worker` role is a superuser or owns any table.
-- Why: a role created by hand with those attributes would turn RLS off without anyone noticing.
-- Check: `test`.
+The `bootstrap` subcommand creates both roles with these attributes and sets the role-level timeouts (DATA-19). It runs once per database, with an administrator connection: the bundled Postgres superuser, or a managed provider's admin role. Running it again changes nothing.
+- Why: the running API can change data but never the schema, and holds no privilege beyond that (D4).
+- Check: `test` (PLATFORM-009, PLATFORM-010), plus `ci: check-schema` (grants).
 
-### DATA-14 Every tenant table has RLS
-Every table holding user or workspace data has RLS enabled and a policy. Tables without RLS are listed here with the reason:
-- `jobs`: `app` has `INSERT` only, so a unit of work can enqueue a job but no request can read or change one. The job runner reads and updates jobs through the `worker` pool.
-- `job_schedules`: only the job runner reads and writes it, through the `worker` pool.
-- `rate_limit_buckets`: holds counters keyed by a keyed hash of an IP address or user ID, and no tenant data. Rows expire with their window.
-- Why: no tenant table can be left unprotected by accident.
-- Check: `ci: check-schema` (`relrowsecurity` on every table not on the list).
-
-### DATA-15 Policies compare columns against the context
-Every policy is one or more comparisons, joined by `OR`, of a column against a context value read through the context accessors. A transaction without context sees no rows. Policies contain no joins, and the one subquery allowed is the co-member form on `users`. Every comparison takes one of the forms listed in [the platform spec](../spec/platform.md#policy-forms). Which co-member columns a caller may see is decided in the service, by permission.
-- Why: policies of this shape keep index scans, even when a query relies on RLS alone, and a reader can check each policy at a glance (D4, D32).
-- Check: `ci: check-schema` (every policy expression matches a listed form), plus `test` (PLATFORM-001).
-
-### DATA-16 Context comes only from proofs
-RLS context is transaction-local and set only by the unit of work, from a `platform` proof type that is built only where the platform spec says. Context never comes from client input, and it ends with its transaction. When an operation's context changes, as at sign-in or when accepting an invitation, the operation still runs in one transaction. [The platform spec](../spec/platform.md#proofs-and-contexts) lists every proof, who may build it, and the context it gives.
-- Why: the context can't be set without the authentication or authorization that justifies it, and every operation runs in one transaction (D4, ARCH-11).
-- Check: `compiler` (only proof types open or change a unit of work), `ci: check-layers` (each proof is built only where the platform spec says), plus `test` (PLATFORM-002, PLATFORM-003).
-
-### DATA-17 Before sign-in, a request sees only the row its key identifies
-Before sign-in, and for anonymous public downloads, a request sees only the one row identified by a key it presents. A secret key is stored and presented only as an HMAC (SEC-03), and a lookup matches under every active key version. [The platform spec](../spec/platform.md#keys) lists every key and the one module that may build it, and each module spec lists the routes that use each key.
-- Why: sign-in and public downloads work without bypassing RLS, including during a key rotation (D4, D32).
-- Check: `test` (PLATFORM-004), plus `ci: check-layers` (each key is built only by its listed module).
-
-### DATA-18 Only cross-tenant work bypasses RLS
-Only `platform::jobs` and `platform::events` use the `worker` pool, and only for work that spans tenants: dispatching jobs, running scheduled jobs that span tenants, and loading each new event once for fan-out (D20). A job that acts for one user or one workspace runs on the `app` pool, with the context it was enqueued with.
-- Why: RLS is bypassed only where the work spans tenants by nature (D4).
-- Check: `ci: check-layers`, plus `test` (PLATFORM-012).
+### DATA-13 Startup refuses an unsafe role
+The server refuses to start if the `app` role is a superuser or owns any table.
+- Why: a role created by hand with those attributes would give the running API far more power than it needs.
+- Check: `test` (PLATFORM-009).
 
 ### DATA-19 Least privilege in grants
-- `EXECUTE` is revoked from `PUBLIC` on every function in the application schema, including through default privileges. `app` and `worker` get `EXECUTE` on the context accessors only. Built-in functions such as `set_config`, `uuidv7` and `now` aren't affected.
-- `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no DDL and no `TRUNCATE`. DATA-14 narrows this for the `platform` tables.
+- `EXECUTE` is revoked from `PUBLIC` on every function in the application schema, including through default privileges.
+- `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no DDL and no `TRUNCATE`. On `audit_entries` it has only `INSERT` and `SELECT` (AUDIT-005).
 - `app` has `statement_timeout` and `idle_in_transaction_session_timeout` set at the role level.
 - Why: a role can do only what its job needs, and a stuck transaction can't hold locks indefinitely.
 - Check: `ci: check-schema`.
@@ -130,19 +102,21 @@ All SQL goes through the sqlx `query!`, `query_as!` and `query_scalar!` macros. 
 
 ### DATA-21 Repositories take a unit of work
 A repository function takes `&mut UnitOfWork`, never a pool or connection. `platform` doesn't expose its pools.
-- Why: every query runs with RLS context, inside the operation's transaction (ARCH-11).
+- Why: every query runs inside the operation's transaction (ARCH-11).
 - Check: `clippy` (`disallowed_types` bans `sqlx::PgPool` and `sqlx::PgConnection` in `app`).
 
 ### DATA-22 Every query filters by tenant itself
-Every query on user or workspace data carries its own filter, and never relies on RLS to hide rows:
-- Workspace data is filtered by the workspace ID from the proof the operation runs under: `Authorized<P>`, `NewWorkspace`, `Admission`, or the `JobContext` of a job enqueued in workspace context ([the platform spec](../spec/platform.md#proofs-and-contexts)). A repository function takes that ID as a parameter.
+Tenancy is enforced by the application, and every query on user or workspace data carries its own filter (D3, D4):
+- Workspace data is filtered by the workspace ID from the proof the operation runs under: `Authorized<P>`, or the `JobContext` of a job enqueued for a workspace. A repository function takes that ID as a parameter.
 - User data is filtered by the acting user's ID.
-- A lookup by presented key is filtered by the key's hashes, or for a public file by its ID and its public visibility.
-- An invitee's own invitations are filtered by the caller's email hashes.
+- A lookup before sign-in is filtered by the presented token's hash or the sign-in email, through a unique index.
+- An invitee's own invitations are filtered by the caller's email.
 
-A row ID alone never addresses tenant data. Scheduled jobs that span tenants (`for_scheduled_job`) select rows by their own criteria, such as expiry. RLS catches a filter that is missing, and is never the only one. That keeps RLS removable without changing any module.
-- Why: the application enforces tenancy itself, and RLS is the backstop behind it (D3, D4).
-- Check: `test` (the integration suite runs a second time with RLS disabled and must pass unchanged, except the tests that prove RLS itself; TEST-09's foreign-workspace probes run in both), plus `review`.
+A row ID alone never addresses tenant data. Two kinds of read are exempt:
+- batch reads of display data, such as names, by IDs that came from a query filtered by tenant in the calling module, for example a workspace's member list
+- scheduled jobs that span tenants, which select rows by their own criteria, such as expiry
+- Why: there is no row-level security, so the application's filters are the only guard between tenants, and they are checked by machine and by test (D4).
+- Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column filters on it, unless it belongs to a listed cross-tenant job), `test` (TEST-09 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
 
 ### DATA-23 Lists use keyset pagination on an index
 A list query filters by the cursor's sort key, with the ID as tiebreaker, and never uses `OFFSET`. An index matches its filter and order.
@@ -171,8 +145,7 @@ Audit entries (`audit::record`), events (`uow.publish`) and jobs (`uow.enqueue`)
 
 What is audited:
 - Every change that a request or an enqueued job makes to data a module owns.
-- Each security failure D6 lists: a failed sign-in, a wrong current password, a reused refresh token, and a refused authorization. Failed sign-ins use `record_failure` ([the platform spec](../spec/platform.md#proofs-and-contexts), PLATFORM-006), and refusals are reported to the `SecurityEventSink`.
-
+- Each security failure D6 lists: a failed sign-in, a wrong current password, a reused refresh token, and a refused authorization. A failed sign-in commits its audit entry and then answers 401 (ARCH-11, PLATFORM-006). Refusals are reported to the `SecurityEventSink` (PLATFORM-025).
 - Reads that a module spec names as audited, such as the download of a data export (D31).
 
 Platform bookkeeping (rate-limit buckets, idempotency records, job state) and scheduled maintenance (retention, sweeps) aren't audited. Metrics count them instead.

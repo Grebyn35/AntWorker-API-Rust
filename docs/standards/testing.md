@@ -36,7 +36,7 @@ Tests use the real database, the real routes and the real services. Fakes exist 
 - Check: `review`.
 
 ### TEST-06 Every integration test gets its own database
-Each integration test runs on a fresh database cloned from a migrated template. The application under test connects as the `app` role, so RLS applies exactly as in production. Assertions on stored state, such as enqueued jobs and audit entries, read through a separate `owner` connection. Migrations are applied by the production migrator. The suite runs a second time with RLS disabled (DATA-22).
+Each integration test runs on a fresh database cloned from a migrated template. The application under test connects as the `app` role, with exactly its production privileges. Assertions on stored state, such as enqueued jobs and audit entries, read through a separate `owner` connection. Migrations are applied by the production migrator.
 - Why: tests are isolated, fast, and faithful to production (D23).
 - Check: `test` (the harness asserts the role it connects as).
 
@@ -53,7 +53,7 @@ Tests assert what a client or operator can observe: HTTP responses, database row
 - Check: `review`.
 
 ### TEST-09 The permission matrix is tested exhaustively
-A generated test runs every workspace route against every role, plus a non-member, and asserts success, 403 or 404 according to the matrix in `access`. For every route that addresses a row by ID, it also sends the ID of a row in another workspace the caller belongs to, and asserts 404. That probe runs a second time with RLS turned off, so it proves the application filter on its own (DATA-22).
+A generated test runs every workspace route against every role, plus a non-member, and asserts success, 403 or 404 according to the matrix in `access`. For every route that addresses a row by ID, it also sends the ID of a row in another workspace the caller belongs to, and asserts 404 (DATA-22).
 - Why: a change to the matrix or to a route's permission is proven everywhere at once (D2).
 - Check: `test`.
 

@@ -16,9 +16,9 @@ Third-party credentials stored in the database, such as OAuth provider tokens, a
 
 ## Credentials and tokens
 
-### SEC-03 Tokens are random, hashed and compared in constant time
-Access tokens, refresh tokens and verification codes come from the operating system's secure random source. Tokens are 256 bits; the auth spec sets code lengths. Only an HMAC-SHA-256 under a versioned key is stored. Any comparison involving a secret is constant-time.
-- Why: a database leak reveals no usable token, and timing reveals nothing.
+### SEC-03 Tokens and codes are random, hashed and compared in constant time
+Access tokens, refresh tokens and verification codes come from the operating system's secure random source. Tokens are 256 bits and are stored only as SHA-256 hashes. Verification codes are short enough to guess, so they are stored as HMAC-SHA-256 under a secret key; the auth spec sets their lengths. Rotating that key invalidates outstanding codes, which expire within minutes anyway. Any comparison involving a secret is constant-time.
+- Why: a database dump reveals no usable token or code, and timing reveals nothing (D32).
 - Check: `test`, plus `review`.
 
 ### SEC-04 Passwords use Argon2id

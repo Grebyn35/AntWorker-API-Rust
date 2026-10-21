@@ -13,12 +13,12 @@
 ## Interface
 
 - The permission types used with `Authorized<P>`, one type per permission in the matrix below.
-- `AccessPolicy`, implemented for `platform::authz`.
-- `add_owner(uow, &NewWorkspace)`: makes the creator the owner of a new workspace.
-- `add_member(uow, &Admission, role)`: adds the invitee with the invitation's role.
+- `AccessPolicy`, implemented for `platform::authz`: `authorize`, and `memberships`, which returns the caller's `Memberships`.
+- `add_owner(uow, workspace_id, user_id)`: makes the creator the owner of a new workspace. Called only by `workspaces`.
+- `add_member(uow, workspace_id, user_id, role)`: adds a member. Called only by `invitations`, after accepting.
+- `is_member(uow, workspace_id, user_id)`: whether the user belongs to the workspace.
 - `remove(uow, &Authorized<MembersRemove>, user_id)`: removes a member, subject to rank.
 - `members(uow, &Authorized<MembersRead>, page)`: a page of the workspace's memberships.
-- `memberships(uow, &Principal)`: all of the caller's memberships with their roles, as `Memberships`.
 - `outranks(role, role)`: compares two roles (SEC-08).
 
 ## Behaviors
@@ -27,9 +27,9 @@
 |---|---|---|---|
 | ACCESS-001 | Each membership holds exactly one role: `owner`, `admin` or `member`. Each workspace has exactly one owner. | D2 | `access_001_` |
 | ACCESS-002 | A role grants exactly the permissions the matrix gives it, and nothing else. | D2 | `access_002_` |
-| ACCESS-003 | A caller who isn't a member of the workspace in the path gets 404. A member without the route's permission gets 403 `access.permission_denied`, and the refusal is reported to the `SecurityEventSink`. | API-14, SEC-07, DATA-27 | `access_003_` |
-| ACCESS-004 | A member acts only on members whose role ranks below their own, and assigns only roles below their own. A refusal answers 403 `access.permission_denied` and is reported to the `SecurityEventSink`. | SEC-08, DATA-27 | `access_004_` |
-| ACCESS-005 | `memberships` returns every workspace the caller belongs to, with their role in each, and nothing else. | D3, SEC-17 | `access_005_` |
+| ACCESS-003 | A caller who isn't a member of the workspace in the path gets 404 `request.not_found`. A member without the route's permission gets 403 `request.permission_denied`. Both refusals are reported to the `SecurityEventSink`. | API-14, SEC-07, DATA-27 | `access_003_` |
+| ACCESS-004 | A member acts only on members whose role ranks below their own, and assigns only roles below their own. A refusal goes through `authz::refuse`, and answers 403 `request.permission_denied`. | SEC-08, DATA-27, PLATFORM-025 | `access_004_` |
+| ACCESS-005 | `memberships` returns every workspace the caller belongs to, with their role in each and when they joined, and nothing else. | D3, SEC-17 | `access_005_` |
 
 ## Design
 
@@ -52,10 +52,7 @@ A partial unique index on `workspace_memberships (workspace_id) WHERE role = 'ow
 
 ### Policy
 
-`AccessPolicy::authorize` loads the caller's membership row for the path's workspace, in the unit of work, and answers:
-- not a member, which becomes the 404
-- a member without the permission, which becomes the 403
-- the role, from which `platform::authz` builds `Authorized<P>`
+`AccessPolicy::authorize` runs inside the request's unit of work (PLATFORM-024). It reads the caller's membership row by workspace ID and user ID, and answers not a member, a member without the permission, or the member's role (platform spec, "Refusals").
 
 ## Open design questions
 

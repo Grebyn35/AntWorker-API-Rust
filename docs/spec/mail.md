@@ -10,7 +10,7 @@ Nothing. Jobs live in `platform`'s `jobs` table.
 
 ## Interface
 
-- `send(uow, Email)`: enqueues the email as a job in the given unit of work. `Email` is an enum with one variant per kind of email, each carrying exactly the values its template needs.
+- `send(uow, Message)`: enqueues the message as a job in the given unit of work. `Message` is an enum with one variant per kind of email, each carrying exactly the values its template needs.
 - The job handler `mail.send`, registered with the job registry.
 
 ## Behaviors
@@ -25,7 +25,7 @@ Nothing. Jobs live in `platform`'s `jobs` table.
 
 ## Design
 
-The job payload holds the rendered recipient and the template's values, never a secret. A successful send deletes the payload (OPS-10). The job runs with the context of the unit of work that enqueued it (DATA-18), but sending needs no database access.
+The job payload holds the rendered recipient and the template's values, never a secret. A successful send deletes the payload (OPS-10). Sending needs no database access.
 
 ## Open design questions
 

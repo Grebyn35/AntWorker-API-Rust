@@ -13,7 +13,7 @@ A review finding cites a rule ID from these files or a behavior ID from a module
 | `DOC` | [docs.md](docs.md) | Documents, comments, ADRs, changelog |
 | `ERR` | [errors.md](errors.md) | Error types, codes, propagation, logging of errors |
 | `API` | [api.md](api.md) | The HTTP contract: paths, methods, bodies, errors, pagination, idempotency |
-| `DATA` | [data.md](data.md) | Schema, migrations, row-level security, queries, transactions |
+| `DATA` | [data.md](data.md) | Schema, migrations, database roles, tenancy, queries, transactions |
 | `SEC` | [security.md](security.md) | Secrets, cryptography, authentication, authorization, outbound requests |
 | `OBS` | [observability.md](observability.md) | Logs, traces, metrics, dashboards, alerts |
 | `TEST` | [testing.md](testing.md) | What is tested, at which level, and how |
@@ -37,6 +37,8 @@ The rule, stated so a reviewer can answer yes or no.
 | `ci: <task>` | A `just` task fails CI |
 | `test` | A test fails |
 | `review` | Only a reviewer can check it. Used when nothing above can |
+
+A `ci:` check that isn't listed in [docs/operations/ci.md](../operations/ci.md) doesn't exist yet. Until it is built, its rule is enforced by review.
 
 ## Reviews
 
@@ -76,4 +78,4 @@ The changed items are then checked one by one. The documents never state somethi
 3. An accepted change is applied to every affected module in the same pull request. No module is ever left following a rule that has been replaced.
 4. A change that reverses a decision gets a new ADR that supersedes the old one.
 
-Rule IDs are never reused.
+Rule IDs are never reused, so a retired rule leaves a gap in the numbering.

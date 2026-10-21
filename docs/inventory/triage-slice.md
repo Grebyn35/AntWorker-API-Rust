@@ -16,7 +16,7 @@ Verdicts:
 | AUTH-006 Per-email login rate limit | kept | AUTH-006 | |
 | AUTH-014 Login lands in the default workspace | dropped | | No server-side active workspace (D3) |
 | AUTH-015 Workspace resolution on refresh | dropped | | No server-side active workspace (D3) |
-| AUTH-016 Opaque token pair, HMACs only | changed | AUTH-007 | Absolute session lifetime (D5) |
+| AUTH-016 Opaque token pair, HMACs only | changed | AUTH-007 | Absolute session lifetime (D5); tokens stored as SHA-256 (D32) |
 | AUTH-017 One session per device | changed | AUTH-008 | Device ID optional (D18); a replaced session is fully revoked (D5) |
 | AUTH-019 Bearer validation | changed | AUTH-009 | Distinct code for an expired token; no session ID in the error (D8) |
 | AUTH-022 Refresh rotation | changed | AUTH-010 | Sliding expiry bounded by the absolute lifetime (D5) |
@@ -32,10 +32,10 @@ Verdicts:
 | WS-018 List members | changed | WORKSPACES-004 | Roles instead of permission lists (D2). Filters arrive with the full module |
 | WS-023 Remove a member | changed | WORKSPACES-005 | Rank rule (D2), access-change signal (D35), audit in the same transaction (D1) |
 | WS-024 Owner and caller can't be removed | changed | WORKSPACES-006 | The owner is protected by rank (SEC-08) |
-| WS-028 Invite by email | changed | INVITATIONS-001 | A role instead of a permission list (D2); email sent by a job (D1) |
+| WS-028 Invite by email | changed | INVITATIONS-001, INVITATIONS-008 | A role instead of a permission list (D2); email sent by a job (D1). The invitee's live `invitation.received` is kept |
 | WS-029 Existing members can't be invited | kept | INVITATIONS-002 | |
 | WS-030 Re-inviting refreshes | changed | INVITATIONS-003 | Audited as an update; 200 |
-| WS-034 List my pending invitations | changed | INVITATIONS-004 | Workspace and inviter names stored on the invitation (D34) |
+| WS-034 List my pending invitations | changed | INVITATIONS-004 | Keyset paging instead of in-memory paging (API-06) |
 | WS-035 Accept an invitation | changed | INVITATIONS-005 | Recorded in the workspace's log (D6); joins through `Admission` (D34) |
 | WS-036 Accept guards | changed | INVITATIONS-006 | Expiry is 422; an invitation for another email is 404 (DATA-22) |
 | WS-038 Accepting while a member overwrites | changed | INVITATIONS-006 | 409, and nothing changes (D16) |
