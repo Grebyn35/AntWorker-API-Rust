@@ -18,9 +18,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 - The workspace scaffold (`platform` and `app` crates), strict configuration with the startup-failure format (PLATFORM-023, OPS-03), and the liveness probe (PLATFORM-019).
 - `platform::db`: Postgres 18 in `compose.yaml`; the `bootstrap` and `migrate` subcommands (PLATFORM-010, PLATFORM-027 to PLATFORM-029); the startup checks of the role and the schema (PLATFORM-009, PLATFORM-030); the unit of work; the first migration, with the default privileges (DATA-19); the test support, with one database per test (TEST-06); and the committed query cache (DATA-20).
 
-`just ci` passes locally: formatting, clippy, 41 tests and `cargo-deny`.
-
-**To verify:** the first GitHub Actions run that starts Postgres, through `just setup` and Compose.
+`just ci` passes locally and in GitHub Actions, where CI starts Postgres through `just setup` and Compose: formatting, clippy, 41 tests and `cargo-deny`.
 
 **Next, in order.** Each mechanism of `platform` is built together with the first module that calls it, and each step ends with `just ci` passing:
 1. `accounts`, `auth` and the `audit` writer, with the HTTP errors (D17), authentication (`Principal` and `SessionVerifier`) and the per-email rate limit. The step starts with `check-test-map`, the first custom CI check, which reports every behavior that no test proves, so the gap between the specs and the code is a report rather than a judgment. It also settles the `auth` items in [inventory/decision-trace.md](inventory/decision-trace.md).
