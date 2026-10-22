@@ -44,12 +44,16 @@ A `ci:` check that isn't listed in [docs/operations/ci.md](../operations/ci.md) 
 
 A review checks a change, a module or the documents against these rules. It never asks for open-ended improvements.
 
+### Passes
+
+A review runs in passes over its whole scope. Each pass is two independent reviews, by reviewers that use different models, read in different orders (one rule by rule, the other file by file), and don't see each other's findings. A pass's findings are the union of the two, with duplicates merged, and a finding is `must-fix` if either reviewer marks it so. The pass records how many findings each reviewer made and how many both made: when they share few, each one misses much, and more probably remains to find.
+
 ### Findings
 
 - Each finding falls into a fixed category: a broken rule, a contradiction, a rule that can't be checked, a missing rule, or a reference that doesn't resolve.
 - Each finding cites the rule IDs, behavior IDs or decisions involved.
-- Each finding is marked `must-fix` or `should-fix`. A finding is `must-fix` when an implementer following the documents would build the wrong thing, or would find two rules impossible to satisfy together.
-- Each finding is tagged `regression` if it involves text changed by the previous round's fixes, or `found` if it doesn't.
+- Each finding is marked `must-fix` or `should-fix`. A finding is `must-fix` when an implementer following the documents would build the wrong thing, or would find two rules impossible to satisfy together. In a review of code, a finding is `must-fix` when the code breaks a cited statement, or when two statements can't both hold for it.
+- Each finding is tagged `regression` if it involves text or code that the previous pass's fixes changed, or `found` if it doesn't.
 
 ### Fixing
 
@@ -64,7 +68,10 @@ The review stops at the first of these:
 2. **A pass makes no progress.** It reports at least as many `must-fix` findings as the pass before, or a `must-fix` finding tagged `regression`.
 3. **Six passes have run.**
 
+The second condition alone ends every review, because the number of `must-fix` findings has to fall with each pass. The cap bounds what a slowly falling count can cost: a scope that still yields new `must-fix` findings after five rounds of fixes points at loose rules more than at its code, and the resolutions below settle what remains.
+
 If the review stops under 2 or 3, each remaining `must-fix` finding gets exactly one resolution. No further full pass runs.
+- **Fix.** A defect in code is fixed, with a test that fails before the fix wherever a test can show it.
 - **Decide.** A choice between valid designs is written up with its options and a recommendation. The owner decides, and the decision becomes an ADR.
 - **Prove.** A question about how something behaves is settled by a small throwaway test, and the rule is written from the result.
 - **Defer.** A question that only building can settle is removed from the rule, which keeps only what is certain. The question goes on the list of open design questions in the migration tracker, together with the test that will settle it.

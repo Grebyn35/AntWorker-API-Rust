@@ -2,7 +2,7 @@
 
 How the API is built: its parts, how they depend on each other, how a request flows through them, and where each rule is enforced. Read this before changing or adding a module.
 
-While the API is being built, parts of this document describe the design to build rather than code that exists. The module table in [MIGRATION.md](MIGRATION.md#modules) shows what is built. Where this document and the code disagree, the code and its tests win, and this document is corrected.
+While the API is being built, parts of this document describe the design to build rather than code that exists, as "Docs for unbuilt parts are the plan" in [CLAUDE.md](../CLAUDE.md) explains. The module table in [MIGRATION.md](MIGRATION.md#modules) shows what is built.
 
 Decision IDs (`D1` to `D36`) refer to the decision records in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md).
 
@@ -275,20 +275,36 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 
 ## 10. Technology
 
+### In use
+
 | Concern | Choice | Why |
 |---|---|---|
 | Language | Rust, edition 2024, toolchain pinned in `rust-toolchain.toml` | Every machine and CI job builds with the same compiler |
 | Async runtime | `tokio` | The ecosystem standard |
-| HTTP | `axum`, `tower`, `tower-http` | Extractors carry `Principal` and `Authorized<P>` as types |
+| HTTP | `axum` | Extractors carry `Principal` and `Authorized<P>` as types |
 | Database | `sqlx` with `query!` macros | Queries are checked against the schema at compile time (D24) |
 | Serialization | `serde`, `serde_json` | The ecosystem standard |
 | Errors | `thiserror` in modules | One enum per module (D17) |
-| Telemetry | `tracing`, `opentelemetry`, `tracing-opentelemetry` | The standard bridge from Rust tracing to OpenTelemetry (D10, D19) |
-| OpenAPI | `utoipa` | Generates the contract from the code (D8) |
-| Passwords | `argon2` | Argon2id in PHC format (D26) |
-| Outbound HTTP | `reqwest` with `rustls` | Wrapped by `platform::outbound` |
-| Object storage | `object_store` | Supports any S3-compatible store and other providers, so forks can switch |
-| Email | `lettre`, with templates checked at compile time | Template variables are checked like SQL queries |
+| Logging | `tracing`, `tracing-subscriber` | The ecosystem standard, with a bridge to OpenTelemetry (D10, D19) |
+| Command line | `clap` | The binary's subcommands (ARCH-14) |
+
+### Starting points
+
+A part's tools and libraries are chosen when it is built, as "Docs for unbuilt parts are the plan" in [CLAUDE.md](../CLAUDE.md) says. These are the candidates the design started from, with the step of the [build order](MIGRATION.md#build-order) that chooses each. Where another section of this document names one, it describes the plan, not a choice.
+
+| Concern | Starting point | Chosen in |
+|---|---|---|
+| Telemetry export | `opentelemetry`, `tracing-opentelemetry` | the telemetry part (1.3) |
+| Middleware | `tower-http` | the request pipeline (1.2) |
+| OpenAPI | `utoipa` | the request pipeline (1.2) |
+| Reverse proxy and TLS | Caddy | the reference deployment (1.5) |
+| Deploy tooling | none yet | the reference deployment (1.5) |
+| Password hashing | the `argon2` crate, for the Argon2id that SEC-04 requires | `auth` (2.1) |
+| Email | `lettre`, with Mailpit catching development email (D28) | `mail` (2.3) |
+| Object storage | `object_store`, with SeaweedFS in development (D28) | `files` (5) |
+| Outbound HTTP | `reqwest` with `rustls` | the first outbound caller (5) |
+
+The decided parts of the stack are decisions with recorded reasons: OpenTelemetry and the Grafana stack (D10, D19), GitHub Actions and `just` (D21), and Postgres as the only shared state (D20).
 
 Validation uses the domain types (D25), not a validation crate. Async traits are native wherever no trait object is needed.
 

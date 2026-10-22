@@ -20,17 +20,17 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 
 - The review tools (build order 1.1): the checker in `xtask`, with `check-test-map` and `check-docs`, and the conformance reviewer in `.claude/agents/`.
 
-`just ci` passes locally and in GitHub Actions, where CI starts Postgres through `just setup` and Compose: formatting, clippy, 67 tests, `cargo-deny`, `check-test-map` and `check-docs`. A scheduled workflow runs `cargo-deny` every day.
+`just ci` passes locally and in GitHub Actions, where CI starts Postgres through `just setup` and Compose: formatting, clippy, 71 tests, `cargo-deny`, `check-test-map` and `check-docs`. A scheduled workflow runs `cargo-deny` every day.
 
 **Next:** step 1.2 of the build order, the request pipeline. Each part ends with `just ci` passing.
 
 ## Build order
 
-The design is settled by building, not by further review of the documents. Until a part is built, its spec and its sections of architecture.md are the plan, not a description of code. When building shows the plan is wrong, the plan is corrected in the same change as the code, and a rule changes through [Changing a rule](standards/README.md#changing-a-rule). A behavior counts as proven only when a test named by its ID passes.
+The design is settled by building, not by further review of the documents. How the plan for unbuilt parts is kept, corrected and proven is in [CLAUDE.md](../CLAUDE.md), under "Docs for unbuilt parts are the plan".
 
 From the end of step 1 on, the system is always deployable and observable: every change runs in the image CI publishes, the reference deployment rolls it out, and its telemetry reaches the observability stack. A step that adds a behavior also adds what operating it takes: its metrics and the dashboard questions they answer, its alerts and their runbooks, and its end-to-end scenarios.
 
-Every part of the system is listed under [Foundation](#foundation), [Modules](#modules) or [CI checks](#ci-checks), with the step that builds it. Each part is specified just before it is built. The plan states what a part must do and guarantee; its spec chooses the tools and libraries.
+Every part of the system is listed under [Foundation](#foundation), [Modules](#modules) or [CI checks](#ci-checks), with the step that builds it. Each part is specified just before it is built, and ends with a conformance review of what it built or changed ([Conformance reviews](#conformance-reviews)).
 
 1. **Walking skeleton.** The running system, end to end, before any feature:
    1. **Review tools:** the checker tool in `xtask` and the conformance reviewer in `.claude/` (D27). The checker starts with `check-test-map`, which reports every behavior that no test proves, and `check-docs`, which fails on any ID or link that doesn't resolve (DOC-13) and on any check a rule names that neither [operations/ci.md](operations/ci.md) nor [CI checks](#ci-checks) lists.
@@ -53,7 +53,7 @@ Every part of the system is listed under [Foundation](#foundation), [Modules](#m
 3. **Rule fixes.** Apply one round of rule changes from what steps 1 and 2 taught, through [Changing a rule](standards/README.md#changing-a-rule). The round deletes rules as well as fixing them: a rule that no code needed, or that only restates another, goes. It settles each CI check that [CI checks](#ci-checks) leaves to it, and records the number of rules, behaviors and CI checks before and after.
 4. **Afternoon test.** A developer or agent new to the codebase, using only the docs, adds a small feature to the slice. Anything that slows them down is fixed by removing complexity, not by adding it.
 5. **Remaining modules, one at a time.** `just new-module` and the guide to adding a module come first, shaped by the afternoon test, and every remaining module starts from them. Each module's spec is written just before the module is built, and carries the commitments that [inventory/decision-trace.md](inventory/decision-trace.md) lists for it.
-6. **Close the migration.** The remaining parts under [Foundation](#foundation) are built, architecture.md is rewritten to describe the system as built (DOC-01), and `docs/inventory/` and this file are deleted.
+6. **Close the migration.** The remaining parts under [Foundation](#foundation) are built, and one conformance review covers the whole codebase, under the same stopping rule. Then architecture.md is rewritten to describe the system as built (DOC-01), and `docs/inventory/` and this file are deleted.
 
 Each CI check is built when the code it checks exists. A check that never catches a real problem is removed.
 
@@ -102,6 +102,17 @@ Each module goes through these stages, in order:
 | `files` | FILE | | | | | |
 | `client_telemetry` | OBS | | | | | |
 | `system` | HTTP, OPS | | | | | |
+
+## Conformance reviews
+
+Each pass of each review, run by the conformance reviewer under "When the review stops" in [standards/README.md](standards/README.md#when-the-review-stops).
+
+Reviewer A reads rule by rule, and reviewer B file by file. "Shared" counts the findings both made.
+
+| Scope | Pass | Findings (A, B, shared) | Must-fix | Must-fix regressions | Result |
+|---|---:|---|---:|---:|---|
+| `platform::db` | 1 | 14 (one reviewer) | 8 | n/a | Six code defects fixed, each with a test. Five doc statements corrected. Five rule wordings queued. |
+| `platform::db` | 2 | 6 (3, 4, 1 shared) | 2 | 1 | Stopped by its must-fix regression. Both must-fix findings fixed, each with a test that failed first. The should-fix findings fixed, or queued as rule changes. |
 
 ## CI checks
 
@@ -160,9 +171,14 @@ Handled in the rule fixes (Build order, step 3), as in [Changing a rule](standar
 | Conformance of `platform::db` | DATA-02: the standard columns, and the naming in DATA-01, apply to the tables that migrations create. The migrator's own table, `_sqlx_migrations`, follows sqlx's layout. |
 | Conformance of `platform::db` | DATA-12: state what PLATFORM-010 states. Running `bootstrap` again keeps the roles, their attributes and the grants, and sets each password again from its URL. `owner` owns the tables it creates and has `CREATE` on the schema `public`, which the database's owner keeps. |
 | Conformance of `platform::db` | SEC-01: "secrets never appear in URLs" covers the URLs the API sends, serves or logs. A database URL that carries a password is a secret setting as a whole: read from the environment or a file, held in `Secret`, and never printed. |
-| Conformance of `platform::db` | TEST-06: tests of `migrate` itself start from an empty database instead of the migrated template, and assertions on database catalogs, such as role attributes, may read through `app`. |
+| Conformance of `platform::db` | TEST-06: tests of `migrate` and of `serve`'s schema check start from an empty database instead of the migrated template; tests may arrange state through the administrator's connection; and assertions on database catalogs, such as role attributes, may read through `app`. |
+| Conformance of `platform::db` | DATA-09: say whether a migration that has been applied but is in no release may be edited. A file edited after it was applied fails `migrate` and `serve` in every database that applied it. |
+| Conformance of `platform::db` | TEST-01: say whether each clause of a behavior needs a test of its own. |
+| Conformance of `platform::db` | CODE-05: say whether the test support may block, as a test's cleanup and settings do. |
+| Owner question on duplicated statements | A DOC rule: a fact lives in one place, and other documents point to it instead of restating it. The standards README states this for reviews' fixes, without an ID a finding can cite. |
 | Conformance of `platform::db` | TEST-04: a level for behaviors with no HTTP surface, such as the subcommands and the startup checks, whose integration tests call `platform` directly or run the binary. |
 | Conformance of `platform::db` | SEC-01: `DatabaseUrl::connect_options` is public, and the options it returns print the password through `Debug`. Narrow what it exposes. |
+| Owner's direction on tools | A rule states a guarantee, and names a tool only where the tool is the guarantee, such as the cryptography allowlist in SEC-14. Reword the rules that name a tool for an unbuilt part: SEC-11 (Caddy), OPS-19 (SeaweedFS and Mailpit), TEST-05 (Mailpit), and the library names in ERR-04 and SEC-09. MAIL-005 is reworded when `mail` is built. |
 
 ### Open design questions
 
