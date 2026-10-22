@@ -90,8 +90,12 @@ async fn platform_009_serve_refuses_a_role_other_than_app() {
 }
 
 #[tokio::test]
-async fn platform_010_bootstrap_creates_the_roles_with_their_attributes_and_grants() {
+async fn platform_010_after_bootstrap_the_roles_have_their_attributes_and_grants() {
     let db = TestDatabase::migrated().await;
+    db.with_roles_locked(platform::db::bootstrap(&db.bootstrap_config()))
+        .await
+        .unwrap();
+
     let mut uow = db.app().await.begin().await.unwrap();
 
     let roles = sqlx::query!(
@@ -143,6 +147,46 @@ async fn platform_010_running_bootstrap_again_keeps_the_roles_and_grants() {
 
     assert_eq!(snapshot(&db).await, before);
     db.app().await;
+}
+
+#[tokio::test]
+async fn platform_010_running_bootstrap_again_sets_each_password_from_its_url() {
+    let db = TestDatabase::migrated().await;
+    let verifiers = "SELECT rolname || ' ' || rolpassword FROM pg_authid \
+                     WHERE rolname IN ('owner', 'app') ORDER BY rolname";
+
+    let (before, after) = db
+        .with_roles_locked(async {
+            let before = db.admin_reads(verifiers).await;
+            platform::db::bootstrap(&db.bootstrap_config())
+                .await
+                .unwrap();
+            (before, db.admin_reads(verifiers).await)
+        })
+        .await;
+
+    // Each verifier gets a new salt, so a password that was set again has a new verifier.
+    assert_eq!(before.len(), 2);
+    for (old, new) in before.iter().zip(&after) {
+        assert_ne!(old, new);
+    }
+    db.app().await;
+    assert_eq!(db.owner_reads("SELECT current_user::text").await, ["owner"]);
+}
+
+#[tokio::test]
+async fn data_25_the_app_role_runs_read_committed_whatever_the_database_default() {
+    let db = TestDatabase::migrated().await;
+    db.admin_executes(&format!(
+        "ALTER DATABASE \"{}\" SET default_transaction_isolation = 'serializable'",
+        db.name()
+    ))
+    .await;
+
+    assert_eq!(
+        db.setting(&db.app_url(), "transaction_isolation").await,
+        "read committed"
+    );
 }
 
 #[tokio::test]

@@ -64,7 +64,7 @@ where
 async fn bootstrap(config: BootstrapConfig) -> ExitCode {
     match platform::db::bootstrap(&config).await {
         Ok(()) => {
-            tracing::info!(database = config.admin.database(), "bootstrap finished");
+            tracing::info!(db.namespace = config.admin.database(), "bootstrap finished");
             ExitCode::SUCCESS
         }
         Err(error) => failed("bootstrap", &error),
@@ -95,7 +95,11 @@ async fn serve(config: ServerConfig) -> ExitCode {
         Ok(listener) => listener,
         Err(error) => return failed("listen", &error),
     };
-    tracing::info!(listen_addr = %config.listen_addr, "listening");
+    tracing::info!(
+        server.address = %config.listen_addr.ip(),
+        server.port = config.listen_addr.port(),
+        "listening"
+    );
     match axum::serve(listener, app::router())
         .with_graceful_shutdown(shutdown_signal())
         .await

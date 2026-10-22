@@ -21,6 +21,10 @@ const STATEMENT_TIMEOUT: &str = "30s";
 /// unit of work holds its locks (DATA-19).
 const IDLE_IN_TRANSACTION_TIMEOUT: &str = "15s";
 
+/// The isolation level of every transaction of the `app` role (DATA-25). Set on the role, it
+/// holds whatever the server or the database defaults to.
+const ISOLATION: &str = "read committed";
+
 /// The attributes both roles are created with: they can log in, and hold no power beyond what
 /// their grants give them.
 const ATTRIBUTES: &str = "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS";
@@ -79,11 +83,11 @@ impl Admin {
     }
 
     /// Creates the roles `owner` and `app` with their attributes, and sets each role's password
-    /// to the one in its URL. The `app` role also gets its timeouts (DATA-19). An existing role
-    /// is given `LOGIN` and keeps its other attributes, because changing some of them takes a
-    /// superuser, which a managed provider's admin role isn't; `serve` refuses a role whose
-    /// attributes are unsafe (PLATFORM-009). Roles belong to the whole server, not to one
-    /// database.
+    /// to the one in its URL. The `app` role also gets its timeouts (DATA-19) and its isolation
+    /// level (DATA-25). An existing role is given `LOGIN` and keeps its other attributes,
+    /// because changing some of them takes a superuser, which a managed provider's admin role
+    /// isn't; `serve` refuses a role whose attributes are unsafe (PLATFORM-009). Roles belong
+    /// to the whole server, not to one database.
     pub async fn create_roles(
         &mut self,
         owner: &DatabaseUrl,
@@ -93,10 +97,12 @@ impl Admin {
         self.create_role(APP, app).await?;
         self.execute(format!(
             "ALTER ROLE {app} SET statement_timeout = {statement};
-             ALTER ROLE {app} SET idle_in_transaction_session_timeout = {idle};",
+             ALTER ROLE {app} SET idle_in_transaction_session_timeout = {idle};
+             ALTER ROLE {app} SET default_transaction_isolation = {isolation};",
             app = identifier(APP),
             statement = literal(STATEMENT_TIMEOUT),
             idle = literal(IDLE_IN_TRANSACTION_TIMEOUT),
+            isolation = literal(ISOLATION),
         ))
         .await
     }

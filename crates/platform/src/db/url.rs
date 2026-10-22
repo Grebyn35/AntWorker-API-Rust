@@ -9,8 +9,8 @@ use url::Url;
 use crate::types::Secret;
 
 /// The query parameters a database URL may set. The user, password, host, port and database
-/// come from the URL itself, so a parameter that would replace one of them is refused, and so
-/// is any other parameter.
+/// come from the URL itself, with port 5432 when it leaves the port out, so a parameter that
+/// would replace one of them is refused, and so is any other parameter.
 const QUERY_PARAMETERS: [&str; 5] = [
     "sslmode",
     "sslrootcert",
@@ -21,8 +21,9 @@ const QUERY_PARAMETERS: [&str; 5] = [
 
 /// A PostgreSQL connection URL, such as `postgres://app:password@localhost:5432/antworker`.
 ///
-/// It names a user, a password, a host and a database, and sets no query parameter outside
-/// `QUERY_PARAMETERS`. The password is a secret (SEC-01): `Debug` leaves it out.
+/// It names a user, a password, a host and a database, and a port unless it is 5432, and sets
+/// no query parameter outside `QUERY_PARAMETERS`. The password is a secret (SEC-01): `Debug`
+/// leaves it out.
 #[derive(Clone)]
 pub struct DatabaseUrl {
     options: PgConnectOptions,
@@ -166,6 +167,14 @@ mod tests {
                 Some(InvalidDatabaseUrl),
                 "{parameter}"
             );
+        }
+    }
+
+    #[test]
+    fn ops_02_env_example_names_every_allowed_query_parameter() {
+        let example = include_str!("../../../../.env.example");
+        for parameter in QUERY_PARAMETERS {
+            assert!(example.contains(parameter), "{parameter}");
         }
     }
 

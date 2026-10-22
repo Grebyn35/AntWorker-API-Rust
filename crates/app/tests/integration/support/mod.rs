@@ -1,9 +1,10 @@
 //! Test support (TEST-06, TEST-10).
 //!
 //! Every test gets a database of its own. A migrated one is cloned from a template that the
-//! production `migrate` migrated, and the production `bootstrap` creates the roles and grants,
-//! so the API under test connects as `app` with exactly its production privileges. Settings
-//! come from the environment, or from `.env` when a test runs outside `just`.
+//! production `migrate` migrated. `Admin::create_roles` and `Admin::grant_database`, the steps
+//! that `bootstrap` runs, create the roles and grants, so the API under test connects as `app`
+//! with exactly its production privileges. Settings come from the environment, or from `.env`
+//! when a test runs outside `just`.
 #![expect(
     clippy::disallowed_types,
     clippy::disallowed_methods,
@@ -88,6 +89,11 @@ impl TestDatabase {
         database
     }
 
+    /// The database's name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// The URL the API connects with, as `app`.
     pub fn app_url(&self) -> DatabaseUrl {
         self.settings.app.with_database(&self.name)
@@ -170,14 +176,13 @@ impl TestDatabase {
     /// The first column of every row `sql` returns, read as `owner` (TEST-06), for tables a
     /// test created itself.
     pub async fn owner_reads(&self, sql: &str) -> Vec<String> {
-        let mut owner = connect(&self.owner_url()).await;
-        let values = sqlx::query_scalar(AssertSqlSafe(sql.to_owned()))
-            .fetch_all(&mut owner)
-            .await
-            .map_err(|error| format!("{sql}: {error}"))
-            .unwrap();
-        close(owner).await;
-        values
+        reads(&self.owner_url(), sql).await
+    }
+
+    /// The first column of every row `sql` returns, read as the administrator, for state that
+    /// only an administrator may read, such as password verifiers.
+    pub async fn admin_reads(&self, sql: &str) -> Vec<String> {
+        reads(&self.admin_url(), sql).await
     }
 
     /// Runs `sql` on a connection with `url`, and returns the database's error message if it
@@ -418,6 +423,18 @@ async fn connect(url: &DatabaseUrl) -> PgConnection {
     PgConnection::connect_with(&url.connect_options())
         .await
         .expect("connect to the test database")
+}
+
+/// The first column of every row `sql` returns, on a connection with `url`.
+async fn reads(url: &DatabaseUrl, sql: &str) -> Vec<String> {
+    let mut conn = connect(url).await;
+    let values = sqlx::query_scalar(AssertSqlSafe(sql.to_owned()))
+        .fetch_all(&mut conn)
+        .await
+        .map_err(|error| format!("{sql}: {error}"))
+        .unwrap();
+    close(conn).await;
+    values
 }
 
 async fn close(conn: PgConnection) {

@@ -138,7 +138,8 @@ const DATABASE_URL_EXPECTED: &str = "a PostgreSQL URL with a user, a password, a
 
 /// The environment variables of libpq that the Postgres driver reads, and that would change a
 /// connection whose URL leaves them out. The URL always sets the host, user, password and
-/// database, so the variables for those can't change anything.
+/// database, so the variables for those can't change anything. A URL may leave out the port,
+/// and with `PGPORT` unset, the driver uses 5432.
 const LIBPQ_VARIABLES: [&str; 7] = [
     "PGPORT",
     "PGSSLMODE",
@@ -203,11 +204,12 @@ where
     }
 
     /// The database URL in the setting `name`. Every libpq variable that would change its
-    /// connections must be unset, so the URL is the only source of connection settings.
+    /// connections must be unset, so the URL is the only source of connection settings. The
+    /// driver reads a variable that is set to an empty value too, so any value counts as set.
     fn database_url(&self, name: &str) -> Result<DatabaseUrl, ConfigError> {
         if let Some(variable) = LIBPQ_VARIABLES
             .iter()
-            .find(|variable| non_empty((self.env)(variable)).is_some())
+            .find(|variable| (self.env)(variable).is_some())
         {
             return Err(ConfigError::new(variable, Problem::MustBeUnset));
         }
@@ -474,15 +476,19 @@ mod tests {
             "PGAPPNAME",
             "PGOPTIONS",
         ] {
-            let error = settings(&with(&SERVER, &[(name, "x")]), &[])
-                .server()
-                .unwrap_err();
-            assert_eq!(
-                error.to_string(),
-                format!(
-                    "{name} must be unset: connections take their settings only from the database URLs"
-                )
-            );
+            // The driver reads a variable that is set to an empty value, too.
+            for value in ["x", "", "  "] {
+                let error = settings(&with(&SERVER, &[(name, value)]), &[])
+                    .server()
+                    .unwrap_err();
+                assert_eq!(
+                    error.to_string(),
+                    format!(
+                        "{name} must be unset: connections take their settings only from the database URLs"
+                    ),
+                    "{name}={value:?}"
+                );
+            }
         }
         let migrate = settings(
             &[
@@ -498,5 +504,13 @@ mod tests {
         assert!(migrate.is_err());
         let overridden = settings(&with(&SERVER, &[("PGHOST", "elsewhere")]), &[]).server();
         assert!(overridden.is_ok(), "the URL always sets the host");
+    }
+
+    #[test]
+    fn ops_02_env_example_names_every_libpq_variable_that_must_be_unset() {
+        let example = include_str!("../../../.env.example");
+        for name in LIBPQ_VARIABLES {
+            assert!(example.contains(name), "{name}");
+        }
     }
 }

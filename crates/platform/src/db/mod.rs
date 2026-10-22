@@ -41,9 +41,9 @@ pub enum ConnectError {
     /// The connection failed.
     #[error("can't connect with DATABASE_URL")]
     Connect(#[source] sqlx::Error),
-    /// A startup check couldn't run.
-    #[error("can't check the database")]
-    Check(#[source] sqlx::migrate::MigrateError),
+    /// A query of the startup checks failed.
+    #[error("can't run the startup checks")]
+    Check(#[source] sqlx::Error),
     /// The role isn't safe to serve as (PLATFORM-009).
     #[error("DATABASE_URL connects as a role that can't serve: {}", describe(.0))]
     UnsafeRole(Vec<RoleProblem>),
@@ -76,7 +76,7 @@ impl Database {
         let mut conn = pool.acquire().await.map_err(ConnectError::Connect)?;
         let problems = roles::check_role(&mut conn)
             .await
-            .map_err(|error| ConnectError::Check(error.into()))?;
+            .map_err(ConnectError::Check)?;
         if !problems.is_empty() {
             return Err(ConnectError::UnsafeRole(problems));
         }

@@ -135,11 +135,11 @@ pub(super) async fn check_schema(
     let table: &str = &migrations.table_name;
     let exists = table_exists(conn, table)
         .await
-        .map_err(|error| ConnectError::Check(error.into()))?;
+        .map_err(ConnectError::Check)?;
     let applied = if exists {
         conn.list_applied_migrations(table)
             .await
-            .map_err(ConnectError::Check)?
+            .map_err(|error| ConnectError::Check(query_error(error)))?
     } else {
         Vec::new()
     };
@@ -155,6 +155,15 @@ pub(super) async fn check_schema(
         return Err(SchemaProblem::Modified(Versions(modified)).into());
     }
     Ok(())
+}
+
+/// The database error inside an error of the migrator, so a failed read of the migrations
+/// table isn't reported as a failed migration.
+fn query_error(error: SqlxMigrateError) -> sqlx::Error {
+    match error {
+        SqlxMigrateError::Execute(error) => error,
+        other => sqlx::Error::Migrate(Box::new(other)),
+    }
 }
 
 async fn table_exists(conn: &mut PgConnection, table: &str) -> Result<bool, sqlx::Error> {
