@@ -46,6 +46,7 @@ compose.yaml        local development and the single-host reference deployment
 crates/
   platform/         shared mechanisms, no product knowledge
   app/              feature modules, routes, composition root, the binary
+  xtask/            the custom CI checks, which the API never depends on
 migrations/         one ordered directory; each file name names its owning module
 deploy/             Caddy, observability configs, the deploy script
 docs/
@@ -57,7 +58,7 @@ Everything that only matters when deploying lives under `deploy/`, so the root h
 
 ## 4. Crates
 
-The workspace has two crates. Cargo forbids `platform` from depending on `app`, so the shared mechanisms can never come to depend on a feature.
+The API has two crates. Cargo forbids `platform` from depending on `app`, so the shared mechanisms can never come to depend on a feature. The workspace's third crate, `xtask`, holds the custom CI checks, and neither API crate depends on it.
 
 ### `platform`
 

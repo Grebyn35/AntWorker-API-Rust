@@ -61,12 +61,12 @@ An error response, except from the health probes (OPS-05), has `Content-Type: ap
 ### API-08 Request bodies are strict
 JSON bodies reject unknown fields. Each route group has a body size limit, and an oversized body gets the 413 problem before it is buffered. Uploads are the only non-JSON bodies.
 - Why: a mistyped field fails loudly instead of being silently ignored (D8, D12).
-- Check: `compiler` (`deny_unknown_fields` on every request type, enforced by a derive macro), plus `test`.
+- Check: `ci: check-layers` (every type in a module's routes that derives `Deserialize` carries `#[serde(deny_unknown_fields)]`), plus `test`.
 
 ### API-09 Query parameters are strict
 Unknown query parameters are rejected with 400. Filters are explicit, named parameters. Booleans are `true` or `false`.
 - Why: a misspelled filter must never return unfiltered data (D8).
-- Check: `compiler` (query types use the same derive), plus `test`.
+- Check: `ci: check-layers` (the API-08 check covers query types), plus `test`.
 
 ### API-10 Input becomes domain types at the boundary
 Each request type converts into the service's domain input through `TryFrom`, and every field error is collected into one response (API-07). Service functions take domain types, never raw strings for values that have a domain type (D25).

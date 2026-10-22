@@ -2,7 +2,7 @@
 
 Where each commitment in the recommendation text of D1 to D36 ([SYNTHESIS.md](SYNTHESIS.md)) is carried: by a rule in `docs/standards/`, a behavior or design section in `docs/spec/`, or `docs/architecture.md`. It checks a fixed list, so it converges: each commitment is carried, contradicted or not yet carried.
 
-Of 291 commitments, 224 are carried, 15 are refined or contradicted by the rules, 6 aren't yet carried in the first slice, and 41 wait for later modules.
+Of 291 commitments, 223 are carried, 16 are refined or contradicted by the rules, 6 aren't yet carried in the first slice, and 41 wait for later modules.
 
 ## Use
 
@@ -19,6 +19,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D8 | Constraint violations map to 4xx | ERR-05: each constraint a repository relies on maps to a domain outcome; an unexpected violation is `Internal` |
 | D8, D10, D11 | Every response is a problem with a trace ID; the SDK samples every trace; an IP limit applies to every route | API-07, API-16, OBS-08, OBS-15, SEC-12 and OPS-05 exempt the health probes |
 | D10 | Every log line carries the trace and span IDs | OBS-02: a line written inside a span carries them |
+| D22 | A Cargo workspace with two crates | ARCH-01: the API has two crates, and a third, `xtask`, holds the custom CI checks |
 | D22 | The service holds the transaction boundary | The platform spec's unit of work: the route opens it and the service commits it |
 | D22 | Traits exist only where there are two real implementations | ARCH-13 also allows traits that invert a dependency |
 | D25 | Each type's constructor trims | AUTH-003: a password isn't trimmed |
