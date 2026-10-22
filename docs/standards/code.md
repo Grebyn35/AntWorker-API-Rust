@@ -10,7 +10,7 @@ Every crate uses edition 2024. The toolchain version is pinned in `rust-toolchai
 ### CODE-02 Formatted by `rustfmt`
 Code uses `rustfmt` with the repository's `rustfmt.toml`.
 - Why: formatting is never a review topic.
-- Check: `ci: fmt`.
+- Check: `ci: fmt-check`.
 
 ## Lints
 

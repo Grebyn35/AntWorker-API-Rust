@@ -8,8 +8,14 @@ CI runs `just setup`, then `just ci`, on every pull request and on every push to
 |---|---|---|
 | Formatting | `fmt-check` | CODE-02 |
 | Clippy, with warnings as errors | `lint` | CODE-03 to CODE-06, CODE-08, CODE-14, DATA-20 (the query functions outside the macros), DATA-21 (pools, connections and transactions outside `platform::db`) |
-| Tests, against Postgres | `test` | TEST-01 and every behavior's test |
+| Tests, against Postgres | `test` | TEST-11, and every behavior and rule a test proves |
 | Dependencies: advisories, licenses, bans and sources | `deny` | CODE-11, CODE-12, SEC-13, SEC-14 |
+| The map from spec behaviors to tests | `check-test-map` | TEST-01, DOC-10 |
+| Links, IDs and named CI checks resolve; no history or unfinished-work markers; documents only in the documentation set | `check-docs` | DOC-01, DOC-07, DOC-08, DOC-13 |
+
+`check-test-map` and `check-docs` are subcommands of the `xtask` crate (ARCH-01). `check-test-map` prints how many of each module's behaviors a test proves. While the migration runs, specs are written ahead of their code, so a behavior that no test proves is reported rather than failed. Once `docs/MIGRATION.md` is deleted, it fails the check.
+
+`check-docs` doesn't cover two of the rules that name it. The names of other codebases (DOC-04) wait for the queued DOC-04 proposal, and accepted ADRs (DOC-11) wait for the first ADR. Review enforces both until then.
 
 Builds check queries against the query cache committed in `.sqlx/` (DATA-20), so a query missing from the cache fails `lint` and `test`. `just prepare` rewrites the cache from the migrated database.
 

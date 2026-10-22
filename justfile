@@ -7,9 +7,10 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 export SQLX_OFFLINE := "true"
 
 api := "cargo run --locked --package app --bin antworker-api --"
+xtask := "cargo run --locked --quiet --package xtask --"
 
 # Runs every check CI runs.
-ci: fmt-check lint test deny
+ci: fmt-check lint test deny check-test-map check-docs
 
 # Writes .env from .env.example, with generated passwords, if .env doesn't exist yet.
 [unix]
@@ -66,3 +67,14 @@ prepare: services
 # Checks dependencies for advisories, licenses and banned crates (CODE-11, CODE-12, SEC-13).
 deny:
     cargo deny --locked check
+
+# Reports which spec behaviors tests prove, and fails on a test whose name doesn't start with a
+# behavior or rule ID that exists (TEST-01, DOC-10).
+check-test-map:
+    {{ xtask }} check-test-map
+
+# Fails on a link, ID or named CI check that doesn't resolve, a history marker, an
+# unfinished-work marker, or a document outside the documentation set (DOC-01, DOC-07, DOC-08,
+# DOC-13).
+check-docs:
+    {{ xtask }} check-docs

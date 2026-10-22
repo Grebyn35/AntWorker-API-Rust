@@ -18,9 +18,11 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 - The workspace scaffold (`platform` and `app` crates), strict configuration with the startup-failure format (PLATFORM-023, OPS-03), and the liveness probe (PLATFORM-019).
 - `platform::db`: Postgres 18 in `compose.yaml`; the `bootstrap` and `migrate` subcommands (PLATFORM-010, PLATFORM-027 to PLATFORM-029); the startup checks of the role and the schema (PLATFORM-009, PLATFORM-030); the unit of work; the first migration, with the default privileges (DATA-19); the test support, with one database per test (TEST-06); and the committed query cache (DATA-20).
 
-`just ci` passes locally and in GitHub Actions, where CI starts Postgres through `just setup` and Compose: formatting, clippy, 41 tests and `cargo-deny`. A scheduled workflow runs `cargo-deny` every day.
+- The review tools (build order 1.1): the checker in `xtask`, with `check-test-map` and `check-docs`, and the conformance reviewer in `.claude/agents/`.
 
-**Next:** step 1 of the build order, the walking skeleton, one part at a time. Each part ends with `just ci` passing.
+`just ci` passes locally and in GitHub Actions, where CI starts Postgres through `just setup` and Compose: formatting, clippy, 61 tests, `cargo-deny`, `check-test-map` and `check-docs`. A scheduled workflow runs `cargo-deny` every day.
+
+**Next:** the conformance review of `platform`'s database area, the reviewer's first run. Then step 1.2 of the build order, the request pipeline. Each part ends with `just ci` passing.
 
 ## Build order
 
@@ -61,7 +63,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 
 | Part | Decisions | Step |
 |---|---|---|
-| The checker tool and the conformance reviewer | D23, D27 | 1.1 |
+| The checker tool and the conformance reviewer | D23, D27 | built |
 | The request pipeline: problem responses, trace context, the middleware stack, readiness and shutdown | D8, D9, D10, D11, D17, D20, D26 | 1.2 |
 | The capabilities endpoint and `openapi.json` | D8, D9 | 1.2 |
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | 1.3 |
@@ -107,8 +109,10 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 
 | Check | Step |
 |---|---|
-| `fmt`, `test`, `deny` | built |
-| `check-test-map`, `check-docs` | 1.1 |
+| `fmt-check`, `test`, `deny` | built |
+| `check-test-map`, `check-docs` | built |
+| `check-docs`, for the names of other codebases (DOC-04) | 3, with the queued DOC-04 proposal |
+| `check-docs`, for accepted ADRs (DOC-11) | 6, with the first ADR |
 | `openapi` | 1.2 |
 | `check-instrument`, `check-telemetry-config`, `check-metrics`, `alert-rules` | 1.3 |
 | `check-toolchain`, `check-pins`, `check-protection`, `image-scan`, `verify-release` | 1.4 |

@@ -157,6 +157,6 @@ Platform bookkeeping (rate-limit buckets, idempotency records, job state) and sc
 ### DATA-28 Personal data is covered by a contract
 Every column that references a user or holds personal data (glossary) is covered by a registered personal data contract (D31). A column that holds personal data carries the column comment `personal_data`, set with `COMMENT ON COLUMN` in its migration.
 
-`platform` registers a contract for its own tables. Erasing a user deletes their idempotency records and the events scoped to them. Jobs hold no foreign keys to user data: a pending job still runs, and its handler does nothing when its subject no longer exists. A finished job keeps no payload (OPS-10). Rate-limit buckets hold only keyed hashes and expire on their own. Export leaves these tables out, because the modules that own the data export it.
+`platform` registers a contract for its own tables. Erasing a user deletes their idempotency records and the events scoped to them. Jobs hold no foreign keys to user data: a pending job still runs, and its handler does nothing when its subject has been deleted. A finished job keeps no payload (OPS-10). Rate-limit buckets hold only keyed hashes and expire on their own. Export leaves these tables out, because the modules that own the data export it.
 - Why: export and erasure can't miss a table, including the platform's own.
 - Check: `ci: check-personal-data` (every foreign key to `users`, and every column commented `personal_data`, against the registered contracts).

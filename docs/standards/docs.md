@@ -5,7 +5,7 @@
 ### DOC-01 Docs and comments describe the system as it is
 No document or comment records what changed, what something replaced, what an earlier version did, who asked for it, or when it was written.
 - Why: history goes stale, and readers need the current state, not the path to it (D27).
-- Check: `ci: check-docs` flags the common markers ("previously", "no longer", "used to", "legacy", "now uses", and dates in comments), plus `review`.
+- Check: `ci: check-docs` flags the common markers (`previously`, `no longer`, `used to`, `legacy`, `now uses`, and dates in comments), plus `review`.
 
 ### DOC-02 Edits rewrite in place
 An edit rewrites the affected text so it reads as if it had always said that. There are no "update", "note", "refinement" or dated additions, and no struck-through text.
@@ -84,6 +84,6 @@ An ADR has four sections: context, decision, consequences and status. After it i
 - Check: `review`.
 
 ### DOC-13 Links and IDs resolve
-Every link in the docs resolves, and every rule ID or behavior ID cited in a document, comment or test exists.
+Every link in the docs resolves, and every rule ID or behavior ID cited in a document, comment or test exists. Every CI check a rule names is listed in `docs/operations/ci.md`, or, while the migration runs, in the tracker's list of CI checks.
 - Why: a broken reference is a silent lie.
 - Check: `ci: check-docs`.
