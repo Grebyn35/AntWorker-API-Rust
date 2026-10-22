@@ -9,7 +9,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 | [architecture.md](architecture.md) | draft |
 | [standards/](standards/README.md) | Review stopped after pass 4; its resolutions are D32 to D36. Tenancy is enforced by the application, with no row-level security (D4). 160 rules. |
 | [spec/](spec/README.md) | The first slice's nine specs are written. The triage behind them is in [inventory/triage-slice.md](inventory/triage-slice.md). |
-| `docs/adr/` | Not started. Written after the rule fixes (Build order, step 2), from the rules as they then stand. The recommendation text in SYNTHESIS.md predates the standards, and [inventory/decision-trace.md](inventory/decision-trace.md) lists where the rules refine it. ADR-00NN records decision DNN. Before `docs/inventory/` is deleted, every `DNN` citation is replaced with a link to its ADR. |
+| `docs/adr/` | Not started. Written after the rule fixes (Build order, step 3), from the rules as they then stand. The recommendation text in SYNTHESIS.md predates the standards, and [inventory/decision-trace.md](inventory/decision-trace.md) lists where the rules refine it. ADR-00NN records decision DNN. Before `docs/inventory/` is deleted, every `DNN` citation is replaced with a link to its ADR. |
 | [CLAUDE.md](../CLAUDE.md) | written |
 
 ## Current work
@@ -18,38 +18,61 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 - The workspace scaffold (`platform` and `app` crates), strict configuration with the startup-failure format (PLATFORM-023, OPS-03), and the liveness probe (PLATFORM-019).
 - `platform::db`: Postgres 18 in `compose.yaml`; the `bootstrap` and `migrate` subcommands (PLATFORM-010, PLATFORM-027 to PLATFORM-029); the startup checks of the role and the schema (PLATFORM-009, PLATFORM-030); the unit of work; the first migration, with the default privileges (DATA-19); the test support, with one database per test (TEST-06); and the committed query cache (DATA-20).
 
-`just ci` passes locally and in GitHub Actions, where CI starts Postgres through `just setup` and Compose: formatting, clippy, 41 tests and `cargo-deny`.
+`just ci` passes locally and in GitHub Actions, where CI starts Postgres through `just setup` and Compose: formatting, clippy, 41 tests and `cargo-deny`. A scheduled workflow runs `cargo-deny` every day.
 
-**Next, in order.** Each mechanism of `platform` is built together with the first module that calls it, and each step ends with `just ci` passing:
-1. `accounts`, `auth` and the `audit` writer, with the HTTP errors (D17), authentication (`Principal` and `SessionVerifier`) and the per-email rate limit. The step starts with the first custom CI checks: `check-test-map`, which reports every behavior that no test proves, so the gap between the specs and the code is a report rather than a judgment, and `check-docs`, which fails on any ID or link in the docs that doesn't resolve (DOC-13). It also settles the `auth` items in [inventory/decision-trace.md](inventory/decision-trace.md).
-2. `access` and `workspaces`, with `Authorized<P>`, the security event sink, and idempotency, which creating a workspace uses.
-3. Jobs, `mail` and `invitations`.
-4. The event hub and `realtime`, ending with "removing a member closes their stream".
-
-Each custom CI check is built in the first step that has code for it to check: `check-tenancy`, `check-deps`, `check-layers`, `check-test-map`, `check-docs`, `check-schema` and `openapi`.
+**Next:** step 1 of the build order, the walking skeleton, one part at a time. Each part ends with `just ci` passing.
 
 ## Build order
 
 The design is settled by building, not by further review of the documents. Until a part is built, its spec and its sections of architecture.md are the plan, not a description of code. When building shows the plan is wrong, the plan is corrected in the same change as the code, and a rule changes through [Changing a rule](standards/README.md#changing-a-rule). A behavior counts as proven only when a test named by its ID passes.
 
-1. **Thin slice.** Spec it, then build it test-first:
-   - `platform`: the mechanisms in `docs/spec/platform.md`, each built with the first module that calls it.
-   - `auth`: registration, sign-in and sessions.
-   - `access` and `workspaces`: creating a workspace, and removing a member, which closes that member's open stream.
-   - `invitations`: inviting a member, and accepting the invitation.
+From the end of step 1 on, the system is always deployable and observable: every change runs in the image CI publishes, the reference deployment rolls it out, and its telemetry reaches the observability stack. A step that adds a behavior also adds what operating it takes: its metrics and the dashboard questions they answer, its alerts and their runbooks, and its end-to-end scenarios.
+
+Every part of the system is listed under [Foundation](#foundation), [Modules](#modules) or [CI checks](#ci-checks), with the step that builds it. Each part is specified just before it is built.
+
+1. **Walking skeleton.** The running system, end to end, before any feature:
+   1. **Review tools:** the checker tool in `xtask` and the conformance reviewer in `.claude/` (D27). The checker starts with `check-test-map`, which reports every behavior that no test proves, and `check-docs`, which fails on any ID or link that doesn't resolve (DOC-13) and on any check a rule names that neither [operations/ci.md](operations/ci.md) nor [CI checks](#ci-checks) lists.
+   2. **Request pipeline:** problem responses with trace IDs, trace context in and out, the middleware stack, readiness and bounded shutdown, and the capabilities endpoint as the first `/v1` route, with `openapi.json`. It starts with the typed-client spike: before any test calls the API through a client generated from `openapi.json`, a throwaway test compares the candidate generators, including their licenses (CODE-12) and the OpenAPI version they read.
+   3. **Telemetry:** traces, logs and metrics exported over OTLP; the metric declaration macro; the collector, Prometheus, Loki, Tempo, Grafana and Alertmanager, with logs and traces linked both ways; the first dashboard questions and alerts; and the generated metric catalog. `just dev` runs the API with the stack one flag away.
+   4. **Image and pipeline:** the image, and CI that builds it once, scans it, boots it, runs the end-to-end suite against it, and promotes its digest, with signed releases on tags.
+   5. **Reference deployment:** `deploy/compose.yaml`, the deploy script, scheduled backups and restore, and the load test. The end-to-end suite proves a deploy with no downtime, a rollback, a restore, and the trace-ID guarantee for a 4xx response (D10).
+2. **Thin slice.** Spec it, then build it test-first, each part extending the skeleton:
+   1. `accounts`, `auth` and the `audit` writer, with authentication (`Principal` and `SessionVerifier`) and the per-email rate limit. It settles the `auth` items in [inventory/decision-trace.md](inventory/decision-trace.md), and extends the trace-ID guarantee to a 5xx response.
+   2. `access` and `workspaces`, with `Authorized<P>`, the security event sink, and idempotency, which creating a workspace uses.
+   3. Jobs, `mail` and `invitations`.
+   4. The event hub and `realtime`, ending with "removing a member closes their stream". Readiness then includes the listener, and a deploy with an open stream loses no event.
 
    Together these exercise every mechanism the document reviews couldn't settle: D32 to D36, idempotency, jobs, email and the real-time hub.
 
-   Three constraints apply to the slice:
+   Three constraints apply to steps 1 and 2:
    - **Tenancy is enforced by the application.** Every query filters by tenant itself, checked by `check-tenancy` and by the foreign-workspace probes (TEST-09). There is no row-level security (D4).
-   - **A short list of custom CI checks.** Alongside the standard tools, the slice builds only `check-deps`, `check-layers`, `check-schema`, `check-tenancy`, `openapi`, `check-test-map` and `check-docs`, as one checker tool.
+   - **A short list of custom CI checks.** Steps 1 and 2 build only the checks that [CI checks](#ci-checks) assigns them, as one checker tool.
    - **A typed client generated from `openapi.json`.** The integration tests call the API through it, and the desktop client uses it later.
-2. **Rule fixes.** Apply one round of rule changes from what the slice taught, through [Changing a rule](standards/README.md#changing-a-rule). The round deletes rules as well as fixing them: a rule that no code needed, or that only restates another, goes. It records the number of rules, behaviors and CI checks before and after.
-3. **Afternoon test.** A developer or agent new to the codebase, using only the docs, adds a small feature to the slice. Anything that slows them down is fixed by removing complexity, not by adding it.
-4. **Remaining modules, one at a time.** Each module's spec is written just before the module is built, and carries the commitments that [inventory/decision-trace.md](inventory/decision-trace.md) lists for it.
-5. **Close the migration.** architecture.md is rewritten to describe the system as built (DOC-01), the ADRs are written, and `docs/inventory/` and this file are deleted.
+3. **Rule fixes.** Apply one round of rule changes from what steps 1 and 2 taught, through [Changing a rule](standards/README.md#changing-a-rule). The round deletes rules as well as fixing them: a rule that no code needed, or that only restates another, goes. It settles each CI check that [CI checks](#ci-checks) leaves to it, and records the number of rules, behaviors and CI checks before and after.
+4. **Afternoon test.** A developer or agent new to the codebase, using only the docs, adds a small feature to the slice. Anything that slows them down is fixed by removing complexity, not by adding it.
+5. **Remaining modules, one at a time.** `just new-module` and the guide to adding a module come first, shaped by the afternoon test, and every remaining module starts from them. Each module's spec is written just before the module is built, and carries the commitments that [inventory/decision-trace.md](inventory/decision-trace.md) lists for it.
+6. **Close the migration.** The remaining parts under [Foundation](#foundation) are built, architecture.md is rewritten to describe the system as built (DOC-01), and `docs/inventory/` and this file are deleted.
 
 Each CI check is built when the code it checks exists. A check that never catches a real problem is removed.
+
+## Foundation
+
+The parts that aren't modules, from [architecture.md](architecture.md) and the documentation set (DOC-08). [inventory/decision-trace.md](inventory/decision-trace.md) lists the commitments each one carries. A part's step reads "built" once it is.
+
+| Part | Decisions | Step |
+|---|---|---|
+| The checker tool and the conformance reviewer | D23, D27 | 1.1 |
+| The request pipeline: problem responses, trace context, the middleware stack, readiness and shutdown | D8, D9, D10, D11, D17, D20, D26 | 1.2 |
+| The capabilities endpoint and `openapi.json` | D8, D9 | 1.2 |
+| Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | 1.3 |
+| The image and the delivery pipeline, with the release docs | D15, D21 | 1.4 |
+| The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30 | 1.5 |
+| `just seed` and the OpenAPI UI in development | D28 | 2.4 |
+| The threat model | D26 | 3 |
+| `just new-module` and the guide to adding a module | D29 | 5 |
+| `just rename`, the guide to renaming a fork, and the GitHub template repository | D29 | 6 |
+| `SECURITY.md` and the OWASP ASVS Level 2 pass | D26 | 6 |
+| The ADRs and `CHANGELOG.md` | D27, D29 | 6 |
 
 ## Modules
 
@@ -78,6 +101,25 @@ Each module goes through these stages, in order:
 | `client_telemetry` | OBS | | | | | |
 | `system` | HTTP, OPS | | | | | |
 
+## CI checks
+
+Every check a rule names, and the step that builds it. [operations/ci.md](operations/ci.md) lists the checks that exist. Until a check exists, its rule is enforced by review.
+
+| Check | Step |
+|---|---|
+| `fmt`, `test`, `deny` | built |
+| `check-test-map`, `check-docs` | 1.1 |
+| `openapi` | 1.2 |
+| `check-instrument`, `check-telemetry-config`, `check-metrics`, `alert-rules` | 1.3 |
+| `check-toolchain`, `check-pins`, `check-protection`, `image-scan`, `verify-release` | 1.4 |
+| `e2e` | 1.5, extended by every later step |
+| `check-layers`, `check-schema`, `check-deps`, `check-tenancy` | 1.2 to 2.2, each with the first code it checks |
+| `check-layout`, `check-table-ownership`, `check-config`, `check-migrations`, `sqlx-check`, `setup-smoke` | 3 decides: built, or the rule's check changes |
+| `check-personal-data` | 5, with export and erasure in `accounts` |
+| `check-removable` | 5, with the first optional part |
+| `test-migrations` | 6, with the first release |
+| `check-rename` | 6, with `just rename` |
+
 ## Standards review
 
 Follows the review procedure in [standards/README.md](standards/README.md#reviews). The review is capped at six passes. If it stops before reporting zero `must-fix` findings, the fallback resolutions apply.
@@ -101,7 +143,7 @@ Follows the review procedure in [standards/README.md](standards/README.md#review
 
 ### Queued rule proposals
 
-Handled in the rule fixes (Build order, step 2), as in [Changing a rule](standards/README.md#changing-a-rule).
+Handled in the rule fixes (Build order, step 3), as in [Changing a rule](standards/README.md#changing-a-rule).
 
 | From | Proposal |
 |---|---|

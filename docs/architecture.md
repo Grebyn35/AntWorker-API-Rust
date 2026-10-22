@@ -42,15 +42,16 @@ flowchart LR
 Cargo.toml          workspace manifest
 justfile            every task, run identically locally and in CI (D21)
 Dockerfile
-compose.yaml        local development and the single-host reference deployment
+compose.yaml        the services a developer runs locally
 crates/
   platform/         shared mechanisms, no product knowledge
   app/              feature modules, routes, composition root, the binary
   xtask/            the custom CI checks, which the API never depends on
 migrations/         one ordered directory; each file name names its owning module
-deploy/             Caddy, observability configs, the deploy script
+deploy/             the reference deployment: its Compose file, Caddy, observability configs, the deploy script
 docs/
 .github/            thin workflows that call `just`
+.claude/            Claude Code definitions, including the conformance reviewer
 CLAUDE.md
 ```
 
@@ -268,7 +269,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   - `migrate` is the one-shot migration step.
   - `seed` loads development data.
   - `openapi` writes the contract for the CI drift check.
-- **The single-host reference deployment** runs Caddy, N API replicas, Postgres and SeaweedFS from `compose.yaml`, with the observability stack behind a profile. The deploy script rolls replicas with no downtime (D15), and scheduled backups go to object storage (D30).
+- **The single-host reference deployment** runs Caddy, N API replicas, Postgres and SeaweedFS from `deploy/compose.yaml`, with the observability stack as an option. The server holds no checkout of the repository: each release publishes its deploy files with its image. The deploy script rolls replicas with no downtime (D15), and scheduled backups go to object storage (D30).
 - **Scaling out** means adding replicas. The connection budget is replicas × (pool size + 1 listener), and it must fit within Postgres's `max_connections`. The listener needs a direct connection, which rules out PgBouncer in transaction mode. Under load, each replica sheds requests with 503 and `Retry-After` instead of queuing without bound (D20).
 - **Multiple hosts.** The image and its environment contract don't depend on a platform. The operations docs state what any platform must provide.
 

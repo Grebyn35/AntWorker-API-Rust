@@ -2,12 +2,12 @@
 
 Where each commitment in the recommendation text of D1 to D36 ([SYNTHESIS.md](SYNTHESIS.md)) is carried: by a rule in `docs/standards/`, a behavior or design section in `docs/spec/`, or `docs/architecture.md`. It checks a fixed list, so it converges: each commitment is carried, contradicted or not yet carried.
 
-Of 291 commitments, 223 are carried, 16 are refined or contradicted by the rules, 6 aren't yet carried in the first slice, and 41 wait for later modules.
+Of 291 commitments, 223 are carried, 16 are refined or contradicted by the rules, 6 aren't yet carried in the first slice, and 41 wait for later steps.
 
 ## Use
 
 - **Writing an ADR:** write it from the rules as they stand. The table below lists where the recommendation text and the rules differ, and the rules are the decision.
-- **Writing a module's spec:** carry every commitment listed for that module under "Not yet carried".
+- **Writing the spec of a module or a foundation part:** carry every commitment listed for it under "Not yet carried".
 
 ## Recommendation text that the rules refine
 
@@ -43,10 +43,12 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D11 | Each user holds a capped number of concurrent streams | the `realtime` step |
 | D12 | Idempotency keys are compared exactly as sent | the idempotency step |
 | D18 | Sign-in and refresh responses come from one function that issues the session | the `auth` step |
-| D20 | Startup logs the connection budget | the `auth` step, when `serve` keeps its pool |
+| D20 | Startup logs the connection budget | the request pipeline (build order 1.2), when `serve` keeps its pool |
 | D20 | Runtime threads come from configuration | queued rule proposal in MIGRATION.md |
 
-### For later modules
+### For later steps
+
+Modules carry their own; the build order step of each other area is in parentheses, as in [MIGRATION.md](../MIGRATION.md#foundation).
 
 | Module or area | Commitments |
 |---|---|
@@ -55,8 +57,8 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | `auth` | the ADR on accepted enumeration (D7); forgot-password answers 503 with email off (D9); the OAuth redirect allowlist (D18) |
 | `accounts` | deletion refused while the user owns a shared workspace, sole-member workspaces deleted with the account, and the ADR on immediate deletion (D16); the export endpoint, one per 24 hours, its archive, notice, download and scope, and the optional erasure precondition (D31) |
 | `files` | a bucket for anonymous public-file downloads (D11) |
-| Observability | Grafana links between logs and traces (D10); the operator questions in the docs, the overview dashboard, the same topology in development and production, and newcomer docs with an error-to-trace walkthrough (D19); the observability profile one flag away (D28) |
-| Deploy and CI | Caddy's trusted proxies (D11); TLS everywhere and storage encrypted at rest (D14, queued); alerts that don't depend on the deploy tooling (D15); Compose memory and CPU limits (D20); the five pull-request stages, shellcheck, the `edge` tag, keyless signing, the weekly rescan and dependency updates (D21); the OpenAPI UI in development only (D28) |
-| Template | a GitHub template repository and `just new-module` (D29); the ADR on hard deletes (D24) |
-| Backups | the backup tool, point-in-time recovery on managed Postgres, bucket versioning, and a separate backup of the secrets key (D30) |
-| Security | the ASVS Level 2 conformance pass (D26) |
+| Observability (1.3) | Grafana links between logs and traces (D10); the operator questions in the docs, the overview dashboard, the same topology in development and production, and newcomer docs with an error-to-trace walkthrough (D19); the observability profile one flag away (D28) |
+| Deploy and CI (1.2 to 1.5) | Caddy's trusted proxies (D11); TLS everywhere and storage encrypted at rest (D14, queued); alerts that don't depend on the deploy tooling (D15); Compose memory and CPU limits (D20); the five pull-request stages, shellcheck, the `edge` tag, keyless signing, the weekly rescan and dependency updates (D21); the OpenAPI UI in development only, in step 2.4 (D28) |
+| Template (5, 6) | a GitHub template repository and `just new-module` (D29); the ADR on hard deletes (D24) |
+| Backups (1.5) | the backup tool, point-in-time recovery on managed Postgres, bucket versioning, and a separate backup of the secrets key (D30) |
+| Security (6) | the ASVS Level 2 conformance pass (D26) |
