@@ -2,6 +2,8 @@
 
 How the API is built: its parts, how they depend on each other, how a request flows through them, and where each rule is enforced. Read this before changing or adding a module.
 
+While the API is being built, parts of this document describe the design to build rather than code that exists. The module table in [MIGRATION.md](MIGRATION.md#modules) shows what is built. Where this document and the code disagree, the code and its tests win, and this document is corrected.
+
 Decision IDs (`D1` to `D36`) refer to the decision records in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md).
 
 ## 1. System context

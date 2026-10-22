@@ -21,12 +21,12 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 `just ci` passes locally and in GitHub Actions, where CI starts Postgres through `just setup` and Compose: formatting, clippy, 41 tests and `cargo-deny`.
 
 **Next, in order.** Each mechanism of `platform` is built together with the first module that calls it, and each step ends with `just ci` passing:
-1. `accounts`, `auth` and the `audit` writer, with the HTTP errors (D17), authentication (`Principal` and `SessionVerifier`) and the per-email rate limit. The step starts with `check-test-map`, the first custom CI check, which reports every behavior that no test proves, so the gap between the specs and the code is a report rather than a judgment. It also settles the `auth` items in [inventory/decision-trace.md](inventory/decision-trace.md).
+1. `accounts`, `auth` and the `audit` writer, with the HTTP errors (D17), authentication (`Principal` and `SessionVerifier`) and the per-email rate limit. The step starts with the first custom CI checks: `check-test-map`, which reports every behavior that no test proves, so the gap between the specs and the code is a report rather than a judgment, and `check-docs`, which fails on any ID or link in the docs that doesn't resolve (DOC-13). It also settles the `auth` items in [inventory/decision-trace.md](inventory/decision-trace.md).
 2. `access` and `workspaces`, with `Authorized<P>`, the security event sink, and idempotency, which creating a workspace uses.
 3. Jobs, `mail` and `invitations`.
 4. The event hub and `realtime`, ending with "removing a member closes their stream".
 
-Each custom CI check is built in the first step that has code for it to check: `check-tenancy`, `check-deps`, `check-layers`, `check-test-map`, `check-schema` and `openapi`.
+Each custom CI check is built in the first step that has code for it to check: `check-tenancy`, `check-deps`, `check-layers`, `check-test-map`, `check-docs`, `check-schema` and `openapi`.
 
 ## Build order
 
@@ -42,7 +42,7 @@ The design is settled by building, not by further review of the documents. Until
 
    Three constraints apply to the slice:
    - **Tenancy is enforced by the application.** Every query filters by tenant itself, checked by `check-tenancy` and by the foreign-workspace probes (TEST-09). There is no row-level security (D4).
-   - **A short list of custom CI checks.** Alongside the standard tools, the slice builds only `check-deps`, `check-layers`, `check-schema`, `check-tenancy`, `openapi` and `check-test-map`, as one checker tool.
+   - **A short list of custom CI checks.** Alongside the standard tools, the slice builds only `check-deps`, `check-layers`, `check-schema`, `check-tenancy`, `openapi`, `check-test-map` and `check-docs`, as one checker tool.
    - **A typed client generated from `openapi.json`.** The integration tests call the API through it, and the desktop client uses it later.
 2. **Rule fixes.** Apply one round of rule changes from what the slice taught, through [Changing a rule](standards/README.md#changing-a-rule). The round deletes rules as well as fixing them: a rule that no code needed, or that only restates another, goes. It records the number of rules, behaviors and CI checks before and after.
 3. **Afternoon test.** A developer or agent new to the codebase, using only the docs, adds a small feature to the slice. Anything that slows them down is fixed by removing complexity, not by adding it.
@@ -59,7 +59,7 @@ Each module goes through these stages, in order:
 2. **Spec:** its spec is written ([spec/](spec/README.md)).
 3. **Tests:** every behavior in the spec has a test named by its ID.
 4. **Code:** the module is implemented.
-5. **Conformance:** a review against the spec and the standards finds no violation. Every finding cites a rule ID or behavior ID.
+5. **Conformance:** a review against the spec and the standards finds no violation, and what architecture.md says about the module matches the code. Every finding cites a rule ID, a behavior ID, or the section of architecture.md it contradicts.
 
 "First slice" means the stage is done for the behaviors the first slice builds. `platform` goes through the stages one area at a time, and "database" means its `db` area.
 
@@ -108,9 +108,8 @@ Handled in the rule fixes (Build order, step 2), as in [Changing a rule](standar
 | Pass 3 | An OPS rule for D14: TLS on every connection that leaves the host, and storage encrypted at rest as a stated deployment requirement. |
 | `platform::db` | DATA-13: state the whole check PLATFORM-009 makes: the role's name, its attributes, what it owns, and the roles it belongs to. |
 | `platform::db` | DATA-21: the check bans `sqlx::Pool`, `sqlx::PgConnection` and `sqlx::Transaction` everywhere except `platform::db` and the test support, not only `PgPool` and `PgConnection` in `app`. |
-| `platform::db` | CODE-10: the role `app` and the crate `app` share a name. Rename the role, for example to `api`. |
 | `platform::db` | D20: drop "runtime threads come from configuration". The async runtime sizes itself to the CPUs the container may use, so no two deployments would set it differently (OPS-02). |
-| Parallel review | Before the first release, renumber rule and behavior IDs once, closing the gaps the document reviews left. From then on, IDs are never reused. |
+| Parallel review | Right after the rule fixes, renumber rule and behavior IDs once, closing the gaps. The rule fixes retire the last large group of IDs, and every later test would carry an old number. From then on, IDs are never reused. |
 | Decision trace | DOC-04: extend the migration workspace's exception to CLAUDE.md's pointer to `docs/inventory/`. |
 
 ### Open design questions
