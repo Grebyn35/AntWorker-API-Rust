@@ -1,6 +1,6 @@
 # CI
 
-CI runs `just setup`, then `just ci`, on every pull request and on every push to `main` (OPS-12). `just setup` writes `.env` with generated passwords, and the tests start Postgres through Compose with them, as they do on a developer's machine (TEST-11). Each check below is a `just` task.
+CI runs `just setup`, then `just ci`, on every pull request and on every push to `main` (OPS-12). A scheduled workflow also runs `just deny` every day, so an advisory published against a locked dependency fails CI without waiting for a push (SEC-13). `just setup` writes `.env` with generated passwords, and the tests start Postgres through Compose with them, as they do on a developer's machine (TEST-11). Each check below is a `just` task.
 
 ## Checks that exist
 
