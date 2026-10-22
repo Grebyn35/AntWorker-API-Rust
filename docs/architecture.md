@@ -48,7 +48,7 @@ crates/
   app/              feature modules, routes, composition root, the binary
   xtask/            the custom CI checks, which the API never depends on
 migrations/         one ordered directory; each file name names its owning module
-deploy/             the reference deployment: its Compose file, Caddy, observability configs, the deploy script
+deploy/             the reference deployment and its configuration
 docs/
 .github/            thin workflows that call `just`
 .claude/            Claude Code definitions, including the conformance reviewer
@@ -269,7 +269,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   - `migrate` is the one-shot migration step.
   - `seed` loads development data.
   - `openapi` writes the contract for the CI drift check.
-- **The single-host reference deployment** runs Caddy, N API replicas, Postgres and SeaweedFS from `deploy/compose.yaml`, with the observability stack as an option. The server holds no checkout of the repository: each release publishes its deploy files with its image. The deploy script rolls replicas with no downtime (D15), and scheduled backups go to object storage (D30).
+- **The single-host reference deployment** runs N API replicas behind Caddy, with Postgres, SeaweedFS and, as an option, the observability stack. A deploy needs only the release's published artifacts on the server, never a checkout of the repository. It replaces replicas with no downtime and rolls back on failure (D15, OPS-16), and scheduled backups go to object storage (D30). The deploy tooling is chosen when the deployment is built.
 - **Scaling out** means adding replicas. The connection budget is replicas × (pool size + 1 listener), and it must fit within Postgres's `max_connections`. The listener needs a direct connection, which rules out PgBouncer in transaction mode. Under load, each replica sheds requests with 503 and `Retry-After` instead of queuing without bound (D20).
 - **Multiple hosts.** The image and its environment contract don't depend on a platform. The operations docs state what any platform must provide.
 

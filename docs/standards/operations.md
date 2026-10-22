@@ -103,7 +103,7 @@ One image serves every subcommand. It runs as a non-root user with a read-only r
 ## Deploy and recovery
 
 ### OPS-16 Deploys roll without downtime and roll back on failure
-The deploy script starts new replicas, waits until they are ready, shifts traffic, then stops the old replicas. If a new replica doesn't become ready, the deploy rolls back. CI runs the script against the real image.
+A deploy starts new replicas, waits until they are ready, shifts traffic to them, then stops the old replicas. If a new replica doesn't become ready, the deploy rolls back. CI runs a deploy against the real image.
 - Why: deploying is routine, not a risk (D15).
 - Check: `ci: e2e`.
 

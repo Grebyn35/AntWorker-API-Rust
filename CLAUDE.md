@@ -12,7 +12,7 @@ This is a Rust API built as a template to fork. Read these before changing anyth
 ## Rules for every change
 
 - **Spec first.** A change to behavior updates the module's spec before or with the code.
-- **Docs for unbuilt parts are the plan.** Until a part is built, its spec and its sections of `docs/architecture.md` describe the intended design, not code. When building shows the plan is wrong, correct the plan in the same change as the code. A rule changes through "Changing a rule" in the standards README. A behavior is proven only when a test named by its ID passes.
+- **Docs for unbuilt parts are the plan.** Until a part is built, its spec and its sections of `docs/architecture.md` describe the intended design, not code. The plan states what a part must do and guarantee; the tools and libraries it uses are chosen when its spec is written, just before it is built. When building shows the plan is wrong, correct the plan in the same change as the code. A rule changes through "Changing a rule" in the standards README. A behavior is proven only when a test named by its ID passes.
 - **Tests prove IDs.** Every test name starts with the behavior ID or rule ID it proves, such as `auth_004_` or `ops_03_` (TEST-01).
 - **Findings cite IDs.** A review finding cites a rule ID or a behavior ID. Anything else is a proposal for a new rule, and the owner decides (standards README, "Changing a rule").
 - **No open-ended evaluations.** Reviews follow the procedure and the stopping rule in the standards README.
