@@ -119,6 +119,8 @@ enum Problem {
     OutOfRange(u32, u32),
     #[error("names a file that can't be read")]
     UnreadableFile,
+    #[error("must be unset: connections take their settings only from the database URLs")]
+    MustBeUnset,
 }
 
 impl ConfigError {
@@ -130,8 +132,22 @@ impl ConfigError {
     }
 }
 
-const DATABASE_URL_EXPECTED: &str =
-    "a PostgreSQL URL with a user, a password, a host and a database";
+const DATABASE_URL_EXPECTED: &str = "a PostgreSQL URL with a user, a password, a host and a \
+     database, and no query parameters but sslmode, sslrootcert, sslcert, sslkey and \
+     application_name";
+
+/// The environment variables of libpq that the Postgres driver reads, and that would change a
+/// connection whose URL leaves them out. The URL always sets the host, user, password and
+/// database, so the variables for those can't change anything.
+const LIBPQ_VARIABLES: [&str; 7] = [
+    "PGPORT",
+    "PGSSLMODE",
+    "PGSSLROOTCERT",
+    "PGSSLCERT",
+    "PGSSLKEY",
+    "PGAPPNAME",
+    "PGOPTIONS",
+];
 
 /// Reads settings from a source of environment variables and the files they name.
 pub struct Settings<E, F> {
@@ -165,7 +181,7 @@ where
     pub fn server(&self) -> Result<ServerConfig, ConfigError> {
         Ok(ServerConfig {
             listen_addr: self.required("LISTEN_ADDR", "a socket address such as 0.0.0.0:8080")?,
-            database_url: self.required("DATABASE_URL", DATABASE_URL_EXPECTED)?,
+            database_url: self.database_url("DATABASE_URL")?,
             database_max_connections: self.number("DATABASE_MAX_CONNECTIONS", 10, 1..=1000)?,
         })
     }
@@ -173,17 +189,29 @@ where
     /// The settings for `migrate`.
     pub fn migrate(&self) -> Result<MigrateConfig, ConfigError> {
         Ok(MigrateConfig {
-            owner_url: self.required("DATABASE_OWNER_URL", DATABASE_URL_EXPECTED)?,
+            owner_url: self.database_url("DATABASE_OWNER_URL")?,
         })
     }
 
     /// The settings for `bootstrap`.
     pub fn bootstrap(&self) -> Result<BootstrapConfig, ConfigError> {
         Ok(BootstrapConfig {
-            admin: self.required("DATABASE_ADMIN_URL", DATABASE_URL_EXPECTED)?,
-            owner: self.required("DATABASE_OWNER_URL", DATABASE_URL_EXPECTED)?,
-            app: self.required("DATABASE_URL", DATABASE_URL_EXPECTED)?,
+            admin: self.database_url("DATABASE_ADMIN_URL")?,
+            owner: self.database_url("DATABASE_OWNER_URL")?,
+            app: self.database_url("DATABASE_URL")?,
         })
+    }
+
+    /// The database URL in the setting `name`. Every libpq variable that would change its
+    /// connections must be unset, so the URL is the only source of connection settings.
+    fn database_url(&self, name: &str) -> Result<DatabaseUrl, ConfigError> {
+        if let Some(variable) = LIBPQ_VARIABLES
+            .iter()
+            .find(|variable| non_empty((self.env)(variable)).is_some())
+        {
+            return Err(ConfigError::new(variable, Problem::MustBeUnset));
+        }
+        self.required(name, DATABASE_URL_EXPECTED)
     }
 
     fn required<T: FromStr>(&self, name: &str, expected: &'static str) -> Result<T, ConfigError> {
@@ -353,7 +381,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error.to_string(),
-            "DATABASE_URL must be a PostgreSQL URL with a user, a password, a host and a database"
+            format!("DATABASE_URL must be {DATABASE_URL_EXPECTED}")
         );
         assert!(!error.to_string().contains("localhost"));
     }
@@ -433,5 +461,42 @@ mod tests {
         assert_eq!(migrate.owner_url.database(), "antworker");
         let error = settings(&SERVER, &[]).bootstrap().unwrap_err();
         assert_eq!(error.to_string(), "DATABASE_ADMIN_URL is required");
+    }
+
+    #[test]
+    fn ops_01_libpq_variables_that_would_change_connections_must_be_unset() {
+        for name in [
+            "PGPORT",
+            "PGSSLMODE",
+            "PGSSLROOTCERT",
+            "PGSSLCERT",
+            "PGSSLKEY",
+            "PGAPPNAME",
+            "PGOPTIONS",
+        ] {
+            let error = settings(&with(&SERVER, &[(name, "x")]), &[])
+                .server()
+                .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "{name} must be unset: connections take their settings only from the database URLs"
+                )
+            );
+        }
+        let migrate = settings(
+            &[
+                (
+                    "DATABASE_OWNER_URL",
+                    "postgres://owner:secret@localhost:5432/antworker",
+                ),
+                ("PGOPTIONS", "-c statement_timeout=0"),
+            ],
+            &[],
+        )
+        .migrate();
+        assert!(migrate.is_err());
+        let overridden = settings(&with(&SERVER, &[("PGHOST", "elsewhere")]), &[]).server();
+        assert!(overridden.is_ok(), "the URL always sets the host");
     }
 }

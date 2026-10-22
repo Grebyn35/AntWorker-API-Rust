@@ -12,6 +12,8 @@ static EDITED_THEN_SECOND: Migrator =
     sqlx::migrate!("tests/integration/migrations/edited_then_second");
 /// The first of `TWO_TABLES`, then a migration that fails after creating a table.
 static SECOND_FAILS: Migrator = sqlx::migrate!("tests/integration/migrations/second_fails");
+/// One migration, marked to run outside a transaction.
+static NO_TRANSACTION: Migrator = sqlx::migrate!("tests/integration/migrations/no_transaction");
 
 fn owned_by_owner(tables: &[&str]) -> Vec<(String, String)> {
     tables
@@ -80,6 +82,19 @@ async fn platform_028_a_failing_migration_leaves_no_trace() {
     );
     assert_eq!(db.applied_versions().await, [1]);
     assert_eq!(db.tables().await, owned_by_owner(&["first"]));
+}
+
+#[tokio::test]
+async fn platform_028_migrate_refuses_a_migration_that_runs_outside_a_transaction() {
+    let db = TestDatabase::empty().await;
+
+    let refused = migrate(&db.owner_url(), &NO_TRANSACTION).await.err();
+
+    assert!(
+        matches!(&refused, Some(MigrateError::OutsideTransaction(Versions(versions))) if *versions == [1]),
+        "{refused:?}"
+    );
+    assert_eq!(db.tables().await, owned_by_owner(&[]));
 }
 
 #[tokio::test]

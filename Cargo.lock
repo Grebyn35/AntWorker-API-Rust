@@ -29,6 +29,7 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
+ "url",
 ]
 
 [[package]]
@@ -974,6 +975,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "thiserror",
+ "tokio",
  "tracing",
  "tracing-subscriber",
  "url",

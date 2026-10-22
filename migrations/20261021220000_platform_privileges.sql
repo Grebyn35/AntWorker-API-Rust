@@ -7,7 +7,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE O
 -- (DATA-19).
 ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
--- serve reads the applied migrations at startup, to refuse a schema from another release
--- (PLATFORM-030). The migrations table exists before this migration runs, so the default
--- privileges above don't reach it.
+-- serve reads the applied migrations at startup, to refuse a schema that lacks one of its
+-- migrations or holds an edited one (PLATFORM-030). The migrations table exists before this
+-- migration runs, so the default privileges above don't reach it.
 GRANT SELECT ON _sqlx_migrations TO app;

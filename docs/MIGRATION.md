@@ -20,9 +20,9 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 
 - The review tools (build order 1.1): the checker in `xtask`, with `check-test-map` and `check-docs`, and the conformance reviewer in `.claude/agents/`.
 
-`just ci` passes locally and in GitHub Actions, where CI starts Postgres through `just setup` and Compose: formatting, clippy, 61 tests, `cargo-deny`, `check-test-map` and `check-docs`. A scheduled workflow runs `cargo-deny` every day.
+`just ci` passes locally and in GitHub Actions, where CI starts Postgres through `just setup` and Compose: formatting, clippy, 67 tests, `cargo-deny`, `check-test-map` and `check-docs`. A scheduled workflow runs `cargo-deny` every day.
 
-**Next:** the conformance review of `platform`'s database area, the reviewer's first run. Then step 1.2 of the build order, the request pipeline. Each part ends with `just ci` passing.
+**Next:** step 1.2 of the build order, the request pipeline. Each part ends with `just ci` passing.
 
 ## Build order
 
@@ -90,7 +90,7 @@ Each module goes through these stages, in order:
 
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
-| `platform` | HTTP, DATA, RT, OBS, OPS | database | first slice | database | database | |
+| `platform` | HTTP, DATA, RT, OBS, OPS | database | first slice | database | database | database |
 | `accounts` | USER | first slice | first slice | | | |
 | `auth` | AUTH | first slice | first slice | | | |
 | `access` | WS | first slice | first slice | | | |
@@ -157,6 +157,12 @@ Handled in the rule fixes (Build order, step 3), as in [Changing a rule](standar
 | `platform::db` | D20: drop "runtime threads come from configuration". The async runtime sizes itself to the CPUs the container may use, so no two deployments would set it differently (OPS-02). |
 | Parallel review | Right after the rule fixes, renumber rule and behavior IDs once, closing the gaps. The rule fixes retire the last large group of IDs, and every later test would carry an old number. From then on, IDs are never reused. |
 | Decision trace | DOC-04: extend the migration workspace's exception to CLAUDE.md's pointer to `docs/inventory/`. |
+| Conformance of `platform::db` | DATA-02: the standard columns, and the naming in DATA-01, apply to the tables that migrations create. The migrator's own table, `_sqlx_migrations`, follows sqlx's layout. |
+| Conformance of `platform::db` | DATA-12: state what PLATFORM-010 states. Running `bootstrap` again keeps the roles, their attributes and the grants, and sets each password again from its URL. `owner` owns the tables it creates and has `CREATE` on the schema `public`, which the database's owner keeps. |
+| Conformance of `platform::db` | SEC-01: "secrets never appear in URLs" covers the URLs the API sends, serves or logs. A database URL that carries a password is a secret setting as a whole: read from the environment or a file, held in `Secret`, and never printed. |
+| Conformance of `platform::db` | TEST-06: tests of `migrate` itself start from an empty database instead of the migrated template, and assertions on database catalogs, such as role attributes, may read through `app`. |
+| Conformance of `platform::db` | TEST-04: a level for behaviors with no HTTP surface, such as the subcommands and the startup checks, whose integration tests call `platform` directly or run the binary. |
+| Conformance of `platform::db` | SEC-01: `DatabaseUrl::connect_options` is public, and the options it returns print the password through `Debug`. Narrow what it exposes. |
 
 ### Open design questions
 

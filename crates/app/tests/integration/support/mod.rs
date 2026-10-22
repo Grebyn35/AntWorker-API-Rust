@@ -14,6 +14,7 @@
 use std::{
     error::Error,
     hash::{DefaultHasher, Hash, Hasher},
+    process::{Command, Output},
     sync::{
         Mutex, PoisonError,
         atomic::{AtomicU32, Ordering},
@@ -108,6 +109,41 @@ impl TestDatabase {
             owner: self.owner_url(),
             app: self.app_url(),
         }
+    }
+
+    /// Runs `operation` while holding the lock that the tests of every process take before
+    /// they change the roles. Roles belong to the whole server, so two tests that run
+    /// `bootstrap` at once would update the same roles and fail with "tuple concurrently
+    /// updated".
+    pub async fn with_roles_locked<T>(&self, operation: impl Future<Output = T>) -> T {
+        let mut admin = connect(&self.settings.admin).await;
+        execute(
+            &mut admin,
+            &format!("SELECT pg_advisory_lock({SETUP_LOCK})"),
+        )
+        .await;
+        let result = operation.await;
+        // Ending the session releases the lock.
+        close(admin).await;
+        result
+    }
+
+    /// Runs the API binary with `args`, as an operator would, with its database settings
+    /// pointing at this database and `env` added to its environment. Returns its exit status
+    /// and everything it printed.
+    pub async fn run_api(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_antworker-api"));
+        command.args(args).envs(env.iter().copied());
+        for setting in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
+            let mut url =
+                url::Url::parse(&std::env::var(setting).expect(setting)).expect("a database URL");
+            url.set_path(&self.name);
+            command.env(setting, url.as_str());
+        }
+        tokio::task::spawn_blocking(move || command.output())
+            .await
+            .expect("the thread that runs the API binary")
+            .expect("run the API binary")
     }
 
     /// The API's pool, after the startup checks against the API's migrations.

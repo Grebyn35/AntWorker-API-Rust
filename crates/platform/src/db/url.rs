@@ -8,10 +8,21 @@ use url::Url;
 
 use crate::types::Secret;
 
+/// The query parameters a database URL may set. The user, password, host, port and database
+/// come from the URL itself, so a parameter that would replace one of them is refused, and so
+/// is any other parameter.
+const QUERY_PARAMETERS: [&str; 5] = [
+    "sslmode",
+    "sslrootcert",
+    "sslcert",
+    "sslkey",
+    "application_name",
+];
+
 /// A PostgreSQL connection URL, such as `postgres://app:password@localhost:5432/antworker`.
 ///
-/// It names a user, a password, a host and a database. Query parameters that libpq accepts in
-/// a URL, such as `sslmode`, apply. The password is a secret (SEC-01): `Debug` leaves it out.
+/// It names a user, a password, a host and a database, and sets no query parameter outside
+/// `QUERY_PARAMETERS`. The password is a secret (SEC-01): `Debug` leaves it out.
 #[derive(Clone)]
 pub struct DatabaseUrl {
     options: PgConnectOptions,
@@ -46,8 +57,9 @@ impl DatabaseUrl {
     }
 }
 
-/// The URL isn't a PostgreSQL URL with a user, a password, a host and a database. It says
-/// nothing more, because the URL holds a password.
+/// The URL isn't a PostgreSQL URL with a user, a password, a host and a database, or it sets a
+/// query parameter outside `QUERY_PARAMETERS`. It says nothing more, because the URL holds a
+/// password.
 #[derive(Debug, PartialEq, Eq)]
 pub struct InvalidDatabaseUrl;
 
@@ -56,7 +68,12 @@ impl FromStr for DatabaseUrl {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let url = Url::parse(value).map_err(|_| InvalidDatabaseUrl)?;
-        if !matches!(url.scheme(), "postgres" | "postgresql") || url.host_str().is_none() {
+        if !matches!(url.scheme(), "postgres" | "postgresql")
+            || url.host_str().is_none()
+            || url
+                .query_pairs()
+                .any(|(name, _)| !QUERY_PARAMETERS.contains(&name.as_ref()))
+        {
             return Err(InvalidDatabaseUrl);
         }
         let user = decode(url.username())?;
@@ -123,6 +140,31 @@ mod tests {
                 value.parse::<DatabaseUrl>().err(),
                 Some(InvalidDatabaseUrl),
                 "{value}"
+            );
+        }
+    }
+
+    #[test]
+    fn ops_01_a_database_url_allows_only_its_documented_query_parameters() {
+        let allowed = "postgres://app:secret@db:5432/antworker?sslmode=verify-full\
+                       &sslrootcert=/run/ca.pem&sslcert=/run/c.pem&sslkey=/run/k.pem\
+                       &application_name=api";
+        assert!(allowed.parse::<DatabaseUrl>().is_ok());
+        for parameter in [
+            "dbname=other",
+            "user=other",
+            "password=other",
+            "host=other",
+            "hostaddr=10.0.0.1",
+            "port=6543",
+            "options=-c%20statement_timeout%3D0",
+            "connect_timeout=5",
+        ] {
+            let url = format!("postgres://app:secret@db:5432/antworker?{parameter}");
+            assert_eq!(
+                url.parse::<DatabaseUrl>().err(),
+                Some(InvalidDatabaseUrl),
+                "{parameter}"
             );
         }
     }

@@ -3,6 +3,11 @@
 services:
   postgres:
     image: postgres:18.6@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6
+    # This database holds nothing that can't be recreated, so it skips fsync. Every test
+    # database created or dropped forces a checkpoint, and on some machines one fsync stalls
+    # for minutes. A crash of the machine can corrupt the data; `docker compose down --volumes`
+    # starts it fresh.
+    command: ["postgres", "-c", "fsync=off"]
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run just setup to write .env}
       POSTGRES_DB: antworker

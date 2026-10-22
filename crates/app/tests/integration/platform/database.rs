@@ -54,6 +54,20 @@ async fn platform_009_serve_refuses_a_role_that_owns_objects() {
 }
 
 #[tokio::test]
+async fn platform_009_serve_refuses_a_role_that_owns_objects_in_another_database() {
+    let db = TestDatabase::migrated().await;
+    let other = TestDatabase::empty().await;
+    let (role, url) = db.role("").await;
+    other
+        .admin_executes(&format!(
+            "CREATE TABLE owned (id integer); ALTER TABLE owned OWNER TO {role}"
+        ))
+        .await;
+
+    assert_refused(&url, &RoleProblem::OwnsObjects).await;
+}
+
+#[tokio::test]
 async fn platform_009_serve_refuses_a_role_that_belongs_to_another_role() {
     let db = TestDatabase::migrated().await;
     let (role, url) = db.role("").await;
@@ -119,16 +133,51 @@ async fn platform_010_bootstrap_creates_the_roles_with_their_attributes_and_gran
 }
 
 #[tokio::test]
-async fn platform_010_running_bootstrap_again_changes_nothing() {
+async fn platform_010_running_bootstrap_again_keeps_the_roles_and_grants() {
     let db = TestDatabase::migrated().await;
     let before = snapshot(&db).await;
 
-    platform::db::bootstrap(&db.bootstrap_config())
+    db.with_roles_locked(platform::db::bootstrap(&db.bootstrap_config()))
         .await
         .unwrap();
 
     assert_eq!(snapshot(&db).await, before);
     db.app().await;
+}
+
+#[tokio::test]
+async fn data_19_bootstrap_leaves_only_owner_able_to_create_objects_in_the_schema() {
+    let db = TestDatabase::migrated().await;
+    db.admin_executes("GRANT CREATE ON SCHEMA public TO PUBLIC")
+        .await;
+
+    db.with_roles_locked(platform::db::bootstrap(&db.bootstrap_config()))
+        .await
+        .unwrap();
+
+    assert!(
+        db.try_execute(&db.app_url(), "CREATE TABLE more (id integer)")
+            .await
+            .is_err(),
+        "app must not create tables"
+    );
+}
+
+#[tokio::test]
+async fn obs_04_bootstrap_logs_no_password_verifier() {
+    let db = TestDatabase::migrated().await;
+
+    let output = db
+        .with_roles_locked(db.run_api(
+            &["bootstrap"],
+            &[("ENVIRONMENT", "test"), ("LOG_LEVEL", "trace")],
+        ))
+        .await;
+
+    let logs = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{logs}");
+    assert!(logs.contains("bootstrap finished"), "{logs}");
+    assert!(!logs.contains("SCRAM-SHA-256"), "{logs}");
 }
 
 /// The roles' attributes and settings, and the grants on the database and its schema, sorted.

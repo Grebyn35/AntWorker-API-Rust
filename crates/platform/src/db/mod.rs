@@ -28,8 +28,8 @@ use crate::errors::Internal;
 const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The API's connection pool, as the role `app`. A value exists only once the startup checks
-/// have passed, so a server never runs against an unsafe role or a schema from another
-/// release.
+/// have passed, so a server never runs against an unsafe role, or against a schema that lacks
+/// one of its migrations or holds an edited one.
 #[derive(Clone)]
 pub struct Database {
     pool: PgPool,

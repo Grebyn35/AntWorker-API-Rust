@@ -3,10 +3,10 @@
 
 use std::fmt;
 
-use sqlx::{AssertSqlSafe, Connection, PgConnection};
+use sqlx::{AssertSqlSafe, ConnectOptions, Connection, PgConnection};
 
 use super::DatabaseUrl;
-use crate::config::BootstrapConfig;
+use crate::{config::BootstrapConfig, types::Secret};
 
 /// The role that runs migrations and owns the tables (DATA-12).
 pub(super) const OWNER: &str = "owner";
@@ -37,6 +37,9 @@ pub enum BootstrapError {
     /// A statement failed, or the connection broke.
     #[error("can't set up the roles and grants")]
     Failed(#[source] sqlx::Error),
+    /// The thread that computes a password verifier stopped before it finished.
+    #[error("can't compute a password verifier")]
+    Verifier(#[source] tokio::task::JoinError),
 }
 
 /// Creates or updates the roles `owner` and `app`, then grants them their privileges on the
@@ -62,9 +65,11 @@ pub struct Admin {
 }
 
 impl Admin {
-    /// Connects with an administrator's URL.
+    /// Connects with an administrator's URL. The connection's statements aren't logged,
+    /// because they carry password verifiers (OBS-04).
     pub async fn connect(url: &DatabaseUrl) -> Result<Self, BootstrapError> {
-        let conn = PgConnection::connect_with(&url.connect_options())
+        let options = url.connect_options().disable_statement_logging();
+        let conn = PgConnection::connect_with(&options)
             .await
             .map_err(BootstrapError::Connect)?;
         Ok(Self {
@@ -75,9 +80,10 @@ impl Admin {
 
     /// Creates the roles `owner` and `app` with their attributes, and sets each role's password
     /// to the one in its URL. The `app` role also gets its timeouts (DATA-19). An existing role
-    /// keeps its attributes, because changing some of them takes a superuser, which a managed
-    /// provider's admin role isn't; `serve` refuses a role whose attributes are unsafe
-    /// (PLATFORM-009). Roles belong to the whole server, not to one database.
+    /// is given `LOGIN` and keeps its other attributes, because changing some of them takes a
+    /// superuser, which a managed provider's admin role isn't; `serve` refuses a role whose
+    /// attributes are unsafe (PLATFORM-009). Roles belong to the whole server, not to one
+    /// database.
     pub async fn create_roles(
         &mut self,
         owner: &DatabaseUrl,
@@ -96,12 +102,15 @@ impl Admin {
     }
 
     /// Grants the roles their privileges on the connected database (DATA-19): both may
-    /// connect, only `owner` may create objects, and no role may create temporary tables.
+    /// connect, only `owner` may create objects in the schema `public`, and no role may create
+    /// temporary tables. `CREATE` on the schema is revoked from `PUBLIC`, which a database
+    /// created by an older Postgres still grants it.
     pub async fn grant_database(&mut self) -> Result<(), BootstrapError> {
         let database = identifier(&self.database);
         self.execute(format!(
             "REVOKE TEMPORARY ON DATABASE {database} FROM PUBLIC;
              GRANT CONNECT ON DATABASE {database} TO {owner}, {app};
+             REVOKE CREATE ON SCHEMA public FROM PUBLIC;
              GRANT CREATE ON SCHEMA public TO {owner};",
             owner = identifier(OWNER),
             app = identifier(APP),
@@ -124,8 +133,7 @@ impl Admin {
         .map_err(BootstrapError::Failed)?;
         // The password travels as a SCRAM verifier, so the clear text never reaches the
         // server, where statement logging or pg_stat_statements could record it.
-        let verifier =
-            postgres_protocol::password::scram_sha_256(url.password().expose().as_bytes());
+        let verifier = verifier(url.password()).await?;
         let attributes = if exists { "LOGIN" } else { ATTRIBUTES };
         let verb = if exists { "ALTER" } else { "CREATE" };
         self.execute(format!(
@@ -148,6 +156,17 @@ impl Admin {
             .map_err(BootstrapError::Failed)?;
         Ok(())
     }
+}
+
+/// The SCRAM-SHA-256 verifier of `password`. It hashes the password thousands of times, so it
+/// runs on a blocking thread (CODE-05).
+async fn verifier(password: &Secret<String>) -> Result<String, BootstrapError> {
+    let password = password.clone();
+    tokio::task::spawn_blocking(move || {
+        postgres_protocol::password::scram_sha_256(password.expose().as_bytes())
+    })
+    .await
+    .map_err(BootstrapError::Verifier)
 }
 
 /// `name` quoted as an SQL identifier.
@@ -175,7 +194,7 @@ pub enum RoleProblem {
     Replicates,
     /// The role bypasses row-level security.
     BypassesRowSecurity,
-    /// The role owns the database, or an object in it, or another database or tablespace.
+    /// The role owns an object in any database of the server, or a database or tablespace.
     OwnsObjects,
     /// The role belongs to another role, and may hold that role's privileges.
     MemberOfRoles,
@@ -213,7 +232,6 @@ pub(super) async fn check_role(conn: &mut PgConnection) -> Result<Vec<RoleProble
                 WHERE d.refclassid = 'pg_authid'::regclass
                   AND d.refobjid = r.oid
                   AND d.deptype = 'o'
-                  AND d.dbid IN (0, (SELECT oid FROM pg_database WHERE datname = current_database()))
             ) AS "owns_objects!",
             EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member = r.oid) AS "member_of_roles!"
         FROM pg_roles r

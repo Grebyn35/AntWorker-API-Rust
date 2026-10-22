@@ -264,7 +264,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 ## 9. Runtime topology
 
 - **The binary** has these subcommands:
-  - `bootstrap` creates the database roles and their grants, with an administrator connection. Running it again changes nothing (DATA-12).
+  - `bootstrap` creates the database roles and their grants, with an administrator connection. Running it again keeps the roles and grants, and sets each role's password to the one in its URL (PLATFORM-010).
   - `serve` binds one HTTP port and runs the HTTP server, the real-time hub, the job dispatcher and the scheduler.
   - `migrate` is the one-shot migration step.
   - `seed` loads development data.

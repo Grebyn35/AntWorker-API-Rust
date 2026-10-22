@@ -19,7 +19,7 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 
 ## Interface
 
-- **Database:** `Database`, the pool of connections as the role `app`, which the composition root connects once. Connecting runs the startup checks (PLATFORM-009, PLATFORM-030), and `begin` opens a unit of work.
+- **Database:** `Database`, the pool of connections as the role `app`, which `serve` connects once at startup. Connecting runs the startup checks (PLATFORM-009, PLATFORM-030), and `begin` opens a unit of work.
 - **Unit of work:** `UnitOfWork`, opened by the route (Design: Unit of work), with `executor`, `commit`, `enqueue` and `publish`.
 - **Tasks:** `bootstrap` and `migrate`, run by the binary's subcommands of the same names (ARCH-14).
 - **Proof types:** `Principal`, `Authorized<P>`, `Memberships` and `JobContext`.
@@ -101,22 +101,24 @@ IDs 001 to 005, 007 and 008 are retired.
 ### Database roles
 
 `bootstrap` connects with `DATABASE_ADMIN_URL`, as an administrator such as the bundled Postgres superuser or a managed provider's admin role. The three database URLs must name the same database.
-- It creates the roles `owner` and `app` with `LOGIN` and no other attribute. A role that already exists keeps its attributes, because changing some of them takes a superuser, which a managed provider's admin role isn't. PLATFORM-009 refuses an `app` role whose attributes are unsafe.
-- It sets each role's password from its URL. The password travels as a SCRAM-SHA-256 verifier that the API computes, so the clear text never reaches the server, where statement logs could record it.
+- It creates the roles `owner` and `app` with `LOGIN` and no other attribute. A role that already exists is given `LOGIN` and keeps its other attributes, because changing some of them takes a superuser, which a managed provider's admin role isn't. PLATFORM-009 refuses an `app` role whose attributes are unsafe.
+- It sets each role's password from its URL. The password travels as a SCRAM-SHA-256 verifier that the API computes on a blocking thread (CODE-05), so the clear text never reaches the server, where statement logs could record it. The administrator connection logs none of its statements, because they carry the verifiers (OBS-04).
 - It sets the `app` role's `statement_timeout` to 30 seconds and its `idle_in_transaction_session_timeout` to 15 seconds (DATA-19).
-- On the database, it revokes `TEMPORARY` from `PUBLIC`, grants `CONNECT` to both roles, and grants `CREATE` on the schema `public` to `owner` only.
+- On the database, it revokes `TEMPORARY` from `PUBLIC`, grants `CONNECT` to both roles, revokes `CREATE` on the schema `public` from `PUBLIC`, and grants it to `owner` only. A database created by a Postgres older than 15 grants `PUBLIC` that `CREATE`, which would let `app` create tables.
 
 The first migration grants `app` `SELECT`, `INSERT`, `UPDATE` and `DELETE` on every table `owner` creates, revokes `EXECUTE` on new functions from `PUBLIC`, and lets `app` read the migrations table. Roles belong to the whole Postgres server, so every database on a server shares them, test databases included.
 
 ### Migrations
 
-`migrations/` holds one file per change, named `<timestamp>_<module>_<description>.sql` (DATA-09), and the `app` crate embeds them as `MIGRATIONS`. `migrate` takes an advisory lock on the database, compares every applied migration with its file before it applies anything, then applies each missing migration in its own transaction together with its record. It never applies a down migration.
+`migrations/` holds one file per change, named `<timestamp>_<module>_<description>.sql` (DATA-09), and the `app` crate embeds them as `MIGRATIONS`. `migrate` takes an advisory lock on the database, compares every applied migration with its file before it applies anything, then applies each missing migration in its own transaction together with its record. It never applies a down migration, and it refuses a migration marked `-- no-transaction`, which would run outside a transaction, so a failure part way through it would leave a trace (PLATFORM-028).
 
 Queries are checked against the database while compiling (DATA-20), and `migrate` is part of the same binary. A migration is therefore applied with `just migrate` before the queries that use it are written.
 
 ### Connections
 
-`Database::connect` opens a pool of up to `DATABASE_MAX_CONNECTIONS` connections as `app`, 10 by default. An operation waits up to 5 seconds for a free connection. The startup checks run on the first connection: the role (PLATFORM-009), then the schema (PLATFORM-030).
+`Database::connect` opens a pool of up to `DATABASE_MAX_CONNECTIONS` connections as `app`, 10 by default. An operation waits up to 5 seconds for a free connection. The startup checks run on the first connection: the role (PLATFORM-009), then the schema (PLATFORM-030). The role check covers objects the role owns in every database of the server.
+
+A database URL is the only source of its connection's settings (OPS-01). It sets the user, password, host, port and database itself, and its only allowed query parameters are `sslmode`, `sslrootcert`, `sslcert`, `sslkey` and `application_name`. The Postgres driver also reads libpq's environment variables, so the ones that could change a connection the URL describes (`PGPORT`, `PGSSLMODE`, `PGSSLROOTCERT`, `PGSSLCERT`, `PGSSLKEY`, `PGAPPNAME` and `PGOPTIONS`) must be unset, and every subcommand that reads a database URL refuses to start while one is set.
 
 Pools, connections and transactions stay inside `platform::db`. Code elsewhere reaches the database through a unit of work, and clippy refuses `sqlx::Pool`, `sqlx::PgConnection` and `sqlx::Transaction` outside it (DATA-21). The test support is the one other place that names them, to create and drop test databases (TEST-06).
 
@@ -181,3 +183,4 @@ The middleware order, from the outside in, is in [architecture.md §6](../archit
 | Whether the hub refreshes a stream's cached memberships on every access-change signal for that user, or only on the signal's workspace | `platform_016_` and `platform_017_`, measured against a user in several workspaces |
 | Whether a job enqueued in workspace context re-asks `AccessPolicy` when it runs, so a role change in between is respected | `platform_012_`, with a job enqueued before the enqueuing member's role changes |
 | Whether one listener connection per replica is enough under load, or events and access changes need separate connections | a load test of the hub, recorded under OPS-18 |
+| Whether two `bootstrap` runs at once must both succeed. They update the same roles, which belong to the whole server, so one can fail with "tuple concurrently updated". An advisory lock serializes runs only on the same database | the reference deployment (build order 1.5), which decides how `bootstrap` runs |

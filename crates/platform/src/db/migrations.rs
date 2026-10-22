@@ -26,6 +26,13 @@ pub enum MigrateError {
          change in a new migration"
     )]
     Modified(Versions),
+    /// Migrations are marked `-- no-transaction`. A failure part way through one would leave
+    /// its earlier statements applied (PLATFORM-028).
+    #[error(
+        "migrations {0} are marked to run outside a transaction; every migration runs in a \
+         transaction together with its record"
+    )]
+    OutsideTransaction(Versions),
     /// A migration or the bookkeeping around it failed.
     #[error("migrations failed")]
     Failed(#[source] SqlxMigrateError),
@@ -58,11 +65,19 @@ impl fmt::Display for Versions {
 /// recorded, in version order, and returns their versions (PLATFORM-027).
 ///
 /// Each migration runs in one transaction with its record, so a migration that fails leaves
-/// no trace (PLATFORM-028). Nothing is applied while any applied migration differs from its
-/// file, and a recorded migration that `migrations` doesn't contain is ignored, so an earlier
-/// release can still run `migrate` (PLATFORM-029). Concurrent runs take turns on an advisory
-/// lock, so each migration is applied once.
+/// no trace (PLATFORM-028). A migration marked `-- no-transaction` would run outside one, so
+/// nothing is applied while `migrations` holds one. Nothing is applied while any applied
+/// migration differs from its file, and a recorded migration that `migrations` doesn't contain
+/// is ignored, so an earlier release can still run `migrate` (PLATFORM-029). Concurrent runs
+/// take turns on an advisory lock, so each migration is applied once.
 pub async fn migrate(url: &DatabaseUrl, migrations: &Migrator) -> Result<Vec<i64>, MigrateError> {
+    let outside: Vec<i64> = forward(migrations)
+        .filter(|migration| migration.no_tx)
+        .map(|migration| migration.version)
+        .collect();
+    if !outside.is_empty() {
+        return Err(MigrateError::OutsideTransaction(Versions(outside)));
+    }
     let mut conn = PgConnection::connect_with(&url.connect_options())
         .await
         .map_err(MigrateError::Connect)?;
