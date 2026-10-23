@@ -18,6 +18,7 @@ This is a Rust API built as a template to fork. Read these before changing anyth
 - **No open-ended evaluations.** Reviews follow the procedure and the stopping rule in the standards README. A conformance review runs through the `conformance-review` skill in `.claude/skills/`, which launches the `conformance-reviewer` agent in `.claude/agents/`, whose prompt is fixed.
 - **Docs and comments describe the current state only** (DOC-01 to DOC-04). Edits rewrite in place. History belongs in git, ADRs and `CHANGELOG.md`.
 - **No `TODO` or `FIXME`.** Known work is tracked as an issue (DOC-07).
+- **Agents send no personal data.** An agent that may make web requests is told to put no email address, name or other personal information in any request, header or URL.
 - **`docs/inventory/` describes the old API.** Use it to look up old behavior, and never cite it outside the migration workspace.
 
 ## Commands

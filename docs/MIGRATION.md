@@ -24,17 +24,45 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 **Accepted rule changes,** applied with the spec of step 1.2 to every rule and module they touch, as in [Changing a rule](standards/README.md#changing-a-rule):
 - **ERR-03:** a `MethodNotAllowed` category answers 405, with the `Allow` header, when a path doesn't serve the method (RFC 9110, §9.1 and §15.5.6).
 - **API-16:** the trace ID travels in `server-timing: trace;desc=<traceparent value>`, the form in the W3C Trace Context editors' draft. No W3C publication defines `traceresponse`.
-- **OBS-05,** with OBS-01, OBS-02, OBS-11, OPS-03 and ARCH-02: every field name in logs, spans and metric labels comes from one list in `platform::telemetry`. A name is OpenTelemetry's wherever a semantic convention (1.42.0) names the same thing, and an own name never starts with a namespace the conventions define. `check-instrument` enforces the list.
-- **OBS-03 and OBS-06:** module code writes log events only at DEBUG and opens no spans. Every INFO, WARN and ERROR event, and every span, comes from `platform` or the binary's `main.rs`, and `check-instrument` enforces it.
+- **OBS-05,** with OBS-01, OBS-02, OBS-11, OPS-03 and ARCH-02: every field name in logs, spans and metric labels comes from one list in `platform::telemetry`, and code uses no other name.
+  - A name is OpenTelemetry's wherever a semantic convention (1.42.0) names the same thing.
+  - An own name is `<term>.<property>` in lowercase, using the glossary's term for the concept (CODE-10), and never starts with a namespace the conventions define. Where OpenTelemetry uses the term with another meaning, the owning module's name goes first: `auth.session.id`, since OpenTelemetry's `session` is a client app's session, and `realtime.event.id`, since its `event` names log records.
+  - The list declares no field for personal data or secrets (OBS-04).
+  - The first names. From the conventions: `service.name`, `service.version`, `deployment.environment.name`, `trace_id` and `span_id` (top-level fields, as OpenTelemetry names trace context in JSON logs), `http.request.method`, `http.route`, `http.response.status_code`, `http.server.request.duration`, `error.type`, `exception.message`, `server.address`, `server.port`, `db.namespace` and `user.id` (development status). Own: `workspace.id`, `auth.session.id`, `job.id`, `job.name`, `realtime.event.id`, `startup.area` and `migration.versions`.
+  - What the change rewrites. OBS-02's `deployment.environment` becomes `deployment.environment.name`, deprecated since semantic conventions 1.27. OPS-03's `area` and `error` become `startup.area` and `exception.message`, since `error.message` is deprecated. The `migrate` line's `applied` becomes `migration.versions`. OBS-01's check becomes `check-instrument`, which also fails a message with format arguments or `{…}` placeholders. Under OBS-11, label names come from the list, and the metric macro takes the list's constants. ARCH-02 lets the list name a module's concepts, since names aren't rules.
+  - The list holds one `const` per name. A convention's entry is written `convention("http.route", otel::HTTP_ROUTE)`. That is a `const fn` that fails compilation when the two names differ, checked against `opentelemetry-semantic-conventions` 0.33.1 (Apache-2.0, semantic conventions 1.42.0, with the `semconv_experimental` feature for development names). A deprecated constant fails clippy. A scratch crate confirmed both failures.
+  - `check-instrument` reads the list's names. It then reads every `tracing` event and span macro, `#[instrument(fields(…))]` and `.record("…")`, including calls nested in other macros. It fails on a name the list doesn't hold, on a `{ CONST }` name that isn't one of the list's constants, on a `record` name that isn't a literal, on a message that isn't constant, and on an `#[instrument]` without `skip_all` (OBS-04). A prototype of about 300 lines on `syn` read every form of name `tracing` accepts.
+- **OBS-03 and OBS-06:** module code writes log events only at DEBUG and opens no spans. Every INFO, WARN and ERROR event, and every span, comes from `platform` or the binary's `main.rs`, and `check-instrument` enforces it. CPU-heavy work, which CODE-05 sends off the async runtime, goes through a `platform` helper that adds the span, so slow steps such as password hashing still show in traces. A business event that matters is an audit entry (DATA-27), not a log line.
 
 **Decided for step 1.2:**
 - Trace IDs come from the OpenTelemetry tracer, which exports nothing until step 1.3, and log lines carry `trace_id` and `span_id` from the start (D10).
 - A request that runs past its timeout answers 503 `request.timed_out`.
 - Counting panics (ERR-12) and leaving the probes out of request metrics (OBS-15) wait for the metric macro in step 1.3.
 - `serve` fails startup when it can't install a signal handler (OPS-03), where it now shuts down at once with exit code 0.
-- The typed-client spike compares openapi-to-rust, oas3-gen and openapi-generator. progenitor is MPL-2.0 (CODE-12) and reads only OpenAPI 3.0, while utoipa 6 and aide write only 3.1. ARCH-01 allows three crates, so the generated client lives in the tests unless a proposal changes that.
+- The typed-client spike compares three generators, all under licenses CODE-12 allows:
+  - openapi-to-rust: MIT, started in 2026-02, pre-1.0, and its client uses rustls.
+  - oas3-gen: MIT, one maintainer, and its client uses native-tls, which SEC-14's bans refuse.
+  - openapi-generator: a Java tool. Its OpenAPI 3.1 support is in beta, with open bugs on nullable fields and on error bodies, and its generated Cargo.toml says `Unlicense` unless the document names a license.
 
-**Next:** step 1.2 of the build order, the request pipeline. Its conformance review also covers what it rewrites and no review has covered yet: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle`. Two decisions for the owner wait under [Queued rule proposals](#queued-rule-proposals): SEC-14's cryptography list, and the certificates a verified database connection trusts. Neither blocks step 1.2. Each part ends with `just ci` passing.
+  progenitor is MPL-2.0 (CODE-12) and reads only OpenAPI 3.0, while utoipa 6 and aide write only 3.1. ARCH-01 allows three crates, so the generated client lives in the tests unless a proposal changes that.
+
+**Open for the step 1.2 spec:**
+- Readiness: the database check must tell an unreachable database from a busy pool, so load alone can't take a replica out of rotation.
+- Settings and constants (OPS-02):
+  - The readiness delay and the drain deadline are settings, since a deployment's grace period sets them.
+  - The concurrency limit is a setting.
+  - Timeouts and body limits are constants per route group (OPS-07, API-08).
+- `platform::clock` arrives with the first wait, the shutdown delay (CODE-06). Clippy already bans tokio's timers outside it.
+- `system` is the first module directory: triage the old behaviors it draws on, and write `docs/spec/system.md`.
+  - The capabilities endpoint has no feature to report until email arrives in step 2.3.
+  - It exposes no build version, since ASVS asks that responses not reveal component versions.
+- API-14 sends every route through one of three builders. The health probes are answered before the middleware stack, so they need the exemption API-01, API-07 and API-16 give them, or registration through `public` outside the stack.
+- `openapi` (API-17):
+  - utoipa 6 with `utoipa-axum` 0.3 registers a route and its documentation in one `routes!` call, but `.route()` still adds an undocumented route, so the check or a test must prove every route is documented.
+  - The breaking-change diff (API-18) waits for the first release.
+- The tracer: `opentelemetry`, `opentelemetry_sdk` and `opentelemetry-otlp` 0.33.1 are Apache-2.0, and `tracing-opentelemetry` 0.34.0 is MIT. None writes the Server-Timing trace header, so the API writes it.
+
+**Next:** step 1.2 of the build order, the request pipeline, in this order: the typed-client spike, the spec with the accepted rule changes, the code test-first, and the conformance review. Its conformance review also covers what it rewrites and no review has covered yet: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle`. Two decisions for the owner wait under [Queued rule proposals](#queued-rule-proposals): SEC-14's cryptography list, and the certificates a verified database connection trusts. Neither blocks step 1.2. Each part ends with `just ci` passing.
 
 ## Build order
 
@@ -189,6 +217,8 @@ Handled in the rule fixes (Build order, step 3), as in [Changing a rule](standar
 | Catch-up review, pass 2 | OPS-13 and OPS-19: `just setup` checks the versions of the tools CI pins, such as cargo-deny 0.20.2, and a sqlx-cli that matches sqlx 0.9. |
 | Catch-up review, pass 2 | CODE-11: a crate lists the features it uses of each dependency. The test support uses tokio's `sync`, which only arrives through sqlx. |
 | Catch-up review, pass 2 | DOC-10 and DOC-13: `check-test-map` compares each behavior's test prefix with its ID, and `check-docs` counts a `ci:` check as listed only in ci.md's table of checks, not in any code span. |
+| Field-name proposal | OBS-11: own metric names drop `app.`, which OpenTelemetry's conventions use for client applications since 1.32, and follow OBS-05's pattern for own names. Settled with the metric macro in step 1.3; ERR-11 and ERR-12 name two such metrics. |
+| Research for step 1.2 | API-12 and API-15 name no draft version, and the drafts change format between versions. RateLimit is draft-ietf-httpapi-ratelimit-headers-11 (2026-05), with `RateLimit: "default";r=50;t=30` and `RateLimit-Policy: "burst";q=100;w=60`. Idempotency-Key is draft-ietf-httpapi-idempotency-key-header-08 (2026-10), whose key is a structured-field string. The specs of steps 2.1 and 2.2 pin the version they follow. |
 
 ## Open design questions
 

@@ -293,7 +293,7 @@ A part's tools and libraries are chosen when it is built, as "Docs for unbuilt p
 
 | Concern | Starting point | Chosen in |
 |---|---|---|
-| Telemetry export | `opentelemetry`, `tracing-opentelemetry` | the telemetry part (1.3) |
+| Trace context and telemetry export | `opentelemetry`, `tracing-opentelemetry` | the request pipeline (1.2) for trace context, and the telemetry part (1.3) for export |
 | Middleware | `tower-http` | the request pipeline (1.2) |
 | OpenAPI | `utoipa` | the request pipeline (1.2) |
 | Reverse proxy and TLS | Caddy | the reference deployment (1.5) |
