@@ -162,7 +162,7 @@ impl Catalog {
 }
 
 /// The name of a Markdown file directly inside `directory`, other than its README.
-fn document_in<'a>(path: &'a str, directory: &str) -> Option<&'a str> {
+pub fn document_in<'a>(path: &'a str, directory: &str) -> Option<&'a str> {
     path.strip_prefix(directory)?
         .strip_suffix(".md")
         .filter(|name| *name != "README" && !name.contains('/'))
@@ -188,22 +188,61 @@ fn modules(architecture: &str) -> Vec<String> {
 pub mod tests {
     use super::*;
 
-    /// A repository with one rule file, one spec and the module table, for the checks' tests.
+    /// A repository whose documents keep their formats, with two rule files, one spec and the
+    /// module table, for the checks' tests.
     pub fn fixture() -> Vec<(&'static str, &'static str)> {
         vec![
             (
+                "docs/standards/README.md",
+                "# Standards\n\n## Files\n\n| Prefix | File |\n|---|---|\n\
+                 | `STYLE` | [style.md](style.md) |\n| `DOC` | [docs.md](docs.md) |\n\n\
+                 ## Rule format\n\n| Check | Meaning |\n|---|---|\n\
+                 | `compiler` | It doesn't compile |\n| `ci: <task>` | A task fails |\n\
+                 | `review` | A reviewer checks it |\n",
+            ),
+            (
                 "docs/standards/style.md",
-                "# Style\n\n### STYLE-01 A rule\n- Check: `ci: check-style`.\n",
+                "# Style\n\n### STYLE-01 A rule\nThe statement.\n- Why: a reason.\n- Check: `ci: check-style`.\n",
+            ),
+            (
+                "docs/standards/docs.md",
+                "# Docs\n\n### DOC-16 The tracker\nIts sections:\n\
+                 1. **Current work.** The next step.\n2. **Decisions.** The index.\n\
+                 - Why: a reason.\n- Check: `review`.\n",
+            ),
+            (
+                "docs/spec/README.md",
+                "# Specs\n\n## Sections\n\n1. **Purpose.** Why it exists.\n\
+                 2. **Routes.** Only in a spec whose module serves routes.\n\
+                 3. **Behaviors.** What it guarantees.\n\n\
+                 ## Specs\n\n| Module | Spec |\n|---|---|\n| `widgets` | [widgets.md](widgets.md) |\n",
             ),
             (
                 "docs/spec/widgets.md",
-                "# Spec\n\n| ID | Behavior |\n|---|---|\n| WIDGETS-001 | One |\n| WIDGETS-002 | Two |\n",
+                "# Spec\n\n## Purpose\n\nWidgets.\n\n## Behaviors\n\n\
+                 | ID | Behavior | Rules | Test prefix |\n|---|---|---|---|\n\
+                 | WIDGETS-001 | One | STYLE-01 | `widgets_001_` |\n\
+                 | WIDGETS-002 | Two | STYLE-01 | `widgets_002_` |\n",
             ),
             (
                 "docs/architecture.md",
                 "### What each module owns\n\n| Module | Owns |\n|---|---|\n| `widgets` | widgets |\n| `gadgets` | none |\n\n## Next\n",
             ),
         ]
+    }
+
+    /// The fixture, with each of `changes` replacing the file at its path, or added.
+    pub fn fixture_with(
+        changes: &[(&'static str, &'static str)],
+    ) -> Vec<(&'static str, &'static str)> {
+        let mut files = fixture();
+        for change in changes {
+            match files.iter_mut().find(|file| file.0 == change.0) {
+                Some(file) => *file = *change,
+                None => files.push(*change),
+            }
+        }
+        files
     }
 
     #[test]

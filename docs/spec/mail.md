@@ -21,7 +21,7 @@ Nothing. Jobs live in `platform`'s `jobs` table.
 | MAIL-002 | The invitation email names the inviter, the workspace, the role and the days until expiry, in an HTML part and a plain-text part. | D1 | `mail_002_` |
 | MAIL-003 | Templates are checked at compile time. Values in the HTML part are escaped. | D24, SEC-10 | `mail_003_` |
 | MAIL-004 | With email turned off, enqueueing does nothing, and the capabilities endpoint reports email as off. The invitation itself is still created. | D9, OPS-04 | `mail_004_` |
-| MAIL-005 | In development, Mailpit receives every email, and nothing leaves the machine. | D28 | `mail_005_` |
+| MAIL-005 | In development, a mail catcher on the developer's machine receives every email, and nothing leaves the machine. | D28 | `mail_005_` |
 
 ## Design
 

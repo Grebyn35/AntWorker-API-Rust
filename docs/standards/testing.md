@@ -5,9 +5,9 @@ A test exists to prove a behavior from a module spec or a rule from these standa
 ## What is tested
 
 ### TEST-01 Every behavior has a test, and every test has an ID
-Every behavior in `docs/spec/` has at least one test whose name starts with the behavior's ID, for example `workspaces_006_the_owner_cannot_be_removed`. A test that proves a rule starts with the rule ID instead, for example `data_19_the_app_role_reads_and_writes_rows_and_changes_nothing_else`. Every test name starts with an ID that exists.
+Every behavior in `docs/spec/` has at least one test whose name starts with the behavior's ID, for example `workspaces_006_the_owner_cannot_be_removed`. A test that proves a rule starts with the rule ID instead, for example `data_19_the_app_role_reads_and_writes_rows_and_changes_nothing_else`. Every test name starts with an ID that exists. The tests named by an ID together assert every clause of its statement.
 - Why: the map from spec to tests is checked by a machine, not by a reviewer's sense of what is missing (D23).
-- Check: `ci: check-test-map`.
+- Check: `ci: check-test-map` (every test's ID exists, and every behavior has a test, with the migration's exception in DOC-10), plus `review` (the tests cover every clause).
 
 ### TEST-02 A missing test is a missing behavior or rule
 A reviewer who thinks a test is missing names the behavior or rule it would prove, or proposes a new one.
@@ -25,18 +25,20 @@ Each permission is tested twice: a role that has it succeeds, and a role without
 | Level | Where | What it covers |
 |---|---|---|
 | Unit | `#[cfg(test)]` in the module | Pure logic: domain types, the permission matrix, cursors, parsing |
-| Integration | `crates/app/tests/` | Behaviors through HTTP, against real Postgres and S3-compatible storage |
+| Integration | `crates/app/tests/` | Behaviors through HTTP, against real Postgres and S3-compatible storage. A behavior with no HTTP surface, such as a subcommand or a startup check, is tested by running the binary, or through `platform`'s API |
 | End to end | `crates/app/tests/e2e/` | Cross-cutting guarantees against the built image: trace IDs, deploys, alerts, backups |
 - Why: every behavior is proven at the cheapest level that proves it for real (D23).
 - Check: `review`.
 
 ### TEST-05 No mocks of our own code
-Tests use the real database, the real routes and the real services. Fakes exist only for systems outside the codebase: SMTP (Mailpit, or the in-memory email transport), OAuth providers (a local fake server, reached through the configured client in SEC-09) and the clock (a test clock).
+Tests use the real database, the real routes and the real services. Fakes exist only for systems outside the codebase: SMTP (a local mail catcher, or the in-memory email transport), OAuth providers (a local fake server, reached through the configured client in SEC-09), the clock (a test clock), and the process environment and file reads, which tests hand to `platform::config::Settings` directly.
 - Why: a mock tests your assumptions about the code, not the code (ARCH-13).
 - Check: `review`.
 
 ### TEST-06 Every integration test gets its own database
-Each integration test runs on a fresh database cloned from a migrated template. The application under test connects as the `app` role, with exactly its production privileges. Assertions on stored state, such as enqueued jobs and audit entries, read through a separate `owner` connection. Migrations are applied by the production migrator.
+Each integration test runs on a fresh database of its own: one cloned from a migrated template, or, for tests of `migrate` and of `serve`'s schema check, one with no migrations. Migrations are applied by the production migrator. The application under test connects as the `app` role, with exactly its production privileges.
+- Tests arrange state through an `owner` connection, or through the administrator's for what no role of the API may do, such as creating a role.
+- Assertions on stored state, such as enqueued jobs and audit entries, read through a separate `owner` connection. Assertions on the database's catalogs, such as role attributes, may read through `app`. State only an administrator may read, such as password verifiers, is read through the administrator's connection.
 - Why: tests are isolated, fast, and faithful to production (D23).
 - Check: `test` (the harness asserts the role it connects as).
 

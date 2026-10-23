@@ -18,7 +18,7 @@ A spec has these sections, in this order:
    - the rule IDs or decision IDs it satisfies
    - the test prefix, such as `workspaces_005_`, that every test proving it starts with (TEST-01)
 6. **Design.** How the behaviors are met, where the code alone wouldn't make it clear. The tests named in Behaviors verify it. If this section and the code disagree, the code and its tests win, and this section is corrected.
-7. **Open design questions.** Questions only building will settle, each with the test that will settle it. When a question is settled, it moves into Design.
+7. **Open design questions.** Questions only building will settle, each with what will settle it: a test, or the spec of the build step that decides it. When a question is settled, its answer moves into Design or Behaviors.
 
 ## IDs
 
@@ -26,14 +26,15 @@ A behavior's ID is the module name in capitals plus a three-digit number, such a
 
 ## Specs
 
-| Module | Spec | Status |
-|---|---|---|
-| `platform` | [platform.md](platform.md) | written for the first slice; the database area is built |
-| `accounts` | [accounts.md](accounts.md) | written for the first slice, not yet built |
-| `auth` | [auth.md](auth.md) | written for the first slice, not yet built |
-| `access` | [access.md](access.md) | written for the first slice, not yet built |
-| `workspaces` | [workspaces.md](workspaces.md) | written for the first slice, not yet built |
-| `invitations` | [invitations.md](invitations.md) | written for the first slice, not yet built |
-| `audit` | [audit.md](audit.md) | written for the first slice, not yet built |
-| `realtime` | [realtime.md](realtime.md) | written for the first slice, not yet built |
-| `mail` | [mail.md](mail.md) | written for the first slice, not yet built |
+| Module | Spec |
+|---|---|
+| `platform` | [platform.md](platform.md) |
+| `system` | [system.md](system.md) |
+| `accounts` | [accounts.md](accounts.md) |
+| `auth` | [auth.md](auth.md) |
+| `access` | [access.md](access.md) |
+| `workspaces` | [workspaces.md](workspaces.md) |
+| `invitations` | [invitations.md](invitations.md) |
+| `audit` | [audit.md](audit.md) |
+| `realtime` | [realtime.md](realtime.md) |
+| `mail` | [mail.md](mail.md) |

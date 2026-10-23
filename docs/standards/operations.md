@@ -19,7 +19,7 @@ A setting exists only if two deployments would set it differently, such as a URL
 - Check: `ci: check-config` (the settings the API reads must match `.env.example` both ways, and the API container's Compose environment must match them), plus `review` for the third-party containers and for the "would two deployments differ" question.
 
 ### OPS-03 Startup failures have one format
-A startup failure is logged as one ERROR event, with the message `startup failed` and the fields `area` and `error`, through the configured logging setup (OBS-01). The process then exits with code 1. A failure before the logging setup exists, such as invalid configuration, or a failure of the logging setup itself, is written by `main` to stderr as one JSON line with the same message and fields. That is the one place where `print_stderr` is allowed (CODE-03). Nothing panics.
+A startup failure of the API binary is logged as one ERROR event, with the message `startup failed` and the fields `startup.area` and `exception.message`, through the configured logging setup (OBS-01, OBS-05). The process then exits with code 1. A failure before the logging setup exists, such as invalid configuration, or a failure of the logging setup itself, is written by `main` to stderr as one JSON line with the same message and fields. That is the one place in the API's crates where `print_stderr` is allowed (CODE-03). Nothing panics.
 - Why: operators and scripts handle one shape (D9).
 - Check: `test`.
 
@@ -81,7 +81,7 @@ A periodic job claims its schedule row with `FOR UPDATE SKIP LOCKED`, and extend
 ## Build, CI and release
 
 ### OPS-12 CI calls `just`
-Every CI step runs a `just` task. The workflows only orchestrate: one for pull requests and `main`, one for release tags, and one for scheduled jobs. The checks required for merging are listed in `docs/operations/ci.md` and applied as branch protection by `just protect-branch`.
+Every CI step that builds or checks the code runs a `just` task. The steps that prepare the runner, such as checking out the repository, installing tools and restoring the cache, are the workflow's own, because `just` isn't installed until they run. The workflows only orchestrate: one for pull requests and `main`, one for release tags, and one for scheduled jobs. The checks required for merging are listed in `docs/operations/ci.md` and applied as branch protection by `just protect-branch`.
 - Why: local and CI runs are identical, and merging requires exactly the documented checks (D21).
 - Check: `review`, plus `ci: check-protection` (a scheduled job that compares the repository's branch protection with the documented list).
 
@@ -120,6 +120,6 @@ A load-test task records requests per second per replica at the latency objectiv
 ## Local development
 
 ### OPS-19 Two commands from clone to running
-`just setup` checks the required tools and writes `.env` with generated development secrets. `just dev` starts Postgres, SeaweedFS and Mailpit, then runs the API with auto-reload. Both work on Windows, macOS and Linux, with Docker available. Development secrets are never committed.
+`just setup` checks the required tools and writes `.env` with generated development secrets. `just dev` starts Postgres and the local stand-ins for object storage and email, then runs the API with auto-reload. Both work on Windows, macOS and Linux, with Docker available. Development secrets are never committed.
 - Why: a fork is productive within minutes (D28).
 - Check: `ci: setup-smoke`. On Linux it runs `just setup` and `just dev` end to end. On Windows and macOS, where hosted runners can't run Linux containers, it runs `just setup` and builds the workspace.

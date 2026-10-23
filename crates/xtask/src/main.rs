@@ -3,6 +3,7 @@
 
 mod catalog;
 mod docs;
+mod formats;
 mod markdown;
 mod repo;
 mod test_map;

@@ -5,6 +5,7 @@ Schema, migrations, database roles, tenancy, queries and transactions.
 ## Schema
 
 ### DATA-01 Naming
+These names apply to the product schema: the tables, columns and constraints that the files in `migrations/` create.
 - Tables are plural `snake_case` (`workspace_memberships`).
 - Foreign-key columns are `<singular>_id`, and timestamps are `<event>_at`.
 - Constraints and indexes are named explicitly:
@@ -16,9 +17,11 @@ Schema, migrations, database roles, tenancy, queries and transactions.
 - Check: `ci: check-schema`.
 
 ### DATA-02 Standard columns
-- Every table has `id uuid PRIMARY KEY DEFAULT uuidv7()` and `created_at timestamptz NOT NULL DEFAULT now()`.
+- Every table of the product schema (DATA-01) has `id uuid PRIMARY KEY DEFAULT uuidv7()` and `created_at timestamptz NOT NULL DEFAULT now()`.
 - A table whose rows are edited also has `updated_at` and `version`. One shared trigger maintains both.
 - Pure join tables use a composite primary key instead of `id`.
+
+The migrator's own table, `_sqlx_migrations`, follows the layout sqlx gives it, and tables that tests create are throwaway, so neither is part of the product schema.
 - Why: IDs are time-ordered and index-friendly, and every editable row supports `ETag` (D24, API-13).
 - Check: `ci: check-schema`.
 
@@ -55,7 +58,7 @@ Inserts take their IDs from the column default, using `RETURNING`. Application c
 ## Migrations
 
 ### DATA-09 Forward-only migrations in one directory
-Migrations live in `migrations/` and run through the sqlx migrator. Each file is named `<timestamp>_<module>_<description>.sql`. A migration that has been applied is never edited.
+Migrations live in `migrations/` and run through the sqlx migrator. Each file is named `<timestamp>_<module>_<description>.sql`. A migration in a release is never edited. A migration that no release contains yet may be edited, and every database that applied it is then recreated, because `migrate` and `serve` refuse a database whose applied migration differs from its file (PLATFORM-029, PLATFORM-030). Migration files that tests use to exercise the migrator are test fixtures, not part of the product schema.
 - Why: the schema history is linear and verifiable by checksum (D15).
 - Check: `ci: check-migrations` (no applied file changed relative to the last release).
 
@@ -74,16 +77,16 @@ CI applies every migration to an empty database, and applies the new migrations 
 ### DATA-12 Two database roles
 | Role | Used by | Attributes |
 |---|---|---|
-| `owner` | the `migrate` subcommand only | owns the schema and tables |
+| `owner` | the `migrate` subcommand only | owns the tables it creates, and has `CREATE` on the schema `public`, which the database's owner keeps |
 | `app` | every request and every job | no superuser, owns nothing, DML only (DATA-19) |
 
-The `bootstrap` subcommand creates both roles with these attributes and sets the role-level timeouts (DATA-19). It runs once per database, with an administrator connection: the bundled Postgres superuser, or a managed provider's admin role. Running it again changes nothing.
+The `bootstrap` subcommand creates both roles with these attributes, grants their privileges and sets the role-level timeouts (DATA-19). It runs with an administrator connection: the bundled Postgres superuser, or a managed provider's admin role. Running it again keeps the roles, their attributes and the grants, and sets each role's password again from its URL.
 - Why: the running API can change data but never the schema, and holds no privilege beyond that (D4).
 - Check: `test` (PLATFORM-009, PLATFORM-010), plus `ci: check-schema` (grants).
 
 ### DATA-13 Startup refuses an unsafe role
-The server refuses to start if the `app` role is a superuser or owns any table.
-- Why: a role created by hand with those attributes would give the running API far more power than it needs.
+The server refuses to start unless it connects as the role `app`, and that role isn't a superuser, can't create databases or roles, can't start replication, doesn't bypass row-level security, owns nothing in any database of the server, and belongs to no other role.
+- Why: a role created by hand with any of those attributes would give the running API far more power than it needs.
 - Check: `test` (PLATFORM-009).
 
 ### DATA-19 Least privilege in grants
@@ -96,14 +99,14 @@ The server refuses to start if the `app` role is a superuser or owns any table.
 ## Queries
 
 ### DATA-20 SQL is checked at compile time
-All SQL goes through the sqlx `query!`, `query_as!` and `query_scalar!` macros. The `.sqlx/` offline cache is committed, and CI builds with `SQLX_OFFLINE=true`. Optional filters are nullable parameters in a static query (`$1::text IS NULL OR action = $1`). `QueryBuilder` is allowed only where a module spec requires a dynamic query, and it never concatenates input.
+All SQL goes through the sqlx `query!`, `query_as!` and `query_scalar!` macros. The `.sqlx/` offline cache is committed, and CI builds with `SQLX_OFFLINE=true`. Optional filters are nullable parameters in a static query (`$1::text IS NULL OR action = $1`). `QueryBuilder` is allowed only where a module spec requires a dynamic query, and it never concatenates input. SQL that can't be a macro query, such as a role statement that takes identifiers, is allowed only in `platform::db` and the test support, through an `#[expect]` that states its reason.
 - Why: a query that doesn't match the schema doesn't compile (D24).
-- Check: `clippy` (`disallowed_methods` bans the non-macro `sqlx::query` functions), plus `ci: sqlx-check`.
+- Check: `clippy` (`disallowed_methods` bans the non-macro query functions and the executor methods that take SQL as a string), plus `ci: sqlx-check`.
 
 ### DATA-21 Repositories take a unit of work
-A repository function takes `&mut UnitOfWork`, never a pool or connection. `platform` doesn't expose its pools.
+A repository function takes `&mut UnitOfWork`, never a pool or connection. Pools, connections and transactions stay inside `platform::db`, and the test support is the one other place that names them (TEST-06).
 - Why: every query runs inside the operation's transaction (ARCH-11).
-- Check: `clippy` (`disallowed_types` bans `sqlx::PgPool` and `sqlx::PgConnection` in `app`).
+- Check: `clippy` (outside `platform::db` and the test support, `disallowed_types` bans sqlx's pools and pool options, its pooled and plain connections, its transactions and its listener, with their Postgres aliases, and `disallowed_methods` bans opening a connection from connection options).
 
 ### DATA-22 Every query filters by tenant itself
 Tenancy is enforced by the application, and every query on user or workspace data carries its own filter (D3, D4):

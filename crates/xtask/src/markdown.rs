@@ -122,6 +122,118 @@ fn slug(heading: &str) -> String {
         .collect()
 }
 
+/// A table, read from the lines that start with `|`.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Table {
+    /// The level-2 heading the table sits under, if any.
+    pub section: Option<String>,
+    /// The line of the header row, counted from 1.
+    pub line: usize,
+    /// The header's cells.
+    pub header: Vec<String>,
+    /// The rows after the separator, each with its line.
+    pub rows: Vec<(usize, Vec<String>)>,
+}
+
+/// The level-2 headings of `text`, outside code blocks, with their lines.
+pub fn sections(text: &str) -> Vec<(usize, &str)> {
+    outside_code(text)
+        .filter_map(|(line, text)| Some((line, text.strip_prefix("## ")?.trim())))
+        .collect()
+}
+
+/// The line of the first heading that starts with `heading`, and the lines under it, up to
+/// the next heading of any level.
+pub fn under<'a>(text: &'a str, heading: &str) -> Option<(usize, Vec<(usize, &'a str)>)> {
+    let mut lines = outside_code(text).skip_while(|(_, line)| !line.starts_with(heading));
+    let (start, _) = lines.next()?;
+    Some((
+        start,
+        lines
+            .take_while(|(_, line)| !line.starts_with('#'))
+            .collect(),
+    ))
+}
+
+/// The items of the numbered list under `heading` whose text starts with a bold name, such as
+/// `1. **Purpose.** Why the module exists.`: each name, with the rest of its item.
+pub fn named_items<'a>(text: &'a str, heading: &str) -> Vec<(&'a str, &'a str)> {
+    let Some((_, lines)) = under(text, heading) else {
+        return Vec::new();
+    };
+    lines
+        .into_iter()
+        .filter_map(|(_, line)| {
+            let item = line
+                .strip_prefix(|c: char| c.is_ascii_digit())?
+                .trim_start_matches(|c: char| c.is_ascii_digit())
+                .strip_prefix(". **")?;
+            let (name, rest) = item.split_once(".**")?;
+            Some((name, rest.trim()))
+        })
+        .collect()
+}
+
+/// The tables in `text`, outside code blocks.
+pub fn tables(text: &str) -> Vec<Table> {
+    let mut tables = Vec::new();
+    let mut section = None;
+    let mut current: Option<Table> = None;
+    for (line, row) in outside_code(text) {
+        if let Some(heading) = row.strip_prefix("## ") {
+            section = Some(heading.trim().to_owned());
+        }
+        if !row.starts_with('|') {
+            tables.extend(current.take());
+            continue;
+        }
+        let cells = cells(row);
+        match &mut current {
+            None => {
+                current = Some(Table {
+                    section: section.clone(),
+                    line,
+                    header: cells,
+                    rows: Vec::new(),
+                });
+            }
+            Some(table) if table.rows.is_empty() && is_separator(&cells) => {}
+            Some(table) => table.rows.push((line, cells)),
+        }
+    }
+    tables.extend(current);
+    tables
+}
+
+/// The cells of a table row, trimmed.
+fn cells(row: &str) -> Vec<String> {
+    row.trim()
+        .trim_start_matches('|')
+        .trim_end_matches('|')
+        .split('|')
+        .map(|cell| cell.trim().to_owned())
+        .collect()
+}
+
+/// Whether `cells` are the row that separates a table's header from its rows, such as `|---|`.
+fn is_separator(cells: &[String]) -> bool {
+    cells
+        .iter()
+        .all(|cell| !cell.is_empty() && cell.chars().all(|c| matches!(c, '-' | ':')))
+}
+
+/// The lines of `text` outside fenced code blocks, each with its number, counted from 1.
+fn outside_code(text: &str) -> impl Iterator<Item = (usize, &str)> {
+    let mut in_code = false;
+    text.lines().enumerate().filter_map(move |(index, line)| {
+        if line.trim_start().starts_with("```") {
+            in_code = !in_code;
+            return None;
+        }
+        (!in_code).then_some((index + 1, line))
+    })
+}
+
 /// The byte offsets where the lines of a text start.
 struct LineIndex {
     starts: Vec<usize>,
@@ -177,6 +289,29 @@ mod tests {
             links,
             [("spec/widgets.md#purpose", 3), ("https://example.com", 4)]
         );
+    }
+
+    #[test]
+    fn doc_15_sections_lists_and_tables_are_read_line_by_line() {
+        let text = "# Doc\n\n## Sections\n\n1. **Purpose.** Why.\n10. **Notes.** Only some.\n\
+                    - **Not.** An item.\n\n```\n## Code\n| not | a table |\n```\n\n\
+                    ## Rows\n\n| A | B |\n|---|:-:|\n| 1 | `x` |\n\nAfter.\n";
+
+        assert_eq!(sections(text), [(3, "Sections"), (14, "Rows")]);
+        assert_eq!(
+            named_items(text, "## Sections"),
+            [("Purpose", "Why."), ("Notes", "Only some.")]
+        );
+        assert_eq!(
+            tables(text),
+            [Table {
+                section: Some("Rows".to_owned()),
+                line: 16,
+                header: vec!["A".to_owned(), "B".to_owned()],
+                rows: vec![(18, vec!["1".to_owned(), "`x`".to_owned()])],
+            }]
+        );
+        assert_eq!(under(text, "## Nowhere"), None);
     }
 
     #[test]

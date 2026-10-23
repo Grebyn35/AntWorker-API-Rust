@@ -58,8 +58,9 @@ A review runs in passes over its whole scope. Each pass is two independent revie
 ### Fixing
 
 - A fix rewrites the whole group of rules a finding touches, so they stay coherent with each other. It never patches a single sentence in isolation.
-- A fact lives in one place. Other documents point to the rule that states it, instead of restating it.
-- A fix adds a new rule only when a `must-fix` finding requires one. Any other "missing rule" finding is queued as a proposal and handled after the review completes, as in [Changing a rule](#changing-a-rule).
+- A fix writes each fact in its home, and nowhere else (DOC-14).
+- A fix for a defect that a check could have caught also adds that check, such as a clippy ban or a test, or proposes it. The next pass then doesn't have to look for that kind of defect again.
+- A fix adds a new rule only when a `must-fix` finding requires one. Any other "missing rule" finding becomes a proposal, as in [Changing a rule](#changing-a-rule).
 
 ### When the review stops
 
@@ -72,17 +73,21 @@ The second condition alone ends every review, because the number of `must-fix` f
 
 If the review stops under 2 or 3, each remaining `must-fix` finding gets exactly one resolution. No further full pass runs.
 - **Fix.** A defect in code is fixed, with a test that fails before the fix wherever a test can show it.
-- **Decide.** A choice between valid designs is written up with its options and a recommendation. The owner decides, and the decision becomes an ADR.
+- **Decide.** A choice between valid designs is written up with its options and a recommendation, and decided as in [Changing a rule](#changing-a-rule). The decision becomes an ADR.
 - **Prove.** A question about how something behaves is settled by a small throwaway test, and the rule is written from the result.
-- **Defer.** A question that only building can settle is removed from the rule, which keeps only what is certain. The question goes on the list of open design questions in the migration tracker, together with the test that will settle it.
+- **Defer.** A question that only building can settle is removed from the rule, which keeps only what is certain. The question goes into the open design questions of the spec it concerns, together with what will settle it.
 
 The changed items are then checked one by one. The documents never state something known to be wrong: each issue is fixed, decided, or listed as an open question with the test that resolves it.
 
 ## Changing a rule
 
 1. Write a proposal: the rule, the reason, and the modules it affects.
-2. The owner decides.
-3. An accepted change is applied to every affected module in the same pull request. No module is ever left following a rule that has been replaced.
+2. Decide it:
+   - The owner decides a change to what the API guarantees: a capability, a guarantee that a rule or a behavior states, the security bar, the handling of personal data, or the licenses dependencies may use.
+   - The developer making the change decides any other change, such as how code is written, tested, checked or documented, or new wording that keeps a rule's meaning. The commit message gives the reason.
+3. Apply an accepted change in the commit that accepts it: rewrite the rule, and every spec and document it affects (DOC-14). Built code that doesn't follow the new rule yet is recorded as a known gap, with the step that brings it in line (DOC-07). No document goes on stating a rule that has been replaced.
 4. A change that reverses a decision gets a new ADR that supersedes the old one.
+
+A proposal that isn't decided at once waits with the step that decides it: the next step that builds or changes code the rule covers, because that step has the evidence.
 
 Rule IDs are never reused, so a retired rule leaves a gap in the numbering.

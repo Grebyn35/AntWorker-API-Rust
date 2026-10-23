@@ -7,10 +7,10 @@ Logs, traces, metrics, dashboards and alerts. The design is built from the opera
 ### OBS-01 Logs are structured
 Logs are JSON in production and human-readable in development. They go to stdout, and also to OTLP when telemetry is enabled. A log message is a constant string, and all variable data goes in fields.
 - Why: logs can be queried by field, and messages can be grouped.
-- Check: `review`.
+- Check: `ci: check-instrument` (a message with format arguments or `{…}` placeholders fails), plus `review`.
 
 ### OBS-02 Every log line can be correlated
-Every log line carries `service.name`, `service.version` and `deployment.environment`. A line written inside a span also carries `trace_id` and `span_id`.
+Every log line carries `service.name`, `service.version` and `deployment.environment.name`. A line written inside a span also carries `trace_id` and `span_id`.
 - Why: a log line leads to its trace, and a trace leads to its logs (D10).
 - Check: `test` (the logging setup is asserted in the end-to-end suite).
 
@@ -21,25 +21,30 @@ Every log line carries `service.name`, `service.version` and `deployment.environ
 | `WARN` | Degraded but handled: an ignored error (ERR-11), a job attempt that will be retried |
 | `INFO` | Lifecycle events, plus exactly one completion line per request (method, route, status, duration) |
 | `DEBUG` | Diagnostics, off in production |
-- Why: a level tells the reader what to do, and every request has at least one log line (D10).
-- Check: `review`.
+
+Module code writes events only at `DEBUG`. Every `INFO`, `WARN` and `ERROR` event comes from `platform` or the binary's `main.rs`. A business event that matters is an audit entry (DATA-27), not a log line.
+- Why: a level tells the reader what to do, and every request has at least one log line (D10). When the mechanisms write every event above `DEBUG`, each kind of event is written once, in one shape.
+- Check: `ci: check-instrument` (the levels module code uses), plus `review`.
 
 ### OBS-04 No personal data or secrets in telemetry
 Logs, spans and metric labels never contain personal data or secrets. The `EmailAddress` and `Secret` types redact themselves when formatted. Every `#[instrument]` uses `skip_all` and lists its fields explicitly.
 - Why: telemetry is copied widely and kept for a long time (D7).
 - Check: `compiler` (the redacting types), `ci: check-instrument` (every `#[instrument]` has `skip_all`), plus `review`.
 
-### OBS-05 Field names follow OpenTelemetry semantic conventions
-Where a semantic convention exists, logs and spans use its attribute name, for example `http.request.method` or `http.route`. The convention version is pinned in `platform::telemetry`.
-- Why: standard names work with standard dashboards and tools.
-- Check: `review`.
+### OBS-05 Telemetry names come from one list
+Every field name in logs and spans, and every metric label name, comes from the list in `platform::telemetry`, and code uses no other name. The list declares no field for personal data or secrets (OBS-04).
+- A name is OpenTelemetry's wherever a semantic convention names the same thing, such as `http.request.method` or `http.route`. The list pins the conventions' version.
+- Any other name is `<term>.<property>` in lowercase, using the glossary's term for the concept (CODE-10), and never starts with a namespace the conventions define. Where the conventions use the term with another meaning, the owning module's name goes first: `auth.session.id`, since OpenTelemetry's `session` is a client application's session, and `realtime.event.id`, since its `event` names log records.
+- `trace_id` and `span_id` are top-level fields, as OpenTelemetry names trace context in JSON logs.
+- Why: standard names work with standard dashboards and tools, and one list keeps each name the same in every log, span and metric (D19).
+- Check: `compiler` (each convention's entry is checked against the conventions' published name), `clippy` (a deprecated convention name fails), plus `ci: check-instrument` (every name the code uses is on the list).
 
 ## Traces
 
 ### OBS-06 One server span per request, child spans for work
-Each request has one server span. Database transactions, outbound calls and job runs get child spans.
-- Why: a trace shows where a request spent its time.
-- Check: `review`.
+Each request has one server span. Database transactions, outbound calls and job runs get child spans. Spans come only from `platform` and the binary's `main.rs`; module code opens none. CPU-heavy work runs through the `platform` helper that adds its span (CODE-05), so slow steps such as password hashing still show in traces.
+- Why: a trace shows where a request spent its time, and every span has the same shape wherever it comes from.
+- Check: `ci: check-instrument` (module code opens no spans), plus `review`.
 
 ### OBS-07 Trace context carries across work that happens later
 Inbound W3C `traceparent` from clients is accepted. Every job and event row stores the trace context that created it. The span for running that job or delivering that event links to the stored context. Outbound requests send trace context only to our own infrastructure, never to third parties.
@@ -65,7 +70,7 @@ With telemetry enabled, startup fails if an exporter can't be built. Export fail
 ## Metrics
 
 ### OBS-11 Metrics are declared, named and bounded
-Each module declares its metrics in `metrics.rs`, and `platform` declares its own in the area that records them, all with the one declaration macro: name, type, unit, labels and description. Names follow OpenTelemetry semantic conventions where one exists, and `app.<module>.<name>` otherwise, with `platform` as the module name for its own metrics. Labels come from bounded sets and never include IDs or personal data.
+Each module declares its metrics in `metrics.rs`, and `platform` declares its own in the area that records them, all with the one declaration macro: name, type, unit, labels and description. Names follow OpenTelemetry semantic conventions where one exists, and `app.<module>.<name>` otherwise, with `platform` as the module name for its own metrics. Label names come from the list in `platform::telemetry` (OBS-05), and the macro takes the list's constants. Labels come from bounded sets and never include IDs or personal data.
 - Why: every metric is known, documented and cheap to store (D19).
 - Check: `compiler` (the macro), plus `ci: check-metrics`.
 

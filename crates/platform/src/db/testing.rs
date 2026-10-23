@@ -7,6 +7,10 @@ use sqlx::{ConnectOptions, PgConnection};
 use super::DatabaseUrl;
 
 /// A connection with `url`, outside any unit of work.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test support's raw connections are the one other place DATA-21 allows"
+)]
 pub async fn connect(url: &DatabaseUrl) -> Result<PgConnection, sqlx::Error> {
     url.connect_options().connect().await
 }

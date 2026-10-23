@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{Finding, Outcome, catalog::Catalog, markdown, repo::Repo, text};
+use crate::{Finding, Outcome, catalog::Catalog, formats, markdown, repo::Repo, text};
 
 /// Words that describe history instead of the current state (DOC-01).
 const HISTORY: [&str; 5] = ["previously", "no longer", "used to", "legacy", "now uses"];
@@ -33,6 +33,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     findings.extend(prose_markers(&documents));
     findings.extend(comment_markers(repo));
     findings.extend(locations(repo));
+    findings.extend(formats::check(repo));
     Outcome {
         report: vec![format!(
             "check-docs: {} files checked, {} of them documents.",
@@ -139,15 +140,20 @@ fn ids(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
     findings
 }
 
-/// Every CI check a rule names is listed: in `docs/operations/ci.md` once it is built, and in
-/// the tracker's list of CI checks until then (DOC-13).
+/// Every CI check a rule names is listed: in the task column of the table of checks in
+/// `docs/operations/ci.md` once it is built, and in the first column of the tracker's table of
+/// CI checks until then (DOC-13).
 fn named_checks(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
     let mut listed = BTreeSet::new();
     if let Some(ci) = repo.file("docs/operations/ci.md") {
-        listed.extend(code_spans(&ci.text));
+        listed.extend(column(&ci.text, "Checks that exist", |header| {
+            header.contains("task")
+        }));
     }
     if let Some(tracker) = repo.file(TRACKER) {
-        listed.extend(code_spans(section(&tracker.text, "## CI checks")));
+        listed.extend(column(&tracker.text, "CI checks", |header| {
+            header == "Check"
+        }));
     }
     catalog
         .named_checks()
@@ -166,18 +172,24 @@ fn named_checks(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
         .collect()
 }
 
-/// The section of `text` under `heading`, up to the next heading of the same level.
-fn section<'a>(text: &'a str, heading: &str) -> &'a str {
-    let Some(start) = text.find(heading) else {
-        return "";
-    };
-    let body = &text[start + heading.len()..];
-    &body[..body.find("\n## ").unwrap_or(body.len())]
-}
-
-/// The contents of the code spans in `text`.
-fn code_spans(text: &str) -> impl Iterator<Item = &str> {
-    text.split('`').skip(1).step_by(2)
+/// The contents of the code spans in one column of the tables in `section` of `text`: the
+/// column whose header `chooses`.
+fn column(text: &str, section: &str, chooses: impl Fn(&str) -> bool) -> Vec<String> {
+    let mut spans = Vec::new();
+    for table in markdown::tables(text) {
+        if table.section.as_deref() != Some(section) {
+            continue;
+        }
+        let Some(index) = table.header.iter().position(|header| chooses(header)) else {
+            continue;
+        };
+        for (_, cells) in &table.rows {
+            if let Some(cell) = cells.get(index) {
+                spans.extend(cell.split('`').skip(1).step_by(2).map(str::to_owned));
+            }
+        }
+    }
+    spans
 }
 
 /// Prose outside the inventory holds no history markers (DOC-01) and no unfinished-work markers
@@ -290,13 +302,16 @@ fn in_documentation_set(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::tests::fixture;
+    use crate::catalog::tests::fixture_with;
 
-    fn findings(extra: &[(&'static str, &'static str)]) -> Vec<String> {
-        let mut files = fixture();
-        files.push(("docs/operations/ci.md", "| Style | `check-style` |\n"));
-        files.extend_from_slice(extra);
-        let repo = Repo::of(&files);
+    /// The CI document, listing the fixture's one check.
+    const CI: &str = "# CI\n\n## Checks that exist\n\n| Check | `just` task | Enforces |\n|---|---|---|\n\
+                      | Style | `check-style` | STYLE-01 |\n";
+
+    fn findings(changes: &[(&'static str, &'static str)]) -> Vec<String> {
+        let mut all = vec![("docs/operations/ci.md", CI)];
+        all.extend_from_slice(changes);
+        let repo = Repo::of(&fixture_with(&all));
         check(&repo, &Catalog::read(&repo))
             .findings
             .iter()
@@ -344,20 +359,36 @@ mod tests {
 
     #[test]
     fn doc_13_a_named_check_that_no_list_includes_is_reported() {
-        let rules = "### STYLE-02 Another rule\n- Check: `ci: check-shape`.\n";
+        let rules = "# Style\n\n### STYLE-01 A rule\nThe statement.\n- Why: a reason.\n\
+                     - Check: `ci: check-shape`, `ci: check-style` and `ci: check-later`.\n";
+        let ci = "# CI\n\nThe prose names `check-shape`, which lists nothing.\n\n\
+                  ## Checks that exist\n\n| Check | `just` task | Enforces |\n|---|---|---|\n\
+                  | Style | `check-style` | STYLE-01 |\n";
+        let tracker = "# Tracker\n\n## Current work\n\nNext, `check-shape`.\n\n## Decisions\n\n\
+                       ## CI checks\n\n| Check | Step |\n|---|---|\n| `check-later` | 2 |\n";
 
-        assert_eq!(
-            findings(&[("docs/standards/shape.md", rules)]),
-            [
-                "docs/standards/shape.md:2: `ci: check-shape` names a check that neither docs/operations/ci.md nor the CI checks in docs/MIGRATION.md list (DOC-13)"
-            ]
+        let found = findings(&[
+            ("docs/standards/style.md", rules),
+            ("docs/operations/ci.md", ci),
+            (TRACKER, tracker),
+        ]);
+
+        assert!(
+            found.contains(&"docs/standards/style.md:6: `ci: check-shape` names a check that neither docs/operations/ci.md nor the CI checks in docs/MIGRATION.md list (DOC-13)".to_owned()),
+            "{found:?}"
+        );
+        assert!(
+            !found
+                .iter()
+                .any(|finding| finding.contains("check-style") || finding.contains("check-later")),
+            "{found:?}"
         );
     }
 
     #[test]
     fn doc_01_history_markers_in_prose_and_comments_are_reported() {
         let spec = "# Widgets\n\nIt previously used `legacy` names.\n\n```\nused to\n```\n";
-        let tracker = "# Tracker\n\nThis no longer applies.\n";
+        let tracker = "# Tracker\n\n## Current work\n\nThis no longer applies.\n\n## Decisions\n";
         let config = "name = \"a\" # set on 2026-01-02\n";
 
         assert_eq!(
@@ -367,7 +398,7 @@ mod tests {
                 ("Cargo.toml", config),
             ]),
             [
-                "docs/MIGRATION.md:3: \"no longer\" describes history; describe the current state (DOC-01)",
+                "docs/MIGRATION.md:5: \"no longer\" describes history; describe the current state (DOC-01)",
                 "docs/guides/history.md:3: \"previously\" describes history; describe the current state (DOC-01)",
                 "Cargo.toml:1: a date in a comment records when something was written; describe the current state (DOC-01)"
             ]

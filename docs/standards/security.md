@@ -5,7 +5,7 @@ The security bar is OWASP ASVS Level 2 (D26). These rules cover the mechanisms e
 ## Secrets
 
 ### SEC-01 Secrets arrive by environment or file, and stay wrapped
-A secret is read from an environment variable, or from a file named by `<NAME>_FILE`. It is held in `platform::types::Secret`, which never prints its value through `Debug`, `Display` or serialization. Secrets never appear in images, logs, error details or URLs.
+A secret is read from an environment variable, or from a file named by `<NAME>_FILE`. It is held in `platform::types::Secret`, which never prints its value through `Debug`, `Display` or serialization. A setting that carries a secret, such as a database URL with its password, is a secret setting as a whole: it is read the same way, its secret part is held in `Secret`, and the setting is never printed. Secrets never appear in images, logs, error details, or the URLs the API sends, serves or logs.
 - Why: the standard delivery paths for containers, and no accidental disclosure (D26).
 - Check: `compiler` (`Secret` has no way to print its value), plus `review`.
 
@@ -65,7 +65,7 @@ All outbound HTTP that application code makes uses one of the two clients in `pl
 
 In the test environment only, the untrusted client accepts one configured loopback address, so tests can reach a fake provider. Startup refuses that setting in any other environment.
 - Why: no server-side request forgery, while every path stays testable (D26).
-- Check: `ci: check-layers` (no other `reqwest::Client` is built), plus `test` (including a test that the loopback setting is refused outside the test environment).
+- Check: `ci: check-layers` (no other HTTP client is built), plus `test` (including a test that the loopback setting is refused outside the test environment).
 
 ### SEC-10 Uploaded content can't run in a browser
 Stored files are served with:
@@ -78,7 +78,7 @@ Public files never expose their original file name (D7).
 - Check: `test`.
 
 ### SEC-11 Security headers on every response
-Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. Authenticated responses carry `Cache-Control: no-store`, except public files. Caddy terminates TLS and sets HSTS.
+Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. Authenticated responses carry `Cache-Control: no-store`, except public files. The reverse proxy in front of the API terminates TLS and sets HSTS.
 - Why: browser-level defenses are on by default.
 - Check: `test`.
 
@@ -95,8 +95,8 @@ An IP limit applies to every route except the health probes, before authenticati
 - Check: `ci: deny`, plus `ci: image-scan`.
 
 ### SEC-14 Only vetted cryptography
-Cryptography comes from the RustCrypto crates (`aes-gcm`, `hmac`, `sha2`, `argon2`) and from `rustls` with its `ring` provider. There are no custom primitives or constructions.
-- Why: cryptography is easy to get subtly wrong, and the `ring` provider builds on every supported platform without extra toolchains.
+Cryptography comes from the RustCrypto crates (`aes-gcm`, `hmac`, `sha2`, `argon2`) and from `rustls` with its `ring` provider. This codebase builds no primitive or construction of its own. Crates that implement the Postgres protocol may build its standard constructions from those crates' primitives: the database driver's SCRAM-SHA-256 sign-in, and the password verifier that `bootstrap` computes with `postgres-protocol` (PLATFORM-010).
+- Why: cryptography is easy to get subtly wrong, so it comes from vetted crates, and a protocol's standard construction is safer in its driver than rebuilt here. The `ring` provider builds on every supported platform without extra toolchains.
 - Check: `ci: deny` (bans `openssl`, `native-tls` and `aws-lc-rs`), plus `review`.
 
 ## Disclosure

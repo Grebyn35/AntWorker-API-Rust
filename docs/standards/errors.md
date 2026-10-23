@@ -25,6 +25,7 @@ Every variant implements `platform::errors::ErrorCode`, which gives it:
 | `Unauthenticated` | 401 | Missing, invalid or expired credentials |
 | `Forbidden` | 403 | Authenticated, but not allowed, within a resource the caller can see |
 | `NotFound` | 404 | The resource doesn't exist or the caller may not know it exists |
+| `MethodNotAllowed` | 405 | The path exists but doesn't serve the method. The response carries `Allow` with the methods it does serve (RFC 9110, §15.5.6) |
 | `Conflict` | 409 | Conflicts with current state: a duplicate, already a member, a request already in flight |
 | `PreconditionFailed` | 412 | An `If-Match` mismatch (API-13) |
 | `PayloadTooLarge` | 413 | A body over its limit |
@@ -39,7 +40,7 @@ Every variant implements `platform::errors::ErrorCode`, which gives it:
 ## Moving errors
 
 ### ERR-04 Infrastructure errors stay in their adapter
-`sqlx`, `object_store`, `lettre` and `reqwest` errors never appear in a service or route signature. The repository or adapter turns each one into either a domain outcome or a `platform::errors::Internal` value. That value keeps the cause for logs only.
+The errors of the libraries that reach other systems, such as the database driver and the clients for object storage, email and HTTP, never appear in a service or route signature. The repository or adapter turns each one into either a domain outcome or a `platform::errors::Internal` value. That value keeps the cause for logs only.
 - Why: a database error must never decide a response or reach a client (D17).
 - Check: `ci: check-layers` (no infrastructure error types in `service.rs` or `routes.rs`), plus `compiler`.
 

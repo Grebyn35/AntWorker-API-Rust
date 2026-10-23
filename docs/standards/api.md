@@ -114,7 +114,7 @@ Rate-limited responses carry the `RateLimit` and `RateLimit-Policy` headers from
 - Check: `test`.
 
 ### API-16 Every response carries its trace ID
-Every response except the health probes (OBS-15), including streams and downloads, carries the W3C `traceresponse` header. Error bodies also carry `trace_id` (API-07).
+Every response except the health probes (OBS-15), including streams and downloads, carries its trace context in `server-timing: trace;desc=<traceparent value>`, the form the W3C Trace Context editors' draft defines. Error bodies also carry `trace_id` (API-07).
 - Why: any response leads back to its trace and logs (D10).
 - Check: `test`.
 

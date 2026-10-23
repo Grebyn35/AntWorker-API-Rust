@@ -38,6 +38,7 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
   - the outbound HTTP clients (SEC-09)
   - the clock and the random source (CODE-06)
   - the metric declaration macro (OBS-11)
+  - the list of telemetry names (OBS-05)
 
 ## Routes
 
@@ -54,7 +55,7 @@ IDs 001 to 005, 007 and 008 are retired.
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
-| PLATFORM-009 | `serve` refuses to start unless it connects as the role `app`, and that role isn't a superuser, can't create databases or roles, can't start replication, doesn't bypass row-level security, owns nothing, and belongs to no other role. | DATA-13 | `platform_009_` |
+| PLATFORM-009 | `serve` refuses to start unless its database role meets DATA-13, and the refusal names each way the role breaks it. | DATA-13 | `platform_009_` |
 | PLATFORM-010 | `bootstrap` creates the roles `owner` and `app` with their attributes and the `app` role's timeouts, and grants them their privileges on the database. Running it again leaves the roles, their attributes and settings, and the grants unchanged, and sets each role's password to the one in its URL. | DATA-12, DATA-19 | `platform_010_` |
 | PLATFORM-027 | `migrate` connects as the role `owner`, and refuses any other role. It applies every embedded migration the database hasn't recorded, in version order. Running it again applies nothing, and concurrent runs apply each migration once. | DATA-09, DATA-12 | `platform_027_` |
 | PLATFORM-028 | A migration that fails leaves no trace: its changes roll back, it isn't recorded, and `migrate` fails. | DATA-09 | `platform_028_` |
@@ -95,7 +96,15 @@ IDs 001 to 005, 007 and 008 are retired.
 | PLATFORM-019 | The health probes bypass rate limits, load shedding and timeouts, and return a plain status body. | OPS-05 | `platform_019_` |
 | PLATFORM-020 | Requests beyond the concurrency limit get 503 with `Retry-After`. | OPS-07 | `platform_020_` |
 | PLATFORM-021 | Every error is an RFC 9457 problem with `code` and `trace_id`, and internal errors expose nothing. | ERR-07, ERR-08, API-07 | `platform_021_` |
-| PLATFORM-022 | Every response except the health probes carries `traceresponse`. | API-16 | `platform_022_` |
+| PLATFORM-022 | Every response except the health probes carries its trace context in `server-timing`. | API-16 | `platform_022_` |
+| PLATFORM-031 | A request that runs past its timeout answers 503 `request.timed_out`. | OPS-07, ERR-03 | `platform_031_` |
+| PLATFORM-032 | A request to a path that doesn't serve its method answers 405 `request.method_not_allowed`, with `Allow` listing the methods the path serves. | ERR-03, API-07 | `platform_032_` |
+
+### Lifecycle
+
+| ID | Behavior | Rules | Test prefix |
+|---|---|---|---|
+| PLATFORM-033 | `serve` fails startup when it can't install its handlers for the shutdown signals. | OPS-03, OPS-06 | `platform_033_` |
 
 ### Configuration
 
@@ -128,6 +137,8 @@ Queries are checked against the database while compiling (DATA-20), and `migrate
 A database URL is the only source of its connection's settings (OPS-01). It sets the user, password, host and database itself, and the port too, or the port is 5432. It may set only the query parameters that `.env.example` lists for `DATABASE_URL`. The Postgres driver also reads libpq's environment variables, so the ones that `.env.example` lists, which could change a connection the URL describes, must be unset, even to an empty value. Every subcommand that reads a database URL refuses to start while one is set.
 
 The certificates a verified connection trusts are the one input the URL doesn't decide alone. With `sslmode` set to `verify-ca` or `verify-full`, a connection trusts the certificates in the URL's `sslrootcert`, if any, together with the system's: the operating system's certificate store, or instead the files that `SSL_CERT_FILE` and `SSL_CERT_DIR` name when either is set. The driver adds `sslrootcert` to the system's certificates instead of replacing them. Those two variables are how an operator chooses the certificates a container trusts, such as in an image with no certificate store, so the API leaves them to the TLS library.
+
+The driver reads the system's certificates each time it opens a verified connection: a short blocking read on the async runtime, which CODE-05 allows here. It happens when the pool opens a connection, not on every query. Certificates compiled into the binary would avoid the read, but the list the driver offers for that, `webpki-roots`, is licensed CDLA-Permissive-2.0, which CODE-12 doesn't allow.
 
 Pools, connections and transactions stay inside `platform::db`. Code elsewhere reaches the database through a unit of work, and clippy refuses `sqlx::Pool`, `sqlx::PgConnection` and `sqlx::Transaction` outside it (DATA-21). The test support is the one other place that names them (TEST-06): it creates and drops test databases, arranges tests with statements no unit of work may run, and reads stored state as `owner` or as the administrator. It gets its connections from `platform::db::testing`, which only the `test-support` feature compiles and only the tests enable, so the API never hands out a connection, or the connection options whose `Debug` output includes the password (SEC-01).
 
@@ -184,11 +195,33 @@ A rate-limit check counts the request in its own short transaction, before the o
 ### Request pipeline
 
 The middleware order, from the outside in, is in [architecture.md §6](../architecture.md#6-request-lifecycle). The health probes are answered before it (OPS-05).
+- Trace IDs come from the OpenTelemetry tracer (D10). Until telemetry export is built, the tracer exports nothing, and log lines still carry `trace_id` and `span_id` (OBS-02). The tracing libraries don't write the `server-timing` header, so the API writes it (PLATFORM-022).
+- Each route group's timeout and body limit are constants (OPS-07, API-08). The concurrency limit, the readiness delay and the drain deadline are settings, because a deployment's capacity and grace period decide them (OPS-02, OPS-06).
+- The delay before shutdown stops accepting connections is the first wait in the code, so `platform::clock` arrives with it (CODE-06).
+
+### Telemetry names
+
+The list in `platform::telemetry` holds one constant per name (OBS-05). A name that a semantic convention defines is declared as `convention("http.route", otel::HTTP_ROUTE)`, a `const fn` that fails compilation when the two names differ. The conventions' constants come from `opentelemetry-semantic-conventions` 0.33.1, which publishes semantic conventions 1.42.0, with its `semconv_experimental` feature for names still in development. A deprecated constant fails clippy.
+
+The first names:
+- From the conventions: `service.name`, `service.version`, `deployment.environment.name`, `trace_id`, `span_id`, `http.request.method`, `http.route`, `http.response.status_code`, `http.server.request.duration`, `error.type`, `exception.message`, `server.address`, `server.port`, `db.namespace`, and `user.id`, which is still in development.
+- Own: `workspace.id`, `auth.session.id`, `job.id`, `job.name`, `realtime.event.id`, `startup.area` and `migration.versions`.
+
+`check-instrument` reads the list's names, then every `tracing` event and span macro, every `#[instrument(fields(…))]` and every `.record("…")`, including calls nested inside other macros. It fails on:
+- a name the list doesn't hold, or a `{ CONST }` name that isn't one of the list's constants
+- a `record` name that isn't a literal
+- a message that isn't constant (OBS-01)
+- an `#[instrument]` without `skip_all` (OBS-04)
+- an event above `DEBUG`, or a span, in module code (OBS-03, OBS-06)
 
 ## Open design questions
 
 | Question | Settled by |
 |---|---|
+| How readiness tells an unreachable database from a busy pool, so that load alone never takes a replica out of rotation | the readiness tests of the request pipeline, run with the pool exhausted |
+| How the health probes, which are answered before the middleware stack, fit API-14's three builders: through an exemption like the ones API-01, API-07 and API-16 give them, or through `public` outside the stack | the request pipeline's spec (build order 1.2) |
+| How CI proves that every route is documented in `openapi.json` (API-17). `utoipa-axum` registers a route and its documentation in one `routes!` call, but its `.route()` adds a route with none | the request pipeline's spec (build order 1.2) |
+| Which generator builds the typed client from `openapi.json`: openapi-to-rust (MIT, pre-1.0, with a rustls client), oas3-gen (MIT, one maintainer, with a native-tls client, which SEC-14 bans) or openapi-generator (a Java tool whose OpenAPI 3.1 support is in beta). progenitor is MPL-2.0 (CODE-12) and reads only OpenAPI 3.0, while utoipa 6 and aide write only 3.1. ARCH-01 allows three crates, so the client lives in the tests unless a proposal changes that | the typed-client spike, a throwaway test that compares them (build order 1.2) |
 | Whether the hub refreshes a stream's cached memberships on every access-change signal for that user, or only on the signal's workspace | `platform_016_` and `platform_017_`, measured against a user in several workspaces |
 | Whether a job enqueued in workspace context re-asks `AccessPolicy` when it runs, so a role change in between is respected | `platform_012_`, with a job enqueued before the enqueuing member's role changes |
 | Whether one listener connection per replica is enough under load, or events and access changes need separate connections | a load test of the hub, recorded under OPS-18 |

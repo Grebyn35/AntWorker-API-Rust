@@ -10,7 +10,7 @@ The API is built from exactly two crates, `platform` and `app`, and `platform` h
 - Check: `compiler` (Cargo rejects the dependency cycle), plus `ci: check-deps` (neither API crate depends on `xtask`).
 
 ### ARCH-02 `platform` holds no product rules
-`platform` contains no role definitions, no concrete permissions, no membership rules, and no types belonging to a feature module. It defines the generic `Permission` trait and the `Authorized<P>` and `Memberships` types, whose meaning comes entirely from the `AccessPolicy` that `access` implements. The only tenancy concepts it knows are a user ID and a workspace ID.
+`platform` contains no role definitions, no concrete permissions, no membership rules, and no types belonging to a feature module. It defines the generic `Permission` trait and the `Authorized<P>` and `Memberships` types, whose meaning comes entirely from the `AccessPolicy` that `access` implements. The only tenancy concepts it knows are a user ID and a workspace ID. The list of telemetry names (OBS-05) may name a module's concepts, such as `auth.session.id`, because a name isn't a rule.
 - Why: mechanisms live in `platform`, policy lives in modules (architecture §2).
 - Check: `review`.
 
@@ -70,7 +70,7 @@ An operation that spans modules passes one `&mut UnitOfWork` through every call.
 ## Composition
 
 ### ARCH-12 One composition root
-`composition.rs` builds every service once at startup, hands each one its dependencies, registers the four `platform` traits (architecture §5), and mounts every module's routes. Nothing else constructs services. Global mutable state is not allowed. The only exceptions are metric handles and other read-only values that are initialized once.
+`composition.rs` builds every service once at startup, hands each one its dependencies, registers the four `platform` traits (architecture §5), and mounts every module's routes. Nothing else constructs services. Global mutable state is not allowed. The only exceptions are metric handles and other read-only values that are initialized once, and the state the test support shares between the tests of one process, such as the template database's name.
 - Why: every dependency is visible in one file, and tests build the same graph.
 - Check: `review`.
 
@@ -84,7 +84,7 @@ No trait exists just so something can be mocked. Traits that define a behavior m
 - Check: `review`.
 
 ### ARCH-14 Application tasks are binary subcommands
-Every task that runs application logic against the database, such as bootstrap, migrate and seed, is a subcommand of the app binary. Backup and restore use the standard PostgreSQL tools, run through `just` tasks (OPS-17). CI checks that inspect the schema or the compiled queries also connect to the database. No other script does.
+Every task that runs application logic against the database, such as bootstrap, migrate and seed, is a subcommand of the app binary. Backup and restore use the standard PostgreSQL tools, run through `just` tasks (OPS-17). CI checks that inspect the schema or the compiled queries also connect to the database, and so does `just prepare`, which rewrites the query cache from the migrated database (DATA-20). No other script does.
 - Why: application tasks use the same configuration, types and checks as the server.
 - Check: `review`.
 

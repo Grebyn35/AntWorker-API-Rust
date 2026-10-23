@@ -104,4 +104,4 @@ Each of these gets a one-line ADR so the boundary is on record:
 
 | ID | Question |
 |---|---|
-| Q1 | Which license does the template ship under? Deferred until before the first public release. |
+| Q1 | Which license does the template ship under? Deferred: it blocks the first public release, not the build. Until then the repository stays private, and `cargo-deny` allows only permissive dependency licenses (CODE-12), so selling the template and open-sourcing it both stay possible. |

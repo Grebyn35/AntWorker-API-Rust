@@ -15,7 +15,7 @@ The caller states the scope. Without one, ask the owner.
 1. Pin the scope: the files in it, and each file left out with its reason, such as code the next build step rewrites.
 2. Make `just ci` pass. Reviewers skip what CI enforces, so it has to hold.
 3. Fix the defects already known in the scope, so the reviewers see fixed code.
-4. List what reviewers don't report again: each proposal under "Queued rule proposals" in `docs/MIGRATION.md`, and each accepted rule change not yet applied, with the findings it resolves.
+4. List what reviewers don't report again: each row of "Known gaps" and of "Rule proposals" in `docs/MIGRATION.md`, with the findings it covers.
 
 ## Each pass
 
@@ -26,9 +26,9 @@ The caller states the scope. Without one, ask the owner.
    Each gets the scope, the pass number, its reading order, the list from step 4 above, and, from the second pass on, the commits that fixed the previous pass. Tell each: "Make no web requests, and put no email address, name or other personal information in any request, header or URL." Neither sees the other's report.
 2. **Wait for both reports,** then verify every finding before accepting it: read the statement it cites, and the code at the line it points to. Drop a finding only for a reason you write down, such as the statement not saying that, the code not doing that, or a listed item resolving it.
 3. **Merge.** Findings that cite the same statement about the same code are one finding. Count A's findings, B's, and the ones both made. A finding is `must-fix` when either reviewer marked it so and it survived verification.
-4. **Record the pass** as a new row of "Conformance reviews" in `docs/MIGRATION.md`, before changing any code. The row's result starts with the outcome under "When the review stops": `next pass`, `clean`, `stopped: no progress` or `stopped: six passes`.
+4. **Record the pass** as a new row of "Conformance reviews" in `docs/MIGRATION.md`, before changing any code. The row's result is the outcome under "When the review stops": `next pass`, `clean`, `stopped: no progress` or `stopped: six passes`. Once the pass is acted on, the commits that acted on it follow the outcome, and their messages hold the details: each finding, its verification and its resolution (DOC-16).
 5. **Act on the outcome:**
-   - `next pass`: fix each finding, or queue it as the README says. A code fix comes with a test that fails before it and passes after it, wherever a test can show the defect. Run `just ci`, commit, and start the next pass with those commits as its baseline.
+   - `next pass`: fix each finding, or turn it into a proposal as the README says. A code fix comes with a test that fails before it and passes after it, wherever a test can show the defect. Run `just ci`, commit, and start the next pass with those commits as its baseline.
    - `clean`: apply the `should-fix` findings one by one, and check each. The review is complete.
    - `stopped: no progress` or `stopped: six passes`: give each remaining `must-fix` finding exactly one of the README's resolutions, and check each. The review is complete.
 

@@ -34,4 +34,6 @@ A refusal happens before the refused operation has written anything. The `Securi
 
 ## Open design questions
 
-None.
+| Question | Settled by |
+|---|---|
+| AUDIT-005 gives `app` only `INSERT` and `SELECT` on `audit_entries`, but retention (D6) deletes entries and erasure (D31) anonymizes them, and every job runs as `app`. Which role runs those jobs, or which narrower grant lets them run? | the full `audit` module's spec |

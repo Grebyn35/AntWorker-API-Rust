@@ -12,6 +12,12 @@ disallowed-methods = [
     { path = "tokio::time::timeout", reason = "every wait goes through platform::clock (CODE-06)" },
     { path = "tokio::time::timeout_at", reason = "every wait goes through platform::clock (CODE-06)" },
     { path = "std::time::SystemTime::now", reason = "time comes from platform::clock (CODE-06)" },
+    { path = "std::time::Instant::now", reason = "time comes from platform::clock (CODE-06)" },
+    { path = "tokio::time::Instant::now", reason = "time comes from platform::clock (CODE-06)" },
+    { path = "std::thread::park_timeout", reason = "every wait goes through platform::clock (CODE-06)" },
+    { path = "std::sync::Condvar::wait_timeout", reason = "every wait goes through platform::clock (CODE-06)" },
+    { path = "std::sync::Condvar::wait_timeout_while", reason = "every wait goes through platform::clock (CODE-06)" },
+    { path = "std::sync::mpsc::Receiver::recv_timeout", reason = "every wait goes through platform::clock (CODE-06)" },
     { path = "std::fs::canonicalize", reason = "blocking file I/O stalls the async runtime (CODE-05)" },
     { path = "std::fs::copy", reason = "blocking file I/O stalls the async runtime (CODE-05)" },
     { path = "std::fs::create_dir", reason = "blocking file I/O stalls the async runtime (CODE-05)" },
@@ -58,6 +64,14 @@ disallowed-methods = [
     { path = "sqlx::query_scalar", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
     { path = "sqlx::query_scalar_with", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
     { path = "sqlx::raw_sql", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::Executor::execute", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::Executor::execute_many", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::Executor::fetch", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::Executor::fetch_many", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::Executor::fetch_all", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::Executor::fetch_one", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::Executor::fetch_optional", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::ConnectOptions::connect", reason = "only platform::db opens connections (DATA-21)" },
 ]
 
 disallowed-types = [
@@ -69,4 +83,5 @@ disallowed-types = [
     { path = "sqlx::PgConnection", reason = "queries run in a unit of work, never on a connection (DATA-21)" },
     { path = "sqlx::Transaction", reason = "the unit of work is the only transaction (DATA-21, ARCH-11)" },
     { path = "sqlx::postgres::PgTransaction", reason = "the unit of work is the only transaction (DATA-21, ARCH-11)" },
+    { path = "sqlx::postgres::PgListener", reason = "only platform::db listens for notifications (DATA-21)" },
 ]

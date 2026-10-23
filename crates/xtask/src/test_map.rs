@@ -228,8 +228,8 @@ mod tests {
         assert_eq!(
             findings,
             [
-                "docs/spec/widgets.md:5: no test proves WIDGETS-001 (DOC-10)",
-                "docs/spec/widgets.md:6: no test proves WIDGETS-002 (DOC-10)"
+                "docs/spec/widgets.md:11: no test proves WIDGETS-001 (DOC-10)",
+                "docs/spec/widgets.md:12: no test proves WIDGETS-002 (DOC-10)"
             ]
         );
     }

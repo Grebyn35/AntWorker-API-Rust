@@ -23,7 +23,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D22 | The service holds the transaction boundary | The platform spec's unit of work: the route opens it and the service commits it |
 | D22 | Traits exist only where there are two real implementations | ARCH-13 also allows traits that invert a dependency |
 | D25 | Each type's constructor trims | AUTH-003: a password isn't trimmed |
-| D27 | Nothing outside `docs/inventory/` refers to the old API | DOC-04 extends the exception to `docs/MIGRATION.md`; CLAUDE.md's pointer to the inventory is a queued rule proposal |
+| D27 | Nothing outside `docs/inventory/` refers to the old API | DOC-04 extends the exception to `docs/MIGRATION.md` and to CLAUDE.md's pointer to the inventory |
 | D32 | A keyed hash only for verification codes and rate-limit keys | SEC-16 adds emails in audit entries, which D32's own principle covers: they are guessable |
 | D36 | A security failure recorded during sign-in answers with that failure | ARCH-11 covers every recorded security failure, such as refresh-token reuse (AUTH-012) |
 
@@ -44,7 +44,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D12 | Idempotency keys are compared exactly as sent | the idempotency step |
 | D18 | Sign-in and refresh responses come from one function that issues the session | the `auth` step |
 | D20 | Startup logs the connection budget | the request pipeline (build order 1.2), when `serve` keeps its pool |
-| D20 | Runtime threads come from configuration | queued rule proposal in MIGRATION.md |
+| D20 | Runtime threads come from configuration | dropped by OPS-02: the async runtime sizes itself to the CPUs the container may use, so no two deployments would set it differently |
 
 ### For later steps
 
