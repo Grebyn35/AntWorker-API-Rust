@@ -21,7 +21,20 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 
 `just ci` passes locally and in GitHub Actions, where CI starts Postgres through `just setup` and Compose: formatting, clippy, 71 tests, `cargo-deny`, `check-test-map` and `check-docs`. A scheduled workflow runs `cargo-deny` every day.
 
-**Next:** step 1.2 of the build order, the request pipeline. Each part ends with `just ci` passing.
+**Accepted rule changes,** applied with the spec of step 1.2 to every rule and module they touch, as in [Changing a rule](standards/README.md#changing-a-rule):
+- **ERR-03:** a `MethodNotAllowed` category answers 405, with the `Allow` header, when a path doesn't serve the method (RFC 9110, §9.1 and §15.5.6).
+- **API-16:** the trace ID travels in `server-timing: trace;desc=<traceparent value>`, the form in the W3C Trace Context editors' draft. No W3C publication defines `traceresponse`.
+- **OBS-05,** with OBS-01, OBS-02, OBS-11, OPS-03 and ARCH-02: every field name in logs, spans and metric labels comes from one list in `platform::telemetry`. A name is OpenTelemetry's wherever a semantic convention (1.42.0) names the same thing, and an own name never starts with a namespace the conventions define. `check-instrument` enforces the list.
+- **OBS-03 and OBS-06:** module code writes log events only at DEBUG and opens no spans. Every INFO, WARN and ERROR event, and every span, comes from `platform` or the binary's `main.rs`, and `check-instrument` enforces it.
+
+**Decided for step 1.2:**
+- Trace IDs come from the OpenTelemetry tracer, which exports nothing until step 1.3, and log lines carry `trace_id` and `span_id` from the start (D10).
+- A request that runs past its timeout answers 503 `request.timed_out`.
+- Counting panics (ERR-12) and leaving the probes out of request metrics (OBS-15) wait for the metric macro in step 1.3.
+- `serve` fails startup when it can't install a signal handler (OPS-03), where it now shuts down at once with exit code 0.
+- The typed-client spike compares openapi-to-rust, oas3-gen and openapi-generator. progenitor is MPL-2.0 (CODE-12) and reads only OpenAPI 3.0, while utoipa 6 and aide write only 3.1. ARCH-01 allows three crates, so the generated client lives in the tests unless a proposal changes that.
+
+**Next:** a conformance review, with the `conformance-review` skill, of everything built that step 1.2 doesn't rewrite: `xtask`, `platform::db`, `platform`'s configuration, errors and types, the test support, the migration, and the CI and build files. What step 1.2 rewrites (`main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle`) is reviewed at the end of step 1.2. Then step 1.2. Each part ends with `just ci` passing.
 
 ## Build order
 
@@ -33,12 +46,12 @@ Every part of the system is listed under [Foundation](#foundation), [Modules](#m
 
 1. **Walking skeleton.** The running system, end to end, before any feature:
    1. **Review tools:** the checker tool in `xtask` and the conformance reviewer in `.claude/` (D27). The checker starts with `check-test-map`, which reports every behavior that no test proves, and `check-docs`, which fails on any ID or link that doesn't resolve (DOC-13) and on any check a rule names that neither [operations/ci.md](operations/ci.md) nor [CI checks](#ci-checks) lists.
-   2. **Request pipeline:** problem responses with trace IDs, trace context in and out, the middleware stack, readiness and bounded shutdown, and the capabilities endpoint as the first `/v1` route, with `openapi.json`. It starts with the typed-client spike: before any test calls the API through a client generated from `openapi.json`, a throwaway test compares the candidate generators, including their licenses (CODE-12) and the OpenAPI version they read.
+   2. **Request pipeline:** problem responses with trace IDs, trace context in and out, the middleware stack except rate limiting, readiness and bounded shutdown, and the capabilities endpoint as the first `/v1` route, with `openapi.json`. It starts with the typed-client spike: before any test calls the API through a client generated from `openapi.json`, a throwaway test compares the candidate generators, including their licenses (CODE-12) and the OpenAPI version they read.
    3. **Telemetry:** traces, logs and metrics exported over OTLP; the metric declaration macro; the collector, Prometheus, Loki, Tempo, Grafana and Alertmanager, with logs and traces linked both ways; the first dashboard questions and alerts; and the generated metric catalog. `just dev` runs the API with the stack one flag away.
    4. **Image and pipeline:** the image, and CI that builds it once, scans it, boots it, runs the end-to-end suite against it, and promotes its digest, with signed releases on tags.
    5. **Reference deployment:** the production setup on one server, its deploy tooling, scheduled backups and restore, and the load test. The end-to-end suite proves a deploy with no downtime, a rollback, a restore, and the trace-ID guarantee for a 4xx response (D10).
 2. **Thin slice.** Spec it, then build it test-first, each part extending the skeleton:
-   1. `accounts`, `auth` and the `audit` writer, with authentication (`Principal` and `SessionVerifier`) and the per-email rate limit. It settles the `auth` items in [inventory/decision-trace.md](inventory/decision-trace.md), and extends the trace-ID guarantee to a 5xx response.
+   1. `accounts`, `auth` and the `audit` writer, with authentication (`Principal` and `SessionVerifier`) and rate limiting: the IP and per-user limits and the per-email sign-in limit, built once with all three callers. It settles the `auth` items in [inventory/decision-trace.md](inventory/decision-trace.md), and extends the trace-ID guarantee to a 5xx response.
    2. `access` and `workspaces`, with `Authorized<P>`, the security event sink, and idempotency, which creating a workspace uses.
    3. Jobs, `mail` and `invitations`.
    4. The event hub and `realtime`, ending with "removing a member closes their stream". Readiness then includes the listener, and a deploy with an open stream loses no event.
@@ -63,8 +76,9 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | Part | Decisions | Step |
 |---|---|---|
 | The checker tool and the conformance reviewer | D23, D27 | built |
-| The request pipeline: problem responses, trace context, the middleware stack, readiness and shutdown | D8, D9, D10, D11, D17, D20, D26 | 1.2 |
+| The request pipeline: problem responses, trace context, the middleware stack, readiness and shutdown | D8, D9, D10, D17, D20, D26 | 1.2 |
 | The capabilities endpoint and `openapi.json` | D8, D9 | 1.2 |
+| Rate limiting: the IP, per-user and per-action limits, with the client IP taken from trusted proxies | D11 | 2.1 |
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | 1.3 |
 | The image and the delivery pipeline, with the release docs | D15, D21 | 1.4 |
 | The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30 | 1.5 |
@@ -104,14 +118,14 @@ Each module goes through these stages, in order:
 
 ## Conformance reviews
 
-Each pass of each review, run by the conformance reviewer under "When the review stops" in [standards/README.md](standards/README.md#when-the-review-stops).
+Each pass of each review, run with the `conformance-review` skill in `.claude/skills/`. A result starts with the pass's outcome under "When the review stops" in [standards/README.md](standards/README.md#when-the-review-stops): `next pass`, `clean`, or `stopped`, with its condition.
 
 Reviewer A reads rule by rule, and reviewer B file by file. "Shared" counts the findings both made.
 
 | Scope | Pass | Findings (A, B, shared) | Must-fix | Must-fix regressions | Result |
 |---|---:|---|---:|---:|---|
-| `platform::db` | 1 | 14 (one reviewer) | 8 | n/a | Six code defects fixed, each with a test. Five doc statements corrected. Five rule wordings queued. |
-| `platform::db` | 2 | 6 (3, 4, 1 shared) | 2 | 1 | Stopped by its must-fix regression. Both must-fix findings fixed, each with a test that failed first. The should-fix findings fixed, or queued as rule changes. |
+| `platform::db` | 1 | 14 (one reviewer) | 8 | n/a | `next pass`. Six code defects fixed, each with a test. Five doc statements corrected. Five rule wordings queued. |
+| `platform::db` | 2 | 6 (3, 4, 1 shared) | 2 | 1 | `stopped: no progress`, by its must-fix regression. Both must-fix findings fixed, each with a test that failed first. The should-fix findings fixed, or queued as rule changes. |
 
 ## CI checks
 
@@ -124,7 +138,8 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `check-docs`, for the names of other codebases (DOC-04) | 3, with the queued DOC-04 proposal |
 | `check-docs`, for accepted ADRs (DOC-11) | 6, with the first ADR |
 | `openapi` | 1.2 |
-| `check-instrument`, `check-telemetry-config`, `check-metrics`, `alert-rules` | 1.3 |
+| `check-instrument` | 1.2, with the field list in `platform::telemetry` |
+| `check-telemetry-config`, `check-metrics`, `alert-rules` | 1.3 |
 | `check-toolchain`, `check-pins`, `check-protection`, `image-scan`, `verify-release` | 1.4 |
 | `e2e` | 1.5, extended by every later step |
 | `check-layers`, `check-schema`, `check-deps`, `check-tenancy` | 1.2 to 2.2, each with the first code it checks |
@@ -155,7 +170,6 @@ Handled in the rule fixes (Build order, step 3), as in [Changing a rule](standar
 | Conformance of `platform::db` | CODE-05: say whether the test support may block, as a test's cleanup and settings do. |
 | Owner question on duplicated statements | A DOC rule: a fact lives in one place, and other documents point to it instead of restating it. The standards README states this for reviews' fixes, without an ID a finding can cite. |
 | Conformance of `platform::db` | TEST-04: a level for behaviors with no HTTP surface, such as the subcommands and the startup checks, whose integration tests call `platform` directly or run the binary. |
-| Conformance of `platform::db` | SEC-01: `DatabaseUrl::connect_options` is public, and the options it returns print the password through `Debug`. Narrow what it exposes. |
 | Owner's direction on tools | A rule states a guarantee, and names a tool only where the tool is the guarantee, such as the cryptography allowlist in SEC-14. Reword the rules that name a tool for an unbuilt part: SEC-11 (Caddy), OPS-19 (SeaweedFS and Mailpit), TEST-05 (Mailpit), and the library names in ERR-04 and SEC-09. MAIL-005 is reworded when `mail` is built. |
 
 ## Open design questions
