@@ -5,6 +5,12 @@ allow-expect-in-tests = true
 
 disallowed-methods = [
     { path = "std::thread::sleep", reason = "every wait goes through platform::clock (CODE-06)" },
+    { path = "tokio::time::sleep", reason = "every wait goes through platform::clock (CODE-06)" },
+    { path = "tokio::time::sleep_until", reason = "every wait goes through platform::clock (CODE-06)" },
+    { path = "tokio::time::interval", reason = "every wait goes through platform::clock (CODE-06)" },
+    { path = "tokio::time::interval_at", reason = "every wait goes through platform::clock (CODE-06)" },
+    { path = "tokio::time::timeout", reason = "every wait goes through platform::clock (CODE-06)" },
+    { path = "tokio::time::timeout_at", reason = "every wait goes through platform::clock (CODE-06)" },
     { path = "std::time::SystemTime::now", reason = "time comes from platform::clock (CODE-06)" },
     { path = "std::fs::read", reason = "blocking file I/O stalls the async runtime (CODE-05)" },
     { path = "std::fs::read_to_string", reason = "blocking file I/O stalls the async runtime (CODE-05)" },

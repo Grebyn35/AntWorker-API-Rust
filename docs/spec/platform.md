@@ -127,7 +127,7 @@ Queries are checked against the database while compiling (DATA-20), and `migrate
 
 A database URL is the only source of its connection's settings (OPS-01). It sets the user, password, host and database itself, and the port too, or the port is 5432. It may set only the query parameters that `.env.example` lists for `DATABASE_URL`. The Postgres driver also reads libpq's environment variables, so the ones that `.env.example` lists, which could change a connection the URL describes, must be unset, even to an empty value. Every subcommand that reads a database URL refuses to start while one is set.
 
-Pools, connections and transactions stay inside `platform::db`. Code elsewhere reaches the database through a unit of work, and clippy refuses `sqlx::Pool`, `sqlx::PgConnection` and `sqlx::Transaction` outside it (DATA-21). The test support is the one other place that names them (TEST-06): it creates and drops test databases, arranges tests with statements no unit of work may run, and reads stored state as `owner` or as the administrator.
+Pools, connections and transactions stay inside `platform::db`. Code elsewhere reaches the database through a unit of work, and clippy refuses `sqlx::Pool`, `sqlx::PgConnection` and `sqlx::Transaction` outside it (DATA-21). The test support is the one other place that names them (TEST-06): it creates and drops test databases, arranges tests with statements no unit of work may run, and reads stored state as `owner` or as the administrator. It gets its connections from `platform::db::testing`, which only the `test-support` feature compiles and only the tests enable, so the API never hands out a connection, or the connection options whose `Debug` output includes the password (SEC-01).
 
 ### Unit of work
 

@@ -18,5 +18,9 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
 
+[features]
+# Raw database connections for the test support (TEST-06). Only the tests enable it.
+test-support = []
+
 [lints]
 workspace = true

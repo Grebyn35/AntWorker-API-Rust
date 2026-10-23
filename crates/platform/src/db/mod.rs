@@ -2,7 +2,8 @@
 //! tasks.
 //!
 //! The pool and its connections stay inside this module. Code outside it runs queries through
-//! a [`UnitOfWork`] (DATA-21).
+//! a [`UnitOfWork`] (DATA-21). The one exception is the test support, which gets raw
+//! connections from `testing`, compiled only with the `test-support` feature.
 #![expect(
     clippy::disallowed_types,
     reason = "this module owns the pool, its connections and its transactions (DATA-21)"
@@ -10,6 +11,8 @@
 
 mod migrations;
 mod roles;
+#[cfg(feature = "test-support")]
+pub mod testing;
 mod url;
 
 use std::time::Duration;

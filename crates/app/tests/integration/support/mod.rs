@@ -24,7 +24,7 @@ use std::{
 
 use platform::{
     config::BootstrapConfig,
-    db::{Admin, Database, DatabaseUrl, migrate},
+    db::{Admin, Database, DatabaseUrl, migrate, testing},
 };
 use sqlx::{AssertSqlSafe, Connection, PgConnection, migrate::Migrator};
 use tokio::sync::OnceCell;
@@ -251,15 +251,10 @@ impl TestDatabase {
             identifier(&name)
         ))
         .await;
-        let options = self.settings.admin.connect_options();
-        let url = format!(
-            "postgres://{name}:{name}@{}:{}/{}",
-            options.get_host(),
-            options.get_port(),
-            self.name
-        )
-        .parse()
-        .expect("a role URL");
+        let (host, port) = testing::address(&self.settings.admin);
+        let url = format!("postgres://{name}:{name}@{host}:{port}/{}", self.name)
+            .parse()
+            .expect("a role URL");
         (name, url)
     }
 }
@@ -275,7 +270,7 @@ impl Drop for TestDatabase {
                 .enable_all()
                 .build()?
                 .block_on(async move {
-                    let mut conn = PgConnection::connect_with(&admin.connect_options()).await?;
+                    let mut conn = testing::connect(&admin).await?;
                     // Each statement goes alone: DROP DATABASE can't run in the implicit
                     // transaction that a batch of statements shares.
                     let database =
@@ -420,7 +415,7 @@ fn unique(settings: &BootstrapConfig, kind: &str) -> String {
 }
 
 async fn connect(url: &DatabaseUrl) -> PgConnection {
-    PgConnection::connect_with(&url.connect_options())
+    testing::connect(url)
         .await
         .expect("connect to the test database")
 }

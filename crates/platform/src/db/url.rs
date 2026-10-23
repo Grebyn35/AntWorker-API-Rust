@@ -48,8 +48,9 @@ impl DatabaseUrl {
         }
     }
 
-    /// The options to connect with.
-    pub fn connect_options(&self) -> PgConnectOptions {
+    /// The options to connect with. Their `Debug` output includes the password, so they never
+    /// leave `platform` (SEC-01).
+    pub(crate) fn connect_options(&self) -> PgConnectOptions {
         self.options.clone()
     }
 
