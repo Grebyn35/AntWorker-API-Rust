@@ -1,6 +1,6 @@
 # Security rules (`SEC`)
 
-The security bar is Level 2 of the OWASP Application Security Verification Standard (ASVS) (D26). These rules cover the mechanisms every module relies on. The threat model in `docs/operations/threat-model.md` maps each threat to the rules that mitigate it.
+The security bar is Level 2 of the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) (D26). These rules cover the mechanisms every module relies on. The threat model in `docs/operations/threat-model.md` maps each threat to the rules that mitigate it.
 
 ## Secrets
 

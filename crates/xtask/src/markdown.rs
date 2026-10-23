@@ -1,4 +1,6 @@
-//! What the checks read from Markdown: heading anchors, links and prose.
+//! What the checks read from Markdown: heading anchors, links and prose, through a Markdown
+//! parser; and, line by line, level-2 sections, the lines under a heading, numbered lists of
+//! named items, and tables.
 
 use std::collections::{BTreeMap, BTreeSet};
 

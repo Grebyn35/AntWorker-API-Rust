@@ -142,10 +142,15 @@ fn specs(repo: &Repo) -> Vec<Finding> {
     findings
 }
 
-/// A table whose first column is `ID` is a table of behaviors: it sits in the Behaviors
-/// section, has the four columns, and each test prefix matches its ID (DOC-15).
+/// A table whose first column is `ID`, or whose rows start with a behavior ID, is a table of
+/// behaviors: it sits in the Behaviors section, has the four columns in every row, and each
+/// test prefix matches its ID (DOC-15).
 fn behavior_table(path: &str, table: &Table) -> Vec<Finding> {
-    if table.header.first().map(String::as_str) != Some("ID") {
+    let defines_behaviors = table
+        .rows
+        .iter()
+        .any(|(_, cells)| cells.first().is_some_and(|cell| is_behavior_id(cell)));
+    if table.header.first().map(String::as_str) != Some("ID") && !defines_behaviors {
         return Vec::new();
     }
     let mut findings = Vec::new();
@@ -166,6 +171,14 @@ fn behavior_table(path: &str, table: &Table) -> Vec<Finding> {
     }
     for (line, cells) in &table.rows {
         let (Some(id), Some(prefix)) = (cells.first(), cells.get(3)) else {
+            findings.push(Finding::new(
+                path,
+                *line,
+                format!(
+                    "the row of {} doesn't have the table's four columns (DOC-15)",
+                    cells.first().map_or("a behavior", String::as_str)
+                ),
+            ));
             continue;
         };
         let expected = format!("`{}_`", id.to_lowercase().replace('-', "_"));
@@ -178,6 +191,13 @@ fn behavior_table(path: &str, table: &Table) -> Vec<Finding> {
         }
     }
     findings
+}
+
+/// Whether `cell` is a behavior ID and nothing else, as the catalog reads one.
+fn is_behavior_id(cell: &str) -> bool {
+    text::id_tokens(cell).first().is_some_and(|token| {
+        token.column == 0 && token.number.len() == 3 && token.id().len() == cell.len()
+    })
 }
 
 /// Each rule file is in the standards README's table of files, and each of its rules uses the
@@ -380,9 +400,16 @@ fn tracker(repo: &Repo) -> Vec<Finding> {
     let mut findings = outline.findings(tracker);
     let mut lines = tracker.text.lines().enumerate();
     if let Some((index, _)) = lines.find(|(_, line)| line.trim_end() == "## Current work") {
-        // Every word up to the next section counts, in subheadings and code blocks too.
+        // Every word up to the next section counts, in subheadings and code blocks too. A
+        // line inside a code block never starts the next section.
+        let mut in_code = false;
         let words: usize = lines
-            .take_while(|(_, text)| !text.starts_with("## "))
+            .take_while(|(_, text)| {
+                if text.trim_start().starts_with("```") {
+                    in_code = !in_code;
+                }
+                in_code || !text.starts_with("## ")
+            })
             .map(|(_, text)| text.split_whitespace().count())
             .sum();
         let line = index + 1;
@@ -543,6 +570,34 @@ mod tests {
         assert_eq!(
             findings(&[(TRACKER, Box::leak(text.into_boxed_str()))]),
             ["docs/MIGRATION.md:3: Current work has 204 words, and DOC-16 allows 200 (DOC-16)"]
+        );
+    }
+
+    #[test]
+    fn doc_16_a_heading_inside_a_code_block_doesnt_end_current_work() {
+        let words = vec!["word"; 100].join(" ");
+        let text = format!(
+            "# Tracker\n\n## Current work\n\n{words}\n\n```\n## a shell comment\n{words}\n```\n\n## Decisions\n"
+        );
+
+        assert_eq!(
+            findings(&[(TRACKER, Box::leak(text.into_boxed_str()))]),
+            ["docs/MIGRATION.md:3: Current work has 206 words, and DOC-16 allows 200 (DOC-16)"]
+        );
+    }
+
+    #[test]
+    fn doc_15_every_table_that_defines_behaviors_has_their_columns() {
+        let spec = "# Spec\n\n## Purpose\n\nWidgets.\n\n## Behaviors\n\n\
+                    | Id | Behavior |\n|---|---|\n| WIDGETS-001 | One |\n\n\
+                    | ID | Behavior | Rules | Test prefix |\n|---|---|---|---|\n| WIDGETS-002 | Two |\n";
+
+        assert_eq!(
+            findings(&[("docs/spec/widgets.md", spec)]),
+            [
+                "docs/spec/widgets.md:9: a table of behaviors has the columns ID, Behavior, Rules and Test prefix (DOC-15)",
+                "docs/spec/widgets.md:15: the row of WIDGETS-002 doesn't have the table's four columns (DOC-15)"
+            ]
         );
     }
 

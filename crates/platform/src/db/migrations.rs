@@ -69,6 +69,10 @@ impl fmt::Display for Versions {
 /// `-- no-transaction`, or while any applied migration differs from its file. A recorded
 /// migration that `migrations` doesn't contain is ignored, so an earlier release can still run
 /// `migrate` (PLATFORM-029). Concurrent runs apply each migration once.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "platform::db opens the owner's connection for migrate (DATA-21)"
+)]
 pub async fn migrate(url: &DatabaseUrl, migrations: &Migrator) -> Result<Vec<i64>, MigrateError> {
     let outside: Vec<i64> = forward(migrations)
         .filter(|migration| migration.no_tx)

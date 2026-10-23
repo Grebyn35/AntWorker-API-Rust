@@ -43,7 +43,7 @@ Tests and the test support may block, because each test runs on an async runtime
 ### CODE-06 Time and randomness come from `platform`
 Code in this workspace outside `platform::clock` doesn't read a clock (`Utc::now`, `SystemTime::now`, `Instant::now`, or the `elapsed` of a time it holds) or wait on one: `std::thread::sleep`, `tokio::time::sleep`, and the timed waits of threads, condition variables and channels. Every wait written in this workspace goes through the clock's `sleep`. Timeouts inside dependencies, such as the request timeout layer or an HTTP client timeout, are configured durations, not waits this rule covers. Code outside `platform` doesn't create its own random number generators.
 - Why: tests control time, and every secret comes from the operating system's secure random source (D23, SEC-03).
-- Check: `clippy` (`disallowed_methods`).
+- Check: `clippy` (`disallowed_methods` bans the clock reads and waits of the dependencies; a dependency that brings a clock or a random number generator brings its bans with it).
 
 ## Size
 

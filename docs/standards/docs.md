@@ -3,7 +3,7 @@
 ## Current state only
 
 ### DOC-01 Docs and comments describe the system as it is
-No document or comment records what changed, what something replaced, what an earlier version did, who asked for it, or when it was written. The migration tracker's record of progress is the one exception (DOC-16).
+No document or comment records what changed, what something replaced, what an earlier version did, who asked for it, or when it was written. The migration workspace is the exception: the tracker records the migration's progress (DOC-16), and the inventory describes the old codebase (DOC-04).
 - Why: history goes stale, and readers need the current state, not the path to it (D27).
 - Check: `ci: check-docs` flags the common markers (`previously`, `no longer`, `used to`, `legacy`, `now uses`, and dates in comments), plus `review`.
 

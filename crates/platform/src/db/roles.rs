@@ -71,6 +71,10 @@ pub struct Admin {
 impl Admin {
     /// Connects with an administrator's URL. The connection's statements aren't logged,
     /// because they carry password verifiers (OBS-04).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "platform::db opens the administrator's connection (DATA-21)"
+    )]
     pub async fn connect(url: &DatabaseUrl) -> Result<Self, BootstrapError> {
         let options = url.connect_options().disable_statement_logging();
         let conn = PgConnection::connect_with(&options)

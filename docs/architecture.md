@@ -328,6 +328,8 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Invitation | An offer to join a workspace with a role, sent to an email address. |
 | Unit of work | One database transaction, opened by the route, with its side effects: audit entries, events and jobs (D1). |
 | Job | Durable background work, delivered at least once (D13). |
+| Migration | One forward-only change to the schema, in a file of `migrations/`, applied by `migrate` (DATA-09). |
+| Startup | What `serve`, `migrate` and `bootstrap` do before their work: reading the configuration and running their checks. A startup failure ends the process (OPS-03). |
 | Event | A record of a change, delivered to clients over SSE and replayable after a reconnect (D5). |
 | Stream | One client's open SSE connection. |
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |

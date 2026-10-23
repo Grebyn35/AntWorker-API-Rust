@@ -77,7 +77,7 @@ If the review stops under 2 or 3, each remaining `must-fix` finding gets exactly
 - **Prove.** A question about how something behaves is settled by a small throwaway test, and the rule is written from the result.
 - **Defer.** A question that only building can settle is removed from the rule, which keeps only what is certain. The question goes into the open design questions of the spec it concerns, together with what will settle it.
 
-The changed items are then checked one by one. The documents never state something known to be wrong: each issue is fixed, decided, or listed as an open question with the test that resolves it.
+The changed items are then checked one by one. The documents never state something known to be wrong: each issue is fixed, decided, or listed as an open question with what will settle it.
 
 ## Changing a rule
 

@@ -34,7 +34,6 @@ Every part of the system is listed under [Foundation](#foundation), [Modules](#m
 5. **Remaining modules, one at a time.** `just new-module` and the guide to adding a module come first, shaped by the afternoon test, and every remaining module starts from them. Each module's spec is written just before the module is built, and carries the commitments that [inventory/decision-trace.md](inventory/decision-trace.md) lists for it.
 6. **Close the migration.** The remaining parts under [Foundation](#foundation) are built, and one conformance review covers the whole codebase, under the same stopping rule. The ADRs are written from the rules as they then stand: ADR-00NN records decision DNN, and [inventory/decision-trace.md](inventory/decision-trace.md) lists where the rules refine the decisions' first wording in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Every `DNN` citation is replaced with a link to its ADR, and architecture.md is rewritten to describe the system as built (DOC-01). The migration closes when [Known gaps](#known-gaps) and [Rule proposals](#rule-proposals) are empty. Then `docs/inventory/` and this file are deleted.
 
-Each CI check is built when the code it checks exists. A check that never catches a real problem is removed.
 
 ## Foundation
 
@@ -123,11 +122,13 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | From | Proposal | Decided in |
 |---|---|---|
 | Field-name proposal | OBS-11: own metric names drop `app.`, which OpenTelemetry's conventions use for client applications since 1.32, and follow OBS-05's pattern for own names. ERR-11 and ERR-12 name two such metrics. | 1.3, with the metric macro |
-| Catch-up review | OPS-13 and OPS-19: `just setup` checks the versions of the tools CI pins, such as cargo-deny 0.20.2, and a sqlx-cli that matches sqlx 0.9. | 1.4, with `check-pins` and `check-toolchain` |
+| Catch-up review | OPS-13 and OPS-19: `just setup` checks the versions of the tools CI pins, such as cargo-deny 0.20.2, and a sqlx-cli that matches sqlx 0.9. | 1.3, which changes `just dev` |
 | Standards review | An OPS rule for D14: TLS on every connection that leaves the host, and storage encrypted at rest as a stated deployment requirement. | 1.5 |
 | Research | API-15 names the draft it follows: draft-ietf-httpapi-ratelimit-headers-11 (2026-05), with `RateLimit: "default";r=50;t=30` and `RateLimit-Policy: "burst";q=100;w=60`. | 2.1 |
 | Research | API-12 names the draft it follows: draft-ietf-httpapi-idempotency-key-header-08 (2026-10), whose key is a structured-field string. | 2.2 |
-| Conformance review of c252bab | CODE-03, DATA-20 and DATA-21: `check-docs` fails on an `#[expect]` of the print or `disallowed_*` lints outside the places those rules allow, so finding one takes no review. | 3, which settles the checks |
+| Conformance review of c252bab | CODE-03, DATA-20 and DATA-21: `check-docs` fails on an `#[expect]` of the print or `disallowed_*` lints outside the places those rules allow, so finding one takes no review. | 1.2, which writes code all three rules cover |
+| Conformance review of c252bab | DATA-20: a check reads the locked sqlx sources and fails on a public function that takes SQL text and that `clippy.toml` doesn't ban, so the bans stay complete when sqlx is updated. | 1.2 |
+| Conformance review of c252bab | DOC-09: the glossary lists the acronyms a reader is assumed to know, such as HTTP, SQL and TLS, so "spelled out on first use" has a fixed scope. | 1.2 |
 
 ## Conformance reviews
 
@@ -139,7 +140,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | `platform::db` | 2 | 6 (3, 4, 1 shared) | 2 | 1 | `stopped: no progress`: 2adeab1 |
 | Built parts that step 1.2 doesn't rewrite: `xtask`; `platform::db`, configuration, errors and types; the test support; the migration; CI and build files | 1 | 16 (12, 10, 6 shared) | 13 | 0 | `next pass`: 376a450 |
 | Built parts that step 1.2 doesn't rewrite: `xtask`; `platform::db`, configuration, errors and types; the test support; the migration; CI and build files | 2 | 5 (5, 2, 2 shared) | 4 | 2 | `stopped: no progress`: b34412c, 6f66c22 |
-| c252bab: the documentation rules and their format checks, the rules it rewrote against the code they describe, and the new clippy bans | 1 | 22 (18, 6, 2 shared) | 8 | 0 | `next pass` |
+| c252bab: the documentation rules and their format checks, the rules it rewrote against the code they describe, and the new clippy bans | 1 | 22 (18, 6, 2 shared) | 8 | 0 | `next pass`: 58d9917 |
+| c252bab: the documentation rules and their format checks, the rules it rewrote against the code they describe, and the new clippy bans | 2 | 15 (12, 7, 4 shared) | 2 | 2 | `stopped: no progress` |
 
 ## Decisions
 

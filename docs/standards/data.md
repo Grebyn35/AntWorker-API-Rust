@@ -99,14 +99,14 @@ The server refuses to start unless it connects as the role `app`, and that role 
 ## Queries
 
 ### DATA-20 SQL is checked at compile time
-All SQL goes through the sqlx `query!`, `query_as!` and `query_scalar!` macros. The `.sqlx/` offline cache is committed, and CI builds with `SQLX_OFFLINE=true`. Optional filters are nullable parameters in a static query (`$1::text IS NULL OR action = $1`). `QueryBuilder` is allowed only where a module spec requires a dynamic query, and it never concatenates input. SQL that can't be a macro query, such as a role statement that takes identifiers, is allowed only in `platform::db` and the test support, through an `#[expect]` that states its reason.
+All SQL goes through the sqlx `query!`, `query_as!` and `query_scalar!` macros. The `.sqlx/` offline cache is committed, and CI builds with `SQLX_OFFLINE=true`. Optional filters are nullable parameters in a static query (`$1::text IS NULL OR action = $1`). SQL that can't be a macro query is allowed only in these places, each through an `#[expect]` that states its reason: the statements of `platform::db` that take identifiers, such as role statements; the test support (TEST-06); and a dynamic query that a module spec requires, built with `QueryBuilder`, which never concatenates input.
 - Why: a query that doesn't match the schema doesn't compile (D24).
-- Check: `clippy` (`disallowed_methods` bans the non-macro query functions and every method that takes SQL as a string), `ci: sqlx-check`, plus `review` (where an `#[expect]` allows string SQL).
+- Check: `clippy` (`disallowed_methods` and `disallowed_macros` ban every function, method and macro of sqlx that takes SQL text outside the checked macros, and `QueryBuilder`), `ci: sqlx-check`, plus `review` (where an `#[expect]` allows string SQL).
 
 ### DATA-21 Repositories take a unit of work
 A repository function takes `&mut UnitOfWork`, never a pool or connection. Pools, connections and transactions stay inside `platform::db`, and the test support is the one other place that names them (TEST-06).
 - Why: every query runs inside the operation's transaction (ARCH-11).
-- Check: `clippy` (`disallowed_types` bans sqlx's pools and pool options, its pooled and plain connections, its transactions and its listener, with their Postgres aliases; `disallowed_methods` bans opening a connection from connection options, and opening a transaction from a connection; `platform::db` and the test support allow them through `#[expect]`), plus `review` (where an `#[expect]` allows them).
+- Check: `clippy` (`disallowed_types` bans sqlx's pools and pool options, its pooled and plain connections, its transactions and its listener, with their Postgres aliases; `disallowed_methods` bans opening a connection, and opening a transaction from one; `platform::db` and the test support allow them through `#[expect]`), plus `review` (where an `#[expect]` allows them).
 
 ### DATA-22 Every query filters by tenant itself
 Tenancy is enforced by the application, and every query on user or workspace data carries its own filter (D3, D4):

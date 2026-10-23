@@ -21,7 +21,7 @@ This is a Rust API built as a template to fork. Read these before changing anyth
 - **End every session with the `handoff` skill** in `.claude/skills/`, so the next session, on any machine, starts from the repository alone.
 - **No `TODO` or `FIXME`.** Known work is tracked as an issue, and in the tracker while the migration runs (DOC-07, DOC-14).
 - **Agents send no personal data.** An agent that may make web requests is told to put no email address, name or other personal information in any request, header or URL.
-- **`docs/inventory/` describes the old API.** Use it to look up old behavior. Outside the migration workspace, only the decision citations that DOC-04 allows point into it.
+- **`docs/inventory/` describes the old API.** Use it to look up old behavior. DOC-04 lists the only places outside it that may point into it.
 
 ## Commands
 
