@@ -7,7 +7,7 @@ The enforceable rules behind [docs/architecture.md](../architecture.md). That do
 ### ARCH-01 `platform` never depends on `app`
 The API is built from exactly two crates, `platform` and `app`, and `platform` has no dependency on `app`. The workspace has one other crate, `xtask`, which holds the custom CI checks. Neither API crate depends on `xtask`, so no check ships in the binary.
 - Why: shared mechanisms must never learn about features, and tooling never ships in the API (D22).
-- Check: `compiler` (Cargo rejects the dependency cycle), plus `ci: check-deps` (neither API crate depends on `xtask`).
+- Check: `compiler` (Cargo rejects the dependency cycle, and `xtask` is a binary with no library, so no crate can use its code).
 
 ### ARCH-02 `platform` holds no product rules
 `platform` contains no role definitions, no concrete permissions, no membership rules, and no types belonging to a feature module. It defines the generic `Permission` trait and the `Authorized<P>` and `Memberships` types, whose meaning comes entirely from the `AccessPolicy` that `access` implements. The only tenancy concepts it knows are a user ID and a workspace ID. The list of telemetry names (OBS-05) may name a module's concepts, such as `auth.session.id`, because a name isn't a rule.

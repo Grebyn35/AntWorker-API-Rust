@@ -74,3 +74,42 @@ The old data layer's behaviors that `platform::db` replaces. The schema behavior
 | DATA-031 Background-task retry | changed | PLATFORM-013 | Jobs retry with backoff, then move to a dead-letter state (OPS-10) |
 | DATA-034 Connection pool | changed | PLATFORM-009 | `DATABASE_MAX_CONNECTIONS`, 10 by default; a 5-second acquire timeout as a constant; no minimum connections |
 | DATA-036 Repository access split | dropped | | No repositories that bypass row-level security (D4, D22) |
+
+## Platform: the request pipeline
+
+The old HTTP layer's behaviors that the request pipeline and the `system` module replace. The client IP and the rate limits (HTTP-011, HTTP-030 to HTTP-038) are triaged with rate limiting, request bodies, path parameters and pagination (HTTP-019 to HTTP-029, except HTTP-024) with the modules that first take them, idempotency (HTTP-039 to HTTP-049) with idempotency, and the request metrics and telemetry export (HTTP-013, OBS-010 to OBS-019, OBS-023, OBS-026 to OBS-056) with the telemetry.
+
+| Old behavior | Verdict | New behavior | Reason for the change |
+|---|---|---|---|
+| HTTP-001 Command-line dispatch | changed | ARCH-14 | One subcommand per task, `serve` included, so no default task runs by mistake |
+| HTTP-002 Startup order and fail-fast conditions | changed | OPS-03, OPS-06, PLATFORM-009, PLATFORM-030 | One startup-failure format; the signal handlers are installed first; nothing panics |
+| HTTP-003 Composition functions | kept | ARCH-12 | |
+| HTTP-004 Graceful HTTP shutdown | changed | PLATFORM-038 | A delay before the listener stops accepting, and a deadline on the drain (OPS-06) |
+| HTTP-005 Liveness probe | changed | PLATFORM-019 | No version in the body (ASVS), and no envelope |
+| HTTP-006 Readiness probe | changed | PLATFORM-037 | Also reports a database the instance can't reach (D9) |
+| HTTP-007 Global middleware order | changed | architecture §6 | The security headers wrap every response; CORS is dropped (HTTP-010) |
+| HTTP-008 Route-group layer stacks | changed | API-14 | One builder per access level, through which every route is registered with its documentation |
+| HTTP-009 Versioned prefix, framework defaults for misses | changed | PLATFORM-021, PLATFORM-032 | A path that doesn't exist answers a 404 problem, and a method it doesn't serve a 405 problem with `Allow` |
+| HTTP-010 CORS policy | dropped | | No client calls the API from a browser: the desktop client calls it from Rust. CORS arrives with a web client (D18) |
+| HTTP-012 One log line per failed request | changed | PLATFORM-034 | One line per request, so every trace ID leads to a log line (D10); a 4xx is logged at `INFO` (ERR-10) |
+| HTTP-014 Handler panics become a 500 | kept | ERR-12 | |
+| HTTP-015 Request body size limits per route class | changed | PLATFORM-036 | A 413 problem before the body is read, whatever the route reads (API-08) |
+| HTTP-016 Response envelope: success | dropped | | The body is the resource itself (API-05), and the trace context travels in `server-timing` (API-16) |
+| HTTP-017 Response envelope: error | changed | API-07 | RFC 9457 problems |
+| HTTP-018 Error mapping and hiding of internal detail | changed | ERR-03, ERR-08, ERR-09 | The category alone sets the status; every 500 has a fixed body |
+| HTTP-024 Query-string parameters | changed | PLATFORM-035 | Unknown parameters are refused (API-09). Parsing values arrives with the first route that takes one |
+| OBS-001 One server span per request | kept | OBS-06 | |
+| OBS-002 An inbound `traceparent` continues the trace | kept | PLATFORM-022 | |
+| OBS-003 Client baggage becomes span attributes | dropped | | Identity on spans comes from the server (OBS-09) |
+| OBS-004 Route templating, with `/<unmatched>` | changed | PLATFORM-034 | A request that matches no route has no `http.route`, as OpenTelemetry's conventions ask |
+| OBS-005 Every envelope carries `meta.trace_id` | changed | API-07, API-16 | Problems carry `trace_id`, and every response carries `server-timing` |
+| OBS-006 Zero sentinel when no span is active | dropped | | Every response the stack answers has a span; the probes carry no trace context (OBS-15) |
+| OBS-007 Span status follows the status code | kept | OBS-06 | |
+| OBS-008 One structured log per 4xx and 5xx | changed | PLATFORM-034 | One completion line per request, and an `ERROR` line for each 5xx (ERR-10) |
+| OBS-009 No log line for 1xx to 3xx | changed | PLATFORM-034 | Every request writes its completion line (D10) |
+| OBS-020 Console JSON lines with the span hierarchy | changed | OBS-02, OBS-05 | Flat lines with `trace_id` and `span_id`, and the service's name, version and environment |
+| OBS-021 Level filters by environment and `RUST_LOG` | changed | OBS-03 | One setting, `LOG_LEVEL`, with the same default everywhere |
+| OBS-024, OBS-025 Instrumentation and field conventions | changed | OBS-04, OBS-05 | One list of telemetry names, checked by `check-instrument` |
+| RT-034 Process shutdown sequence | changed | PLATFORM-038 | The order of OPS-06, bounded by settings rather than by the container's grace period alone |
+| OPS-010 Startup sequence | changed | OPS-03 | One startup-failure format, written by `main` before logging exists |
+| OPS-013 Command-line dispatch | changed | ARCH-14 | As HTTP-001 |

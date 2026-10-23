@@ -5,6 +5,10 @@
 //! `unwrap` and `expect` (CODE-03).
 
 #[cfg(test)]
+mod openapi;
+#[cfg(test)]
 mod platform;
 #[cfg(test)]
 mod support;
+#[cfg(test)]
+mod system;

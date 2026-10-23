@@ -39,7 +39,7 @@ The probes are answered before the rate limit, load shedding and request timeout
 - Check: `test`.
 
 ### OPS-06 Shutdown is bounded and graceful
-On SIGTERM, the instance shuts down in this order:
+The instance installs its handlers for the shutdown signals before it connects to anything, and fails startup if it can't (OPS-03). On SIGTERM, the instance shuts down in this order:
 1. Turn readiness off.
 2. Wait one health-check interval, so the load balancer stops sending traffic.
 3. Stop accepting connections.
@@ -48,8 +48,8 @@ On SIGTERM, the instance shuts down in this order:
 6. Flush telemetry.
 
 The whole sequence fits inside the container's grace period, with margin.
-- Why: deploys drop no requests, and SIGKILL never cuts a flush short (D20).
-- Check: `ci: e2e` (the deploy scenario).
+- Why: deploys drop no requests, and SIGKILL never cuts a flush short (D20). An instance that can't receive SIGTERM is killed mid-request by every deploy.
+- Check: `ci: e2e` (the deploy scenario), `test` (the sequence through `platform::lifecycle::serve`), plus `review` (the handlers are installed before anything connects, because no test can make installing them fail).
 
 ### OPS-07 Overload sheds load
 Every request except the health probes has a timeout. Each route group has a default, and a module spec may override it. A concurrency limit rejects excess requests with the 503 problem and `Retry-After`. The health probes are exempt from it.

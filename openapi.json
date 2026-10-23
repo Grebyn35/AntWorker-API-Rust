@@ -1,0 +1,192 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "antworker-api",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/v1/capabilities": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Lists the features a deployment can turn off, and whether each one is on.",
+        "operationId": "capabilities",
+        "responses": {
+          "200": {
+            "description": "The deployment's features.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Capabilities"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`request.invalid_query`: Invalid query.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "request.invalid_query"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`request.payload_too_large`: Body too large.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "request.payload_too_large"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`request.internal_error`: Internal error.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "request.internal_error"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "x-access": "public"
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Capabilities": {
+        "type": "object",
+        "description": "The features this deployment offers.",
+        "required": [
+          "features"
+        ],
+        "properties": {
+          "features": {
+            "$ref": "#/components/schemas/Features",
+            "description": "One member per feature a deployment can turn off, `true` while the feature is on. A\nfeature this API doesn't have is absent."
+          }
+        }
+      },
+      "Features": {
+        "type": "object",
+        "description": "No feature can be turned off yet."
+      },
+      "Problem": {
+        "type": "object",
+        "description": "An RFC 9457 problem, with the error's stable code and the request's trace ID.",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "trace_id"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The stable error code."
+          },
+          "detail": {
+            "type": "string",
+            "description": "A sentence about this occurrence, for humans. Clients act on `code`, never on this."
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The response's status.",
+            "minimum": 0
+          },
+          "title": {
+            "type": "string",
+            "description": "A short summary, the same for every occurrence of the code."
+          },
+          "trace_id": {
+            "type": "string",
+            "description": "The trace ID of the request."
+          },
+          "type": {
+            "type": "string",
+            "description": "`/problems/<code>`."
+          }
+        }
+      }
+    }
+  }
+}

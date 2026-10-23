@@ -22,6 +22,9 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 - **Database:** `Database`, the pool of connections as the role `app`, which `serve` connects once at startup. Connecting runs the startup checks (PLATFORM-009, PLATFORM-030), and `begin` opens a unit of work.
 - **Unit of work:** `UnitOfWork`, opened by the route (Design: Unit of work), with `executor`, `commit`, `enqueue` and `publish`.
 - **Tasks:** `bootstrap` and `migrate`, run by the binary's subcommands of the same names (ARCH-14).
+- **Routes:** `Routes`, through which every module registers its routes and their documentation (API-14, API-17), and `http::app`, which wraps them in the request pipeline.
+- **Errors:** `Category`, and `Problem<E>`, the one conversion of an error into a response (ERR-07).
+- **Lifecycle:** `Readiness`, `ShutdownSignals` and `serve`, which runs the server until a shutdown signal and then shuts it down (OPS-05, OPS-06).
 - **Proof types:** `Principal`, `Authorized<P>`, `Memberships` and `JobContext`.
 - **Traits that modules implement** (ARCH-13):
   - `SessionVerifier`, implemented by `auth`.
@@ -45,11 +48,11 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 | Method and path | Access | Behaviors |
 |---|---|---|
 | `GET /health/live` | public, answered before the middleware stack (OPS-05) | PLATFORM-019 |
-| `GET /health/ready` | public, answered before the middleware stack (OPS-05) | PLATFORM-019 |
+| `GET /health/ready` | public, answered before the middleware stack (OPS-05) | PLATFORM-019, PLATFORM-037 |
 
 ## Behaviors
 
-IDs 001 to 005, 007 and 008 are retired.
+IDs 001 to 005, 007, 008 and 033 are retired.
 
 ### Database
 
@@ -94,17 +97,21 @@ IDs 001 to 005, 007 and 008 are retired.
 |---|---|---|---|
 | PLATFORM-018 | Same key and fingerprint returns the stored result. A different fingerprint gets 422. A request still in flight gets 409. A committed change always has its record. | API-12 | `platform_018_` |
 | PLATFORM-019 | The health probes bypass rate limits, load shedding and timeouts, and return a plain status body. | OPS-05 | `platform_019_` |
-| PLATFORM-020 | Requests beyond the concurrency limit get 503 with `Retry-After`. | OPS-07 | `platform_020_` |
-| PLATFORM-021 | Every error is an RFC 9457 problem with `code` and `trace_id`, and internal errors expose nothing. | ERR-07, ERR-08, API-07 | `platform_021_` |
-| PLATFORM-022 | Every response except the health probes carries its trace context in `server-timing`. | API-16 | `platform_022_` |
+| PLATFORM-020 | Requests beyond the concurrency limit get the 503 problem `request.overloaded`, with `Retry-After`. | OPS-07 | `platform_020_` |
+| PLATFORM-021 | Every error is an RFC 9457 problem with `code` and `trace_id`, a path that doesn't exist included, and internal errors expose nothing. | ERR-07, ERR-08, API-07 | `platform_021_` |
+| PLATFORM-022 | Every response except the health probes carries its trace context in `server-timing`. A request with a valid `traceparent` continues that trace. | API-16, OBS-07 | `platform_022_` |
 | PLATFORM-031 | A request that runs past its timeout answers 503 `request.timed_out`. | OPS-07, ERR-03 | `platform_031_` |
 | PLATFORM-032 | A request to a path that doesn't serve its method answers 405 `request.method_not_allowed`, with `Allow` listing the methods the path serves. | ERR-03, API-07 | `platform_032_` |
+| PLATFORM-034 | Every request except the health probes writes one `INFO` line when it completes, with its method, route, status and duration. A 5xx response also writes one `ERROR` line with its cause chain, and a 4xx response writes nothing above `INFO`. | OBS-03, ERR-10 | `platform_034_` |
+| PLATFORM-035 | A query parameter that the route's documentation doesn't list answers 400 `request.invalid_query`. | API-09 | `platform_035_` |
+| PLATFORM-036 | A body larger than its route's limit answers 413 `request.payload_too_large`, before the body is read. | API-08 | `platform_036_` |
 
 ### Lifecycle
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
-| PLATFORM-033 | `serve` fails startup when it can't install its handlers for the shutdown signals. | OPS-03, OPS-06 | `platform_033_` |
+| PLATFORM-037 | `/health/ready` answers 200 `{"status": "ready"}` while the database answers the instance's own connection and the instance isn't draining. Otherwise it answers 503 with the status `draining` or `database_unavailable`. A pool with every connection in use doesn't change the answer. | OPS-05, D20 | `platform_037_` |
+| PLATFORM-038 | On a shutdown signal, readiness answers `draining` at once. The server keeps serving for the shutdown delay, then stops accepting connections, waits for the requests in flight until the drain deadline, and returns. | OPS-06 | `platform_038_` |
 
 ### Configuration
 
@@ -194,23 +201,57 @@ A rate-limit check counts the request in its own short transaction, before the o
 
 ### Request pipeline
 
-The middleware order, from the outside in, is in [architecture.md §6](../architecture.md#6-request-lifecycle). The health probes are answered before it (OPS-05).
-- Trace IDs come from the OpenTelemetry tracer (D10). Until telemetry export is built, the tracer exports nothing, and log lines still carry `trace_id` and `span_id` (OBS-02). The tracing libraries don't write the `server-timing` header, so the API writes it (PLATFORM-022).
-- Each route group's timeout and body limit are constants (OPS-07, API-08). The concurrency limit, the readiness delay and the drain deadline are settings, because a deployment's capacity and grace period decide them (OPS-02, OPS-06).
-- The delay before shutdown stops accepting connections is the first wait in the code, so `platform::clock` arrives with it (CODE-06).
+The order of the middleware stack is in [architecture.md §6](../architecture.md#6-request-lifecycle). The health probes are answered before the stack (OPS-05), and the security headers (SEC-11) wrap both.
+
+**Routes and their documentation.** A module's `routes()` returns `Routes`, which only the builders of API-14 add to. A builder takes the output of utoipa-axum's `routes!`, whose path and methods come from the handler's `#[utoipa::path]`, so a route serves exactly the path and methods its documentation names. To each operation, the builder adds:
+- its access level, as the extension `x-access`
+- the problems the pipeline can answer on any route of its group: `request.invalid_query`, `request.payload_too_large`, `request.timed_out`, `request.overloaded` and `request.internal_error`
+
+clippy bans the routing methods of axum and utoipa-axum outside `platform::http`, so no route escapes the builders (API-14, API-17). `http::app` mounts every module's routes, the fallbacks and the stack. `Routes::openapi` returns the routes' OpenAPI document, which covers the `/v1` routes, and the binary's `openapi` subcommand writes it to `openapi.json`.
+
+**Checking the document.** A response object in the document stays open to properties it doesn't list, because clients ignore the fields they don't recognize (API-05) and `/v1` may add response fields (API-18). The integration tests send plain HTTP requests, and the test support checks every response against the document of the routes that answered it, with every object closed. A field, status, content type or header the document doesn't list fails the test (API-17). A client generated from the document couldn't send the malformed requests that the pipeline's behaviors need.
+
+**Errors.** `ErrorCode` gives an error its code, its title and its category (ERR-02, ERR-03). A handler returns `Result<T, Problem<E>>`, and `?` turns any `E: ErrorCode` into a `Problem<E>`, whose response is the problem of API-07, with the trace ID of the request's span. A 5xx `Problem` also carries its cause chain in a response extension, which the request log writes and removes (ERR-10). The fallbacks answer a path that doesn't exist with 404 `request.not_found`, and a method the path doesn't serve with 405 `request.method_not_allowed`, to which axum adds `Allow` (PLATFORM-032).
+
+**Trace context.** The tracer is OpenTelemetry's SDK, which exports nothing until telemetry export is built (build order 1.3). It samples every request, whatever the flags of an inbound `traceparent` say, so every trace ID a response carries can lead to a trace (OBS-08). The outermost layer of the stack opens the request's server span, as the child of a valid inbound `traceparent`, and writes `server-timing: trace;desc=<traceparent>` with the span's own trace context, because the tracing libraries don't write that header (PLATFORM-022). A 5xx response sets the span's status to error, and a 4xx leaves it unset, as OpenTelemetry's conventions for HTTP servers ask.
+
+**Limits.** Each route group's timeout and body limit are constants (OPS-07, API-08). The `public`, `user` and `workspace` groups share a timeout of 10 seconds, twice the 5 seconds an operation waits for a pooled connection, and a body limit of 64 KiB, far above the largest JSON body the first slice accepts. A module spec may set others for its routes. The concurrency limit is a setting, because a deployment's capacity decides it (OPS-02).
+
+**Query parameters.** A route accepts the query parameters its documentation lists, which come from the type its handler parses them into. That type declares `#[into_params(parameter_in = Query)]`, without which utoipa leaves its fields out of the query. The builder answers any other name with 400 `request.invalid_query`, before the handler runs, so a route without query parameters refuses any query string (PLATFORM-035).
+
+**Panics.** A panic hook replaces the default one, which would write plain text to stderr. It writes one `ERROR` line with the panic's message and location, inside the span the panic happened in (ERR-12). The catch layer answers the panic with the 500 problem.
+
+### Logging
+
+The logging setup writes one line per event to stdout: JSON in production, and text elsewhere (OBS-01). A JSON line holds `timestamp`, `level`, `message`, the event's fields, `service.name`, `service.version` and `deployment.environment.name`, and, inside a span, `trace_id` and `span_id` (OBS-02). `service.name` is the binary's name, so `just rename` renames it with the binary (ARCH-15).
+
+A dedicated thread writes the lines, fed by a queue of 128,000 lines, so an event doesn't wait for stdout. When the queue is full, the event waits for room instead of being dropped (OBS-08): that wait is the one blocking call the logging setup makes on the async runtime (CODE-05). `main` writes out the queue before the process exits.
+
+### Readiness and shutdown
+
+- The instance keeps one connection to the database outside the pool, and runs a query on it every 5 seconds, which fails after 2 seconds without an answer. A failed query reconnects. The readiness probe reads the last result, so it never waits for the database or for a pooled connection (PLATFORM-037). The listener of the real-time hub uses the same connection when it is built (build order 2.4).
+- `ShutdownSignals` installs the handlers for SIGTERM and SIGINT, or Ctrl+C on Windows, before `serve` connects to the database. A failure to install them fails startup (OPS-03, OPS-06).
+- On a signal, `serve` turns readiness to `draining`, waits the shutdown delay so the load balancer stops sending requests, stops accepting connections, and waits for the requests in flight until the drain deadline. It then returns, and a request still running ends with the process. The delay and the deadline are settings, because a deployment's health-check interval and grace period decide them (OPS-02). Then `main` writes out the logs.
+
+### Clock
+
+`Clock` is a trait with two implementations (ARCH-13): the system clock, and the test clock, which only the `test-support` feature compiles. `now` reads the time, and `sleep` waits. A test clock's `sleep` completes when the test advances the clock past its deadline (TEST-07). Every wait in the workspace goes through it (CODE-06), the readiness checks and the shutdown delay included.
 
 ### Telemetry names
 
 The list in `platform::telemetry` holds one constant per name (OBS-05). A name that a semantic convention defines is declared as `convention("http.route", otel::HTTP_ROUTE)`, a `const fn` that fails compilation when the two names differ. The conventions' constants come from `opentelemetry-semantic-conventions` 0.33.1, which publishes semantic conventions 1.42.0, with its `semconv_experimental` feature for names still in development. A deprecated constant fails clippy.
 
-The first names:
-- From the conventions: `service.name`, `service.version`, `deployment.environment.name`, `http.request.method`, `http.route`, `http.response.status_code`, `http.server.request.duration`, `error.type`, `exception.message`, `server.address`, `server.port`, `db.namespace`, and `user.id`, which is still in development.
+The names so far:
+- From the conventions: `service.name`, `service.version`, `deployment.environment.name`, `http.request.method`, `http.route`, `http.response.status_code`, `error.type`, `exception.message`, `code.file.path`, `code.line.number`, `server.address`, `server.port` and `db.namespace`.
 - Trace context: `trace_id` and `span_id`, the top-level fields of JSON logs (OBS-05). The conventions' crate has no constant for them, so the list declares them without `convention`.
-- Own: `workspace.id`, `auth.session.id`, `job.id`, `job.name`, `realtime.event.id`, `startup.area` and `migration.versions`.
+- The bridge's fields: `otel.name`, `otel.kind` and `otel.status_code`, which `tracing-opentelemetry` reads to name a span and set its kind and status, and which no log line carries.
+- Own: `request.duration`, in seconds, `startup.area` and `migration.versions`.
+
+A name joins the list with the first code that writes it, such as `user.id` and `workspace.id` with authentication (build order 2.1).
 
 `check-instrument` reads the list's names, then every `tracing` event and span macro, every `#[instrument(fields(…))]` and every `.record("…")`, including calls nested inside other macros. It fails on:
 - a name the list doesn't hold, or a `{ CONST }` name that isn't one of the list's constants
-- a `record` name that isn't a literal
+- a `record` name that is neither a listed name nor one of the list's constants
 - a message that isn't constant (OBS-01)
 - an `#[instrument]` without `skip_all` (OBS-04)
 - an event above `DEBUG`, or a span, in module code (OBS-03, OBS-06)
@@ -219,11 +260,6 @@ The first names:
 
 | Question | Settled by |
 |---|---|
-| Whether writing log lines to stdout blocks the async runtime (CODE-05), and if it does, how the logging setup moves the writes off it | the request pipeline's spec (build order 1.2) |
-| How readiness tells an unreachable database from a busy pool, so that load alone never takes a replica out of rotation | the readiness tests of the request pipeline, run with the pool exhausted |
-| How the health probes, which are answered before the middleware stack, fit API-14's three builders: through an exemption like the ones API-01, API-07 and API-16 give them, or through `public` outside the stack | the request pipeline's spec (build order 1.2) |
-| How CI proves that every route is documented in `openapi.json` (API-17). `utoipa-axum` registers a route and its documentation in one `routes!` call, but its `.route()` adds a route with none | the request pipeline's spec (build order 1.2) |
-| Which generator builds the typed client from `openapi.json`: openapi-to-rust (MIT, pre-1.0, with a rustls client), oas3-gen (MIT, one maintainer, with a native-tls client, which SEC-14 bans) or openapi-generator (a Java tool whose OpenAPI 3.1 support is in beta). progenitor is MPL-2.0 (CODE-12) and reads only OpenAPI 3.0, while utoipa 6 and aide write only 3.1. ARCH-01 allows three crates, so the client lives in the tests unless a proposal changes that | the typed-client spike, a throwaway test that compares them (build order 1.2) |
 | Whether the hub refreshes a stream's cached memberships on every access-change signal for that user, or only on the signal's workspace | `platform_016_` and `platform_017_`, measured against a user in several workspaces |
 | Whether a job enqueued in workspace context re-asks `AccessPolicy` when it runs, so a role change in between is respected | `platform_012_`, with a job enqueued before the enqueuing member's role changes |
 | Whether one listener connection per replica is enough under load, or events and access changes need separate connections | a load test of the hub, recorded under OPS-18 |

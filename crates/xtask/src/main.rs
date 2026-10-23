@@ -4,7 +4,9 @@
 mod catalog;
 mod docs;
 mod formats;
+mod instrument;
 mod markdown;
+mod openapi;
 mod repo;
 mod test_map;
 mod text;
@@ -24,11 +26,24 @@ struct Cli {
 enum Command {
     /// Reports which spec behaviors tests prove, and fails on a test whose name doesn't start
     /// with a behavior or rule ID that exists (TEST-01, DOC-10).
-    CheckTestMap,
+    #[command(name = "check-test-map")]
+    TestMap,
     /// Fails on a link, ID or named CI check that doesn't resolve, a history marker, an
     /// unfinished-work marker, a document outside the documentation set, or a spec, rule or
     /// tracker whose format breaks DOC-15 or DOC-16 (DOC-01, DOC-07, DOC-08, DOC-13 to DOC-16).
-    CheckDocs,
+    #[command(name = "check-docs")]
+    Docs,
+    /// Fails on a part of the committed `openapi.json` that breaks the rules for the HTTP
+    /// contract: its paths, its property names, each operation's access level and response
+    /// descriptions, and the codes of its error responses (API-01, API-05, API-17, ERR-02,
+    /// ERR-13).
+    #[command(name = "check-openapi")]
+    Openapi,
+    /// Fails on a log or span field name outside the list of telemetry names, a record name
+    /// outside it, a message that isn't constant, an `#[instrument]` without `skip_all`, and an
+    /// event above `DEBUG` or a span in module code (OBS-01, OBS-03 to OBS-06).
+    #[command(name = "check-instrument")]
+    Instrument,
 }
 
 /// A problem a check found, at a line of a file.
@@ -76,8 +91,10 @@ fn main() -> ExitCode {
     };
     let catalog = catalog::Catalog::read(&repo);
     let outcome = match command {
-        Command::CheckTestMap => test_map::check(&repo, &catalog),
-        Command::CheckDocs => docs::check(&repo, &catalog),
+        Command::TestMap => test_map::check(&repo, &catalog),
+        Command::Docs => docs::check(&repo, &catalog),
+        Command::Openapi => openapi::check(&repo),
+        Command::Instrument => instrument::check(&repo),
     };
     print(&outcome)
 }

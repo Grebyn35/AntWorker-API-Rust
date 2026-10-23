@@ -13,18 +13,24 @@ path = "src/main.rs"
 platform.workspace = true
 axum.workspace = true
 clap.workspace = true
+serde.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+utoipa.workspace = true
+utoipa-axum.workspace = true
 
 [dev-dependencies]
 platform = { workspace = true, features = ["test-support"] }
 dotenvy.workspace = true
 http.workspace = true
 http-body-util.workspace = true
+# The test support checks every response against the OpenAPI document (API-17).
+jsonschema.workspace = true
 serde_json.workspace = true
-# The test support shares the template database through tokio::sync::OnceCell.
-tokio = { workspace = true, features = ["sync"] }
+# The test support shares the template database through tokio::sync::OnceCell, and the tests
+# of timeouts pause tokio's time.
+tokio = { workspace = true, features = ["sync", "test-util"] }
 tower.workspace = true
 url.workspace = true
 

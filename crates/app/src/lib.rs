@@ -2,5 +2,6 @@
 //! public, so every module item is crate-visible (CODE-14).
 
 mod composition;
+mod modules;
 
-pub use composition::{MIGRATIONS, router};
+pub use composition::{MIGRATIONS, routes};

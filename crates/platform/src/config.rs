@@ -6,7 +6,10 @@
 //! Errors name the setting and the problem, and never the value, which may be a secret.
 //! Each subcommand reads only the settings it uses.
 
-use std::{ffi::OsString, io, net::SocketAddr, ops::RangeInclusive, path::Path, str::FromStr};
+use std::{
+    ffi::OsString, io, net::SocketAddr, ops::RangeInclusive, path::Path, str::FromStr,
+    time::Duration,
+};
 
 use crate::db::DatabaseUrl;
 
@@ -82,6 +85,12 @@ pub struct ServerConfig {
     pub database_url: DatabaseUrl,
     /// The most connections the pool opens.
     pub database_max_connections: u32,
+    /// The most requests served at once, health probes aside (OPS-07).
+    pub max_concurrent_requests: u32,
+    /// How long `serve` keeps serving after a shutdown signal (OPS-06).
+    pub shutdown_delay: Duration,
+    /// How long `serve` waits for the requests in flight once it stops accepting connections.
+    pub shutdown_drain: Duration,
 }
 
 /// The settings `migrate` reads.
@@ -187,6 +196,9 @@ where
             listen_addr: self.required("LISTEN_ADDR", "a socket address such as 0.0.0.0:8080")?,
             database_url: self.database_url("DATABASE_URL")?,
             database_max_connections: self.number("DATABASE_MAX_CONNECTIONS", 10, 1..=1000)?,
+            max_concurrent_requests: self.number("MAX_CONCURRENT_REQUESTS", 100, 1..=100_000)?,
+            shutdown_delay: self.seconds("SHUTDOWN_DELAY_SECONDS", 5)?,
+            shutdown_drain: self.seconds("SHUTDOWN_DRAIN_SECONDS", 10)?,
         })
     }
 
@@ -249,6 +261,13 @@ where
             .ok_or_else(|| {
                 ConfigError::new(name, Problem::OutOfRange(*range.start(), *range.end()))
             })
+    }
+
+    /// A duration in whole seconds, from 0 to 300.
+    fn seconds(&self, name: &str, default: u32) -> Result<Duration, ConfigError> {
+        Ok(Duration::from_secs(
+            self.number(name, default, 0..=300)?.into(),
+        ))
     }
 
     fn parsed<T: FromStr>(
@@ -440,6 +459,9 @@ mod tests {
         assert_eq!(logging.level, LogLevel::Info);
         let config = settings(&SERVER, &[]).server().unwrap();
         assert_eq!(config.database_max_connections, 10);
+        assert_eq!(config.max_concurrent_requests, 100);
+        assert_eq!(config.shutdown_delay, Duration::from_secs(5));
+        assert_eq!(config.shutdown_drain, Duration::from_secs(10));
     }
 
     #[test]
@@ -454,6 +476,38 @@ mod tests {
                 "{value}"
             );
         }
+    }
+
+    #[test]
+    fn ops_01_the_server_s_limits_are_range_checked() {
+        for (name, value, range) in [
+            ("MAX_CONCURRENT_REQUESTS", "0", "1 to 100000"),
+            ("MAX_CONCURRENT_REQUESTS", "100001", "1 to 100000"),
+            ("SHUTDOWN_DELAY_SECONDS", "301", "0 to 300"),
+            ("SHUTDOWN_DRAIN_SECONDS", "-1", "0 to 300"),
+        ] {
+            let error = settings(&with(&SERVER, &[(name, value)]), &[])
+                .server()
+                .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!("{name} must be a whole number from {range}")
+            );
+        }
+        let config = settings(
+            &with(
+                &SERVER,
+                &[
+                    ("SHUTDOWN_DELAY_SECONDS", "0"),
+                    ("SHUTDOWN_DRAIN_SECONDS", "300"),
+                ],
+            ),
+            &[],
+        )
+        .server()
+        .unwrap();
+        assert_eq!(config.shutdown_delay, Duration::ZERO);
+        assert_eq!(config.shutdown_drain, Duration::from_secs(300));
     }
 
     #[test]

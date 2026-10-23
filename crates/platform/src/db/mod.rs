@@ -10,6 +10,7 @@
 )]
 
 mod migrations;
+mod monitor;
 mod roles;
 #[cfg(feature = "test-support")]
 pub mod testing;
@@ -18,14 +19,16 @@ mod url;
 use std::time::Duration;
 
 use sqlx::{
-    PgConnection, PgPool, Postgres, Transaction, migrate::Migrator, postgres::PgPoolOptions,
+    PgConnection, PgPool, Postgres, Transaction,
+    migrate::Migrator,
+    postgres::{PgConnectOptions, PgPoolOptions},
 };
 
 pub use migrations::{MigrateError, SchemaProblem, Versions, migrate};
 pub use roles::{Admin, BootstrapError, RoleProblem, bootstrap};
 pub use url::{DatabaseUrl, InvalidDatabaseUrl};
 
-use crate::errors::Internal;
+use crate::{clock::SharedClock, errors::Internal, lifecycle::Readiness};
 
 /// How long an operation waits for a free connection before it fails.
 const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -36,6 +39,7 @@ const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 #[derive(Clone)]
 pub struct Database {
     pool: PgPool,
+    options: PgConnectOptions,
 }
 
 /// `serve` can't use the database.
@@ -70,10 +74,11 @@ impl Database {
         max_connections: u32,
         migrations: &Migrator,
     ) -> Result<Self, ConnectError> {
+        let options = url.connect_options();
         let pool = PgPoolOptions::new()
             .max_connections(max_connections)
             .acquire_timeout(ACQUIRE_TIMEOUT)
-            .connect_with(url.connect_options())
+            .connect_with(options.clone())
             .await
             .map_err(ConnectError::Connect)?;
         let mut conn = pool.acquire().await.map_err(ConnectError::Connect)?;
@@ -84,7 +89,13 @@ impl Database {
             return Err(ConnectError::UnsafeRole(problems));
         }
         migrations::check_schema(&mut conn, migrations).await?;
-        Ok(Self { pool })
+        Ok(Self { pool, options })
+    }
+
+    /// Checks the database on a connection of its own every five seconds, for as long as the
+    /// async runtime runs, and records each result in `readiness` (PLATFORM-037).
+    pub fn watch(&self, readiness: Readiness, clock: SharedClock) {
+        tokio::spawn(monitor::watch(self.options.clone(), readiness, clock));
     }
 
     /// Opens a unit of work.

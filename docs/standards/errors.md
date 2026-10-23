@@ -14,7 +14,7 @@ Every variant implements `platform::errors::ErrorCode`, which gives it:
 - A code in the form `<namespace>.<snake_case_name>`. The namespace is the module name, for example `workspaces.last_owner`. For errors `platform` raises before any module runs (authentication, body limits, rate limits, load shedding, disabled features, internal errors), the namespace is `request`, for example `request.rate_limited`. Once released, a code never changes.
 - One category.
 - Why: clients act on codes, so codes are part of the contract.
-- Check: `compiler` (the conversion to a response requires `ErrorCode`), plus `ci: openapi` (a changed code is a breaking diff).
+- Check: `compiler` (the conversion to a response requires `ErrorCode`), plus `ci: check-openapi` (a changed code is a breaking diff).
 
 ### ERR-03 The category alone sets the HTTP status
 `platform` defines the categories and their statuses. A module never sets a status directly.
@@ -55,7 +55,7 @@ When a service calls another module, it converts that module's error into its ow
 - Check: `ci: check-deps` (error types of other modules don't appear in public signatures).
 
 ### ERR-07 One conversion produces every error response
-Errors become HTTP responses in exactly one function in `platform::errors`, which produces the problem format in API-07. Handlers return `Result<_, E>` where `E: ErrorCode`.
+Errors become HTTP responses in exactly one function in `platform::errors`, which produces the problem format in API-07. Handlers return `Result<_, Problem<E>>` where `E: ErrorCode`, and `?` converts an `E` into its `Problem<E>`.
 - Why: one path means one format, everywhere (D17).
 - Check: `compiler`.
 
@@ -89,4 +89,4 @@ A catch-panic layer turns any panic into the ERR-08 response, logs it at ERROR a
 ### ERR-13 Every error code is in the catalog
 Every code appears in the generated OpenAPI document, with its category and meaning.
 - Why: client developers can see every failure they need to handle.
-- Check: `ci: openapi`.
+- Check: `ci: check-openapi`.

@@ -12,8 +12,12 @@ CI runs `just setup`, then `just ci`, on every pull request and on every push to
 | Dependencies: advisories, licenses, bans and sources | `deny` | CODE-11, CODE-12, SEC-13, SEC-14 |
 | The map from spec behaviors to tests | `check-test-map` | TEST-01, DOC-10 |
 | Links, IDs and named CI checks resolve; no history or unfinished-work markers; documents only in the documentation set; specs, rules and the tracker keep their format | `check-docs` | DOC-01, DOC-07, DOC-08, DOC-13, DOC-14, DOC-15, DOC-16 |
+| The committed `openapi.json`: its paths, its property names, each operation's access level and response descriptions, and the codes of its error responses | `check-openapi` | API-01, API-05, API-17, ERR-02, ERR-13 |
+| Log and span field names come from the list in `platform::telemetry::names`; constant messages; `skip_all` on every `#[instrument]`; module code writes only `DEBUG` events and opens no spans | `check-instrument` | OBS-01, OBS-03, OBS-04, OBS-05, OBS-06 |
 
-`check-test-map` and `check-docs` are subcommands of the `xtask` crate (ARCH-01). `check-test-map` prints how many of each module's behaviors a test proves. A behavior that no test proves fails it once `docs/MIGRATION.md` is deleted, and is reported until then (DOC-10).
+`check-test-map`, `check-docs`, `check-openapi` and `check-instrument` are subcommands of the `xtask` crate (ARCH-01). `check-test-map` prints how many of each module's behaviors a test proves. A behavior that no test proves fails it once `docs/MIGRATION.md` is deleted, and is reported until then (DOC-10).
+
+`check-openapi` covers the parts of the rules that name it whose subjects exist: the paths, the property names, the access levels, the response descriptions, and the error codes. It checks list shapes (API-05), methods (API-03), statuses (API-04), scopes in paths (API-02) and formats (API-11) once a route has them, and the breaking-change diff (API-18, ERR-02) from the first release on. A test, not this check, compares the committed document with the one the code writes (API-17).
 
 `check-docs` doesn't cover two of the rules that name it: the names of other codebases (DOC-04), and accepted ADRs (DOC-11), which waits for the first ADR. Review enforces both until then.
 

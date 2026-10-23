@@ -70,16 +70,17 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `jobs` | A durable job queue with retry, backoff and dead letters, plus a scheduler that runs each periodic job once per interval across the fleet. A job records the user or workspace it was enqueued for, and its handler filters by them. | D1, D13 |
 | `listener` | One `LISTEN` connection per instance, routing notifications to subscribers such as the real-time hub and the job dispatcher. | D20 |
 | `events` | The event log and the real-time hub. A unit of work publishes events. The hub loads each new event once and delivers it to the streams allowed to receive it (SEC-17). It also replays missed events, closes or re-filters streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). | D1, D5, D20 |
-| `http` | The middleware stack, extractors (JSON, path, query, pagination), RFC 9457 responses, idempotency, rate limiting, timeouts and load shedding. | D8, D11, D12, D20 |
+| `http` | The route builders and the OpenAPI document they produce, the middleware stack with trace context, timeouts and load shedding, extractors (JSON, path, query, pagination), idempotency and rate limiting. | D8, D10, D11, D12, D20 |
 | `authn` | Reads credentials through a credential source, a closed enum whose one variant reads the Bearer header, and verifies them through the `SessionVerifier` that `auth` implements, producing a `Principal`. | D18 |
 | `authz` | The `Authorized<P>` proof and the `Memberships` type, generic over the `Permission` trait. Producing `Authorized<P>` opens the request's unit of work and asks the `AccessPolicy` that `access` implements inside it. Refusals are reported to the `SecurityEventSink` that `audit` implements. | D2, D3, D6 |
 | `errors` | Error categories, the `ErrorCode` trait, and the single conversion to an HTTP response. | D17 |
-| `telemetry` | Tracing and OpenTelemetry setup, the metric declaration macro, and the trace-ID response header. | D10, D19 |
+| `telemetry` | The logging and tracing setup, the list of telemetry names, and the metric declaration macro. | D10, D19 |
 | `storage` | An object storage client. | D1, D14 |
 | `mail` | The SMTP transport and the template engine. The templates themselves live in `app`. | D1, D9 |
 | `outbound` | The only HTTP clients: one for URLs from configuration, and one for URLs supplied by third parties, with SSRF protection (SEC-09). | D26 |
 | `types` | Shared domain types: `Secret`, `EmailAddress`, the ID types. | D7, D25 |
 | `clock`, `random` | The injectable clock and the operating system's secure random source (CODE-06). | D23, D26 |
+| `blocking` | Runs CPU-heavy work, such as hashing a password, on a blocking thread and inside a span of its own (CODE-05, OBS-06). | D10 |
 | `personal_data` | The export and erasure contract that modules implement. | D31 |
 | `lifecycle` | Liveness, readiness and bounded graceful shutdown. | D9, D20 |
 
@@ -186,9 +187,9 @@ sequenceDiagram
   participant S as Module service
   participant DB as PostgreSQL
   C->>P: request
-  P->>P: trace context, timeout, load shedding,<br/>body limit, IP rate limit
+  P->>P: security headers, trace context, request log,<br/>panics, load shedding, IP rate limit
   P->>H: routed request
-  H->>H: Principal (authn), user rate limit,<br/>idempotency, parse to domain types
+  H->>H: timeout, body limit, query check, Principal (authn),<br/>user rate limit, idempotency, parse to domain types
   H->>DB: BEGIN, and on workspace routes authorize (authz)
   H->>S: call with the unit of work and domain types
   S->>DB: domain writes + audit entries + events + jobs
@@ -199,14 +200,16 @@ sequenceDiagram
 ```
 
 1. **Caddy** terminates TLS and forwards the request to a replica whose readiness check passes.
-2. **Platform middleware**, outermost first. The health probes are answered before this stack (OPS-05):
-   - trace context and the trace-ID response header (D10)
-   - panic catching
-   - request timeout
+2. **Platform middleware**, outermost first. The security headers wrap every response (SEC-11). The health probes are answered inside them, before the rest of the stack (OPS-05):
+   - the security headers
+   - trace context: the request's server span, and the trace-ID response header (D10)
+   - the request log: one line when the request completes, and the error line of a 5xx (OBS-03, ERR-10)
+   - panic catching (ERR-12)
    - concurrency limit with load shedding (D20)
-   - body size limit
    - pre-authentication IP rate limit (D11)
 3. **The route** prepares the request, in this order:
+   - Its route group's timeout and body size limit apply (OPS-07, API-08).
+   - Query parameters that the route's documentation doesn't list are refused (API-09).
    - `Principal` authenticates the caller (D18).
    - The per-user rate limit, then the idempotency reservation for keyed `POST`s (D12), each in its own short transaction.
    - The body is parsed into request types, then domain types (D25).
@@ -267,7 +270,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   - `serve` binds one HTTP port and runs the HTTP server, the real-time hub, the job dispatcher and the scheduler.
   - `migrate` is the one-shot migration step.
   - `seed` loads development data.
-  - `openapi` writes the contract for the CI drift check.
+  - `openapi` writes the contract, `openapi.json`, which a test compares with the committed one (API-17).
 - **The single-host reference deployment** runs N API replicas behind Caddy, with Postgres, SeaweedFS and, as an option, the observability stack. A deploy needs only the release's published artifacts on the server, never a checkout of the repository. It replaces replicas with no downtime and rolls back on failure (D15, OPS-16), and scheduled backups go to object storage (D30). The deploy tooling is chosen when the deployment is built.
 - **Scaling out** means adding replicas. The connection budget is replicas × (pool size + 1 listener), and it must fit within Postgres's `max_connections`. The listener needs a direct connection, which rules out PgBouncer in transaction mode. Under load, each replica sheds requests with 503 and `Retry-After` instead of queuing without bound (D20).
 - **Multiple hosts.** The image and its environment contract don't depend on a platform. The operations docs state what any platform must provide.
@@ -284,7 +287,11 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | Database | `sqlx` with `query!` macros | Queries are checked against the schema at compile time (D24) |
 | Serialization | `serde`, `serde_json` | The ecosystem standard |
 | Errors | `thiserror` in modules | One enum per module (D17) |
-| Logging | `tracing`, `tracing-subscriber` | The ecosystem standard, with a bridge to OpenTelemetry (D10, D19) |
+| Logging | `tracing`, `tracing-subscriber`, with `json-subscriber` for JSON lines and `tracing-appender` for the logging thread | The ecosystem standard; `json-subscriber` puts the trace context and the service's fields at the top level of a line (OBS-02, OBS-05) |
+| Trace context | `opentelemetry`, `opentelemetry_sdk`, `tracing-opentelemetry` | The standard bridge from `tracing` spans to OpenTelemetry (D10, D19) |
+| Telemetry names | `opentelemetry-semantic-conventions` | The conventions' names, checked at compile time (OBS-05) |
+| Middleware | `tower`, `tower-http` | The concurrency limit, load shedding, timeouts, panic catching and headers that axum is built to use |
+| OpenAPI | `utoipa`, `utoipa-axum` | The document comes from the handlers' own annotations, and a route is registered with its documentation (API-14, API-17) |
 | Command line | `clap` | The binary's subcommands (ARCH-14) |
 
 ### Starting points
@@ -293,9 +300,7 @@ A part's tools and libraries are chosen when it is built, as "Docs for unbuilt p
 
 | Concern | Starting point | Chosen in |
 |---|---|---|
-| Trace context and telemetry export | `opentelemetry`, `tracing-opentelemetry` | the request pipeline (1.2) for trace context, and the telemetry part (1.3) for export |
-| Middleware | `tower-http` | the request pipeline (1.2) |
-| OpenAPI | `utoipa` | the request pipeline (1.2) |
+| Telemetry export | `opentelemetry-otlp` | the telemetry part (1.3) |
 | Reverse proxy and TLS | Caddy | the reference deployment (1.5) |
 | Deploy tooling | none yet | the reference deployment (1.5) |
 | Password hashing | the `argon2` crate, for the Argon2id that SEC-04 requires | `auth` (2.1) |
@@ -335,6 +340,8 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |
 | File | Stored bytes plus metadata. A user file or a workspace file, each private or public. |
 | Personal data contract | A module's export and erasure of the personal data it stores (D31). |
-| Capability | A feature that a deployment has turned on, listed by the capabilities endpoint (D9). |
+| Capability | A feature that a deployment can turn off, which the capabilities endpoint lists with whether it is on (D9). |
 | Trace ID | The identifier, returned with every response except the health probes, that leads to a request's logs, and to its trace whenever the request ended in an error (D10). |
 | Personal data | In these documents: information that identifies a person directly, such as email addresses, names, avatars, IP addresses, user agents, file names and text a user writes. User and workspace IDs are pseudonymous. GDPR still counts them as personal data, so export and erasure cover them (D31), but they may appear in telemetry and audit entries. |
+
+The documents assume a developer knows these acronyms, and don't spell them out (DOC-09): API, CI, CPU, HTTP, HTTPS, ID, IP, JSON, REST, SDK, SQL, TLS and URL. Every other acronym is spelled out where a document first uses it.

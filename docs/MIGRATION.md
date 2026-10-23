@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 1.2 of the build order, the request pipeline, in this order: the typed-client spike, the spec, the code test-first, and the conformance review. The spike's candidates, and the questions the spec settles, are in the [platform spec's open design questions](spec/platform.md#open-design-questions). The [`system` spec](spec/system.md) waits on its triage. [Known gaps](#known-gaps) lists the built code that step 1.2 brings in line.
+**Next:** the conformance review of step 1.2, the request pipeline, whose spec, tests and code are built. Its scope is in the build order, and it runs with the `conformance-review` skill. Step 1.3, telemetry, follows.
 
 **Waiting on the owner:** nothing.
 
@@ -18,7 +18,7 @@ Every part of the system is listed under [Foundation](#foundation), [Modules](#m
 
 1. **Walking skeleton.** The running system, end to end, before any feature:
    1. **Review tools:** the checker tool in `xtask`, the conformance reviewer and the handoff skill in `.claude/` (D27). The checker starts with `check-test-map`, which reports every behavior that no test proves, and `check-docs`, which fails on any ID or link that doesn't resolve (DOC-13), on a check a rule names that neither [operations/ci.md](operations/ci.md) nor [CI checks](#ci-checks) lists, and on a document whose format breaks DOC-15 or DOC-16.
-   2. **Request pipeline:** problem responses with trace IDs, trace context in and out, the middleware stack except rate limiting, readiness and bounded shutdown, and the capabilities endpoint as the first `/v1` route, with `openapi.json` and the typed client generated from it, through which the integration tests call the API. It starts with the typed-client spike ([platform spec](spec/platform.md#open-design-questions)). Counting panics (ERR-12) and leaving the probes out of request metrics (OBS-15) wait for the metric macro in step 1.3. The step's conformance review also covers the built code it rewrites, which no review has covered yet: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle`.
+   2. **Request pipeline:** problem responses with trace IDs, trace context in and out, the middleware stack except rate limiting, readiness and bounded shutdown, and the capabilities endpoint as the first `/v1` route, with `openapi.json`, against which the test support checks every response the integration tests receive. Counting panics (ERR-12) and leaving the probes out of request metrics (OBS-15) wait for the metric macro in step 1.3. The step's conformance review also covers the built code it rewrites, which no review has covered yet: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle`.
    3. **Telemetry:** traces, logs and metrics exported over OTLP; the metric declaration macro; the collector, Prometheus, Loki, Tempo, Grafana and Alertmanager, with logs and traces linked both ways; the first dashboard questions and alerts; and the generated metric catalog. `just dev` runs the API with the stack one flag away.
    4. **Image and pipeline:** the image, and CI that builds it once, scans it, boots it, runs the end-to-end suite against it, and promotes its digest, with signed releases on tags.
    5. **Reference deployment:** the production setup on one server, its deploy tooling, scheduled backups and restore, and the load test. The end-to-end suite proves a deploy with no downtime, a rollback, a restore, and the trace-ID guarantee for a 4xx response (D10).
@@ -42,8 +42,8 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | Part | Decisions | Step |
 |---|---|---|
 | The checker tool, the conformance reviewer and the handoff skill | D23, D27 | built |
-| The request pipeline: problem responses, trace context, the middleware stack, readiness and shutdown | D8, D9, D10, D17, D20, D26 | 1.2 |
-| The capabilities endpoint and `openapi.json` | D8, D9 | 1.2 |
+| The request pipeline: problem responses, trace context, the middleware stack, readiness and shutdown | D8, D9, D10, D17, D20, D26 | built |
+| The capabilities endpoint and `openapi.json` | D8, D9 | built |
 | Rate limiting: the IP, per-user and per-action limits, with the client IP taken from trusted proxies | D11 | 2.1 |
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | 1.3 |
 | The image and the delivery pipeline, with the release docs | D15, D21 | 1.4 |
@@ -69,7 +69,7 @@ Each module goes through these stages, in order:
 
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
-| `platform` | HTTP, DATA, RT, OBS, OPS | database | first slice | database, configuration | database, configuration, errors, types, the liveness probe and the logging setup | database, configuration, errors, types |
+| `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle | database, configuration, errors, types, request pipeline, lifecycle, telemetry names and the logging setup | database, configuration, errors, types |
 | `accounts` | USER | first slice | first slice | | | |
 | `auth` | AUTH | first slice | first slice | | | |
 | `access` | WS | first slice | first slice | | | |
@@ -80,7 +80,7 @@ Each module goes through these stages, in order:
 | `mail` | MAIL | first slice | first slice | | | |
 | `files` | FILE | | | | | |
 | `client_telemetry` | OBS | | | | | |
-| `system` | HTTP, OPS | | | | | |
+| `system` | HTTP, OPS | capabilities | capabilities | capabilities | capabilities | |
 
 ## CI checks
 
@@ -92,12 +92,14 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `check-test-map`, `check-docs` | built |
 | `check-docs`, for the names of other codebases (DOC-04) | 3 |
 | `check-docs`, for accepted ADRs (DOC-11) | 6, with the first ADR |
-| `openapi` | 1.2, and its breaking-change diff (API-18) with the first release |
-| `check-instrument` | 1.2, with the list of telemetry names in `platform::telemetry` |
+| `check-openapi`, `check-instrument` | built |
+| `check-openapi`, for list shapes, methods, statuses, scopes and formats (API-02 to API-05, API-11) | 2.1, with the first routes that have them |
+| `check-openapi`, for the breaking-change diff (API-18, ERR-02) | the first release |
 | `check-telemetry-config`, `check-metrics`, `alert-rules` | 1.3 |
 | `check-toolchain`, `check-pins`, `check-protection`, `image-scan`, `verify-release` | 1.4 |
 | `e2e` | 1.5, extended by every later step |
-| `check-layers`, `check-schema`, `check-deps`, `check-tenancy` | 1.2 to 2.2, each with the first code it checks |
+| `check-layers`, `check-deps`, `check-schema` | 2.1, with the first service, the first call between modules and the first tables |
+| `check-tenancy` | 2.2, with the first workspace tables |
 | `check-layout`, `check-table-ownership`, `check-config`, `check-migrations`, `sqlx-check`, `setup-smoke` | 3 decides: built, or the rule's check changes |
 | `check-personal-data` | 5, with export and erasure in `accounts` |
 | `check-removable` | 5, with the first optional part |
@@ -110,10 +112,8 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 
 | Rule or behavior | Built code that doesn't follow it | Closed by |
 |---|---|---|
-| OBS-02 | The logging setup writes no `service.name`, `service.version`, `deployment.environment.name`, `trace_id` or `span_id`. | 1.2 |
-| OBS-05, OPS-03 | Log events use the field names `area`, `error` and `applied`, and no list of names exists yet. | 1.2 |
-| PLATFORM-033 | `serve` shuts down at once, with exit code 0, when it can't install its signal handlers. | 1.2 |
-| OBS-06, CODE-05 | `bootstrap` computes the password verifiers with `spawn_blocking` directly, without the span of the `platform` helper, which arrives with the tracer. | 1.2 |
+| ERR-12 | A panic answers the 500 problem and is logged, but isn't counted in `app.platform.panics`, which waits for the metric macro. | 1.3 |
+| ERR-11 | `Telemetry::finish` ignores the result of ending the tracer without `errors::ignore`, which arrives with its metric. The tracer exports nothing yet, so ending it can't fail. | 1.3 |
 
 ## Rule proposals
 
@@ -126,9 +126,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Standards review | An OPS rule for D14: TLS on every connection that leaves the host, and storage encrypted at rest as a stated deployment requirement. | 1.5 |
 | Research | API-15 names the draft it follows: draft-ietf-httpapi-ratelimit-headers-11 (2026-05), with `RateLimit: "default";r=50;t=30` and `RateLimit-Policy: "burst";q=100;w=60`. | 2.1 |
 | Research | API-12 names the draft it follows: draft-ietf-httpapi-idempotency-key-header-08 (2026-10), whose key is a structured-field string. | 2.2 |
-| Conformance review of c252bab | CODE-03, DATA-20 and DATA-21: `check-docs` fails on an `#[expect]` of the print or `disallowed_*` lints outside the places those rules allow, so finding one takes no review. | 1.2, which writes code all three rules cover |
-| Conformance review of c252bab | DATA-20: a check reads the locked sqlx sources and fails on a public function that takes SQL text and that `clippy.toml` doesn't ban, so the bans stay complete when sqlx is updated. | 1.2 |
-| Conformance review of c252bab | DOC-09: the glossary lists the acronyms a reader is assumed to know, such as HTTP, SQL and TLS, so "spelled out on first use" has a fixed scope. | 1.2 |
+| Conformance review of c252bab | DATA-20: a check reads the locked sqlx sources and fails on a public function that takes SQL text and that `clippy.toml` doesn't ban, so the bans stay complete when sqlx is updated. | 2.1, which writes the first queries of a module |
 
 ## Conformance reviews
 

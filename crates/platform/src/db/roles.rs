@@ -6,7 +6,7 @@ use std::fmt;
 use sqlx::{AssertSqlSafe, ConnectOptions, Connection, PgConnection};
 
 use super::DatabaseUrl;
-use crate::{config::BootstrapConfig, types::Secret};
+use crate::{blocking, config::BootstrapConfig, types::Secret};
 
 /// The role that runs migrations and owns the tables (DATA-12).
 pub(super) const OWNER: &str = "owner";
@@ -172,7 +172,7 @@ impl Admin {
 /// runs on a blocking thread (CODE-05).
 async fn verifier(password: &Secret<String>) -> Result<String, BootstrapError> {
     let password = password.clone();
-    tokio::task::spawn_blocking(move || {
+    blocking::run("scram verifier", move || {
         postgres_protocol::password::scram_sha_256(password.expose().as_bytes())
     })
     .await

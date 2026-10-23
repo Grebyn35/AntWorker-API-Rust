@@ -90,6 +90,22 @@ disallowed-methods = [
     { path = "sqlx::Connection::begin_with", reason = "the unit of work is the only transaction (DATA-21, ARCH-11)" },
     { path = "sqlx::Connection::transaction", reason = "the unit of work is the only transaction (DATA-21, ARCH-11)" },
     { path = "sqlx::Acquire::begin", reason = "the unit of work is the only transaction (DATA-21, ARCH-11)" },
+    { path = "axum::routing::Router::route", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "axum::routing::Router::route_service", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "axum::routing::Router::nest", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "axum::routing::Router::nest_service", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "axum::routing::Router::merge", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "axum::routing::Router::fallback", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "axum::routing::Router::fallback_service", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "axum::routing::Router::method_not_allowed_fallback", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "utoipa_axum::router::OpenApiRouter::routes", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "utoipa_axum::router::OpenApiRouter::route", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "utoipa_axum::router::OpenApiRouter::route_service", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "utoipa_axum::router::OpenApiRouter::nest", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "utoipa_axum::router::OpenApiRouter::nest_service", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "utoipa_axum::router::OpenApiRouter::merge", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "utoipa_axum::router::OpenApiRouter::fallback", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    { path = "utoipa_axum::router::OpenApiRouter::fallback_service", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
 ]
 
 disallowed-macros = [

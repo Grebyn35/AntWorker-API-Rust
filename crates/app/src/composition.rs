@@ -1,13 +1,15 @@
-//! The composition root: builds every service once and mounts every route (ARCH-12).
+//! The composition root: builds every service once and mounts every module's routes (ARCH-12).
 
-use axum::Router;
+use platform::http::Routes;
 use sqlx::migrate::Migrator;
+
+use crate::modules::system;
 
 /// Every migration in `migrations/`, embedded in the binary. `migrate` applies them, and
 /// `serve` refuses to start until they are all applied (DATA-09).
 pub static MIGRATIONS: Migrator = sqlx::migrate!("../../migrations");
 
-/// The application's router.
-pub fn router() -> Router {
-    Router::new().merge(platform::lifecycle::probe_routes())
+/// Every module's routes.
+pub fn routes() -> Routes {
+    system::routes()
 }

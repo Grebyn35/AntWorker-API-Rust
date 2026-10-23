@@ -10,7 +10,7 @@ api := "cargo run --locked --package app --bin antworker-api --"
 xtask := "cargo run --locked --quiet --package xtask --"
 
 # Runs every check CI runs.
-ci: fmt-check lint test deny check-test-map check-docs
+ci: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument
 
 # Prepares this machine (OPS-19): checks the tools the tasks need, installs the toolchain that
 # rust-toolchain.toml pins, and writes .env from .env.example, with generated passwords, if .env
@@ -85,6 +85,22 @@ deny:
 # behavior or rule ID that exists (TEST-01, DOC-10).
 check-test-map:
     {{ xtask }} check-test-map
+
+# Writes openapi.json, the OpenAPI document of every route (API-17). Run it after changing a
+# route; a test fails while the committed document differs from the one the code writes.
+openapi:
+    {{ api }} openapi openapi.json
+
+# Fails on a part of openapi.json that breaks the rules for the HTTP contract (API-01, API-05,
+# API-17, ERR-02, ERR-13).
+check-openapi:
+    {{ xtask }} check-openapi
+
+# Fails on a log or span field name outside the list in platform::telemetry::names, a message
+# that isn't constant, an #[instrument] without skip_all, and an event above DEBUG or a span in
+# module code (OBS-01, OBS-03 to OBS-06).
+check-instrument:
+    {{ xtask }} check-instrument
 
 # Fails on a link, ID or named CI check that doesn't resolve, a history marker, an
 # unfinished-work marker, a document outside the documentation set, or a spec, rule or tracker

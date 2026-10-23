@@ -57,7 +57,7 @@ A new kind of document needs a rule change.
 - Check: `ci: check-docs` (no Markdown files outside these locations, except the migration workspace in DOC-04).
 
 ### DOC-09 Docs are written for a developer new to the codebase
-Each technical term is defined in the glossary or in the sentence where it first appears. Acronyms are spelled out on first use. Sentences use the active voice, and the same term is used throughout (CODE-10).
+Each technical term is defined in the glossary or in the sentence where it first appears. An acronym is spelled out where a document first uses it, unless the glossary lists it among those a developer is assumed to know. Sentences use the active voice, and the same term is used throughout (CODE-10).
 - Why: the reader is often someone who forked the template yesterday.
 - Check: `review`.
 

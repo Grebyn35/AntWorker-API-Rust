@@ -10,9 +10,9 @@ Logs are JSON in production and human-readable in development. They go to stdout
 - Check: `ci: check-instrument` (a message with format arguments or `{…}` placeholders fails), plus `review`.
 
 ### OBS-02 Every log line can be correlated
-Every log line carries `service.name`, `service.version` and `deployment.environment.name`. A line written inside a span also carries `trace_id` and `span_id`.
-- Why: a log line leads to its trace, and a trace leads to its logs (D10).
-- Check: `test` (the logging setup is asserted in the end-to-end suite).
+Every JSON log line carries `service.name`, `service.version` and `deployment.environment.name`, the last once the configuration has named the environment. A line written inside a span also carries `trace_id` and `span_id`. The readable text of development carries the fields its events write.
+- Why: a log line leads to its trace, and a trace leads to its logs (D10). The lines that reach a log store are JSON (OBS-01).
+- Check: `test` (the binary's JSON lines, and the logging setup in the end-to-end suite).
 
 ### OBS-03 Levels have fixed meanings
 | Level | Meaning |

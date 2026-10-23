@@ -1,5 +1,8 @@
 //! Test support (TEST-06, TEST-10).
 //!
+//! [`Api`] runs the routes in process, and checks every response against their OpenAPI
+//! document (API-17).
+//!
 //! Every test gets a database of its own. A migrated one is cloned from a template that the
 //! production `migrate` migrated. `Admin::create_roles` and `Admin::grant_database`, the steps
 //! that `bootstrap` runs, create the roles and grants, so the API under test connects as `app`
@@ -11,11 +14,17 @@
               connections, none of which a unit of work can do"
 )]
 
+pub mod api;
+mod contract;
+pub mod fixtures;
+
 use std::{
     error::Error,
     ffi::{OsStr, OsString},
     hash::{DefaultHasher, Hash, Hasher},
-    process::{Command, Output},
+    io::{self, BufRead, BufReader},
+    net::SocketAddr,
+    process::{Child, Command, Output, Stdio},
     sync::{
         Mutex, PoisonError,
         atomic::{AtomicU32, Ordering},
@@ -26,8 +35,15 @@ use platform::{
     config::BootstrapConfig,
     db::{Admin, Database, DatabaseUrl, migrate, testing},
 };
+use serde_json::Value;
 use sqlx::{AssertSqlSafe, Connection, PgConnection, migrate::Migrator};
-use tokio::sync::OnceCell;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+    sync::{OnceCell, mpsc},
+};
+
+pub use api::Api;
 
 /// The advisory lock that serializes creating the roles and the template, across processes.
 const SETUP_LOCK: i64 = 7_300_154_123;
@@ -138,6 +154,19 @@ impl TestDatabase {
     /// pointing at this database and `env` added to its environment. Returns its exit status
     /// and everything it printed.
     pub async fn run_api<V: AsRef<OsStr>>(&self, args: &[&str], env: &[(&str, V)]) -> Output {
+        run(self.api_command(args, env)).await
+    }
+
+    /// Starts `serve` from the API binary, as an operator would, on a free port of 127.0.0.1,
+    /// with its database settings pointing at this database and `env` added to its
+    /// environment.
+    pub async fn serve(&self, env: &[(&str, &str)]) -> Server {
+        let mut command = self.api_command(&["serve"], env);
+        command.env("LISTEN_ADDR", "127.0.0.1:0");
+        Server::start(command).await
+    }
+
+    fn api_command<V: AsRef<OsStr>>(&self, args: &[&str], env: &[(&str, V)]) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_antworker-api"));
         command
             .args(args)
@@ -148,15 +177,15 @@ impl TestDatabase {
             url.set_path(&self.name);
             command.env(setting, url.as_str());
         }
-        tokio::task::spawn_blocking(move || command.output())
-            .await
-            .expect("the thread that runs the API binary")
-            .expect("run the API binary")
+        command
     }
+
+    /// The most connections the pool from [`TestDatabase::app`] opens.
+    pub const POOL_SIZE: u32 = 4;
 
     /// The API's pool, after the startup checks against the API's migrations.
     pub async fn app(&self) -> Database {
-        Database::connect(&self.app_url(), 4, &app::MIGRATIONS)
+        Database::connect(&self.app_url(), Self::POOL_SIZE, &app::MIGRATIONS)
             .await
             .expect("connect as app")
     }
@@ -303,6 +332,118 @@ impl Drop for TestDatabase {
                 .expect("the cleanup thread")
                 .expect("drop the test database and roles");
         }
+    }
+}
+
+/// Runs the API binary with `args` and no settings, for a subcommand that reads none.
+pub async fn run_binary(args: &[&str]) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_antworker-api"));
+    command.args(args).env_clear();
+    run(command).await
+}
+
+async fn run(mut command: Command) -> Output {
+    tokio::task::spawn_blocking(move || command.output())
+        .await
+        .expect("the thread that runs the API binary")
+        .expect("run the API binary")
+}
+
+/// Sends a request with `method` to `path` on `address`, with `headers`, over a connection of
+/// its own, and returns the whole response as text: the status line, the headers and the body.
+pub async fn http_request(
+    address: SocketAddr,
+    method: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+) -> io::Result<String> {
+    let mut stream = TcpStream::connect(address).await?;
+    let headers: String = headers
+        .iter()
+        .map(|(name, value)| format!("{name}: {value}\r\n"))
+        .collect();
+    let request =
+        format!("{method} {path} HTTP/1.1\r\nHost: api\r\n{headers}Connection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).await?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response).await?;
+    Ok(response)
+}
+
+/// A running `serve`, whose stdout a test reads line by line. Dropping it kills the process.
+pub struct Server {
+    child: Child,
+    lines: mpsc::UnboundedReceiver<String>,
+    address: SocketAddr,
+    listening: Value,
+}
+
+impl Server {
+    async fn start(mut command: Command) -> Self {
+        let mut child = command
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("start the API binary");
+        let stdout = child.stdout.take().expect("the binary's stdout");
+        let (send, lines) = mpsc::unbounded_channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if send.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        let mut server = Self {
+            child,
+            lines,
+            address: SocketAddr::from(([127, 0, 0, 1], 0)),
+            listening: Value::Null,
+        };
+        server.listening = server.line(|line| line["message"] == "listening").await;
+        let port = server.listening["server.port"]
+            .as_u64()
+            .expect("the port it listens on");
+        server.address.set_port(u16::try_from(port).unwrap());
+        server
+    }
+
+    /// The line the server wrote when it started listening.
+    pub fn listening(&self) -> &Value {
+        &self.listening
+    }
+
+    /// The next line the server writes for which `matches` holds, as JSON. Panics if the
+    /// server exits first.
+    pub async fn line(&mut self, matches: impl Fn(&Value) -> bool) -> Value {
+        loop {
+            let line = self
+                .lines
+                .recv()
+                .await
+                .expect("the server exited before writing the line");
+            let value: Value = serde_json::from_str(&line)
+                .map_err(|_| format!("a line that isn't JSON: {line}"))
+                .unwrap();
+            if matches(&value) {
+                return value;
+            }
+        }
+    }
+
+    /// Sends a request with `method` to `path`, with `headers`, and returns the whole response
+    /// as text.
+    pub async fn request(&self, method: &str, path: &str, headers: &[(&str, &str)]) -> String {
+        http_request(self.address, method, path, headers)
+            .await
+            .expect("a response from the server")
+    }
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        // The process may have exited already.
+        self.child.kill().ok();
+        self.child.wait().ok();
     }
 }
 

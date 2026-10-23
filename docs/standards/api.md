@@ -7,12 +7,12 @@ The HTTP contract every route follows. The generated OpenAPI document is the aut
 ### API-01 Paths are versioned, plural and lowercase
 Every route lives under `/v1`, except the health probes `/health/live` and `/health/ready` (OPS-05), which load balancers call without a version. Collections are plural nouns, and segments of more than one word use kebab-case (`/data-exports`). Path parameters are named `{<resource>_id}`.
 - Why: a path reads as a predictable address for a resource (D8).
-- Check: `ci: openapi` (a path lint over the generated document).
+- Check: `ci: check-openapi` (a path lint over the committed document).
 
 ### API-02 The scope of a resource is in its path
 Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller's own resources under `/v1/users/me/`. No header selects a workspace.
 - Why: every request names exactly what it acts on, and authorization checks that name (D3).
-- Check: `ci: openapi`, plus `compiler` (API-14).
+- Check: `ci: check-openapi`, plus `clippy` (API-14).
 
 ### API-03 Methods carry their HTTP meaning
 - `GET` reads, and is safe and idempotent.
@@ -21,7 +21,7 @@ Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller'
 - `PUT` replaces a whole resource, and is used only where a resource is always written whole.
 - `DELETE` removes.
 - Why: clients, proxies and caches rely on these meanings (D8).
-- Check: `ci: openapi`, plus `review`.
+- Check: `ci: check-openapi`, plus `review`.
 
 ### API-04 Status codes follow the outcome
 | Outcome | Status |
@@ -32,14 +32,14 @@ Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller'
 | A delete, or an action with nothing to return | 204 |
 | An error | from its category (ERR-03) |
 - Why: the status alone tells the client what happened (D8).
-- Check: `test`, plus `ci: openapi`.
+- Check: `test`, plus `ci: check-openapi`.
 
 ## Bodies
 
 ### API-05 Responses are the resource itself
 A success body is the resource object, with no envelope. A list is `{"items": [...], "next_cursor": "..." | null}`. Fields are `snake_case`. Clients ignore fields they don't recognize.
 - Why: one shape for every resource and every list (D8).
-- Check: `ci: openapi`.
+- Check: `ci: check-openapi`.
 
 ### API-06 Lists use opaque cursors
 Every list is paginated by keyset. `limit` defaults to 50 and is capped at 100. `cursor` is an opaque base64url string that encodes the full sort key, with the row's ID as the tiebreaker. Lists move forward only, unless a module spec defines backward paging for a route.
@@ -76,7 +76,7 @@ Each request type converts into the service's domain input through `TryFrom`, an
 ### API-11 Scalar formats
 Timestamps are RFC 3339 in UTC with a `Z` suffix, at microsecond precision. IDs are UUID strings. Closed sets are `snake_case` strings.
 - Why: one representation per kind of value.
-- Check: `ci: openapi` (formats in the generated schema), plus `review` (the shared serializers in `platform::types` are used).
+- Check: `ci: check-openapi` (formats in the committed schema), plus `review` (the shared serializers in `platform::types` are used).
 
 ## Behavior
 
@@ -99,14 +99,14 @@ A resource a client can edit returns an `ETag` built from its `version`. An upda
 - Check: `test`.
 
 ### API-14 Every route declares its access level in its type
-Every route is registered through one of three builders:
+Every route except the health probes (OPS-05) is registered through one of three builders:
 - `public`: no authentication.
 - `user`: requires a `Principal`.
 - `workspace::<P>`: requires `Authorized<P>` for the workspace in the path, where `P` is a permission.
 
 A caller who isn't a member of the workspace gets 404. A member without permission `P` gets 403.
 - Why: no route can forget authentication or authorization, and non-members learn nothing (D2, D3).
-- Check: `compiler` (no other way to register a route), plus `test` (TEST-09).
+- Check: `clippy` (`disallowed_methods` bans the routing methods of axum and utoipa-axum outside `platform::http`), plus `test` (TEST-09).
 
 ### API-15 Rate limits are visible
 Rate-limited responses carry the `RateLimit` and `RateLimit-Policy` headers from the IETF draft, describing the bucket that decided the response. A 429 also carries `Retry-After`.
@@ -119,14 +119,14 @@ Every response except the health probes (OBS-15), including streams and download
 - Check: `test`.
 
 ### API-17 The OpenAPI document is generated and committed
-`openapi.json` is generated from code and committed. CI fails if the generated document differs from the committed one. Every route documents its requests, responses, error codes and access level. Every field typed with a domain type carries that type's limits in the schema (D25).
+`openapi.json` is generated from code and committed, and a test fails if the document the binary writes differs from it. Every route under `/v1` documents its requests, responses, error codes and access level, and a response header the document lists is one the API always sends with that response. Every field typed with a domain type carries that type's limits in the schema (D25).
 - Why: the contract is reviewed in pull requests, and clients are built against it (D8).
-- Check: `ci: openapi`.
+- Check: `clippy` (only the builders of API-14 register routes, and they take only documented ones), `test` (the committed document, and every response an integration test receives is checked against the document of the routes that answered it), plus `ci: check-openapi`.
 
 ### API-18 `/v1` only grows
 Within `/v1`, changes are additive: new routes, new optional request fields, new response fields. Removing or changing anything existing requires `/v2`.
 - Why: a client built against `/v1` keeps working.
-- Check: `ci: openapi` (a breaking-change diff against the last release).
+- Check: `ci: check-openapi` (a breaking-change diff against the last release).
 
 ### API-19 Event names and payloads
 SSE events are named `<resource>.<past-tense verb>`, for example `member.removed`. A payload carries IDs and non-sensitive fields only. Clients fetch details over REST.
