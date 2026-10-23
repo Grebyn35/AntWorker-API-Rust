@@ -141,7 +141,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | Built parts that step 1.2 doesn't rewrite: `xtask`; `platform::db`, configuration, errors and types; the test support; the migration; CI and build files | 1 | 16 (12, 10, 6 shared) | 13 | 0 | `next pass`: 376a450 |
 | Built parts that step 1.2 doesn't rewrite: `xtask`; `platform::db`, configuration, errors and types; the test support; the migration; CI and build files | 2 | 5 (5, 2, 2 shared) | 4 | 2 | `stopped: no progress`: b34412c, 6f66c22 |
 | c252bab: the documentation rules and their format checks, the rules it rewrote against the code they describe, and the new clippy bans | 1 | 22 (18, 6, 2 shared) | 8 | 0 | `next pass`: 58d9917 |
-| c252bab: the documentation rules and their format checks, the rules it rewrote against the code they describe, and the new clippy bans | 2 | 15 (12, 7, 4 shared) | 2 | 2 | `stopped: no progress` |
+| c252bab: the documentation rules and their format checks, the rules it rewrote against the code they describe, and the new clippy bans | 2 | 15 (12, 7, 4 shared) | 2 | 2 | `stopped: no progress`: c891b3a |
 
 ## Decisions
 
