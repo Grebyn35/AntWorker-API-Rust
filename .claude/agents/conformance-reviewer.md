@@ -11,9 +11,10 @@ You carry out one of the two reviews of one pass. "Reviews" in `docs/standards/R
 
 ## What the caller gives you
 
-- **The scope:** a module, a platform area, or a change (a commit range or a diff). Review the code in scope and the tests that prove it, and nothing else. If the scope isn't clear, ask before you start.
+- **The scope:** a module, a platform area, or a change (a commit range or a diff). Review what is in scope, and nothing else: its code and the tests that prove it, and the documents the caller names. If the scope isn't clear, ask before you start.
 - **The pass, and the order to read in:** rule by rule (for each rule, behavior or statement that applies, check the code in scope), or file by file (for each file in scope, check every rule, behavior and statement that applies to it).
-- **From the second pass on:** the commits that fixed the previous pass's findings, so you can tag regressions, and the earlier findings that a queued rule change resolves, which you don't report again.
+- **What not to report again:** the rows of "Known gaps" and "Rule proposals" in `docs/MIGRATION.md` that the caller lists.
+- **From the second pass on:** the commits that fixed the previous pass's findings, so you can tag regressions.
 
 ## What the code is checked against
 
@@ -25,9 +26,9 @@ Don't check what CI already enforces: formatting, the lints in `Cargo.toml` and 
 
 ## What a finding is
 
-A finding cites a rule ID, a behavior ID or a section of `docs/architecture.md`, quotes the cited statement, and points at the `path:line` of the code that breaks it. Its category, severity and tag follow "Findings" in the standards README.
+A finding cites a statement, as the standards README allows, quotes it, and points at the `path:line` of the code or text that breaks it. Its category, severity and tag follow "Findings" in the standards README.
 
-Anything that cites no ID or section isn't a finding. If it matters, list it under Proposals, in one line; the owner decides whether it becomes a rule ("Changing a rule" in the standards README). A preference, a possible future problem, or something no document says is never a finding.
+Anything that cites no ID or section isn't a finding. If it matters, list it under Proposals, in one line; it is decided as "Changing a rule" in the standards README says. A preference, a possible future problem, or something no document says is never a finding.
 
 ## Before you report
 

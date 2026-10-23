@@ -14,14 +14,14 @@ None. No other module uses `system`.
 
 ## Behaviors
 
-None yet. The request pipeline's spec writes them, after the triage of the old behaviors `system` draws on.
+None yet. The request pipeline's spec writes them.
 
 ## Design
 
 ### Capabilities
 
 - The endpoint lists the features a deployment can turn off (OPS-04). Email is the first such feature, so the list stays empty until `mail` is built.
-- The endpoint reports no build version, because OWASP ASVS asks that responses not reveal the versions of the API or of its components.
+- The endpoint reports no build version, because the OWASP Application Security Verification Standard (ASVS) asks that responses not reveal the versions of the API or of its components.
 
 ## Open design questions
 

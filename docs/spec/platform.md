@@ -118,7 +118,7 @@ IDs 001 to 005, 007 and 008 are retired.
 
 `bootstrap` connects with `DATABASE_ADMIN_URL`, as an administrator such as the bundled Postgres superuser or a managed provider's admin role. The three database URLs must name the same database.
 - It creates the roles `owner` and `app` with `LOGIN` and no other attribute. A role that already exists is given `LOGIN` and keeps its other attributes, because changing some of them takes a superuser, which a managed provider's admin role isn't. PLATFORM-009 refuses an `app` role whose attributes are unsafe.
-- It sets each role's password from its URL. The password travels as a SCRAM-SHA-256 verifier that the API computes on a blocking thread (CODE-05), so the clear text never reaches the server, where statement logs could record it. The administrator connection logs none of its statements, because they carry the verifiers (OBS-04).
+- It sets each role's password from its URL. The password travels as a SCRAM-SHA-256 verifier (the Salted Challenge Response Authentication Mechanism's stored form of a password) that the API computes on a blocking thread (CODE-05), so the clear text never reaches the server, where statement logs could record it. The administrator connection logs none of its statements, because they carry the verifiers (OBS-04).
 - It sets the `app` role's `statement_timeout` to 30 seconds and its `idle_in_transaction_session_timeout` to 15 seconds (DATA-19), and its `default_transaction_isolation` to `read committed` (DATA-25). Set on the role, these hold whatever the server or the database defaults to.
 - On the database, it revokes `TEMPORARY` from `PUBLIC`, grants `CONNECT` to both roles, revokes `CREATE` on the schema `public` from `PUBLIC`, and grants it to `owner` only. A database created by a Postgres older than 15 grants `PUBLIC` that `CREATE`, which would let `app` create tables.
 
@@ -132,7 +132,7 @@ Queries are checked against the database while compiling (DATA-20), and `migrate
 
 ### Connections
 
-`Database::connect` opens a pool of up to `DATABASE_MAX_CONNECTIONS` connections as `app`, 10 by default. An operation waits up to 5 seconds for a free connection. The startup checks run on the first connection: the role (PLATFORM-009), then the schema (PLATFORM-030). The role check covers objects the role owns in every database of the server.
+`Database::connect` opens a pool of up to `DATABASE_MAX_CONNECTIONS` connections as `app` ([`.env.example`](../../.env.example) gives its default). An operation waits up to 5 seconds for a free connection. The startup checks run on the first connection: the role (PLATFORM-009), then the schema (PLATFORM-030). The role check covers objects the role owns in every database of the server.
 
 A database URL is the only source of its connection's settings (OPS-01). It sets the user, password, host and database itself, and the port too, or the port is 5432. It may set only the query parameters that `.env.example` lists for `DATABASE_URL`. The Postgres driver also reads libpq's environment variables, so the ones that `.env.example` lists, which could change a connection the URL describes, must be unset, even to an empty value. Every subcommand that reads a database URL refuses to start while one is set.
 
@@ -140,7 +140,7 @@ The certificates a verified connection trusts are the one input the URL doesn't 
 
 The driver reads the system's certificates each time it opens a verified connection: a short blocking read on the async runtime, which CODE-05 allows here. It happens when the pool opens a connection, not on every query. Certificates compiled into the binary would avoid the read, but the list the driver offers for that, `webpki-roots`, is licensed CDLA-Permissive-2.0, which CODE-12 doesn't allow.
 
-Pools, connections and transactions stay inside `platform::db`. Code elsewhere reaches the database through a unit of work, and clippy refuses `sqlx::Pool`, `sqlx::PgConnection` and `sqlx::Transaction` outside it (DATA-21). The test support is the one other place that names them (TEST-06): it creates and drops test databases, arranges tests with statements no unit of work may run, and reads stored state as `owner` or as the administrator. It gets its connections from `platform::db::testing`, which only the `test-support` feature compiles and only the tests enable, so the API never hands out a connection, or the connection options whose `Debug` output includes the password (SEC-01).
+Pools, connections and transactions stay inside `platform::db`, and code elsewhere reaches the database through a unit of work (DATA-21). The test support is the one other place that names them (TEST-06): it creates and drops test databases, arranges tests with statements no unit of work may run, and reads stored state as `owner` or as the administrator. It gets its connections from `platform::db::testing`, which only the `test-support` feature compiles and only the tests enable, so the API never hands out a connection, or the connection options whose `Debug` output includes the password (SEC-01).
 
 ### Unit of work
 
@@ -204,7 +204,8 @@ The middleware order, from the outside in, is in [architecture.md §6](../archit
 The list in `platform::telemetry` holds one constant per name (OBS-05). A name that a semantic convention defines is declared as `convention("http.route", otel::HTTP_ROUTE)`, a `const fn` that fails compilation when the two names differ. The conventions' constants come from `opentelemetry-semantic-conventions` 0.33.1, which publishes semantic conventions 1.42.0, with its `semconv_experimental` feature for names still in development. A deprecated constant fails clippy.
 
 The first names:
-- From the conventions: `service.name`, `service.version`, `deployment.environment.name`, `trace_id`, `span_id`, `http.request.method`, `http.route`, `http.response.status_code`, `http.server.request.duration`, `error.type`, `exception.message`, `server.address`, `server.port`, `db.namespace`, and `user.id`, which is still in development.
+- From the conventions: `service.name`, `service.version`, `deployment.environment.name`, `http.request.method`, `http.route`, `http.response.status_code`, `http.server.request.duration`, `error.type`, `exception.message`, `server.address`, `server.port`, `db.namespace`, and `user.id`, which is still in development.
+- Trace context: `trace_id` and `span_id`, the top-level fields of JSON logs (OBS-05). The conventions' crate has no constant for them, so the list declares them without `convention`.
 - Own: `workspace.id`, `auth.session.id`, `job.id`, `job.name`, `realtime.event.id`, `startup.area` and `migration.versions`.
 
 `check-instrument` reads the list's names, then every `tracing` event and span macro, every `#[instrument(fields(…))]` and every `.record("…")`, including calls nested inside other macros. It fails on:
@@ -218,6 +219,7 @@ The first names:
 
 | Question | Settled by |
 |---|---|
+| Whether writing log lines to stdout blocks the async runtime (CODE-05), and if it does, how the logging setup moves the writes off it | the request pipeline's spec (build order 1.2) |
 | How readiness tells an unreachable database from a busy pool, so that load alone never takes a replica out of rotation | the readiness tests of the request pipeline, run with the pool exhausted |
 | How the health probes, which are answered before the middleware stack, fit API-14's three builders: through an exemption like the ones API-01, API-07 and API-16 give them, or through `public` outside the stack | the request pipeline's spec (build order 1.2) |
 | How CI proves that every route is documented in `openapi.json` (API-17). `utoipa-axum` registers a route and its documentation in one `routes!` call, but its `.route()` adds a route with none | the request pipeline's spec (build order 1.2) |

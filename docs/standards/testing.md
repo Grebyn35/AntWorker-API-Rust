@@ -5,7 +5,7 @@ A test exists to prove a behavior from a module spec or a rule from these standa
 ## What is tested
 
 ### TEST-01 Every behavior has a test, and every test has an ID
-Every behavior in `docs/spec/` has at least one test whose name starts with the behavior's ID, for example `workspaces_006_the_owner_cannot_be_removed`. A test that proves a rule starts with the rule ID instead, for example `data_19_the_app_role_reads_and_writes_rows_and_changes_nothing_else`. Every test name starts with an ID that exists. The tests named by an ID together assert every clause of its statement.
+Every behavior in `docs/spec/` has at least one test whose name starts with the behavior's ID, for example `workspaces_006_the_owner_cannot_be_removed`. A test that proves a rule starts with the rule ID instead, for example `data_19_the_app_role_reads_and_writes_rows_and_changes_nothing_else`. Every test name starts with an ID that exists. The tests named by a behavior's ID together assert every clause of its statement. A rule's tests prove what its `Check` line gives to `test`.
 - Why: the map from spec to tests is checked by a machine, not by a reviewer's sense of what is missing (D23).
 - Check: `ci: check-test-map` (every test's ID exists, and every behavior has a test, with the migration's exception in DOC-10), plus `review` (the tests cover every clause).
 
@@ -36,7 +36,7 @@ Tests use the real database, the real routes and the real services. Fakes exist 
 - Check: `review`.
 
 ### TEST-06 Every integration test gets its own database
-Each integration test runs on a fresh database of its own: one cloned from a migrated template, or, for tests of `migrate` and of `serve`'s schema check, one with no migrations. Migrations are applied by the production migrator. The application under test connects as the `app` role, with exactly its production privileges.
+Each integration test that uses the database runs on a fresh database of its own: one cloned from a migrated template, or, for tests of `migrate` and of `serve`'s schema check, one with no migrations. A test of a route that never reaches the database, such as the liveness probe, needs none. Migrations are applied by the production migrator. The application under test connects as the `app` role, with exactly its production privileges.
 - Tests arrange state through an `owner` connection, or through the administrator's for what no role of the API may do, such as creating a role.
 - Assertions on stored state, such as enqueued jobs and audit entries, read through a separate `owner` connection. Assertions on the database's catalogs, such as role attributes, may read through `app`. State only an administrator may read, such as password verifiers, is read through the administrator's connection.
 - Why: tests are isolated, fast, and faithful to production (D23).

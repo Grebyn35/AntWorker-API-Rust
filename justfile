@@ -87,7 +87,7 @@ check-test-map:
     {{ xtask }} check-test-map
 
 # Fails on a link, ID or named CI check that doesn't resolve, a history marker, an
-# unfinished-work marker, or a document outside the documentation set (DOC-01, DOC-07, DOC-08,
-# DOC-13).
+# unfinished-work marker, a document outside the documentation set, or a spec, rule or tracker
+# whose format breaks DOC-15 or DOC-16 (DOC-01, DOC-07, DOC-08, DOC-13 to DOC-16).
 check-docs:
     {{ xtask }} check-docs

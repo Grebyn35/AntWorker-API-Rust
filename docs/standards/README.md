@@ -2,7 +2,7 @@
 
 The rules every module follows. Each rule has an ID, a statement a reviewer can answer yes or no, the reason for it, and how it is checked.
 
-A review finding cites a rule ID from these files or a behavior ID from a module spec. A finding that cites neither is a proposal for a new rule, not a defect.
+A review finding cites a rule ID from these files, a behavior ID from a module spec, or the section of `docs/architecture.md` it contradicts. A finding that cites none of them is a proposal, not a defect.
 
 ## Files
 
@@ -51,7 +51,7 @@ A review runs in passes over its whole scope. Each pass is two independent revie
 ### Findings
 
 - Each finding falls into a fixed category: a broken rule, a contradiction, a rule that can't be checked, a missing rule, or a reference that doesn't resolve.
-- Each finding cites the rule IDs, behavior IDs or decisions involved.
+- Each finding cites the statements involved, as above, and may name the decisions behind them.
 - Each finding is marked `must-fix` or `should-fix`. A finding is `must-fix` when an implementer following the documents would build the wrong thing, or would find two rules impossible to satisfy together. In a review of code, a finding is `must-fix` when the code breaks a cited statement, or when two statements can't both hold for it.
 - Each finding is tagged `regression` if it involves text or code that the previous pass's fixes changed, or `found` if it doesn't.
 

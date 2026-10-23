@@ -18,7 +18,7 @@ Every part of the system is listed under [Foundation](#foundation), [Modules](#m
 
 1. **Walking skeleton.** The running system, end to end, before any feature:
    1. **Review tools:** the checker tool in `xtask`, the conformance reviewer and the handoff skill in `.claude/` (D27). The checker starts with `check-test-map`, which reports every behavior that no test proves, and `check-docs`, which fails on any ID or link that doesn't resolve (DOC-13), on a check a rule names that neither [operations/ci.md](operations/ci.md) nor [CI checks](#ci-checks) lists, and on a document whose format breaks DOC-15 or DOC-16.
-   2. **Request pipeline:** problem responses with trace IDs, trace context in and out, the middleware stack except rate limiting, readiness and bounded shutdown, and the capabilities endpoint as the first `/v1` route, with `openapi.json`. It starts with the typed-client spike: before any test calls the API through a client generated from `openapi.json`, a throwaway test compares the candidate generators, including their licenses (CODE-12) and the OpenAPI version they read. Counting panics (ERR-12) and leaving the probes out of request metrics (OBS-15) wait for the metric macro in step 1.3. The step's conformance review also covers the built code it rewrites, which no review has covered yet: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle`.
+   2. **Request pipeline:** problem responses with trace IDs, trace context in and out, the middleware stack except rate limiting, readiness and bounded shutdown, and the capabilities endpoint as the first `/v1` route, with `openapi.json` and the typed client generated from it, through which the integration tests call the API. It starts with the typed-client spike ([platform spec](spec/platform.md#open-design-questions)). Counting panics (ERR-12) and leaving the probes out of request metrics (OBS-15) wait for the metric macro in step 1.3. The step's conformance review also covers the built code it rewrites, which no review has covered yet: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle`.
    3. **Telemetry:** traces, logs and metrics exported over OTLP; the metric declaration macro; the collector, Prometheus, Loki, Tempo, Grafana and Alertmanager, with logs and traces linked both ways; the first dashboard questions and alerts; and the generated metric catalog. `just dev` runs the API with the stack one flag away.
    4. **Image and pipeline:** the image, and CI that builds it once, scans it, boots it, runs the end-to-end suite against it, and promotes its digest, with signed releases on tags.
    5. **Reference deployment:** the production setup on one server, its deploy tooling, scheduled backups and restore, and the load test. The end-to-end suite proves a deploy with no downtime, a rollback, a restore, and the trace-ID guarantee for a 4xx response (D10).
@@ -29,11 +29,6 @@ Every part of the system is listed under [Foundation](#foundation), [Modules](#m
    4. The event hub and `realtime`, ending with "removing a member closes their stream". Readiness then includes the listener, and a deploy with an open stream loses no event.
 
    Together these exercise every mechanism the document reviews couldn't settle: D32 to D36, idempotency, jobs, email and the real-time hub.
-
-   Three constraints apply to steps 1 and 2:
-   - **Tenancy is enforced by the application.** Every query filters by tenant itself, checked by `check-tenancy` and by the foreign-workspace probes (TEST-09). There is no row-level security (D4).
-   - **A short list of custom CI checks.** Steps 1 and 2 build only the checks that [CI checks](#ci-checks) assigns them, as one checker tool.
-   - **A typed client generated from `openapi.json`.** The integration tests call the API through it, and the desktop client uses it later.
 3. **Rule fixes.** Apply one round of rule changes from what steps 1 and 2 taught, through [Changing a rule](standards/README.md#changing-a-rule). The round deletes rules as well as fixing them: a rule that no code needed, or that only restates another, goes. It settles each CI check that [CI checks](#ci-checks) leaves to it, and the commit message records the number of rules, behaviors and CI checks before and after. Right after it, rule and behavior IDs are renumbered once, closing the gaps the round leaves, before later tests carry the old numbers. From then on, IDs are never reused.
 4. **Afternoon test.** A developer or agent new to the codebase, using only the docs, adds a small feature to the slice. Anything that slows them down is fixed by removing complexity, not by adding it.
 5. **Remaining modules, one at a time.** `just new-module` and the guide to adding a module come first, shaped by the afternoon test, and every remaining module starts from them. Each module's spec is written just before the module is built, and carries the commitments that [inventory/decision-trace.md](inventory/decision-trace.md) lists for it.
@@ -69,7 +64,7 @@ Each module goes through these stages, in order:
 2. **Spec:** its spec is written ([spec/](spec/README.md)).
 3. **Tests:** every behavior in the spec has a test named by its ID.
 4. **Code:** the module is implemented.
-5. **Conformance:** a review against the spec and the standards finds no violation, and what architecture.md says about the module matches the code. Every finding cites a rule ID, a behavior ID, or the section of architecture.md it contradicts.
+5. **Conformance:** a review against the spec, the standards and architecture.md finds no violation ([Reviews](standards/README.md#reviews)).
 
 "First slice" means the stage is done for the behaviors the first slice builds. `platform` goes through the stages one area at a time, and "database" means its `db` area.
 
@@ -119,6 +114,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 | OBS-02 | The logging setup writes no `service.name`, `service.version`, `deployment.environment.name`, `trace_id` or `span_id`. | 1.2 |
 | OBS-05, OPS-03 | Log events use the field names `area`, `error` and `applied`, and no list of names exists yet. | 1.2 |
 | PLATFORM-033 | `serve` shuts down at once, with exit code 0, when it can't install its signal handlers. | 1.2 |
+| OBS-06, CODE-05 | `bootstrap` computes the password verifiers with `spawn_blocking` directly, without the span of the `platform` helper, which arrives with the tracer. | 1.2 |
 
 ## Rule proposals
 
@@ -131,6 +127,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Standards review | An OPS rule for D14: TLS on every connection that leaves the host, and storage encrypted at rest as a stated deployment requirement. | 1.5 |
 | Research | API-15 names the draft it follows: draft-ietf-httpapi-ratelimit-headers-11 (2026-05), with `RateLimit: "default";r=50;t=30` and `RateLimit-Policy: "burst";q=100;w=60`. | 2.1 |
 | Research | API-12 names the draft it follows: draft-ietf-httpapi-idempotency-key-header-08 (2026-10), whose key is a structured-field string. | 2.2 |
+| Conformance review of c252bab | CODE-03, DATA-20 and DATA-21: `check-docs` fails on an `#[expect]` of the print or `disallowed_*` lints outside the places those rules allow, so finding one takes no review. | 3, which settles the checks |
 
 ## Conformance reviews
 
@@ -142,6 +139,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | `platform::db` | 2 | 6 (3, 4, 1 shared) | 2 | 1 | `stopped: no progress`: 2adeab1 |
 | Built parts that step 1.2 doesn't rewrite: `xtask`; `platform::db`, configuration, errors and types; the test support; the migration; CI and build files | 1 | 16 (12, 10, 6 shared) | 13 | 0 | `next pass`: 376a450 |
 | Built parts that step 1.2 doesn't rewrite: `xtask`; `platform::db`, configuration, errors and types; the test support; the migration; CI and build files | 2 | 5 (5, 2, 2 shared) | 4 | 2 | `stopped: no progress`: b34412c, 6f66c22 |
+| c252bab: the documentation rules and their format checks, the rules it rewrote against the code they describe, and the new clippy bans | 1 | 22 (18, 6, 2 shared) | 8 | 0 | `next pass` |
 
 ## Decisions
 
@@ -185,5 +183,5 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D34 | Seeing and accepting invitations | accepted |
 | D35 | Access-change signals | accepted |
 | D36 | The commit decides the outcome | accepted |
-| D37 | Crates that implement the Postgres protocol may build its standard constructions from vetted primitives (SEC-14) | accepted: option (a) |
+| D37 | Crates that implement the Postgres protocol may build its standard constructions from vetted primitives (SEC-14) | accepted |
 | D38 | A verified database connection trusts the operating system's certificate store, not certificates compiled in ([platform spec](spec/platform.md#connections)) | accepted |

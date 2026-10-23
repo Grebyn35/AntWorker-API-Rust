@@ -14,6 +14,9 @@ disallowed-methods = [
     { path = "std::time::SystemTime::now", reason = "time comes from platform::clock (CODE-06)" },
     { path = "std::time::Instant::now", reason = "time comes from platform::clock (CODE-06)" },
     { path = "tokio::time::Instant::now", reason = "time comes from platform::clock (CODE-06)" },
+    { path = "std::time::SystemTime::elapsed", reason = "time comes from platform::clock (CODE-06)" },
+    { path = "std::time::Instant::elapsed", reason = "time comes from platform::clock (CODE-06)" },
+    { path = "tokio::time::Instant::elapsed", reason = "time comes from platform::clock (CODE-06)" },
     { path = "std::thread::park_timeout", reason = "every wait goes through platform::clock (CODE-06)" },
     { path = "std::sync::Condvar::wait_timeout", reason = "every wait goes through platform::clock (CODE-06)" },
     { path = "std::sync::Condvar::wait_timeout_while", reason = "every wait goes through platform::clock (CODE-06)" },
@@ -71,7 +74,15 @@ disallowed-methods = [
     { path = "sqlx::Executor::fetch_all", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
     { path = "sqlx::Executor::fetch_one", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
     { path = "sqlx::Executor::fetch_optional", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::Executor::prepare", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::Executor::prepare_with", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::postgres::PgConnection::copy_in_raw", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
+    { path = "sqlx::postgres::PgConnection::copy_out_raw", reason = "SQL goes through the query! macros, checked at compile time (DATA-20)" },
     { path = "sqlx::ConnectOptions::connect", reason = "only platform::db opens connections (DATA-21)" },
+    { path = "sqlx::Connection::begin", reason = "the unit of work is the only transaction (DATA-21, ARCH-11)" },
+    { path = "sqlx::Connection::begin_with", reason = "the unit of work is the only transaction (DATA-21, ARCH-11)" },
+    { path = "sqlx::Connection::transaction", reason = "the unit of work is the only transaction (DATA-21, ARCH-11)" },
+    { path = "sqlx::Acquire::begin", reason = "the unit of work is the only transaction (DATA-21, ARCH-11)" },
 ]
 
 disallowed-types = [

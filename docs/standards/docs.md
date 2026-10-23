@@ -3,7 +3,7 @@
 ## Current state only
 
 ### DOC-01 Docs and comments describe the system as it is
-No document or comment records what changed, what something replaced, what an earlier version did, who asked for it, or when it was written.
+No document or comment records what changed, what something replaced, what an earlier version did, who asked for it, or when it was written. The migration tracker's record of progress is the one exception (DOC-16).
 - Why: history goes stale, and readers need the current state, not the path to it (D27).
 - Check: `ci: check-docs` flags the common markers (`previously`, `no longer`, `used to`, `legacy`, `now uses`, and dates in comments), plus `review`.
 
@@ -33,7 +33,7 @@ An inline comment exists only where the reader needs something the code can't ex
 - Check: `review`.
 
 ### DOC-07 No reviewer voice and no TODOs
-Comments don't appeal to authority ("industry standard", "best practice", "SOC 2 requires"), don't label fixes ("security fix"), and don't contain `TODO`, `FIXME` or `XXX`. Known work is tracked as an issue.
+Comments don't appeal to authority ("industry standard", "best practice", "SOC 2 requires"), don't label fixes ("security fix"), and don't contain `TODO`, `FIXME` or `XXX`. Known work is tracked as an issue, and in the tracker while the migration runs (DOC-14). The inventory, which quotes another codebase, is exempt (DOC-04).
 - Why: a comment explains the code. It doesn't argue for it or hold a backlog.
 - Check: `ci: check-docs` for the markers, plus `review`.
 
@@ -71,8 +71,11 @@ Each kind of fact has one home, listed below. A fact is written in its home as s
 | How a module meets its behaviors, and the plan for a part not yet built | the Design section of the module's spec |
 | A question only building can settle | the Open design questions of the module's spec |
 | How the parts fit together, and what a term means | `docs/architecture.md` |
-| A decision between valid designs | an ADR; while the migration runs, the tracker's decisions (DOC-16) |
+| A decision between valid designs | what it settles goes into the rules and specs it settles, and its record into an ADR; while the migration runs, a row of the tracker's decisions indexes it (DOC-16) |
 | Why a change was made, and the evidence behind it | the commit message (DOC-03) |
+| A working rule for Claude Code sessions | `CLAUDE.md` |
+| How to operate the system: CI, releases, deploys, backups, dashboards and alerts | `docs/operations/` |
+| How to carry out a task, such as adding a module or renaming a fork | `docs/guides/` |
 | A setting, with its type, default and meaning | `.env.example` (OPS-02) |
 | What a public item does | its doc comment (DOC-05) |
 | What the code can't show | an inline comment (DOC-06) |
@@ -88,7 +91,7 @@ Each kind of fact has one home, listed below. A fact is written in its home as s
 - The spec README's index links every spec.
 - A rule follows the format in the [standards README](README.md#rule-format): a heading with its ID and its name, the statement, a `Why` line, and a `Check` line that starts with one of the kinds of check the README lists. Its ID starts with the prefix the README gives its file.
 - Why: every document of a kind reads the same way, and an edit that changes a document's shape fails CI instead of waiting for a reader to notice (D27).
-- Check: `ci: check-docs`.
+- Check: `ci: check-docs`, plus `review` (whether a spec whose module serves routes has its Routes section).
 
 ## Specs, ADRs and the changelog
 
@@ -108,7 +111,7 @@ An ADR has four sections: context, decision, consequences and status. After it i
 - Check: `review`.
 
 ### DOC-13 Links and IDs resolve
-Every link in the docs resolves, and every rule ID or behavior ID cited in a document, comment or test exists. Every CI check a rule names is listed in the table of checks in `docs/operations/ci.md`, or, while the migration runs, in the tracker's CI checks.
+Every link in the docs resolves, and every rule ID or behavior ID cited in a document, comment or test exists, except in the inventory, whose IDs are its own (DOC-04). Every CI check a rule names is listed in the table of checks in `docs/operations/ci.md`, or, while the migration runs, in the tracker's CI checks.
 - Why: a broken reference is a silent lie.
 - Check: `ci: check-docs`.
 
@@ -119,6 +122,7 @@ Documents and comments describe only this codebase. The one exception is the mig
 - `docs/inventory/` describes the old codebase, quotes it, and numbers its entries with IDs of its own, so `check-docs` reads neither its IDs nor its markers (DOC-01, DOC-07, DOC-13).
 - `docs/MIGRATION.md`, the tracker, records the migration (DOC-16).
 - `CLAUDE.md` may point to the inventory, so a session can look up old behavior.
+- Until the ADRs are written, documents cite decisions by their IDs, such as D4, and `docs/architecture.md` and the tracker link to the decisions' records in the inventory.
 
 When the migration completes, the workspace is deleted, and these exceptions with it.
 - Why: a fork's developers never saw any other codebase, so references to one mean nothing to them.

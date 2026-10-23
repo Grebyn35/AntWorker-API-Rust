@@ -130,7 +130,7 @@ impl Catalog {
                 self.findings.push(Finding::new(
                     &file.path,
                     index + 1,
-                    format!("{id} is in the spec of `{module}`, whose IDs start with {expected}- (DOC-10)"),
+                    format!("{id} is in the spec of `{module}`, whose IDs start with {expected}- (DOC-15)"),
                 ));
             }
             if self.define(token.prefix, &id, &file.path, index + 1) {
@@ -263,27 +263,29 @@ pub mod tests {
         assert!(catalog.findings().is_empty());
     }
 
-    #[test]
-    fn doc_13_an_id_defined_twice_or_in_another_modules_spec_is_reported() {
-        let mut files = fixture();
-        files.push((
-            "docs/spec/gadgets.md",
-            "| GADGETS-001 | One |\n| GADGETS-001 | Again |\n| WIDGETS-009 | Misplaced |\n",
-        ));
-
-        let catalog = Catalog::read(&Repo::of(&files));
-
-        let messages: Vec<&str> = catalog
+    /// The catalog's findings with `spec` as the `gadgets` module's spec.
+    fn messages(spec: &'static str) -> Vec<String> {
+        let catalog = Catalog::read(&Repo::of(&fixture_with(&[("docs/spec/gadgets.md", spec)])));
+        catalog
             .findings()
             .iter()
-            .map(|finding| finding.message.as_str())
-            .collect();
+            .map(|finding| finding.message.clone())
+            .collect()
+    }
+
+    #[test]
+    fn doc_13_an_id_defined_twice_is_reported() {
         assert_eq!(
-            messages,
-            [
-                "GADGETS-001 is defined more than once (DOC-13)",
-                "WIDGETS-009 is in the spec of `gadgets`, whose IDs start with GADGETS- (DOC-10)"
-            ]
+            messages("| GADGETS-001 | One |\n| GADGETS-001 | Again |\n"),
+            ["GADGETS-001 is defined more than once (DOC-13)"]
+        );
+    }
+
+    #[test]
+    fn doc_15_a_behavior_in_another_modules_spec_is_reported() {
+        assert_eq!(
+            messages("| WIDGETS-009 | Misplaced |\n"),
+            ["WIDGETS-009 is in the spec of `gadgets`, whose IDs start with GADGETS- (DOC-15)"]
         );
     }
 }

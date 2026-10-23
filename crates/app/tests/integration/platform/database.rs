@@ -77,6 +77,28 @@ async fn platform_009_serve_refuses_a_role_that_belongs_to_another_role() {
 }
 
 #[tokio::test]
+async fn platform_009_the_refusal_names_every_way_the_role_breaks_the_rule() {
+    let db = TestDatabase::migrated().await;
+    let (role, url) = db.role("CREATEDB CREATEROLE").await;
+    let expected = [
+        RoleProblem::NotApp(role),
+        RoleProblem::CreatesDatabases,
+        RoleProblem::CreatesRoles,
+    ];
+
+    let refused = Database::connect(&url, 1, &app::MIGRATIONS).await.err();
+
+    assert!(
+        matches!(&refused, Some(ConnectError::UnsafeRole(problems)) if *problems == expected),
+        "{refused:?}"
+    );
+    let message = refused.map(|error| error.to_string()).unwrap_or_default();
+    for problem in &expected {
+        assert!(message.contains(&problem.to_string()), "{message}");
+    }
+}
+
+#[tokio::test]
 async fn platform_009_serve_refuses_a_role_other_than_app() {
     let db = TestDatabase::migrated().await;
     let (role, url) = db.role("").await;
@@ -137,15 +159,46 @@ async fn platform_010_after_bootstrap_the_roles_have_their_attributes_and_grants
 }
 
 #[tokio::test]
+async fn platform_010_bootstrap_sets_the_app_roles_timeouts() {
+    let db = TestDatabase::migrated().await;
+    let app = db.app_url();
+
+    let timeouts = db
+        .with_roles_locked(async {
+            db.admin_executes(
+                "ALTER ROLE app RESET statement_timeout;
+                 ALTER ROLE app RESET idle_in_transaction_session_timeout;",
+            )
+            .await;
+            platform::db::bootstrap(&db.bootstrap_config())
+                .await
+                .unwrap();
+            (
+                db.setting(&app, "statement_timeout").await,
+                db.setting(&app, "idle_in_transaction_session_timeout")
+                    .await,
+            )
+        })
+        .await;
+
+    assert_eq!(timeouts, ("30s".to_owned(), "15s".to_owned()));
+}
+
+#[tokio::test]
 async fn platform_010_running_bootstrap_again_keeps_the_roles_and_grants() {
     let db = TestDatabase::migrated().await;
-    let before = snapshot(&db).await;
 
-    db.with_roles_locked(platform::db::bootstrap(&db.bootstrap_config()))
-        .await
-        .unwrap();
+    let (before, after) = db
+        .with_roles_locked(async {
+            let before = snapshot(&db).await;
+            platform::db::bootstrap(&db.bootstrap_config())
+                .await
+                .unwrap();
+            (before, snapshot(&db).await)
+        })
+        .await;
 
-    assert_eq!(snapshot(&db).await, before);
+    assert_eq!(after, before);
     db.app().await;
 }
 
@@ -281,12 +334,17 @@ async fn data_19_the_app_role_reads_and_writes_rows_and_changes_nothing_else() {
             "{refused} must be refused"
         );
     }
-    assert_eq!(db.setting(&app, "statement_timeout").await, "30s");
-    assert_eq!(
-        db.setting(&app, "idle_in_transaction_session_timeout")
-            .await,
-        "15s"
-    );
+    // platform_010_bootstrap_sets_the_app_roles_timeouts resets these under the roles lock.
+    let timeouts = db
+        .with_roles_locked(async {
+            (
+                db.setting(&app, "statement_timeout").await,
+                db.setting(&app, "idle_in_transaction_session_timeout")
+                    .await,
+            )
+        })
+        .await;
+    assert_eq!(timeouts, ("30s".to_owned(), "15s".to_owned()));
 }
 
 #[tokio::test]

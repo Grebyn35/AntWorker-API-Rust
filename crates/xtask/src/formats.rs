@@ -288,6 +288,9 @@ fn rule(
     };
     let id = token.id();
     let mut problems = Vec::new();
+    if block.heading[id.len()..].trim().is_empty() {
+        problems.push(format!("the heading of {id} has no name after the ID"));
+    }
     if let Some(prefix) = prefix.filter(|prefix| *prefix != token.prefix) {
         problems.push(format!(
             "{id} is in `{file}`, whose rules start with {prefix}-"
@@ -375,11 +378,14 @@ fn tracker(repo: &Repo) -> Vec<Finding> {
         rule: "DOC-16",
     };
     let mut findings = outline.findings(tracker);
-    if let Some((line, lines)) = markdown::under(&tracker.text, "## Current work") {
+    let mut lines = tracker.text.lines().enumerate();
+    if let Some((index, _)) = lines.find(|(_, line)| line.trim_end() == "## Current work") {
+        // Every word up to the next section counts, in subheadings and code blocks too.
         let words: usize = lines
-            .iter()
+            .take_while(|(_, text)| !text.starts_with("## "))
             .map(|(_, text)| text.split_whitespace().count())
             .sum();
+        let line = index + 1;
         if words > CURRENT_WORK_WORDS {
             findings.push(Finding::new(
                 TRACKER,
@@ -524,6 +530,32 @@ mod tests {
         assert_eq!(
             findings(&[(TRACKER, tracker(201))]),
             ["docs/MIGRATION.md:3: Current work has 201 words, and DOC-16 allows 200 (DOC-16)"]
+        );
+    }
+
+    #[test]
+    fn doc_16_current_work_counts_every_word_up_to_the_next_section() {
+        let words = vec!["word"; 100].join(" ");
+        let text = format!(
+            "# Tracker\n\n## Current work\n\n{words}\n\n### More\n\n```\n{words}\n```\n\n## Decisions\n"
+        );
+
+        assert_eq!(
+            findings(&[(TRACKER, Box::leak(text.into_boxed_str()))]),
+            ["docs/MIGRATION.md:3: Current work has 204 words, and DOC-16 allows 200 (DOC-16)"]
+        );
+    }
+
+    #[test]
+    fn doc_15_a_rule_heading_names_the_rule() {
+        let rules =
+            "# Style\n\n### STYLE-01\nThe statement.\n- Why: a reason.\n- Check: `review`.\n";
+
+        assert_eq!(
+            findings(&[("docs/standards/style.md", rules)]),
+            [
+                "docs/standards/style.md:3: the heading of STYLE-01 has no name after the ID (DOC-15)"
+            ]
         );
     }
 }

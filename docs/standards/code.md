@@ -21,9 +21,9 @@ CI runs clippy with `-D warnings` and the lint set in `[workspace.lints]`. That 
 - `cast_possible_truncation`, `cast_possible_wrap`, `cast_sign_loss`
 - `let_underscore_must_use`, `let_underscore_future`
 
-`clippy.toml` allows `unwrap` and `expect` in tests only. Printing is allowed, through an `#[expect]` that states its reason, only for the API binary's startup line before logging exists (OPS-03) and for the output of the checker in `xtask`.
+`clippy.toml` allows `unwrap` and `expect` in tests only. Printing is allowed in three places: the API binary's startup line before logging exists (OPS-03) and the output of the checker in `xtask`, each through an `#[expect]` that states its reason, and the instructions a build script prints to Cargo, which clippy's print lints don't cover.
 - Why: no panics in production code, no lossy numeric casts, no silently dropped results (D17).
-- Check: `clippy`.
+- Check: `clippy`, plus `review` (where an `#[expect]` allows printing).
 
 ### CODE-04 No `unsafe`
 `unsafe_code` is set to `forbid` for the whole workspace.
@@ -33,7 +33,7 @@ CI runs clippy with `-D warnings` and the lint set in `[workspace.lints]`. That 
 ### CODE-05 No blocking calls in async code
 Code the API runs never blocks its async runtime:
 - Blocking file I/O is banned through `disallowed-methods` in `clippy.toml`.
-- CPU-heavy work, such as password hashing, runs on a blocking thread. Outside `platform`, it runs through the `platform` helper that moves it there and adds its span (OBS-06).
+- CPU-heavy work, such as password hashing, runs on a blocking thread, through the `platform` helper that moves it there and adds its span (OBS-06).
 - A dependency that blocks inside an async call is allowed only where the spec of the area that uses it names the call and when it runs.
 
 Tests and the test support may block, because each test runs on an async runtime of its own.
@@ -41,7 +41,7 @@ Tests and the test support may block, because each test runs on an async runtime
 - Check: `clippy` (`disallowed_methods`), plus `review` for CPU-heavy work and for dependencies.
 
 ### CODE-06 Time and randomness come from `platform`
-Code in this workspace outside `platform::clock` doesn't read a clock (`Utc::now`, `SystemTime::now`, `Instant::now`) or wait on one: `std::thread::sleep`, `tokio::time::sleep`, and the timed waits of threads, condition variables and channels. Every wait written in this workspace goes through the clock's `sleep`. Timeouts inside dependencies, such as the request timeout layer or an HTTP client timeout, are configured durations, not waits this rule covers. Code outside `platform` doesn't create its own random number generators.
+Code in this workspace outside `platform::clock` doesn't read a clock (`Utc::now`, `SystemTime::now`, `Instant::now`, or the `elapsed` of a time it holds) or wait on one: `std::thread::sleep`, `tokio::time::sleep`, and the timed waits of threads, condition variables and channels. Every wait written in this workspace goes through the clock's `sleep`. Timeouts inside dependencies, such as the request timeout layer or an HTTP client timeout, are configured durations, not waits this rule covers. Code outside `platform` doesn't create its own random number generators.
 - Why: tests control time, and every secret comes from the operating system's secure random source (D23, SEC-03).
 - Check: `clippy` (`disallowed_methods`).
 

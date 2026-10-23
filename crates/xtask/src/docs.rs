@@ -1,6 +1,7 @@
 //! `check-docs`: links, IDs and the CI checks the rules name all resolve (DOC-13); prose and
-//! comments hold no history markers (DOC-01) and no unfinished-work markers (DOC-07); and every
-//! document belongs to the documentation set (DOC-08).
+//! comments hold no history markers (DOC-01) and no unfinished-work markers (DOC-07); every
+//! document belongs to the documentation set (DOC-08); and specs, rules and the tracker keep
+//! their formats (DOC-14 to DOC-16, in `formats`).
 
 use std::collections::{BTreeMap, BTreeSet};
 

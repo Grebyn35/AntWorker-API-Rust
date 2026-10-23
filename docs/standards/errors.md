@@ -31,7 +31,7 @@ Every variant implements `platform::errors::ErrorCode`, which gives it:
 | `PayloadTooLarge` | 413 | A body over its limit |
 | `BusinessRule` | 422 | Valid input that a rule refuses, such as removing the owner |
 | `RateLimited` | 429 | A rate limit was hit |
-| `Unavailable` | 503 | A disabled feature, a dependency that's down, or load shedding |
+| `Unavailable` | 503 | A disabled feature, a dependency that's down, load shedding, or a request past its timeout |
 | `Internal` | 500 | Anything else |
 
 - Why: the same kind of failure always produces the same status (D8, D17).

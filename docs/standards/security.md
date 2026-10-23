@@ -1,6 +1,6 @@
 # Security rules (`SEC`)
 
-The security bar is OWASP ASVS Level 2 (D26). These rules cover the mechanisms every module relies on. The threat model in `docs/operations/threat-model.md` maps each threat to the rules that mitigate it.
+The security bar is Level 2 of the OWASP Application Security Verification Standard (ASVS) (D26). These rules cover the mechanisms every module relies on. The threat model in `docs/operations/threat-model.md` maps each threat to the rules that mitigate it.
 
 ## Secrets
 
@@ -95,7 +95,7 @@ An IP limit applies to every route except the health probes, before authenticati
 - Check: `ci: deny`, plus `ci: image-scan`.
 
 ### SEC-14 Only vetted cryptography
-Cryptography comes from the RustCrypto crates (`aes-gcm`, `hmac`, `sha2`, `argon2`) and from `rustls` with its `ring` provider. This codebase builds no primitive or construction of its own. Crates that implement the Postgres protocol may build its standard constructions from those crates' primitives: the database driver's SCRAM-SHA-256 sign-in, and the password verifier that `bootstrap` computes with `postgres-protocol` (PLATFORM-010).
+Cryptography comes from the RustCrypto crates (`aes-gcm`, `hmac`, `sha2`, `argon2`) and from `rustls` with its `ring` provider. This codebase builds no primitive or construction of its own. Crates that implement the Postgres protocol may build its standard constructions from those crates' primitives: the database driver's SCRAM-SHA-256 (Salted Challenge Response Authentication Mechanism) sign-in, and the password verifier that `bootstrap` computes with `postgres-protocol` (PLATFORM-010).
 - Why: cryptography is easy to get subtly wrong, so it comes from vetted crates, and a protocol's standard construction is safer in its driver than rebuilt here. The `ring` provider builds on every supported platform without extra toolchains.
 - Check: `ci: deny` (bans `openssl`, `native-tls` and `aws-lc-rs`), plus `review`.
 
