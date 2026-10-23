@@ -34,7 +34,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 - `serve` fails startup when it can't install a signal handler (OPS-03), where it now shuts down at once with exit code 0.
 - The typed-client spike compares openapi-to-rust, oas3-gen and openapi-generator. progenitor is MPL-2.0 (CODE-12) and reads only OpenAPI 3.0, while utoipa 6 and aide write only 3.1. ARCH-01 allows three crates, so the generated client lives in the tests unless a proposal changes that.
 
-**Next:** a conformance review, with the `conformance-review` skill, of everything built that step 1.2 doesn't rewrite: `xtask`, `platform::db`, `platform`'s configuration, errors and types, the test support, the migration, and the CI and build files. What step 1.2 rewrites (`main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle`) is reviewed at the end of step 1.2. Then step 1.2. Each part ends with `just ci` passing.
+**Next:** step 1.2 of the build order, the request pipeline. Its conformance review also covers what it rewrites and no review has covered yet: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle`. Two decisions for the owner wait under [Queued rule proposals](#queued-rule-proposals): SEC-14's cryptography list, and the certificates a verified database connection trusts. Neither blocks step 1.2. Each part ends with `just ci` passing.
 
 ## Build order
 
@@ -101,9 +101,11 @@ Each module goes through these stages, in order:
 
 "First slice" means the stage is done for the behaviors the first slice builds. `platform` goes through the stages one area at a time, and "database" means its `db` area.
 
+The catch-up review also covered `xtask` and the CI and build files, which belong to no module.
+
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
-| `platform` | HTTP, DATA, RT, OBS, OPS | database | first slice | database | database | database |
+| `platform` | HTTP, DATA, RT, OBS, OPS | database | first slice | database, configuration | database, configuration, errors, types, and the liveness probe and logging that step 1.2 rewrites | database, configuration, errors, types |
 | `accounts` | USER | first slice | first slice | | | |
 | `auth` | AUTH | first slice | first slice | | | |
 | `access` | WS | first slice | first slice | | | |
