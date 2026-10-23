@@ -12,18 +12,28 @@ xtask := "cargo run --locked --quiet --package xtask --"
 # Runs every check CI runs.
 ci: fmt-check lint test deny check-test-map check-docs
 
-# Writes .env from .env.example, with generated passwords, if .env doesn't exist yet.
+# Prepares this machine (OPS-19): checks the tools the tasks need, installs the toolchain that
+# rust-toolchain.toml pins, and writes .env from .env.example, with generated passwords, if .env
+# doesn't exist yet.
 [unix]
 setup:
+    for tool in rustup git docker cargo-deny; do command -v "$tool" > /dev/null || { echo "just setup needs $tool" >&2; exit 1; }; done
+    docker compose version > /dev/null || { echo "just setup needs Docker Compose" >&2; exit 1; }
+    rustup show active-toolchain > /dev/null || rustup toolchain install
     test -f .env || sed \
         -e "s/__ADMIN_PASSWORD__/$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')/g" \
         -e "s/__OWNER_PASSWORD__/$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')/g" \
         -e "s/__APP_PASSWORD__/$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')/g" \
         .env.example > .env
 
-# Writes .env from .env.example, with generated passwords, if .env doesn't exist yet.
+# Prepares this machine (OPS-19): checks the tools the tasks need, installs the toolchain that
+# rust-toolchain.toml pins, and writes .env from .env.example, with generated passwords, if .env
+# doesn't exist yet.
 [windows]
 setup:
+    foreach ($tool in 'rustup', 'git', 'docker', 'cargo-deny') { if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "just setup needs $tool" } }
+    docker compose version | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'just setup needs Docker Compose' }
+    rustup show active-toolchain | Out-Null; if ($LASTEXITCODE -ne 0) { rustup toolchain install }
     if (-not (Test-Path .env)) { $text = Get-Content .env.example -Raw; foreach ($name in 'ADMIN', 'OWNER', 'APP') { $bytes = New-Object byte[] 16; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes); $text = $text.Replace("__$($name)_PASSWORD__", -join ($bytes | ForEach-Object { $_.ToString('x2') })) }; [IO.File]::WriteAllText((Join-Path $PWD '.env'), $text) }
 
 # Starts the services in compose.yaml, and waits until they are healthy.

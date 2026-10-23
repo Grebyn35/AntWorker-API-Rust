@@ -1,11 +1,12 @@
 //! Typed configuration, loaded once at startup (OPS-01).
 //!
 //! A setting is read from the environment variable of its name, or from the file that
-//! `<NAME>_FILE` names (SEC-01). Values are trimmed, and an empty value counts as unset.
+//! `<NAME>_FILE` names (SEC-01). Values are trimmed, an empty value counts as unset, and a value
+//! that isn't valid Unicode is an error.
 //! Errors name the setting and the problem, and never the value, which may be a secret.
 //! Each subcommand reads only the settings it uses.
 
-use std::{io, net::SocketAddr, ops::RangeInclusive, path::Path, str::FromStr};
+use std::{ffi::OsString, io, net::SocketAddr, ops::RangeInclusive, path::Path, str::FromStr};
 
 use crate::db::DatabaseUrl;
 
@@ -119,6 +120,8 @@ enum Problem {
     OutOfRange(u32, u32),
     #[error("names a file that can't be read")]
     UnreadableFile,
+    #[error("must be valid Unicode")]
+    NotUnicode,
     #[error("must be unset: connections take their settings only from the database URLs")]
     MustBeUnset,
 }
@@ -158,7 +161,7 @@ pub struct Settings<E, F> {
 
 impl<E, F> Settings<E, F>
 where
-    E: Fn(&str) -> Option<String>,
+    E: Fn(&str) -> Option<OsString>,
     F: Fn(&Path) -> io::Result<String>,
 {
     /// Settings read through `env`, with `read_file` for `<NAME>_FILE` variables.
@@ -264,14 +267,26 @@ where
 
     fn value(&self, name: &str) -> Result<Option<String>, ConfigError> {
         let file_setting = format!("{name}_FILE");
-        let raw = match non_empty((self.env)(&file_setting)) {
+        let raw = match non_empty(self.text(&file_setting)?) {
             Some(path) => Some(
                 (self.read_file)(Path::new(&path))
                     .map_err(|_| ConfigError::new(&file_setting, Problem::UnreadableFile))?,
             ),
-            None => (self.env)(name),
+            None => self.text(name)?,
         };
         Ok(non_empty(raw))
+    }
+
+    /// The variable `name` as text. A value that isn't valid Unicode is an error, so it can't
+    /// pass for an unset one.
+    fn text(&self, name: &str) -> Result<Option<String>, ConfigError> {
+        (self.env)(name)
+            .map(|value| {
+                value
+                    .into_string()
+                    .map_err(|_| ConfigError::new(name, Problem::NotUnicode))
+            })
+            .transpose()
     }
 }
 
@@ -282,7 +297,7 @@ fn non_empty(value: Option<String>) -> Option<String> {
 /// Settings from the process environment and the filesystem. Call it before the async
 /// runtime starts, because it may read files.
 pub fn from_process()
--> Settings<impl Fn(&str) -> Option<String>, impl Fn(&Path) -> io::Result<String>> {
+-> Settings<impl Fn(&str) -> Option<OsString>, impl Fn(&Path) -> io::Result<String>> {
     #[expect(
         clippy::disallowed_methods,
         reason = "configuration is read before the async runtime starts"
@@ -290,7 +305,7 @@ pub fn from_process()
     fn read_file(path: &Path) -> io::Result<String> {
         std::fs::read_to_string(path)
     }
-    Settings::new(|name| std::env::var(name).ok(), read_file)
+    Settings::new(|name| std::env::var_os(name), read_file)
 }
 
 #[cfg(test)]
@@ -300,19 +315,16 @@ mod tests {
 
     const SERVER: [(&str, &str); 2] = [
         ("LISTEN_ADDR", "0.0.0.0:8080"),
-        (
-            "DATABASE_URL",
-            "postgres://app:secret@localhost:5432/antworker",
-        ),
+        ("DATABASE_URL", "postgres://app:secret@localhost:5432/api"),
     ];
 
     fn settings(
         vars: &[(&str, &str)],
         files: &[(&str, &str)],
-    ) -> Settings<impl Fn(&str) -> Option<String>, impl Fn(&Path) -> io::Result<String>> {
-        let vars: HashMap<String, String> = vars
+    ) -> Settings<impl Fn(&str) -> Option<OsString>, impl Fn(&Path) -> io::Result<String>> {
+        let vars: HashMap<String, OsString> = vars
             .iter()
-            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .map(|(k, v)| ((*k).to_owned(), OsString::from(*v)))
             .collect();
         let files: HashMap<String, String> = files
             .iter()
@@ -373,10 +385,7 @@ mod tests {
     #[test]
     fn platform_023_an_invalid_value_names_the_setting_and_not_the_value() {
         let error = settings(
-            &with(
-                &SERVER,
-                &[("DATABASE_URL", "postgres://app@localhost/antworker")],
-            ),
+            &with(&SERVER, &[("DATABASE_URL", "postgres://app@localhost/api")]),
             &[],
         )
         .server()
@@ -398,14 +407,11 @@ mod tests {
                     ("DATABASE_URL_FILE", "/run/secrets/db"),
                 ],
             ),
-            &[(
-                "/run/secrets/db",
-                "postgres://app:secret@db:5432/antworker\n",
-            )],
+            &[("/run/secrets/db", "postgres://app:secret@db:5432/api\n")],
         )
         .server()
         .unwrap();
-        assert_eq!(config.database_url.database(), "antworker");
+        assert_eq!(config.database_url.database(), "api");
     }
 
     #[test]
@@ -454,13 +460,13 @@ mod tests {
         let migrate = settings(
             &[(
                 "DATABASE_OWNER_URL",
-                "postgres://owner:secret@localhost:5432/antworker",
+                "postgres://owner:secret@localhost:5432/api",
             )],
             &[],
         )
         .migrate()
         .unwrap();
-        assert_eq!(migrate.owner_url.database(), "antworker");
+        assert_eq!(migrate.owner_url.database(), "api");
         let error = settings(&SERVER, &[]).bootstrap().unwrap_err();
         assert_eq!(error.to_string(), "DATABASE_ADMIN_URL is required");
     }
@@ -494,7 +500,7 @@ mod tests {
             &[
                 (
                     "DATABASE_OWNER_URL",
-                    "postgres://owner:secret@localhost:5432/antworker",
+                    "postgres://owner:secret@localhost:5432/api",
                 ),
                 ("PGOPTIONS", "-c statement_timeout=0"),
             ],
@@ -504,6 +510,24 @@ mod tests {
         assert!(migrate.is_err());
         let overridden = settings(&with(&SERVER, &[("PGHOST", "elsewhere")]), &[]).server();
         assert!(overridden.is_ok(), "the URL always sets the host");
+    }
+
+    #[test]
+    fn ops_02_env_example_states_each_settings_type_and_default() {
+        let example = include_str!("../../../.env.example");
+        let mut comments: Vec<&str> = Vec::new();
+        for line in example.lines() {
+            if let Some(comment) = line.strip_prefix('#') {
+                comments.push(comment);
+                continue;
+            }
+            if let Some((name, _)) = line.split_once('=') {
+                let text = comments.join(" ");
+                assert!(text.contains("Type:"), "{name} states no type");
+                assert!(text.contains("default"), "{name} states no default");
+            }
+            comments.clear();
+        }
     }
 
     #[test]

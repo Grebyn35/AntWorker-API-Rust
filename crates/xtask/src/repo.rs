@@ -32,11 +32,24 @@ impl Repo {
         if !listing.status.success() {
             return Err(io::Error::other("git ls-files failed"));
         }
+        Self::from_listing(&listing.stdout, |path| read(&root.join(path)))
+    }
+
+    /// The text files among `listing`, git's list of paths separated by NUL bytes, each read
+    /// with `read`.
+    fn from_listing(
+        listing: &[u8],
+        read: impl Fn(&str) -> io::Result<Vec<u8>>,
+    ) -> io::Result<Self> {
         let mut files = Vec::new();
-        for path in String::from_utf8_lossy(&listing.stdout).split('\0') {
-            // git still lists a file deleted from the working tree until the deletion is staged.
-            let Ok(bytes) = read(&root.join(path)) else {
-                continue;
+        let listing = String::from_utf8_lossy(listing);
+        for path in listing.split('\0').filter(|path| !path.is_empty()) {
+            let bytes = match read(path) {
+                Ok(bytes) => bytes,
+                // git still lists a file deleted from the working tree until the deletion is
+                // staged.
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(io::Error::new(error.kind(), format!("{path}: {error}"))),
             };
             if let Ok(text) = String::from_utf8(bytes) {
                 files.push(File {
@@ -96,4 +109,28 @@ impl Repo {
 )]
 fn read(path: &Path) -> io::Result<Vec<u8>> {
     std::fs::read(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn doc_13_a_listed_file_that_cant_be_read_fails_the_checks() {
+        let read = |path: &str| match path {
+            "gone.md" => Err(io::Error::from(io::ErrorKind::NotFound)),
+            "locked.md" => Err(io::Error::from(io::ErrorKind::PermissionDenied)),
+            _ => Ok(b"# Text\n".to_vec()),
+        };
+
+        let deleted = Repo::from_listing(b"a.md\0gone.md\0", read).unwrap();
+        let unreadable = Repo::from_listing(b"a.md\0locked.md\0", read).err();
+
+        let paths: Vec<&str> = deleted.files().map(|file| file.path.as_str()).collect();
+        assert_eq!(paths, ["a.md"]);
+        assert!(
+            unreadable.is_some_and(|error| error.to_string().contains("locked.md")),
+            "a file that exists but can't be read must fail the checks"
+        );
+    }
 }

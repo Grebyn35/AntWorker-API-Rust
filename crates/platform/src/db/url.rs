@@ -19,7 +19,7 @@ const QUERY_PARAMETERS: [&str; 5] = [
     "application_name",
 ];
 
-/// A PostgreSQL connection URL, such as `postgres://app:password@localhost:5432/antworker`.
+/// A PostgreSQL connection URL, such as `postgres://app:password@localhost:5432/api`.
 ///
 /// It names a user, a password, a host and a database, and a port unless it is 5432, and sets
 /// no query parameter outside `QUERY_PARAMETERS`. The password is a secret (SEC-01): `Debug`
@@ -119,23 +119,23 @@ mod tests {
 
     #[test]
     fn ops_01_a_database_url_names_its_parts() {
-        let url: DatabaseUrl = "postgres://app:s%40cret@db.internal:6543/antworker?sslmode=require"
+        let url: DatabaseUrl = "postgres://app:s%40cret@db.internal:6543/api?sslmode=require"
             .parse()
             .unwrap();
         assert_eq!(url.user, "app");
         assert_eq!(url.password().expose(), "s@cret");
-        assert_eq!(url.database(), "antworker");
+        assert_eq!(url.database(), "api");
         assert_eq!(url.connect_options().get_port(), 6543);
     }
 
     #[test]
     fn ops_01_a_database_url_needs_a_user_password_host_and_database() {
         for value in [
-            "postgres://localhost:5432/antworker",
-            "postgres://app@localhost:5432/antworker",
+            "postgres://localhost:5432/api",
+            "postgres://app@localhost:5432/api",
             "postgres://app:secret@localhost:5432",
             "postgres://app:secret@localhost:5432/",
-            "mysql://app:secret@localhost:3306/antworker",
+            "mysql://app:secret@localhost:3306/api",
             "not a url",
         ] {
             assert_eq!(
@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn ops_01_a_database_url_allows_only_its_documented_query_parameters() {
-        let allowed = "postgres://app:secret@db:5432/antworker?sslmode=verify-full\
+        let allowed = "postgres://app:secret@db:5432/api?sslmode=verify-full\
                        &sslrootcert=/run/ca.pem&sslcert=/run/c.pem&sslkey=/run/k.pem\
                        &application_name=api";
         assert!(allowed.parse::<DatabaseUrl>().is_ok());
@@ -162,7 +162,7 @@ mod tests {
             "options=-c%20statement_timeout%3D0",
             "connect_timeout=5",
         ] {
-            let url = format!("postgres://app:secret@db:5432/antworker?{parameter}");
+            let url = format!("postgres://app:secret@db:5432/api?{parameter}");
             assert_eq!(
                 url.parse::<DatabaseUrl>().err(),
                 Some(InvalidDatabaseUrl),
@@ -181,11 +181,9 @@ mod tests {
 
     #[test]
     fn sec_01_a_database_url_never_prints_its_password() {
-        let url: DatabaseUrl = "postgres://app:hunter2@localhost:5432/antworker"
-            .parse()
-            .unwrap();
+        let url: DatabaseUrl = "postgres://app:hunter2@localhost:5432/api".parse().unwrap();
         let debug = format!("{url:?}");
         assert!(!debug.contains("hunter2"));
-        assert!(debug.contains("antworker"));
+        assert!(debug.contains(r#"database: "api""#));
     }
 }

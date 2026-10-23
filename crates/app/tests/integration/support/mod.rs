@@ -7,13 +7,13 @@
 //! when a test runs outside `just`.
 #![expect(
     clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "the harness creates and drops databases and roles, and runs ad hoc SQL to arrange \
-              tests, none of which a unit of work can do"
+    reason = "the harness creates and drops databases and roles, and arranges tests on raw \
+              connections, none of which a unit of work can do"
 )]
 
 use std::{
     error::Error,
+    ffi::{OsStr, OsString},
     hash::{DefaultHasher, Hash, Hasher},
     process::{Command, Output},
     sync::{
@@ -137,9 +137,11 @@ impl TestDatabase {
     /// Runs the API binary with `args`, as an operator would, with its database settings
     /// pointing at this database and `env` added to its environment. Returns its exit status
     /// and everything it printed.
-    pub async fn run_api(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
+    pub async fn run_api<V: AsRef<OsStr>>(&self, args: &[&str], env: &[(&str, V)]) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_antworker-api"));
-        command.args(args).envs(env.iter().copied());
+        command
+            .args(args)
+            .envs(env.iter().map(|(name, value)| (name, value)));
         for setting in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
             let mut url =
                 url::Url::parse(&std::env::var(setting).expect(setting)).expect("a database URL");
@@ -187,6 +189,10 @@ impl TestDatabase {
 
     /// Runs `sql` on a connection with `url`, and returns the database's error message if it
     /// fails.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "raw SQL arranges and reads what no unit of work may (TEST-06)"
+    )]
     pub async fn try_execute(&self, url: &DatabaseUrl, sql: &str) -> Result<(), String> {
         let mut conn = connect(url).await;
         let result = sqlx::raw_sql(AssertSqlSafe(sql.to_owned()))
@@ -260,6 +266,10 @@ impl TestDatabase {
 }
 
 impl Drop for TestDatabase {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "raw SQL arranges and reads what no unit of work may (TEST-06)"
+    )]
     fn drop(&mut self) {
         let admin = self.settings.admin.clone();
         let name = self.name.clone();
@@ -293,6 +303,20 @@ impl Drop for TestDatabase {
                 .expect("the cleanup thread")
                 .expect("drop the test database and roles");
         }
+    }
+}
+
+/// A value that isn't valid Unicode, which the process environment can still hold.
+pub fn not_unicode() -> OsString {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        OsString::from_vec(vec![b'i', b'n', b'f', b'o', 0x80])
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStringExt;
+        OsString::from_wide(&[u16::from(b'i'), u16::from(b'n'), 0xD800])
     }
 }
 
@@ -404,7 +428,7 @@ fn fingerprint(migrations: &Migrator) -> u64 {
     hasher.finish()
 }
 
-/// A name no other database or role on the server has, such as `antworker_test_4120_7`.
+/// A name no other database or role on the server has, such as `api_test_4120_7`.
 fn unique(settings: &BootstrapConfig, kind: &str) -> String {
     format!(
         "{}_{kind}_{}_{}",
@@ -421,6 +445,10 @@ async fn connect(url: &DatabaseUrl) -> PgConnection {
 }
 
 /// The first column of every row `sql` returns, on a connection with `url`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "raw SQL arranges and reads what no unit of work may (TEST-06)"
+)]
 async fn reads(url: &DatabaseUrl, sql: &str) -> Vec<String> {
     let mut conn = connect(url).await;
     let values = sqlx::query_scalar(AssertSqlSafe(sql.to_owned()))
@@ -436,6 +464,10 @@ async fn close(conn: PgConnection) {
     conn.close().await.expect("close the connection");
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "raw SQL arranges and reads what no unit of work may (TEST-06)"
+)]
 async fn execute(conn: &mut PgConnection, sql: &str) {
     sqlx::raw_sql(AssertSqlSafe(sql.to_owned()))
         .execute(conn)

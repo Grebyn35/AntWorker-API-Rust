@@ -19,7 +19,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 - `platform::db`: Postgres 18 in `compose.yaml`; the `bootstrap` and `migrate` subcommands (PLATFORM-010, PLATFORM-027 to PLATFORM-029); the startup checks of the role and the schema (PLATFORM-009, PLATFORM-030); the unit of work; the first migration, with the default privileges (DATA-19); the test support, with one database per test (TEST-06); and the committed query cache (DATA-20).
 - The review tools (build order 1.1): the checker in `xtask`, with `check-test-map` and `check-docs`, and the conformance reviewer in `.claude/agents/`.
 
-`just ci` passes locally and in GitHub Actions, where CI starts Postgres through `just setup` and Compose: formatting, clippy, 71 tests, `cargo-deny`, `check-test-map` and `check-docs`. A scheduled workflow runs `cargo-deny` every day.
+`just ci` passes locally and in GitHub Actions, where CI starts Postgres through `just setup` and Compose: formatting, clippy, 74 tests, `cargo-deny`, `check-test-map` and `check-docs`. A scheduled workflow runs `cargo-deny` every day.
 
 **Accepted rule changes,** applied with the spec of step 1.2 to every rule and module they touch, as in [Changing a rule](standards/README.md#changing-a-rule):
 - **ERR-03:** a `MethodNotAllowed` category answers 405, with the `Allow` header, when a path doesn't serve the method (RFC 9110, §9.1 and §15.5.6).
@@ -126,6 +126,7 @@ Reviewer A reads rule by rule, and reviewer B file by file. "Shared" counts the 
 |---|---:|---|---:|---:|---|
 | `platform::db` | 1 | 14 (one reviewer) | 8 | n/a | `next pass`. Six code defects fixed, each with a test. Five doc statements corrected. Five rule wordings queued. |
 | `platform::db` | 2 | 6 (3, 4, 1 shared) | 2 | 1 | `stopped: no progress`, by its must-fix regression. Both must-fix findings fixed, each with a test that failed first. The should-fix findings fixed, or queued as rule changes. |
+| Built parts that step 1.2 doesn't rewrite: `xtask`; `platform::db`, configuration, errors and types; the test support; the migration; CI and build files | 1 | 16 (12, 10, 6 shared) | 13 | 0 | `next pass`. Every finding verified against its statement and the code. 11 must-fix and 3 should-fix findings fixed, each code fix with a test or a clippy probe that failed first. 2 must-fix findings are contradictions between rules, queued (ARCH-14, TEST-06). Of the reviewers' 8 distinct proposals, 2 applied (the checker fails on a file it can't read, and the database's name), 5 queued, and 1 already decided (the database roles keep their names). |
 
 ## CI checks
 
@@ -157,20 +158,27 @@ Handled in the rule fixes (Build order, step 3), as in [Changing a rule](standar
 |---|---|
 | Standards review | An OPS rule for D14: TLS on every connection that leaves the host, and storage encrypted at rest as a stated deployment requirement. |
 | `platform::db` | DATA-13: state the whole check PLATFORM-009 makes: the role's name, its attributes, what it owns, and the roles it belongs to. |
-| `platform::db` | DATA-21: the check bans `sqlx::Pool`, `sqlx::PgConnection` and `sqlx::Transaction` everywhere except `platform::db` and the test support, not only `PgPool` and `PgConnection` in `app`. |
+| `platform::db`, and the catch-up review | DATA-21: state what the check bans: sqlx's pools and pool options, its pooled and plain connections, and its transactions, with their Postgres aliases (`PgPool`, `PgPoolOptions`, `PgTransaction`), everywhere except `platform::db` and the test support, not only `PgPool` and `PgConnection` in `app`. |
 | `platform::db` | D20: drop "runtime threads come from configuration". The async runtime sizes itself to the CPUs the container may use, so no two deployments would set it differently (OPS-02). |
 | Parallel review | Right after the rule fixes, renumber rule and behavior IDs once, closing the gaps. The rule fixes retire the last large group of IDs, and every later test would carry an old number. From then on, IDs are never reused. |
 | Decision trace | DOC-04: extend the migration workspace's exception to CLAUDE.md's pointer to `docs/inventory/`. |
 | Conformance of `platform::db` | DATA-02: the standard columns, and the naming in DATA-01, apply to the tables that migrations create. The migrator's own table, `_sqlx_migrations`, follows sqlx's layout. |
 | Conformance of `platform::db` | DATA-12: state what PLATFORM-010 states. Running `bootstrap` again keeps the roles, their attributes and the grants, and sets each password again from its URL. `owner` owns the tables it creates and has `CREATE` on the schema `public`, which the database's owner keeps. |
 | Conformance of `platform::db` | SEC-01: "secrets never appear in URLs" covers the URLs the API sends, serves or logs. A database URL that carries a password is a secret setting as a whole: read from the environment or a file, held in `Secret`, and never printed. |
-| Conformance of `platform::db` | TEST-06: tests of `migrate` and of `serve`'s schema check start from an empty database instead of the migrated template; tests may arrange state through the administrator's connection; and assertions on database catalogs, such as role attributes, may read through `app`. |
+| Conformance of `platform::db` | TEST-06: tests of `migrate` and of `serve`'s schema check start from an empty database instead of the migrated template; tests may arrange state through the administrator's connection; assertions on database catalogs, such as role attributes, may read through `app`; and assertions on state only an administrator may read, such as the password verifiers in `pg_authid` (PLATFORM-010), read through the administrator. |
 | Conformance of `platform::db` | DATA-09: say whether a migration that has been applied but is in no release may be edited. A file edited after it was applied fails `migrate` and `serve` in every database that applied it. |
 | Conformance of `platform::db` | TEST-01: say whether each clause of a behavior needs a test of its own. |
 | Conformance of `platform::db` | CODE-05: say whether the test support may block, as a test's cleanup and settings do. |
 | Owner question on duplicated statements | A DOC rule: a fact lives in one place, and other documents point to it instead of restating it. The standards README states this for reviews' fixes, without an ID a finding can cite. |
 | Conformance of `platform::db` | TEST-04: a level for behaviors with no HTTP surface, such as the subcommands and the startup checks, whose integration tests call `platform` directly or run the binary. |
 | Owner's direction on tools | A rule states a guarantee, and names a tool only where the tool is the guarantee, such as the cryptography allowlist in SEC-14. Reword the rules that name a tool for an unbuilt part: SEC-11 (Caddy), OPS-19 (SeaweedFS and Mailpit), TEST-05 (Mailpit), and the library names in ERR-04 and SEC-09. MAIL-005 is reworded when `mail` is built. |
+| Catch-up review | ARCH-14: the query-cache task (`just prepare`, DATA-20) connects to the database too, besides the CI checks and backups the rule names. Today the two rules can't both hold. |
+| Catch-up review | OPS-12: the CI steps that prepare the runner (checking out, installing tools, restoring the cache) orchestrate; every other step runs a `just` task. `just` can't run before it is installed. |
+| Catch-up review | DOC-01, DOC-07 and DOC-13: state the migration workspace's exceptions. The tracker records the migration's progress, which DOC-01 otherwise forbids. The inventory numbers its entries with IDs of its own and quotes another codebase, so `check-docs` reads neither its IDs nor its markers. |
+| Catch-up review | OPS-03 and CODE-03: the checker in `xtask` prints its report and findings, while OPS-03 calls `main`'s pre-logging line "the one place where `print_stderr` is allowed". Say that OPS-03 covers the API binary. |
+| Catch-up review | DATA-20: SQL passed as a string to an executor method, such as `execute` or `fetch_one`, compiles without the macros. Ban those methods outside `platform::db` and the test support, or state that review covers them until `sqlx-check` exists. |
+| Catch-up review | TEST-05 and ARCH-12: say whether tests may inject the process environment and file reads (`platform::config::Settings`), and whether the test support may hold process-wide statics, such as the template database's name. |
+| Catch-up review | DATA-01, DATA-02 and DATA-09: they cover the product schema in `migrations/`. The tables and migration files that tests create are throwaway. |
 
 ## Open design questions
 

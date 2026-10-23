@@ -4,6 +4,10 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+# Every advisory fails the check, whether it affects a direct dependency or a transitive one
+# (SEC-13).
+unmaintained = "all"
+unsound = "all"
 
 [licenses]
 version = 2

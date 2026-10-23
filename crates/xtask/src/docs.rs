@@ -12,11 +12,11 @@ const HISTORY: [&str; 5] = ["previously", "no longer", "used to", "legacy", "now
 /// Words that mark unfinished work (DOC-07).
 const UNFINISHED: [&str; 3] = ["TODO", "FIXME", "XXX"];
 
-/// The record of the old API, which uses its own IDs and describes another codebase (DOC-04).
+/// The migration workspace's inventory (DOC-04), which numbers its entries with IDs of its own.
 /// No ID, marker or comment in it is checked.
 const INVENTORY: &str = "docs/inventory/";
 
-/// The migration tracker, which records progress, so history markers are allowed in it (DOC-04).
+/// The migration tracker, the other part of the migration workspace (DOC-04).
 const TRACKER: &str = "docs/MIGRATION.md";
 
 /// Runs the check.
@@ -180,9 +180,8 @@ fn code_spans(text: &str) -> impl Iterator<Item = &str> {
     text.split('`').skip(1).step_by(2)
 }
 
-/// Prose outside the migration workspace holds no history markers (DOC-01), and prose outside
-/// the inventory holds no unfinished-work markers (DOC-07). Code spans and code blocks aren't
-/// prose, so a document can name a marker in one.
+/// Prose outside the inventory holds no history markers (DOC-01) and no unfinished-work markers
+/// (DOC-07). Code spans and code blocks aren't prose, so a document can name a marker in one.
 fn prose_markers(documents: &BTreeMap<&str, markdown::Document>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (path, document) in documents {
@@ -190,9 +189,7 @@ fn prose_markers(documents: &BTreeMap<&str, markdown::Document>) -> Vec<Finding>
             continue;
         }
         for (line, prose) in &document.prose {
-            if *path != TRACKER {
-                findings.extend(history(path, *line, prose));
-            }
+            findings.extend(history(path, *line, prose));
             findings.extend(unfinished(path, *line, prose));
         }
     }
@@ -370,6 +367,7 @@ mod tests {
                 ("Cargo.toml", config),
             ]),
             [
+                "docs/MIGRATION.md:3: \"no longer\" describes history; describe the current state (DOC-01)",
                 "docs/guides/history.md:3: \"previously\" describes history; describe the current state (DOC-01)",
                 "Cargo.toml:1: a date in a comment records when something was written; describe the current state (DOC-01)"
             ]

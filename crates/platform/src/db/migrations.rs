@@ -64,12 +64,11 @@ impl fmt::Display for Versions {
 /// Applies, as the role `owner`, every migration in `migrations` that the database hasn't
 /// recorded, in version order, and returns their versions (PLATFORM-027).
 ///
-/// Each migration runs in one transaction with its record, so a migration that fails leaves
-/// no trace (PLATFORM-028). A migration marked `-- no-transaction` would run outside one, so
-/// nothing is applied while `migrations` holds one. Nothing is applied while any applied
-/// migration differs from its file, and a recorded migration that `migrations` doesn't contain
-/// is ignored, so an earlier release can still run `migrate` (PLATFORM-029). Concurrent runs
-/// take turns on an advisory lock, so each migration is applied once.
+/// A migration that fails leaves no trace: its changes roll back, and it isn't recorded
+/// (PLATFORM-028). Nothing is applied while `migrations` holds a migration marked
+/// `-- no-transaction`, or while any applied migration differs from its file. A recorded
+/// migration that `migrations` doesn't contain is ignored, so an earlier release can still run
+/// `migrate` (PLATFORM-029). Concurrent runs apply each migration once.
 pub async fn migrate(url: &DatabaseUrl, migrations: &Migrator) -> Result<Vec<i64>, MigrateError> {
     let outside: Vec<i64> = forward(migrations)
         .filter(|migration| migration.no_tx)
