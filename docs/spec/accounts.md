@@ -19,6 +19,12 @@
 - The domain type `DisplayName` (D25). `EmailAddress` is in `platform::types`.
 - The personal data contract for `users`, registered with the composition root (D31).
 
+## Routes
+
+| Method and path | Access | Behaviors |
+|---|---|---|
+| `GET /v1/users/me` | user | ACCOUNTS-001 |
+
 ## Behaviors
 
 | ID | Behavior | Rules | Test prefix |

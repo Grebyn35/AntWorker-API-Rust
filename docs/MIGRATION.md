@@ -7,7 +7,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 | Document | Status |
 |---|---|
 | [architecture.md](architecture.md) | draft |
-| [standards/](standards/README.md) | Review stopped after pass 4; its resolutions are D32 to D36. Tenancy is enforced by the application, with no row-level security (D4). 160 rules. |
+| [standards/](standards/README.md) | 160 rules. Proposed changes wait in [Queued rule proposals](#queued-rule-proposals). |
 | [spec/](spec/README.md) | The first slice's nine specs are written. The triage behind them is in [inventory/triage-slice.md](inventory/triage-slice.md). |
 | `docs/adr/` | Not started. Written after the rule fixes (Build order, step 3), from the rules as they then stand. The recommendation text in SYNTHESIS.md predates the standards, and [inventory/decision-trace.md](inventory/decision-trace.md) lists where the rules refine it. ADR-00NN records decision DNN. Before `docs/inventory/` is deleted, every `DNN` citation is replaced with a link to its ADR. |
 | [CLAUDE.md](../CLAUDE.md) | written |
@@ -17,7 +17,6 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository.
 **Built:**
 - The workspace scaffold (`platform` and `app` crates), strict configuration with the startup-failure format (PLATFORM-023, OPS-03), and the liveness probe (PLATFORM-019).
 - `platform::db`: Postgres 18 in `compose.yaml`; the `bootstrap` and `migrate` subcommands (PLATFORM-010, PLATFORM-027 to PLATFORM-029); the startup checks of the role and the schema (PLATFORM-009, PLATFORM-030); the unit of work; the first migration, with the default privileges (DATA-19); the test support, with one database per test (TEST-06); and the committed query cache (DATA-20).
-
 - The review tools (build order 1.1): the checker in `xtask`, with `check-test-map` and `check-docs`, and the conformance reviewer in `.claude/agents/`.
 
 `just ci` passes locally and in GitHub Actions, where CI starts Postgres through `just setup` and Compose: formatting, clippy, 71 tests, `cargo-deny`, `check-test-map` and `check-docs`. A scheduled workflow runs `cargo-deny` every day.
@@ -135,34 +134,13 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `test-migrations` | 6, with the first release |
 | `check-rename` | 6, with `just rename` |
 
-## Standards review
-
-Follows the review procedure in [standards/README.md](standards/README.md#reviews). The review is capped at six passes. If it stops before reporting zero `must-fix` findings, the fallback resolutions apply.
-
-| Pass | Findings | Must-fix | Must-fix regressions | Result |
-|---|---:|---:|---:|---|
-| 1 | 39 | 11 | n/a | all applied |
-| 2 | 31 | 4 | not tagged | all applied |
-| 3 | 27 | 6 | not tagged | all applied, except the queued proposal below |
-| 4 | 22 | 5 | 5 | Stopped by condition 2 (`must-fix` regressions). The 17 `should-fix` findings are applied. The five `must-fix` findings are resolved below, with no further full pass. |
-
-### Resolutions after pass 4
-
-| # | Finding | Resolution | Status |
-|---|---|---|---|
-| R1 | Key rotation: a lookup must match a key under every active key version | Prove, then decide. Proven against Postgres 18.6. | accepted as D32, which D4 (c) later simplified |
-| R2 | Creating a workspace fails RLS, because its ID doesn't exist yet | Prove, then decide. Proven: generating the ID first and opening the unit of work in that workspace context passes RLS. | accepted as D33, which D4 (c) later simplified |
-| R3 | An invitee can't see or accept an invitation under RLS | Prove, then decide. Proven: an "addressed to the caller's email" policy plus a switch into the invitation's workspace context passes RLS. | accepted as D34, which D4 (c) later simplified |
-| R4 | Erasure deletes the access-change event that should close a deleted user's streams (SEC-06, DATA-28) | Decide | accepted as D35 |
-| R5 | ARCH-11 says a commit means success, but a recorded security failure commits and answers 401 (ARCH-11, DATA-27) | Decide | accepted as D36 |
-
-### Queued rule proposals
+## Queued rule proposals
 
 Handled in the rule fixes (Build order, step 3), as in [Changing a rule](standards/README.md#changing-a-rule).
 
 | From | Proposal |
 |---|---|
-| Pass 3 | An OPS rule for D14: TLS on every connection that leaves the host, and storage encrypted at rest as a stated deployment requirement. |
+| Standards review | An OPS rule for D14: TLS on every connection that leaves the host, and storage encrypted at rest as a stated deployment requirement. |
 | `platform::db` | DATA-13: state the whole check PLATFORM-009 makes: the role's name, its attributes, what it owns, and the roles it belongs to. |
 | `platform::db` | DATA-21: the check bans `sqlx::Pool`, `sqlx::PgConnection` and `sqlx::Transaction` everywhere except `platform::db` and the test support, not only `PgPool` and `PgConnection` in `app`. |
 | `platform::db` | D20: drop "runtime threads come from configuration". The async runtime sizes itself to the CPUs the container may use, so no two deployments would set it differently (OPS-02). |
@@ -180,7 +158,7 @@ Handled in the rule fixes (Build order, step 3), as in [Changing a rule](standar
 | Conformance of `platform::db` | SEC-01: `DatabaseUrl::connect_options` is public, and the options it returns print the password through `Debug`. Narrow what it exposes. |
 | Owner's direction on tools | A rule states a guarantee, and names a tool only where the tool is the guarantee, such as the cryptography allowlist in SEC-14. Reword the rules that name a tool for an unbuilt part: SEC-11 (Caddy), OPS-19 (SeaweedFS and Mailpit), TEST-05 (Mailpit), and the library names in ERR-04 and SEC-09. MAIL-005 is reworded when `mail` is built. |
 
-### Open design questions
+## Open design questions
 
 | Question | Settled by |
 |---|---|

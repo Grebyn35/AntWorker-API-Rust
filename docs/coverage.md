@@ -88,7 +88,7 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 
 ## Product domains
 
-Each module has a spec in `docs/spec/`: access, accounts, audit, auth, client telemetry, files, invitations, mail, real-time, system and workspaces.
+Each module in [architecture.md §5](architecture.md#5-modules) gets a spec in `docs/spec/` before it is built. [The spec index](spec/README.md#specs) lists the specs that exist.
 
 ## Out of scope
 

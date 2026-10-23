@@ -91,6 +91,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 crates/app/
   src/
     main.rs            subcommands: bootstrap, migrate, serve, seed, openapi
+    lib.rs             the crate root: makes public only the composition root's entry points (CODE-14)
     composition.rs     the composition root: builds every service once at startup and mounts every module's routes
     modules/
       access/ accounts/ audit/ auth/ client_telemetry/ files/
@@ -115,7 +116,7 @@ crates/app/
 | `workspaces` | `workspaces` | Creating, updating, transferring and deleting workspaces, the members endpoints (list, change role, remove, leave), and the workspace picture. |
 | `invitations` | `invitations` | Invite, list, resend, cancel, accept, decline, and expiry. |
 | `client_telemetry` | none | The telemetry proxy for the desktop client, enforcing consent on the server (D7). |
-| `system` | none | Health, the capabilities endpoint (D9) and the schema endpoints. |
+| `system` | none | The capabilities endpoint (D9), and the schema endpoints, which list the permissions and the audit actions. The health probes belong to `platform` (§4). |
 | `platform` | `events`, `jobs`, `job_schedules`, `rate_limit_buckets`, `idempotency_records` | The mechanisms in §4. |
 
 Table naming follows the data standard.
@@ -137,19 +138,17 @@ flowchart TD
 
 `access`, `mail`, `realtime` and `system` depend on no other module.
 
-Rules:
-- The graph must stay acyclic. The edges above are the allowed list, and a CI script fails on any `use` of another module that the list doesn't include.
-- A module is used only through what its `mod.rs` exports. Repositories are private to their module, so no module can query another module's tables. When a module needs another module's data, it calls a batch read in that module's API, for example `accounts::profiles(ids)`.
-- An operation that spans modules passes one `&mut UnitOfWork` through every call, so it all commits or none of it does.
-- `platform` calls into `app` only through four traits, each implemented by a module and registered in the composition root:
-  - `SessionVerifier`, implemented by `auth`, verifies credentials for `platform::authn`.
-  - `AccessPolicy`, implemented by `access`, makes authorization decisions for `platform::authz`.
-  - `SecurityEventSink`, implemented by `audit`, records refused requests that `platform::authz` reports.
-  - The personal data contract is implemented by every module that stores personal data. It lets `accounts` export or delete an account without depending on every module.
+The edges above are the only ones allowed, and the graph stays acyclic (ARCH-05). A module is used only through what its `mod.rs` exports (ARCH-04), and its SQL reads and writes only the tables it owns (ARCH-06). When a module needs another module's data, it calls a batch read in that module's API, such as `accounts::profiles(ids)`. An operation that spans modules passes one `&mut UnitOfWork` through every call, so all of it commits or none of it does (ARCH-11).
+
+`platform` calls into `app` only through four traits, each implemented by a module and registered in the composition root (ARCH-12, ARCH-13):
+- `SessionVerifier`, implemented by `auth`, verifies credentials for `platform::authn`.
+- `AccessPolicy`, implemented by `access`, makes authorization decisions for `platform::authz`.
+- `SecurityEventSink`, implemented by `audit`, records refused requests that `platform::authz` reports.
+- The personal data contract is implemented by every module that stores personal data. It lets `accounts` export or delete an account without depending on every module.
 
 ### Inside a module
 
-Every module uses the same file names, and only the files it needs:
+Every module uses the same file names, and only the files it needs (ARCH-03):
 
 ```
 modules/workspaces/
@@ -168,14 +167,14 @@ modules/workspaces/
 
 Two modules have one extra entry each: `access/permissions.rs` holds the permission matrix, and `auth/providers/` holds one file per OAuth provider together with their registry.
 
-The layers have strict jobs:
+The layers have strict jobs (ARCH-08 to ARCH-10):
 - **Handlers** contain no SQL and no business rules.
 - **Services** contain no HTTP types.
 - **Repositories** contain no rules.
 
-A module that outgrows a file splits it into a directory with the same name, such as `service/`. A file never takes a new name.
+A module that outgrows a file splits it into a directory with the same name, such as `service/` (ARCH-03, CODE-07).
 
-A trait that abstracts a dependency exists for one of two reasons. Either it inverts a dependency the crate or module graph forbids (the four traits above), or it covers an external system with more than one implementation (object storage, email transport, the clock). Nothing gets a trait just so it can be mocked. Tests run against the real database (D23).
+A trait that abstracts a dependency either inverts a dependency the crate or module graph forbids, as the four traits above do, or covers an external system with more than one implementation, such as object storage, email transport or the clock (ARCH-13). Nothing gets a trait just so it can be mocked, because tests run against the real database (D23).
 
 ## 6. Request lifecycle
 

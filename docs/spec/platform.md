@@ -39,6 +39,13 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
   - the clock and the random source (CODE-06)
   - the metric declaration macro (OBS-11)
 
+## Routes
+
+| Method and path | Access | Behaviors |
+|---|---|---|
+| `GET /health/live` | public, answered before the middleware stack (OPS-05) | PLATFORM-019 |
+| `GET /health/ready` | public, answered before the middleware stack (OPS-05) | PLATFORM-019 |
+
 ## Behaviors
 
 IDs 001 to 005, 007 and 008 are retired.

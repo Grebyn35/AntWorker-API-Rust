@@ -6,18 +6,19 @@ A spec is written just before its module is built, and kept current with the cod
 
 ## Sections
 
-Every spec has these sections, in this order:
+A spec has these sections, in this order:
 
 1. **Purpose.** What the module is for, in two or three sentences.
 2. **Owns.** The tables the module owns (ARCH-06).
 3. **Interface.** What other modules may use: types, functions and the traits it implements.
-4. **Behaviors.** One entry per behavior, each with:
+4. **Routes.** Only in a spec whose module serves routes. Each route's method and path, its access level (API-14), and the behaviors it serves. The generated OpenAPI document describes each route in full (API-17).
+5. **Behaviors.** One entry per behavior, each with:
    - an ID, using the module's prefix (for example `WORKSPACES-005`)
    - one statement a test can prove
    - the rule IDs or decision IDs it satisfies
    - the test prefix, such as `workspaces_005_`, that every test proving it starts with (TEST-01)
-5. **Design.** How the behaviors are met, where the code alone wouldn't make it clear. The tests named in Behaviors verify it. If this section and the code disagree, the code and its tests win, and this section is corrected.
-6. **Open design questions.** Questions only building will settle, each with the test that will settle it. When a question is settled, it moves into Design.
+6. **Design.** How the behaviors are met, where the code alone wouldn't make it clear. The tests named in Behaviors verify it. If this section and the code disagree, the code and its tests win, and this section is corrected.
+7. **Open design questions.** Questions only building will settle, each with the test that will settle it. When a question is settled, it moves into Design.
 
 ## IDs
 
