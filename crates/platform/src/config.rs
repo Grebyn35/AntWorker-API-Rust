@@ -139,11 +139,13 @@ const DATABASE_URL_EXPECTED: &str = "a PostgreSQL URL with a user, a password, a
      database, and no query parameters but sslmode, sslrootcert, sslcert, sslkey and \
      application_name";
 
-/// The environment variables of libpq that the Postgres driver reads, and that would change a
-/// connection whose URL leaves them out. The URL always sets the host, user, password and
-/// database, so the variables for those can't change anything. A URL may leave out the port,
-/// and with `PGPORT` unset, the driver uses 5432.
-const LIBPQ_VARIABLES: [&str; 7] = [
+/// The environment variables that would change a connection whose URL leaves them out:
+/// - the variables of libpq that the Postgres driver reads. The URL always sets the host, user,
+///   password and database, so the variables for those can't change anything. A URL may leave
+///   out the port, and with `PGPORT` unset, the driver uses 5432.
+/// - `SSL_CERT_FILE` and `SSL_CERT_DIR`, which replace the operating system's certificates that
+///   a verified TLS connection trusts.
+const CONNECTION_VARIABLES: [&str; 9] = [
     "PGPORT",
     "PGSSLMODE",
     "PGSSLROOTCERT",
@@ -151,6 +153,8 @@ const LIBPQ_VARIABLES: [&str; 7] = [
     "PGSSLKEY",
     "PGAPPNAME",
     "PGOPTIONS",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
 ];
 
 /// Reads settings from a source of environment variables and the files they name.
@@ -206,11 +210,11 @@ where
         })
     }
 
-    /// The database URL in the setting `name`. Every libpq variable that would change its
-    /// connections must be unset, so the URL is the only source of connection settings. The
-    /// driver reads a variable that is set to an empty value too, so any value counts as set.
+    /// The database URL in the setting `name`. Every environment variable that would change its
+    /// connections must be unset, so the URL is the only source of connection settings. A
+    /// variable that is set to an empty value is read too, so any value counts as set.
     fn database_url(&self, name: &str) -> Result<DatabaseUrl, ConfigError> {
-        if let Some(variable) = LIBPQ_VARIABLES
+        if let Some(variable) = CONNECTION_VARIABLES
             .iter()
             .find(|variable| (self.env)(variable).is_some())
         {
@@ -294,8 +298,9 @@ fn non_empty(value: Option<String>) -> Option<String> {
     value.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
 }
 
-/// Settings from the process environment and the filesystem. Call it before the async
-/// runtime starts, because it may read files.
+/// Settings from the process environment and the files that `<NAME>_FILE` variables name.
+/// Reading a setting, such as through [`Settings::server`], may read its file, so read the
+/// settings before the async runtime starts.
 pub fn from_process()
 -> Settings<impl Fn(&str) -> Option<OsString>, impl Fn(&Path) -> io::Result<String>> {
     #[expect(
@@ -513,6 +518,23 @@ mod tests {
     }
 
     #[test]
+    fn ops_01_variables_that_replace_the_trusted_certificates_must_be_unset() {
+        for name in ["SSL_CERT_FILE", "SSL_CERT_DIR"] {
+            let error = settings(&with(&SERVER, &[(name, "/etc/certs")]), &[])
+                .server()
+                .err();
+
+            assert_eq!(
+                error.map(|error| error.to_string()),
+                Some(format!(
+                    "{name} must be unset: connections take their settings only from the database URLs"
+                )),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn ops_02_env_example_states_each_settings_type_and_default() {
         let example = include_str!("../../../.env.example");
         let mut comments: Vec<&str> = Vec::new();
@@ -531,9 +553,9 @@ mod tests {
     }
 
     #[test]
-    fn ops_02_env_example_names_every_libpq_variable_that_must_be_unset() {
+    fn ops_02_env_example_names_every_variable_that_must_be_unset() {
         let example = include_str!("../../../.env.example");
-        for name in LIBPQ_VARIABLES {
+        for name in CONNECTION_VARIABLES {
             assert!(example.contains(name), "{name}");
         }
     }
