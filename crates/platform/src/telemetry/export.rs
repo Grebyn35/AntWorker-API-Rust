@@ -10,7 +10,7 @@ use opentelemetry_otlp::{
 };
 use opentelemetry_sdk::{
     Resource,
-    error::{OTelSdkError, OTelSdkResult},
+    error::OTelSdkResult,
     logs::{BatchLogProcessor, LogBatch, LogExporter as ExportsLogs, SdkLoggerProvider},
     metrics::{
         PeriodicReader, SdkMeterProvider, Temporality,
@@ -251,11 +251,11 @@ fn tls(verified: bool) -> Result<rustls::ClientConfig, Box<dyn std::error::Error
     .with_no_client_auth())
 }
 
-/// The value of `error.type` for an export's result: none on success.
+/// The value of `error.type` for an export's result: none on success. The OTLP exporter reports
+/// every failure the same way, a timeout included, so a failure has one value.
 fn outcome(result: &OTelSdkResult) -> LabelValue {
     match result {
         Ok(()) => None::<&'static str>.into(),
-        Err(OTelSdkError::Timeout(_)) => "timeout".into(),
         Err(_) => "export_failed".into(),
     }
 }

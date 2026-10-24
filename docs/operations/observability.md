@@ -34,7 +34,7 @@ flowchart LR
   - every trace slower than the latency objective, 0.5 seconds
   - 10% of the rest
 - **Prometheus** ([config](../../deploy/observability/prometheus/prometheus.yaml)) receives the metrics through its OTLP receiver, and scrapes the collector, Loki, Tempo and Alertmanager for their own. It evaluates the [rules](../../deploy/observability/prometheus/rules.yaml) and sends firing alerts to Alertmanager. [metrics.md](metrics.md) lists every metric under its name in Prometheus.
-- **Loki** ([config](../../deploy/observability/loki/config.yaml)) keeps every log record: logs are never sampled. A record's line is its message, such as `request completed`. The service's name, instance and environment are labels, such as `service_name`, and every other field, `trace_id` and `span_id` among them, is structured metadata that a query filters with `| trace_id="…"`.
+- **Loki** ([config](../../deploy/observability/loki/config.yaml)) keeps every log record the API exports: logs are never sampled. The API's queue of records drops a record that arrives while it is full, as the [platform spec](../spec/platform.md#telemetry-export) says, and stdout holds every line. A record's line is its message, such as `request completed`. The service's name, instance and environment are labels, such as `service_name`, and every other field, `trace_id` and `span_id` among them, is structured metadata that a query filters with `| trace_id="…"`.
 - **Tempo** ([config](../../deploy/observability/tempo/config.yaml)) keeps the traces the collector passes on, and answers searches in its query language, TraceQL.
 - **Grafana** reads all three, through the [data sources](../../deploy/observability/grafana/provisioning/datasources/datasources.yaml) it provisions. A log line links to its trace, and a span links to its trace's log lines.
 
@@ -63,7 +63,7 @@ Every response except the health probes carries its trace context in `server-tim
 2. Open a line, and choose "Open the trace" under its links. The trace opens beside the logs, with each span's duration and attributes.
 3. From a span, "Related logs" runs the query of the first step for the span's trace.
 
-A trace is kept when the request failed, answered 400 or above, or took longer than 0.5 seconds, and a successful fast request's trace only sometimes. Its logs are always kept.
+A trace is kept when the request failed, answered 400 or above, or took longer than 0.5 seconds, and a successful fast request's trace only sometimes. Its logs are never sampled.
 
 To find the slow requests of a time range instead, the API requests dashboard lists them under "Which requests took longer than the latency objective?", each opening its trace.
 
@@ -78,7 +78,7 @@ The health probes don't count, since they aren't measured (OBS-15). The latency 
 
 ## Alerts
 
-Each objective has two alerts that fire on how fast the errors spend its budget (OBS-14). The fast alert pages when an hour's errors would spend 2% of a 30-day budget, or 6 hours' errors 5% of it. The slow alert opens a ticket when a day's errors would spend 10% of it, or 3 days' errors all of it. The other alerts name a cause: the database is unreachable, or telemetry is being lost.
+Each objective has two alerts that fire on how fast the errors spend its budget (OBS-14). The fast alert pages when an hour's errors would spend 2% of a 30-day budget, or 6 hours' errors 5% of it. The slow alert opens a ticket when a day's errors would spend 10% of it, or 3 days' errors 10% of it at a steady rate. The other alerts name a cause: the database is unreachable, or telemetry is being lost.
 
 Every alert has a severity, `page` or `ticket`, a section in [runbooks.md](runbooks.md), and a test in [rules.test.yaml](../../deploy/observability/prometheus/rules.test.yaml). Alertmanager routes each alert by its severity to the receiver of the same name, and the [receivers](../../deploy/observability/alertmanager/alertmanager.yaml) notify no one until a deployment adds its integrations, such as email or a chat webhook, to `page` and `ticket`.
 

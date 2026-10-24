@@ -3173,7 +3173,6 @@ dependencies = [
  "clap",
  "proc-macro2",
  "pulldown-cmark",
- "serde",
  "serde-saphyr",
  "serde_json",
  "syn 3.0.9",

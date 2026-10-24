@@ -124,7 +124,7 @@ Documents and comments describe only this codebase. The one exception is the mig
 - `docs/inventory/` describes the old codebase, quotes it, and numbers its entries with IDs of its own, so `check-docs` reads neither its IDs nor its markers (DOC-01, DOC-07, DOC-13).
 - `docs/MIGRATION.md`, the tracker, records the migration (DOC-16).
 - `CLAUDE.md` may point to the inventory, so a session can look up old behavior.
-- Until the ADRs are written, documents cite decisions by their IDs, such as D4, and `docs/architecture.md` and the tracker link to the decisions' records in the inventory.
+- Until the ADRs are written, documents cite decisions by their IDs, such as D4, and `docs/architecture.md` and the tracker link to the decisions' records: the inventory's for D1 to D36, and the tracker's decisions for later ones.
 
 When the migration completes, the workspace is deleted, and these exceptions with it.
 - Why: a fork's developers never saw any other codebase, so references to one mean nothing to them.

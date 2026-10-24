@@ -101,11 +101,7 @@ pub enum TelemetryError {
 /// thread of their own (CODE-05). Call it before the async runtime starts, since the exporters'
 /// HTTP client starts a runtime of its own.
 pub fn init(service: Service, config: &TelemetryConfig) -> Result<Telemetry, TelemetryError> {
-    let exporting = config
-        .otlp_endpoint
-        .as_ref()
-        .map(|endpoint| export::build(service, config.environment, endpoint))
-        .transpose()?;
+    let exporting = exporting(service, config)?;
     let (writer, guard) = NonBlockingBuilder::default()
         .lossy(false)
         .buffered_lines_limit(QUEUED_LINES)
@@ -151,6 +147,19 @@ pub fn init(service: Service, config: &TelemetryConfig) -> Result<Telemetry, Tel
         logs,
         metrics,
     })
+}
+
+/// The exporters for the configured endpoint, with the providers that batch for them, or `None`
+/// without an endpoint, when nothing is exported (PLATFORM-039).
+fn exporting(
+    service: Service,
+    config: &TelemetryConfig,
+) -> Result<Option<export::Exporting>, ExportError> {
+    config
+        .otlp_endpoint
+        .as_ref()
+        .map(|endpoint| export::build(service, config.environment, endpoint))
+        .transpose()
 }
 
 /// The events the log lines and records take: those of the workspace's own crates, `platform`,
@@ -299,5 +308,25 @@ fn level_filter(level: LogLevel) -> LevelFilter {
         LogLevel::Info => LevelFilter::INFO,
         LogLevel::Debug => LevelFilter::DEBUG,
         LogLevel::Trace => LevelFilter::TRACE,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn platform_039_without_the_setting_no_exporter_is_built() {
+        let config = TelemetryConfig {
+            environment: Environment::Production,
+            level: LogLevel::Info,
+            otlp_endpoint: None,
+        };
+        let service = Service {
+            name: "api",
+            version: "0.0.0",
+        };
+
+        assert!(exporting(service, &config).unwrap().is_none());
     }
 }

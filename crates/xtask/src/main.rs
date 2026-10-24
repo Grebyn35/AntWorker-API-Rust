@@ -3,6 +3,7 @@
 
 mod acronyms;
 mod alerts;
+mod boards;
 mod catalog;
 mod declarations;
 mod docs;

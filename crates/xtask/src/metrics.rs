@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 use crate::{
-    Finding, Outcome,
+    Finding, Outcome, boards,
     declarations::{self, Metric},
     instrument, promql,
     repo::Repo,
@@ -195,6 +195,7 @@ fn code_spans(values: &[String]) -> String {
 /// panel title that isn't a question.
 fn check_use(repo: &Repo, catalog: &Catalog, findings: &mut Vec<Finding>) {
     let dashboards = stack::dashboards(repo, findings);
+    boards::check(repo, &dashboards, findings);
     let rules = stack::rules(repo, findings);
     for title in &dashboards.titles {
         if !title.title.trim_end().ends_with('?') {
@@ -303,8 +304,8 @@ mod tests {
     const EXTERNAL_LIST: &str = "metrics:\n  - name: up\n    kind: gauge\n    producer: Prometheus\n    description: Whether a target answers.\n";
 
     fn dashboard(title: &str, expr: &str) -> String {
-        serde_json::json!({"panels": [{"type": "timeseries", "title": title,
-            "datasource": {"type": "prometheus"}, "targets": [{"expr": expr}]}]})
+        serde_json::json!({"uid": "a", "editable": false, "panels": [{"type": "timeseries",
+            "title": title, "datasource": {"type": "prometheus"}, "targets": [{"expr": expr}]}]})
         .to_string()
     }
 
@@ -318,6 +319,10 @@ mod tests {
                 dashboard.to_owned(),
             ),
             (stack::RULES, rules.to_owned()),
+            (
+                "deploy/observability/grafana/provisioning/dashboards/dashboards.yaml",
+                "providers:\n  - name: a\n    allowUiUpdates: false\n".to_owned(),
+            ),
         ];
         let repo = Repo::of(
             &files

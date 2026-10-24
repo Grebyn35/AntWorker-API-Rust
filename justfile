@@ -117,9 +117,21 @@ test: services
 prepare: services
     cargo sqlx prepare --workspace -- --all-targets --locked
 
-# Checks dependencies for advisories, licenses and banned crates (CODE-11, CODE-12, SEC-13).
+# Checks dependencies: advisories, bans and sources for every target (SEC-13, SEC-14, CODE-11),
+# and licenses for each target the API is built for, the platforms a developer builds on (OPS-19)
+# and the image's (OPS-14), one at a time, as cargo-deny takes one target per run. A crate that
+# only other targets compile, such as one for WebAssembly, never reaches a build, so its license
+# doesn't matter (CODE-12).
 deny:
-    cargo deny --locked check
+    cargo deny --locked check advisories bans sources
+    cargo deny --locked --target x86_64-unknown-linux-gnu check licenses
+    cargo deny --locked --target aarch64-unknown-linux-gnu check licenses
+    cargo deny --locked --target x86_64-unknown-linux-musl check licenses
+    cargo deny --locked --target aarch64-unknown-linux-musl check licenses
+    cargo deny --locked --target x86_64-pc-windows-msvc check licenses
+    cargo deny --locked --target aarch64-pc-windows-msvc check licenses
+    cargo deny --locked --target x86_64-apple-darwin check licenses
+    cargo deny --locked --target aarch64-apple-darwin check licenses
 
 # Reports which spec behaviors tests prove, and fails on a test whose name doesn't start with a
 # behavior or rule ID that exists (TEST-01, DOC-10).

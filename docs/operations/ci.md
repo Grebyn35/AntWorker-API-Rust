@@ -9,12 +9,12 @@ CI installs `just`, then the tools that `just ci-tools` lists at the versions th
 | Formatting | `fmt-check` | CODE-02 |
 | Clippy, with warnings as errors | `lint` | CODE-03 to CODE-06, CODE-08, CODE-14, CODE-15, TEST-07 (sleeps in tests), ERR-11 (results dropped with `.ok()`), API-14 and API-17 (routes registered outside `platform::http`), DATA-20 (the query functions and string-SQL executor methods outside the macros), DATA-21 (pools, connections, transactions and the listener outside `platform::db`), OBS-11 (OpenTelemetry's meters outside the declaration types) |
 | Tests, against Postgres | `test` | TEST-11, and every behavior and rule a test proves |
-| Dependencies: advisories, licenses, bans and sources | `deny` | CODE-11, CODE-12, SEC-13, SEC-14 |
+| Dependencies: advisories, bans and sources for every target, and licenses for each target the API is built for | `deny` | CODE-11, CODE-12, SEC-13, SEC-14 |
 | The map from spec behaviors to tests | `check-test-map` | TEST-01, DOC-10 |
 | Links, IDs and named CI checks resolve; no history or unfinished-work markers; documents only in the documentation set; acronyms spelled out where first used; specs, rules, tables and the tracker keep their format; each spec's Routes table matches `openapi.json` | `check-docs` | DOC-01, DOC-07, DOC-08, DOC-09, DOC-13, DOC-14, DOC-15, DOC-16 |
 | The committed `openapi.json`: its paths, its property names, each operation's access level and response descriptions, the codes of its error responses, and references that don't resolve | `check-openapi` | API-01, API-05, API-17, ERR-02, ERR-13 |
 | Log and span field names come from the list in `platform::telemetry::names`; constant messages; `skip_all` on every `#[instrument]`; `app` code other than `main.rs` writes only `DEBUG` events and opens no spans; print lints excepted only where printing is allowed | `check-instrument` | CODE-03, OBS-01, OBS-03, OBS-04, OBS-05, OBS-06 |
-| Metrics are named and labelled as OBS-11 says; the metric catalog matches the declarations; every metric a dashboard or alert reads is declared or listed, and every one is read; every panel title is a question | `check-metrics` | OBS-11, OBS-12, OBS-13 |
+| Metrics are named and labelled as OBS-11 says; the metric catalog matches the declarations; every metric a dashboard or alert reads is declared or listed, and every one is read; every panel title is a question; the dashboards are read-only, and one overview links to every other | `check-metrics` | OBS-11, OBS-12, OBS-13 |
 | The collector's tail sampling keeps the traces OBS-08 names, and the latency objective is the same in the sampling, the alerts and the latency dashboard | `check-telemetry-config` | OBS-08 |
 | Every alert has a severity, a runbook section and a test; promtool checks the rules and runs their tests | `alert-rules` | OBS-14 |
 

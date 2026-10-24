@@ -54,9 +54,24 @@ pub struct PanelTitle {
     pub title: String,
 }
 
-/// Every dashboard's panel titles and queries.
+/// One dashboard: what makes it read-only, and where it links.
+#[derive(Debug)]
+pub struct Board {
+    /// The dashboard's file.
+    pub path: String,
+    /// Its unique ID, by which a link reaches it as `/d/<uid>`.
+    pub uid: String,
+    /// Whether its `editable` is anything but `false`, which lets Grafana's users change it.
+    pub editable: bool,
+    /// The address of each of its links.
+    pub links: Vec<String>,
+}
+
+/// Every dashboard, with its panel titles and queries.
 #[derive(Debug, Default)]
 pub struct Dashboards {
+    /// Each dashboard.
+    pub boards: Vec<Board>,
     /// Each panel's title.
     pub titles: Vec<PanelTitle>,
     /// Each query of each panel.
@@ -77,6 +92,17 @@ pub fn dashboards(repo: &Repo, findings: &mut Vec<Finding>) -> Dashboards {
                 continue;
             }
         };
+        dashboards.boards.push(Board {
+            path: file.path.clone(),
+            uid: board["uid"].as_str().unwrap_or_default().to_owned(),
+            editable: board["editable"] != false,
+            links: board["links"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|link| link["url"].as_str().map(str::to_owned))
+                .collect(),
+        });
         let mut panels: Vec<&Value> = Vec::new();
         collect_panels(&board["panels"], &mut panels);
         for panel in panels {

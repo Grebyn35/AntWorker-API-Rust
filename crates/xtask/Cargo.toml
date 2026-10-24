@@ -9,7 +9,6 @@ publish.workspace = true
 clap.workspace = true
 proc-macro2.workspace = true
 pulldown-cmark.workspace = true
-serde.workspace = true
 # check-metrics, check-telemetry-config and alert-rules read the observability stack's
 # configuration.
 serde-saphyr.workspace = true

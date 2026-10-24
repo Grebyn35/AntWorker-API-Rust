@@ -255,7 +255,7 @@
     {
       "type": "table",
       "title": "Which requests took longer than the latency objective?",
-      "description": "The kept traces of requests slower than 0.5 seconds in the time range shown, which the collector always keeps (OBS-08). Each row opens its trace.",
+      "description": "Up to 50 of the kept traces of requests slower than 0.5 seconds in the time range shown, which the collector always keeps (OBS-08). Each row opens its trace; a shorter time range shows others.",
       "datasource": {
         "type": "tempo",
         "uid": "tempo"

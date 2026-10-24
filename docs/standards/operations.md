@@ -86,7 +86,7 @@ Every CI step that builds or checks the code runs a `just` task. The steps that 
 - Check: `review`, plus `ci: check-protection` (a scheduled job that compares the repository's branch protection with the documented list).
 
 ### OPS-13 Everything is pinned
-The toolchain comes from `rust-toolchain.toml`. Actions are pinned by commit SHA, images by digest, and the runner by version. The tools the tasks use, such as cargo-deny and watchexec, are pinned by version in the justfile: `just setup` checks them, and CI installs them from it.
+The toolchain comes from `rust-toolchain.toml`. Actions are pinned by commit SHA, images by digest, and the runner by version. The tools the tasks use, such as cargo-deny and watchexec, are pinned by version in the justfile: `just setup` checks them, and CI installs them from it. `just` itself is the exception: CI installs it before any task can run, so the workflows pin its version too.
 - Why: a build today is reproducible tomorrow (D21).
 - Check: `ci: check-pins`.
 

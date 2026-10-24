@@ -135,6 +135,22 @@ async fn platform_040_a_method_http_doesn_t_define_is_other() {
 }
 
 #[tokio::test]
+async fn platform_040_patch_is_a_method_http_defines() {
+    let api = Api::new();
+    let labels = [
+        ("http.request.method", "PATCH"),
+        ("http.route", "/v1/capabilities"),
+        ("http.response.status_code", "405"),
+    ];
+    let before = requests(&durations(), &labels);
+
+    let response = api.request(Method::PATCH, "/v1/capabilities").send().await;
+
+    assert_eq!(response.status, StatusCode::METHOD_NOT_ALLOWED);
+    assert!(requests(&durations(), &labels) > before);
+}
+
+#[tokio::test]
 async fn obs_15_the_health_probes_record_no_request_metric() {
     let api = Api::new();
 
@@ -381,6 +397,90 @@ async fn platform_039_each_process_exports_as_an_instance_of_its_own() {
     instances.sort();
     instances.dedup();
     assert_eq!(instances.len(), 2, "{instances:?}");
+    let mut measured: Vec<String> = received
+        .metrics()
+        .into_iter()
+        .map(|(resource, _)| assert_names_the_process(resource, "test"))
+        .collect();
+    measured.sort();
+    measured.dedup();
+    assert_eq!(measured, instances);
+}
+
+#[tokio::test]
+async fn platform_042_a_subcommand_writes_out_its_spans_before_it_exits() {
+    let collector = Collector::start().await;
+    let database = TestDatabase::migrated().await;
+
+    // bootstrap computes each role's password verifier in a span of its own (OBS-06).
+    let output = database
+        .with_roles_locked(database.run_api(
+            &["bootstrap"],
+            &[
+                ("ENVIRONMENT", "test"),
+                ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
+            ],
+        ))
+        .await;
+
+    assert!(output.status.success(), "{output:?}");
+    let received = collector.received();
+    let verifiers = received
+        .spans()
+        .into_iter()
+        .filter(|(_, span)| span.name == "scram verifier")
+        .count();
+    assert_eq!(verifiers, 2, "one for each role");
+}
+
+#[tokio::test]
+async fn platform_042_the_last_metrics_count_the_exports_that_failed() {
+    let collector = Collector::refusing_logs().await;
+    let database = TestDatabase::migrated().await;
+
+    let output = database
+        .run_api(
+            &["migrate"],
+            &[
+                ("ENVIRONMENT", "test"),
+                ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
+            ],
+        )
+        .await;
+
+    assert!(output.status.success(), "{output:?}");
+    let failed = collector
+        .received()
+        .count("otel.sdk.exporter.log.exported", Some("export_failed"));
+    assert!(failed >= 1, "{failed}");
+}
+
+#[tokio::test]
+async fn obs_10_an_exporter_that_can_t_be_built_fails_startup() {
+    let database = TestDatabase::migrated().await;
+    let missing = std::env::temp_dir().join("no-such-certificates.pem");
+
+    // An https endpoint needs the certificates SSL_CERT_FILE names, which don't exist.
+    let output = database
+        .run_api(
+            &["migrate"],
+            &[
+                ("ENVIRONMENT", "test"),
+                ("OTEL_EXPORTER_OTLP_ENDPOINT", "https://127.0.0.1:4318"),
+                ("SSL_CERT_FILE", missing.to_str().unwrap()),
+            ],
+        )
+        .await;
+
+    assert!(!output.status.success(), "{output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let lines: Vec<serde_json::Value> = stderr
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 1, "{stderr}");
+    assert_eq!(lines[0]["message"], "startup failed");
+    assert_eq!(lines[0]["startup.area"], "telemetry");
 }
 
 #[tokio::test]

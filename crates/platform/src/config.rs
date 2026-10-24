@@ -706,6 +706,19 @@ mod tests {
     }
 
     #[test]
+    fn platform_041_every_variable_env_example_lists_is_refused() {
+        let example = include_str!("../../../.env.example");
+        let listed: Vec<&str> = example
+            .split(|c: char| !(c.is_ascii_uppercase() || c == '_'))
+            .filter(|word| word.starts_with("OTEL_") && *word != "OTEL_EXPORTER_OTLP_ENDPOINT")
+            .collect();
+        assert_eq!(listed.len(), OTEL_VARIABLES.len());
+        for name in listed {
+            assert!(OTEL_VARIABLES.contains(&name), "{name}");
+        }
+    }
+
+    #[test]
     fn platform_039_the_endpoint_is_an_http_or_https_url() {
         for endpoint in ["http://127.0.0.1:4318", "https://collector.internal/otlp/"] {
             let config = settings(

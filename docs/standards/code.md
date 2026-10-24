@@ -78,7 +78,7 @@ Versions live in `[workspace.dependencies]`, and each crate inherits them. Defau
 - Check: `ci: deny` (`cargo-deny` bans), plus `review`.
 
 ### CODE-12 Dependency licenses are permissive
-`cargo-deny` allows only permissive licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0. It checks every crate that a build for one of the targets in `deny.toml` compiles: the platforms a developer builds on, and the image's. Any other license needs a rule change.
+`cargo-deny` allows only permissive licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0. It checks every crate that a build for one of the targets `just deny` names compiles: the platforms a developer builds on, and the image's. Any other license needs a rule change.
 - Why: the template's own license is undecided, and a copyleft dependency would close off options (owner question Q1).
 - Check: `ci: deny`.
 

@@ -59,9 +59,9 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **What it means.** An instance of the API failed to export spans, log records or metrics in the last 10 minutes. The API goes on serving (OBS-10), but the traces and logs of its requests may be missing, so trace IDs from that time may lead nowhere.
 
-**Look first.** The Telemetry pipeline dashboard: "Is the API failing to export telemetry?" names the instance, the signal and the reason, `timeout` or `export_failed`.
+**Look first.** The Telemetry pipeline dashboard: "Is the API failing to export telemetry?" names the instance and the signal.
 
-**What to do.** Check that the collector runs and accepts data, and that the instance can reach `OTEL_EXPORTER_OTLP_ENDPOINT`. Timeouts point to an overloaded collector or network.
+**What to do.** Check that the collector runs and accepts data, and that the instance can reach `OTEL_EXPORTER_OTLP_ENDPOINT`. A collector that answers slowly fails exports too, once each takes longer than 10 seconds.
 
 ## CollectorDroppingTelemetry
 

@@ -85,7 +85,8 @@ services:
   grafana:
     profiles: [observability]
     image: grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572
-    # On a developer's machine, anyone who reaches 127.0.0.1:3000 is the administrator.
+    # On a developer's machine, anyone who reaches 127.0.0.1:3000 views the dashboards and explores
+    # without signing in.
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer

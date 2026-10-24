@@ -4,7 +4,7 @@ How the API is built: its parts, how they depend on each other, how a request fl
 
 While the API is being built, parts of this document describe the design to build rather than code that exists, as "Docs for unbuilt parts are the plan" in [CLAUDE.md](../CLAUDE.md) explains. The module table in [MIGRATION.md](MIGRATION.md#modules) shows what is built.
 
-Decision IDs (`D1` to `D36`) refer to the decision records in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md).
+Decision IDs `D1` to `D36` refer to the decision records in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md), and later ones to the [tracker's decisions](MIGRATION.md#decisions), whose commits hold their reasons.
 
 ## 1. System context
 
