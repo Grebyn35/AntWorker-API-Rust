@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** the conformance review of step 1.4, the image and the pipeline, which the commits after 63e2951 built, with the `conformance-review` skill. Its scope is those commits' changes: the Dockerfile, the workflows and Dependabot's configuration, the tools in `compose.yaml`, the justfile's image tasks, `health` and `lifecycle::probe`, `check-pins`, the end-to-end tests, and the rules and documents they changed. The release workflow and the scheduled image jobs haven't run yet, because they need a release tag or a published image. Step 1.5 then builds the reference deployment, with Grafana on an HTTPS address and the path to a managed observability backend (D42).
+**Next:** the conformance review of step 1.4, the image and the pipeline, which the commits after 63e2951 built, with the `conformance-review` skill. Its scope is those commits' changes: the Dockerfile, the workflows and Dependabot's configuration, the tools in `compose.yaml`, the justfile's image tasks, `just release` and the `release` job, `health` and `lifecycle::probe`, `check-pins`, the end-to-end tests, and the rules and documents they changed. The `release` job hasn't released anything yet: the first `just release` is the owner's to run, because a release makes the repository's name public in Sigstore's logs. The scheduled image jobs first run on a Monday. Step 1.5 then builds the reference deployment, with Grafana on an HTTPS address and the path to a managed observability backend (D42).
 
 **Waiting on the owner:** nothing.
 

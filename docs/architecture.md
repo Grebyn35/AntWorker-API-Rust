@@ -46,7 +46,7 @@ compose.yaml        the services a developer runs locally, and the images of the
 crates/
   platform/         shared mechanisms, no product knowledge
   app/              feature modules, routes, composition root, the binary
-  xtask/            the custom CI checks, which the API never depends on
+  xtask/            the custom CI checks and the release task, which the API never depends on
 migrations/         one ordered directory; each file name names its owning module
 deploy/             the configuration of the observability stack and of the reference deployment
 docs/
@@ -59,7 +59,7 @@ The configuration of the services the API runs beside lives under `deploy/`, so 
 
 ## 4. Crates
 
-The API has two crates. Cargo forbids `platform` from depending on `app`, so the shared mechanisms can never come to depend on a feature. The workspace's third crate, `xtask`, holds the custom CI checks, and neither API crate depends on it.
+The API has two crates. Cargo forbids `platform` from depending on `app`, so the shared mechanisms can never come to depend on a feature. The workspace's third crate, `xtask`, holds the custom CI checks and the release task, and neither API crate depends on it.
 
 ### `platform`
 
@@ -285,7 +285,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   - The setup subcommand creates the deployment's one workspace and its owner's account, in a fork that keeps it (§5, "Workspace shapes").
   - `openapi` writes the contract, `openapi.json`, which a test compares with the committed one (API-17).
   - `health` asks the instance whether it is ready, for the image's health check (PLATFORM-044).
-- **The single-host reference deployment** runs N API replicas behind Caddy, with Postgres, SeaweedFS and, as an option, the observability stack. A deploy needs only the release's published artifacts on the server, never a checkout of the repository. It replaces replicas with no downtime and rolls back on failure (D15, OPS-16), and scheduled backups go to object storage (D30). The deploy tooling is chosen when the deployment is built.
+- **The single-host reference deployment** runs N API replicas behind Caddy, with Postgres, SeaweedFS and, as an option, the observability stack. A deploy needs only the release's published artifacts on the server, never a checkout of the repository. It takes a release by its version, and refuses a version that no release has, with a pointer to [release.md](operations/release.md), so a developer who deploys learns there that a release comes first. It replaces replicas with no downtime and rolls back on failure (D15, OPS-16), and scheduled backups go to object storage (D30). The deploy tooling is chosen when the deployment is built.
 - **Telemetry in a deployment** goes to one of two places (D42):
   - The self-hosted stack, the default. Grafana answers on an HTTPS address of its own behind Caddy, and every viewer signs in; nobody views it anonymously.
   - A managed backend that accepts OTLP, such as Grafana Cloud, instead of Prometheus, Loki, Tempo, Grafana and Alertmanager. The collector still runs beside the API, keeps its tail sampling (OBS-08) and holds the backend's credentials, and only its exporters change, so the API's configuration is the same. Grafana Cloud is the worked example, into which the dashboards and the rules are imported. With another vendor, the telemetry arrives the same way, and a fork rebuilds the dashboards and alerts in the vendor's tools.

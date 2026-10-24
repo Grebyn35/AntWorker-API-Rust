@@ -50,10 +50,10 @@ jobs:
         env:
           REPOSITORY: ${{ github.repository }}
 
-  # Every Monday: the registry keeps every release, edge, and the images main published in the
-  # last 30 days. Older sha-<commit> tags go, and so do the images that then have no tag, and the
-  # signatures of images that are gone. The action keeps each platform's image of an index it
-  # keeps.
+  # Every Monday: the registry keeps every release, edge, the prereleases of the last 90 days, and
+  # the images main published in the last 30. Older prerelease and sha-<commit> tags go, and so do
+  # the images that then have no tag, and the signatures of images that are gone. The action keeps
+  # each platform's image of an index it keeps.
   prune:
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '43 4 * * 1'
     runs-on: ubuntu-24.04
@@ -72,6 +72,11 @@ jobs:
         run: echo "package=$(just image-package "$REPOSITORY")" >> "$GITHUB_OUTPUT"
         env:
           REPOSITORY: ${{ github.repository }}
+      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        with:
+          package: ${{ steps.image.outputs.package }}
+          delete-tags: "*-rc.*"
+          older-than: 90 days
       - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
         with:
           package: ${{ steps.image.outputs.package }}

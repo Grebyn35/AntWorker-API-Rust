@@ -5,7 +5,7 @@ The enforceable rules behind [docs/architecture.md](../architecture.md). That do
 ## Crates
 
 ### ARCH-01 `platform` never depends on `app`
-The API is built from exactly two crates, `platform` and `app`, and `platform` has no dependency on `app`. The workspace has one other crate, `xtask`, which holds the custom CI checks. Neither API crate depends on `xtask`, so no check ships in the binary.
+The API is built from exactly two crates, `platform` and `app`, and `platform` has no dependency on `app`. The workspace has one other crate, `xtask`, which holds the custom CI checks and the release task. Neither API crate depends on `xtask`, so no check ships in the binary.
 - Why: shared mechanisms must never learn about features, and tooling never ships in the API (D22).
 - Check: `compiler` (Cargo rejects the dependency cycle, and `xtask` is a binary with no library, so no crate can use its code).
 

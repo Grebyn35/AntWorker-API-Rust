@@ -12,15 +12,14 @@ CI runs on GitHub Actions, in three workflows that only orchestrate `just` tasks
 | `image` | `just image`: the image, built once for linux/amd64 and linux/arm64 with its software bill of materials (SBOM) and its provenance, into an image layout of the Open Container Initiative (OCI), which the later jobs download (OPS-14) | |
 | `verify` | `just image-scan`, then `just e2e` on linux/amd64, and on linux/arm64 through QEMU, against the digest that `image` built | `image` |
 | `publish` | On `main` only: `just publish`, which pushes that digest to the GitHub Container Registry as `sha-<commit>`, and moves `edge` to it while the commit is the head of `main` | `checks`, `verify` |
+| `release` | On `main` only: `just release-image`, which releases from that digest the version that `just release` asked for, if no release has it yet, as [release.md](release.md) describes | `publish` |
 
 A newer push to a pull request cancels the older run. Every run on `main` finishes, and the registry takes one write at a time, so `edge` never moves to an older commit. BuildKit's cache of the build tools and the compiled dependencies is kept between runs, keyed by the files that change them, and the build writes it back only when the key missed.
-
-`release.yml` runs on each tag that starts with `v`: `just release` checks the tag, and releases the image that `main` published for its commit, as [release.md](release.md) describes.
 
 `scheduled.yml` runs every day at 05:17 UTC, every Monday at 04:43 UTC, and on demand:
 - Every day, `just deny`, so an advisory published against a locked dependency fails CI without waiting for a push (SEC-13).
 - Every Monday, `just image-rescan`, which scans `edge` and the newest release again (SEC-13).
-- Every Monday, the registry's upkeep. The registry keeps every release, `edge`, and every image that `main` published in the last 30 days. Older `sha-<commit>` tags go, and so do the images left with no tag, and the signatures of images that are gone. A pinned action does it, and keeps each platform's image of an index it keeps. If GitHub refuses the deletions, the package's settings grant the repository the Admin role under "Manage Actions access".
+- Every Monday, the registry's upkeep. The registry keeps every release, `edge`, the prereleases of the last 90 days, and every image that `main` published in the last 30 days. Older prerelease and `sha-<commit>` tags go, and so do the images left with no tag, and the signatures of images that are gone. A pinned action does it, and keeps each platform's image of an index it keeps. If GitHub refuses the deletions, the package's settings grant the repository the Admin role under "Manage Actions access".
 
 `just setup` writes `.env` with generated passwords, and the tests start Postgres through Compose with them, as they do on a developer's machine (TEST-11). A job that only runs the tools Compose holds runs `just env` instead, which writes `.env` alone, because Compose reads it.
 
@@ -45,7 +44,7 @@ On a developer's machine, `just ci` runs what CI runs: `just checks`, `just imag
 | No vulnerability that has a fix and is rated high or critical, in either platform's image: in its operating system packages, and in the crates its binary records | `image-scan` | SEC-13, OPS-15 |
 | The same scan, every week, of `edge` and the newest release | `image-rescan` | SEC-13 |
 | The end-to-end tests, against the image built from the commit | `e2e` | OPS-14, OPS-15, and the rules and behaviors they prove (TEST-04) |
-| A release's tag names the tested digest, which the release workflow signed, with the SBOM and the provenance of both platforms | `verify-release` | OPS-14 |
+| A release's tag names the tested digest, which the run on `main` signed, with the SBOM and the provenance of both platforms | `verify-release` | OPS-14 |
 
 `check-test-map`, `check-docs`, `check-openapi`, `check-instrument`, `check-metrics`, `check-telemetry-config` and `check-pins` are subcommands of the `xtask` crate (ARCH-01). `alert-rules` runs the `xtask` subcommand of the same name, then promtool, from the Prometheus image that `compose.yaml` pins, through Docker Compose. `check-test-map` prints how many of each module's behaviors a test proves. A behavior that no test proves fails it once `docs/MIGRATION.md` is deleted, and is reported until then (DOC-10).
 
@@ -53,7 +52,7 @@ On a developer's machine, `just ci` runs what CI runs: `just checks`, `just imag
 
 `check-docs` doesn't cover two of the rules that name it: the names of other codebases (DOC-04), and accepted architecture decision records (ADRs), whose check waits for the first ADR (DOC-11). Review enforces both until then.
 
-`image-scan` and `image-rescan` run Grype, which reads the packages of the image's base, and the crates that cargo-auditable records in the binary. `e2e` pushes the image layout to the registry that Compose runs on 127.0.0.1:5001, and the tests run the image from there by the digest of its platform's image, against the Postgres that `just services` starts. They compile only with the `e2e` feature of the `app` crate, which `just e2e` and `just lint` turn on, so `just test` needs no image. `just e2e linux/arm64` runs the arm64 image on a machine that can run its binaries, as Docker Desktop can, and as CI's runner can once QEMU is installed. `publish`, `release`, `verify-release` and `image-rescan` sign in to the registry with the runner's credentials, so they run only in CI.
+`image-scan` and `image-rescan` run Grype, which reads the packages of the image's base, and the crates that cargo-auditable records in the binary. `e2e` pushes the image layout to the registry that Compose runs on 127.0.0.1:5001, and the tests run the image from there by the digest of its platform's image, against the Postgres that `just services` starts. They compile only with the `e2e` feature of the `app` crate, which `just e2e` and `just lint` turn on, so `just test` needs no image. `just e2e linux/arm64` runs the arm64 image on a machine that can run its binaries, as Docker Desktop can, and as CI's runner can once QEMU is installed. `publish`, `release-image`, `verify-release` and `image-rescan` sign in to the registry with the runner's credentials, so they run only in CI.
 
 Builds check queries against the query cache committed in `.sqlx/` (DATA-20), so a query missing from the cache fails `lint` and `test`. `just prepare` rewrites the cache from the migrated database.
 
@@ -69,7 +68,7 @@ These pins are updated by hand, and `check-pins` checks their form:
 
 ## Checks required for merging
 
-A pull request merges only once these jobs of `ci.yml` pass: `checks`, `image` and `verify`. `publish` runs only on `main`, so no pull request has it.
+A pull request merges only once these jobs of `ci.yml` pass: `checks`, `image` and `verify`. `publish` and `release` run only on `main`, so no pull request has them.
 
 To require them on GitHub, open the repository's Settings, then either:
 - Rules, Rulesets, New branch ruleset: target the default branch, turn on "Require status checks to pass", and add `checks`, `image` and `verify`.

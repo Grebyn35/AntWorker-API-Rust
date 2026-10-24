@@ -1,5 +1,5 @@
-//! The repository's custom CI checks. Each subcommand runs as a `just` task (OPS-12), and the
-//! API crates never depend on this one (ARCH-01).
+//! The repository's custom CI checks, and the release task. Each subcommand runs as a `just`
+//! task (OPS-12), and the API crates never depend on this one (ARCH-01).
 
 mod acronyms;
 mod alerts;
@@ -14,6 +14,7 @@ mod metrics;
 mod openapi;
 mod pins;
 mod promql;
+mod release;
 mod repo;
 mod routes;
 mod stack;
@@ -26,7 +27,7 @@ use std::{fmt, io, process::ExitCode};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(about = "The repository's custom CI checks")]
+#[command(about = "The repository's custom CI checks, and the release task")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -81,6 +82,20 @@ enum Command {
     /// edition isn't the workspace's 2024 (CODE-01, OPS-13).
     #[command(name = "check-pins")]
     Pins,
+    /// Sets the app's version to `version` on `main`, commits it and pushes it, after it checks
+    /// that `version` can be released from `main` as it is. The run on `main` that passes with
+    /// the version releases it (OPS-14).
+    Release {
+        /// The version, such as 1.4.0, or 1.4.0-rc.1 for a prerelease.
+        version: String,
+    },
+    /// Fails unless `version` can be a new release after the repository's release tags. CI runs
+    /// it before it releases a version (OPS-14).
+    #[command(name = "release-check")]
+    ReleaseCheck {
+        /// The version that `crates/app/Cargo.toml` sets.
+        version: String,
+    },
 }
 
 /// A problem a check found, at a line of a file.
@@ -121,7 +136,11 @@ pub struct Outcome {
 }
 
 fn main() -> ExitCode {
-    let command = Cli::parse().command;
+    let command = match Cli::parse().command {
+        Command::Release { version } => return release::run(&version),
+        Command::ReleaseCheck { version } => return release::check(&version),
+        command => command,
+    };
     let repo = match repo::Repo::load() {
         Ok(repo) => repo,
         Err(error) => return unreadable(&error),
@@ -137,6 +156,7 @@ fn main() -> ExitCode {
         Command::TelemetryConfig => telemetry_config::check(&repo),
         Command::AlertRules => alerts::check(&repo),
         Command::Pins => pins::check(&repo),
+        Command::Release { .. } | Command::ReleaseCheck { .. } => Outcome::default(),
     };
     print(&outcome)
 }

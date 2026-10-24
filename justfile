@@ -320,34 +320,56 @@ publish repository commit:
         echo "{{ commit }} is no longer the head of main, so edge stays where it is"
     fi
 
-# Releases the image that main published for the commit of `tag`, a tag such as v1.2.0 or
-# v1.2.0-rc.1 whose version is the app's (OPS-14): tags that image with the version, signs it,
-# and verifies the release. `repository` is the GitHub repository, such as owner/name, and
-# `source` its address. CI runs it for each release tag, after a `docker login`.
+# Releases main as `version`, X.Y.Z, or X.Y.Z-rc.N for a prerelease (OPS-14): checks that main can
+# release it, sets the app's version to it, commits, and pushes main. The run on main that passes
+# with that version releases it. docs/operations/release.md describes a release.
+release version:
+    {{ xtask }} release {{ version }}
+
+# Releases the app's version from the image this run on main published for `commit`, if a commit
+# since the latest release asks for it and no release has it yet (OPS-14): gives the image the
+# version's tag, signs it, verifies the release, and only then tags the commit v<version>. The
+# request is the commit `just release` makes, whose subject is "Release <version>". `repository` is the GitHub repository, such as
+# owner/name, and `source` its address. CI runs it on main once every check has passed, after a
+# `docker login`, and each failure says what to do next.
 [unix]
-release repository tag commit source:
+release-image repository commit source:
     #!/usr/bin/env bash
     set -euo pipefail
-    repository={{ image_registry }}/{{ lowercase(repository) }}
+    image={{ image_registry }}/{{ lowercase(repository) }}
     crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
     cosign() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN cosign "$@"; }
-    if ! [[ "{{ tag }}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.(0|[1-9][0-9]*))?$ ]]; then
-        echo "{{ tag }} isn't a release tag, vX.Y.Z or vX.Y.Z-rc.N" >&2; exit 1
+    # An error annotation, which GitHub shows on the run's page.
+    fail() { echo "::error::$1" >&2; exit 1; }
+    version={{ version }}
+    git fetch --quiet --tags origin
+    if [ -n "$(git tag --list "v$version")" ]; then
+        echo "v$version is released already, so this commit is published but not released. To release it, run \`just release\` with a new version."
+        exit 0
     fi
-    version={{ trim_start_match(tag, "v") }}
-    if [ "$version" != "{{ version }}" ]; then
-        echo "{{ tag }} names $version, and crates/app/Cargo.toml {{ version }}" >&2; exit 1
+    if latest=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "{{ commit }}" 2> /dev/null); then since="$latest..{{ commit }}"; else since="{{ commit }}"; fi
+    # Captured first: grep stops reading at the first match, which would fail git log's write.
+    subjects=$(git log --format=%s "$since")
+    if ! grep --quiet --fixed-strings --line-regexp "Release $version" <<< "$subjects"; then
+        echo "No commit since the latest release asks for the release of $version, so this commit is published but not released. To release it, run \`just release\`."
+        exit 0
     fi
-    if ! digest=$(crane digest "$repository:sha-{{ commit }}"); then
-        echo "main published no image of {{ commit }}: tag a commit whose run on main passed" >&2; exit 1
-    fi
-    crane tag "$repository@$digest" "$version"
-    cosign sign --yes "$repository@$digest"
-    just verify-release {{ repository }} "$version" "$digest" {{ source }}
+    if ! refused=$({{ xtask }} release-check "$version" 2>&1); then fail "$refused"; fi
+    digest=$(crane digest "$image:sha-{{ commit }}") \
+        || fail "This run's publish job pushed no image of {{ commit }}, so $version isn't released. Re-run this run's failed jobs."
+    crane tag "$image@$digest" "$version" \
+        || fail "The registry refused the tag $version, so $version isn't released. Re-run this job."
+    cosign sign --yes "$image@$digest" \
+        || fail "Signing failed, so $version isn't released. Re-run this job; if it fails again, Sigstore may be down: https://status.sigstore.dev."
+    just verify-release {{ repository }} "$version" "$digest" {{ source }} \
+        || fail "The release of $version doesn't verify, so it isn't released; the error above says why. Re-run this job."
+    { git tag "v$version" "{{ commit }}" && git push --quiet origin "v$version"; } \
+        || fail "The image $version is released, but GitHub refused the tag v$version. Re-run this job."
+    echo "Released $version: $image@$digest"
 
 # Fails unless the image of `repository`, such as owner/name, tagged `version` is `digest`, the
-# one main tested, signed by the release workflow of the repository at `source` for the tag
-# v<version>, with the SBOM and the provenance of both platforms (OPS-14).
+# one main tested, signed by the run on main of the repository at `source`, with the SBOM and the
+# provenance of both platforms (OPS-14).
 [unix]
 verify-release repository version digest source:
     #!/usr/bin/env bash
@@ -357,7 +379,7 @@ verify-release repository version digest source:
     cosign() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker cosign "$@"; }
     tagged=$(crane digest "$repository:{{ version }}")
     if [ "$tagged" != "{{ digest }}" ]; then echo "{{ version }} is $tagged, not the tested {{ digest }}" >&2; exit 1; fi
-    cosign verify --certificate-identity "{{ source }}/.github/workflows/release.yml@refs/tags/v{{ version }}" \
+    cosign verify --certificate-identity "{{ source }}/.github/workflows/ci.yml@refs/heads/main" \
         --certificate-oidc-issuer https://token.actions.githubusercontent.com "$repository@{{ digest }}" > /dev/null
     # Each kind of attestation, with the field that holds its document. A platform the index
     # lacks gives an empty entry, whose field is empty.

@@ -11,6 +11,7 @@ just setup        # checks the tools, and writes .env from .env.example, with ge
 just dev          # starts Postgres, migrates, and runs the API, restarting it when the code changes
 just dev observe  # the same, with the observability stack (docs/operations/observability.md)
 just ci           # runs every check CI runs, building the image too
+just release 1.0.0  # releases main as 1.0.0, once CI passes (docs/operations/release.md)
 ```
 
 ## Documentation
