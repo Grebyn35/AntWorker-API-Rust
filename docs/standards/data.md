@@ -112,7 +112,7 @@ A repository function takes `&mut UnitOfWork`, never a pool or connection. Pools
 Tenancy is enforced by the application, and every query on user or workspace data carries its own filter (D3, D4):
 - Workspace data is filtered by the workspace ID from the proof the operation runs under: `Authorized<P>`, or the `JobContext` of a job enqueued for a workspace. A repository function takes that ID as a parameter.
 - User data is filtered by the acting user's ID.
-- A lookup before sign-in is filtered by the presented token's hash or the sign-in email, through a unique index.
+- A lookup by a presented token's hash, or of a user by an email address, goes through a unique index: before sign-in, by the token or the sign-in email; when inviting, by the invitee's email; and in the setup subcommand, by its owner's email.
 - An invitee's own invitations are filtered by the caller's email.
 
 A row ID alone never addresses tenant data. Two kinds of read are exempt:

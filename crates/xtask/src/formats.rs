@@ -36,9 +36,9 @@ pub fn check(repo: &Repo) -> Vec<Finding> {
     findings
 }
 
-/// Every table in a document has a delimiter row under its header, and every row, the
-/// delimiter row among them, has as many cells as the header, so no row has lost a cell or
-/// run into the next one (DOC-15).
+/// Every table in a document has a delimiter row under its header and a blank line after it,
+/// and every row, the delimiter row among them, has as many cells as the header, so no row has
+/// lost a cell or run into the next one (DOC-15).
 fn table_rows(repo: &Repo) -> Vec<Finding> {
     let mut findings = Vec::new();
     for file in repo.files().filter(|file| file.path.ends_with(".md")) {
@@ -72,6 +72,24 @@ fn table_rows(repo: &Repo) -> Vec<Finding> {
                         ),
                     ));
                 }
+            }
+            let last = table
+                .rows
+                .last()
+                .map(|(line, _)| *line)
+                .or(table.delimiter.map(|(line, _)| line))
+                .unwrap_or(table.line);
+            if file
+                .text
+                .lines()
+                .nth(last)
+                .is_some_and(|next| !next.trim().is_empty())
+            {
+                findings.push(Finding::new(
+                    &file.path,
+                    last + 1,
+                    "a table has a blank line after it, so no line runs on into it (DOC-15)",
+                ));
             }
         }
     }
@@ -492,7 +510,9 @@ mod tests {
         let notes = "# Notes\n\n| A | B |\n|---|---|\n| one | two |\n\
                      | three || four | five |\n| `a \\| b` | six |\n| seven |\n\
                      | eight | nine ||\n| ten | eleven \\|\n\n\
-                     | C | D |\n|---|\n\n| E |\n| e |\n";
+                     | C | D |\n|---|\n\n| E |\n| e |\n\n\
+                     - A list:\n\n  | F | G |\n  |---|---|\n  | f |\n  | g | h \\\\| i |\n\
+                     Run on.\n";
 
         assert_eq!(
             findings(&[("docs/notes.md", notes)]),
@@ -501,7 +521,9 @@ mod tests {
                 "docs/notes.md:8: the row has 1 cell, and its table's header has 2 (DOC-15)",
                 "docs/notes.md:9: the row has 3 cells, and its table's header has 2 (DOC-15)",
                 "docs/notes.md:13: the delimiter row has 1 cell, and its table's header has 2 (DOC-15)",
-                "docs/notes.md:15: the table has no delimiter row under its header (DOC-15)"
+                "docs/notes.md:15: the table has no delimiter row under its header (DOC-15)",
+                "docs/notes.md:22: the row has 1 cell, and its table's header has 2 (DOC-15)",
+                "docs/notes.md:24: a table has a blank line after it, so no line runs on into it (DOC-15)"
             ]
         );
     }

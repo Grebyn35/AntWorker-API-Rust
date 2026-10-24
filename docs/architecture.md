@@ -114,7 +114,7 @@ crates/app/
 | `files` | `files`, `object_deletions` | Upload, list, download and delete of user and workspace files, public files, and the orphan sweep. |
 | `accounts` | `users`, `user_preferences`, `data_exports` | Profile, preferences and consent, avatar, and account deletion and export, which it orchestrates across modules through the personal data contract (D16, D31). |
 | `auth` | `sessions`, `verification_codes`, `identities`, `provider_tokens`, `pending_email_changes` | Registration, login with credentials or OAuth, refresh, logout, sessions, password reset and change, email verification and change, identity linking, and re-authentication for sensitive actions. Account deletion is confirmed here, then carried out by `accounts`. One file per OAuth provider in `auth/providers/`. Implements `SessionVerifier`. |
-| `workspaces` | `workspaces` | Creating workspaces in each shape (below), updating, transferring and deleting them, the members endpoints (list, change role, remove, leave), and the workspace picture. |
+| `workspaces` | `workspaces`, `setup_runs` | Creating workspaces in each shape (below), updating, transferring and deleting them, the members endpoints (list, change role, remove, leave), and the workspace picture. |
 | `invitations` | `invitations` | Invite, list, resend, cancel, accept, decline, and expiry. |
 | `client_telemetry` | none | The telemetry proxy for the desktop client, enforcing consent on the server (D7). |
 | `system` | none | The capabilities endpoint (D9), and the schema endpoints, which list the permissions and the audit actions. The health probes belong to `platform` (§4). |
@@ -334,7 +334,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Term | Meaning |
 |---|---|
 | User | A person with an account. Owns their profile, sessions, identities and user files. |
-| Identity | One way a user signs in: a password, or a linked OAuth provider account. A user who registered has one or more. An account an operator creates for its owner has none until the owner sets a password (§5, "Workspace shapes"). |
+| Identity | One way a user signs in: a password, or a linked OAuth provider account. A user who registered has one or more. An account an operator creates for its owner has none until the owner sets a password ([the setup subcommand](spec/workspaces.md#the-setup-subcommand)). |
 | Session | One signed-in device or client, holding an access token and a refresh token. |
 | Provider token | A credential from an OAuth provider, stored encrypted (SEC-02). It is revoked when the session or identity that needs it ends. |
 | Principal | The authenticated caller of a request, produced by `platform::authn` (D18). |

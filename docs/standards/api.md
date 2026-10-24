@@ -31,6 +31,7 @@ Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller'
 | Asynchronous work accepted, such as a data export | 202 |
 | A delete, or an action with nothing to return | 204 |
 | An error | from its category (ERR-03) |
+
 - Why: the status alone tells the client what happened (D8).
 - Check: `test`, plus `ci: check-openapi`.
 

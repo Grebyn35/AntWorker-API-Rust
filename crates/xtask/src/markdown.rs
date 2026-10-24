@@ -124,7 +124,7 @@ fn slug(heading: &str) -> String {
         .collect()
 }
 
-/// A table, read from the lines that start with `|`.
+/// A table: a block of lines whose first character other than whitespace is `|`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Table {
     /// The level-2 heading the table sits under, if any.
@@ -188,7 +188,7 @@ pub fn tables(text: &str) -> Vec<Table> {
         if let Some(heading) = row.strip_prefix("## ") {
             section = Some(heading.trim().to_owned());
         }
-        if !row.starts_with('|') {
+        if !row.trim_start().starts_with('|') {
             tables.extend(current.take());
             continue;
         }
@@ -215,35 +215,22 @@ pub fn tables(text: &str) -> Vec<Table> {
     tables
 }
 
-/// The cells of a table row, trimmed, as GitHub's tables read them: one pipe at each end of
-/// the row bounds it, and an escaped pipe, `\|`, belongs to its cell.
+/// The cells of a table row, trimmed (DOC-15): one pipe at each end of the row bounds it, and
+/// a pipe that follows a backslash belongs to its cell.
 fn cells(row: &str) -> Vec<String> {
     let row = row.trim();
     let row = row.strip_prefix('|').unwrap_or(row);
     let row = match row.strip_suffix('|') {
-        Some(inner)
-            if inner
-                .chars()
-                .rev()
-                .take_while(|c| *c == '\\')
-                .count()
-                .is_multiple_of(2) =>
-        {
-            inner
-        }
+        Some(inner) if !inner.ends_with('\\') => inner,
         _ => row,
     };
     let mut cells = Vec::new();
     let mut cell = String::new();
-    let mut chars = row.chars();
-    while let Some(c) = chars.next() {
-        match c {
-            '\\' => {
-                cell.push(c);
-                cell.extend(chars.next());
-            }
-            '|' => cells.push(std::mem::take(&mut cell).trim().to_owned()),
-            _ => cell.push(c),
+    for c in row.chars() {
+        if c == '|' && !cell.ends_with('\\') {
+            cells.push(std::mem::take(&mut cell).trim().to_owned());
+        } else {
+            cell.push(c);
         }
     }
     cells.push(cell.trim().to_owned());
