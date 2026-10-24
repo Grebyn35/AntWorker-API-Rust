@@ -2,7 +2,7 @@
 
 Where each commitment in the recommendation text of D1 to D36 ([SYNTHESIS.md](SYNTHESIS.md)) is carried: by a rule in `docs/standards/`, a behavior or design section in `docs/spec/`, or `docs/architecture.md`. It checks a fixed list, so it converges: each commitment is carried, contradicted or not yet carried.
 
-Of 291 commitments, 222 are carried, 19 are refined or contradicted by the rules, 5 aren't yet carried in the first slice, and 40 wait for later steps.
+Of 291 commitments, 221 are carried, 20 are refined or contradicted by the rules, 5 aren't yet carried in the first slice, and 40 wait for later steps.
 
 ## Use
 
@@ -25,6 +25,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D22 | The service holds the transaction boundary | The platform spec's unit of work: the route opens it and the service commits it |
 | D22 | Traits exist only where there are two real implementations | ARCH-13 also allows traits that invert a dependency |
 | D25 | Each type's constructor trims | AUTH-003: a password isn't trimmed |
+| D21 | The required checks are applied as branch protection by a script | OPS-12: `docs/operations/ci.md` lists the required checks and says how to require them; requiring them is the repository owner's choice, since a fork doesn't inherit branch protection and GitHub offers it for a private repository only on a paid plan |
 | D20 | Runtime threads come from configuration | OPS-02: the async runtime sizes itself to the CPUs the container may use, so no two deployments would set it differently, and it isn't a setting |
 | D27 | Nothing outside `docs/inventory/` refers to the old API | DOC-04 extends the exception to `docs/MIGRATION.md`, to CLAUDE.md's pointer to the inventory, and to decision IDs and the links that architecture.md and the tracker make to the decisions' records |
 | D32 | A keyed hash only for verification codes and rate-limit keys | SEC-16 adds emails in audit entries, which D32's own principle covers: they are guessable |

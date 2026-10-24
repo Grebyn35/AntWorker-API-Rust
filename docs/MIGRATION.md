@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 1.4 of the build order, the image and the pipeline, in this order: the spec, the code test-first, and the conformance review. Its spec also decides the rule proposal on branch protection, which this repository can't have on GitHub's free plan. Step 1.5 then builds the reference deployment, with Grafana on an HTTPS address and the path to a managed observability backend (D42).
+**Next:** step 1.4 of the build order, the image and the pipeline, in this order: the spec, the code test-first, and the conformance review. Step 1.5 then builds the reference deployment, with Grafana on an HTTPS address and the path to a managed observability backend (D42).
 
 **Waiting on the owner:** nothing.
 
@@ -98,7 +98,7 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `check-metrics`, `check-telemetry-config`, `alert-rules` | built |
 | `check-openapi`, for list shapes, methods, statuses, scopes and formats (API-02 to API-05, API-11) | 2.1, with the first routes that have them |
 | `check-openapi`, for the breaking-change diff (API-18, ERR-02) | the first release |
-| `check-toolchain`, `check-pins`, `check-protection`, `image-scan`, `verify-release` | 1.4 |
+| `check-toolchain`, `check-pins`, `image-scan`, `verify-release` | 1.4 |
 | `e2e` | 1.5, extended by every later step |
 | `check-layers`, `check-deps`, `check-schema` | 2.1, with the first service, the first call between modules and the first tables |
 | `check-tenancy` | 2.2, with the first workspace tables |
@@ -121,7 +121,6 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 
 | From | Proposal | Decided in |
 |---|---|---|
-| Owner | OPS-12: `just protect-branch` stays, for forks, which don't inherit the template's branch protection, and `check-protection` runs only in a repository that has protection. GitHub offers branch protection for a private repository only on a paid plan, and the owner keeps this repository private on the free plan, so it has none. | 1.4 |
 | Standards review | An OPS rule for D14: TLS on every connection that leaves the host, and storage encrypted at rest as a stated deployment requirement. | 1.5 |
 | Cloud observability (D42) | OBS-13 and OBS-14 with a managed backend: how dashboards that a managed Grafana can't provision from files stay read-only and checked, and how the rules and their tests reach its ruler. | 1.5 |
 | Research | API-15 names the draft it follows: draft-ietf-httpapi-ratelimit-headers-11 (2026-05), with `RateLimit: "default";r=50;t=30` and `RateLimit-Policy: "burst";q=100;w=60`. | 2.1 |

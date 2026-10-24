@@ -81,9 +81,9 @@ A periodic job claims its schedule row with `FOR UPDATE SKIP LOCKED`, and extend
 ## Build, CI and release
 
 ### OPS-12 CI calls `just`
-Every CI step that builds or checks the code runs a `just` task. The steps that prepare the runner, such as checking out the repository, installing tools and restoring the cache, are the workflow's own, because `just` isn't installed until they run. The workflows only orchestrate: one for pull requests and `main`, one for release tags, and one for scheduled jobs. The checks required for merging are listed in `docs/operations/ci.md` and applied as branch protection by `just protect-branch`.
-- Why: local and CI runs are identical, and merging requires exactly the documented checks (D21).
-- Check: `review`, plus `ci: check-protection` (a scheduled job that compares the repository's branch protection with the documented list).
+Every CI step that builds or checks the code runs a `just` task. The steps that prepare the runner, such as checking out the repository, installing tools and restoring the cache, are the workflow's own, because `just` isn't installed until they run. The workflows only orchestrate: one for pull requests and `main`, one for release tags, and one for scheduled jobs. The checks required for merging are listed in `docs/operations/ci.md`, which says how to require them through GitHub's branch protection. Requiring them is the repository owner's choice: branch protection is a setting of a repository, which a fork doesn't inherit, and GitHub offers it for a private repository only on a paid plan.
+- Why: local and CI runs are identical, and a repository that gates merging requires exactly the documented checks (D21).
+- Check: `review`.
 
 ### OPS-13 Everything is pinned
 The toolchain comes from `rust-toolchain.toml`. Actions are pinned by commit SHA, images by digest, and the runner by version. The tools the tasks use, such as cargo-deny and watchexec, are pinned by version in the justfile: `just setup` checks them, and CI installs them from it. `just` itself is the exception: CI installs it before any task can run, so the workflows pin its version too.

@@ -30,4 +30,4 @@ A `ci:` check that a rule names but that isn't listed in the table above doesn't
 
 ## Checks required for merging
 
-None yet. Branch protection is applied by `just protect-branch` once the required checks are chosen (OPS-12).
+None yet. Once they are chosen, this section lists them and how to require them in a repository's branch protection settings (OPS-12).
