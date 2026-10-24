@@ -24,7 +24,7 @@ CI runs clippy with `-D warnings` and the lint set in `[workspace.lints]`. That 
 
 `clippy.toml` allows `unwrap` and `expect` in tests only. Printing is allowed in three places: the API binary's startup line before logging exists (OPS-03) and the output of the checker in `xtask`, each through an `#[expect]` that states its reason, and the instructions a build script prints to Cargo, which clippy's print lints don't cover.
 - Why: no panics in production code, no lossy numeric casts, no silently dropped results (D17).
-- Check: `clippy`, plus `review` (where an `#[expect]` allows printing).
+- Check: `clippy`, `ci: check-instrument` (an `#[expect]` of a print lint only in the binary's `main.rs` and in `xtask`), plus `review` (what `main.rs` prints).
 
 ### CODE-04 No `unsafe`
 `unsafe_code` is set to `forbid` for the whole workspace.

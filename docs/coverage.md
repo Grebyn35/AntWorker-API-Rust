@@ -46,7 +46,7 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Secure communication | D26 (TLS and HTTP Strict Transport Security (HSTS) at Caddy) |
 | Supply chain and malicious code | D21, D26 |
 | Business logic and anti-automation | D11, the spec of each module |
-| Files and outbound requests | D26 (server-side request forgery, SSRF), the `files` spec |
+| Files and outbound requests | D26 on server-side request forgery (SSRF), the `files` spec |
 | API and web services | D8, D12 |
 | Configuration and secrets | D9, D26 |
 
@@ -96,7 +96,7 @@ Each of these gets a one-line architecture decision record (ADR) so the boundary
 
 - Web-client support (the seams are in D18).
 - The desktop client, including the Tauri auto-updater, which is a separate project.
-- Kubernetes, ECS or Fly manifests (D20 documents the requirements).
+- Kubernetes, Amazon Elastic Container Service (ECS) or Fly manifests (D20 documents the requirements).
 - An admin console, billing, and multi-region deployment.
 - Localized server messages. Clients localize by error code and event type.
 

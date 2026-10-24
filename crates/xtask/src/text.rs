@@ -50,6 +50,12 @@ pub fn id_tokens(line: &str) -> Vec<Token<'_>> {
     tokens
 }
 
+/// The line of the first occurrence of `needle` in `text`, or 1.
+pub fn line_of(text: &str, needle: &str) -> usize {
+    text.find(needle)
+        .map_or(1, |at| text[..at].matches('\n').count() + 1)
+}
+
 /// Whether `text` holds `phrase` as whole words, ignoring the case of ASCII letters.
 pub fn has_phrase(text: &str, phrase: &str) -> bool {
     has_whole(&text.to_ascii_lowercase(), &phrase.to_ascii_lowercase())

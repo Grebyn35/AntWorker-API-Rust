@@ -32,7 +32,7 @@ An inline comment exists only where the reader needs something the code can't ex
 - Why: every comment that restates code is a second copy that drifts out of date.
 - Check: `review`.
 
-### DOC-07 No reviewer voice and no TODOs
+### DOC-07 No reviewer voice and no to-do markers
 Comments don't appeal to authority ("industry standard", "best practice", "SOC 2 requires"), don't label fixes ("security fix"), and don't contain `TODO`, `FIXME` or `XXX`. Known work is tracked as an issue, and in the tracker while the migration runs (DOC-14). The inventory, which quotes another codebase, is exempt (DOC-04).
 - Why: a comment explains the code. It doesn't argue for it or hold a backlog.
 - Check: `ci: check-docs` for the markers, plus `review`.
@@ -57,9 +57,9 @@ A new kind of document needs a rule change.
 - Check: `ci: check-docs` (no Markdown files outside these locations, except the migration workspace in DOC-04).
 
 ### DOC-09 Docs are written for a developer new to the codebase
-Each technical term is defined in the glossary or in the sentence where it first appears. An acronym is spelled out where a document first uses it, unless the glossary lists it among those a developer is assumed to know. Sentences use the active voice, and the same term is used throughout (CODE-10).
+Each technical term is defined in the glossary or in the sentence where it first appears. An acronym is spelled out where a document first uses it: it stands alone in parentheses right after the words it abbreviates, as in "Simple Mail Transfer Protocol (SMTP)", or those words stand in parentheses right after it, or after the hyphenated name it starts. The glossary lists the exceptions: the acronyms a developer is assumed to know, and the names written in capitals, such as SHA. Sentences use the active voice, and the same term is used throughout (CODE-10).
 - Why: the reader is often someone who forked the template yesterday.
-- Check: `review`.
+- Check: `ci: check-docs` (where each acronym is first used, outside the migration workspace), plus `review`.
 
 ### DOC-14 A fact lives in one place
 Each kind of fact has one home, listed below. A fact is written in its home as soon as it is known, and every other mention links to it or cites its ID instead of restating it.
@@ -89,9 +89,10 @@ Each kind of fact has one home, listed below. A fact is written in its home as s
 - A spec has the sections that the [spec README](../spec/README.md#sections) lists, in that order, and no others.
 - Every table of behaviors has the columns `ID`, `Behavior`, `Rules` and `Test prefix`. A behavior's ID starts with its module's name in capitals, and its test prefix is the ID in lowercase, with `_` in place of `-` and after the number, such as `workspaces_005_` for `WORKSPACES-005`.
 - The spec README's index links every spec.
+- A module's spec lists, in its Routes table, each operation that `openapi.json` documents for the module, with its access level. Each operation names its module as its first tag. Once the module is built, its Routes table lists no operation the document lacks; until then, the table is the plan.
 - A rule follows the format in the [standards README](README.md#rule-format): a heading with its ID and its name, the statement, a `Why` line, and a `Check` line that starts with one of the kinds of check the README lists. Its ID starts with the prefix the README gives its file.
 - Why: every document of a kind reads the same way, and an edit that changes a document's shape fails CI instead of waiting for a reader to notice (D27).
-- Check: `ci: check-docs`, plus `review` (whether a spec whose module serves routes has its Routes section).
+- Check: `ci: check-docs`.
 
 ## Specs, ADRs and the changelog
 
@@ -101,7 +102,7 @@ Each behavior in `docs/spec/<module>.md` has an ID (for example `WORKSPACES-005`
 - Check: `ci: check-test-map`.
 
 ### DOC-11 ADRs are immutable once accepted
-An ADR has four sections: context, decision, consequences and status. After it is accepted, only its status changes, and only to "superseded by ADR-NNNN" when a later ADR replaces it.
+An ADR has four sections: context, decision, consequences and status. After it is accepted, only its status changes, and only to "superseded by" and the ID of a later ADR that replaces it.
 - Why: the decision record stays a true record of what was decided and why.
 - Check: `ci: check-docs` (the body of an accepted ADR is unchanged in git), plus `review`.
 

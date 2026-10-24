@@ -125,7 +125,7 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 
 `bootstrap` connects with `DATABASE_ADMIN_URL`, as an administrator such as the bundled Postgres superuser or a managed provider's admin role. The three database URLs must name the same database.
 - It creates the roles `owner` and `app` with `LOGIN` and no other attribute. A role that already exists is given `LOGIN` and keeps its other attributes, because changing some of them takes a superuser, which a managed provider's admin role isn't. PLATFORM-009 refuses an `app` role whose attributes are unsafe.
-- It sets each role's password from its URL. The password travels as a SCRAM-SHA-256 verifier (the stored form of a password in the Salted Challenge Response Authentication Mechanism, with the Secure Hash Algorithm SHA-256) that the API computes on a blocking thread (CODE-05), so the clear text never reaches the server, where statement logs could record it. The administrator connection logs none of its statements, because they carry the verifiers (OBS-04).
+- It sets each role's password from its URL. The password travels as a verifier, the stored form of a password in SCRAM-SHA-256 (Salted Challenge Response Authentication Mechanism with SHA-256). The API computes the verifier on a blocking thread (CODE-05), so the clear text never reaches the server, where statement logs could record it. The administrator connection logs none of its statements, because they carry the verifiers (OBS-04).
 - It sets the `app` role's `statement_timeout` to 30 seconds and its `idle_in_transaction_session_timeout` to 15 seconds (DATA-19), and its `default_transaction_isolation` to `read committed` (DATA-25). Set on the role, these hold whatever the server or the database defaults to.
 - On the database, it revokes `TEMPORARY` from `PUBLIC`, grants `CONNECT` to both roles, revokes `CREATE` on the schema `public` from `PUBLIC`, and grants it to `owner` only. A database created by a Postgres older than 15 grants `PUBLIC` that `CREATE`, which would let `app` create tables.
 
@@ -256,7 +256,9 @@ A name joins the list with the first code that writes it, such as `user.id` and 
 - a `record` name that is neither a listed name nor one of the list's constants
 - a message that isn't constant (OBS-01)
 - an `#[instrument]` without `skip_all` (OBS-04)
-- an event at any level but `DEBUG`, or a span, in module code (OBS-03, OBS-06)
+- an event at any level but `DEBUG`, or a span, in `app` code other than `main.rs` (OBS-03, OBS-06)
+
+It also reads the `#[expect]` attributes of every crate, and fails on one that excepts a print lint outside the places CODE-03 allows printing: `print_stderr` in the binary's `main.rs`, and both print lints in `xtask`.
 
 ## Open design questions
 

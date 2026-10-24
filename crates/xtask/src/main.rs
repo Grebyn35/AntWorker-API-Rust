@@ -1,6 +1,7 @@
 //! The repository's custom CI checks. Each subcommand runs as a `just` task (OPS-12), and the
 //! API crates never depend on this one (ARCH-01).
 
+mod acronyms;
 mod catalog;
 mod docs;
 mod formats;
@@ -8,6 +9,7 @@ mod instrument;
 mod markdown;
 mod openapi;
 mod repo;
+mod routes;
 mod test_map;
 mod text;
 

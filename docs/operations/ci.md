@@ -11,9 +11,9 @@ CI runs `just setup`, then `just ci`, on every pull request and on every push to
 | Tests, against Postgres | `test` | TEST-11, and every behavior and rule a test proves |
 | Dependencies: advisories, licenses, bans and sources | `deny` | CODE-11, CODE-12, SEC-13, SEC-14 |
 | The map from spec behaviors to tests | `check-test-map` | TEST-01, DOC-10 |
-| Links, IDs and named CI checks resolve; no history or unfinished-work markers; documents only in the documentation set; specs, rules and the tracker keep their format | `check-docs` | DOC-01, DOC-07, DOC-08, DOC-13, DOC-14, DOC-15, DOC-16 |
+| Links, IDs and named CI checks resolve; no history or unfinished-work markers; documents only in the documentation set; acronyms spelled out where first used; specs, rules and the tracker keep their format; each spec's Routes table matches `openapi.json` | `check-docs` | DOC-01, DOC-07, DOC-08, DOC-09, DOC-13, DOC-14, DOC-15, DOC-16 |
 | The committed `openapi.json`: its paths, its property names, each operation's access level and response descriptions, the codes of its error responses, and references that don't resolve | `check-openapi` | API-01, API-05, API-17, ERR-02, ERR-13 |
-| Log and span field names come from the list in `platform::telemetry::names`; constant messages; `skip_all` on every `#[instrument]`; module code writes only `DEBUG` events and opens no spans | `check-instrument` | OBS-01, OBS-03, OBS-04, OBS-05, OBS-06 |
+| Log and span field names come from the list in `platform::telemetry::names`; constant messages; `skip_all` on every `#[instrument]`; `app` code other than `main.rs` writes only `DEBUG` events and opens no spans; print lints excepted only where printing is allowed | `check-instrument` | CODE-03, OBS-01, OBS-03, OBS-04, OBS-05, OBS-06 |
 
 `check-test-map`, `check-docs`, `check-openapi` and `check-instrument` are subcommands of the `xtask` crate (ARCH-01). `check-test-map` prints how many of each module's behaviors a test proves. A behavior that no test proves fails it once `docs/MIGRATION.md` is deleted, and is reported until then (DOC-10).
 

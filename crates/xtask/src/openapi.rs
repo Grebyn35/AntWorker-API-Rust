@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
-use crate::{Finding, Outcome, repo::Repo};
+use crate::{Finding, Outcome, repo::Repo, text::line_of};
 
 /// The committed document.
 const DOCUMENT: &str = "openapi.json";
@@ -340,12 +340,6 @@ fn is_snake_case(name: &str) -> bool {
 
 fn quoted(text: &str) -> String {
     format!("\"{text}\"")
-}
-
-/// The line of the first occurrence of `needle` in `text`, or 1.
-fn line_of(text: &str, needle: &str) -> usize {
-    text.find(needle)
-        .map_or(1, |at| text[..at].matches('\n').count() + 1)
 }
 
 #[cfg(test)]

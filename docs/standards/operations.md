@@ -19,7 +19,7 @@ A setting exists only if two deployments would set it differently, such as a URL
 - Check: `ci: check-config` (the settings the API reads must match `.env.example` both ways, and the API container's Compose environment must match them), plus `review` for the third-party containers and for the "would two deployments differ" question.
 
 ### OPS-03 Startup failures have one format
-A failure that ends a subcommand of the API binary, at startup or, for a one-shot subcommand such as `migrate`, in its work, is logged as one ERROR event, with the message `startup failed` and the fields `startup.area` and `exception.message`, through the configured logging setup (OBS-01, OBS-05). The process then exits with code 1. A failure before the logging setup exists, such as invalid configuration, or a failure of the logging setup itself, is written by `main` to stderr as one JSON line with the same message and fields. That is the one place in the API's crates where `print_stderr` is allowed (CODE-03). Nothing panics.
+A failure that ends a subcommand of the API binary, at startup or, for a one-shot subcommand such as `migrate`, in its work, is logged as one `ERROR` event, with the message `startup failed` and the fields `startup.area` and `exception.message`, through the configured logging setup (OBS-01, OBS-05). The process then exits with code 1. A failure before the logging setup exists, such as invalid configuration, or a failure of the logging setup itself, is written by `main` to stderr as one JSON line with the same message and fields. That is the one place in the API's crates where `print_stderr` is allowed (CODE-03). Nothing panics.
 - Why: operators and scripts handle one shape (D9).
 - Check: `test`.
 

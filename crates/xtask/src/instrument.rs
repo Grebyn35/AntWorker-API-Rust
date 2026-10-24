@@ -1,7 +1,8 @@
 //! `check-instrument`: logs and spans name their fields only from the list in
 //! `platform::telemetry::names`, their messages are constant, every `#[instrument]` skips its
-//! arguments, and module code writes only `DEBUG` events and opens no spans (OBS-01, OBS-03 to
-//! OBS-06).
+//! arguments, and `app` outside `main.rs` writes only `DEBUG` events and opens no spans (OBS-01,
+//! OBS-03 to OBS-06). It also fails on an exception to a print lint outside the places CODE-03
+//! allows printing.
 //!
 //! It reads token streams rather than syntax trees, so it also finds the calls inside other
 //! macros, such as `tokio::select!`.
@@ -18,8 +19,18 @@ const NAMES: &str = "crates/platform/src/telemetry/names.rs";
 /// The code the API runs.
 const CODE: [&str; 2] = ["crates/platform/src/", "crates/app/src/"];
 
-/// The feature modules, which write only `DEBUG` events and open no spans.
-const MODULES: &str = "crates/app/src/modules/";
+/// The `app` crate, which writes only `DEBUG` events and opens no spans outside `main.rs`.
+const APP: &str = "crates/app/src/";
+
+/// The binary's entry point, which writes events at any level, as `platform` does.
+const MAIN: &str = "crates/app/src/main.rs";
+
+/// Where an exception to a print lint is allowed, with the lints it may name (CODE-03): the
+/// startup line before logging exists, and the checker's output.
+const PRINTING: [(&str, &[&str]); 2] = [
+    (MAIN, &["print_stderr"]),
+    ("crates/xtask/src/", &["print_stdout", "print_stderr"]),
+];
 
 /// The event macros, with the level each writes at, or `None` for `event!`, which takes it.
 const EVENTS: [(&str, Option<&str>); 6] = [
@@ -56,15 +67,15 @@ pub fn check(repo: &Repo) -> Outcome {
         }
     };
     for file in repo.files() {
-        let in_code = CODE.iter().any(|root| file.path.starts_with(root));
-        if !in_code || !file.path.ends_with(".rs") || file.path == NAMES {
+        if !file.path.starts_with("crates/") || !file.path.ends_with(".rs") || file.path == NAMES {
             continue;
         }
         match file.text.parse::<TokenStream>() {
             Ok(tokens) => {
                 let mut scan = Scan {
                     path: &file.path,
-                    module: file.path.starts_with(MODULES),
+                    traced: CODE.iter().any(|root| file.path.starts_with(root)),
+                    outside_platform: file.path.starts_with(APP) && file.path != MAIN,
                     names: &names,
                     findings: &mut findings,
                 };
@@ -112,7 +123,10 @@ fn list(text: &str) -> Result<BTreeMap<String, String>, String> {
 
 struct Scan<'a> {
     path: &'a str,
-    module: bool,
+    /// Whether the file is code the API runs, whose events and spans the check reads.
+    traced: bool,
+    /// Whether the file is in `app` outside `main.rs`.
+    outside_platform: bool,
     names: &'a BTreeMap<String, String>,
     findings: &'a mut Vec<Finding>,
 }
@@ -122,7 +136,7 @@ impl Scan<'_> {
         let tokens: Vec<TokenTree> = tokens.into_iter().collect();
         for (at, token) in tokens.iter().enumerate() {
             match token {
-                TokenTree::Ident(ident) => {
+                TokenTree::Ident(ident) if self.traced => {
                     let name = ident.to_string();
                     if let (Some(TokenTree::Punct(bang)), Some(TokenTree::Group(group))) =
                         (tokens.get(at + 1), tokens.get(at + 2))
@@ -169,16 +183,18 @@ impl Scan<'_> {
                 None if segments.is_empty() => String::new(),
                 None => last_ident(segments.remove(0)).unwrap_or_default(),
             };
-            if self.module && level != "DEBUG" {
+            if self.outside_platform && level != "DEBUG" {
                 self.find(
                     line,
-                    format!("module code writes a {level} event; only DEBUG is allowed (OBS-03)"),
+                    format!(
+                        "an event at {level} outside `platform` and `main.rs`, where only DEBUG is allowed (OBS-03)"
+                    ),
                 );
             }
             self.fields(line, &segments, true);
         } else if SPANS.contains(&name) {
-            if self.module {
-                self.find(line, "module code opens a span (OBS-06)");
+            if self.outside_platform {
+                self.find(line, "a span outside `platform` and `main.rs` (OBS-06)");
             }
             if name == "span" && !segments.is_empty() {
                 segments.remove(0);
@@ -261,9 +277,14 @@ impl Scan<'_> {
     }
 
     /// `#[instrument(...)]`: it skips every argument, and names its fields from the list
-    /// (OBS-04, OBS-05). Module code opens no spans, so it has none (OBS-06).
+    /// (OBS-04, OBS-05); `app` outside `main.rs` opens no spans, so it has none (OBS-06).
+    /// `#[expect(...)]`: it names a print lint only where CODE-03 allows printing.
     fn attribute(&mut self, attribute: &Group) {
         let tokens: Vec<TokenTree> = attribute.stream().into_iter().collect();
+        self.printing(&tokens, attribute.span().start().line);
+        if !self.traced {
+            return;
+        }
         let Some(at) = tokens
             .iter()
             .position(|token| matches!(token, TokenTree::Ident(ident) if ident == "instrument"))
@@ -274,8 +295,11 @@ impl Scan<'_> {
             return;
         }
         let line = attribute.span().start().line;
-        if self.module {
-            self.find(line, "module code opens a span with #[instrument] (OBS-06)");
+        if self.outside_platform {
+            self.find(
+                line,
+                "#[instrument] opens a span outside `platform` and `main.rs` (OBS-06)",
+            );
         }
         let arguments = match tokens.get(at + 1) {
             Some(TokenTree::Group(arguments)) => arguments.stream(),
@@ -295,6 +319,34 @@ impl Scan<'_> {
                 let segments = segments(fields.stream());
                 let segments: Vec<&[TokenTree]> = segments.iter().map(Vec::as_slice).collect();
                 self.fields(line, &segments, false);
+            }
+        }
+    }
+
+    /// An `expect` attribute that names `print_stdout` or `print_stderr` outside the places
+    /// CODE-03 allows them.
+    fn printing(&mut self, tokens: &[TokenTree], line: usize) {
+        let (Some(TokenTree::Ident(kind)), Some(TokenTree::Group(lints))) =
+            (tokens.first(), tokens.get(1))
+        else {
+            return;
+        };
+        if kind != "expect" {
+            return;
+        }
+        let allowed: &[&str] = PRINTING
+            .iter()
+            .find(|(place, _)| self.path.starts_with(place))
+            .map_or(&[], |(_, lints)| lints);
+        for token in lints.stream() {
+            if let TokenTree::Ident(lint) = token {
+                let lint = lint.to_string();
+                if lint.starts_with("print_") && !allowed.contains(&lint.as_str()) {
+                    self.find(
+                        line,
+                        format!("an exception to `{lint}` outside the places CODE-03 allows printing (CODE-03)"),
+                    );
+                }
             }
         }
     }
@@ -485,6 +537,37 @@ mod tests {
     }
 
     #[test]
+    fn obs_03_app_code_outside_main_writes_only_debug_events() {
+        let code = r#"fn f() { tracing::info!("composed"); }"#;
+        assert_eq!(
+            findings("crates/app/src/composition.rs", code),
+            [
+                "an event at INFO outside `platform` and `main.rs`, where only DEBUG is allowed (OBS-03)"
+            ]
+        );
+        assert_eq!(findings(MAIN, code), Vec::<String>::new());
+    }
+
+    #[test]
+    fn code_03_a_print_lint_is_excepted_only_where_printing_is_allowed() {
+        let stdout = r#"#[expect(clippy::print_stdout, reason = "r")] fn f() {}"#;
+        let stderr = r#"#[expect(clippy::print_stderr, reason = "r")] fn f() {}"#;
+        assert_eq!(
+            findings(PLATFORM, stderr),
+            ["an exception to `print_stderr` outside the places CODE-03 allows printing (CODE-03)"]
+        );
+        assert_eq!(
+            findings(MAIN, stdout),
+            ["an exception to `print_stdout` outside the places CODE-03 allows printing (CODE-03)"]
+        );
+        assert_eq!(findings(MAIN, stderr), Vec::<String>::new());
+        assert_eq!(
+            findings("crates/xtask/src/main.rs", stdout),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
     fn obs_03_module_code_writes_only_debug_events() {
         let code = r#"
             fn f() {
@@ -497,9 +580,9 @@ mod tests {
         assert_eq!(
             findings(MODULE, code),
             [
-                "module code writes a TRACE event; only DEBUG is allowed (OBS-03)",
-                "module code writes a INFO event; only DEBUG is allowed (OBS-03)",
-                "module code writes a ERROR event; only DEBUG is allowed (OBS-03)",
+                "an event at TRACE outside `platform` and `main.rs`, where only DEBUG is allowed (OBS-03)",
+                "an event at INFO outside `platform` and `main.rs`, where only DEBUG is allowed (OBS-03)",
+                "an event at ERROR outside `platform` and `main.rs`, where only DEBUG is allowed (OBS-03)",
             ]
         );
     }
@@ -513,8 +596,8 @@ mod tests {
         assert_eq!(
             findings(MODULE, code),
             [
-                "module code opens a span with #[instrument] (OBS-06)",
-                "module code opens a span (OBS-06)",
+                "#[instrument] opens a span outside `platform` and `main.rs` (OBS-06)",
+                "a span outside `platform` and `main.rs` (OBS-06)",
             ]
         );
     }

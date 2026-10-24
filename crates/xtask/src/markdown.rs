@@ -225,7 +225,7 @@ fn is_separator(cells: &[String]) -> bool {
 }
 
 /// The lines of `text` outside fenced code blocks, each with its number, counted from 1.
-fn outside_code(text: &str) -> impl Iterator<Item = (usize, &str)> {
+pub fn outside_code(text: &str) -> impl Iterator<Item = (usize, &str)> {
     let mut in_code = false;
     text.lines().enumerate().filter_map(move |(index, line)| {
         if line.trim_start().starts_with("```") {

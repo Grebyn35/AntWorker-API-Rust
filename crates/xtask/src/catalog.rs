@@ -226,7 +226,7 @@ pub mod tests {
             ),
             (
                 "docs/architecture.md",
-                "### What each module owns\n\n| Module | Owns |\n|---|---|\n| `widgets` | widgets |\n| `gadgets` | none |\n\n## Next\n",
+                "### What each module owns\n\n| Module | Owns |\n|---|---|\n| `widgets` | widgets |\n| `gadgets` | none |\n\n## Glossary\n\nThe documents assume a developer knows these acronyms: CI and ID. These names are written in capitals, and aren't acronyms to spell out: SHA.\n",
             ),
         ]
     }

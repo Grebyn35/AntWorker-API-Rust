@@ -5,13 +5,15 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{Finding, Outcome, catalog::Catalog, formats, markdown, repo::Repo, text};
+use crate::{
+    Finding, Outcome, acronyms, catalog::Catalog, formats, markdown, repo::Repo, routes, text,
+};
 
 /// Words that describe history instead of the current state (DOC-01).
 const HISTORY: [&str; 5] = ["previously", "no longer", "used to", "legacy", "now uses"];
 
 /// Words that mark unfinished work (DOC-07).
-const UNFINISHED: [&str; 3] = ["TODO", "FIXME", "XXX"];
+pub const UNFINISHED: [&str; 3] = ["TODO", "FIXME", "XXX"];
 
 /// The migration workspace's inventory (DOC-04), which numbers its entries with IDs of its own.
 /// No ID, marker or comment in it is checked.
@@ -35,6 +37,8 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     findings.extend(comment_markers(repo));
     findings.extend(locations(repo));
     findings.extend(formats::check(repo));
+    findings.extend(routes::check(repo));
+    findings.extend(acronyms::check(repo, catalog));
     Outcome {
         report: vec![format!(
             "check-docs: {} files checked, {} of them documents.",
@@ -275,6 +279,12 @@ fn locations(repo: &Repo) -> Vec<Finding> {
 
 /// Whether `path` belongs to the documentation set (DOC-08), or to the migration workspace
 /// (DOC-04).
+/// Whether DOC-09's check of acronyms reads the document at `path`: the documentation set
+/// outside the migration workspace.
+pub fn checks_acronyms(path: &str) -> bool {
+    in_documentation_set(path) && !path.starts_with(INVENTORY) && path != TRACKER
+}
+
 fn in_documentation_set(path: &str) -> bool {
     const FILES: [&str; 7] = [
         "README.md",
