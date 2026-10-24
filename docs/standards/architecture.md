@@ -42,9 +42,9 @@ These parts are optional:
 - The `client_telemetry` module is registered only in `composition.rs`.
 - Each part that gives a product its workspace shape ([architecture.md §5](../architecture.md#workspace-shapes)): users creating workspaces through `POST /v1/workspaces`, the setup subcommand, and the `invitations` module.
 
-An optional part consists of its code, its registration, its tests, its section of the module spec (for a module, its whole spec), its settings in `.env.example`, the metrics it declares with the dashboard panels and alerts that use them, and its routes in `openapi.json`. One command removes a named part by deleting all of these, and leaves a codebase that compiles and passes its tests. Every other module is a core module. No Cargo feature flag selects modules or optional parts.
+An optional part consists of everything that exists only for it: its code and its registration; the items of other modules that only it uses, such as a permission, an email or a function; its tests; its section of the module spec, or for a module its whole spec and its row in the spec index; its settings in `.env.example`; the metrics it declares, with the dashboard panels and alerts that use them; and its routes in `openapi.json`. One command removes a named part by deleting all of these, together with every link and ID that points into them, and leaves a codebase that passes `just ci`. Every other module is a core module. No Cargo feature flag selects modules or optional parts.
 - Why: a fork that doesn't need a feature removes it by deleting it, and the workspace parts it keeps give its product its shape (D29, D39).
-- Check: `ci: check-removable`, which runs on `main` and, on a copy of the repository, runs that command for each optional part in turn.
+- Check: `ci: check-removable`, which runs on `main`. On a copy of the repository, it runs the command for each OAuth provider, for `client_telemetry`, and for the parts each workspace shape removes, then runs `just ci` on the copy. It never removes a part that creates workspaces on its own, since every shape keeps one.
 
 ## Layers
 

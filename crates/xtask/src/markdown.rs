@@ -133,7 +133,10 @@ pub struct Table {
     pub line: usize,
     /// The header's cells.
     pub header: Vec<String>,
-    /// The rows after the separator, each with its line.
+    /// The line of the delimiter row under the header, such as `|---|`, and its number of
+    /// cells, if the table has one.
+    pub delimiter: Option<(usize, usize)>,
+    /// The rows after the delimiter row, each with its line.
     pub rows: Vec<(usize, Vec<String>)>,
 }
 
@@ -196,10 +199,15 @@ pub fn tables(text: &str) -> Vec<Table> {
                     section: section.clone(),
                     line,
                     header: cells,
+                    delimiter: None,
                     rows: Vec::new(),
                 });
             }
-            Some(table) if table.rows.is_empty() && is_separator(&cells) => {}
+            Some(table)
+                if table.delimiter.is_none() && table.rows.is_empty() && is_separator(&cells) =>
+            {
+                table.delimiter = Some((line, cells.len()));
+            }
             Some(table) => table.rows.push((line, cells)),
         }
     }
@@ -207,10 +215,24 @@ pub fn tables(text: &str) -> Vec<Table> {
     tables
 }
 
-/// The cells of a table row, trimmed. An escaped pipe, `\|`, belongs to its cell, as in
-/// GitHub's tables.
+/// The cells of a table row, trimmed, as GitHub's tables read them: one pipe at each end of
+/// the row bounds it, and an escaped pipe, `\|`, belongs to its cell.
 fn cells(row: &str) -> Vec<String> {
-    let row = row.trim().trim_start_matches('|').trim_end_matches('|');
+    let row = row.trim();
+    let row = row.strip_prefix('|').unwrap_or(row);
+    let row = match row.strip_suffix('|') {
+        Some(inner)
+            if inner
+                .chars()
+                .rev()
+                .take_while(|c| *c == '\\')
+                .count()
+                .is_multiple_of(2) =>
+        {
+            inner
+        }
+        _ => row,
+    };
     let mut cells = Vec::new();
     let mut cell = String::new();
     let mut chars = row.chars();
@@ -321,6 +343,7 @@ mod tests {
                 section: Some("Rows".to_owned()),
                 line: 16,
                 header: vec!["A".to_owned(), "B".to_owned()],
+                delimiter: Some((17, 2)),
                 rows: vec![(18, vec!["1".to_owned(), "`x`".to_owned()])],
             }]
         );

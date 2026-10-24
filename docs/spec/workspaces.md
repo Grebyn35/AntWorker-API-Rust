@@ -41,11 +41,19 @@
 
 ### Creating a workspace
 
-One operation creates every workspace, inside the unit of work of whatever asks for it: it inserts the `workspaces` row, calls `access::add_owner`, records `workspace.created`, and publishes `membership.created` (D33). Two optional parts call it (ARCH-07), and the ones a fork keeps, with or without `invitations`, give its product its shape ([architecture §5](../architecture.md#workspace-shapes)):
-- **Users creating workspaces.** `POST /v1/workspaces` opens the unit of work from the caller's `Principal`, calls the operation, and commits (WORKSPACES-001).
-- **The setup subcommand.** In one unit of work, it creates the deployment's one workspace with the name it is given, and its owner's account from an email and a name, through `accounts::create`. The account has no password. The subcommand enqueues an email that tells the owner the account exists, and carries no secret. The owner signs in for the first time through password reset in a client: the reset code sent to their address sets the first password, and verifies the address. Their next step is inviting everyone else (INVITATIONS-001). When an account with that email already exists, the subcommand makes it the owner if its email is verified, and otherwise refuses, so nobody can take the workspace by registering the owner's address first. When any workspace already exists, it refuses and changes nothing, and two runs at the same time create at most one. It prints nothing secret.
+One operation creates every workspace, inside the unit of work of whatever asks for it: it inserts the `workspaces` row, calls `access::add_owner`, records `workspace.created`, and publishes `membership.created` (D33). Each part that creates workspaces calls it. Those parts are optional (ARCH-07), and the ones a fork keeps give its product its shape ([architecture §5](../architecture.md#workspace-shapes)).
 
-The test support creates workspaces through the operation, never through one of the parts, so deleting either part leaves every other test passing.
+Tests arrange workspaces and memberships through the `owner` connection (TEST-06), never through one of the parts, so removing a part leaves the other modules' tests passing.
+
+### Users creating workspaces
+
+`POST /v1/workspaces` opens the unit of work from the caller's `Principal`, calls the operation, and commits (WORKSPACES-001).
+
+### The setup subcommand
+
+In one unit of work, the subcommand creates the deployment's one workspace with the name it is given, and its owner's account from an email and a name, through `accounts::create`. The account has no password. The subcommand enqueues an email that tells the owner the account exists, and carries no secret. The owner signs in for the first time through password reset in a client: the reset code sent to their address sets the first password, and verifies the address. Their next step is inviting everyone else (INVITATIONS-001).
+
+When an account with that email already exists, the subcommand makes it the owner if its email is verified, and otherwise refuses, so nobody can take the workspace by registering the owner's address first. It records the workspace it created in a table of its own that holds at most one row, so a second run, even one at the same time, is refused by that table's constraint and changes nothing (ERR-05). Deleting that workspace deletes the row with it, so the subcommand can run again. It prints nothing secret.
 
 ### Listing members
 
@@ -58,3 +66,4 @@ The test support creates workspaces through the operation, never through one of 
 | Which actor the setup subcommand's audit entries record, since the subcommand runs with no `Principal` (AUDIT-002) | the spec of the full `workspaces` module |
 | How the owner sets their first password in a deployment with email turned off (MAIL-004), where password reset can't send its code | the spec of the full `auth` module, with password reset |
 | How the owner signs in to the account the setup subcommand created, in a fork that signs in only through OAuth providers | the spec of the full `auth` module, with identity linking |
+| How the command that removes an optional part (ARCH-07) rewrites prose that names the part, such as the shapes in architecture §5, so a fork's documents describe only its own shape | the command, built with `check-removable` in step 2.3 |

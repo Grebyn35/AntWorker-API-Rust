@@ -36,22 +36,39 @@ pub fn check(repo: &Repo) -> Vec<Finding> {
     findings
 }
 
-/// Every row of a table in a document has as many cells as the table's header, so no row has
-/// lost a cell or run into the next one (DOC-15).
+/// Every table in a document has a delimiter row under its header, and every row, the
+/// delimiter row among them, has as many cells as the header, so no row has lost a cell or
+/// run into the next one (DOC-15).
 fn table_rows(repo: &Repo) -> Vec<Finding> {
     let mut findings = Vec::new();
     for file in repo.files().filter(|file| file.path.ends_with(".md")) {
         for table in markdown::tables(&file.text) {
+            let header = table.header.len();
+            match table.delimiter {
+                None => findings.push(Finding::new(
+                    &file.path,
+                    table.line,
+                    "the table has no delimiter row under its header (DOC-15)",
+                )),
+                Some((line, count)) if count != header => findings.push(Finding::new(
+                    &file.path,
+                    line,
+                    format!(
+                        "the delimiter row has {count} {}, and its table's header has {header} (DOC-15)",
+                        cells_noun(count)
+                    ),
+                )),
+                Some(_) => {}
+            }
             for (line, cells) in &table.rows {
-                if cells.len() != table.header.len() {
-                    let noun = if cells.len() == 1 { "cell" } else { "cells" };
+                if cells.len() != header {
                     findings.push(Finding::new(
                         &file.path,
                         *line,
                         format!(
-                            "the row has {} {noun}, and its table's header has {} (DOC-15)",
+                            "the row has {} {}, and its table's header has {header} (DOC-15)",
                             cells.len(),
-                            table.header.len()
+                            cells_noun(cells.len())
                         ),
                     ));
                 }
@@ -59,6 +76,11 @@ fn table_rows(repo: &Repo) -> Vec<Finding> {
         }
     }
     findings
+}
+
+/// "cell" or "cells", for `count` of them.
+fn cells_noun(count: usize) -> &'static str {
+    if count == 1 { "cell" } else { "cells" }
 }
 
 /// The sections a kind of document has, in order, and where that list comes from.
@@ -468,13 +490,18 @@ mod tests {
     #[test]
     fn doc_15_every_row_of_a_table_has_its_headers_cells() {
         let notes = "# Notes\n\n| A | B |\n|---|---|\n| one | two |\n\
-                     | three || four | five |\n| `a \\| b` | six |\n| seven |\n";
+                     | three || four | five |\n| `a \\| b` | six |\n| seven |\n\
+                     | eight | nine ||\n| ten | eleven \\|\n\n\
+                     | C | D |\n|---|\n\n| E |\n| e |\n";
 
         assert_eq!(
             findings(&[("docs/notes.md", notes)]),
             [
                 "docs/notes.md:6: the row has 4 cells, and its table's header has 2 (DOC-15)",
-                "docs/notes.md:8: the row has 1 cell, and its table's header has 2 (DOC-15)"
+                "docs/notes.md:8: the row has 1 cell, and its table's header has 2 (DOC-15)",
+                "docs/notes.md:9: the row has 3 cells, and its table's header has 2 (DOC-15)",
+                "docs/notes.md:13: the delimiter row has 1 cell, and its table's header has 2 (DOC-15)",
+                "docs/notes.md:15: the table has no delimiter row under its header (DOC-15)"
             ]
         );
     }

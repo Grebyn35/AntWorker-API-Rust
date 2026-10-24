@@ -334,7 +334,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Term | Meaning |
 |---|---|
 | User | A person with an account. Owns their profile, sessions, identities and user files. |
-| Identity | One way a user signs in: a password, or a linked OAuth provider account. A user has one or more. |
+| Identity | One way a user signs in: a password, or a linked OAuth provider account. A user who registered has one or more. An account an operator creates for its owner has none until the owner sets a password (§5, "Workspace shapes"). |
 | Session | One signed-in device or client, holding an access token and a refresh token. |
 | Provider token | A credential from an OAuth provider, stored encrypted (SEC-02). It is revoked when the session or identity that needs it ends. |
 | Principal | The authenticated caller of a request, produced by `platform::authn` (D18). |

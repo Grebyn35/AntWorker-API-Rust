@@ -48,7 +48,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | 1.3 |
 | The image and the delivery pipeline, with the release docs | D15, D21 | 1.4 |
 | The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30 | 1.5 |
-| The command that removes an optional part, which `check-removable` runs | D29, D39 | 2.2 |
+| The command that removes an optional part, which `check-removable` runs | D29, D39 | 2.3 |
 | `just seed` and the OpenAPI UI in development | D28 | 2.4 |
 | The threat model | D26 | 3 |
 | `just new-module` and the guide to adding a module | D29 | 5 |
@@ -103,7 +103,7 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `check-tenancy` | 2.2, with the first workspace tables |
 | `check-layout`, `check-table-ownership`, `check-config`, `check-migrations`, `sqlx-check`, `setup-smoke` | 3 decides: built, or the rule's check changes |
 | `check-personal-data` | 5, with export and erasure in `accounts` |
-| `check-removable` | 2.2, with the first optional part: users creating workspaces |
+| `check-removable` | 2.3, with the first removal that leaves a workspace shape: `invitations`, for the personal shape |
 | `test-migrations` | 6, with the first release |
 | `check-rename` | 6, with `just rename` |
 
@@ -132,6 +132,8 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of b60787f..9a0522d | DOC-15: `check-docs` reads the `tag` of each `#[utoipa::path]` under `crates/app/src/modules/<module>/`, and fails unless it is `<module>`. | 2.1, with the second module that serves routes |
 | Conformance review of b60787f..9a0522d | API-17: the test support checks each request body an integration test sends against its operation's documented request, and `check-openapi` checks that each field of a domain type carries the type's limits. | 2.1, with the first route that takes a body |
 | Conformance review of c252bab | DATA-20: a check reads the locked sqlx sources and fails on a public function that takes SQL text and that `clippy.toml` doesn't ban, so the bans stay complete when sqlx is updated. | 2.1, which writes the first queries of a module |
+| Conformance review of 3ae7168 | A DATA rule for D39: data a module adds for its product has a `workspace_id`, and a check fails on a table keyed by a user ID that isn't listed as account data. | 2.2, with the first workspace tables and `check-tenancy` |
+| Conformance review of 3ae7168 | ARCH-07: whether password sign-in is an optional part, for a fork that signs in only through OAuth providers | 5, with the full `auth` module |
 
 ## Conformance reviews
 

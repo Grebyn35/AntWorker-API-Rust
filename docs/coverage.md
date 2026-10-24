@@ -42,7 +42,7 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Validation, sanitization and encoding | D25, D8 |
 | Cryptography and stored data protection | D14, D26 |
 | Error handling and logging | D17, D7 |
-| Data protection and privacy | D6, D7, D14, D31 |
+| Data protection and privacy | D6, D7, D14, D31, D40 |
 | Secure communication | D26 (TLS and HTTP Strict Transport Security (HSTS) at Caddy) |
 | Supply chain and malicious code | D21, D26 |
 | Business logic and anti-automation | D11, the spec of each module |
