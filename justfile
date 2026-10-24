@@ -304,9 +304,8 @@ publish repository commit:
     repository={{ image_registry }}/{{ lowercase(repository) }}
     crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
     tested=$(grep -o '"digest":"sha256:[0-9a-f]*"' {{ image_dir }}/index.json | head -n 1 | cut -d '"' -f 4)
-    # The registry creates the package with the first manifest, and refuses the next ones until
-    # it has granted the workflow access to the new package. Pushing again pushes only what is
-    # missing.
+    # The registry can refuse a manifest moments after the first one created a new package, so a
+    # failed push is tried again. Pushing again pushes only what is missing.
     for attempt in 1 2 3 4 5; do
         if crane push /image "$repository:sha-{{ commit }}"; then break; fi
         if [ "$attempt" = 5 ]; then exit 1; fi
