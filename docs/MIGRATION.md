@@ -152,7 +152,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | b60787f..9a0522d: API-17's method test, and the checks that took over review for DOC-09, DOC-15, CODE-03, OBS-03 and OBS-06 | 2 | 6 (5, 1, 0 shared) | 3 | 2 | `stopped: no progress`: 9dca252 |
 | 3ae7168: the workspace shapes (D39, D40), and the table check of DOC-15 | 1 | 9 (8, 2, 1 shared) | 3 | 0 | `next pass`: 16f4aae |
 | 3ae7168: the workspace shapes (D39, D40), and the table check of DOC-15 | 2 | 7 (7, 3, 3 shared) | 1 | 1 | `stopped: no progress`: 1e56256 |
-| e3939f2..f09687d: step 1.3, telemetry: export, the metric declarations, the observability stack and its checks, `just dev`, and the plan of D42 | 1 | 17 (14, 6, 3 shared) | 6 | 0 | `next pass` |
+| e3939f2..f09687d: step 1.3, telemetry: export, the metric declarations, the observability stack and its checks, `just dev`, and the plan of D42 | 1 | 17 (14, 6, 3 shared) | 6 | 0 | `next pass`: ce2c87a |
+| e3939f2..ce2c87a: step 1.3, telemetry: export, the metric declarations, the observability stack and its checks, `just dev`, and the plan of D42 | 2 | 7 (6, 2, 1 shared) | 1 | 1 | `stopped: no progress` |
 
 ## Decisions
 
