@@ -46,9 +46,9 @@ jobs:
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
-      - run: just image-rescan "$OWNER"
+      - run: just image-rescan "$REPOSITORY"
         env:
-          OWNER: ${{ github.repository_owner }}
+          REPOSITORY: ${{ github.repository }}
 
   # Every Monday: the registry keeps every release, edge, and the images main published in the
   # last 30 days. Older sha-<commit> tags go, and so do the images that then have no tag, and the
@@ -69,10 +69,12 @@ jobs:
         with:
           tool: just@1.59.0
       - id: image
-        run: echo "name=$(just image-name)" >> "$GITHUB_OUTPUT"
+        run: echo "package=$(just image-package "$REPOSITORY")" >> "$GITHUB_OUTPUT"
+        env:
+          REPOSITORY: ${{ github.repository }}
       - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
         with:
-          package: ${{ steps.image.outputs.name }}
+          package: ${{ steps.image.outputs.package }}
           delete-tags: sha-*
           delete-untagged: true
           delete-orphaned-images: true

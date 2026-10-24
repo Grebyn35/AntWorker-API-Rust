@@ -21,8 +21,8 @@ cargo_deny_version := "0.20.2"
 watchexec_version := "2.8.0"
 sqlx_cli_version := "0.9.0"
 
-# The image's name, and the registry `publish` pushes it to (ARCH-15).
-image_name := "antworker-api"
+# The registry `publish` pushes the image to. There the image takes the name of the GitHub
+# repository that publishes it, in lowercase, so no two repositories' images share a name.
 image_registry := "ghcr.io"
 # The OCI image layout that `just image` writes, and the other image tasks read.
 image_dir := "target/image"
@@ -41,7 +41,8 @@ image_cache_to := if image_cache == "" { "" } else if env("IMAGE_CACHE_WRITE", "
 # This machine's platform, on which `just e2e` runs the image unless told another.
 native_platform := if arch() == "aarch64" { "linux/arm64" } else { "linux/amd64" }
 # The image's name in the registry the end-to-end tests run it from.
-export E2E_IMAGE_NAME := image_name
+e2e_image := "image"
+export E2E_IMAGE_NAME := e2e_image
 
 # Runs every check CI runs: the checks of the code, then the build of the image and its checks,
 # on this machine's platform.
@@ -236,9 +237,10 @@ check-docs:
 check-pins:
     {{ xtask }} check-pins
 
-# Prints the image's name, for the workflows.
-image-name:
-    @echo {{ image_name }}
+# Prints the name of the package that the image of `repository`, such as owner/name, is in the
+# registry, for the workflows.
+image-package repository:
+    @echo {{ lowercase(file_name(repository)) }}
 
 # Builds the image once for linux/amd64 and linux/arm64, with its software bill of materials
 # (SBOM) and provenance, into the OCI image layout in target/image (OPS-14, OPS-15). With
@@ -288,20 +290,29 @@ image-scan:
 # binaries, such as through QEMU.
 e2e $E2E_PLATFORM=native_platform: services
     docker compose up --detach --wait registry
-    docker compose run --rm crane push --insecure /image registry:5000/{{ image_name }}:e2e
+    docker compose run --rm crane push --insecure /image registry:5000/{{ e2e_image }}:e2e
     cargo test --locked --package app --features e2e --test e2e
 
-# Pushes the image in target/image to the registry as <name>:sha-<commit>, and moves `edge` to it
-# while the commit is still the head of main (OPS-14). CI runs it on main, once every check has
-# passed, after a `docker login` to the registry.
+# Pushes the image in target/image to the registry as sha-<commit>, under the name of
+# `repository`, such as owner/name, and moves `edge` to it while the commit is still the head of
+# main (OPS-14). CI runs it on main, once every check has passed, after a `docker login` to the
+# registry.
 [unix]
-publish owner commit:
+publish repository commit:
     #!/usr/bin/env bash
     set -euo pipefail
-    repository={{ image_registry }}/{{ lowercase(owner) }}/{{ image_name }}
+    repository={{ image_registry }}/{{ lowercase(repository) }}
     crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
     tested=$(grep -o '"digest":"sha256:[0-9a-f]*"' {{ image_dir }}/index.json | head -n 1 | cut -d '"' -f 4)
-    crane push /image "$repository:sha-{{ commit }}"
+    # The registry creates the package with the first manifest, and refuses the next ones until
+    # it has granted the workflow access to the new package. Pushing again pushes only what is
+    # missing.
+    for attempt in 1 2 3 4 5; do
+        if crane push /image "$repository:sha-{{ commit }}"; then break; fi
+        if [ "$attempt" = 5 ]; then exit 1; fi
+        echo "the push failed; pushing again in 15 seconds" >&2
+        sleep 15
+    done
     pushed=$(crane digest "$repository:sha-{{ commit }}")
     if [ "$pushed" != "$tested" ]; then echo "the registry holds $pushed, not the tested $tested" >&2; exit 1; fi
     if [ "$(git ls-remote origin refs/heads/main | cut -f 1)" = "{{ commit }}" ]; then
@@ -312,12 +323,13 @@ publish owner commit:
 
 # Releases the image that main published for the commit of `tag`, a tag such as v1.2.0 or
 # v1.2.0-rc.1 whose version is the app's (OPS-14): tags that image with the version, signs it,
-# and verifies the release. CI runs it for each release tag, after a `docker login`.
+# and verifies the release. `repository` is the GitHub repository, such as owner/name, and
+# `source` its address. CI runs it for each release tag, after a `docker login`.
 [unix]
-release owner tag commit source:
+release repository tag commit source:
     #!/usr/bin/env bash
     set -euo pipefail
-    repository={{ image_registry }}/{{ lowercase(owner) }}/{{ image_name }}
+    repository={{ image_registry }}/{{ lowercase(repository) }}
     crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
     cosign() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN cosign "$@"; }
     if ! [[ "{{ tag }}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.(0|[1-9][0-9]*))?$ ]]; then
@@ -332,16 +344,16 @@ release owner tag commit source:
     fi
     crane tag "$repository@$digest" "$version"
     cosign sign --yes "$repository@$digest"
-    just verify-release {{ owner }} "$version" "$digest" {{ source }}
+    just verify-release {{ repository }} "$version" "$digest" {{ source }}
 
-# Fails unless the image tagged `version` is `digest`, the one main tested, signed by the release
-# workflow of the repository at `source` for the tag v<version>, with the SBOM and the provenance
-# of both platforms (OPS-14).
+# Fails unless the image of `repository`, such as owner/name, tagged `version` is `digest`, the
+# one main tested, signed by the release workflow of the repository at `source` for the tag
+# v<version>, with the SBOM and the provenance of both platforms (OPS-14).
 [unix]
-verify-release owner version digest source:
+verify-release repository version digest source:
     #!/usr/bin/env bash
     set -euo pipefail
-    repository={{ image_registry }}/{{ lowercase(owner) }}/{{ image_name }}
+    repository={{ image_registry }}/{{ lowercase(repository) }}
     crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
     cosign() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker cosign "$@"; }
     tagged=$(crane digest "$repository:{{ version }}")
@@ -360,14 +372,14 @@ verify-release owner version digest source:
         done
     done
 
-# Scans the published images again, `edge` and the newest release, for vulnerabilities published
-# since they were tested (SEC-13). The scheduled workflow runs it every week, after a
-# `docker login`.
+# Scans the published images of `repository`, such as owner/name, again, `edge` and the newest
+# release, for vulnerabilities published since they were tested (SEC-13). The scheduled workflow
+# runs it every week, after a `docker login`.
 [unix]
-image-rescan owner:
+image-rescan repository:
     #!/usr/bin/env bash
     set -euo pipefail
-    repository={{ image_registry }}/{{ lowercase(owner) }}/{{ image_name }}
+    repository={{ image_registry }}/{{ lowercase(repository) }}
     run() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker "$@"; }
     newest=$(run crane ls "$repository" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
     for tag in edge $newest; do

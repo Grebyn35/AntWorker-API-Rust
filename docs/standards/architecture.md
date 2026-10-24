@@ -90,6 +90,6 @@ Every task that runs application logic against the database, such as bootstrap, 
 - Check: `review`.
 
 ### ARCH-15 The product name is renamable
-The product name and its derived forms appear only in the files that `just rename` rewrites: crate and binary names, image and service names, telemetry service names, and email branding.
+The product name and its derived forms appear only in the files that `just rename` rewrites: crate and binary names, service names, telemetry service names, and email branding. The image takes the name of the repository that publishes it, so a fork's image has the fork's name.
 - Why: a fork becomes its own product with one command (D29).
 - Check: `ci: check-rename` (runs `just rename` on a scratch copy, then checks that the old name appears nowhere and that the build and tests pass).

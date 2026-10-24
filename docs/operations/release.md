@@ -15,7 +15,7 @@ The image holds the API's binary, built static against musl for linux/amd64 and 
 
 ## Where it is published
 
-`main` publishes every commit it tested to the GitHub Container Registry, as `ghcr.io/<owner>/antworker-api`:
+`main` publishes every commit it tested to the GitHub Container Registry, as `ghcr.io/<owner>/<repository>`: the image takes the name of the repository that publishes it, in lowercase, so no two repositories' images share a name. Its tags:
 
 | Tag | Image |
 |---|---|
@@ -41,11 +41,11 @@ The signature is keyless. Sigstore's certificate authority issues a certificate 
 `just verify-release` checks a release the way anyone who pulls it can:
 
 ```
-cosign verify ghcr.io/<owner>/antworker-api@<digest> \
+cosign verify ghcr.io/<owner>/<repository>@<digest> \
   --certificate-identity https://github.com/<owner>/<repository>/.github/workflows/release.yml@refs/tags/vX.Y.Z \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-docker buildx imagetools inspect ghcr.io/<owner>/antworker-api@<digest> --format '{{ json .SBOM }}'
-docker buildx imagetools inspect ghcr.io/<owner>/antworker-api@<digest> --format '{{ json .Provenance }}'
+docker buildx imagetools inspect ghcr.io/<owner>/<repository>@<digest> --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/<owner>/<repository>@<digest> --format '{{ json .Provenance }}'
 ```
 
 The signature covers the index, and so every platform's image, SBOM and provenance it lists.

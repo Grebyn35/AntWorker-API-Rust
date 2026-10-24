@@ -120,7 +120,7 @@ jobs:
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
-      - run: just publish "$OWNER" "$COMMIT"
+      - run: just publish "$REPOSITORY" "$COMMIT"
         env:
-          OWNER: ${{ github.repository_owner }}
+          REPOSITORY: ${{ github.repository }}
           COMMIT: ${{ github.sha }}

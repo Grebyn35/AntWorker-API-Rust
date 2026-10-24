@@ -31,9 +31,9 @@ jobs:
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
-      - run: just release "$OWNER" "$TAG" "$COMMIT" "$SOURCE"
+      - run: just release "$REPOSITORY" "$TAG" "$COMMIT" "$SOURCE"
         env:
-          OWNER: ${{ github.repository_owner }}
+          REPOSITORY: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
           COMMIT: ${{ github.sha }}
           SOURCE: ${{ github.server_url }}/${{ github.repository }}
