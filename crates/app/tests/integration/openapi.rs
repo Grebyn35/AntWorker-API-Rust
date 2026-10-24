@@ -74,9 +74,8 @@ async fn api_17_every_path_serves_exactly_the_methods_its_documentation_lists() 
         if documented.contains("get") {
             documented.insert("head".to_owned());
         }
-        // Each method OpenAPI can document that the path doesn't, since a layer or a method
-        // router's fallback could serve one and leave the others to the 405, and one no route
-        // serves.
+        // Each method OpenAPI can document that the path doesn't, since a method router's
+        // fallback could serve one and leave the others to the 405, and one no route serves.
         let undocumented = methods
             .iter()
             .filter(|method| !documented.contains(**method))

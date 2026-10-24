@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 1.3 of the build order, telemetry, in this order: the spec, the code test-first, and the conformance review. It closes the known gaps of ERR-11 and ERR-12 with the metric macro, and decides the proposals that wait on it. Step 1.2 is built, and its review stopped at pass 2.
+**Next:** step 1.3 of the build order, telemetry, in this order: the spec, the code test-first, and the conformance review. It closes the known gaps of ERR-11 and ERR-12 with the metric macro, and decides the proposals that wait on it. Step 1.2 is built. Its review, and the review of the checks that then took over review clauses, each stopped at pass 2 with every must-fix finding resolved.
 
 **Waiting on the owner:** nothing.
 
@@ -147,7 +147,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | cf1253c: step 1.2, the request pipeline, and the built code it rewrites: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle` | 1 | 17 (16, 10, 9 shared) | 9 | 0 | `next pass`: aa2ce06 |
 | cf1253c: step 1.2, the request pipeline, and the built code it rewrites: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle` | 2 | 17 (12, 7, 2 shared) | 2 | 1 | `stopped: no progress`: 1d8c2d0 |
 | b60787f..9a0522d: API-17's method test, and the checks that took over review for DOC-09, DOC-15, CODE-03, OBS-03 and OBS-06 | 1 | 7 (7, 3, 3 shared) | 3 | 0 | `next pass`: ffb3316 |
-| b60787f..9a0522d: API-17's method test, and the checks that took over review for DOC-09, DOC-15, CODE-03, OBS-03 and OBS-06 | 2 | 6 (5, 1, 0 shared) | 3 | 2 | `stopped: no progress` |
+| b60787f..9a0522d: API-17's method test, and the checks that took over review for DOC-09, DOC-15, CODE-03, OBS-03 and OBS-06 | 2 | 6 (5, 1, 0 shared) | 3 | 2 | `stopped: no progress`: 9dca252 |
 
 ## Decisions
 
