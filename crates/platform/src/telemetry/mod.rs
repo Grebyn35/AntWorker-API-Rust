@@ -33,7 +33,7 @@ use self::metrics::Counter;
 use crate::config::{Environment, LogLevel, TelemetryConfig};
 
 /// The lines the logging thread holds before an event waits for room. An event never waits for
-/// stdout itself, and no line is dropped (CODE-05, OBS-08).
+/// stdout itself, and no line is dropped while the process runs (CODE-05, OBS-08).
 const QUEUED_LINES: usize = 128_000;
 
 static PANICS: Counter<0> = Counter::new(
@@ -140,6 +140,7 @@ pub fn init(service: Service, config: &TelemetryConfig) -> Result<Telemetry, Tel
     if let Some(metrics) = &metrics {
         opentelemetry::global::set_meter_provider(metrics.clone());
     }
+    self::metrics::provided();
     std::panic::set_hook(Box::new(log_panic));
     Ok(Telemetry {
         writer: guard,

@@ -34,7 +34,7 @@ flowchart LR
   - every trace slower than the [latency objective](#service-level-objectives)
   - 10% of the rest
 - **Prometheus** ([config](../../deploy/observability/prometheus/prometheus.yaml)) receives the metrics through its OTLP receiver, and scrapes the collector, Loki, Tempo and Alertmanager for their own. It evaluates the [rules](../../deploy/observability/prometheus/rules.yaml) and sends firing alerts to Alertmanager. [metrics.md](metrics.md) lists every metric under its name in Prometheus.
-- **Loki** ([config](../../deploy/observability/loki/config.yaml)) keeps every log record the API exports: logs are never sampled. The API's queue of records drops a record that arrives while it is full, as the [platform spec](../spec/platform.md#telemetry-export) says, and stdout holds every line. A record's line is its message, such as `request completed`. The service's name, instance and environment are labels, such as `service_name`, and every other field, `trace_id` and `span_id` among them, is structured metadata that a query filters with `| trace_id="…"`.
+- **Loki** ([config](../../deploy/observability/loki/config.yaml)) keeps every log record the API exports: logs are never sampled. The API's queue of records drops a record that arrives while it is full, as the [platform spec](../spec/platform.md#telemetry-export) says, and stdout drops no line while the API runs. A record's line is its message, such as `request completed`. The service's name, instance and environment are labels, such as `service_name`, and every other field, `trace_id` and `span_id` among them, is structured metadata that a query filters with `| trace_id="…"`.
 - **Tempo** ([config](../../deploy/observability/tempo/config.yaml)) keeps the traces the collector passes on, and answers searches in its query language, TraceQL.
 - **Grafana** reads all three, through the [data sources](../../deploy/observability/grafana/provisioning/datasources/datasources.yaml) it provisions. A log line links to its trace, and a span links to its trace's log lines.
 
@@ -74,7 +74,7 @@ To find the slow requests of a time range instead, the API requests dashboard li
 | Availability | 99.9% of requests answer without a 5xx | 0.1% of requests |
 | Latency | 99% of requests answer within 0.5 seconds | 1% of requests |
 
-The health probes don't count, since they aren't measured (OBS-15). The latency objective is one number in three places: the collector's latency policy, the rules that count slow requests, and the dashboard's list of slow traces. `check-telemetry-config` fails while they differ.
+The health probes don't count, since they aren't measured (OBS-15). The latency objective is one number in four places: the collector's latency policy, the rules that count slow requests, the dashboard's list of slow traces, and the line its slowest requests' panel draws. `check-telemetry-config` fails while they differ.
 
 ## Alerts
 

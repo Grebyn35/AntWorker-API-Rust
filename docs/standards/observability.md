@@ -89,7 +89,7 @@ Dashboards are provisioned from `deploy/observability/grafana/` and read-only in
 ### OBS-14 Alerts fire on symptoms and have runbooks
 Alerts are of two kinds:
 - Burn-rate alerts against the service-level objectives for availability and latency.
-- Cause alerts for a dependency that is down, dead-lettered jobs, event delivery lag, and telemetry that is dropped or that a service of the stack can't receive because it is down.
+- Cause alerts for a dependency that is down, dead-lettered jobs, event delivery lag, and telemetry that is dropped, that stops arriving, or that a service of the stack can't receive because it is down.
 
 Every alert has a severity (`page` or `ticket`), a runbook section in `docs/operations/runbooks.md` and a `promtool` test.
 - Why: an alert means action, and the action is written down (D19).

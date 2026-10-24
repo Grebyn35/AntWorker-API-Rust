@@ -145,6 +145,13 @@ struct Declarations<'a> {
 }
 
 impl<'ast> Visit<'ast> for Declarations<'_> {
+    /// Skips a module that only tests compile, whose statics the API never records.
+    fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
+        if !only_tests(&item.attrs) {
+            visit::visit_item_mod(self, item);
+        }
+    }
+
     fn visit_item_static(&mut self, item: &'ast syn::ItemStatic) {
         if let Some(kind) = declared_kind(&item.ty)
             && let Expr::Call(call) = &*item.expr
@@ -261,6 +268,16 @@ impl Declarations<'_> {
     }
 }
 
+/// Whether `attrs` hold `#[cfg(test)]`.
+fn only_tests(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        attr.path().is_ident("cfg")
+            && attr
+                .parse_args::<syn::Path>()
+                .is_ok_and(|path| path.is_ident("test"))
+    })
+}
+
 /// The kind of a declaration of type `Counter<N>`, `Histogram<N>` or `Gauge<N>`.
 fn declared_kind(ty: &Type) -> Option<Kind> {
     let Type::Path(path) = ty else {
@@ -348,6 +365,16 @@ mod tests {
             findings.iter().any(|f| f.contains("metrics.rs")),
             "{findings:?}"
         );
+    }
+
+    #[test]
+    fn obs_11_a_static_only_tests_compile_declares_no_metric() {
+        let (metrics, findings) = read_code(
+            "crates/platform/src/errors.rs",
+            r#"#[cfg(test)] mod tests { static T: Counter<0> = Counter::new("platform.t", "{t}", "T.", []); }"#,
+        );
+        assert!(metrics.is_empty(), "{metrics:?}");
+        assert!(findings.is_empty(), "{findings:?}");
     }
 
     #[test]

@@ -4,12 +4,12 @@ A Rust API for workspace-based products, built as a template to fork. It is buil
 
 ## Quickstart
 
-Requires Rust (through rustup), [just](https://github.com/casey/just), Docker, and [watchexec](https://github.com/watchexec/watchexec) for `just dev`. `just setup` checks the versions the justfile pins.
+Requires Rust (through rustup), [just](https://github.com/casey/just), Docker, [cargo-deny](https://github.com/EmbarkStudios/cargo-deny), and [watchexec](https://github.com/watchexec/watchexec) for `just dev`. `just setup` checks the versions the justfile pins.
 
 ```
 just setup        # checks the tools, and writes .env from .env.example, with generated passwords
 just dev          # starts Postgres, migrates, and runs the API, restarting it when the code changes
-just dev observe  # the same, with the observability stack; Grafana answers on http://127.0.0.1:3000
+just dev observe  # the same, with the observability stack (docs/operations/observability.md)
 just ci           # runs every check CI runs
 ```
 

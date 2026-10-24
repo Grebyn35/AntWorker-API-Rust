@@ -41,7 +41,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 ## DatabaseUnreachable
 
-**What it means.** An instance's own connection to the database stopped answering its checks, which run every 5 seconds. Its readiness probe answers `database_unavailable`, so the load balancer stops sending it requests.
+**What it means.** An instance's own connection to the database stopped answering its [checks](../spec/platform.md#readiness-and-shutdown). Its readiness probe answers `database_unavailable`, so the load balancer stops sending it requests.
 
 **Look first.** The API platform dashboard: "Can each instance reach its database?" shows whether one instance or all of them lost it. The instance's `WARN` line "the database stopped answering" holds the error.
 
@@ -61,7 +61,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **Look first.** The Telemetry pipeline dashboard: "Is the API failing to export telemetry?" names the instance and the signal.
 
-**What to do.** Check that the collector runs and accepts data, and that the instance can reach `OTEL_EXPORTER_OTLP_ENDPOINT`. A collector that answers slowly fails exports too, once each takes longer than 10 seconds.
+**What to do.** Check that the collector runs and accepts data, and that the instance can reach `OTEL_EXPORTER_OTLP_ENDPOINT`. A collector that answers slowly fails exports too, once each outlasts the [export timeout](../spec/platform.md#telemetry-export).
 
 ## CollectorDroppingTelemetry
 

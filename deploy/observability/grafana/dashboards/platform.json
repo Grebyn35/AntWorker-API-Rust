@@ -38,7 +38,7 @@
     {
       "type": "timeseries",
       "title": "Can each instance reach its database?",
-      "description": "1 while the instance's own database connection answers its checks, every 5 seconds; 0 otherwise.",
+      "description": "1 while the instance's own database connection answers its checks; 0 otherwise.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

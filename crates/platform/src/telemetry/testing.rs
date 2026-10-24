@@ -25,7 +25,7 @@ use crate::config::Environment;
 static LINES: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
 /// The test binaries, whose own events the tests' logger writes too.
-const TEST_BINARIES: [&str; 2] = ["integration", "panic_hook"];
+const TEST_BINARIES: [&str; 1] = ["integration"];
 
 /// What [`install`] installed: the tracer, and the meter with the exporter that keeps its
 /// metrics in memory.
@@ -59,6 +59,7 @@ pub fn install(service: Service) -> Result<(), TelemetryError> {
             .with_reader(PeriodicReader::builder(metrics.clone()).build())
             .build();
         opentelemetry::global::set_meter_provider(meter.clone());
+        super::metrics::provided();
         Some(Installed {
             _tracer: tracer,
             meter,

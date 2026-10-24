@@ -53,7 +53,7 @@ A review runs in passes over its whole scope. Each pass is two independent revie
 - Each finding falls into a fixed category: a broken rule, a contradiction, a rule that can't be checked, a missing rule, or a reference that doesn't resolve.
 - Each finding cites the statements involved, as above, and may name the decisions behind them.
 - Each finding is marked `must-fix` or `should-fix`. A finding is `must-fix` when an implementer following the documents would build the wrong thing, or would find two rules impossible to satisfy together. In a review of code, a finding is `must-fix` when the code breaks a cited statement, or when two statements can't both hold for it.
-- Each finding is tagged `regression` if the previous pass's fixes brought its defect in, or `found` if the defect was there before them, even where those fixes changed the text or code around it.
+- Each finding is tagged `regression` if a commit since the previous pass, such as its fixes, brought its defect in, or `found` if the defect was there before them, even where those commits changed the text or code around it.
 
 ### Fixing
 

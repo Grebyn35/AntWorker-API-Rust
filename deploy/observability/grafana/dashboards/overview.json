@@ -309,7 +309,7 @@
     {
       "type": "timeseries",
       "title": "What share of requests fail with a 5xx?",
-      "description": "Over the last 5 minutes. The line is the availability objective's budget: 0.1% of requests.",
+      "description": "Over the last 5 minutes. The line is the availability objective's error budget.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -366,7 +366,7 @@
     {
       "type": "timeseries",
       "title": "What share of requests take longer than the latency objective?",
-      "description": "Over the last 5 minutes, the share of requests slower than the latency objective. The line is the latency objective's budget: 1% of requests.",
+      "description": "Over the last 5 minutes, the share of requests slower than the latency objective. The line is the latency objective's error budget.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

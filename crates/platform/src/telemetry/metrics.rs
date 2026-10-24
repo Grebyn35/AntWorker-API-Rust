@@ -3,13 +3,34 @@
 //! `just metrics` writes the metric catalog from the declarations, and `check-metrics` reads
 //! them to check it (OBS-12).
 //!
-//! The first recording creates the instrument from the process's meter provider, which
-//! [`super::init`] sets up before any code records. Without telemetry export, the provider
-//! records nothing.
+//! The first recording after telemetry is set up creates the instrument from the process's meter
+//! provider. A recording before then is lost: an instrument created earlier would stay tied to no
+//! provider for the life of the process, so a test's metrics would depend on the order tests run
+//! in (TEST-07). Without telemetry export, the provider records nothing.
 
-use std::sync::OnceLock;
+use std::sync::{
+    OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 
 use opentelemetry::{KeyValue, Value, metrics::Meter};
+
+/// Whether telemetry has set up the process's meter provider, or chosen to export nothing.
+static PROVIDED: AtomicBool = AtomicBool::new(false);
+
+/// Lets the declarations create their instruments. Telemetry calls it once the process's meter
+/// provider is set up.
+pub(super) fn provided() {
+    PROVIDED.store(true, Ordering::Release);
+}
+
+/// The instrument in `cell`, created by `create` at the first call after telemetry is set up, or
+/// `None` before it is.
+fn instrument<T>(cell: &OnceLock<T>, create: impl FnOnce() -> T) -> Option<&T> {
+    PROVIDED
+        .load(Ordering::Acquire)
+        .then(|| cell.get_or_init(create))
+}
 
 /// The value of one label in a recording. A label whose value is `None` is left out of the data
 /// point, as the conventions ask of `error.type` on a success.
@@ -70,15 +91,16 @@ impl<const N: usize> Counter<N> {
     /// Adds `value`, with one value for each declared label, in order.
     pub fn add(&self, value: u64, labels: [LabelValue; N]) {
         let declared = &self.declared;
-        self.instrument
-            .get_or_init(|| {
-                meter()
-                    .u64_counter(declared.name)
-                    .with_unit(declared.unit)
-                    .with_description(declared.description)
-                    .build()
-            })
-            .add(value, &declared.attributes(labels));
+        let created = instrument(&self.instrument, || {
+            meter()
+                .u64_counter(declared.name)
+                .with_unit(declared.unit)
+                .with_description(declared.description)
+                .build()
+        });
+        if let Some(counter) = created {
+            counter.add(value, &declared.attributes(labels));
+        }
     }
 }
 
@@ -115,7 +137,7 @@ impl<const N: usize> Histogram<N> {
     /// Counts `value` in its bucket, with one value for each declared label, in order.
     pub fn observe(&self, value: f64, labels: [LabelValue; N]) {
         let declared = &self.declared;
-        let instrument = self.instrument.get_or_init(|| {
+        let created = instrument(&self.instrument, || {
             meter()
                 .f64_histogram(declared.name)
                 .with_unit(declared.unit)
@@ -123,8 +145,14 @@ impl<const N: usize> Histogram<N> {
                 .with_boundaries(self.boundaries.to_vec())
                 .build()
         });
-        // In path form, so check-instrument doesn't take it for a span's `record`.
-        opentelemetry::metrics::Histogram::record(instrument, value, &declared.attributes(labels));
+        if let Some(histogram) = created {
+            // In path form, so check-instrument doesn't take it for a span's `record`.
+            opentelemetry::metrics::Histogram::record(
+                histogram,
+                value,
+                &declared.attributes(labels),
+            );
+        }
     }
 }
 
@@ -158,15 +186,17 @@ impl<const N: usize> Gauge<N> {
     /// Sets the value to `value`, with one value for each declared label, in order.
     pub fn set(&self, value: u64, labels: [LabelValue; N]) {
         let declared = &self.declared;
-        let instrument = self.instrument.get_or_init(|| {
+        let created = instrument(&self.instrument, || {
             meter()
                 .u64_gauge(declared.name)
                 .with_unit(declared.unit)
                 .with_description(declared.description)
                 .build()
         });
-        // In path form, so check-instrument doesn't take it for a span's `record`.
-        opentelemetry::metrics::Gauge::record(instrument, value, &declared.attributes(labels));
+        if let Some(gauge) = created {
+            // In path form, so check-instrument doesn't take it for a span's `record`.
+            opentelemetry::metrics::Gauge::record(gauge, value, &declared.attributes(labels));
+        }
     }
 }
 
@@ -197,4 +227,22 @@ impl<const N: usize> Declared<N> {
 )]
 fn meter() -> Meter {
     opentelemetry::global::meter("platform")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_07_a_recording_before_telemetry_is_set_up_leaves_no_instrument() {
+        static EARLY: Counter<0> = Counter::new("platform.early", "{event}", "Early.", []);
+
+        EARLY.add(1, []);
+        let before = EARLY.instrument.get().is_some();
+        provided();
+        EARLY.add(1, []);
+
+        assert!(!before, "a recording before telemetry fixed the instrument");
+        assert!(EARLY.instrument.get().is_some());
+    }
 }

@@ -153,7 +153,7 @@ tests:
           - exp_labels:
               severity: ticket
             exp_annotations:
-              summary: The collector refused, or failed to pass on, telemetry in the last 10 minutes.
+              summary: The collector refused, failed to pass on, or dropped before deciding, telemetry in the last 10 minutes.
               runbook: docs/operations/runbooks.md#collectordroppingtelemetry
 
   - interval: 1m
