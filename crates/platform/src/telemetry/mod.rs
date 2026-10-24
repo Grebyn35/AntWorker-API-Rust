@@ -135,6 +135,8 @@ where
         names::DEPLOYMENT_ENVIRONMENT_NAME,
         environment_name(environment).into(),
     );
+    // json-subscriber's own OpenTelemetry option nests the IDs in an object, and OBS-05 wants
+    // them at the top level.
     layer.add_dynamic_field(names::TRACE_ID, |_, context| {
         context_ids(context).map(|(trace, _)| trace)
     });

@@ -106,6 +106,8 @@ disallowed-methods = [
     { path = "utoipa_axum::router::OpenApiRouter::merge", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
     { path = "utoipa_axum::router::OpenApiRouter::fallback", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
     { path = "utoipa_axum::router::OpenApiRouter::fallback_service", reason = "routes are registered through the builders of platform::http (API-14, API-17)" },
+    # MethodRouter::new and MethodRouter::on stay allowed: routes! expands to them in the
+    # module's own code, where clippy sees the calls.
     { path = "axum::routing::any", reason = "a method router is built by routes!, from the handler's documentation (API-14, API-17)" },
     { path = "axum::routing::any_service", reason = "a method router is built by routes!, from the handler's documentation (API-14, API-17)" },
     { path = "axum::routing::connect", reason = "a method router is built by routes!, from the handler's documentation (API-14, API-17)" },

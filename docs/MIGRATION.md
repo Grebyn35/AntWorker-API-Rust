@@ -143,7 +143,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | c252bab: the documentation rules and their format checks, the rules it rewrote against the code they describe, and the new clippy bans | 1 | 22 (18, 6, 2 shared) | 8 | 0 | `next pass`: 58d9917 |
 | c252bab: the documentation rules and their format checks, the rules it rewrote against the code they describe, and the new clippy bans | 2 | 15 (12, 7, 4 shared) | 2 | 2 | `stopped: no progress`: c891b3a |
 | cf1253c: step 1.2, the request pipeline, and the built code it rewrites: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle` | 1 | 17 (16, 10, 9 shared) | 9 | 0 | `next pass`: aa2ce06 |
-| cf1253c: step 1.2, the request pipeline, and the built code it rewrites: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle` | 2 | 17 (12, 7, 2 shared) | 2 | 1 | `stopped: no progress` |
+| cf1253c: step 1.2, the request pipeline, and the built code it rewrites: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle` | 2 | 17 (12, 7, 2 shared) | 2 | 1 | `stopped: no progress`: 1d8c2d0 |
 
 ## Decisions
 
