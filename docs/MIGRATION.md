@@ -149,6 +149,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | cf1253c: step 1.2, the request pipeline, and the built code it rewrites: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle` | 2 | 17 (12, 7, 2 shared) | 2 | 1 | `stopped: no progress`: 1d8c2d0 |
 | b60787f..9a0522d: API-17's method test, and the checks that took over review for DOC-09, DOC-15, CODE-03, OBS-03 and OBS-06 | 1 | 7 (7, 3, 3 shared) | 3 | 0 | `next pass`: ffb3316 |
 | b60787f..9a0522d: API-17's method test, and the checks that took over review for DOC-09, DOC-15, CODE-03, OBS-03 and OBS-06 | 2 | 6 (5, 1, 0 shared) | 3 | 2 | `stopped: no progress`: 9dca252 |
+| 3ae7168: the workspace shapes (D39, D40), and the table check of DOC-15 | 1 | 9 (8, 2, 1 shared) | 3 | 0 | `next pass` |
 
 ## Decisions
 
