@@ -86,6 +86,8 @@ dev mode="": bootstrap
 # database, then applies new migrations and restarts the API whenever its code or a migration
 # changes. `just dev observe` also starts the observability stack and exports the API's
 # telemetry to it; docs/operations/observability.md lists where each service answers.
+# watchexec runs `just` without a shell: through its default shell on Windows, `just` receives
+# no recipe name and runs `ci`.
 [windows]
 dev mode="": bootstrap
     if ('{{ mode }}' -eq 'observe') { docker compose --profile observability up --detach --wait; if ($LASTEXITCODE -ne 0) { throw 'the observability stack did not start' }; $env:OTEL_EXPORTER_OTLP_ENDPOINT = 'http://127.0.0.1:4318' } elseif ('{{ mode }}' -ne '') { throw 'just dev takes nothing, or observe' }; watchexec --restart --shell=none --watch crates --watch migrations --exts rs,sql,toml -- just _dev-serve

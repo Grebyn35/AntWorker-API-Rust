@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** the conformance review of step 1.3, telemetry, which is built: export over OTLP, the metric declarations, the observability stack with its dashboards and alerts, the three checks of OBS-08 and OBS-11 to OBS-14, and `just dev`. Then step 1.4, the image and the pipeline.
+**Next:** step 1.4 of the build order, the image and the pipeline, in this order: the spec, the code test-first, and the conformance review. Step 1.3, telemetry, is built, and its review stopped at pass 2 with its must-fix finding resolved. Step 1.5 then builds the reference deployment, with Grafana on an HTTPS address and the path to a managed observability backend (D42).
 
 **Waiting on the owner:** nothing.
 
@@ -71,7 +71,7 @@ Each module goes through these stages, in order:
 
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
-| `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry | database, configuration, errors, types, request pipeline, lifecycle, telemetry | database, configuration, errors, types, request pipeline, lifecycle, telemetry names and the logging setup |
+| `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry | database, configuration, errors, types, request pipeline, lifecycle, telemetry | database, configuration, errors, types, request pipeline, lifecycle, telemetry |
 | `accounts` | USER | first slice | first slice | | | |
 | `auth` | AUTH | first slice | first slice | | | |
 | `access` | WS | first slice | first slice | | | |
@@ -153,7 +153,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 3ae7168: the workspace shapes (D39, D40), and the table check of DOC-15 | 1 | 9 (8, 2, 1 shared) | 3 | 0 | `next pass`: 16f4aae |
 | 3ae7168: the workspace shapes (D39, D40), and the table check of DOC-15 | 2 | 7 (7, 3, 3 shared) | 1 | 1 | `stopped: no progress`: 1e56256 |
 | e3939f2..f09687d: step 1.3, telemetry: export, the metric declarations, the observability stack and its checks, `just dev`, and the plan of D42 | 1 | 17 (14, 6, 3 shared) | 6 | 0 | `next pass`: ce2c87a |
-| e3939f2..ce2c87a: step 1.3, telemetry: export, the metric declarations, the observability stack and its checks, `just dev`, and the plan of D42 | 2 | 7 (6, 2, 1 shared) | 1 | 1 | `stopped: no progress` |
+| e3939f2..ce2c87a: step 1.3, telemetry: export, the metric declarations, the observability stack and its checks, `just dev`, and the plan of D42 | 2 | 7 (6, 2, 1 shared) | 1 | 1 | `stopped: no progress`: 3e95ac0 |
 
 ## Decisions
 
