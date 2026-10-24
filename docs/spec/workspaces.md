@@ -66,4 +66,5 @@ When an account with that email already exists, the subcommand makes it the owne
 | Which actor the setup subcommand's audit entries record, since the subcommand runs with no `Principal` (AUDIT-002) | the spec of the full `workspaces` module |
 | How the owner sets their first password in a deployment with email turned off (MAIL-004), where password reset can't send its code | the spec of the full `auth` module, with password reset |
 | How the owner signs in to the account the setup subcommand created, in a fork that signs in only through OAuth providers | the spec of the full `auth` module, with identity linking |
+| How a client in the personal shape avoids creating two workspaces when two of the user's devices find them in none at the same moment ([architecture §5](../architecture.md#workspace-shapes)) | step 2.2, which builds `POST /v1/workspaces` and its idempotency |
 | How the command that removes an optional part (ARCH-07) rewrites prose that names the part, such as the shapes in architecture §5, so a fork's documents describe only its own shape | the command, built with `check-removable` in step 2.3 |
