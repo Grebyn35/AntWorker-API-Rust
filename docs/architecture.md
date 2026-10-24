@@ -91,7 +91,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 ```
 crates/app/
   src/
-    main.rs            subcommands: bootstrap, migrate, serve, seed, openapi
+    main.rs            the subcommands (§9)
     lib.rs             the crate root: makes public only the composition root's entry points (CODE-14)
     composition.rs     the composition root: builds every service once at startup and mounts every module's routes
     modules/
@@ -114,13 +114,25 @@ crates/app/
 | `files` | `files`, `object_deletions` | Upload, list, download and delete of user and workspace files, public files, and the orphan sweep. |
 | `accounts` | `users`, `user_preferences`, `data_exports` | Profile, preferences and consent, avatar, and account deletion and export, which it orchestrates across modules through the personal data contract (D16, D31). |
 | `auth` | `sessions`, `verification_codes`, `identities`, `provider_tokens`, `pending_email_changes` | Registration, login with credentials or OAuth, refresh, logout, sessions, password reset and change, email verification and change, identity linking, and re-authentication for sensitive actions. Account deletion is confirmed here, then carried out by `accounts`. One file per OAuth provider in `auth/providers/`. Implements `SessionVerifier`. |
-| `workspaces` | `workspaces` | Creating, updating, transferring and deleting workspaces, the members endpoints (list, change role, remove, leave), and the workspace picture. |
+| `workspaces` | `workspaces` | Creating workspaces in each shape (below), updating, transferring and deleting them, the members endpoints (list, change role, remove, leave), and the workspace picture. |
 | `invitations` | `invitations` | Invite, list, resend, cancel, accept, decline, and expiry. |
 | `client_telemetry` | none | The telemetry proxy for the desktop client, enforcing consent on the server (D7). |
 | `system` | none | The capabilities endpoint (D9), and the schema endpoints, which list the permissions and the audit actions. The health probes belong to `platform` (§4). |
 | `platform` | `events`, `jobs`, `job_schedules`, `rate_limit_buckets`, `idempotency_records` | The mechanisms in §4. |
 
 Table naming follows the data standard.
+
+### Workspace shapes
+
+Data a module adds for its product lives in a workspace, and is reached through `Authorized<P>` (§6). Account data, such as the profile, sessions and the user's own audit log, belongs to the user. A product uses workspaces in one of three shapes. In the last two, each user works in one workspace, so a client can leave workspaces out of its interface.
+
+| Shape | Who creates workspaces | Who joins one | The optional parts it keeps |
+|---|---|---|---|
+| Teams | each user, as many as they need | people a member invites | users creating workspaces, `invitations` |
+| One organization | the setup subcommand, once, together with its owner's account (§9) | people a member invites | the setup subcommand, `invitations` |
+| Personal | the client, for each user the first time they sign in | nobody | users creating workspaces |
+
+A fork chooses its shape once, when it starts, by removing the optional parts it doesn't keep with the command ARCH-07 provides, never through a setting, so it carries no code for a shape it doesn't use. In the personal shape, the API has no notion of a personal workspace: without `invitations`, nobody can join the workspace a user creates. The template keeps every part and serves the teams shape. Registration creates no workspace, so an invited user joins only the workspace they were invited to, and a user who signs up uninvited is offered to create one (D16). Only an operator runs the setup subcommand, so keeping it changes nothing for the template's users. How each part creates a workspace is in the [workspaces spec](spec/workspaces.md#creating-a-workspace). In every shape, the same authorization and the same tenancy checks guard the data (DATA-22, TEST-09).
 
 ### Dependencies
 
@@ -270,6 +282,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   - `serve` binds one HTTP port and runs the HTTP server, the real-time hub, the job dispatcher and the scheduler.
   - `migrate` is the one-shot migration step.
   - `seed` loads development data.
+  - The setup subcommand creates the deployment's one workspace and its owner's account, in a fork that keeps it (§5, "Workspace shapes").
   - `openapi` writes the contract, `openapi.json`, which a test compares with the committed one (API-17).
 - **The single-host reference deployment** runs N API replicas behind Caddy, with Postgres, SeaweedFS and, as an option, the observability stack. A deploy needs only the release's published artifacts on the server, never a checkout of the repository. It replaces replicas with no downtime and rolls back on failure (D15, OPS-16), and scheduled backups go to object storage (D30). The deploy tooling is chosen when the deployment is built.
 - **Scaling out** means adding replicas. The connection budget is replicas × (pool size + 1 listener), and it must fit within Postgres's `max_connections`. The listener needs a direct connection, which rules out PgBouncer in transaction mode. Under load, each replica sheds requests with 503 and `Retry-After` instead of queuing without bound (D20).
@@ -325,7 +338,8 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Session | One signed-in device or client, holding an access token and a refresh token. |
 | Provider token | A credential from an OAuth provider, stored encrypted (SEC-02). It is revoked when the session or identity that needs it ends. |
 | Principal | The authenticated caller of a request, produced by `platform::authn` (D18). |
-| Workspace | A shared space that users are members of. Owns workspace files, invitations and its audit log. |
+| Workspace | A space whose members share its data: a team's, an organization's, or one user's own (§5). Owns workspace files, invitations and its audit log. |
+| Workspace shape | How a product uses workspaces: teams, one organization, or personal (§5). |
 | Membership | A user's place in a workspace, with exactly one role. Owned by `access`. |
 | Owner | The one role per workspace that can transfer or delete it. |
 | Role | A named set of permissions, defined in code in `access` (D2). |

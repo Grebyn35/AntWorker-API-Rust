@@ -207,14 +207,25 @@ pub fn tables(text: &str) -> Vec<Table> {
     tables
 }
 
-/// The cells of a table row, trimmed.
+/// The cells of a table row, trimmed. An escaped pipe, `\|`, belongs to its cell, as in
+/// GitHub's tables.
 fn cells(row: &str) -> Vec<String> {
-    row.trim()
-        .trim_start_matches('|')
-        .trim_end_matches('|')
-        .split('|')
-        .map(|cell| cell.trim().to_owned())
-        .collect()
+    let row = row.trim().trim_start_matches('|').trim_end_matches('|');
+    let mut cells = Vec::new();
+    let mut cell = String::new();
+    let mut chars = row.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                cell.push(c);
+                cell.extend(chars.next());
+            }
+            '|' => cells.push(std::mem::take(&mut cell).trim().to_owned()),
+            _ => cell.push(c),
+        }
+    }
+    cells.push(cell.trim().to_owned());
+    cells
 }
 
 /// Whether `cells` are the row that separates a table's header from its rows, such as `|---|`.

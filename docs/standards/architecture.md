@@ -37,13 +37,14 @@ SQL in a module references only the tables that module owns. Data owned by anoth
 - Check: `ci: check-table-ownership` (table references in each module's SQL against the ownership list), plus `review`.
 
 ### ARCH-07 Optional parts are removable
-Two kinds of part are optional:
+These parts are optional:
 - Each OAuth provider is one file in `auth/providers/` plus one line in that directory's registry.
 - The `client_telemetry` module is registered only in `composition.rs`.
+- Each part that gives a product its workspace shape ([architecture.md §5](../architecture.md#workspace-shapes)): users creating workspaces through `POST /v1/workspaces`, the setup subcommand, and the `invitations` module.
 
-An optional part consists of its code, its registration, its tests, its section of the module spec, its settings in `.env.example`, the metrics it declares with the dashboard panels and alerts that use them, and its routes in `openapi.json`. Deleting all of these leaves a codebase that compiles and passes its tests. Every other module is a core module. No Cargo feature flag selects modules or optional parts.
-- Why: a fork that doesn't need a feature removes it by deleting it (D29).
-- Check: `ci: check-removable`, which runs on `main` and removes each optional part in turn.
+An optional part consists of its code, its registration, its tests, its section of the module spec (for a module, its whole spec), its settings in `.env.example`, the metrics it declares with the dashboard panels and alerts that use them, and its routes in `openapi.json`. One command removes a named part by deleting all of these, and leaves a codebase that compiles and passes its tests. Every other module is a core module. No Cargo feature flag selects modules or optional parts.
+- Why: a fork that doesn't need a feature removes it by deleting it, and the workspace parts it keeps give its product its shape (D29, D39).
+- Check: `ci: check-removable`, which runs on `main` and, on a copy of the repository, runs that command for each optional part in turn.
 
 ## Layers
 

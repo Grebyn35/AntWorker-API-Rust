@@ -1,5 +1,5 @@
-//! `check-docs`, the formats: specs and rules keep the formats DOC-15 gives them, and the
-//! tracker keeps the sections DOC-16 lists.
+//! `check-docs`, the formats: specs, rules and every table keep the formats DOC-15 gives
+//! them, and the tracker keeps the sections DOC-16 lists.
 
 use crate::{
     Finding,
@@ -32,6 +32,32 @@ pub fn check(repo: &Repo) -> Vec<Finding> {
     let mut findings = specs(repo);
     findings.extend(rules(repo));
     findings.extend(tracker(repo));
+    findings.extend(table_rows(repo));
+    findings
+}
+
+/// Every row of a table in a document has as many cells as the table's header, so no row has
+/// lost a cell or run into the next one (DOC-15).
+fn table_rows(repo: &Repo) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for file in repo.files().filter(|file| file.path.ends_with(".md")) {
+        for table in markdown::tables(&file.text) {
+            for (line, cells) in &table.rows {
+                if cells.len() != table.header.len() {
+                    let noun = if cells.len() == 1 { "cell" } else { "cells" };
+                    findings.push(Finding::new(
+                        &file.path,
+                        *line,
+                        format!(
+                            "the row has {} {noun}, and its table's header has {} (DOC-15)",
+                            cells.len(),
+                            table.header.len()
+                        ),
+                    ));
+                }
+            }
+        }
+    }
     findings
 }
 
@@ -143,8 +169,8 @@ fn specs(repo: &Repo) -> Vec<Finding> {
 }
 
 /// A table whose first column is `ID`, or whose rows start with a behavior ID, is a table of
-/// behaviors: it sits in the Behaviors section, has the four columns in every row, and each
-/// test prefix matches its ID (DOC-15).
+/// behaviors: it sits in the Behaviors section, has the four columns, and each test prefix
+/// matches its ID (DOC-15). A row without the four cells is `table_rows`'s finding.
 fn behavior_table(path: &str, table: &Table) -> Vec<Finding> {
     let defines_behaviors = table
         .rows
@@ -171,14 +197,6 @@ fn behavior_table(path: &str, table: &Table) -> Vec<Finding> {
     }
     for (line, cells) in &table.rows {
         let (Some(id), Some(prefix)) = (cells.first(), cells.get(3)) else {
-            findings.push(Finding::new(
-                path,
-                *line,
-                format!(
-                    "the row of {} doesn't have the table's four columns (DOC-15)",
-                    cells.first().map_or("a behavior", String::as_str)
-                ),
-            ));
             continue;
         };
         let expected = format!("`{}_`", id.to_lowercase().replace('-', "_"));
@@ -448,6 +466,20 @@ mod tests {
     }
 
     #[test]
+    fn doc_15_every_row_of_a_table_has_its_headers_cells() {
+        let notes = "# Notes\n\n| A | B |\n|---|---|\n| one | two |\n\
+                     | three || four | five |\n| `a \\| b` | six |\n| seven |\n";
+
+        assert_eq!(
+            findings(&[("docs/notes.md", notes)]),
+            [
+                "docs/notes.md:6: the row has 4 cells, and its table's header has 2 (DOC-15)",
+                "docs/notes.md:8: the row has 1 cell, and its table's header has 2 (DOC-15)"
+            ]
+        );
+    }
+
+    #[test]
     fn doc_15_a_spec_section_that_is_unknown_out_of_order_or_missing_is_reported() {
         let reordered = "# Spec\n\n## Behaviors\n\n## Purpose\n\n## Notes\n";
         let short = "# Spec\n\n## Purpose\n\nGadgets.\n";
@@ -596,7 +628,7 @@ mod tests {
             findings(&[("docs/spec/widgets.md", spec)]),
             [
                 "docs/spec/widgets.md:9: a table of behaviors has the columns ID, Behavior, Rules and Test prefix (DOC-15)",
-                "docs/spec/widgets.md:15: the row of WIDGETS-002 doesn't have the table's four columns (DOC-15)"
+                "docs/spec/widgets.md:15: the row has 2 cells, and its table's header has 4 (DOC-15)"
             ]
         );
     }

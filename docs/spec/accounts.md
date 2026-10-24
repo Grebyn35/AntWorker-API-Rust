@@ -41,6 +41,10 @@
 
 `email_verified` starts as `false` and isn't enforced anywhere in this slice. The verification flow, and the gate that enforces it, come with the full `auth` module.
 
+### Export and erasure
+
+Both arrive with the full module, through the personal data contract (D31). Export covers the same workspaces that erasure deletes: the content of every workspace whose only member is the user is part of their export, and the content of every other workspace isn't (D16). In the personal shape, that is everything the user made ([architecture §5](../architecture.md#workspace-shapes)).
+
 ## Open design questions
 
 None.

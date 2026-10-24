@@ -2,7 +2,7 @@
 
 Where each commitment in the recommendation text of D1 to D36 ([SYNTHESIS.md](SYNTHESIS.md)) is carried: by a rule in `docs/standards/`, a behavior or design section in `docs/spec/`, or `docs/architecture.md`. It checks a fixed list, so it converges: each commitment is carried, contradicted or not yet carried.
 
-Of 291 commitments, 223 are carried, 17 are refined or contradicted by the rules, 5 aren't yet carried in the first slice, and 41 wait for later steps.
+Of 291 commitments, 222 are carried, 18 are refined or contradicted by the rules, 5 aren't yet carried in the first slice, and 41 wait for later steps.
 
 ## Use
 
@@ -19,6 +19,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D8 | Constraint violations map to 4xx | ERR-05: each constraint a repository relies on maps to a domain outcome; an unexpected violation is `Internal` |
 | D8, D10, D11 | Every response is a problem with a trace ID; the SDK samples every trace; an IP limit applies to every route | API-07, API-16, OBS-08, OBS-15, SEC-12 and OPS-05 exempt the health probes |
 | D10 | Every log line carries the trace and span IDs | OBS-02: a line written inside a span carries them |
+| D29 | OAuth providers and the client telemetry module are removable; the core modules are not | ARCH-07 also makes removable each part that gives a product its workspace shape, the `invitations` module among them (D39) |
 | D22 | A Cargo workspace with two crates | ARCH-01: the API has two crates, and a third, `xtask`, holds the custom CI checks |
 | D22 | The service holds the transaction boundary | The platform spec's unit of work: the route opens it and the service commits it |
 | D22 | Traits exist only where there are two real implementations | ARCH-13 also allows traits that invert a dependency |
@@ -54,8 +55,8 @@ Modules carry their own; the build order step of each other area is in parenthes
 |---|---|
 | `access` | the permission that reveals IP addresses in audit entries; the ADR on custom roles (D2) |
 | `audit` | reads filtered by permission (D2); the target filterable and visible to that user; bounded retention (D6) |
-| `auth` | the ADR on accepted enumeration (D7); forgot-password answers 503 with email off (D9); the OAuth redirect allowlist (D18) |
-| `accounts` | deletion refused while the user owns a shared workspace, sole-member workspaces deleted with the account, and the ADR on immediate deletion (D16); the export endpoint, one per 24 hours, its archive, notice, download and scope, and the optional erasure precondition (D31) |
+| `auth` | the ADR on accepted enumeration (D7); forgot-password answers 503 with email off (D9); the OAuth redirect allowlist (D18); password reset that sets the first password of an account created without one, and verifies its address (the `workspaces` spec's setup subcommand, D39) |
+| `accounts` | deletion refused while the user owns a shared workspace, sole-member workspaces deleted with the account, and the ADR on immediate deletion (D16); the export endpoint, one per 24 hours, its archive, notice, download and scope, which includes the content of every workspace whose only member is the user (the `accounts` spec's Design, D39), and the optional erasure precondition (D31) |
 | `files` | a bucket for anonymous public-file downloads (D11) |
 | Observability (1.3) | Grafana links between logs and traces (D10); the operator questions in the docs, the overview dashboard, the same topology in development and production, and newcomer docs with an error-to-trace walkthrough (D19); the observability profile one flag away (D28) |
 | Deploy and CI (1.2 to 1.5) | Caddy's trusted proxies (D11); TLS everywhere and storage encrypted at rest (D14, queued); alerts that don't depend on the deploy tooling (D15); Compose memory and CPU limits (D20); the five pull-request stages, shellcheck, the `edge` tag, keyless signing, the weekly rescan and dependency updates (D21); the OpenAPI UI in development only, in step 2.4 (D28) |

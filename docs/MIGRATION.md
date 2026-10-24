@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 1.3 of the build order, telemetry, in this order: the spec, the code test-first, and the conformance review. It closes the known gaps of ERR-11 and ERR-12 with the metric macro, and decides the proposals that wait on it. Step 1.2 is built. Its review, and the review of the checks that then took over review clauses, each stopped at pass 2 with every must-fix finding resolved.
+**Next:** finish the conformance review of the commit that settled the workspace shapes (D39, D40) and added the table check of DOC-15, then step 1.3 of the build order, telemetry: the spec, the code test-first, and its conformance review. Step 1.3 closes the known gaps of ERR-11 and ERR-12 with the metric macro, and decides the proposals that wait on it.
 
 **Waiting on the owner:** nothing.
 
@@ -48,6 +48,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | 1.3 |
 | The image and the delivery pipeline, with the release docs | D15, D21 | 1.4 |
 | The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30 | 1.5 |
+| The command that removes an optional part, which `check-removable` runs | D29, D39 | 2.2 |
 | `just seed` and the OpenAPI UI in development | D28 | 2.4 |
 | The threat model | D26 | 3 |
 | `just new-module` and the guide to adding a module | D29 | 5 |
@@ -102,7 +103,7 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `check-tenancy` | 2.2, with the first workspace tables |
 | `check-layout`, `check-table-ownership`, `check-config`, `check-migrations`, `sqlx-check`, `setup-smoke` | 3 decides: built, or the rule's check changes |
 | `check-personal-data` | 5, with export and erasure in `accounts` |
-| `check-removable` | 5, with the first optional part |
+| `check-removable` | 2.2, with the first optional part: users creating workspaces |
 | `test-migrations` | 6, with the first release |
 | `check-rename` | 6, with `just rename` |
 
@@ -193,3 +194,5 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D36 | The commit decides the outcome | accepted |
 | D37 | Crates that implement the Postgres protocol may build its standard constructions from vetted primitives (SEC-14) | accepted |
 | D38 | A verified database connection trusts the operating system's certificate store, not certificates compiled in ([platform spec](spec/platform.md#connections)) | accepted |
+| D39 | A product's data lives in workspaces, and the optional parts a fork keeps give it its shape: teams, one organization, or personal ([architecture](architecture.md#workspace-shapes)) | accepted |
+| D40 | A data export covers the content of every workspace whose only member is the user, the same workspaces that erasure deletes ([accounts spec](spec/accounts.md#export-and-erasure)) | accepted |

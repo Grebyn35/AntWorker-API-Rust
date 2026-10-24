@@ -63,4 +63,6 @@ The job `invitations.expire` deletes rows whose `expires_at` has passed. It span
 
 ## Open design questions
 
-None.
+| Question | Settled by |
+|---|---|
+| Whether listing and accepting the caller's invitations (INVITATIONS-004, INVITATIONS-005) requires a verified email, so nobody who registers an invitee's address before them can see or accept the invitation | the spec of the full `auth` module, with the gate that enforces verification |
