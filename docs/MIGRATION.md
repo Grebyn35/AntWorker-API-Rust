@@ -19,7 +19,7 @@ Every part of the system is listed under [Foundation](#foundation), [Modules](#m
 1. **Walking skeleton.** The running system, end to end, before any feature:
    1. **Review tools:** the checker tool in `xtask`, the conformance reviewer and the handoff skill in `.claude/` (D27). The checker starts with `check-test-map`, which reports every behavior that no test proves, and `check-docs`, which fails on any ID or link that doesn't resolve (DOC-13), on a check a rule names that neither [operations/ci.md](operations/ci.md) nor [CI checks](#ci-checks) lists, and on a document whose format breaks DOC-15 or DOC-16.
    2. **Request pipeline:** problem responses with trace IDs, trace context in and out, the middleware stack except rate limiting, readiness and bounded shutdown, and the capabilities endpoint as the first `/v1` route, with `openapi.json`, against which the test support checks every response the integration tests receive. Counting panics (ERR-12) and leaving the probes out of request metrics (OBS-15) wait for the metric macro in step 1.3. The step's conformance review also covers the built code it rewrites, which no review has covered yet: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle`.
-   3. **Telemetry:** traces, logs and metrics exported over OTLP; the metric declaration macro; the collector, Prometheus, Loki, Tempo, Grafana and Alertmanager, with logs and traces linked both ways; the first dashboard questions and alerts; and the generated metric catalog. `just dev` runs the API with the stack one flag away.
+   3. **Telemetry:** traces, logs and metrics exported over the OpenTelemetry Protocol (OTLP); the metric declaration macro; the collector, Prometheus, Loki, Tempo, Grafana and Alertmanager, with logs and traces linked both ways; the first dashboard questions and alerts; and the generated metric catalog. `just dev` runs the API with the stack one flag away.
    4. **Image and pipeline:** the image, and CI that builds it once, scans it, boots it, runs the end-to-end suite against it, and promotes its digest, with signed releases on tags.
    5. **Reference deployment:** the production setup on one server, its deploy tooling, scheduled backups and restore, and the load test. The end-to-end suite proves a deploy with no downtime, a rollback, a restore, and the trace-ID guarantee for a 4xx response (D10).
 2. **Thin slice.** Spec it, then build it test-first, each part extending the skeleton:
@@ -32,7 +32,7 @@ Every part of the system is listed under [Foundation](#foundation), [Modules](#m
 3. **Rule fixes.** Apply one round of rule changes from what steps 1 and 2 taught, through [Changing a rule](standards/README.md#changing-a-rule). The round deletes rules as well as fixing them: a rule that no code needed, or that only restates another, goes. It settles each CI check that [CI checks](#ci-checks) leaves to it, and the commit message records the number of rules, behaviors and CI checks before and after. Right after it, rule and behavior IDs are renumbered once, closing the gaps the round leaves, before later tests carry the old numbers. From then on, IDs are never reused.
 4. **Afternoon test.** A developer or agent new to the codebase, using only the docs, adds a small feature to the slice. Anything that slows them down is fixed by removing complexity, not by adding it.
 5. **Remaining modules, one at a time.** `just new-module` and the guide to adding a module come first, shaped by the afternoon test, and every remaining module starts from them. Each module's spec is written just before the module is built, and carries the commitments that [inventory/decision-trace.md](inventory/decision-trace.md) lists for it.
-6. **Close the migration.** The remaining parts under [Foundation](#foundation) are built, and one conformance review covers the whole codebase, under the same stopping rule. The ADRs are written from the rules as they then stand: ADR-00NN records decision DNN, and [inventory/decision-trace.md](inventory/decision-trace.md) lists where the rules refine the decisions' first wording in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Every `DNN` citation is replaced with a link to its ADR, and architecture.md is rewritten to describe the system as built (DOC-01). The migration closes when [Known gaps](#known-gaps) and [Rule proposals](#rule-proposals) are empty. Then `docs/inventory/` and this file are deleted.
+6. **Close the migration.** The remaining parts under [Foundation](#foundation) are built, and one conformance review covers the whole codebase, under the same stopping rule. The architecture decision records (ADRs) are written from the rules as they then stand: ADR-00NN records decision DNN, and [inventory/decision-trace.md](inventory/decision-trace.md) lists where the rules refine the decisions' first wording in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Every `DNN` citation is replaced with a link to its ADR, and architecture.md is rewritten to describe the system as built (DOC-01). The migration closes when [Known gaps](#known-gaps) and [Rule proposals](#rule-proposals) are empty. Then `docs/inventory/` and this file are deleted.
 
 
 ## Foundation
@@ -52,7 +52,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | The threat model | D26 | 3 |
 | `just new-module` and the guide to adding a module | D29 | 5 |
 | `just rename`, the guide to renaming a fork, and the GitHub template repository | D29 | 6 |
-| `SECURITY.md` and the OWASP ASVS Level 2 pass | D26 | 6 |
+| `SECURITY.md`, and the pass against Level 2 of the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) | D26 | 6 |
 | The ADRs and `CHANGELOG.md` | D27, D29 | 6 |
 
 ## Modules
@@ -113,7 +113,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 | Rule or behavior | Built code that doesn't follow it | Closed by |
 |---|---|---|
 | ERR-12 | A panic answers the 500 problem and is logged, but isn't counted in `app.platform.panics`, which waits for the metric macro. | 1.3 |
-| ERR-11 | `Telemetry::finish` ignores the result of ending the tracer without `errors::ignore`, which arrives with its metric. The tracer exports nothing yet, so ending it can't fail. | 1.3 |
+| ERR-11 | `errors::ignore` writes its `WARN` line, but doesn't count it in `app.platform.errors_ignored`, which waits for the metric macro. | 1.3 |
 
 ## Rule proposals
 
@@ -126,11 +126,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Standards review | An OPS rule for D14: TLS on every connection that leaves the host, and storage encrypted at rest as a stated deployment requirement. | 1.5 |
 | Research | API-15 names the draft it follows: draft-ietf-httpapi-ratelimit-headers-11 (2026-05), with `RateLimit: "default";r=50;t=30` and `RateLimit-Policy: "burst";q=100;w=60`. | 2.1 |
 | Research | API-12 names the draft it follows: draft-ietf-httpapi-idempotency-key-header-08 (2026-10), whose key is a structured-field string. | 2.2 |
-| Conformance review of cf1253c | CODE-03, OPS-03: how a subcommand reports a failure of its own work, which `openapi`, `bootstrap` and `migrate` log as `startup failed` | 1.2, with pass 1's fixes |
-| Conformance review of cf1253c | TEST-05: test-only routes, registered through the builders, for the pipeline's behaviors that no real route shows, such as a panic or a request that never ends | 1.2, with pass 1's fixes |
-| Conformance review of cf1253c | API-07, API-09: whether `request.invalid_query` names the unknown parameters in `errors`, since clients never act on `detail` (ERR-09) | 1.2, with pass 1's fixes |
-| Conformance review of cf1253c | ERR-11: a clippy ban on discarding a `Result` with `.ok()`, so an ignored error outside `errors::ignore` takes no review | 1.2, with pass 1's fixes |
-| Conformance review of cf1253c | ERR-13: `check-openapi` fails on an operation that lacks a code its route group can answer, such as when a route documents its own 400 | 1.2, with pass 1's fixes |
+| Conformance review of cf1253c | API-07, API-09: whether `request.invalid_query` names the unknown parameters in `errors`, since clients never act on `detail` (ERR-09) | 2.1, with the first route that parses query values |
 | Conformance review of c252bab | DATA-20: a check reads the locked sqlx sources and fails on a public function that takes SQL text and that `clippy.toml` doesn't ban, so the bans stay complete when sqlx is updated. | 2.1, which writes the first queries of a module |
 
 ## Conformance reviews

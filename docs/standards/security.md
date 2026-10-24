@@ -17,12 +17,12 @@ Third-party credentials stored in the database, such as OAuth provider tokens, a
 ## Credentials and tokens
 
 ### SEC-03 Tokens and codes are random, hashed and compared in constant time
-Access tokens, refresh tokens and verification codes come from the operating system's secure random source. Tokens are 256 bits and are stored only as SHA-256 hashes. Verification codes are short enough to guess, so they are stored as HMAC-SHA-256 under a secret key; the auth spec sets their lengths. Rotating that key invalidates outstanding codes, which expire within minutes anyway. Any comparison involving a secret is constant-time.
+Access tokens, refresh tokens and verification codes come from the operating system's secure random source. Tokens are 256 bits and are stored only as SHA-256 hashes. Verification codes are short enough to guess, so they are stored as HMAC-SHA-256, a hash-based message authentication code (HMAC), under a secret key; the auth spec sets their lengths. Rotating that key invalidates outstanding codes, which expire within minutes anyway. Any comparison involving a secret is constant-time.
 - Why: a database dump reveals no usable token or code, and timing reveals nothing (D32).
 - Check: `test`, plus `review`.
 
 ### SEC-04 Passwords use Argon2id
-Passwords are hashed with Argon2id at the current OWASP parameters, in PHC string format, on a blocking thread (CODE-05). A successful login rehashes a password stored with older parameters. The auth spec defines the password policy.
+Passwords are hashed with Argon2id at the current OWASP parameters, in the string format of the Password Hashing Competition (PHC), on a blocking thread (CODE-05). A successful login rehashes a password stored with older parameters. The auth spec defines the password policy.
 - Why: the recommended algorithm, with parameters that can be raised later (D26).
 - Check: `test`.
 
@@ -78,7 +78,7 @@ Public files never expose their original file name (D7).
 - Check: `test`.
 
 ### SEC-11 Security headers on every response
-Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. Authenticated responses carry `Cache-Control: no-store`, except public files. The reverse proxy in front of the API terminates TLS and sets HSTS.
+Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. Authenticated responses carry `Cache-Control: no-store`, except public files. The reverse proxy in front of the API terminates TLS and sets HTTP Strict Transport Security (HSTS).
 - Why: browser-level defenses are on by default.
 - Check: `test`.
 

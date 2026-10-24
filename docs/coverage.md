@@ -7,8 +7,8 @@ Every foundational area of the API, and where it is decided. This file answers "
 This map works from established references down, so it covers every area, whether or not a problem has been seen there:
 
 - **The Twelve-Factor App:** how a deployable service is built and run.
-- **OWASP ASVS:** the areas of application security. Level 2 is the target bar (D26).
-- **Google SRE practice:** monitoring, release engineering, capacity, overload and recovery.
+- **The Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP):** the areas of application security. Level 2 is the target bar (D26).
+- **Google's practice of site reliability engineering (SRE):** monitoring, release engineering, capacity, overload and recovery.
 - **Engineering foundations:** the code-level areas every codebase has to decide.
 - **Template concerns:** what a forkable skeleton needs that a normal product doesn't.
 
@@ -36,17 +36,17 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Area | Covered by |
 |---|---|
 | Architecture and threat model | D22, D26 |
-| Authentication | D18, D26, SPEC auth |
+| Authentication | D18, D26, the `auth` spec |
 | Session management | D5, D18 |
 | Access control | D2, D3, D4 |
 | Validation, sanitization and encoding | D25, D8 |
 | Cryptography and stored data protection | D14, D26 |
 | Error handling and logging | D17, D7 |
 | Data protection and privacy | D6, D7, D14, D31 |
-| Secure communication | D26 (TLS and HSTS at Caddy) |
+| Secure communication | D26 (TLS and HTTP Strict Transport Security (HSTS) at Caddy) |
 | Supply chain and malicious code | D21, D26 |
-| Business logic and anti-automation | D11, SPEC per domain |
-| Files and outbound requests | D26 (SSRF), SPEC files |
+| Business logic and anti-automation | D11, the spec of each module |
+| Files and outbound requests | D26 (server-side request forgery, SSRF), the `files` spec |
 | API and web services | D8, D12 |
 | Configuration and secrets | D9, D26 |
 
@@ -92,7 +92,7 @@ Each module in [architecture.md §5](architecture.md#5-modules) gets a spec in `
 
 ## Out of scope
 
-Each of these gets a one-line ADR so the boundary is on record:
+Each of these gets a one-line architecture decision record (ADR) so the boundary is on record:
 
 - Web-client support (the seams are in D18).
 - The desktop client, including the Tauri auto-updater, which is a separate project.

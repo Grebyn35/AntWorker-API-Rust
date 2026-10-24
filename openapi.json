@@ -100,6 +100,14 @@
           },
           "503": {
             "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress.",
+            "headers": {
+              "retry-after": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "How many seconds to wait before trying again."
+              }
+            },
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -184,6 +192,66 @@
           "type": {
             "type": "string",
             "description": "`/problems/<code>`."
+          }
+        }
+      }
+    },
+    "responses": {
+      "MethodNotAllowed": {
+        "description": "`request.method_not_allowed`: Method not allowed.",
+        "headers": {
+          "allow": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "The methods the path serves."
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "request.method_not_allowed"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "`request.not_found`: Not found.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "request.not_found"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
           }
         }
       }

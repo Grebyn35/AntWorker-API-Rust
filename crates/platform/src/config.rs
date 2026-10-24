@@ -37,14 +37,11 @@ impl FromStr for Environment {
     }
 }
 
-/// The most detailed log level written (OBS-03).
+/// The most detailed log level written (OBS-03). It is never coarser than `INFO`, because
+/// every request writes its completion line at `INFO` (PLATFORM-034).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LogLevel {
-    /// Only events a human must look at.
-    Error,
-    /// Also degraded but handled events.
-    Warn,
-    /// Also lifecycle events and one line per request.
+    /// Errors, warnings, lifecycle events and one line per request.
     Info,
     /// Also diagnostics.
     Debug,
@@ -57,8 +54,6 @@ impl FromStr for LogLevel {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.to_ascii_lowercase().as_str() {
-            "error" => Ok(Self::Error),
-            "warn" => Ok(Self::Warn),
             "info" => Ok(Self::Info),
             "debug" => Ok(Self::Debug),
             "trace" => Ok(Self::Trace),
@@ -182,11 +177,7 @@ where
     pub fn logging(&self) -> Result<LoggingConfig, ConfigError> {
         Ok(LoggingConfig {
             environment: self.required("ENVIRONMENT", "development, test or production")?,
-            level: self.optional(
-                "LOG_LEVEL",
-                LogLevel::Info,
-                "error, warn, info, debug or trace",
-            )?,
+            level: self.optional("LOG_LEVEL", LogLevel::Info, "info, debug or trace")?,
         })
     }
 
@@ -451,6 +442,20 @@ mod tests {
         assert_eq!("prod".parse::<Environment>(), Err(()));
         assert_eq!("DEBUG".parse(), Ok(LogLevel::Debug));
         assert_eq!("verbose".parse::<LogLevel>(), Err(()));
+    }
+
+    #[test]
+    fn ops_01_the_log_level_is_info_or_finer() {
+        for level in ["warn", "error"] {
+            let error = settings(&[("ENVIRONMENT", "test"), ("LOG_LEVEL", level)], &[])
+                .logging()
+                .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "LOG_LEVEL must be info, debug or trace",
+                "{level}"
+            );
+        }
     }
 
     #[test]

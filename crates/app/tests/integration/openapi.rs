@@ -23,3 +23,24 @@ async fn api_17_the_committed_openapi_json_is_the_one_the_binary_writes() {
         "openapi.json is out of date; run `just openapi`"
     );
 }
+
+#[test]
+fn err_13_every_code_the_pipeline_answers_is_in_the_committed_document() {
+    let document: serde_json::Value = serde_json::from_str(COMMITTED).unwrap();
+    let text = document.to_string();
+
+    for error in platform::errors::RequestError::every() {
+        let code = platform::errors::ErrorCode::code(&error);
+        assert!(
+            text.contains(&format!("\"{code}\"")),
+            "{code} isn't in openapi.json"
+        );
+        assert!(
+            text.contains(&format!(
+                "`{code}`: {}.",
+                platform::errors::ErrorCode::title(&error)
+            )),
+            "openapi.json doesn't say what {code} means"
+        );
+    }
+}

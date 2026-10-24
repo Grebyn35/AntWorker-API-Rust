@@ -14,7 +14,7 @@ use std::{
 use axum::{Json, Router, extract::State, http::StatusCode};
 use serde::Serialize;
 use serde_json::{Map, Value};
-use tokio::{net::TcpListener, sync::oneshot, task::JoinError};
+use tokio::{net::TcpListener, sync::Notify, task::JoinError};
 
 use crate::{
     clock::SharedClock,
@@ -155,11 +155,10 @@ pub async fn serve(
     shutdown: Shutdown,
     signal: impl Future<Output = ()>,
 ) -> io::Result<()> {
-    let (stop, stopped) = oneshot::channel::<()>();
-    let server = axum::serve(listener, app).with_graceful_shutdown(async {
-        // A dropped sender also stops the server.
-        stopped.await.ok();
-    });
+    let stop = Arc::new(Notify::new());
+    let stopped = stop.clone();
+    let server =
+        axum::serve(listener, app).with_graceful_shutdown(async move { stopped.notified().await });
     let mut server = tokio::spawn(server.into_future());
     tokio::select! {
         () = signal => {}
@@ -168,8 +167,8 @@ pub async fn serve(
     readiness.drain();
     tracing::info!("shutting down");
     clock.sleep(shutdown.delay).await;
-    // The server task holds the receiver until it stops, so the send reaches it.
-    stop.send(()).ok();
+    // Kept until the server waits for it, if it hasn't started waiting yet.
+    stop.notify_one();
     tokio::select! {
         result = &mut server => joined(result),
         () = clock.sleep(shutdown.drain) => {

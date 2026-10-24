@@ -7,7 +7,7 @@ use platform::{
     http::Pipeline,
     lifecycle::{self, Readiness, Shutdown},
 };
-use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
+use tokio::{net::TcpListener, sync::Notify, task::JoinHandle};
 
 use crate::support::{
     fixtures::{self, Gate},
@@ -22,7 +22,7 @@ struct Running {
     address: SocketAddr,
     clock: Arc<TestClock>,
     gate: Arc<Gate>,
-    signal: oneshot::Sender<()>,
+    signal: Arc<Notify>,
     served: JoinHandle<io::Result<()>>,
 }
 
@@ -40,7 +40,8 @@ async fn start() -> Running {
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
-    let (signal, received) = oneshot::channel::<()>();
+    let signal = Arc::new(Notify::new());
+    let received = signal.clone();
     let served = tokio::spawn(lifecycle::serve(
         listener,
         app,
@@ -50,9 +51,7 @@ async fn start() -> Running {
             delay: DELAY,
             drain: DRAIN,
         },
-        async {
-            received.await.ok();
-        },
+        async move { received.notified().await },
     ));
     Running {
         address,
@@ -77,7 +76,7 @@ async fn platform_038_the_server_drains_then_stops() {
     let running = start().await;
     let held = hold(&running).await;
 
-    running.signal.send(()).unwrap();
+    running.signal.notify_one();
     running.clock.sleeping(DELAY).await;
     let ready = http_request(running.address, "GET", "/health/ready", &[])
         .await
@@ -111,7 +110,7 @@ async fn platform_038_serve_returns_at_the_drain_deadline() {
     let running = start().await;
     let _held = hold(&running).await;
 
-    running.signal.send(()).unwrap();
+    running.signal.notify_one();
     running.clock.sleeping(DELAY).await;
     running.clock.advance(DELAY);
     running.clock.sleeping(DRAIN).await;

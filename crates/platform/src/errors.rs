@@ -10,7 +10,7 @@ use axum::{
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::telemetry;
+use crate::telemetry::{self, names};
 
 /// The kind of a failure. The category alone sets the status of the response (ERR-03).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -230,6 +230,22 @@ impl ErrorCode for RequestError {
     }
 }
 
+impl RequestError {
+    /// One value of every variant, so the OpenAPI document can list every code `platform`
+    /// answers (ERR-13). A new variant is added here too.
+    pub fn every() -> [Self; 7] {
+        [
+            Self::NotFound,
+            Self::MethodNotAllowed,
+            Self::InvalidQuery(Vec::new()),
+            Self::PayloadTooLarge,
+            Self::TimedOut,
+            Self::Overloaded,
+            Self::Panicked,
+        ]
+    }
+}
+
 const INTERNAL_CODE: &str = "request.internal_error";
 const INTERNAL_TITLE: &str = "Internal error";
 
@@ -286,6 +302,17 @@ impl ErrorCode for Internal {
     fn category(&self) -> Category {
         Category::Internal
     }
+}
+
+/// Ignores `error` on purpose, and writes one `WARN` line that says so (ERR-11). `reason` is a
+/// short `snake_case` name for the failure, such as `tracer_shutdown`, written as `error.type`,
+/// and the line's `exception.message` is the error's cause chain.
+pub fn ignore(error: &(dyn Error + 'static), reason: &'static str) {
+    tracing::warn!(
+        { names::ERROR_TYPE } = reason,
+        { names::EXCEPTION_MESSAGE } = chain(error),
+        "error ignored"
+    );
 }
 
 /// `error` and each of its causes, outermost first, joined with `: `.

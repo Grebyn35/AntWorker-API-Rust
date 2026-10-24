@@ -441,9 +441,11 @@ impl Server {
 
 impl Drop for Server {
     fn drop(&mut self) {
-        // The process may have exited already.
-        self.child.kill().ok();
-        self.child.wait().ok();
+        // Killing a process that has exited already succeeds.
+        let stopped = self.child.kill().and_then(|()| self.child.wait());
+        if !std::thread::panicking() {
+            stopped.expect("stop the API binary");
+        }
     }
 }
 

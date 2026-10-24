@@ -8,7 +8,7 @@
 
 | Table | Holds |
 |---|---|
-| `identities` | A user's sign-in methods. For a password: `user_id`, `method = 'password'`, and `password_hash` in PHC format. `(user_id, method)` is unique. |
+| `identities` | A user's sign-in methods. For a password: `user_id`, `method = 'password'`, and `password_hash` in the string format of the Password Hashing Competition (PHC). `(user_id, method)` is unique. |
 | `sessions` | `id`, `user_id`, `device_id` (optional), `access_token_hash`, `refresh_token_hash`, `previous_refresh_token_hash`, `created_at`, `access_expires_at`, `refresh_expires_at`, `absolute_expires_at`. Each hash is a SHA-256 of a token and has a unique index. `(user_id, device_id)` is unique where `device_id` is set. |
 
 ## Interface
@@ -45,7 +45,7 @@ All four routes take no `Idempotency-Key` (API-12).
 | AUTH-011 | An expired refresh token, or a session past its absolute lifetime, answers 401 `auth.session_expired` and rotates nothing. | SEC-06 | `auth_011_` |
 | AUTH-012 | Presenting the previous refresh token ends the session: it is deleted, an access-change signal is sent, and `session.reuse_detected` is recorded. The response is 401 `auth.invalid_refresh_token`, the same as for an unknown refresh token. | SEC-06, DATA-27 | `auth_012_` |
 | AUTH-013 | Signing out deletes the current session, sends an access-change signal that closes its streams, records `session.ended`, and answers 204. | SEC-06, DATA-27, D35 | `auth_013_` |
-| AUTH-014 | Passwords are hashed with Argon2id at the configured OWASP parameters, in PHC format, off the async runtime. A successful sign-in rehashes a password stored with older parameters. | SEC-04, CODE-05 | `auth_014_` |
+| AUTH-014 | Passwords are hashed with Argon2id at the configured parameters that the Open Worldwide Application Security Project (OWASP) recommends, in PHC format, off the async runtime. A successful sign-in rehashes a password stored with older parameters. | SEC-04, CODE-05 | `auth_014_` |
 
 ## Design
 

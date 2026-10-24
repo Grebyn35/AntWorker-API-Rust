@@ -10,7 +10,7 @@ A review finding cites a rule ID from these files, a behavior ID from a module s
 |---|---|---|
 | `ARCH` | [architecture.md](architecture.md) | Crates, module boundaries, layers, dependencies |
 | `CODE` | [code.md](code.md) | Rust style, lints, naming, size, dependencies |
-| `DOC` | [docs.md](docs.md) | Documents, comments, ADRs, changelog |
+| `DOC` | [docs.md](docs.md) | Documents, comments, architecture decision records (ADRs), changelog |
 | `ERR` | [errors.md](errors.md) | Error types, codes, propagation, logging of errors |
 | `API` | [api.md](api.md) | The HTTP contract: paths, methods, bodies, errors, pagination, idempotency |
 | `DATA` | [data.md](data.md) | Schema, migrations, database roles, tenancy, queries, transactions |

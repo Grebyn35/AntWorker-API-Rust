@@ -1,9 +1,5 @@
 //! The request pipeline: the route builders, the OpenAPI document they produce, and the
 //! middleware stack ([architecture §6](../../../../docs/architecture.md#6-request-lifecycle)).
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the builders are the one place that registers routes (API-14, API-17)"
-)]
 
 mod docs;
 mod stack;
@@ -37,8 +33,8 @@ impl Access {
 
 /// A module's routes, each registered with its documentation. Every route is added through a
 /// builder that states its access level (API-14), and takes the output of
-/// `utoipa_axum::routes!`, so a route serves exactly the path and methods its `#[utoipa::path]`
-/// documents (API-17).
+/// `utoipa_axum::routes!`, so a route serves the path and methods its `#[utoipa::path]`
+/// documents, and `HEAD` wherever it serves `GET` (API-17).
 pub struct Routes<S = ()> {
     router: OpenApiRouter<S>,
 }
@@ -77,12 +73,20 @@ where
 
     /// The routes of both.
     #[must_use]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the builders are the one place that registers routes (API-14, API-17)"
+    )]
     pub fn merge(self, other: Self) -> Self {
         Self {
             router: self.router.merge(other.router),
         }
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the builders are the one place that registers routes (API-14, API-17)"
+    )]
     fn add(self, access: Access, (mut schemas, mut paths, route): UtoipaMethodRouter<S>) -> Self {
         let queries = docs::document(&mut paths, access);
         schemas.push(docs::problem_schema());
@@ -94,10 +98,12 @@ where
 }
 
 impl Routes {
-    /// The OpenAPI document of the routes, for the service `service`.
+    /// The OpenAPI document of the routes, for the service `service`, with the problems the
+    /// router answers when no route matches.
     pub fn openapi(&self, service: Service) -> OpenApi {
         let mut document = self.router.get_openapi().clone();
         document.info = Info::new(service.name, service.version);
+        docs::fallbacks(&mut document);
         document
     }
 }
@@ -115,6 +121,10 @@ pub struct Pipeline {
 /// The application: every module's routes inside the middleware stack, the fallbacks, and the
 /// health probes, answered before the stack (OPS-05). The security headers wrap them all
 /// (SEC-11).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the builders are the one place that registers routes (API-14, API-17)"
+)]
 pub fn app(routes: Routes, pipeline: Pipeline) -> Router {
     let (api, _) = routes.router.split_for_parts();
     let api = api

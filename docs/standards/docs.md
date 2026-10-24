@@ -15,7 +15,7 @@ An edit rewrites the affected text so it reads as if it had always said that. Th
 ### DOC-03 History has three homes
 History is recorded only in:
 - git (commit messages and pull request descriptions)
-- ADRs (the context and reasoning behind a decision)
+- architecture decision records, or ADRs (the context and reasoning behind a decision)
 - `CHANGELOG.md` (release notes for forks)
 - Why: each kind of history has one place, so it never leaks into docs or code.
 - Check: `review`.

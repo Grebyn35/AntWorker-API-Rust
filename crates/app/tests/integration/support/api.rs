@@ -40,7 +40,7 @@ impl Api {
 
     /// `routes` in the pipeline, serving at most `max_concurrent_requests` at once.
     pub fn with(routes: Routes, max_concurrent_requests: usize) -> Self {
-        telemetry::testing::install(SERVICE);
+        telemetry::testing::install(SERVICE).unwrap();
         let document = serde_json::to_value(routes.openapi(SERVICE)).unwrap();
         let clock = Arc::new(TestClock::default());
         let readiness = Readiness::new();

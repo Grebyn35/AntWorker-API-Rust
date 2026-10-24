@@ -8,7 +8,8 @@ async fn obs_06_cpu_heavy_work_runs_on_a_blocking_thread_in_a_span_of_its_own() 
     testing::install(Service {
         name: "api",
         version: "0.0.0",
-    });
+    })
+    .unwrap();
     let caller = std::thread::current().id();
     let request = tracing::info_span!("request");
 

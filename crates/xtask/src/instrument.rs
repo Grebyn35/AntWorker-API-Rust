@@ -169,7 +169,7 @@ impl Scan<'_> {
                 None if segments.is_empty() => String::new(),
                 None => last_ident(segments.remove(0)).unwrap_or_default(),
             };
-            if self.module && !matches!(level.as_str(), "DEBUG" | "TRACE") {
+            if self.module && level != "DEBUG" {
                 self.find(
                     line,
                     format!("module code writes a {level} event; only DEBUG is allowed (OBS-03)"),
@@ -489,6 +489,7 @@ mod tests {
         let code = r#"
             fn f() {
                 tracing::debug!(http.route = %route, "loaded");
+                tracing::trace!("looked");
                 tracing::info!("created");
                 tracing::event!(Level::ERROR, "failed");
             }
@@ -496,6 +497,7 @@ mod tests {
         assert_eq!(
             findings(MODULE, code),
             [
+                "module code writes a TRACE event; only DEBUG is allowed (OBS-03)",
                 "module code writes a INFO event; only DEBUG is allowed (OBS-03)",
                 "module code writes a ERROR event; only DEBUG is allowed (OBS-03)",
             ]

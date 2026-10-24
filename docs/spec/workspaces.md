@@ -31,7 +31,7 @@
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
 | WORKSPACES-001 | Creating a workspace makes the caller its owner, in one unit of work. It answers 201 with `Location` and `{id, name, role: "owner", created_at}`. It records `workspace.created` in the workspace's log, and publishes the user event `membership.created` to the caller's other devices. | D33, API-04, DATA-27 | `workspaces_001_` |
-| WORKSPACES-002 | A workspace name is trimmed, has internal whitespace collapsed to single spaces, is normalized to Unicode NFC, and must be 1 to 255 characters and not only whitespace. | D25, API-10 | `workspaces_002_` |
+| WORKSPACES-002 | A workspace name is trimmed, has internal whitespace collapsed to single spaces, is normalized to Unicode Normalization Form C (NFC), and must be 1 to 255 characters and not only whitespace. | D25, API-10 | `workspaces_002_` |
 | WORKSPACES-003 | `GET /v1/workspaces` lists every workspace the caller belongs to, with `{id, name, role, joined_at}`, newest first, in cursor pages. | D3, API-05, API-06 | `workspaces_003_` |
 | WORKSPACES-004 | `GET .../members` lists the workspace's members with `{user_id, name, email, role, joined_at}`, newest first, in cursor pages. | API-05, API-06, DATA-22 | `workspaces_004_` |
 | WORKSPACES-005 | Removing a member deletes their membership and answers 204. It records `member.removed` in the workspace's log, with the removed user as the target, and publishes the workspace event `member.removed`, which requires `members.read`. It also sends an access-change signal that closes or re-filters the removed user's streams. | SEC-06, SEC-08, DATA-27, D35 | `workspaces_005_` |

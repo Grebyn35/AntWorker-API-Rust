@@ -17,7 +17,7 @@ This is a Rust API built as a template to fork. Read these before changing anyth
 - **Tests prove IDs.** Every test name starts with the behavior ID or rule ID it proves, such as `auth_004_` or `ops_03_` (TEST-01).
 - **Findings cite what they break.** A review finding cites a statement, as the standards README says. Anything else is a proposal, decided as "Changing a rule" in the same README says.
 - **No open-ended evaluations.** Reviews follow the procedure and the stopping rule in the standards README. A conformance review runs through the `conformance-review` skill in `.claude/skills/`, which launches the `conformance-reviewer` agent in `.claude/agents/`, whose prompt is fixed.
-- **Docs and comments describe the current state only** (DOC-01 to DOC-04). Edits rewrite in place. History belongs in git, ADRs and `CHANGELOG.md`.
+- **Docs and comments describe the current state only** (DOC-01 to DOC-04). Edits rewrite in place. History belongs in git, architecture decision records (ADRs) and `CHANGELOG.md`.
 - **End every session with the `handoff` skill** in `.claude/skills/`, so the next session, on any machine, starts from the repository alone.
 - **No `TODO` or `FIXME`.** Known work is tracked as an issue, and in the tracker while the migration runs (DOC-07, DOC-14).
 - **Agents send no personal data.** An agent that may make web requests is told to put no email address, name or other personal information in any request, header or URL.

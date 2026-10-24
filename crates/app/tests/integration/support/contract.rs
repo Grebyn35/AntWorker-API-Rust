@@ -1,6 +1,6 @@
-//! Checks every response an integration test receives against the OpenAPI document of the
-//! routes that answered it (API-17). A test fails on a response that breaks the document, even
-//! where its own assertions don't look.
+//! Checks every response the in-process API gives an integration test against the OpenAPI
+//! document of the routes that answered it (API-17). A test fails on a response that breaks the
+//! document, even where its own assertions don't look.
 
 use http::{HeaderMap, Method, StatusCode, header};
 use serde_json::{Value, json};
@@ -8,9 +8,9 @@ use serde_json::{Value, json};
 /// The checks against one OpenAPI document.
 pub struct Contract {
     document: Value,
-    /// The document's component schemas, with every object closed to properties it doesn't
-    /// list. The published document leaves response objects open, because clients ignore
-    /// fields they don't know (API-05), but a field the API sends must be documented.
+    /// The document's components, with every object schema closed to properties it doesn't
+    /// list. The published document leaves response objects open, because clients ignore fields
+    /// they don't know (API-05), but a field the API sends must be documented.
     components: Value,
 }
 
@@ -18,11 +18,7 @@ impl Contract {
     pub fn new(document: Value) -> Self {
         let mut components = document["components"].clone();
         if let Some(schemas) = components["schemas"].as_object_mut() {
-            for schema in schemas.values_mut() {
-                if schema["type"] == "object" && schema.get("additionalProperties").is_none() {
-                    schema["additionalProperties"] = Value::Bool(false);
-                }
-            }
+            schemas.values_mut().for_each(close);
         }
         Self {
             document,
@@ -30,8 +26,10 @@ impl Contract {
         }
     }
 
-    /// Panics with every way the response breaks the document. The health probes aren't in the
-    /// document, so they aren't checked (OPS-05).
+    /// Panics with every way the response breaks the document: a status, content type or field
+    /// it doesn't list, and a header it lists that the response lacks. A request that no
+    /// operation documents must get the router's `NotFound` or `MethodNotAllowed`. The health
+    /// probes aren't in the document, so they aren't checked (OPS-05).
     pub fn check(
         &self,
         method: &Method,
@@ -44,9 +42,16 @@ impl Contract {
             return;
         }
         let path = path.split('?').next().unwrap_or_default();
-        let (item, operation) = self.operation(method, path);
-        let responses = match (item, operation) {
-            (_, Some(operation)) => &operation["responses"],
+        let fallbacks = &self.document["components"]["responses"];
+        let response = match self.operation(method, path) {
+            (_, Some(operation)) => {
+                let response = &operation["responses"][status.as_str()];
+                assert!(
+                    !response.is_null(),
+                    "{method} {path} answered {status}, which its documentation doesn't list"
+                );
+                response
+            }
             (Some(item), None) => {
                 assert_eq!(
                     status,
@@ -57,18 +62,15 @@ impl Contract {
                     .to_str()
                     .unwrap()
                     .to_ascii_lowercase();
-                let methods = [
-                    "get", "put", "post", "delete", "options", "head", "patch", "trace",
-                ];
                 for documented in item.as_object().unwrap().keys() {
-                    if methods.contains(&documented.as_str()) {
+                    if METHODS.contains(&documented.as_str()) {
                         assert!(
                             allowed.contains(documented.as_str()),
                             "Allow lacks {documented}"
                         );
                     }
                 }
-                return self.check_problem(body, "request.method_not_allowed");
+                &fallbacks["MethodNotAllowed"]
             }
             (None, None) => {
                 assert_eq!(
@@ -76,17 +78,26 @@ impl Contract {
                     StatusCode::NOT_FOUND,
                     "no documented path matches {path}, so it must answer 404"
                 );
-                return self.check_problem(body, "request.not_found");
+                &fallbacks["NotFound"]
             }
         };
-        let response = responses.get(status.as_str());
+        let breaches = self.breaches(method, response, headers, body);
         assert!(
-            response.is_some(),
-            "{method} {path} answered {status}, which its documentation doesn't list"
+            breaches.is_empty(),
+            "{method} {path} answered {status}, which breaks its documentation: {breaches:#?}"
         );
-        let response = response.unwrap();
+    }
+
+    /// Every way the response breaks `documented`. A `HEAD` response has no body to check.
+    fn breaches(
+        &self,
+        method: &Method,
+        documented: &Value,
+        headers: &HeaderMap,
+        body: &[u8],
+    ) -> Vec<String> {
         let mut breaches = Vec::new();
-        for name in response["headers"]
+        for name in documented["headers"]
             .as_object()
             .into_iter()
             .flatten()
@@ -96,7 +107,7 @@ impl Contract {
                 breaches.push(format!("the documented header {name} is missing"));
             }
         }
-        match response["content"].as_object() {
+        match documented["content"].as_object() {
             None if !body.is_empty() => breaches.push("a body where none is documented".into()),
             None => {}
             Some(content) => {
@@ -111,14 +122,12 @@ impl Contract {
                         "the content type {media_type:?} isn't documented, only {:?}",
                         content.keys().collect::<Vec<_>>()
                     )),
+                    Some(_) if method == Method::HEAD => {}
                     Some(media) => breaches.extend(self.validate(&media["schema"], body)),
                 }
             }
         }
-        assert!(
-            breaches.is_empty(),
-            "{method} {path} answered {status}, which breaks its documentation: {breaches:#?}"
-        );
+        breaches
     }
 
     /// The path item whose template matches `path`, and its operation for `method`. A `HEAD`
@@ -146,7 +155,7 @@ impl Contract {
     }
 
     /// Every way `body` breaks `schema`, with the schema's references resolved against the
-    /// document's components.
+    /// document's closed components.
     fn validate(&self, schema: &Value, body: &[u8]) -> Vec<String> {
         let Ok(instance) = serde_json::from_slice::<Value>(body) else {
             return vec!["the body isn't JSON".into()];
@@ -165,11 +174,38 @@ impl Contract {
             .map(|error| format!("{error}, at {}", error.instance_path()))
             .collect()
     }
+}
 
-    fn check_problem(&self, body: &[u8], code: &str) {
-        let breaches = self.validate(&json!({"$ref": "#/components/schemas/Problem"}), body);
-        assert!(breaches.is_empty(), "not a problem: {breaches:#?}");
-        let problem: Value = serde_json::from_slice(body).unwrap();
-        assert_eq!(problem["code"], code);
+/// The keys of a path item that hold operations.
+const METHODS: [&str; 8] = [
+    "get", "put", "post", "delete", "options", "head", "patch", "trace",
+];
+
+/// Closes `schema`, and every schema inside it, to properties it doesn't list. The parts of an
+/// `allOf` stay open, because each lists only some of the properties the whole allows.
+fn close(schema: &mut Value) {
+    let Some(object) = schema.as_object_mut() else {
+        return;
+    };
+    let is_object = match object.get("type") {
+        Some(Value::String(kind)) => kind == "object",
+        Some(Value::Array(kinds)) => kinds.iter().any(|kind| kind == "object"),
+        _ => object.contains_key("properties"),
+    };
+    if is_object && !object.contains_key("additionalProperties") {
+        object.insert("additionalProperties".to_owned(), Value::Bool(false));
+    }
+    if let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) {
+        properties.values_mut().for_each(close);
+    }
+    for key in ["items", "additionalProperties"] {
+        if let Some(inner) = object.get_mut(key) {
+            close(inner);
+        }
+    }
+    for key in ["anyOf", "oneOf"] {
+        if let Some(parts) = object.get_mut(key).and_then(Value::as_array_mut) {
+            parts.iter_mut().for_each(close);
+        }
     }
 }

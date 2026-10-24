@@ -31,7 +31,7 @@ Each permission is tested twice: a role that has it succeeds, and a role without
 - Check: `review`.
 
 ### TEST-05 No mocks of our own code
-Tests use the real database, the real routes and the real services. Fakes exist only for systems outside the codebase: SMTP (a local mail catcher, or the in-memory email transport), OAuth providers (a local fake server, reached through the configured client in SEC-09), the clock (a test clock), and the process environment and file reads, which tests hand to `platform::config::Settings` directly.
+Tests use the real database, the real routes and the real services. Fakes exist only for systems outside the codebase: the mail server, reached over the Simple Mail Transfer Protocol (SMTP), which a local mail catcher or the in-memory email transport replaces; OAuth providers (a local fake server, reached through the configured client in SEC-09), the clock (a test clock), and the process environment and file reads, which tests hand to `platform::config::Settings` directly. Routes that only the tests serve, registered through the builders of API-14, show the pipeline's behaviors that no route of the API shows, such as a panic or a request that never ends.
 - Why: a mock tests your assumptions about the code, not the code (ARCH-13).
 - Check: `review`.
 

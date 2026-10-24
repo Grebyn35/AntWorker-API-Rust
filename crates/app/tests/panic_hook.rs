@@ -8,7 +8,8 @@ fn err_12_a_panic_writes_one_error_line_with_its_message_and_location() {
     testing::install(Service {
         name: "api",
         version: "0.0.0",
-    });
+    })
+    .unwrap();
     testing::install_panic_hook();
 
     let caught = std::panic::catch_unwind(|| {

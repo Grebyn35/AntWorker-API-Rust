@@ -40,8 +40,9 @@ pub struct Telemetry {
 impl Telemetry {
     /// Ends the tracer, then writes out every queued log line. `main` calls it last.
     pub fn finish(self) {
-        // The tracer exports nothing yet, so ending it can't lose anything worth reporting.
-        self.tracer.shutdown().ok();
+        if let Err(error) = self.tracer.shutdown() {
+            crate::errors::ignore(&error, "tracer_shutdown");
+        }
         drop(self.writer);
     }
 }
@@ -208,7 +209,7 @@ pub mod testing {
     use serde_json::Value;
     use tracing_subscriber::{Layer, filter::LevelFilter, fmt::MakeWriter, layer::SubscriberExt};
 
-    use super::{Service, names};
+    use super::{Service, TelemetryError, names};
     use crate::config::Environment;
 
     /// Every line the process's logger has written.
@@ -217,20 +218,22 @@ pub mod testing {
     /// Installs the API's tracer, and its JSON logger at `INFO` writing into memory, as the
     /// process's subscriber. Requests that tests send get the trace context the API gives them,
     /// and a test reads the lines of its own requests by their trace ID, whatever other tests
-    /// run alongside. Later calls do nothing.
-    pub fn install(service: Service) {
-        static TRACER: OnceLock<SdkTracerProvider> = OnceLock::new();
-        TRACER.get_or_init(|| {
+    /// run alongside. Later calls do nothing. Fails if something else installed a subscriber
+    /// first.
+    pub fn install(service: Service) -> Result<(), TelemetryError> {
+        static TRACER: OnceLock<Option<SdkTracerProvider>> = OnceLock::new();
+        let installed = TRACER.get_or_init(|| {
             let tracer = super::tracer();
             let subscriber = tracing_subscriber::registry()
                 .with(super::spans(&tracer))
                 .with(
                     super::json(service, Environment::Test, Memory).with_filter(LevelFilter::INFO),
                 );
-            // Nothing else in a test process installs a subscriber.
-            tracing::subscriber::set_global_default(subscriber).ok();
-            tracer
+            tracing::subscriber::set_global_default(subscriber)
+                .is_ok()
+                .then_some(tracer)
         });
+        installed.as_ref().map(|_| ()).ok_or(TelemetryError)
     }
 
     /// Every line logged in the trace `trace_id`, in order.
@@ -285,8 +288,6 @@ pub mod testing {
 
 fn level_filter(level: LogLevel) -> LevelFilter {
     match level {
-        LogLevel::Error => LevelFilter::ERROR,
-        LogLevel::Warn => LevelFilter::WARN,
         LogLevel::Info => LevelFilter::INFO,
         LogLevel::Debug => LevelFilter::DEBUG,
         LogLevel::Trace => LevelFilter::TRACE,

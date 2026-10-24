@@ -19,7 +19,7 @@ A setting exists only if two deployments would set it differently, such as a URL
 - Check: `ci: check-config` (the settings the API reads must match `.env.example` both ways, and the API container's Compose environment must match them), plus `review` for the third-party containers and for the "would two deployments differ" question.
 
 ### OPS-03 Startup failures have one format
-A startup failure of the API binary is logged as one ERROR event, with the message `startup failed` and the fields `startup.area` and `exception.message`, through the configured logging setup (OBS-01, OBS-05). The process then exits with code 1. A failure before the logging setup exists, such as invalid configuration, or a failure of the logging setup itself, is written by `main` to stderr as one JSON line with the same message and fields. That is the one place in the API's crates where `print_stderr` is allowed (CODE-03). Nothing panics.
+A failure that ends a subcommand of the API binary, at startup or, for a one-shot subcommand such as `migrate`, in its work, is logged as one ERROR event, with the message `startup failed` and the fields `startup.area` and `exception.message`, through the configured logging setup (OBS-01, OBS-05). The process then exits with code 1. A failure before the logging setup exists, such as invalid configuration, or a failure of the logging setup itself, is written by `main` to stderr as one JSON line with the same message and fields. That is the one place in the API's crates where `print_stderr` is allowed (CODE-03). Nothing panics.
 - Why: operators and scripts handle one shape (D9).
 - Check: `test`.
 
@@ -36,7 +36,7 @@ A route whose feature is turned off answers the 503 problem with code `request.f
 
 The probes are answered before the rate limit, load shedding and request timeout, and they carry no trace context (OBS-15). Their body is `{"status": "<status>"}`, never a problem response (API-07).
 - Why: the load balancer only routes to replicas that can serve (D9, D20).
-- Check: `test`.
+- Check: `test` (PLATFORM-019, PLATFORM-037), plus `review` (a probe never runs long enough to show that no timeout applies to it).
 
 ### OPS-06 Shutdown is bounded and graceful
 The instance installs its handlers for the shutdown signals before it connects to anything, and fails startup if it can't (OPS-03). On SIGTERM, the instance shuts down in this order:
@@ -52,7 +52,7 @@ The whole sequence fits inside the container's grace period, with margin.
 - Check: `ci: e2e` (the deploy scenario), `test` (the sequence through `platform::lifecycle::serve`), plus `review` (the handlers are installed before anything connects, because no test can make installing them fail).
 
 ### OPS-07 Overload sheds load
-Every request except the health probes has a timeout. Each route group has a default, and a module spec may override it. A concurrency limit rejects excess requests with the 503 problem and `Retry-After`. The health probes are exempt from it.
+Every request that a route serves, except the health probes, has a timeout. Each route group has a default, and a module spec may override it. A request that no route serves gets its 404 or 405 problem at once. A concurrency limit rejects excess requests with the 503 problem and `Retry-After`. The health probes are exempt from it.
 - Why: an overloaded instance degrades predictably, instead of queuing until it falls over (D20).
 - Check: `test`.
 
@@ -91,7 +91,7 @@ The toolchain comes from `rust-toolchain.toml`. Actions are pinned by commit SHA
 - Check: `ci: check-pins`.
 
 ### OPS-14 Build once, then promote that digest
-Each pipeline run builds the image once, for both architectures. Every later step tests, scans, boots and promotes that same digest. A release tag `vX.Y.Z` retags the digest, signs it and attaches its SBOM and provenance. A prerelease tag `vX.Y.Z-rc.N` publishes a prerelease image only.
+Each pipeline run builds the image once, for both architectures. Every later step tests, scans, boots and promotes that same digest. A release tag `vX.Y.Z` retags the digest, signs it and attaches its software bill of materials (SBOM) and provenance. A prerelease tag `vX.Y.Z-rc.N` publishes a prerelease image only.
 - Why: what ships is exactly what was tested (D15, D21).
 - Check: `review` (workflow structure), plus `ci: verify-release` (the digest is signed and matches the tested one).
 

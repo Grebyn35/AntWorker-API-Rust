@@ -1,5 +1,6 @@
-//! What a route builder adds to the documentation of each operation it registers: the access
-//! level, and the problems the pipeline can answer on any route of the group (API-17, ERR-13).
+//! What the OpenAPI document says beyond the handlers' own annotations: each operation's access
+//! level, and every problem the pipeline can answer, with its code and meaning (API-17,
+//! ERR-13).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -7,7 +8,9 @@ use axum::http::Method;
 use utoipa::{
     PartialSchema, ToSchema,
     openapi::{
-        AllOfBuilder, Content, ObjectBuilder, Ref, RefOr, Response, Schema, Type,
+        AllOfBuilder, Components, Content, ObjectBuilder, OpenApi, Ref, RefOr, Response, Schema,
+        Type,
+        header::HeaderBuilder,
         path::{Operation, ParameterIn, PathItem, Paths},
     },
 };
@@ -21,9 +24,30 @@ pub(super) type QueryNames = HashMap<Method, HashSet<String>>;
 /// The media type of every error response (API-07).
 const PROBLEM_MEDIA_TYPE: &str = "application/problem+json";
 
+/// Where the document lists a code that `platform` answers.
+enum Place {
+    /// On every operation of a route group: the route's own pipeline answers it.
+    RouteGroup,
+    /// Among the components' responses: the router answers it when no operation matches.
+    Fallback,
+}
+
+fn place(error: &RequestError) -> Place {
+    match error {
+        RequestError::NotFound | RequestError::MethodNotAllowed => Place::Fallback,
+        RequestError::InvalidQuery(_)
+        | RequestError::PayloadTooLarge
+        | RequestError::TimedOut
+        | RequestError::Overloaded
+        | RequestError::Panicked => Place::RouteGroup,
+    }
+}
+
 /// Documents each operation's access level as the extension `x-access`, and the problems the
-/// pipeline can answer on any route of the group. Returns the query parameters that each
-/// method documents.
+/// pipeline can answer on any route of the group. A route that documents its own response for
+/// one of those statuses keeps it, and lists the group's codes in it itself (ERR-13). Returns
+/// the query parameters that each method accepts, `HEAD` taking those of the `GET` that serves
+/// it.
 pub(super) fn document(paths: &mut Paths, access: Access) -> QueryNames {
     let mut queries = QueryNames::new();
     for item in paths.paths.values_mut() {
@@ -40,7 +64,11 @@ pub(super) fn document(paths: &mut Paths, access: Access) -> QueryNames {
                     .entry(status)
                     .or_insert(RefOr::T(response));
             }
-            queries.insert(method, query_names(operation));
+            let names = query_names(operation);
+            if method == Method::GET {
+                queries.insert(Method::HEAD, names.clone());
+            }
+            queries.insert(method, names);
         }
     }
     queries
@@ -49,6 +77,34 @@ pub(super) fn document(paths: &mut Paths, access: Access) -> QueryNames {
 /// The schema of every problem, as `Problem` in the document's components.
 pub(super) fn problem_schema() -> (String, RefOr<Schema>) {
     (ProblemBody::name().into_owned(), ProblemBody::schema())
+}
+
+/// Adds to `document`'s components the problems the router answers when no operation matches a
+/// request: `NotFound` for a path that no route has, and `MethodNotAllowed`, with `Allow`, for a
+/// method its path doesn't serve.
+pub(super) fn fallbacks(document: &mut OpenApi) {
+    let components = document.components.get_or_insert_with(Components::new);
+    let (name, schema) = problem_schema();
+    components.schemas.entry(name).or_insert(schema);
+    for error in RequestError::every() {
+        if !matches!(place(&error), Place::Fallback) {
+            continue;
+        }
+        let mut response = problem_response(&[&error]);
+        let name = match error {
+            RequestError::MethodNotAllowed => {
+                response.headers.insert(
+                    "allow".to_owned(),
+                    header("The methods the path serves.").into(),
+                );
+                "MethodNotAllowed"
+            }
+            _ => "NotFound",
+        };
+        components
+            .responses
+            .insert(name.to_owned(), RefOr::T(response));
+    }
 }
 
 /// Each operation of `item`, with its method.
@@ -83,17 +139,15 @@ fn query_names(operation: &Operation) -> HashSet<String> {
 }
 
 /// The problems any route of a group can answer, one response per status. Each response lists
-/// its codes, so a code a route answers is in the document with its meaning (ERR-13).
+/// its codes, so a code a route answers is in the document with its meaning (ERR-13). The 503
+/// carries `Retry-After`, which both of its codes send (OPS-07).
 fn group_problems() -> BTreeMap<String, Response> {
-    let errors: [&dyn ErrorCode; 5] = [
-        &RequestError::InvalidQuery(Vec::new()),
-        &RequestError::PayloadTooLarge,
-        &RequestError::TimedOut,
-        &RequestError::Overloaded,
-        &RequestError::Panicked,
-    ];
+    let every = RequestError::every();
     let mut by_status: BTreeMap<String, Vec<&dyn ErrorCode>> = BTreeMap::new();
-    for error in errors {
+    for error in every
+        .iter()
+        .filter(|error| matches!(place(error), Place::RouteGroup))
+    {
         by_status
             .entry(error.category().status().as_u16().to_string())
             .or_default()
@@ -101,7 +155,16 @@ fn group_problems() -> BTreeMap<String, Response> {
     }
     by_status
         .into_iter()
-        .map(|(status, errors)| (status, problem_response(&errors)))
+        .map(|(status, errors)| {
+            let mut response = problem_response(&errors);
+            if status == "503" {
+                response.headers.insert(
+                    "retry-after".to_owned(),
+                    header("How many seconds to wait before trying again.").into(),
+                );
+            }
+            (status, response)
+        })
         .collect()
 }
 
@@ -130,4 +193,12 @@ fn problem_response(errors: &[&dyn ErrorCode]) -> Response {
         Content::new(Some(Schema::AllOf(schema))).into(),
     );
     response
+}
+
+/// A response header whose value is text.
+fn header(description: &str) -> utoipa::openapi::header::Header {
+    HeaderBuilder::new()
+        .schema(Some(ObjectBuilder::new().schema_type(Type::String)))
+        .description(Some(description))
+        .build()
 }

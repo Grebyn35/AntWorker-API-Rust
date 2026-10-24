@@ -27,7 +27,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use super::docs::QueryNames;
 use crate::{
     clock::SharedClock,
-    errors::{ErrorReport, Internal, Problem, RequestError},
+    errors::{self, ErrorReport, Internal, Problem, RequestError},
     telemetry::{self, names},
 };
 
@@ -106,8 +106,12 @@ async fn trace(request: Request, next: Next) -> Response {
         { names::HTTP_ROUTE } = route,
         { names::HTTP_RESPONSE_STATUS_CODE } = Empty,
     );
-    // An inbound context that isn't valid leaves the span the root of a new trace.
-    span.set_parent(parent).ok();
+    // An inbound context that isn't valid leaves the span the root of a new trace. Setting the
+    // parent fails only if the span isn't one the tracer follows, and then the request goes on
+    // without the inbound trace.
+    if let Err(error) = span.set_parent(parent) {
+        errors::ignore(&error, "trace_parent_not_set");
+    }
     let mut response = next.run(request).instrument(span.clone()).await;
     let status = response.status();
     span.record(names::HTTP_RESPONSE_STATUS_CODE, status.as_u16());
@@ -124,8 +128,13 @@ async fn trace(request: Request, next: Next) -> Response {
     response
 }
 
+/// Marks the response to a panic, whose `ERROR` line the panic hook has written, so the error is
+/// logged once (ERR-10, ERR-12).
+#[derive(Clone, Copy)]
+struct PanicLogged;
+
 /// Writes one `INFO` line when the request completes, and before it the `ERROR` line of a 5xx
-/// with its cause chain (PLATFORM-034).
+/// with its cause chain, unless the 5xx answers a panic (PLATFORM-034).
 async fn log(State(clock): State<SharedClock>, request: Request, next: Next) -> Response {
     let start = clock.now();
     let method = request.method().clone();
@@ -135,7 +144,8 @@ async fn log(State(clock): State<SharedClock>, request: Request, next: Next) -> 
         .map(|route| route.as_str().to_owned());
     let mut response = next.run(request).await;
     let status = response.status();
-    if status.is_server_error() {
+    let panicked = response.extensions_mut().remove::<PanicLogged>().is_some();
+    if status.is_server_error() && !panicked {
         let report = response.extensions_mut().remove::<ErrorReport>();
         tracing::error!(
             { names::ERROR_TYPE } = report.as_ref().map(|report| report.code),
@@ -153,33 +163,43 @@ async fn log(State(clock): State<SharedClock>, request: Request, next: Next) -> 
     response
 }
 
-/// Answers a panic with the 500 problem. The panic hook has already logged it (ERR-12).
+/// Answers a panic with the 500 problem. The panic hook has already logged it, with its
+/// message and location (ERR-12).
 fn panicked(_payload: Box<dyn Any + Send + 'static>) -> Response {
-    Problem(RequestError::Panicked).into_response()
+    let mut response = Problem(RequestError::Panicked).into_response();
+    response.extensions_mut().remove::<ErrorReport>();
+    response.extensions_mut().insert(PanicLogged);
+    response
 }
 
 /// Answers a request that load shedding refused with the 503 problem and `Retry-After`
 /// (PLATFORM-020).
 async fn overloaded(error: BoxError) -> Response {
     if error.is::<tower::load_shed::error::Overloaded>() {
-        let mut response = Problem(RequestError::Overloaded).into_response();
-        response.headers_mut().insert(
-            header::RETRY_AFTER,
-            HeaderValue::from_static(RETRY_AFTER_SECONDS),
-        );
-        response
+        retry_later(RequestError::Overloaded)
     } else {
         Problem(Internal::new(error)).into_response()
     }
 }
 
-/// Answers a request past its route group's timeout with the 503 problem (PLATFORM-031).
+/// Answers a request past its route group's timeout with the 503 problem and `Retry-After`
+/// (PLATFORM-031).
 async fn timed_out(error: BoxError) -> Response {
     if error.is::<tower::timeout::error::Elapsed>() {
-        Problem(RequestError::TimedOut).into_response()
+        retry_later(RequestError::TimedOut)
     } else {
         Problem(Internal::new(error)).into_response()
     }
+}
+
+/// The 503 problem of `error`, with the `Retry-After` the document lists for it.
+fn retry_later(error: RequestError) -> Response {
+    let mut response = Problem(error).into_response();
+    response.headers_mut().insert(
+        header::RETRY_AFTER,
+        HeaderValue::from_static(RETRY_AFTER_SECONDS),
+    );
+    response
 }
 
 /// Refuses a body whose declared length is over the route group's limit before reading it, and
@@ -199,8 +219,9 @@ async fn body_limit(request: Request, next: Next) -> Response {
     next.run(request).await
 }
 
-/// Refuses query parameters that the route's documentation doesn't list (PLATFORM-035). A
-/// method the route doesn't document passes, so the router answers it with 405.
+/// Refuses query parameters that the route's documentation doesn't list (PLATFORM-035). `HEAD`
+/// takes the parameters of the `GET` that serves it, and a method the route doesn't serve
+/// passes, so the router answers it with 405.
 async fn query(State(queries): State<Arc<QueryNames>>, request: Request, next: Next) -> Response {
     if let (Some(allowed), Some(query)) = (queries.get(request.method()), request.uri().query()) {
         let mut unknown: Vec<String> = url::form_urlencoded::parse(query.as_bytes())

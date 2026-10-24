@@ -1,6 +1,8 @@
 //! `check-openapi`: the committed `openapi.json` follows the rules for the HTTP contract
 //! (API-01, API-05, API-17, ERR-02, ERR-13).
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use serde_json::{Map, Value};
 
 use crate::{Finding, Outcome, repo::Repo};
@@ -40,13 +42,44 @@ pub fn check(repo: &Repo) -> Outcome {
     let mut problems = Vec::new();
     let empty = Map::new();
     let paths = document["paths"].as_object().unwrap_or(&empty);
+    let mut groups: Vec<(String, String, String, BTreeSet<String>)> = Vec::new();
     for (path, item) in paths {
         problems.extend(path_shape(path));
         for method in METHODS {
             if let Some(operation) = item.get(method) {
                 problems.extend(operation_problems(path, method, operation));
+                groups.push((
+                    format!("{} {path}", method.to_ascii_uppercase()),
+                    quoted(path),
+                    operation["x-access"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned(),
+                    request_codes(operation),
+                ));
             }
         }
+    }
+    problems.extend(group_codes(&groups));
+    let responses = document["components"]["responses"]
+        .as_object()
+        .unwrap_or(&empty);
+    for (name, response) in responses {
+        let here = format!("the response {name}");
+        let description = response["description"].as_str().unwrap_or_default();
+        if description.trim().is_empty() {
+            problems.push((
+                quoted(name),
+                format!("{here} has no description, which OpenAPI requires (API-17)"),
+            ));
+        }
+        problems.extend(error_codes(
+            &here,
+            &quoted(name),
+            name,
+            response,
+            description,
+        ));
     }
     let schemas = document["components"]["schemas"]
         .as_object()
@@ -167,6 +200,54 @@ fn error_codes(
                 needle.to_owned(),
                 format!("{here}: the {status} response doesn't say what {code} means (ERR-13)"),
             ));
+        }
+    }
+    problems
+}
+
+/// The `request.` codes an operation lists: the problems `platform` answers on any route of
+/// the operation's group.
+fn request_codes(operation: &Value) -> BTreeSet<String> {
+    let empty = Map::new();
+    operation["responses"]
+        .as_object()
+        .unwrap_or(&empty)
+        .values()
+        .flat_map(|response| {
+            response["content"]["application/problem+json"]["schema"]["allOf"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|part| part["properties"]["code"]["enum"].as_array())
+                .flatten()
+                .filter_map(Value::as_str)
+        })
+        .filter(|code| code.starts_with("request."))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// ERR-13: an operation lists every `request.` code that another operation of its access level
+/// lists, since the pipeline answers each of them on any route of the group.
+fn group_codes(operations: &[(String, String, String, BTreeSet<String>)]) -> Vec<Problem> {
+    let mut by_access: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for (_, _, access, codes) in operations {
+        by_access
+            .entry(access)
+            .or_default()
+            .extend(codes.iter().map(String::as_str));
+    }
+    let mut problems = Vec::new();
+    for (here, needle, access, codes) in operations {
+        for code in &by_access[access.as_str()] {
+            if !codes.contains(*code) {
+                problems.push((
+                    needle.clone(),
+                    format!(
+                        "{here} doesn't list {code}, which another {access} route answers (ERR-13)"
+                    ),
+                ));
+            }
         }
     }
     problems
@@ -317,6 +398,42 @@ mod tests {
             [
                 "GET /v1/things answers 404 without a problem that lists its codes (ERR-13)",
                 "GET /v1/things: the 503 response doesn't say what request.timed_out means (ERR-13)",
+            ]
+        );
+    }
+
+    #[test]
+    fn err_13_every_operation_lists_the_codes_its_route_group_can_answer() {
+        let mut full = operation();
+        full["responses"]["503"] = json!({
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress.",
+            "content": { "application/problem+json": { "schema": { "allOf": [
+                { "$ref": "#/components/schemas/Problem" },
+                { "properties": { "code": { "enum": ["request.timed_out", "request.overloaded"] } } },
+            ] } } },
+        });
+        let mut two = document("/v1/things", operation(), json!({}));
+        two["paths"]["/v1/others"] = json!({ "get": full });
+        let messages = findings(&two);
+        assert_eq!(
+            messages,
+            [
+                "GET /v1/things doesn't list request.overloaded, which another public route answers (ERR-13)"
+            ]
+        );
+    }
+
+    #[test]
+    fn err_13_the_router_s_own_problems_list_their_codes() {
+        let mut fallback = document("/v1/things", operation(), json!({}));
+        fallback["components"]["responses"] = json!({
+            "NotFound": { "description": "Not found." },
+        });
+        let messages = findings(&fallback);
+        assert_eq!(
+            messages,
+            [
+                "the response NotFound answers NotFound without a problem that lists its codes (ERR-13)"
             ]
         );
     }

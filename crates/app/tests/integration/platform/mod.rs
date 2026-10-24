@@ -1,6 +1,7 @@
 mod blocking;
 mod config;
 mod database;
+mod errors;
 mod health;
 mod http;
 mod lifecycle;

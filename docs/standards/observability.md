@@ -5,7 +5,7 @@ Logs, traces, metrics, dashboards and alerts. The design is built from the opera
 ## Logs
 
 ### OBS-01 Logs are structured
-Logs are JSON in production and human-readable in development. They go to stdout, and also to OTLP when telemetry is enabled. A log message is a constant string, and all variable data goes in fields.
+Logs are JSON in production and human-readable in development. They go to stdout, and also over the OpenTelemetry Protocol (OTLP) when telemetry is enabled. A log message is a constant string, and all variable data goes in fields.
 - Why: logs can be queried by field, and messages can be grouped.
 - Check: `ci: check-instrument` (a message with format arguments or `{…}` placeholders fails), plus `review`.
 
@@ -36,6 +36,7 @@ Every field name in logs and spans, and every metric label name, comes from the 
 - A name is OpenTelemetry's wherever a semantic convention names the same thing, such as `http.request.method` or `http.route`. The list pins the conventions' version.
 - Any other name is `<term>.<property>` in lowercase, using the glossary's term for the concept (CODE-10), and never starts with a namespace the conventions define. Where the conventions use the term with another meaning, the owning module's name goes first: `auth.session.id`, since OpenTelemetry's `session` is a client application's session, and `realtime.event.id`, since its `event` names log records.
 - `trace_id` and `span_id` are top-level fields, as OpenTelemetry names trace context in JSON logs.
+- `otel.name` and `otel.kind`, which the bridge from `tracing` to OpenTelemetry reads to name a span and set its kind, are the bridge's own fields, and the only names in a namespace the conventions define. No log line carries them.
 - Why: standard names work with standard dashboards and tools, and one list keeps each name the same in every log, span and metric (D19).
 - Check: `compiler` (each convention's entry is checked against the conventions' published name), `clippy` (a deprecated convention name fails), plus `ci: check-instrument` (every name the code uses is on the list).
 

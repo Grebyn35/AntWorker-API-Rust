@@ -17,7 +17,7 @@ Nothing. Jobs live in `platform`'s `jobs` table.
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
-| MAIL-001 | An email is sent only by a job. A request that sends an email only enqueues it, so it never waits on SMTP. A failed send is retried with backoff and ends in a dead letter (OPS-10). | D1, DATA-26, OPS-10 | `mail_001_` |
+| MAIL-001 | An email is sent only by a job. A request that sends an email only enqueues it, so it never waits on the mail server, which it reaches over the Simple Mail Transfer Protocol (SMTP). A failed send is retried with backoff and ends in a dead letter (OPS-10). | D1, DATA-26, OPS-10 | `mail_001_` |
 | MAIL-002 | The invitation email names the inviter, the workspace, the role and the days until expiry, in an HTML part and a plain-text part. | D1 | `mail_002_` |
 | MAIL-003 | Templates are checked at compile time. Values in the HTML part are escaped. | D24, SEC-10 | `mail_003_` |
 | MAIL-004 | With email turned off, enqueueing does nothing, and the capabilities endpoint reports email as off. The invitation itself is still created. | D9, OPS-04 | `mail_004_` |

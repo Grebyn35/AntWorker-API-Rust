@@ -79,7 +79,7 @@ The HTTP boundary logs every 5xx at ERROR, with its cause chain and trace ID. 4x
 ### ERR-11 An ignored error is explicit
 An error is deliberately ignored only through `platform::errors::ignore(error, reason)`, which logs it at WARN in a standard shape and counts it in the `app.platform.errors_ignored` metric, labelled by reason. `let _ =` on a fallible call is not allowed (CODE-03).
 - Why: every ignored failure is visible in logs and metrics (D17).
-- Check: `clippy`, plus `review`.
+- Check: `clippy` (`let_underscore_must_use`, and `unused_result_ok` for a `Result` dropped with `.ok()`), plus `review`.
 
 ### ERR-12 Panics become a 500 and are counted
 A catch-panic layer turns any panic into the ERR-08 response, logs it at ERROR and counts it in `app.platform.panics`. Panics are still not allowed in code (CODE-03); the layer is the last line of defense.

@@ -22,9 +22,9 @@ flowchart LR
   prom --> am[Alertmanager]
 ```
 
-- PostgreSQL is the system of record and the only coordination point between replicas. It holds rate limits, idempotency records, job leases, the job queue and the event log. There is no Redis or other shared cache. Adding one would need an ADR showing Postgres can't cope.
+- PostgreSQL is the system of record and the only coordination point between replicas. It holds rate limits, idempotency records, job leases, the job queue and the event log. There is no Redis or other shared cache. Adding one would need an architecture decision record (ADR) showing Postgres can't cope.
 - Object storage holds file bytes. Uploads and downloads use it during the request, and deletions go through background jobs.
-- SMTP delivers email, and only background jobs reach it. No request waits for an email to send (D1).
+- The Simple Mail Transfer Protocol (SMTP) delivers email, and only background jobs reach it. No request waits for an email to send (D1).
 - The observability stack is always part of the codebase, and turning it on at runtime is optional.
 
 ## 2. Principles
@@ -77,7 +77,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `telemetry` | The logging and tracing setup, the list of telemetry names, and the metric declaration macro. | D10, D19 |
 | `storage` | An object storage client. | D1, D14 |
 | `mail` | The SMTP transport and the template engine. The templates themselves live in `app`. | D1, D9 |
-| `outbound` | The only HTTP clients: one for URLs from configuration, and one for URLs supplied by third parties, with SSRF protection (SEC-09). | D26 |
+| `outbound` | The only HTTP clients: one for URLs from configuration, and one for URLs supplied by third parties, with protection against server-side request forgery (SSRF) (SEC-09). | D26 |
 | `types` | Shared domain types: `Secret`, `EmailAddress`, the ID types. | D7, D25 |
 | `clock`, `random` | The injectable clock and the operating system's secure random source (CODE-06). | D23, D26 |
 | `blocking` | Runs CPU-heavy work, such as hashing a password, on a blocking thread and inside a span of its own (CODE-05, OBS-06). | D10 |
@@ -109,7 +109,7 @@ crates/app/
 |---|---|---|
 | `access` | `workspace_memberships` | Roles, the permission matrix, the permission types used with `Authorized<P>`, and the `AccessPolicy` implementation (D2). It has no routes of its own. |
 | `audit` | `audit_entries` | Recording entries inside a unit of work, the read endpoints, the action catalog, retention, and the `SecurityEventSink` implementation that records refused requests (D6). |
-| `realtime` | none | The SSE endpoint and the event catalog. Delivery, replay and stream closing are handled by `platform::events` (D5). |
+| `realtime` | none | The endpoint of server-sent events (SSE) and the event catalog. Delivery, replay and stream closing are handled by `platform::events` (D5). |
 | `mail` | none | Email types and templates. Sending enqueues a job, and the job handler renders and delivers the email (D1). |
 | `files` | `files`, `object_deletions` | Upload, list, download and delete of user and workspace files, public files, and the orphan sweep. |
 | `accounts` | `users`, `user_preferences`, `data_exports` | Profile, preferences and consent, avatar, and account deletion and export, which it orchestrates across modules through the personal data contract (D16, D31). |
@@ -235,7 +235,7 @@ Nothing runs after the response except background work driven by committed rows.
 - **No business logic lives in SQL**, and there are no stored procedures or `SECURITY DEFINER` functions (DATA-07).
 - **What the role can't protect against.** A compromised API process can read and change anything `app` can. The defenses for that case are:
   - The database is not reachable from outside the private network.
-  - Roles have least privilege: no DDL, no superuser, no other schemas.
+  - Roles have least privilege: no data definition statements (DDL), no superuser, no other schemas.
   - Secrets are handled under D26.
   - The audit log and backups support detection and recovery (D6, D30).
 - **Conventions (D24):**
@@ -261,7 +261,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 - **Configuration (D9).** Strict and typed, with no defaults that are unsafe in production. A disabled feature answers 503 and is advertised by the capabilities endpoint.
 - **Background jobs (D13).** Declared in one registry. Each runs once per interval across the fleet, under a lease with a heartbeat, and shutdown is bounded.
 - **Personal data (D31).** Every module that stores personal data implements export and erasure. CI fails if any column referencing a user isn't covered by a contract.
-- **Security (D26).** OWASP ASVS Level 2 is the bar. The threat model maps each mitigation to a rule ID.
+- **Security (D26).** Level 2 of the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) is the bar. The threat model maps each mitigation to a rule ID.
 
 ## 9. Runtime topology
 
@@ -334,7 +334,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Unit of work | One database transaction, opened by the route, with its side effects: audit entries, events and jobs (D1). |
 | Job | Durable background work, delivered at least once (D13). |
 | Migration | One forward-only change to the schema, in a file of `migrations/`, applied by `migrate` (DATA-09). |
-| Startup | What `serve`, `migrate` and `bootstrap` do before their work: reading the configuration and running their checks. A startup failure ends the process (OPS-03). |
+| Startup | What a subcommand does before it serves: reading the configuration and running its checks. For a one-shot subcommand, such as `migrate`, its whole run. A startup failure ends the process (OPS-03). |
 | Event | A record of a change, delivered to clients over SSE and replayable after a reconnect (D5). |
 | Stream | One client's open SSE connection. |
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |
@@ -342,6 +342,6 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Personal data contract | A module's export and erasure of the personal data it stores (D31). |
 | Capability | A feature that a deployment can turn off, which the capabilities endpoint lists with whether it is on (D9). |
 | Trace ID | The identifier, returned with every response except the health probes, that leads to a request's logs, and to its trace whenever the request ended in an error (D10). |
-| Personal data | In these documents: information that identifies a person directly, such as email addresses, names, avatars, IP addresses, user agents, file names and text a user writes. User and workspace IDs are pseudonymous. GDPR still counts them as personal data, so export and erasure cover them (D31), but they may appear in telemetry and audit entries. |
+| Personal data | In these documents: information that identifies a person directly, such as email addresses, names, avatars, IP addresses, user agents, file names and text a user writes. User and workspace IDs are pseudonymous. The General Data Protection Regulation (GDPR) still counts them as personal data, so export and erasure cover them (D31), but they may appear in telemetry and audit entries. |
 
-The documents assume a developer knows these acronyms, and don't spell them out (DOC-09): API, CI, CPU, HTTP, HTTPS, ID, IP, JSON, REST, SDK, SQL, TLS and URL. Every other acronym is spelled out where a document first uses it.
+The documents assume a developer knows these acronyms, and don't spell them out (DOC-09): API, CI, CPU, DNS, HTML, HTTP, HTTPS, ID, IP, JSON, REST, RFC, SDK, SQL, TLS, UI, URL, UTC and UUID. Every other acronym is spelled out where a document first uses it. A name written in capitals, such as SHA-256, AES-256-GCM, SIGTERM, W3C, IETF, S3 or the MIT license, is a name, not an acronym to spell out.

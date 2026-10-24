@@ -172,6 +172,18 @@ async fn platform_035_an_undocumented_query_parameter_answers_400() {
 }
 
 #[tokio::test]
+async fn platform_035_a_head_request_is_checked_like_its_get() {
+    let api = Api::new();
+
+    let response = api
+        .request(Method::HEAD, "/v1/capabilities?verbose=true")
+        .send()
+        .await;
+
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn platform_035_a_documented_query_parameter_passes() {
     let api = Api::with(fixtures::routes(Arc::default()), 100);
 
@@ -217,6 +229,7 @@ async fn platform_031_a_request_past_its_timeout_answers_503() {
         StatusCode::SERVICE_UNAVAILABLE,
         "request.timed_out",
     );
+    assert_eq!(response.header("retry-after"), "1");
 }
 
 #[tokio::test]
@@ -270,6 +283,21 @@ async fn platform_019_the_probes_bypass_load_shedding_and_answer_a_plain_status(
 }
 
 #[tokio::test]
+async fn platform_019_the_probes_bypass_the_route_groups_limits() {
+    let api = Api::new();
+    let over = 64 * 1024 + 1;
+
+    let live = api
+        .get("/health/live")
+        .header("content-length", &over.to_string())
+        .body(vec![b'x'; over])
+        .send()
+        .await;
+
+    assert_eq!(live.status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn err_12_a_panic_answers_the_internal_problem() {
     let api = Api::with(fixtures::routes(Arc::default()), 100);
 
@@ -282,6 +310,21 @@ async fn err_12_a_panic_answers_the_internal_problem() {
     );
     assert!(internal.get("detail").is_none());
     assert!(!String::from_utf8_lossy(&response.body).contains("fixture"));
+}
+
+#[tokio::test]
+async fn err_10_a_panic_leaves_its_error_line_to_the_panic_hook() {
+    let api = Api::with(fixtures::routes(Arc::default()), 100);
+
+    let response = api.get("/v1/panic").send().await;
+
+    // The panic hook writes the one ERROR line, which this test binary doesn't install
+    // (ERR-12); the request log writes only its completion line.
+    let (trace, _, _) = trace_context(&response);
+    let lines = testing::logged(&trace);
+    let levels: Vec<&Value> = lines.iter().map(|line| &line["level"]).collect();
+    assert_eq!(levels, ["INFO"], "{lines:#?}");
+    assert_eq!(lines[0]["http.response.status_code"], 500);
 }
 
 #[tokio::test]

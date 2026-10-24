@@ -52,11 +52,11 @@ pub use testing::TestClock;
 #[cfg(feature = "test-support")]
 mod testing {
     use std::{
-        sync::{Mutex, PoisonError},
+        sync::{Arc, Mutex, PoisonError, Weak},
         time::{Duration, Instant},
     };
 
-    use tokio::sync::{Notify, oneshot};
+    use tokio::sync::Notify;
 
     use super::{Clock, Sleep};
 
@@ -75,12 +75,13 @@ mod testing {
         sleepers: Vec<Sleeper>,
     }
 
-    /// A sleep waiting on the clock.
+    /// A sleep waiting on the clock. The sleep holds its `Notify`, so a sleep that was dropped
+    /// leaves only a dead reference here.
     #[derive(Debug)]
     struct Sleeper {
         deadline: Duration,
         duration: Duration,
-        wake: oneshot::Sender<()>,
+        wake: Weak<Notify>,
     }
 
     impl Default for TestClock {
@@ -108,9 +109,8 @@ mod testing {
                 .into_iter()
                 .partition(|sleeper| sleeper.deadline <= now);
             state.sleepers = waiting;
-            for sleeper in due {
-                // A sleep that was dropped doesn't need waking.
-                sleeper.wake.send(()).ok();
+            for wake in due.iter().filter_map(|sleeper| sleeper.wake.upgrade()) {
+                wake.notify_one();
             }
         }
 
@@ -134,7 +134,7 @@ mod testing {
             state
                 .sleepers
                 .iter()
-                .any(|sleeper| sleeper.duration == duration && !sleeper.wake.is_closed())
+                .any(|sleeper| sleeper.duration == duration && sleeper.wake.strong_count() > 0)
         }
     }
 
@@ -145,7 +145,7 @@ mod testing {
         }
 
         fn sleep(&self, duration: Duration) -> Sleep {
-            let (wake, woken) = oneshot::channel();
+            let wake = Arc::new(Notify::new());
             {
                 let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
                 let deadline = state.elapsed + duration;
@@ -155,14 +155,12 @@ mod testing {
                 state.sleepers.push(Sleeper {
                     deadline,
                     duration,
-                    wake,
+                    wake: Arc::downgrade(&wake),
                 });
             }
             self.slept.notify_waiters();
-            Box::pin(async move {
-                // The clock keeps the sender until the deadline, so this completes only then.
-                woken.await.ok();
-            })
+            // A wake that comes before the sleep is polled is kept until it is.
+            Box::pin(async move { wake.notified().await })
         }
     }
 

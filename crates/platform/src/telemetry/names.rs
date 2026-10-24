@@ -57,12 +57,12 @@ pub const TRACE_ID: &str = "trace_id";
 /// The span a line was written in, a top-level field of JSON logs.
 pub const SPAN_ID: &str = "span_id";
 
-/// The span's name, which `tracing-opentelemetry` reads. No log line carries it.
+/// The span's name, which `tracing-opentelemetry` reads to name it. No log line carries it.
 pub const OTEL_NAME: &str = "otel.name";
-/// The span's kind, which `tracing-opentelemetry` reads. No log line carries it.
+/// The span's kind, which `tracing-opentelemetry` reads to set it. No log line carries it.
 pub const OTEL_KIND: &str = "otel.kind";
-/// The span's status, which `tracing-opentelemetry` reads. No log line carries it.
-pub const OTEL_STATUS_CODE: &str = "otel.status_code";
+/// The span's status, which `tracing-opentelemetry` reads to set it. No log line carries it.
+pub const OTEL_STATUS_CODE: &str = convention("otel.status_code", otel::OTEL_STATUS_CODE);
 
 /// How long a request took, in seconds.
 pub const REQUEST_DURATION: &str = "request.duration";

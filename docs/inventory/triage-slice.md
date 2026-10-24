@@ -85,15 +85,15 @@ The old HTTP layer's behaviors that the request pipeline and the `system` module
 | HTTP-002 Startup order and fail-fast conditions | changed | OPS-03, OPS-06, PLATFORM-009, PLATFORM-030 | One startup-failure format; the signal handlers are installed first; nothing panics |
 | HTTP-003 Composition functions | kept | ARCH-12 | |
 | HTTP-004 Graceful HTTP shutdown | changed | PLATFORM-038 | A delay before the listener stops accepting, and a deadline on the drain (OPS-06) |
-| HTTP-005 Liveness probe | changed | PLATFORM-019 | No version in the body (ASVS), and no envelope |
+| HTTP-005 Liveness probe | changed | PLATFORM-019 | No version in the body, as the Application Security Verification Standard (ASVS) asks, and no envelope |
 | HTTP-006 Readiness probe | changed | PLATFORM-037 | Also reports a database the instance can't reach (D9) |
-| HTTP-007 Global middleware order | changed | architecture §6 | The security headers wrap every response; CORS is dropped (HTTP-010) |
+| HTTP-007 Global middleware order | changed | architecture §6 | The security headers wrap every response; cross-origin resource sharing (CORS) is dropped (HTTP-010) |
 | HTTP-008 Route-group layer stacks | changed | API-14 | One builder per access level, through which every route is registered with its documentation |
 | HTTP-009 Versioned prefix, framework defaults for misses | changed | PLATFORM-021, PLATFORM-032 | A path that doesn't exist answers a 404 problem, and a method it doesn't serve a 405 problem with `Allow` |
 | HTTP-010 CORS policy | dropped | | No client calls the API from a browser: the desktop client calls it from Rust. CORS arrives with a web client (D18) |
 | HTTP-012 One log line per failed request | changed | PLATFORM-034 | One line per request, so every trace ID leads to a log line (D10); a 4xx is logged at `INFO` (ERR-10) |
 | HTTP-014 Handler panics become a 500 | kept | ERR-12 | |
-| HTTP-015 Request body size limits per route class | changed | PLATFORM-036 | A 413 problem before the body is read, whatever the route reads (API-08) |
+| HTTP-015 Request body size limits per route class | changed | PLATFORM-036 | A 413 problem for a declared length over the limit, before the body is read (API-08) |
 | HTTP-016 Response envelope: success | dropped | | The body is the resource itself (API-05), and the trace context travels in `server-timing` (API-16) |
 | HTTP-017 Response envelope: error | changed | API-07 | RFC 9457 problems |
 | HTTP-018 Error mapping and hiding of internal detail | changed | ERR-03, ERR-08, ERR-09 | The category alone sets the status; every 500 has a fixed body |
@@ -108,7 +108,8 @@ The old HTTP layer's behaviors that the request pipeline and the `system` module
 | OBS-008 One structured log per 4xx and 5xx | changed | PLATFORM-034 | One completion line per request, and an `ERROR` line for each 5xx (ERR-10) |
 | OBS-009 No log line for 1xx to 3xx | changed | PLATFORM-034 | Every request writes its completion line (D10) |
 | OBS-020 Console JSON lines with the span hierarchy | changed | OBS-02, OBS-05 | Flat lines with `trace_id` and `span_id`, and the service's name, version and environment |
-| OBS-021 Level filters by environment and `RUST_LOG` | changed | OBS-03 | One setting, `LOG_LEVEL`, with the same default everywhere |
+| OBS-021 Level filters by environment and `RUST_LOG` | changed | OBS-03 | One setting, `LOG_LEVEL`, with the same default everywhere, never coarser than `INFO` |
+| OBS-022 Migration CLI logging | changed | OBS-01, OPS-03 | `migrate` logs through the logging setup every subcommand shares |
 | OBS-024, OBS-025 Instrumentation and field conventions | changed | OBS-04, OBS-05 | One list of telemetry names, checked by `check-instrument` |
 | RT-034 Process shutdown sequence | changed | PLATFORM-038 | The order of OPS-06, bounded by settings rather than by the container's grace period alone |
 | OPS-010 Startup sequence | changed | OPS-03 | One startup-failure format, written by `main` before logging exists |

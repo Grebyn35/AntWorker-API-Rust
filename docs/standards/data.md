@@ -78,7 +78,7 @@ CI applies every migration to an empty database, and applies the new migrations 
 | Role | Used by | Attributes |
 |---|---|---|
 | `owner` | the `migrate` subcommand only | owns the tables it creates, and has `CREATE` on the schema `public`, which the database's owner keeps |
-| `app` | every request and every job | no superuser, owns nothing, DML only (DATA-19) |
+| `app` | every request and every job | no superuser, owns nothing, data manipulation statements (DML) only (DATA-19) |
 
 The `bootstrap` subcommand creates both roles with these attributes, grants their privileges on the database and sets the role-level timeouts (DATA-19). The privileges on the tables come from the first migration. It runs with an administrator connection: the bundled Postgres superuser, or a managed provider's admin role. Running it again keeps the roles, their attributes and the grants, and sets each role's password again from its URL.
 - Why: the running API can change data but never the schema, and holds no privilege beyond that (D4).
@@ -91,7 +91,7 @@ The server refuses to start unless it connects as the role `app`, and that role 
 
 ### DATA-19 Least privilege in grants
 - `EXECUTE` is revoked from `PUBLIC` on every function in the application schema, including through default privileges.
-- `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no DDL and no `TRUNCATE`. On `audit_entries` it has only `INSERT` and `SELECT` (AUDIT-005).
+- `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no data definition statements (DDL) and no `TRUNCATE`. On `audit_entries` it has only `INSERT` and `SELECT` (AUDIT-005).
 - `app` has `statement_timeout` and `idle_in_transaction_session_timeout` set at the role level.
 - Why: a role can do only what its job needs, and a stuck transaction can't hold locks indefinitely.
 - Check: `ci: check-schema`.
@@ -139,7 +139,7 @@ Transactions use `READ COMMITTED`. An operation whose correctness depends on row
 - Check: `review`.
 
 ### DATA-26 No external calls inside a transaction
-A transaction never waits on HTTP, SMTP or object storage. Uploads write the object before the transaction, and external effects are jobs (D1).
+A transaction never waits on HTTP, the Simple Mail Transfer Protocol (SMTP) or object storage. Uploads write the object before the transaction, and external effects are jobs (D1).
 - Why: a slow dependency can't hold database locks.
 - Check: `review`.
 
