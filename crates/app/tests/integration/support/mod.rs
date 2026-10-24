@@ -15,7 +15,6 @@
 )]
 
 pub mod api;
-pub mod collector;
 mod contract;
 pub mod fixtures;
 

@@ -1,6 +1,7 @@
 //! The metric declarations (OBS-11). A metric is a `static` built by the `const fn new` of
 //! [`Counter`], [`Histogram`] or [`Gauge`], with its name, unit, description and label names.
-//! `check-metrics` reads every declaration, and writes the metric catalog from them (OBS-12).
+//! `just metrics` writes the metric catalog from the declarations, and `check-metrics` reads
+//! them to check it (OBS-12).
 //!
 //! The first recording creates the instrument from the process's meter provider, which
 //! [`super::init`] sets up before any code records. Without telemetry export, the provider

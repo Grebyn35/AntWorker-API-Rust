@@ -25,7 +25,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 ## LatencyBudgetBurningFast
 
-**What it means.** More than the budgeted 1% of requests take longer than the latency objective of 0.5 seconds, fast enough to spend the month's budget within days.
+**What it means.** More than the budgeted share of requests take longer than the [latency objective](observability.md#service-level-objectives), fast enough to spend the month's budget within days.
 
 **Look first.** The API requests dashboard: "How long do the slowest requests take, by route?" names the routes, and "Which requests took longer than the latency objective?" lists their traces.
 
@@ -33,7 +33,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 ## LatencyBudgetBurningSlowly
 
-**What it means.** Requests take longer than 0.5 seconds often enough to spend the latency budget within the month.
+**What it means.** Requests take longer than the latency objective often enough to spend the latency budget within the month.
 
 **Look first.** "How long do the slowest requests take, by route?" over the last week shows whether one route grew slower over time.
 

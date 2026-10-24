@@ -31,7 +31,7 @@ flowchart LR
 - **The API** exports its spans, log records and metrics over the OpenTelemetry Protocol (OTLP), on HTTP, to the collector named by `OTEL_EXPORTER_OTLP_ENDPOINT`. Every signal carries the service's name, its version, the environment, and the instance's own `service.instance.id`, so instances running side by side stay apart. The [platform spec](../spec/platform.md#telemetry-export) says how the API exports.
 - **The collector** ([config](../../deploy/observability/collector/config.yaml)) refuses data before it runs out of memory, and passes each signal to its store. Its tail sampling waits 15 seconds for a trace's spans, then keeps the trace if any policy keeps it (OBS-08):
   - every trace with an error status, or a response of 400 or above
-  - every trace slower than the latency objective, 0.5 seconds
+  - every trace slower than the [latency objective](#service-level-objectives)
   - 10% of the rest
 - **Prometheus** ([config](../../deploy/observability/prometheus/prometheus.yaml)) receives the metrics through its OTLP receiver, and scrapes the collector, Loki, Tempo and Alertmanager for their own. It evaluates the [rules](../../deploy/observability/prometheus/rules.yaml) and sends firing alerts to Alertmanager. [metrics.md](metrics.md) lists every metric under its name in Prometheus.
 - **Loki** ([config](../../deploy/observability/loki/config.yaml)) keeps every log record the API exports: logs are never sampled. The API's queue of records drops a record that arrives while it is full, as the [platform spec](../spec/platform.md#telemetry-export) says, and stdout holds every line. A record's line is its message, such as `request completed`. The service's name, instance and environment are labels, such as `service_name`, and every other field, `trace_id` and `span_id` among them, is structured metadata that a query filters with `| trace_id="…"`.
@@ -53,7 +53,7 @@ Prometheus keeps metrics for 15 days, and Loki and Tempo keep logs and traces fo
 | Tempo | <http://127.0.0.1:3200> |
 | The collector's OTLP receiver | <http://127.0.0.1:4318> |
 
-Grafana opens without signing in, as a viewer who can explore. Its dashboards are read-only: each is a file in [deploy/observability/grafana/dashboards](../../deploy/observability/grafana/dashboards), and changing one means changing its file. `docker compose --profile observability down` stops the stack, and adding `--volumes` deletes what it stored.
+Grafana opens without signing in, as a viewer who can explore. Its dashboards are read-only: each is a file in [deploy/observability/grafana/dashboards](../../deploy/observability/grafana/dashboards), and changing one means changing its file. `docker compose stop collector prometheus alertmanager loki tempo grafana` stops the stack and leaves Postgres running. `docker compose --profile observability down` stops every service, Postgres among them, and adding `--volumes` deletes what each stored, the development database included.
 
 ## Following a request from its trace ID
 
@@ -63,7 +63,7 @@ Every response except the health probes carries its trace context in `server-tim
 2. Open a line, and choose "Open the trace" under its links. The trace opens beside the logs, with each span's duration and attributes.
 3. From a span, "Related logs" runs the query of the first step for the span's trace.
 
-A trace is kept when the request failed, answered 400 or above, or took longer than 0.5 seconds, and a successful fast request's trace only sometimes. Its logs are never sampled.
+A trace is kept when the request failed, answered 400 or above, or took longer than the latency objective, and a successful fast request's trace only sometimes. Its logs are never sampled.
 
 To find the slow requests of a time range instead, the API requests dashboard lists them under "Which requests took longer than the latency objective?", each opening its trace.
 

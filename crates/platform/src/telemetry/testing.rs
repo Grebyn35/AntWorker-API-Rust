@@ -1,5 +1,7 @@
 //! The telemetry of the tests, which compile with the `test-support` feature.
 
+pub mod collector;
+
 use std::{
     collections::BTreeMap,
     io,
@@ -109,7 +111,13 @@ pub fn recorded(name: &str) -> Vec<Point> {
     if let Err(error) = installed.meter.force_flush() {
         crate::errors::ignore(&error, "test_metrics_not_flushed");
     }
-    let exports = installed.metrics.get_finished_metrics().unwrap_or_default();
+    let exports = installed
+        .metrics
+        .get_finished_metrics()
+        .unwrap_or_else(|error| {
+            crate::errors::ignore(&error, "test_metrics_not_read");
+            Vec::new()
+        });
     let Some(last) = exports.last() else {
         return Vec::new();
     };
@@ -162,12 +170,6 @@ fn points<T: Copy>(data: &MetricData<T>, value: impl Fn(T) -> f64) -> Vec<Point>
             .collect(),
         MetricData::ExponentialHistogram(_) => Vec::new(),
     }
-}
-
-/// Installs the API's panic hook (ERR-12). It replaces the hook that prints a failing test's
-/// message, so only a test binary of its own installs it.
-pub fn install_panic_hook() {
-    std::panic::set_hook(Box::new(super::log_panic));
 }
 
 /// Writes into [`LINES`].

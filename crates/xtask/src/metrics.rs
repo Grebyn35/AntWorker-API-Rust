@@ -1,7 +1,7 @@
 //! `check-metrics`: every metric is declared and named as OBS-11 says, the catalog is the one
 //! the declarations give (OBS-12), every dashboard and alert reads only metrics that are
-//! declared or listed, every metric is read by one, and every panel's title is a question
-//! (OBS-13).
+//! declared or listed, every metric is read by one, every panel's title is a question, and the
+//! dashboards are read-only, with an overview that links to every other (OBS-13).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -191,8 +191,8 @@ fn code_spans(values: &[String]) -> String {
         .join(", ")
 }
 
-/// Fails a query of an unknown metric, a metric or recording rule that nothing reads, and a
-/// panel title that isn't a question.
+/// Fails a query of an unknown metric, a metric or recording rule that nothing reads, a panel
+/// title that isn't a question, and what [`boards::check`] fails.
 fn check_use(repo: &Repo, catalog: &Catalog, findings: &mut Vec<Finding>) {
     let dashboards = stack::dashboards(repo, findings);
     boards::check(repo, &dashboards, findings);

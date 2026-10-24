@@ -158,7 +158,7 @@
     {
       "type": "timeseries",
       "title": "How long do the slowest requests take, by route?",
-      "description": "The 99th percentile of request durations, by route. The latency objective is 0.5 seconds.",
+      "description": "The 99th percentile of request durations, by route. The line is the latency objective.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -255,7 +255,7 @@
     {
       "type": "table",
       "title": "Which requests took longer than the latency objective?",
-      "description": "Up to 50 of the kept traces of requests slower than 0.5 seconds in the time range shown, which the collector always keeps (OBS-08). Each row opens its trace; a shorter time range shows others.",
+      "description": "Up to 50 of the kept traces of requests slower than the latency objective in the time range shown, which the collector always keeps (OBS-08). Each row opens its trace; a shorter time range shows others.",
       "datasource": {
         "type": "tempo",
         "uid": "tempo"

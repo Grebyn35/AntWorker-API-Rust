@@ -163,8 +163,9 @@ metrics:
 
 # Fails on a metric declared or named outside OBS-11, a catalog that differs from the
 # declarations, a dashboard or alert that reads a metric neither declared nor listed in
-# deploy/observability/metrics.yaml, a metric nothing reads, or a panel title that isn't a
-# question (OBS-11 to OBS-13).
+# deploy/observability/metrics.yaml, a metric nothing reads, a panel title that isn't a question,
+# a dashboard that Grafana's users can change, or dashboards no overview links to all of (OBS-11
+# to OBS-13).
 check-metrics:
     {{ xtask }} check-metrics
 

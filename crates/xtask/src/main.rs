@@ -59,7 +59,8 @@ enum Command {
     Instrument,
     /// Fails on a metric declared or named outside OBS-11, a catalog that differs from the
     /// declarations, a dashboard or alert that reads a metric nothing declares or lists, a
-    /// metric that nothing reads, or a panel title that isn't a question (OBS-11 to OBS-13).
+    /// metric that nothing reads, a panel title that isn't a question, a dashboard that Grafana's
+    /// users can change, or dashboards no overview links to all of (OBS-11 to OBS-13).
     #[command(name = "check-metrics")]
     Metrics,
     /// Writes the metric catalog, `docs/operations/metrics.md`, from the declarations (OBS-12).

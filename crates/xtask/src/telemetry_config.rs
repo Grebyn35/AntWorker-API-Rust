@@ -175,9 +175,25 @@ fn bucket_bounds(expression: &str) -> Vec<String> {
         .collect()
 }
 
-/// Checks that the slow-trace list's queries keep the objective as their threshold.
+/// Checks that the slow-trace list's queries keep the objective as their threshold, and that a
+/// panel of the request durations draws its threshold at the objective.
 fn dashboards_share(repo: &Repo, objective: f64, findings: &mut Vec<Finding>) {
     let dashboards = stack::dashboards(repo, findings);
+    for query in &dashboards.queries {
+        let durations = query.store == Store::Prometheus && query.query.contains(BUCKET);
+        for threshold in query.thresholds.iter().filter(|_| durations) {
+            if threshold * 1000.0 != objective {
+                findings.push(Finding::new(
+                    &query.path,
+                    query.line,
+                    format!(
+                        "the panel `{}` draws a threshold of {threshold} s, but the latency objective is {objective} ms (OBS-08)",
+                        query.title
+                    ),
+                ));
+            }
+        }
+    }
     let lists: Vec<_> = dashboards
         .queries
         .iter()
@@ -292,6 +308,23 @@ mod tests {
             &dashboard("{ duration > 500ms }"),
         );
         assert_eq!(found.len(), 1, "{found:?}");
+    }
+
+    #[test]
+    fn obs_08_a_duration_panel_draws_the_objective() {
+        let panel = |threshold: f64| {
+            serde_json::json!({"panels": [
+                {"type": "table", "title": "Which?", "datasource": {"type": "tempo"},
+                 "targets": [{"query": "{ duration > 500ms }"}]},
+                {"type": "timeseries", "title": "How long?", "datasource": {"type": "prometheus"},
+                 "fieldConfig": {"defaults": {"thresholds": {"steps": [
+                     {"color": "green", "value": null}, {"color": "red", "value": threshold}]}}},
+                 "targets": [{"expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket[5m])))"}]}
+            ]})
+            .to_string()
+        };
+        assert!(findings(&collector(POLICIES), RULES, &panel(0.5)).is_empty());
+        assert_eq!(findings(&collector(POLICIES), RULES, &panel(1.0)).len(), 1);
     }
 
     #[test]

@@ -64,9 +64,9 @@ pub struct Telemetry {
 
 impl Telemetry {
     /// Writes out the spans, then the log records, then the metrics not yet exported, so the last
-    /// metrics count the exports just before them, and then every queued log line (PLATFORM-042).
-    /// The tracer and the logger each have 2 seconds, and the meter the 5 seconds its SDK allows
-    /// itself. `main` calls it last.
+    /// metrics count the exports just before them, and then the queued log lines (PLATFORM-042).
+    /// The tracer and the logger each have 2 seconds, the meter the 5 seconds its SDK allows
+    /// itself, and the logging thread about a second. `main` calls it last.
     pub fn finish(self) {
         if let Err(error) = self.tracer.shutdown_with_timeout(export::FLUSH_TIMEOUT) {
             crate::errors::ignore(&error, "tracer_shutdown");

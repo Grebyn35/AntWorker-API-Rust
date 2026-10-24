@@ -7,13 +7,12 @@ use http::{Method, StatusCode};
 use opentelemetry_proto::tonic::{
     common::v1::any_value, resource::v1::Resource, trace::v1::span::SpanKind,
 };
-use platform::telemetry::testing::{self, Point};
-
-use crate::support::{
-    Api, TestDatabase,
+use platform::telemetry::testing::{
+    self, Point,
     collector::{Collector, Received, attribute, text},
-    fixtures,
 };
+
+use crate::support::{Api, TestDatabase, fixtures};
 
 /// How often the instance checks its own database connection.
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
@@ -28,6 +27,19 @@ fn requests(points: &[Point], labels: &[(&str, &str)]) -> u64 {
         .iter()
         .filter(|point| point.labels == wanted)
         .filter_map(|point| point.count)
+        .sum()
+}
+
+/// The seconds that `points` recorded with exactly `labels`, all requests together.
+fn seconds(points: &[Point], labels: &[(&str, &str)]) -> f64 {
+    let wanted: BTreeMap<String, String> = labels
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .collect();
+    points
+        .iter()
+        .filter(|point| point.labels == wanted)
+        .map(|point| point.value)
         .sum()
 }
 
@@ -135,6 +147,48 @@ async fn platform_040_a_method_http_doesn_t_define_is_other() {
 }
 
 #[tokio::test]
+async fn platform_040_a_request_no_route_matched_records_no_route() {
+    let api = Api::new();
+    // Exactly these labels: no `http.route`, and no `error.type` on a 4xx.
+    let labels = [
+        ("http.request.method", "GET"),
+        ("http.response.status_code", "404"),
+    ];
+    let before = requests(&durations(), &labels);
+
+    let response = api.get("/v1/no-such-route").send().await;
+
+    assert_eq!(response.status, StatusCode::NOT_FOUND);
+    assert!(requests(&durations(), &labels) > before);
+}
+
+#[tokio::test]
+async fn platform_040_a_request_records_how_long_it_took() {
+    let gate = Arc::new(fixtures::Gate::default());
+    let api = Api::with(fixtures::routes(gate.clone()), 100);
+    let clock = api.clock();
+    let labels = [
+        ("http.request.method", "GET"),
+        ("http.route", "/v1/gate"),
+        ("http.response.status_code", "204"),
+    ];
+    let before = seconds(&durations(), &labels);
+    let entered = gate.entered.notified();
+    let held = tokio::spawn({
+        let api = api.clone();
+        async move { api.get("/v1/gate").send().await.status }
+    });
+    entered.await;
+
+    clock.advance(Duration::from_secs(2));
+    gate.release.notify_one();
+
+    assert_eq!(held.await.unwrap(), StatusCode::NO_CONTENT);
+    let took = seconds(&durations(), &labels) - before;
+    assert!(took >= 2.0, "{took}");
+}
+
+#[tokio::test]
 async fn platform_040_patch_is_a_method_http_defines() {
     let api = Api::new();
     let labels = [
@@ -217,7 +271,7 @@ async fn platform_043_the_database_gauge_follows_each_check() {
 
 #[tokio::test]
 async fn platform_039_serve_exports_its_spans_and_log_records_with_their_trace_context() {
-    let collector = Collector::start().await;
+    let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
     let endpoint = collector.endpoint();
     let mut server = database
@@ -303,7 +357,7 @@ async fn platform_039_serve_exports_its_spans_and_log_records_with_their_trace_c
 
 #[tokio::test]
 async fn platform_040_a_method_http_doesn_t_define_is_other_in_the_span() {
-    let collector = Collector::start().await;
+    let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
     let endpoint = collector.endpoint();
     let server = database
@@ -345,7 +399,7 @@ async fn platform_040_a_method_http_doesn_t_define_is_other_in_the_span() {
 
 #[tokio::test]
 async fn platform_042_a_subcommand_writes_out_its_telemetry_before_it_exits() {
-    let collector = Collector::start().await;
+    let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
 
     let output = database
@@ -376,7 +430,7 @@ async fn platform_042_a_subcommand_writes_out_its_telemetry_before_it_exits() {
 
 #[tokio::test]
 async fn platform_039_each_process_exports_as_an_instance_of_its_own() {
-    let collector = Collector::start().await;
+    let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
     let env = [
         ("ENVIRONMENT", "test".to_owned()),
@@ -409,7 +463,7 @@ async fn platform_039_each_process_exports_as_an_instance_of_its_own() {
 
 #[tokio::test]
 async fn platform_042_a_subcommand_writes_out_its_spans_before_it_exits() {
-    let collector = Collector::start().await;
+    let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
 
     // bootstrap computes each role's password verifier in a span of its own (OBS-06).
@@ -435,7 +489,7 @@ async fn platform_042_a_subcommand_writes_out_its_spans_before_it_exits() {
 
 #[tokio::test]
 async fn platform_042_the_last_metrics_count_the_exports_that_failed() {
-    let collector = Collector::refusing_logs().await;
+    let collector = Collector::refusing_logs().await.unwrap();
     let database = TestDatabase::migrated().await;
 
     let output = database
@@ -485,7 +539,7 @@ async fn obs_10_an_exporter_that_can_t_be_built_fails_startup() {
 
 #[tokio::test]
 async fn obs_10_an_export_that_fails_is_counted_and_the_subcommand_goes_on() {
-    let collector = Collector::refusing_logs().await;
+    let collector = Collector::refusing_logs().await.unwrap();
     let database = TestDatabase::migrated().await;
 
     let output = database

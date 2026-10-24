@@ -1,7 +1,9 @@
 //! A stand-in for the OpenTelemetry Collector (TEST-05): an OTLP/HTTP receiver on a free port of
-//! 127.0.0.1 that keeps every request it receives, decoded.
+//! 127.0.0.1 that keeps every request it receives, decoded. It runs on the async runtime that
+//! starts it, and stops when it is dropped.
 
 use std::{
+    io,
     net::SocketAddr,
     sync::{Arc, Mutex, PoisonError},
 };
@@ -142,18 +144,18 @@ struct Shared {
 }
 
 impl Collector {
-    /// A collector that accepts every export.
-    pub async fn start() -> Self {
+    /// A collector that accepts every export. Fails if it can't listen.
+    pub async fn start() -> io::Result<Self> {
         Self::listening(false).await
     }
 
     /// A collector that answers every export of log records with 400, which the exporter
-    /// counts as a failed export and doesn't retry.
-    pub async fn refusing_logs() -> Self {
+    /// counts as a failed export and doesn't retry. Fails if it can't listen.
+    pub async fn refusing_logs() -> io::Result<Self> {
         Self::listening(true).await
     }
 
-    async fn listening(refuse_logs: bool) -> Self {
+    async fn listening(refuse_logs: bool) -> io::Result<Self> {
         let state = Arc::new(Shared {
             received: Mutex::default(),
             changed: Notify::new(),
@@ -168,16 +170,18 @@ impl Collector {
             .route("/v1/logs", post(logs))
             .route("/v1/metrics", post(metrics))
             .with_state(state.clone());
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
         let server = tokio::spawn(async move {
-            axum::serve(listener, router).await.unwrap();
+            if let Err(error) = axum::serve(listener, router).await {
+                crate::errors::ignore(&error, "test_collector_stopped");
+            }
         });
-        Self {
+        Ok(Self {
             address,
             state,
             server,
-        }
+        })
     }
 
     /// The endpoint to give the API as `OTEL_EXPORTER_OTLP_ENDPOINT`.
@@ -213,31 +217,39 @@ impl Drop for Collector {
     }
 }
 
+// An export that doesn't decode is answered with 400, which the exporter counts as failed, so a
+// test that expects the export finds it missing.
+
 async fn traces(State(state): State<Arc<Shared>>, body: Bytes) -> Response {
-    let export = ExportTraceServiceRequest::decode(body).unwrap();
-    state.keep(|received| received.traces.push(export));
-    accepted()
+    match ExportTraceServiceRequest::decode(body) {
+        Ok(export) => state.keep(|received| received.traces.push(export)),
+        Err(_) => StatusCode::BAD_REQUEST.into_response(),
+    }
 }
 
 async fn logs(State(state): State<Arc<Shared>>, body: Bytes) -> Response {
     if state.refuse_logs {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    let export = ExportLogsServiceRequest::decode(body).unwrap();
-    state.keep(|received| received.logs.push(export));
-    accepted()
+    match ExportLogsServiceRequest::decode(body) {
+        Ok(export) => state.keep(|received| received.logs.push(export)),
+        Err(_) => StatusCode::BAD_REQUEST.into_response(),
+    }
 }
 
 async fn metrics(State(state): State<Arc<Shared>>, body: Bytes) -> Response {
-    let export = ExportMetricsServiceRequest::decode(body).unwrap();
-    state.keep(|received| received.metrics.push(export));
-    accepted()
+    match ExportMetricsServiceRequest::decode(body) {
+        Ok(export) => state.keep(|received| received.metrics.push(export)),
+        Err(_) => StatusCode::BAD_REQUEST.into_response(),
+    }
 }
 
 impl Shared {
-    fn keep(&self, store: impl FnOnce(&mut Received)) {
+    /// Keeps an export, wakes whoever waits for one, and answers that it was taken whole.
+    fn keep(&self, store: impl FnOnce(&mut Received)) -> Response {
         store(&mut self.received.lock().unwrap_or_else(PoisonError::into_inner));
         self.changed.notify_waiters();
+        accepted()
     }
 }
 

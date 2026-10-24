@@ -43,8 +43,8 @@ groups:
             or 0 * sum by (job) (rate(http_server_request_duration_seconds_count[3d])))
           / sum by (job) (rate(http_server_request_duration_seconds_count[3d]))
 
-  # A request is slow when it takes longer than the latency objective, 0.5 seconds: the le="0.5"
-  # bucket holds the requests within it (check-telemetry-config).
+  # A request is slow when it takes longer than the latency objective, whose bucket holds the
+  # requests within it; check-telemetry-config keeps the bucket and the objective the same.
   - name: slo-latency
     rules:
       - record: job:slo_requests_slow:ratio_rate5m
@@ -108,7 +108,7 @@ groups:
         labels:
           severity: page
         annotations:
-          summary: Requests take longer than 0.5 seconds often enough to spend the latency budget within days.
+          summary: Requests take longer than the latency objective often enough to spend the latency budget within days.
           runbook: docs/operations/runbooks.md#latencybudgetburningfast
 
       - alert: LatencyBudgetBurningSlowly
@@ -119,7 +119,7 @@ groups:
         labels:
           severity: ticket
         annotations:
-          summary: Requests take longer than 0.5 seconds often enough to spend the latency budget within the month.
+          summary: Requests take longer than the latency objective often enough to spend the latency budget within the month.
           runbook: docs/operations/runbooks.md#latencybudgetburningslowly
 
       - alert: DatabaseUnreachable

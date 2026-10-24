@@ -237,7 +237,7 @@ A route that documents its own response for one of those statuses keeps it, and 
 
 The logging setup writes one line per event to stdout: JSON in production, and text elsewhere (OBS-01). A JSON line holds `timestamp`, `level`, `message`, the event's fields, `service.name`, `service.version` and `deployment.environment.name`, and, inside a span, `trace_id` and `span_id` (OBS-02). `service.name` is the binary's name, so `just rename` renames it with the binary (ARCH-15). `LOG_LEVEL` is never coarser than `INFO`, because every request's completion line is written at `INFO` (PLATFORM-034).
 
-A dedicated thread writes the lines, fed by a queue of 128,000 lines, so an event doesn't wait for stdout. When the queue is full, the event waits for room instead of being dropped (OBS-08): that wait is the one blocking call the logging setup makes on the async runtime (CODE-05). `main` writes out the queue before the process exits.
+A dedicated thread writes the lines, fed by a queue of 128,000 lines, so an event doesn't wait for stdout. When the queue is full, the event waits for room instead of being dropped (OBS-08): that wait is the one blocking call the logging setup makes on the async runtime (CODE-05). `main` writes out the queue before the process exits, waiting at most about a second for the logging thread, as `tracing-appender` does: a line it hasn't written by then is lost.
 
 With telemetry export on, the same events also become OpenTelemetry log records: the bridge takes the events the lines take, with the same fields and severity, and the trace context of the span each was written in (PLATFORM-039). The records wait in a queue of their own, which drops a record that arrives while it is full (Telemetry export), so stdout holds every line, and the logs store every record the API exported.
 
@@ -258,7 +258,7 @@ With `OTEL_EXPORTER_OTLP_ENDPOINT` set, every subcommand that logs exports its s
 
 A name that a semantic convention defines is declared through `convention`, as the telemetry names are (OBS-05). The metric names come from `opentelemetry-semantic-conventions`' `metric` module, which holds the conventions' metric names.
 
-`check-metrics` reads every declaration in the workspace. It fails on an own name that isn't `<module>.<name>` for the module that declares it, and on a label name that isn't one of the list's constants. It writes the catalog, [metrics.md](../operations/metrics.md), and fails while the committed catalog differs from it (OBS-12).
+`check-metrics` reads every declaration in the workspace. It fails on an own name that isn't `<module>.<name>` for the module that declares it, and on a label name that isn't one of the list's constants. `just metrics` writes the catalog, [metrics.md](../operations/metrics.md), from the declarations, and `check-metrics` fails while the committed catalog differs from it (OBS-12).
 
 The metrics `platform` records:
 - `http.server.request.duration`, by the request log, for every request it logs, with the boundaries the conventions advise (PLATFORM-040). It leaves out `url.scheme`, which the conventions require: the API receives every request over plain HTTP, behind the proxy that ends TLS, so the label would hold one value.

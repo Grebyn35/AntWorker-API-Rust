@@ -41,6 +41,8 @@ pub struct PanelQuery {
     pub store: Store,
     /// The query.
     pub query: String,
+    /// The values of the panel's threshold steps, such as the line a graph draws.
+    pub thresholds: Vec<f64>,
 }
 
 /// A panel's title, with where it is.
@@ -138,6 +140,12 @@ pub fn dashboards(repo: &Repo, findings: &mut Vec<Finding>) -> Dashboards {
                         title: title.clone(),
                         store,
                         query: query.to_owned(),
+                        thresholds: panel["fieldConfig"]["defaults"]["thresholds"]["steps"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|step| step["value"].as_f64())
+                            .collect(),
                     });
                 }
             }

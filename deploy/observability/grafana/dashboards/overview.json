@@ -178,7 +178,7 @@
     {
       "type": "stat",
       "title": "How much telemetry was lost in the last hour?",
-      "description": "Spans, log records and metric data points that the API failed to export, or that the collector refused or failed to pass on. The Telemetry pipeline dashboard shows where.",
+      "description": "Spans, log records and metric data points that the API failed to export, that the collector refused or failed to pass on, and traces that tail sampling dropped before deciding them. The Telemetry pipeline dashboard shows where.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -190,7 +190,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(sum(increase(otel_sdk_exporter_span_exported_total{error_type!=\"\"}[1h])) or vector(0)) + (sum(increase(otel_sdk_exporter_log_exported_total{error_type!=\"\"}[1h])) or vector(0)) + (sum(increase(otel_sdk_exporter_metric_data_point_exported_total{error_type!=\"\"}[1h])) or vector(0)) + (sum(increase(otelcol_receiver_refused_spans[1h])) or vector(0)) + (sum(increase(otelcol_receiver_refused_log_records[1h])) or vector(0)) + (sum(increase(otelcol_receiver_refused_metric_points[1h])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_spans[1h])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_log_records[1h])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_metric_points[1h])) or vector(0))",
+          "expr": "(sum(increase(otel_sdk_exporter_span_exported_total{error_type!=\"\"}[1h])) or vector(0)) + (sum(increase(otel_sdk_exporter_log_exported_total{error_type!=\"\"}[1h])) or vector(0)) + (sum(increase(otel_sdk_exporter_metric_data_point_exported_total{error_type!=\"\"}[1h])) or vector(0)) + (sum(increase(otelcol_receiver_refused_spans[1h])) or vector(0)) + (sum(increase(otelcol_receiver_refused_log_records[1h])) or vector(0)) + (sum(increase(otelcol_receiver_refused_metric_points[1h])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_spans[1h])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_log_records[1h])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_metric_points[1h])) or vector(0)) + (sum(increase(otelcol_processor_tail_sampling_sampling_trace_dropped_too_early[1h])) or vector(0))",
           "legendFormat": ""
         }
       ],
@@ -366,7 +366,7 @@
     {
       "type": "timeseries",
       "title": "What share of requests take longer than the latency objective?",
-      "description": "Over the last 5 minutes, the share of requests slower than 0.5 seconds. The line is the latency objective's budget: 1% of requests.",
+      "description": "Over the last 5 minutes, the share of requests slower than the latency objective. The line is the latency objective's budget: 1% of requests.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -379,7 +379,7 @@
             "uid": "prometheus"
           },
           "expr": "job:slo_requests_slow:ratio_rate5m",
-          "legendFormat": "slower than 0.5 s"
+          "legendFormat": "slower than the objective"
         }
       ],
       "fieldConfig": {

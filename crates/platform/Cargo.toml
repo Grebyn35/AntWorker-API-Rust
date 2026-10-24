@@ -12,11 +12,14 @@ json-subscriber.workspace = true
 opentelemetry.workspace = true
 opentelemetry-appender-tracing.workspace = true
 opentelemetry-otlp.workspace = true
+# The stand-in collector of the test support decodes what the API exports.
+opentelemetry-proto = { workspace = true, optional = true }
 # The names of semantic conventions still in development, such as the SDK's own metrics.
 opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
 opentelemetry_sdk.workspace = true
 percent-encoding.workspace = true
 postgres-protocol.workspace = true
+prost = { workspace = true, optional = true }
 reqwest.workspace = true
 rustls.workspace = true
 rustls-native-certs.workspace = true
@@ -37,9 +40,9 @@ utoipa-axum.workspace = true
 uuid.workspace = true
 
 [features]
-# Raw database connections, and telemetry kept in memory, for the test support (TEST-06). Only the
-# tests enable it.
-test-support = ["opentelemetry_sdk/testing"]
+# Raw database connections, telemetry kept in memory, and a stand-in collector, for the test
+# support (TEST-05, TEST-06). Only the tests enable it.
+test-support = ["opentelemetry_sdk/testing", "dep:opentelemetry-proto", "dep:prost"]
 
 [lints]
 workspace = true

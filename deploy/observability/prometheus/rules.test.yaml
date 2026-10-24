@@ -47,7 +47,7 @@ tests:
         alertname: AvailabilityBudgetBurningFast
         exp_alerts: []
 
-  # 20% of requests take longer than 0.5 seconds.
+  # 20% of requests take longer than the latency objective.
   - interval: 1m
     input_series:
       - series: 'http_server_request_duration_seconds_bucket{job="api", le="0.5"}'
@@ -62,10 +62,10 @@ tests:
               severity: page
               job: api
             exp_annotations:
-              summary: Requests take longer than 0.5 seconds often enough to spend the latency budget within days.
+              summary: Requests take longer than the latency objective often enough to spend the latency budget within days.
               runbook: docs/operations/runbooks.md#latencybudgetburningfast
 
-  # 5% of requests take longer than 0.5 seconds: past the slow thresholds, below the fast ones.
+  # 5% of requests take longer than the latency objective: past the slow thresholds, below the fast ones.
   - interval: 1m
     input_series:
       - series: 'http_server_request_duration_seconds_bucket{job="api", le="0.5"}'
@@ -80,7 +80,7 @@ tests:
               severity: ticket
               job: api
             exp_annotations:
-              summary: Requests take longer than 0.5 seconds often enough to spend the latency budget within the month.
+              summary: Requests take longer than the latency objective often enough to spend the latency budget within the month.
               runbook: docs/operations/runbooks.md#latencybudgetburningslowly
       - eval_time: 2h
         alertname: LatencyBudgetBurningFast

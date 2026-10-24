@@ -29,9 +29,8 @@ http.workspace = true
 http-body-util.workspace = true
 # The test support checks every response against the OpenAPI document (API-17).
 jsonschema.workspace = true
-# The stand-in collector decodes what the API exports over OTLP (TEST-05).
+# The tests read what the stand-in collector decoded.
 opentelemetry-proto.workspace = true
-prost.workspace = true
 serde_json.workspace = true
 # The test support shares the template database through tokio::sync::OnceCell, and the tests
 # of timeouts pause tokio's time.
