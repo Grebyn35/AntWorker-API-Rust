@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** pass 3 of the review of step 1.3, telemetry. Then step 1.4 of the build order, the image and the pipeline, in this order: the spec, the code test-first, and the conformance review. Step 1.5 then builds the reference deployment, with Grafana on an HTTPS address and the path to a managed observability backend (D42).
+**Next:** step 1.4 of the build order, the image and the pipeline, in this order: the spec, the code test-first, and the conformance review. Step 1.3, telemetry, is built, and its review stopped at pass 3 with its must-fix finding resolved. Step 1.5 then builds the reference deployment, with Grafana on an HTTPS address and the path to a managed observability backend (D42).
 
 **Waiting on the owner:** nothing.
 
@@ -154,7 +154,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 3ae7168: the workspace shapes (D39, D40), and the table check of DOC-15 | 2 | 7 (7, 3, 3 shared) | 1 | 1 | `stopped: no progress`: 1e56256 |
 | e3939f2..f09687d: step 1.3, telemetry: export, the metric declarations, the observability stack and its checks, `just dev`, and the plan of D42 | 1 | 17 (14, 6, 3 shared) | 6 | 0 | `next pass`: ce2c87a |
 | e3939f2..ce2c87a: step 1.3, telemetry: export, the metric declarations, the observability stack and its checks, `just dev`, and the plan of D42 | 2 | 7 (6, 2, 1 shared) | 1 | 0 | `next pass`: 3e95ac0 |
-| e3939f2..090b820: step 1.3, telemetry: export, the metric declarations, the observability stack and its checks, `just dev`, and the plan of D42 | 3 | 8 (8, 2, 2 shared) | 1 | 0 | `stopped: no progress` |
+| e3939f2..090b820: step 1.3, telemetry: export, the metric declarations, the observability stack and its checks, `just dev`, and the plan of D42 | 3 | 8 (8, 2, 2 shared) | 1 | 0 | `stopped: no progress`: 953cbc1 |
 
 ## Decisions
 
