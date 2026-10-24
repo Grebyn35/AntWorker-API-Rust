@@ -21,7 +21,7 @@ Every part of the system is listed under [Foundation](#foundation), [Modules](#m
    2. **Request pipeline:** problem responses with trace IDs, trace context in and out, the middleware stack except rate limiting, readiness and bounded shutdown, and the capabilities endpoint as the first `/v1` route, with `openapi.json`, against which the test support checks every response the integration tests receive. The step's conformance review also covers the built code it rewrites, which no review has covered yet: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle`.
    3. **Telemetry:** traces, logs and metrics exported over the OpenTelemetry Protocol (OTLP); the metric declarations; the collector, Prometheus, Loki, Tempo, Grafana and Alertmanager, with logs and traces linked both ways; the first dashboard questions and alerts; and the generated metric catalog. `just dev` runs the API with the stack one flag away.
    4. **Image and pipeline:** the image, and CI that builds it once, scans it, boots it, runs the end-to-end suite against it, and promotes its digest, with signed releases on tags.
-   5. **Reference deployment:** the production setup on one server, its deploy tooling, scheduled backups and restore, and the load test. The end-to-end suite proves a deploy with no downtime, a rollback, a restore, and the trace-ID guarantee for a 4xx response (D10).
+   5. **Reference deployment:** the production setup on one server, its deploy tooling, scheduled backups and restore, and the load test, with Grafana on an HTTPS address of its own and the path to a managed observability backend (D42). The end-to-end suite proves a deploy with no downtime, a rollback, a restore, and the trace-ID guarantee for a 4xx response (D10).
 2. **Thin slice.** Spec it, then build it test-first, each part extending the skeleton:
    1. `accounts`, `auth` and the `audit` writer, with authentication (`Principal` and `SessionVerifier`) and rate limiting: the IP and per-user limits and the per-email sign-in limit, built once with all three callers. It settles the `auth` items in [inventory/decision-trace.md](inventory/decision-trace.md), and extends the trace-ID guarantee to a 5xx response.
    2. `access` and `workspaces`, with `Authorized<P>`, the security event sink, and idempotency, which creating a workspace uses.
@@ -48,6 +48,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | built |
 | The image and the delivery pipeline, with the release docs | D15, D21 | 1.4 |
 | The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30 | 1.5 |
+| Grafana on an HTTPS address of its own with sign-in, and the path to a managed observability backend through the collector, with Grafana Cloud as the worked example | D19, D42 | 1.5 |
 | The command that removes an optional part, which `check-removable` runs | D29, D39 | 2.3 |
 | `just seed` and the OpenAPI UI in development | D28 | 2.4 |
 | The threat model | D26 | 3 |
@@ -121,6 +122,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | From | Proposal | Decided in |
 |---|---|---|
 | Standards review | An OPS rule for D14: TLS on every connection that leaves the host, and storage encrypted at rest as a stated deployment requirement. | 1.5 |
+| Cloud observability (D42) | OBS-13 and OBS-14 with a managed backend: how dashboards that a managed Grafana can't provision from files stay read-only and checked, and how the rules and their tests reach its ruler. | 1.5 |
 | Research | API-15 names the draft it follows: draft-ietf-httpapi-ratelimit-headers-11 (2026-05), with `RateLimit: "default";r=50;t=30` and `RateLimit-Policy: "burst";q=100;w=60`. | 2.1 |
 | Research | API-12 names the draft it follows: draft-ietf-httpapi-idempotency-key-header-08 (2026-10), whose key is a structured-field string. | 2.2 |
 | Conformance review of cf1253c | API-07, API-09: whether `request.invalid_query` names the unknown parameters in `errors`, since clients never act on `detail` (ERR-09) | 2.1, with the first route that parses query values |
@@ -198,3 +200,4 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D39 | A product's data lives in workspaces, and the optional parts a fork keeps give it its shape: teams, one organization, or personal ([architecture](architecture.md#workspace-shapes)) | accepted |
 | D40 | A data export covers the content of every workspace whose only member is the user, the same workspaces that erasure deletes ([accounts spec](spec/accounts.md#export-and-erasure)) | accepted |
 | D41 | A latency spike leads to its requests through the kept traces slower than the latency objective, which the latency dashboard lists, rather than through exemplars, which OpenTelemetry's Rust SDK doesn't record (OBS-08) | accepted |
+| D42 | The self-hosted observability stack is the default, with Grafana behind HTTPS and sign-in; a deployment may instead send its telemetry through the collector to a managed backend, with Grafana Cloud as the worked example ([architecture](architecture.md#9-runtime-topology)) | accepted |
