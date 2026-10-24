@@ -41,8 +41,8 @@ flowchart LR
 ```
 Cargo.toml          workspace manifest
 justfile            every task, run identically locally and in CI (D21)
-Dockerfile
-compose.yaml        the services a developer runs locally
+Dockerfile          the image (OPS-15)
+compose.yaml        the services a developer runs locally, and the images of the tools the tasks run
 crates/
   platform/         shared mechanisms, no product knowledge
   app/              feature modules, routes, composition root, the binary
@@ -50,7 +50,7 @@ crates/
 migrations/         one ordered directory; each file name names its owning module
 deploy/             the configuration of the observability stack and of the reference deployment
 docs/
-.github/            thin workflows that call `just`
+.github/            thin workflows that call `just`, and the configuration of Dependabot
 .claude/            Claude Code definitions, including the conformance reviewer
 CLAUDE.md
 ```
@@ -284,6 +284,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   - `seed` loads development data.
   - The setup subcommand creates the deployment's one workspace and its owner's account, in a fork that keeps it (§5, "Workspace shapes").
   - `openapi` writes the contract, `openapi.json`, which a test compares with the committed one (API-17).
+  - `health` asks the instance whether it is ready, for the image's health check (PLATFORM-044).
 - **The single-host reference deployment** runs N API replicas behind Caddy, with Postgres, SeaweedFS and, as an option, the observability stack. A deploy needs only the release's published artifacts on the server, never a checkout of the repository. It replaces replicas with no downtime and rolls back on failure (D15, OPS-16), and scheduled backups go to object storage (D30). The deploy tooling is chosen when the deployment is built.
 - **Telemetry in a deployment** goes to one of two places (D42):
   - The self-hosted stack, the default. Grafana answers on an HTTPS address of its own behind Caddy, and every viewer signs in; nobody views it anonymously.
@@ -312,6 +313,10 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | Middleware | `tower`, `tower-http` | The concurrency limit, load shedding, timeouts, panic catching and headers that axum is built to use |
 | OpenAPI | `utoipa`, `utoipa-axum` | The document comes from the handlers' own annotations, and a route is registered with its documentation (API-14, API-17) |
 | Command line | `clap` | The binary's subcommands (ARCH-14) |
+| Container image | BuildKit, through `docker buildx`; zig, through cargo-zigbuild, which compiles both platforms' static binaries against musl on one machine; cargo-chef; cargo-auditable; distroless's static base (D43) | One build gives both platforms' images, the compiled dependencies stay cached, the scans and the software bill of materials (SBOM) see the binary's crates, and the base has no shell, package manager or C library (OPS-14, OPS-15) |
+| Image scan | Grype | It reads both the base's packages and the crates the binary records (SEC-13) |
+| Registry and signing | crane, and cosign with keyless signing | crane copies and tags an image without changing its digest, so promoting it never rewrites it (OPS-14) |
+| Dependency updates | Dependabot | It reads the crates, the actions, the images of the Dockerfile and of `compose.yaml`, and the toolchain, and needs no app installed (OPS-13) |
 
 ### Starting points
 
@@ -363,4 +368,4 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Trace ID | The identifier, returned with every response except the health probes, that leads to a request's logs, and to its trace whenever the request ended in an error (D10). |
 | Personal data | In these documents: information that identifies a person directly, such as email addresses, names, avatars, IP addresses, user agents, file names and text a user writes. User and workspace IDs are pseudonymous. The General Data Protection Regulation (GDPR) still counts them as personal data, so export and erasure cover them (D31), but they may appear in telemetry and audit entries. |
 
-The documents assume a developer knows these acronyms, and don't spell them out (DOC-09): API, CI, CPU, DNS, HTML, HTTP, HTTPS, ID, IP, JSON, REST, RFC, SDK, SQL, TLS, UI, URL, UTC and UUID. These names are written in capitals, and aren't acronyms to spell out: AES, BSD, CDLA, GCM, IETF, ISC, MIT, README, S3, SHA, SIGINT, SIGKILL, SIGTERM, SOC and W3C.
+The documents assume a developer knows these acronyms, and don't spell them out (DOC-09): API, CI, CPU, DNS, HTML, HTTP, HTTPS, ID, IP, JSON, REST, RFC, SDK, SQL, TCP, TLS, UI, URL, UTC and UUID. These names are written in capitals, and aren't acronyms to spell out: AES, BSD, CDLA, GCM, IETF, ISC, MIT, QEMU, README, S3, SHA, SIGINT, SIGKILL, SIGTERM, SOC and W3C.

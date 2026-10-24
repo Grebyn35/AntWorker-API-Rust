@@ -9,6 +9,16 @@ publish.workspace = true
 name = "antworker-api"
 path = "src/main.rs"
 
+[[test]]
+name = "e2e"
+path = "tests/e2e/main.rs"
+required-features = ["e2e"]
+
+[features]
+# Compiles the end-to-end tests, which need a built image (TEST-04). `just e2e` turns it on, and
+# so does `just lint`, which lints every feature.
+e2e = []
+
 [dependencies]
 platform.workspace = true
 axum.workspace = true

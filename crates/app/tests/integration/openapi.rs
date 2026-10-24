@@ -17,7 +17,7 @@ const COMMITTED: &str = include_str!("../../../../openapi.json");
 async fn api_17_the_committed_openapi_json_is_the_one_the_binary_writes() {
     let path = std::env::temp_dir().join(format!("openapi-{}.json", std::process::id()));
 
-    let output = run_binary(&["openapi", path.to_str().unwrap()]).await;
+    let output = run_binary(&["openapi", path.to_str().unwrap()], &[]).await;
 
     assert!(output.status.success(), "{output:?}");
     let written = std::fs::read_to_string(&path).unwrap();

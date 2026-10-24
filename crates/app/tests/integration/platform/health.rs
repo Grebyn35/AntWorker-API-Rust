@@ -1,11 +1,15 @@
 //! The health probes (OPS-05).
 
-use std::time::Duration;
+use std::{
+    net::{SocketAddr, TcpListener},
+    process::Output,
+    time::Duration,
+};
 
 use http::StatusCode;
-use serde_json::json;
+use serde_json::{Value, json};
 
-use crate::support::{Api, TestDatabase};
+use crate::support::{Api, TestDatabase, run_binary};
 
 /// How often the instance checks its own database connection.
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
@@ -96,4 +100,96 @@ async fn platform_037_a_pool_with_every_connection_in_use_stays_ready() {
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.json(), json!({"status": "ready"}));
     drop(held);
+}
+
+/// Runs `health` against `address`, with no other setting.
+async fn health(address: SocketAddr) -> Output {
+    run_binary(&["health"], &[("LISTEN_ADDR", &address.to_string())]).await
+}
+
+/// The one line `health` wrote on stderr, as JSON, after it exited 1.
+fn failure(output: &Output) -> Value {
+    let stderr = String::from_utf8(output.stderr.clone()).unwrap();
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(output.stdout.is_empty());
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert_eq!(lines.len(), 1, "{stderr}");
+    let line: Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(line["message"], "startup failed");
+    assert_eq!(line["startup.area"], "health");
+    line
+}
+
+#[tokio::test]
+async fn platform_044_health_exits_0_while_the_instance_is_ready() {
+    let database = TestDatabase::migrated().await;
+    let server = database.serve(&[("ENVIRONMENT", "production")]).await;
+
+    let output = health(server.address()).await;
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+}
+
+#[tokio::test]
+async fn platform_044_health_exits_1_and_names_the_answer_while_the_instance_isn_t_ready() {
+    let database = TestDatabase::migrated().await;
+    let mut server = database.serve(&[("ENVIRONMENT", "production")]).await;
+    // Nothing can connect as app any more, and its open connections end.
+    database
+        .admin_executes(&format!(
+            "REVOKE CONNECT ON DATABASE \"{0}\" FROM PUBLIC, app;
+             SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+             WHERE datname = '{0}' AND usename = 'app'",
+            database.name()
+        ))
+        .await;
+    server
+        .line(|line| line["message"] == "the database stopped answering")
+        .await;
+
+    let output = health(server.address()).await;
+
+    assert_eq!(
+        failure(&output)["exception.message"],
+        format!("{} answered 503 database_unavailable", server.address())
+    );
+}
+
+#[tokio::test]
+async fn platform_044_health_exits_1_when_no_instance_listens() {
+    let free = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = free.local_addr().unwrap();
+    drop(free);
+
+    let output = health(address).await;
+
+    let message = failure(&output)["exception.message"].clone();
+    let message = message.as_str().unwrap();
+    assert!(
+        message.starts_with(&format!("can't reach {address}: ")),
+        "{message}"
+    );
+}
+
+#[tokio::test]
+async fn platform_044_health_exits_1_when_the_instance_doesn_t_answer_within_3_seconds() {
+    // The system accepts connections into the listener's backlog, and nothing ever answers
+    // them, as with a process that has stopped responding.
+    let silent = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = silent.local_addr().unwrap();
+
+    let output = health(address).await;
+
+    assert_eq!(
+        failure(&output)["exception.message"],
+        format!("{address} didn't answer within 3 seconds")
+    );
+    drop(silent);
 }

@@ -12,6 +12,7 @@ mod instrument;
 mod markdown;
 mod metrics;
 mod openapi;
+mod pins;
 mod promql;
 mod repo;
 mod routes;
@@ -75,6 +76,11 @@ enum Command {
     /// fire (OBS-14).
     #[command(name = "alert-rules")]
     AlertRules,
+    /// Fails on an action, runner, image, download, crate install or tool version that isn't
+    /// pinned, a toolchain other than the one `rust-toolchain.toml` pins, or a crate whose
+    /// edition isn't the workspace's 2024 (CODE-01, OPS-13).
+    #[command(name = "check-pins")]
+    Pins,
 }
 
 /// A problem a check found, at a line of a file.
@@ -130,6 +136,7 @@ fn main() -> ExitCode {
         Command::MetricCatalog => write_catalog(&repo),
         Command::TelemetryConfig => telemetry_config::check(&repo),
         Command::AlertRules => alerts::check(&repo),
+        Command::Pins => pins::check(&repo),
     };
     print(&outcome)
 }

@@ -12,7 +12,8 @@ use clap::{Parser, Subcommand};
 use platform::{
     clock::{SharedClock, SystemClock},
     config::{
-        BootstrapConfig, ConfigError, Environment, MigrateConfig, ServerConfig, TelemetryConfig,
+        BootstrapConfig, ConfigError, Environment, HealthConfig, MigrateConfig, ServerConfig,
+        TelemetryConfig,
     },
     db::Database,
     http::Pipeline,
@@ -28,7 +29,7 @@ const SERVICE: Service = Service {
 };
 
 #[derive(Parser)]
-#[command(version, about = "The API server and its operational tasks")]
+#[command(name = env!("CARGO_BIN_NAME"), version, about = "The API server and its operational tasks")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -42,6 +43,9 @@ enum Command {
     Migrate,
     /// Runs the HTTP server.
     Serve,
+    /// Asks the instance that `LISTEN_ADDR` names whether it is ready, for a container's health
+    /// check, and exits 0 only if it is.
+    Health,
     /// Writes the OpenAPI document of every route to a file (API-17).
     Openapi {
         /// The file to write.
@@ -56,6 +60,7 @@ fn main() -> ExitCode {
         Command::Bootstrap => start(settings.telemetry(), settings.bootstrap(), bootstrap),
         Command::Migrate => start(settings.telemetry(), settings.migrate(), migrate),
         Command::Serve => start(settings.telemetry(), settings.server(), serve),
+        Command::Health => health(settings.health()),
         Command::Openapi { path } => openapi(&path),
     }
 }
@@ -191,6 +196,19 @@ async fn bind(address: SocketAddr) -> std::io::Result<(TcpListener, SocketAddr)>
     let listener = TcpListener::bind(address).await?;
     let bound = listener.local_addr()?;
     Ok((listener, bound))
+}
+
+/// Asks the instance whether it is ready (PLATFORM-044). It runs no async runtime and writes no
+/// logs, so a health check that runs it every few seconds adds nothing to them.
+fn health(config: Result<HealthConfig, ConfigError>) -> ExitCode {
+    let config = match config {
+        Ok(config) => config,
+        Err(error) => return failed_before_logging(None, "config", &error),
+    };
+    match lifecycle::probe(config.listen_addr) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => failed_before_logging(None, "health", &error),
+    }
 }
 
 /// Writes the OpenAPI document. It runs no async runtime and writes no logs.

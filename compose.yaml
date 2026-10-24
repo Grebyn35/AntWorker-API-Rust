@@ -1,6 +1,6 @@
-# The services the API needs on a developer's machine. `just services` starts Postgres, and
-# `just dev observe` the observability stack too, whose services carry the `observability`
-# profile. Every port is published on 127.0.0.1 only.
+# The services the API needs on a developer's machine, and the images of the tools the tasks run.
+# `just services` starts Postgres, and `just dev observe` the observability stack too, whose
+# services carry the `observability` profile. Every port is published on 127.0.0.1 only.
 
 services:
   postgres:
@@ -103,8 +103,60 @@ services:
       - "127.0.0.1:3000:3000"
     depends_on: [prometheus, loki, tempo, alertmanager]
 
+  # The images the image tasks run, under the `tools` profile, so the dependency updates that
+  # reach every other image reach them too (docs/operations/ci.md). The tasks run them with
+  # `docker compose run`, or read their names with `docker compose config --images`. Only the
+  # registry, to which `just e2e` pushes the image, runs as a service.
+  registry:
+    profiles: [tools]
+    image: registry:3.1.2@sha256:01cd312e67026f06f5d89c3e133a4a9adc7cb9eeb9b1194e0b2954dfd770efd2
+    ports:
+      - "127.0.0.1:5001:5000"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:5000/v2/"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  crane:
+    profiles: [tools]
+    image: gcr.io/go-containerregistry/crane:v0.22.1@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1
+    volumes:
+      - ./target/image:/image:ro
+
+  grype:
+    profiles: [tools]
+    image: anchore/grype:v0.121.0@sha256:621d56d1d68106b787022c81546f7e0a36202a25d1239f0c20195fab8c16f7ea
+    environment:
+      GRYPE_DB_CACHE_DIR: /cache
+    volumes:
+      - ./target/image:/image:ro
+      - grype:/cache
+
+  cosign:
+    profiles: [tools]
+    image: ghcr.io/sigstore/cosign/cosign:v3.1.4@sha256:0f06154836d2de34f887a5c273506d52ca43edaa1d9e53e6510fa78a48f69c2d
+
+  # Installs QEMU, through which a Linux machine runs another platform's binaries, such as CI's
+  # runner for the arm64 image.
+  binfmt:
+    profiles: [tools]
+    image: tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+    privileged: true
+
+  # BuildKit, which builds the image, and the generator of its software bill of materials (SBOM).
+  # The image tasks pass their names to Docker's builder.
+  buildkit:
+    profiles: [tools]
+    image: moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+
+  sbom-generator:
+    profiles: [tools]
+    image: docker/buildkit-syft-scanner:1.12.0@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+
 volumes:
   postgres:
+  grype:
   prometheus:
   alertmanager:
   loki:

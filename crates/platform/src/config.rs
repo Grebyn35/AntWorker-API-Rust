@@ -91,6 +91,13 @@ pub struct ServerConfig {
     pub shutdown_drain: Duration,
 }
 
+/// The settings `health` reads.
+#[derive(Clone, Debug)]
+pub struct HealthConfig {
+    /// The address the instance's `serve` binds.
+    pub listen_addr: SocketAddr,
+}
+
 /// The settings `migrate` reads.
 #[derive(Clone, Debug)]
 pub struct MigrateConfig {
@@ -143,6 +150,8 @@ impl ConfigError {
         }
     }
 }
+
+const LISTEN_ADDR_EXPECTED: &str = "a socket address such as 0.0.0.0:8080";
 
 const DATABASE_URL_EXPECTED: &str = "a PostgreSQL URL with a user, a password, a host and a \
      database, and no query parameters but sslmode, sslrootcert, sslcert, sslkey and \
@@ -250,12 +259,19 @@ where
     /// The settings for `serve`.
     pub fn server(&self) -> Result<ServerConfig, ConfigError> {
         Ok(ServerConfig {
-            listen_addr: self.required("LISTEN_ADDR", "a socket address such as 0.0.0.0:8080")?,
+            listen_addr: self.required("LISTEN_ADDR", LISTEN_ADDR_EXPECTED)?,
             database_url: self.database_url("DATABASE_URL")?,
             database_max_connections: self.number("DATABASE_MAX_CONNECTIONS", 10, 1..=1000)?,
             max_concurrent_requests: self.number("MAX_CONCURRENT_REQUESTS", 100, 1..=100_000)?,
             shutdown_delay: self.seconds("SHUTDOWN_DELAY_SECONDS", 5)?,
             shutdown_drain: self.seconds("SHUTDOWN_DRAIN_SECONDS", 10)?,
+        })
+    }
+
+    /// The settings for `health`.
+    pub fn health(&self) -> Result<HealthConfig, ConfigError> {
+        Ok(HealthConfig {
+            listen_addr: self.required("LISTEN_ADDR", LISTEN_ADDR_EXPECTED)?,
         })
     }
 

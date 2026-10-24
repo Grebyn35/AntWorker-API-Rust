@@ -335,10 +335,15 @@ impl Drop for TestDatabase {
     }
 }
 
-/// Runs the API binary with `args` and no settings, for a subcommand that reads none.
-pub async fn run_binary(args: &[&str]) -> Output {
+/// Runs the API binary with `args`, with `env` as its whole environment, for a subcommand that
+/// reads no database settings.
+pub async fn run_binary(args: &[&str], env: &[(&str, &str)]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_antworker-api"));
-    command.args(args).env_clear();
+    command.args(args).env_clear().envs(env.iter().copied());
+    // Windows can't open a socket in a process whose environment lacks SystemRoot.
+    if let Some(root) = std::env::var_os("SystemRoot") {
+        command.env("SystemRoot", root);
+    }
     run(command).await
 }
 
@@ -405,6 +410,11 @@ impl Server {
             .expect("the port it listens on");
         server.address.set_port(u16::try_from(port).unwrap());
         server
+    }
+
+    /// The address the server listens on.
+    pub fn address(&self) -> SocketAddr {
+        self.address
     }
 
     /// The line the server wrote when it started listening.

@@ -81,24 +81,24 @@ A periodic job claims its schedule row with `FOR UPDATE SKIP LOCKED`, and extend
 ## Build, CI and release
 
 ### OPS-12 CI calls `just`
-Every CI step that builds or checks the code runs a `just` task. The steps that prepare the runner, such as checking out the repository, installing tools and restoring the cache, are the workflow's own, because `just` isn't installed until they run. The workflows only orchestrate: one for pull requests and `main`, one for release tags, and one for scheduled jobs. The checks required for merging are listed in `docs/operations/ci.md`, which says how to require them through GitHub's branch protection. Requiring them is the repository owner's choice: branch protection is a setting of a repository, which a fork doesn't inherit, and GitHub offers it for a private repository only on a paid plan.
+Every CI step that builds, checks, publishes or releases runs a `just` task. The steps that prepare the runner, such as checking out the repository, installing tools, restoring a cache, signing in to the registry and installing QEMU, are the workflow's own, because `just` isn't installed, or the runner isn't ready for a task, until they run. So is the registry's upkeep, which a pinned action does. The workflows only orchestrate: `ci.yml` for pull requests and `main`, `release.yml` for release tags, and `scheduled.yml` for scheduled jobs. The checks required for merging are listed in `docs/operations/ci.md`, which says how to require them through GitHub's branch protection. Requiring them is the repository owner's choice: branch protection is a setting of a repository, which a fork doesn't inherit, and GitHub offers it for a private repository only on a paid plan.
 - Why: local and CI runs are identical, and a repository that gates merging requires exactly the documented checks (D21).
 - Check: `review`.
 
 ### OPS-13 Everything is pinned
-The toolchain comes from `rust-toolchain.toml`. Actions are pinned by commit SHA, images by digest, and the runner by version. The tools the tasks use, such as cargo-deny and watchexec, are pinned by version in the justfile: `just setup` checks them, and CI installs them from it. `just` itself is the exception: CI installs it before any task can run, so the workflows pin its version too.
-- Why: a build today is reproducible tomorrow (D21).
+The toolchain comes from `rust-toolchain.toml`, in CI and in the image's build. Actions are pinned by commit SHA, images by digest, downloads by checksum, the crates the image's build installs by exact version with `--locked`, and the runner by version. The images the tasks run are pinned in `compose.yaml`, beside the services' images. The other tools the tasks use, such as cargo-deny and watchexec, are pinned by version in the justfile: `just setup` checks them, and CI installs them from it. `just` itself is the exception: CI installs it before any task can run, so the workflows pin its version too. Dependabot proposes updates to the pins it can read, and `docs/operations/ci.md` lists the ones updated by hand.
+- Why: a build today is reproducible tomorrow, and a pin moves only in a change that CI checks (D21).
 - Check: `ci: check-pins`.
 
 ### OPS-14 Build once, then promote that digest
-Each pipeline run builds the image once, for both architectures. Every later step tests, scans, boots and promotes that same digest. A release tag `vX.Y.Z` retags the digest, signs it and attaches its software bill of materials (SBOM) and provenance. A prerelease tag `vX.Y.Z-rc.N` publishes a prerelease image only.
+Each pipeline run builds the image once, for linux/amd64 and linux/arm64, with its software bill of materials (SBOM) and its provenance attached. Every later step scans, boots, tests and publishes that same digest: on `main`, as `sha-<commit>`, and as `edge` while the commit is the head of `main`. A release tag `vX.Y.Z`, or a prerelease tag `vX.Y.Z-rc.N`, names the app's version. It gives the image that `main` published for its commit the tag `X.Y.Z` or `X.Y.Z-rc.N`, and signs it. Nothing is rebuilt.
 - Why: what ships is exactly what was tested (D15, D21).
-- Check: `review` (workflow structure), plus `ci: verify-release` (the digest is signed and matches the tested one).
+- Check: `review` (the workflows' structure), `ci: e2e` (each platform's image boots), plus `ci: verify-release` (the release's tag names the tested digest, signed by the release workflow, with the SBOM and provenance of both platforms).
 
 ### OPS-15 The image is minimal and unprivileged
-One image serves every subcommand. It runs as a non-root user with a read-only root filesystem, and has a `HEALTHCHECK`.
+One image serves every subcommand. It holds the API's static binary on a base with no shell, no package manager and no C library, which provides the operating system's certificate store and time zone data. It runs as a non-root user with a read-only root filesystem, and has a `HEALTHCHECK`, which runs the `health` subcommand (PLATFORM-044).
 - Why: a small attack surface, and the same artifact everywhere.
-- Check: `ci: image-scan`, plus `ci: e2e`.
+- Check: `ci: image-scan` (no vulnerability that has a fix and is rated high or critical), plus `ci: e2e` (every subcommand runs from the image as its user on a read-only root, and the health check reports a serving instance healthy).
 
 ## Deploy and recovery
 

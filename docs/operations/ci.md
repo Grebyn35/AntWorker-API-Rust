@@ -1,13 +1,37 @@
 # CI
 
-CI installs `just`, then the tools that `just ci-tools` lists at the versions the justfile pins (OPS-13), and runs `just setup`, then `just ci`, on every pull request and on every push to `main` (OPS-12). A scheduled workflow also runs `just deny` every day, so an advisory published against a locked dependency fails CI without waiting for a push (SEC-13). `just setup` writes `.env` with generated passwords, and the tests start Postgres through Compose with them, as they do on a developer's machine (TEST-11). Each check below is a `just` task.
+CI runs on GitHub Actions, in three workflows that only orchestrate `just` tasks (OPS-12). Every action, image, runner and tool they use is pinned (OPS-13).
+
+## The pipeline
+
+`ci.yml` runs on every pull request and on every push to `main`. Its jobs:
+
+| Job | Runs | Needs |
+|---|---|---|
+| `checks` | `just setup`, then `just checks`: every check of the code in the table below that doesn't need the image | |
+| `image` | `just image`: the image, built once for linux/amd64 and linux/arm64 with its software bill of materials (SBOM) and its provenance, into an image layout of the Open Container Initiative (OCI), which the later jobs download (OPS-14) | |
+| `verify` | `just image-scan`, then `just e2e` on linux/amd64, and on linux/arm64 through QEMU, against the digest that `image` built | `image` |
+| `publish` | On `main` only: `just publish`, which pushes that digest to the GitHub Container Registry as `sha-<commit>`, and moves `edge` to it while the commit is the head of `main` | `checks`, `verify` |
+
+A newer push to a pull request cancels the older run. Every run on `main` finishes, and the registry takes one write at a time, so `edge` never moves to an older commit. BuildKit's cache of the build tools and the compiled dependencies is kept between runs, keyed by the files that change them, and the build writes it back only when the key missed.
+
+`release.yml` runs on each tag that starts with `v`: `just release` checks the tag, and releases the image that `main` published for its commit, as [release.md](release.md) describes.
+
+`scheduled.yml` runs every day at 05:17 UTC, every Monday at 04:43 UTC, and on demand:
+- Every day, `just deny`, so an advisory published against a locked dependency fails CI without waiting for a push (SEC-13).
+- Every Monday, `just image-rescan`, which scans `edge` and the newest release again (SEC-13).
+- Every Monday, the registry's upkeep. The registry keeps every release, `edge`, and every image that `main` published in the last 30 days. Older `sha-<commit>` tags go, and so do the images left with no tag, and the signatures of images that are gone. A pinned action does it, and keeps each platform's image of an index it keeps. If GitHub refuses the deletions, the package's settings grant the repository the Admin role under "Manage Actions access".
+
+`just setup` writes `.env` with generated passwords, and the tests start Postgres through Compose with them, as they do on a developer's machine (TEST-11). A job that only runs the tools Compose holds runs `just env` instead, which writes `.env` alone, because Compose reads it.
+
+On a developer's machine, `just ci` runs what CI runs: `just checks`, `just image`, `just image-scan`, and `just e2e` on the machine's platform.
 
 ## Checks that exist
 
 | Check | `just` task | Enforces |
 |---|---|---|
 | Formatting | `fmt-check` | CODE-02 |
-| Clippy, with warnings as errors | `lint` | CODE-03 to CODE-06, CODE-08, CODE-14, CODE-15, TEST-07 (sleeps in tests), ERR-11 (results dropped with `.ok()`), API-14 and API-17 (routes registered outside `platform::http`), DATA-20 (the query functions and string-SQL executor methods outside the macros), DATA-21 (pools, connections, transactions and the listener outside `platform::db`), OBS-11 (OpenTelemetry's meters outside the declaration types) |
+| Clippy, with warnings as errors, on every target with every feature | `lint` | CODE-03 to CODE-06, CODE-08, CODE-14, CODE-15, TEST-07 (sleeps in tests), ERR-11 (results dropped with `.ok()`), API-14 and API-17 (routes registered outside `platform::http`), DATA-20 (the query functions and string-SQL executor methods outside the macros), DATA-21 (pools, connections, transactions and the listener outside `platform::db`), OBS-11 (OpenTelemetry's meters outside the declaration types) |
 | Tests, against Postgres | `test` | TEST-11, and every behavior and rule a test proves |
 | Dependencies: advisories, bans and sources for every target, and licenses for each target the API is built for | `deny` | CODE-11, CODE-12, SEC-13, SEC-14 |
 | The map from spec behaviors to tests | `check-test-map` | TEST-01, DOC-10 |
@@ -17,17 +41,38 @@ CI installs `just`, then the tools that `just ci-tools` lists at the versions th
 | Metrics are named and labelled as OBS-11 says; the metric catalog matches the declarations; every metric a dashboard or alert reads is declared or listed, and every one is read; every panel title is a question; the dashboards are read-only, and one overview links to every other | `check-metrics` | OBS-11, OBS-12, OBS-13 |
 | The collector's tail sampling keeps the traces OBS-08 names, and the latency objective is the same in the sampling, the alerts and the latency dashboard | `check-telemetry-config` | OBS-08 |
 | Every alert has a severity, a runbook section and a test; promtool checks the rules and runs their tests | `alert-rules` | OBS-14 |
+| Actions pinned by commit SHA, runners by version, images by digest, downloads by checksum, and the crates the image's build installs by exact version; exact tool versions in the justfile, and the same `just` in the workflows; the toolchain only from `rust-toolchain.toml`; edition 2024 in every crate | `check-pins` | CODE-01, OPS-13 |
+| No vulnerability that has a fix and is rated high or critical, in either platform's image: in its operating system packages, and in the crates its binary records | `image-scan` | SEC-13, OPS-15 |
+| The same scan, every week, of `edge` and the newest release | `image-rescan` | SEC-13 |
+| The end-to-end tests, against the image built from the commit | `e2e` | OPS-14, OPS-15, and the rules and behaviors they prove (TEST-04) |
+| A release's tag names the tested digest, which the release workflow signed, with the SBOM and the provenance of both platforms | `verify-release` | OPS-14 |
 
-`check-test-map`, `check-docs`, `check-openapi`, `check-instrument`, `check-metrics` and `check-telemetry-config` are subcommands of the `xtask` crate (ARCH-01). `alert-rules` runs the `xtask` subcommand of the same name, then promtool, from the Prometheus image that `compose.yaml` pins, through Docker Compose. `check-test-map` prints how many of each module's behaviors a test proves. A behavior that no test proves fails it once `docs/MIGRATION.md` is deleted, and is reported until then (DOC-10).
+`check-test-map`, `check-docs`, `check-openapi`, `check-instrument`, `check-metrics`, `check-telemetry-config` and `check-pins` are subcommands of the `xtask` crate (ARCH-01). `alert-rules` runs the `xtask` subcommand of the same name, then promtool, from the Prometheus image that `compose.yaml` pins, through Docker Compose. `check-test-map` prints how many of each module's behaviors a test proves. A behavior that no test proves fails it once `docs/MIGRATION.md` is deleted, and is reported until then (DOC-10).
 
 `check-openapi` covers the parts of the rules that name it whose subjects exist: the paths, the property names, the access levels, the response descriptions, the error codes, and the references. It checks list shapes (API-05), methods (API-03), statuses (API-04), scopes in paths (API-02) and formats (API-11) once a route has them, and the breaking-change diff (API-18, ERR-02) from the first release on. Tests, not this check, compare the committed document with the one the code writes, and every documented path's methods with the ones it serves (API-17).
 
 `check-docs` doesn't cover two of the rules that name it: the names of other codebases (DOC-04), and accepted architecture decision records (ADRs), whose check waits for the first ADR (DOC-11). Review enforces both until then.
 
+`image-scan` and `image-rescan` run Grype, which reads the packages of the image's base, and the crates that cargo-auditable records in the binary. `e2e` pushes the image layout to the registry that Compose runs on 127.0.0.1:5001, and the tests run the image from there by the digest of its platform's image, against the Postgres that `just services` starts. They compile only with the `e2e` feature of the `app` crate, which `just e2e` and `just lint` turn on, so `just test` needs no image. `just e2e linux/arm64` runs the arm64 image on a machine that can run its binaries, as Docker Desktop can, and as CI's runner can once QEMU is installed. `publish`, `release`, `verify-release` and `image-rescan` sign in to the registry with the runner's credentials, so they run only in CI.
+
 Builds check queries against the query cache committed in `.sqlx/` (DATA-20), so a query missing from the cache fails `lint` and `test`. `just prepare` rewrites the cache from the migrated database.
 
 A `ci:` check that a rule names but that isn't listed in the table above doesn't exist yet. Until it is built, the rule is enforced by review. A check is built when the code it checks exists, and a check that never catches a real problem is removed.
 
+## Dependency updates
+
+Each week, Dependabot opens pull requests for the pins it can read, as `.github/dependabot.yml` configures: the crates, the actions, the images in the Dockerfile and in `compose.yaml`, and the toolchain in `rust-toolchain.toml`. Each runs the whole pipeline before it can merge. `compose.yaml` holds the images the tasks run, such as Grype's and BuildKit's, so that these updates reach them.
+
+These pins are updated by hand, and `check-pins` checks their form:
+- the versions of the tools in the justfile, and of `just` in the workflows;
+- in the Dockerfile, the frontend on its first line, the zig download with its checksums, and the versions of the crates it installs.
+
 ## Checks required for merging
 
-None yet. Once they are chosen, this section lists them and how to require them in a repository's branch protection settings (OPS-12).
+A pull request merges only once these jobs of `ci.yml` pass: `checks`, `image` and `verify`. `publish` runs only on `main`, so no pull request has it.
+
+To require them on GitHub, open the repository's Settings, then either:
+- Rules, Rulesets, New branch ruleset: target the default branch, turn on "Require status checks to pass", and add `checks`, `image` and `verify`.
+- Branches, Add branch protection rule: for `main`, turn on "Require status checks to pass before merging", and add the same three.
+
+GitHub offers both for a private repository only on a paid plan, and a fork doesn't inherit either, so requiring them is the repository owner's choice (OPS-12).

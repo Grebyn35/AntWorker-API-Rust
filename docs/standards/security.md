@@ -55,7 +55,7 @@ A member can change, remove or invite only members at roles below their own, and
 ## Requests and responses
 
 ### SEC-09 Outbound requests go through one of two clients
-All outbound HTTP that application code makes uses one of the two clients in `platform::outbound`. The object storage and telemetry adapters use their libraries' own clients, with endpoints from configuration.
+All outbound HTTP that application code makes uses one of the two clients in `platform::outbound`. The object storage and telemetry adapters use their libraries' own clients, with endpoints from configuration. The probe that the `health` subcommand sends to the instance's own address (PLATFORM-044) reaches no other service, so neither client applies to it.
 - The configured client calls URLs that come from configuration, such as OAuth endpoints. It requires HTTPS, unless the environment is development or test.
 - The untrusted client calls URLs that come from a third party, such as an OAuth avatar. It:
   - allows HTTPS only
@@ -90,9 +90,9 @@ An IP limit applies to every route except the health probes, before authenticati
 ## Supply chain
 
 ### SEC-13 Advisories block the build
-`cargo-deny` fails CI on any RustSec advisory affecting a dependency. Image scans fail CI on fixable critical or high vulnerabilities.
+`cargo-deny` fails CI on any RustSec advisory affecting a dependency. Image scans fail CI on fixable critical or high vulnerabilities, in the image's operating system packages and in the crates its binary records: the scan of the image each pipeline run builds, and a weekly scan of the published images.
 - Why: known vulnerabilities never ship (D21).
-- Check: `ci: deny`, plus `ci: image-scan`.
+- Check: `ci: deny`, plus `ci: image-scan` and `ci: image-rescan`.
 
 ### SEC-14 Only vetted cryptography
 Cryptography comes from the RustCrypto crates (`aes-gcm`, `hmac`, `sha2`, `argon2`) and from `rustls` with its `ring` provider. This codebase builds no primitive or construction of its own. Crates that implement the Postgres protocol may build its standard constructions from those crates' primitives: the database driver's SCRAM-SHA-256 (Salted Challenge Response Authentication Mechanism) sign-in, and the password verifier that `bootstrap` computes with `postgres-protocol` (PLATFORM-010).

@@ -8,11 +8,14 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request replaces its run. Every run on main finishes, so each commit
+# that passes is published (OPS-14).
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # The checks of the code.
   checks:
     runs-on: ubuntu-24.04
     # A test that waits on another process has no timeout of its own (CODE-06), so a hang ends
@@ -31,4 +34,93 @@ jobs:
           tool: ${{ steps.tools.outputs.tools }}
       - run: just setup
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: just ci
+      - run: just checks
+
+  # The image, built once for both platforms (OPS-14).
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: just@1.59.0
+      - run: just env
+      # BuildKit's cache: the build tools and the compiled dependencies, which change only with
+      # the files in the key.
+      - id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/image-cache
+          key: image-${{ hashFiles('Dockerfile', 'Cargo.lock', 'rust-toolchain.toml', 'compose.yaml') }}
+          restore-keys: image-
+      - run: just image
+        env:
+          IMAGE_CACHE: target/image-cache
+          # A cache that hit stays as it is, so the build spends no time writing it.
+          IMAGE_CACHE_WRITE: ${{ steps.cache.outputs.cache-hit != 'true' }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image
+          path: target/image
+          retention-days: 1
+          if-no-files-found: error
+
+  # The digest the image job built: scanned, then booted on each platform with the end-to-end
+  # tests, arm64 through QEMU (OPS-14, OPS-15).
+  verify:
+    needs: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: just@1.59.0
+      - id: tools
+        run: echo "tools=$(just ci-tools)" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: ${{ steps.tools.outputs.tools }}
+      - run: just setup
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: image
+          path: target/image
+      - run: just image-scan
+      - run: docker compose run --rm binfmt --install arm64
+      - run: just e2e linux/amd64
+      - run: just e2e linux/arm64
+
+  # The tested digest, published on main as sha-<commit>, and as edge while it is main's head.
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [checks, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    # One write to the registry at a time, so edge never moves to an older commit.
+    concurrency:
+      group: registry
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: just@1.59.0
+      - run: just env
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: image
+          path: target/image
+      - run: echo "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+      - run: just publish "$OWNER" "$COMMIT"
+        env:
+          OWNER: ${{ github.repository_owner }}
+          COMMIT: ${{ github.sha }}

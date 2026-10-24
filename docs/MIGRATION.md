@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 1.4 of the build order, the image and the pipeline, in this order: the spec, the code test-first, and the conformance review. Step 1.5 then builds the reference deployment, with Grafana on an HTTPS address and the path to a managed observability backend (D42).
+**Next:** the conformance review of step 1.4, the image and the pipeline, which the commits after 63e2951 built, with the `conformance-review` skill. Its scope is those commits' changes: the Dockerfile, the workflows and Dependabot's configuration, the tools in `compose.yaml`, the justfile's image tasks, `health` and `lifecycle::probe`, `check-pins`, the end-to-end tests, and the rules and documents they changed. The release workflow and the scheduled image jobs haven't run yet, because they need a release tag or a published image. Step 1.5 then builds the reference deployment, with Grafana on an HTTPS address and the path to a managed observability backend (D42).
 
 **Waiting on the owner:** nothing.
 
@@ -46,7 +46,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | The capabilities endpoint and `openapi.json` | D8, D9 | built |
 | Rate limiting: the IP, per-user and per-action limits, with the client IP taken from trusted proxies | D11 | 2.1 |
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | built |
-| The image and the delivery pipeline, with the release docs | D15, D21 | 1.4 |
+| The image and the delivery pipeline, with the release docs | D15, D21, D43 | built |
 | The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30 | 1.5 |
 | Grafana on an HTTPS address of its own with sign-in, and the path to a managed observability backend through the collector, with Grafana Cloud as the worked example | D19, D42 | 1.5 |
 | The command that removes an optional part, which `check-removable` runs | D29, D39 | 2.3 |
@@ -98,8 +98,8 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `check-metrics`, `check-telemetry-config`, `alert-rules` | built |
 | `check-openapi`, for list shapes, methods, statuses, scopes and formats (API-02 to API-05, API-11) | 2.1, with the first routes that have them |
 | `check-openapi`, for the breaking-change diff (API-18, ERR-02) | the first release |
-| `check-toolchain`, `check-pins`, `image-scan`, `verify-release` | 1.4 |
-| `e2e` | 1.5, extended by every later step |
+| `check-pins`, `image-scan`, `image-rescan`, `verify-release` | built |
+| `e2e` | built, and extended by every later step |
 | `check-layers`, `check-deps`, `check-schema` | 2.1, with the first service, the first call between modules and the first tables |
 | `check-tenancy` | 2.2, with the first workspace tables |
 | `check-layout`, `check-table-ownership`, `check-config`, `check-migrations`, `sqlx-check`, `setup-smoke` | 3 decides: built, or the rule's check changes |
@@ -204,3 +204,4 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D40 | A data export covers the content of every workspace whose only member is the user, the same workspaces that erasure deletes ([accounts spec](spec/accounts.md#export-and-erasure)) | accepted |
 | D41 | A latency spike leads to its requests through the kept traces slower than the latency objective, which the latency dashboard lists, rather than through exemplars, which OpenTelemetry's Rust SDK doesn't record (OBS-08) | accepted |
 | D42 | The self-hosted observability stack is the default, with Grafana behind HTTPS and sign-in; a deployment may instead send its telemetry through the collector to a managed backend, with Grafana Cloud as the worked example ([architecture](architecture.md#9-runtime-topology)) | accepted |
+| D43 | The image's binary is static against musl, compiled for both platforms on one machine through zig, on a base with no C library ([architecture](architecture.md#10-technology)) | accepted |

@@ -24,7 +24,7 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 - **Tasks:** `bootstrap` and `migrate`, run by the binary's subcommands of the same names (ARCH-14).
 - **Routes:** `Routes`, through which every module registers its routes and their documentation (API-14, API-17), and `http::app`, which wraps them in the request pipeline.
 - **Errors:** `Category`, and `Problem<E>`, the one conversion of an error into a response (ERR-07).
-- **Lifecycle:** `Readiness`, `ShutdownSignals` and `serve`, which runs the server until a shutdown signal and then shuts it down (OPS-05, OPS-06).
+- **Lifecycle:** `Readiness`, `ShutdownSignals` and `serve`, which runs the server until a shutdown signal and then shuts it down (OPS-05, OPS-06), and `probe`, which the `health` subcommand runs (PLATFORM-044).
 - **Proof types:** `Principal`, `Authorized<P>`, `Memberships` and `JobContext`.
 - **Traits that modules implement** (ARCH-13):
   - `SessionVerifier`, implemented by `auth`.
@@ -112,6 +112,7 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 |---|---|---|---|
 | PLATFORM-037 | `/health/ready` answers 200 `{"status": "ready"}` while the database answers the instance's own connection and the instance isn't draining. Otherwise it answers 503 with the status `draining` or `database_unavailable`. A pool with every connection in use doesn't change the answer. | OPS-05, D20 | `platform_037_` |
 | PLATFORM-038 | On a shutdown signal, readiness answers `draining` at once. The server keeps serving for the shutdown delay, then stops accepting connections, waits for the requests in flight until the drain deadline, and returns. | OPS-06 | `platform_038_` |
+| PLATFORM-044 | `health` sends `GET /health/ready` to the address in `LISTEN_ADDR`, the loopback address of its family when that address is unspecified, such as `0.0.0.0`. It exits 0 when the answer is 200. Otherwise it exits 1 and writes one startup-failure line on stderr that names the answer, or names the address as one nothing listens on, or that didn't answer within 3 seconds. | OPS-15, OPS-03, OPS-05 | `platform_044_` |
 
 ### Configuration
 
@@ -272,6 +273,8 @@ The metrics `platform` records:
 - The instance keeps one connection to the database outside the pool, and pings it every 5 seconds: a protocol message the server answers without running a query. A ping fails after 2 seconds without an answer, and a failed ping reconnects at once. The readiness probe reads the last result, so it never waits for the database or for a pooled connection (PLATFORM-037). The listener of the real-time hub uses the same connection when it is built (build order 2.4).
 - `ShutdownSignals` installs the handlers for SIGTERM and SIGINT, or Ctrl+C on Windows, before `serve` connects to the database. A failure to install them fails startup (OPS-03, OPS-06).
 - On a signal, `serve` turns readiness to `draining`, waits the shutdown delay so the load balancer stops sending requests, stops accepting connections, and waits for the requests in flight until the drain deadline. It then returns, and a request still running ends with the process. The delay and the deadline are settings, because a deployment's health-check interval and grace period decide them (OPS-02). Then `main` writes out the logs.
+- A failed or recovered check changes readiness before its log line is written, so whoever reads the line finds readiness changed.
+- The `health` subcommand is the image's health check (OPS-15). It reads `LISTEN_ADDR` and no other setting, runs no async runtime, and writes nothing but its failure, so a check every few seconds adds nothing to the logs. `lifecycle::probe` connects over plain TCP and writes the request itself: the instance answers on its own address, which needs neither of the outbound clients (SEC-09). It waits 3 seconds for the connection and for each read of the answer, longer than the 2 seconds Windows takes to report a refused connection, and reads at most 4 KiB. A failure is written in the format of OPS-03, with `startup.area` `health`, because a one-shot subcommand's whole run is its startup.
 
 ### Clock
 

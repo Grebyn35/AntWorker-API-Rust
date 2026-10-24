@@ -1,0 +1,39 @@
+# A release tag, vX.Y.Z or vX.Y.Z-rc.N, releases the image that main published for its commit:
+# nothing is rebuilt (OPS-14). docs/operations/release.md describes a release.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      # The identity token that keyless signing exchanges for its certificate.
+      id-token: write
+    concurrency:
+      group: registry
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: just@1.59.0
+      - run: just env
+      - run: echo "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+      - run: just release "$OWNER" "$TAG" "$COMMIT" "$SOURCE"
+        env:
+          OWNER: ${{ github.repository_owner }}
+          TAG: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}

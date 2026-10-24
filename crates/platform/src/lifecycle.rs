@@ -1,9 +1,10 @@
-//! Health probes and readiness (OPS-05), the bounded shutdown (OPS-06), and the
-//! startup-failure format (OPS-03).
+//! Health probes and readiness (OPS-05), the probe that `health` sends (PLATFORM-044), the
+//! bounded shutdown (OPS-06), and the startup-failure format (OPS-03).
 
 use std::{
     error::Error,
-    io,
+    io::{self, Read, Write},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -12,7 +13,7 @@ use std::{
 };
 
 use axum::{Json, Router, extract::State, http::StatusCode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::{net::TcpListener, sync::Notify, task::JoinError};
 
@@ -27,6 +28,124 @@ use crate::{
 #[derive(Debug, Serialize)]
 pub(crate) struct ProbeStatus {
     status: &'static str,
+}
+
+/// How long [`probe`] waits for the connection, and for each read of the answer. It is longer
+/// than the 2 seconds that Windows takes to report a refused connection, so a probe of an
+/// address nothing listens on fails the same way on every platform.
+pub const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// The most of an answer [`probe`] reads. A probe's answer is a status line, a few headers and
+/// `{"status": "<status>"}`.
+const PROBE_ANSWER_LIMIT: u64 = 4096;
+
+/// Why the instance that [`probe`] asked isn't ready.
+#[derive(Debug, thiserror::Error)]
+pub enum ProbeError {
+    /// Nothing accepted the connection.
+    #[error("can't reach {address}")]
+    Unreachable {
+        /// The address probed.
+        address: SocketAddr,
+        /// Why the connection failed.
+        #[source]
+        source: io::Error,
+    },
+    /// The connection or a read of the answer took longer than [`PROBE_TIMEOUT`].
+    #[error("{address} didn't answer within {} seconds", PROBE_TIMEOUT.as_secs())]
+    TimedOut {
+        /// The address probed.
+        address: SocketAddr,
+    },
+    /// The connection broke, or the answer isn't an HTTP response.
+    #[error("{address} didn't answer with HTTP")]
+    NotHttp {
+        /// The address probed.
+        address: SocketAddr,
+    },
+    /// The instance answered with a status other than 200.
+    #[error("{address} answered {code} {status}")]
+    NotReady {
+        /// The address probed.
+        address: SocketAddr,
+        /// The answer's HTTP status code.
+        code: u16,
+        /// The `status` of the answer's body, or nothing if the body has none.
+        status: String,
+    },
+}
+
+/// Asks the instance whose `serve` binds `listen_addr` whether it is ready, with
+/// `GET /health/ready`, and succeeds only when it answers 200 (PLATFORM-044). An unspecified
+/// address, such as `0.0.0.0`, is asked on the loopback address of its family, where an
+/// instance that binds it also listens. It blocks, so the binary calls it with no async runtime.
+pub fn probe(listen_addr: SocketAddr) -> Result<(), ProbeError> {
+    let address = probe_address(listen_addr);
+    let failed = |error: io::Error| match error.kind() {
+        // A read that times out fails with `WouldBlock` on Unix and `TimedOut` on Windows.
+        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock => ProbeError::TimedOut { address },
+        _ => ProbeError::NotHttp { address },
+    };
+    let mut stream = TcpStream::connect_timeout(&address, PROBE_TIMEOUT).map_err(|source| {
+        match source.kind() {
+            io::ErrorKind::TimedOut => ProbeError::TimedOut { address },
+            _ => ProbeError::Unreachable { address, source },
+        }
+    })?;
+    stream
+        .set_read_timeout(Some(PROBE_TIMEOUT))
+        .map_err(failed)?;
+    stream
+        .set_write_timeout(Some(PROBE_TIMEOUT))
+        .map_err(failed)?;
+    let request =
+        format!("GET /health/ready HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).map_err(failed)?;
+    let mut answer = Vec::new();
+    stream
+        .take(PROBE_ANSWER_LIMIT)
+        .read_to_end(&mut answer)
+        .map_err(failed)?;
+    let (code, body) = parse_answer(&answer).ok_or(ProbeError::NotHttp { address })?;
+    if code == StatusCode::OK.as_u16() {
+        return Ok(());
+    }
+    let status = serde_json::from_slice::<ProbeAnswer>(body)
+        .map(|body| body.status)
+        .unwrap_or_default();
+    Err(ProbeError::NotReady {
+        address,
+        code,
+        status,
+    })
+}
+
+/// The body of a probe's answer, as [`probe`] reads it.
+#[derive(Deserialize)]
+struct ProbeAnswer {
+    status: String,
+}
+
+/// The address [`probe`] connects to for an instance that binds `listen_addr`.
+fn probe_address(listen_addr: SocketAddr) -> SocketAddr {
+    let ip = match listen_addr.ip() {
+        IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(ip) if ip.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        ip => ip,
+    };
+    SocketAddr::new(ip, listen_addr.port())
+}
+
+/// The status code and the body of an HTTP/1.1 answer, or `None` if it isn't one.
+fn parse_answer(answer: &[u8]) -> Option<(u16, &[u8])> {
+    let end = answer.windows(4).position(|window| window == b"\r\n\r\n")?;
+    let head = std::str::from_utf8(&answer[..end]).ok()?;
+    let mut status_line = head.lines().next()?.split(' ');
+    if !status_line.next()?.starts_with("HTTP/1.") {
+        return None;
+    }
+    let code = status_line.next()?.parse().ok()?;
+    Some((code, &answer[end + 4..]))
 }
 
 /// `GET /health/live`: 200 while the process runs.
@@ -268,6 +387,34 @@ mod tests {
         let mut value: Value = serde_json::from_str(line).unwrap();
         value.as_object_mut().unwrap().remove("timestamp");
         value
+    }
+
+    #[test]
+    fn platform_044_an_unspecified_address_is_probed_on_the_loopback_address_of_its_family() {
+        for (listen, probed) in [
+            ("0.0.0.0:8080", "127.0.0.1:8080"),
+            ("[::]:8080", "[::1]:8080"),
+            ("10.1.2.3:8080", "10.1.2.3:8080"),
+            ("[fd00::1]:8080", "[fd00::1]:8080"),
+        ] {
+            assert_eq!(
+                probe_address(listen.parse().unwrap()),
+                probed.parse::<SocketAddr>().unwrap(),
+                "{listen}"
+            );
+        }
+    }
+
+    #[test]
+    fn platform_044_an_answer_is_read_as_its_status_code_and_its_body() {
+        let answer = b"HTTP/1.1 503 Service Unavailable\r\ncontent-length: 21\r\n\r\n{\"status\":\"draining\"}";
+
+        assert_eq!(
+            parse_answer(answer),
+            Some((503, &b"{\"status\":\"draining\"}"[..]))
+        );
+        assert_eq!(parse_answer(b"SSH-2.0-OpenSSH_9.9\r\n\r\n"), None);
+        assert_eq!(parse_answer(b"HTTP/1.1 200 OK\r\n"), None);
     }
 
     #[test]

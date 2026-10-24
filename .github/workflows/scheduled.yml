@@ -1,16 +1,18 @@
 # Checks whose result can change without a change to the repository, such as an advisory
-# published against a locked dependency (OPS-12).
+# published against a locked dependency or a published image, and the registry's upkeep (OPS-12).
 name: scheduled
 
 on:
   schedule:
     - cron: "17 5 * * *"
+    - cron: "43 4 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  # Every day.
   advisories:
     runs-on: ubuntu-24.04
     steps:
@@ -26,3 +28,53 @@ jobs:
           tool: ${{ steps.tools.outputs.tools }}
       - run: just setup
       - run: just deny
+
+  # Every Monday: the published images, scanned again (SEC-13).
+  images:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '43 4 * * 1'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: just@1.59.0
+      - run: just env
+      - run: echo "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+      - run: just image-rescan "$OWNER"
+        env:
+          OWNER: ${{ github.repository_owner }}
+
+  # Every Monday: the registry keeps every release, edge, and the images main published in the
+  # last 30 days. Older sha-<commit> tags go, and so do the images that then have no tag, and the
+  # signatures of images that are gone. The action keeps each platform's image of an index it
+  # keeps.
+  prune:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '43 4 * * 1'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: registry
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: just@1.59.0
+      - id: image
+        run: echo "name=$(just image-name)" >> "$GITHUB_OUTPUT"
+      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        with:
+          package: ${{ steps.image.outputs.name }}
+          delete-tags: sha-*
+          delete-untagged: true
+          delete-orphaned-images: true
+          older-than: 30 days
+          validate: true

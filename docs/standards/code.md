@@ -5,7 +5,7 @@
 ### CODE-01 One toolchain, edition 2024
 Every crate uses edition 2024. The toolchain version is pinned in `rust-toolchain.toml`, and CI, the image build and local builds all use it.
 - Why: every machine builds the same code the same way (D21).
-- Check: `compiler`, plus `ci: check-toolchain`.
+- Check: `compiler`, plus `ci: check-pins`.
 
 ### CODE-02 Formatted by `rustfmt`
 Code uses `rustfmt` with the repository's `rustfmt.toml`.

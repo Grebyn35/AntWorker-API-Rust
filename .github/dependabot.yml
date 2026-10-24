@@ -1,0 +1,41 @@
+# Weekly pull requests that update the pins (OPS-13): the crates, the actions, the images in the
+# Dockerfile and in compose.yaml, and the toolchain. Each runs the whole pipeline before it can
+# merge. docs/operations/ci.md lists the pins updated by hand.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # Their releases depend on each other, so they move together.
+      opentelemetry:
+        patterns: ["opentelemetry*", "tracing-opentelemetry", "json-subscriber"]
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: rust-toolchain
+    directory: /
+    schedule:
+      interval: weekly

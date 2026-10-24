@@ -2,7 +2,7 @@
 
 Where each commitment in the recommendation text of D1 to D36 ([SYNTHESIS.md](SYNTHESIS.md)) is carried: by a rule in `docs/standards/`, a behavior or design section in `docs/spec/`, or `docs/architecture.md`. It checks a fixed list, so it converges: each commitment is carried, contradicted or not yet carried.
 
-Of 291 commitments, 221 are carried, 20 are refined or contradicted by the rules, 5 aren't yet carried in the first slice, and 40 wait for later steps.
+Of 291 commitments, 231 are carried, 21 are refined or contradicted by the rules, 5 aren't yet carried in the first slice, and 29 wait for later steps.
 
 ## Use
 
@@ -25,6 +25,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D22 | The service holds the transaction boundary | The platform spec's unit of work: the route opens it and the service commits it |
 | D22 | Traits exist only where there are two real implementations | ARCH-13 also allows traits that invert a dependency |
 | D25 | Each type's constructor trims | AUTH-003: a password isn't trimmed |
+| D21 | A release tag attaches build provenance | OPS-14: the build attaches the SBOM and the provenance to every image, and a release tag signs the index that holds them |
 | D21 | The required checks are applied as branch protection by a script | OPS-12: `docs/operations/ci.md` lists the required checks and says how to require them; requiring them is the repository owner's choice, since a fork doesn't inherit branch protection and GitHub offers it for a private repository only on a paid plan |
 | D20 | Runtime threads come from configuration | OPS-02: the async runtime sizes itself to the CPUs the container may use, so no two deployments would set it differently, and it isn't a setting |
 | D27 | Nothing outside `docs/inventory/` refers to the old API | DOC-04 extends the exception to `docs/MIGRATION.md`, to CLAUDE.md's pointer to the inventory, and to decision IDs and the links that architecture.md and the tracker make to the decisions' records |
@@ -60,8 +61,7 @@ Modules carry their own; the build order step of each other area is in parenthes
 | `auth` | the ADR on accepted enumeration (D7); forgot-password answers 503 with email off (D9); the OAuth redirect allowlist (D18); password reset that sets the first password of an account created without one, and verifies its address (the `workspaces` spec's setup subcommand, D39) |
 | `accounts` | deletion refused while the user owns a shared workspace, sole-member workspaces deleted with the account, and the ADR on immediate deletion (D16); the export endpoint, one per 24 hours, its archive, notice and download, and the optional erasure precondition (D31) |
 | `files` | a bucket for anonymous public-file downloads (D11) |
-| Observability (1.3) | Grafana links between logs and traces (D10); the operator questions in the docs, the overview dashboard, the same topology in development and production, and newcomer docs with an error-to-trace walkthrough (D19); the observability profile one flag away (D28) |
-| Deploy and CI (1.2 to 1.5) | Caddy's trusted proxies (D11); TLS everywhere and storage encrypted at rest (D14, queued); alerts that don't depend on the deploy tooling (D15); Compose memory and CPU limits (D20); the five pull-request stages, shellcheck, the `edge` tag, keyless signing, the weekly rescan and dependency updates (D21); the OpenAPI UI in development only, in step 2.4 (D28) |
+| Deploy and CI (1.5 and 2.4) | Caddy's trusted proxies (D11); TLS everywhere and storage encrypted at rest (D14, queued); alerts that don't depend on the deploy tooling (D15); Compose memory and CPU limits (D20); shellcheck, with the deploy tooling's scripts (D21); the OpenAPI UI in development only, in step 2.4 (D28) |
 | Template (5, 6) | a GitHub template repository and `just new-module` (D29); the ADR on hard deletes (D24) |
 | Backups (1.5) | the backup tool, point-in-time recovery on managed Postgres, bucket versioning, and a separate backup of the secrets key (D30) |
 | Security (6) | the ASVS Level 2 conformance pass (D26) |

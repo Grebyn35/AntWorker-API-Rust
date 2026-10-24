@@ -6,7 +6,7 @@ use crate::support::{TestDatabase, run_binary};
 
 #[tokio::test]
 async fn ops_03_a_failure_before_logging_is_one_json_line_on_stderr_and_exit_code_1() {
-    let output = run_binary(&["serve"]).await;
+    let output = run_binary(&["serve"], &[]).await;
 
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());

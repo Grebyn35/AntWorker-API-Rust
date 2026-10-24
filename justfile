@@ -1,6 +1,9 @@
 # Every task, run the same way locally and in CI (OPS-12).
 
 set dotenv-load
+# A variable is evaluated only when a recipe uses it, so reading an image's name from Compose
+# costs only the tasks that need it.
+set lazy
 set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 
 # Builds check queries against the committed cache in .sqlx/, as CI does (DATA-20).
@@ -10,7 +13,7 @@ api := "cargo run --locked --package app --bin antworker-api --"
 xtask := "cargo run --locked --quiet --package xtask --"
 
 # The versions of the tools the tasks use besides the Rust toolchain, which rust-toolchain.toml
-# pins (OPS-13). `just setup` checks them, and CI installs the ones `just ci` needs, which
+# pins (OPS-13). `just setup` checks them, and CI installs the ones `just checks` needs, which
 # `just ci-tools` lists. CI installs `just` itself before any task can run, so its workflows pin
 # the same version. sqlx-cli matches the sqlx in Cargo.lock.
 just_version := "1.59.0"
@@ -18,19 +21,45 @@ cargo_deny_version := "0.20.2"
 watchexec_version := "2.8.0"
 sqlx_cli_version := "0.9.0"
 
-# Runs every check CI runs.
-ci: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules
+# The image's name, and the registry `publish` pushes it to (ARCH-15).
+image_name := "antworker-api"
+image_registry := "ghcr.io"
+# The OCI image layout that `just image` writes, and the other image tasks read.
+image_dir := "target/image"
+# The app's version, which the image's label and a release tag carry.
+version := replace_regex(read("crates/app/Cargo.toml"), '(?s)^.*?\nversion = "([^"]+)".*$', '$1')
+# The images Docker's builder runs, pinned in compose.yaml with the other images the tasks run.
+buildkit_image := `docker compose config --images buildkit`
+sbom_generator_image := `docker compose config --images sbom-generator`
+# The builder the image builds in, one for each BuildKit image.
+image_builder := "antworker-" + sha256(buildkit_image)
+# A directory that keeps BuildKit's cache between runs of `just image`, as CI's cache does, and
+# whether the build writes its cache back there. CI writes it only when its cache missed.
+image_cache := env("IMAGE_CACHE", "")
+image_cache_from := if image_cache == "" { "" } else { "--cache-from type=local,src=" + image_cache }
+image_cache_to := if image_cache == "" { "" } else if env("IMAGE_CACHE_WRITE", "true") == "true" { "--cache-to type=local,mode=max,dest=" + image_cache + "-new" } else { "" }
+# This machine's platform, on which `just e2e` runs the image unless told another.
+native_platform := if arch() == "aarch64" { "linux/arm64" } else { "linux/amd64" }
+# The image's name in the registry the end-to-end tests run it from.
+export E2E_IMAGE_NAME := image_name
 
-# Lists the tools `just ci` needs besides just and the toolchain, as CI's install step takes them.
+# Runs every check CI runs: the checks of the code, then the build of the image and its checks,
+# on this machine's platform.
+ci: checks image image-scan e2e
+
+# Runs the checks of the code, the part of CI that needs no image.
+checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins
+
+# Lists the tools `just checks` needs besides just and the toolchain, as CI's install step takes
+# them.
 ci-tools:
     @echo cargo-deny@{{ cargo_deny_version }}
 
 # Prepares this machine (OPS-19): checks the tools the tasks need and their pinned versions,
-# installs the toolchain that rust-toolchain.toml pins, and writes .env from .env.example, with
-# generated passwords, if .env doesn't exist yet. watchexec and sqlx-cli only get a warning, because
-# only `dev` and `prepare` need them.
+# installs the toolchain that rust-toolchain.toml pins, and writes .env. watchexec and sqlx-cli
+# only get a warning, because only `dev` and `prepare` need them.
 [unix]
-setup:
+setup: && env
     for tool in rustup git docker; do command -v "$tool" > /dev/null || { echo "just setup needs $tool" >&2; exit 1; }; done
     docker compose version > /dev/null || { echo "just setup needs Docker Compose" >&2; exit 1; }
     [ "$(just --version | head -n 1 | cut -d ' ' -f 2)" = "{{ just_version }}" ] || { echo "just setup needs just {{ just_version }}" >&2; exit 1; }
@@ -38,6 +67,11 @@ setup:
     [ "$(watchexec --version 2> /dev/null | head -n 1 | cut -d ' ' -f 2)" = "{{ watchexec_version }}" ] || echo "warning: just dev needs watchexec {{ watchexec_version }}" >&2
     [ "$(cargo sqlx --version 2> /dev/null | head -n 1 | cut -d ' ' -f 2)" = "{{ sqlx_cli_version }}" ] || echo "warning: just prepare needs sqlx-cli {{ sqlx_cli_version }}" >&2
     rustup show active-toolchain > /dev/null || rustup toolchain install
+
+# Writes .env from .env.example, with generated passwords, if .env doesn't exist yet. Compose
+# reads it too, so a CI job that runs only Compose's tools runs this instead of `just setup`.
+[unix]
+env:
     test -f .env || sed \
         -e "s/__ADMIN_PASSWORD__/$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')/g" \
         -e "s/__OWNER_PASSWORD__/$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')/g" \
@@ -45,15 +79,19 @@ setup:
         .env.example > .env
 
 # Prepares this machine (OPS-19): checks the tools the tasks need and their pinned versions,
-# installs the toolchain that rust-toolchain.toml pins, and writes .env from .env.example, with
-# generated passwords, if .env doesn't exist yet. watchexec and sqlx-cli only get a warning, because
-# only `dev` and `prepare` need them.
+# installs the toolchain that rust-toolchain.toml pins, and writes .env. watchexec and sqlx-cli
+# only get a warning, because only `dev` and `prepare` need them.
 [windows]
-setup:
+setup: && env
     foreach ($tool in 'rustup', 'git', 'docker') { if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "just setup needs $tool" } }
     docker compose version | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'just setup needs Docker Compose' }
     function Version($command) { try { (((& $command[0] $command[1..9] 2> $null) | Select-Object -First 1) -split ' ')[1] } catch { '' } }; if ((Version 'just', '--version') -ne '{{ just_version }}') { throw 'just setup needs just {{ just_version }}' }; if ((Version 'cargo', 'deny', '--version') -ne '{{ cargo_deny_version }}') { throw 'just setup needs cargo-deny {{ cargo_deny_version }}' }; if ((Version 'watchexec', '--version') -ne '{{ watchexec_version }}') { Write-Warning 'just dev needs watchexec {{ watchexec_version }}' }; if ((Version 'cargo', 'sqlx', '--version') -ne '{{ sqlx_cli_version }}') { Write-Warning 'just prepare needs sqlx-cli {{ sqlx_cli_version }}' }
     rustup show active-toolchain | Out-Null; if ($LASTEXITCODE -ne 0) { rustup toolchain install }
+
+# Writes .env from .env.example, with generated passwords, if .env doesn't exist yet. Compose
+# reads it too, so a CI job that runs only Compose's tools runs this instead of `just setup`.
+[windows]
+env:
     if (-not (Test-Path .env)) { $text = Get-Content .env.example -Raw; foreach ($name in 'ADMIN', 'OWNER', 'APP') { $bytes = New-Object byte[] 16; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes); $text = $text.Replace("__$($name)_PASSWORD__", -join ($bytes | ForEach-Object { $_.ToString('x2') })) }; [IO.File]::WriteAllText((Join-Path $PWD '.env'), $text) }
 
 # Starts the services in compose.yaml, and waits until they are healthy.
@@ -105,9 +143,10 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
-# Runs clippy with warnings as errors (CODE-03).
+# Runs clippy with warnings as errors (CODE-03), on every target with every feature, so the
+# end-to-end tests are linted too.
 lint:
-    cargo clippy --workspace --all-targets --locked -- -D warnings
+    cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 # Runs every test. The integration tests use the services.
 test: services
@@ -190,3 +229,149 @@ alert-rules:
 # DOC-16).
 check-docs:
     {{ xtask }} check-docs
+
+# Fails on an action, runner, image, download, crate install or tool version that isn't pinned, a
+# toolchain other than the one rust-toolchain.toml pins, or a crate whose edition isn't the
+# workspace's 2024 (CODE-01, OPS-13).
+check-pins:
+    {{ xtask }} check-pins
+
+# Prints the image's name, for the workflows.
+image-name:
+    @echo {{ image_name }}
+
+# Builds the image once for linux/amd64 and linux/arm64, with its software bill of materials
+# (SBOM) and provenance, into the OCI image layout in target/image (OPS-14, OPS-15). With
+# IMAGE_CACHE naming a directory, BuildKit reads its cache from there, and replaces it with the
+# cache of this build unless IMAGE_CACHE_WRITE is false. While the two platforms write the layer
+# they share, buildx can print "ref ... locked" errors: they are retries, and the exit status says
+# whether the build succeeded.
+image revision=`git rev-parse HEAD`: _image-builder && _image-cache
+    docker buildx build --builder {{ image_builder }} --platform linux/amd64,linux/arm64 \
+        --attest type=sbom,generator={{ sbom_generator_image }} --attest type=provenance,mode=max \
+        --label org.opencontainers.image.version={{ version }} --label org.opencontainers.image.revision={{ revision }} \
+        {{ image_cache_from }} {{ image_cache_to }} \
+        --output type=oci,dest={{ image_dir }},tar=false .
+
+# Creates the builder, if this machine doesn't have it yet.
+[unix]
+_image-builder:
+    docker buildx inspect {{ image_builder }} > /dev/null 2>&1 || docker buildx create --name {{ image_builder }} --driver docker-container --driver-opt image={{ buildkit_image }} > /dev/null
+
+# Creates the builder, if this machine doesn't have it yet.
+[windows]
+_image-builder:
+    docker buildx inspect {{ image_builder }} *> $null; if ($LASTEXITCODE -ne 0) { docker buildx create --name {{ image_builder }} --driver docker-container --driver-opt image={{ buildkit_image }} | Out-Null }
+
+# Replaces the cache in IMAGE_CACHE with the one the build wrote, if it wrote one, so the cache
+# holds only what the last build used.
+[unix]
+_image-cache:
+    if [ -n "{{ image_cache }}" ] && [ -d "{{ image_cache }}-new" ]; then rm -rf "{{ image_cache }}" && mv "{{ image_cache }}-new" "{{ image_cache }}"; fi
+
+# Replaces the cache in IMAGE_CACHE with the one the build wrote, if it wrote one, so the cache
+# holds only what the last build used.
+[windows]
+_image-cache:
+    if ('{{ image_cache }}' -and (Test-Path '{{ image_cache }}-new')) { Remove-Item -Recurse -Force '{{ image_cache }}' -ErrorAction SilentlyContinue; Move-Item '{{ image_cache }}-new' '{{ image_cache }}' }
+
+# Fails on a vulnerability that has a fix and is rated high or critical, in each platform's image
+# in target/image (SEC-13). The scanner reads the operating system's packages and the crates the
+# binary records.
+image-scan:
+    docker compose run --rm grype oci-dir:/image --platform linux/amd64 --only-fixed --fail-on high
+    docker compose run --rm grype oci-dir:/image --platform linux/arm64 --only-fixed --fail-on high
+
+# Runs the end-to-end tests against the image in target/image, on the platform E2E_PLATFORM, which
+# is this machine's unless named (TEST-04). The tests run the image from the registry that Compose runs,
+# against the Postgres that `just services` starts. Another platform needs the system to run its
+# binaries, such as through QEMU.
+e2e $E2E_PLATFORM=native_platform: services
+    docker compose up --detach --wait registry
+    docker compose run --rm crane push --insecure /image registry:5000/{{ image_name }}:e2e
+    cargo test --locked --package app --features e2e --test e2e
+
+# Pushes the image in target/image to the registry as <name>:sha-<commit>, and moves `edge` to it
+# while the commit is still the head of main (OPS-14). CI runs it on main, once every check has
+# passed, after a `docker login` to the registry.
+[unix]
+publish owner commit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repository={{ image_registry }}/{{ lowercase(owner) }}/{{ image_name }}
+    crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
+    tested=$(grep -o '"digest":"sha256:[0-9a-f]*"' {{ image_dir }}/index.json | head -n 1 | cut -d '"' -f 4)
+    crane push /image "$repository:sha-{{ commit }}"
+    pushed=$(crane digest "$repository:sha-{{ commit }}")
+    if [ "$pushed" != "$tested" ]; then echo "the registry holds $pushed, not the tested $tested" >&2; exit 1; fi
+    if [ "$(git ls-remote origin refs/heads/main | cut -f 1)" = "{{ commit }}" ]; then
+        crane tag "$repository:sha-{{ commit }}" edge
+    else
+        echo "{{ commit }} is no longer the head of main, so edge stays where it is"
+    fi
+
+# Releases the image that main published for the commit of `tag`, a tag such as v1.2.0 or
+# v1.2.0-rc.1 whose version is the app's (OPS-14): tags that image with the version, signs it,
+# and verifies the release. CI runs it for each release tag, after a `docker login`.
+[unix]
+release owner tag commit source:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repository={{ image_registry }}/{{ lowercase(owner) }}/{{ image_name }}
+    crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
+    cosign() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN cosign "$@"; }
+    if ! [[ "{{ tag }}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.(0|[1-9][0-9]*))?$ ]]; then
+        echo "{{ tag }} isn't a release tag, vX.Y.Z or vX.Y.Z-rc.N" >&2; exit 1
+    fi
+    version={{ trim_start_match(tag, "v") }}
+    if [ "$version" != "{{ version }}" ]; then
+        echo "{{ tag }} names $version, and crates/app/Cargo.toml {{ version }}" >&2; exit 1
+    fi
+    if ! digest=$(crane digest "$repository:sha-{{ commit }}"); then
+        echo "main published no image of {{ commit }}: tag a commit whose run on main passed" >&2; exit 1
+    fi
+    crane tag "$repository@$digest" "$version"
+    cosign sign --yes "$repository@$digest"
+    just verify-release {{ owner }} "$version" "$digest" {{ source }}
+
+# Fails unless the image tagged `version` is `digest`, the one main tested, signed by the release
+# workflow of the repository at `source` for the tag v<version>, with the SBOM and the provenance
+# of both platforms (OPS-14).
+[unix]
+verify-release owner version digest source:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repository={{ image_registry }}/{{ lowercase(owner) }}/{{ image_name }}
+    crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
+    cosign() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker cosign "$@"; }
+    tagged=$(crane digest "$repository:{{ version }}")
+    if [ "$tagged" != "{{ digest }}" ]; then echo "{{ version }} is $tagged, not the tested {{ digest }}" >&2; exit 1; fi
+    cosign verify --certificate-identity "{{ source }}/.github/workflows/release.yml@refs/tags/v{{ version }}" \
+        --certificate-oidc-issuer https://token.actions.githubusercontent.com "$repository@{{ digest }}" > /dev/null
+    # Each kind of attestation, with the field that holds its document. A platform the index
+    # lacks gives an empty entry, whose field is empty.
+    for attestation in SBOM:SPDX Provenance:SLSA; do
+        kind=${attestation%%:*}
+        field=${attestation##*:}
+        for platform in linux/amd64 linux/arm64; do
+            found=$(docker buildx imagetools inspect "$repository@{{ digest }}" \
+                --format "{{{{ with index .$kind \"$platform\" }}{{{{ if .$field }}present{{{{ end }}{{{{ end }}")
+            if [ "$found" != present ]; then echo "{{ version }} has no $kind for $platform" >&2; exit 1; fi
+        done
+    done
+
+# Scans the published images again, `edge` and the newest release, for vulnerabilities published
+# since they were tested (SEC-13). The scheduled workflow runs it every week, after a
+# `docker login`.
+[unix]
+image-rescan owner:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repository={{ image_registry }}/{{ lowercase(owner) }}/{{ image_name }}
+    run() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker "$@"; }
+    newest=$(run crane ls "$repository" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+    for tag in edge $newest; do
+        for platform in linux/amd64 linux/arm64; do
+            run grype "registry:$repository:$tag" --platform "$platform" --only-fixed --fail-on high
+        done
+    done

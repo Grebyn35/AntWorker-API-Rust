@@ -26,7 +26,7 @@ Each permission is tested twice: a role that has it succeeds, and a role without
 |---|---|---|
 | Unit | `#[cfg(test)]` in the module | Pure logic: domain types, the permission matrix, cursors, parsing |
 | Integration | `crates/app/tests/` | Behaviors through HTTP, against real Postgres and S3-compatible storage. A behavior with no HTTP surface, such as a subcommand or a startup check, is tested by running the binary, or through `platform`'s API |
-| End to end | `crates/app/tests/e2e/` | Cross-cutting guarantees against the built image: trace IDs, deploys, alerts, backups |
+| End to end | `crates/app/tests/e2e/` | Cross-cutting guarantees against the built image: the image itself, trace IDs, deploys, alerts, backups |
 
 - Why: every behavior is proven at the cheapest level that proves it for real (D23).
 - Check: `review`.

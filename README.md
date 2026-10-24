@@ -10,7 +10,7 @@ Requires Rust (through rustup), [just](https://github.com/casey/just), Docker, [
 just setup        # checks the tools, and writes .env from .env.example, with generated passwords
 just dev          # starts Postgres, migrates, and runs the API, restarting it when the code changes
 just dev observe  # the same, with the observability stack (docs/operations/observability.md)
-just ci           # runs every check CI runs
+just ci           # runs every check CI runs, building the image too
 ```
 
 ## Documentation
@@ -19,3 +19,4 @@ just ci           # runs every check CI runs
 - [docs/standards/](docs/standards/README.md): the rules every change follows.
 - [docs/spec/](docs/spec/README.md): what each module guarantees.
 - [docs/operations/observability.md](docs/operations/observability.md): the logs, traces, metrics, dashboards and alerts, and how to follow a request from its trace ID.
+- [docs/operations/ci.md](docs/operations/ci.md) and [docs/operations/release.md](docs/operations/release.md): the pipeline, the image, and releases.

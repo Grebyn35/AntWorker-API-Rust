@@ -35,6 +35,9 @@ pub(super) async fn watch(options: PgConnectOptions, readiness: Readiness, clock
     let mut reachable = true;
     loop {
         let checked = check(&mut connection, &options, clock.as_ref()).await;
+        // Readiness changes before the line is written, so a reader of the line finds it
+        // changed.
+        readiness.set_database(checked.is_ok());
         match (&checked, reachable) {
             (Err(failure), true) => tracing::warn!(
                 { names::EXCEPTION_MESSAGE } = failure.as_str(),
@@ -44,7 +47,6 @@ pub(super) async fn watch(options: PgConnectOptions, readiness: Readiness, clock
             _ => {}
         }
         reachable = checked.is_ok();
-        readiness.set_database(reachable);
         DATABASE_REACHABLE.set(u64::from(reachable), [database.clone().into()]);
         clock.sleep(CHECK_INTERVAL).await;
     }
