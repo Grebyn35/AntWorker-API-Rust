@@ -15,6 +15,11 @@ pub struct Contract {
 }
 
 impl Contract {
+    /// The document the checks are against.
+    pub fn document(&self) -> &Value {
+        &self.document
+    }
+
     pub fn new(document: Value) -> Self {
         let mut components = document["components"].clone();
         if let Some(schemas) = components["schemas"].as_object_mut() {

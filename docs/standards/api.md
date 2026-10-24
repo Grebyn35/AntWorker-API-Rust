@@ -121,7 +121,7 @@ Every response except the health probes (OBS-15), including streams and download
 ### API-17 The OpenAPI document is generated and committed
 `openapi.json` is generated from code and committed, and a test fails if the document the binary writes differs from it. Every route under `/v1` documents its requests, responses, error codes and access level, and a response header the document lists is one the API always sends with that response. Every field typed with a domain type carries that type's limits in the schema (D25).
 - Why: the contract is reviewed in pull requests, and clients are built against it (D8).
-- Check: `clippy` (only the builders of API-14 register routes, and module code builds no method router of its own, since axum's functions that build one, and a method router's methods for one method, are banned outside `platform::http`), `test` (the committed document, and every response the in-process API gives an integration test is checked against the document of the routes that answered it), `ci: check-openapi`, plus `review` (a builder's input comes whole from `routes!`, and no module calls `MethodRouter::on`, which `routes!` itself uses).
+- Check: `clippy` (only the builders of API-14 register routes, each at a path its documentation names), `test` (every documented path serves exactly the methods it documents, the committed document is the one the code writes, and every response the in-process API gives an integration test is checked against the document of the routes that answered it), plus `ci: check-openapi` (every reference in the document resolves).
 
 ### API-18 `/v1` only grows
 Within `/v1`, changes are additive: new routes, new optional request fields, new response fields. Removing or changing anything existing requires `/v2`.

@@ -65,6 +65,11 @@ impl Api {
         self.clock.clone()
     }
 
+    /// The OpenAPI document of the routes, which every response is checked against.
+    pub fn document(&self) -> &Value {
+        self.contract.document()
+    }
+
     /// What the readiness probe reports.
     pub fn readiness(&self) -> &Readiness {
         &self.readiness

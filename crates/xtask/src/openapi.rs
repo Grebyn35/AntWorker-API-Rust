@@ -61,6 +61,7 @@ pub fn check(repo: &Repo) -> Outcome {
         }
     }
     problems.extend(group_codes(&groups));
+    problems.extend(references(&document, &document));
     let responses = document["components"]["responses"]
         .as_object()
         .unwrap_or(&empty);
@@ -295,6 +296,37 @@ fn properties(owner: &str, schema: &Value, problems: &mut Vec<Problem>) {
     }
 }
 
+/// API-17: every `$ref` in `value` points at something inside `document`, so a route can't
+/// document a body with a schema the document doesn't hold.
+fn references(document: &Value, value: &Value) -> Vec<Problem> {
+    match value {
+        Value::Object(members) => members
+            .iter()
+            .flat_map(|(key, member)| match (key.as_str(), member) {
+                ("$ref", Value::String(target)) => {
+                    let resolves = target
+                        .strip_prefix('#')
+                        .is_some_and(|pointer| document.pointer(pointer).is_some());
+                    if resolves {
+                        Vec::new()
+                    } else {
+                        vec![(
+                            quoted(target),
+                            format!("the reference {target} doesn't resolve (API-17)"),
+                        )]
+                    }
+                }
+                _ => references(document, member),
+            })
+            .collect(),
+        Value::Array(items) => items
+            .iter()
+            .flat_map(|item| references(document, item))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 fn is_snake_case(name: &str) -> bool {
     !name.is_empty()
         && name.starts_with(|c: char| c.is_ascii_lowercase())
@@ -331,7 +363,10 @@ mod tests {
             .collect()
     }
 
-    fn document(path: &str, operation: Value, schemas: Value) -> Value {
+    /// A document with one `GET` at `path`, and `schemas` beside the `Problem` that every
+    /// error response refers to.
+    fn document(path: &str, operation: Value, mut schemas: Value) -> Value {
+        schemas["Problem"] = json!({ "type": "object" });
         json!({
             "openapi": "3.1.0",
             "paths": { path: { "get": operation } },
@@ -465,6 +500,19 @@ mod tests {
             [
                 "the response NotFound answers NotFound without a problem that lists its codes (ERR-13)"
             ]
+        );
+    }
+
+    #[test]
+    fn api_17_every_reference_resolves() {
+        let mut dangling = operation();
+        dangling["responses"]["200"]["content"] = json!({ "application/json": { "schema": {
+            "$ref": "#/components/schemas/Missing",
+        } } });
+        let messages = findings(&document("/v1/things", dangling, json!({})));
+        assert_eq!(
+            messages,
+            ["the reference #/components/schemas/Missing doesn't resolve (API-17)"]
         );
     }
 
