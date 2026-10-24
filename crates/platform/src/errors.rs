@@ -126,8 +126,9 @@ pub(crate) struct ErrorReport {
     pub(crate) chain: String,
 }
 
-/// The one conversion of an error into a response (ERR-07). A 5xx response has the fixed title
-/// and no detail (ERR-08), and carries its cause chain for the request log.
+/// The one conversion of an error into a response (ERR-07). A 5xx response has no detail, an
+/// internal error answers with the fixed code and title (ERR-08), and every 5xx carries its cause
+/// chain for the request log.
 fn response(error: &(dyn ErrorCode + 'static)) -> Response {
     let status = error.category().status();
     let detail = if status.is_server_error() {
@@ -135,12 +136,18 @@ fn response(error: &(dyn ErrorCode + 'static)) -> Response {
     } else {
         error.detail()
     };
+    // Every internal error answers the same, so its response reveals nothing about it (ERR-08).
+    let (code, title) = if error.category() == Category::Internal {
+        (INTERNAL_CODE, INTERNAL_TITLE)
+    } else {
+        (error.code(), error.title())
+    };
     let body = ProblemBody {
-        kind: format!("/problems/{}", error.code()),
-        title: error.title(),
+        kind: format!("/problems/{code}"),
+        title,
         status: status.as_u16(),
         detail,
-        code: error.code(),
+        code,
         trace_id: telemetry::trace_id(),
     };
     let mut response = (status, Json(body)).into_response();
@@ -385,6 +392,49 @@ mod tests {
         assert_eq!(
             statuses,
             [400, 401, 403, 404, 405, 409, 412, 413, 422, 429, 503, 500]
+        );
+    }
+
+    /// A module's failure in the category `Internal`, with a code and title of its own.
+    #[derive(Debug, thiserror::Error)]
+    #[error("the store is gone")]
+    struct StoreGone;
+
+    impl ErrorCode for StoreGone {
+        fn code(&self) -> &'static str {
+            "files.store_gone"
+        }
+
+        fn title(&self) -> &'static str {
+            "Store gone"
+        }
+
+        fn category(&self) -> Category {
+            Category::Internal
+        }
+
+        fn detail(&self) -> Option<String> {
+            Some("the bucket was deleted".to_owned())
+        }
+    }
+
+    #[test]
+    fn err_08_every_internal_error_answers_the_fixed_code_and_title() {
+        let response = Problem(StoreGone).into_response();
+        let report = response.extensions().get::<ErrorReport>().unwrap().clone();
+        let body = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(axum::body::to_bytes(response.into_body(), usize::MAX))
+            .unwrap();
+        let problem: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(problem["code"], "request.internal_error");
+        assert_eq!(problem["title"], "Internal error");
+        assert_eq!(problem["type"], "/problems/request.internal_error");
+        assert!(problem.get("detail").is_none());
+        assert_eq!(
+            report.code, "files.store_gone",
+            "the log keeps the error's own code"
         );
     }
 

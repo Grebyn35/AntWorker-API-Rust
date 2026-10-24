@@ -146,7 +146,7 @@ pub struct Shutdown {
 /// Serves `app` on `listener` until `signal` completes, then shuts down (PLATFORM-038):
 /// readiness turns to `draining`, the server keeps serving for the delay, stops accepting
 /// connections, and waits for the requests in flight until the drain deadline. A request still
-/// running then is dropped.
+/// running then runs on until it ends or the process does.
 pub async fn serve(
     listener: TcpListener,
     app: Router,

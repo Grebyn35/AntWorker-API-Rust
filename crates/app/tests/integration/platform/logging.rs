@@ -1,8 +1,32 @@
-//! The logging setup of the real binary (OBS-02).
+//! The logging setup (OBS-02, OBS-05).
 
 use std::path::Path;
 
+use platform::telemetry::{Service, testing};
+
 use crate::support::TestDatabase;
+
+#[test]
+fn obs_05_events_from_other_crates_are_not_written() {
+    testing::install(Service {
+        name: "api",
+        version: "0.0.0",
+    })
+    .unwrap();
+
+    tracing::info_span!("request").in_scope(|| {
+        tracing::warn!(target: "sqlx::query", summary = "SELECT 1", "slow statement");
+        tracing::warn!("the tests wrote this");
+    });
+
+    let lines = testing::all_logged();
+    assert!(!lines.iter().any(|line| line["message"] == "slow statement"));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line["message"] == "the tests wrote this")
+    );
+}
 
 #[tokio::test]
 async fn obs_02_a_json_line_carries_the_service_and_its_trace_context() {

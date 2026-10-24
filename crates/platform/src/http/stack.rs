@@ -118,12 +118,16 @@ async fn trace(request: Request, next: Next) -> Response {
     if status.is_server_error() {
         span.record(names::OTEL_STATUS_CODE, "error");
     }
-    if let Some(value) = telemetry::traceparent(&span)
-        .and_then(|traceparent| HeaderValue::try_from(format!("trace;desc={traceparent}")).ok())
-    {
-        response
-            .headers_mut()
-            .insert(HeaderName::from_static("server-timing"), value);
+    if let Some(traceparent) = telemetry::traceparent(&span) {
+        // A traceparent holds only hexadecimal digits and dashes, which a header value accepts.
+        match HeaderValue::try_from(format!("trace;desc={traceparent}")) {
+            Ok(value) => {
+                response
+                    .headers_mut()
+                    .insert(HeaderName::from_static("server-timing"), value);
+            }
+            Err(error) => errors::ignore(&error, "server_timing_not_set"),
+        }
     }
     response
 }

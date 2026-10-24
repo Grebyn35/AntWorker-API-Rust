@@ -45,7 +45,7 @@ Each integration test that uses the database runs on a fresh database of its own
 ## How tests are written
 
 ### TEST-07 Tests are deterministic
-Tests never sleep. Time in application code comes from the test clock, and a wait in the code under test completes when the test advances that clock. Expiry, which runs in SQL against `now()`, is tested by arranging rows whose timestamps already lie in the past, written through the `owner` connection. Tests make no network calls outside the test environment. A test that fails intermittently counts as failing, and CI never retries a failed test.
+Tests never sleep. Time in application code comes from the test clock, and a wait in the code under test completes when the test advances that clock. A timeout inside a dependency, such as the request timeout, runs on tokio's time, which a test that talks to no other system pauses and lets the runtime advance. Expiry, which runs in SQL against `now()`, is tested by arranging rows whose timestamps already lie in the past, written through the `owner` connection. Tests make no network calls outside the test environment. A test that fails intermittently counts as failing, and CI never retries a failed test.
 - Why: a flaky test trains everyone to ignore failures.
 - Check: `clippy` (`disallowed_methods` covers sleeps in tests), plus `review`.
 

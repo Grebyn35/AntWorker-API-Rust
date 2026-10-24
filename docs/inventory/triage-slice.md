@@ -109,7 +109,7 @@ The old HTTP layer's behaviors that the request pipeline and the `system` module
 | OBS-009 No log line for 1xx to 3xx | changed | PLATFORM-034 | Every request writes its completion line (D10) |
 | OBS-020 Console JSON lines with the span hierarchy | changed | OBS-02, OBS-05 | Flat lines with `trace_id` and `span_id`, and the service's name, version and environment |
 | OBS-021 Level filters by environment and `RUST_LOG` | changed | OBS-03 | One setting, `LOG_LEVEL`, with the same default everywhere, never coarser than `INFO` |
-| OBS-022 Migration CLI logging | changed | OBS-01, OPS-03 | `migrate` logs through the logging setup every subcommand shares |
+| OBS-022 The logging of `migrate`'s command-line interface (CLI) | changed | OBS-01, OPS-03 | `migrate` logs through the logging setup every subcommand shares |
 | OBS-024, OBS-025 Instrumentation and field conventions | changed | OBS-04, OBS-05 | One list of telemetry names, checked by `check-instrument` |
 | RT-034 Process shutdown sequence | changed | PLATFORM-038 | The order of OPS-06, bounded by settings rather than by the container's grace period alone |
 | OPS-010 Startup sequence | changed | OPS-03 | One startup-failure format, written by `main` before logging exists |

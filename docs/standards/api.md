@@ -74,7 +74,7 @@ Each request type converts into the service's domain input through `TryFrom`, an
 - Check: `test` (each route's invalid-input test asserts that every invalid field is reported), plus `review`.
 
 ### API-11 Scalar formats
-Timestamps are RFC 3339 in UTC with a `Z` suffix, at microsecond precision. IDs are UUID strings. Closed sets are `snake_case` strings.
+Timestamps are RFC 3339 in UTC with a `Z` suffix, at microsecond precision. IDs are UUID strings, except a trace ID, which is the 32 lowercase hexadecimal digits of W3C Trace Context (API-07, API-16). Closed sets are `snake_case` strings.
 - Why: one representation per kind of value.
 - Check: `ci: check-openapi` (formats in the committed schema), plus `review` (the shared serializers in `platform::types` are used).
 
@@ -121,7 +121,7 @@ Every response except the health probes (OBS-15), including streams and download
 ### API-17 The OpenAPI document is generated and committed
 `openapi.json` is generated from code and committed, and a test fails if the document the binary writes differs from it. Every route under `/v1` documents its requests, responses, error codes and access level, and a response header the document lists is one the API always sends with that response. Every field typed with a domain type carries that type's limits in the schema (D25).
 - Why: the contract is reviewed in pull requests, and clients are built against it (D8).
-- Check: `clippy` (only the builders of API-14 register routes, and module code builds no method router of its own, since axum's functions that build one are banned outside `platform::http`), `test` (the committed document, and every response the in-process API gives an integration test is checked against the document of the routes that answered it), `ci: check-openapi`, plus `review` (a builder's input comes whole from `routes!`).
+- Check: `clippy` (only the builders of API-14 register routes, and module code builds no method router of its own, since axum's functions that build one, and a method router's methods for one method, are banned outside `platform::http`), `test` (the committed document, and every response the in-process API gives an integration test is checked against the document of the routes that answered it), `ci: check-openapi`, plus `review` (a builder's input comes whole from `routes!`, and no module calls `MethodRouter::on`, which `routes!` itself uses).
 
 ### API-18 `/v1` only grows
 Within `/v1`, changes are additive: new routes, new optional request fields, new response fields. Removing or changing anything existing requires `/v2`.

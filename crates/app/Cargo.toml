@@ -22,6 +22,8 @@ utoipa-axum.workspace = true
 
 [dev-dependencies]
 platform = { workspace = true, features = ["test-support"] }
+# The fixture routes parse a query.
+axum = { workspace = true, features = ["query"] }
 dotenvy.workspace = true
 http.workspace = true
 http-body-util.workspace = true

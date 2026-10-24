@@ -12,7 +12,11 @@ use tracing::{Span, Subscriber};
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::{
-    Layer, filter::LevelFilter, fmt::MakeWriter, layer::SubscriberExt, registry::LookupSpan,
+    Layer,
+    filter::{LevelFilter, Targets},
+    fmt::MakeWriter,
+    layer::SubscriberExt,
+    registry::LookupSpan,
 };
 
 use crate::config::{Environment, LogLevel, LoggingConfig};
@@ -62,14 +66,14 @@ pub fn init(service: Service, config: &LoggingConfig) -> Result<Telemetry, Telem
         .finish(io::stdout());
     let tracer = tracer();
     let spans = spans(&tracer);
-    let level = level_filter(config.level);
+    let only_ours = lines_filter(service, level_filter(config.level), &[]);
     let lines = match config.environment {
         Environment::Production => json(service, config.environment, writer)
-            .with_filter(level)
+            .with_filter(only_ours)
             .boxed(),
         Environment::Development | Environment::Test => tracing_subscriber::fmt::layer()
             .with_writer(writer)
-            .with_filter(level)
+            .with_filter(only_ours)
             .boxed(),
     };
     let subscriber = tracing_subscriber::registry().with(spans).with(lines);
@@ -79,6 +83,18 @@ pub fn init(service: Service, config: &LoggingConfig) -> Result<Telemetry, Telem
         writer: guard,
         tracer,
     })
+}
+
+/// The events the log lines take: those of the workspace's own crates, `platform`, `app` and the
+/// binary, and of `also`, at `level` and above. Other crates' events name their fields outside
+/// the list and don't keep their messages constant, so they aren't written (OBS-01, OBS-05).
+fn lines_filter(service: Service, level: LevelFilter, also: &[&str]) -> Targets {
+    ["platform", "app", &service.name.replace('-', "_")]
+        .into_iter()
+        .chain(also.iter().copied())
+        .fold(Targets::new(), |targets, target| {
+            targets.with_target(target, level)
+        })
 }
 
 /// The tracer: OpenTelemetry's SDK, sampling every request whatever an inbound `traceparent`
@@ -215,6 +231,9 @@ pub mod testing {
     /// Every line the process's logger has written.
     static LINES: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
+    /// The test binaries, whose own events the tests' logger writes too.
+    const TEST_BINARIES: [&str; 2] = ["integration", "panic_hook"];
+
     /// Installs the API's tracer, and its JSON logger at `INFO` writing into memory, as the
     /// process's subscriber. Requests that tests send get the trace context the API gives them,
     /// and a test reads the lines of its own requests by their trace ID, whatever other tests
@@ -226,9 +245,9 @@ pub mod testing {
             let tracer = super::tracer();
             let subscriber = tracing_subscriber::registry()
                 .with(super::spans(&tracer))
-                .with(
-                    super::json(service, Environment::Test, Memory).with_filter(LevelFilter::INFO),
-                );
+                .with(super::json(service, Environment::Test, Memory).with_filter(
+                    super::lines_filter(service, LevelFilter::INFO, &TEST_BINARIES),
+                ));
             tracing::subscriber::set_global_default(subscriber)
                 .is_ok()
                 .then_some(tracer)

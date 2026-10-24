@@ -7,7 +7,7 @@ CI runs `just setup`, then `just ci`, on every pull request and on every push to
 | Check | `just` task | Enforces |
 |---|---|---|
 | Formatting | `fmt-check` | CODE-02 |
-| Clippy, with warnings as errors | `lint` | CODE-03 to CODE-06, CODE-08, CODE-14, DATA-20 (the query functions and string-SQL executor methods outside the macros), DATA-21 (pools, connections, transactions and the listener outside `platform::db`) |
+| Clippy, with warnings as errors | `lint` | CODE-03 to CODE-06, CODE-08, CODE-14, CODE-15, TEST-07 (sleeps in tests), ERR-11 (results dropped with `.ok()`), API-14 and API-17 (routes and method routers built outside `platform::http`), DATA-20 (the query functions and string-SQL executor methods outside the macros), DATA-21 (pools, connections, transactions and the listener outside `platform::db`) |
 | Tests, against Postgres | `test` | TEST-11, and every behavior and rule a test proves |
 | Dependencies: advisories, licenses, bans and sources | `deny` | CODE-11, CODE-12, SEC-13, SEC-14 |
 | The map from spec behaviors to tests | `check-test-map` | TEST-01, DOC-10 |

@@ -283,7 +283,7 @@ async fn platform_019_the_probes_bypass_load_shedding_and_answer_a_plain_status(
 }
 
 #[tokio::test]
-async fn platform_019_the_probes_bypass_the_route_groups_limits() {
+async fn platform_019_the_probes_bypass_the_route_groups_body_limit() {
     let api = Api::new();
     let over = 64 * 1024 + 1;
 
@@ -313,7 +313,7 @@ async fn err_12_a_panic_answers_the_internal_problem() {
 }
 
 #[tokio::test]
-async fn err_10_a_panic_leaves_its_error_line_to_the_panic_hook() {
+async fn platform_034_a_panic_leaves_its_error_line_to_the_panic_hook() {
     let api = Api::with(fixtures::routes(Arc::default()), 100);
 
     let response = api.get("/v1/panic").send().await;

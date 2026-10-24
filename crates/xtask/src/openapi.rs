@@ -143,7 +143,24 @@ fn operation_problems(path: &str, method: &str, operation: &Value) -> Vec<Proble
         )),
     }
     let empty = Map::new();
+    for (media, content) in operation["requestBody"]["content"]
+        .as_object()
+        .unwrap_or(&empty)
+    {
+        properties(
+            &format!("{here} {media} request"),
+            &content["schema"],
+            &mut problems,
+        );
+    }
     for (status, response) in operation["responses"].as_object().unwrap_or(&empty) {
+        for content in response["content"].as_object().unwrap_or(&empty).values() {
+            properties(
+                &format!("{here} {status}"),
+                &content["schema"],
+                &mut problems,
+            );
+        }
         let description = response["description"].as_str().unwrap_or_default();
         if description.trim().is_empty() {
             problems.push((
@@ -369,6 +386,19 @@ mod tests {
                 "schema Export: the property createdAt isn't snake_case (API-05)",
                 "schema Export.items: the property Size isn't snake_case (API-05)",
             ]
+        );
+    }
+
+    #[test]
+    fn api_05_properties_of_inline_schemas_are_snake_case() {
+        let mut inline = operation();
+        inline["responses"]["200"]["content"] = json!({ "application/json": { "schema": {
+            "type": "object", "properties": { "nextCursor": {} },
+        } } });
+        let messages = findings(&document("/v1/things", inline, json!({})));
+        assert_eq!(
+            messages,
+            ["GET /v1/things 200: the property nextCursor isn't snake_case (API-05)"]
         );
     }
 

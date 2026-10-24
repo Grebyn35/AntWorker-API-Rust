@@ -4,7 +4,11 @@
 
 use std::sync::Arc;
 
-use axum::{Json, extract::State, http::StatusCode};
+use axum::{
+    Json,
+    extract::{Query, State},
+    http::StatusCode,
+};
 use platform::{
     errors::{Internal, Problem},
     http::Routes,
@@ -57,10 +61,6 @@ async fn broken() -> Result<StatusCode, Problem<Internal>> {
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 #[serde(deny_unknown_fields)]
-#[expect(
-    dead_code,
-    reason = "the fixture documents the parameter and never reads it"
-)]
 struct Page {
     /// How many items.
     limit: Option<u32>,
@@ -73,8 +73,8 @@ struct Page {
     params(Page),
     responses((status = 200, description = "The items.", body = Value)),
 )]
-async fn items() -> Json<Value> {
-    Json(json!([]))
+async fn items(Query(page): Query<Page>) -> Json<Value> {
+    Json(json!({ "limit": page.limit }))
 }
 
 /// The API's routes and the fixtures, with `held` behind `GET /v1/gate`.

@@ -97,8 +97,8 @@ check-openapi:
     {{ xtask }} check-openapi
 
 # Fails on a log or span field name outside the list in platform::telemetry::names, a message
-# that isn't constant, an #[instrument] without skip_all, and an event above DEBUG or a span in
-# module code (OBS-01, OBS-03 to OBS-06).
+# that isn't constant, an #[instrument] without skip_all, and an event at any level but DEBUG, or
+# a span, in module code (OBS-01, OBS-03 to OBS-06).
 check-instrument:
     {{ xtask }} check-instrument
 

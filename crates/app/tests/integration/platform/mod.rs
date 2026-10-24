@@ -7,3 +7,4 @@ mod http;
 mod lifecycle;
 mod logging;
 mod migrations;
+mod startup;

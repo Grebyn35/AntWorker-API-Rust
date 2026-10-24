@@ -41,7 +41,7 @@ enum Command {
     Openapi,
     /// Fails on a log or span field name outside the list of telemetry names, a record name
     /// outside it, a message that isn't constant, an `#[instrument]` without `skip_all`, and an
-    /// event above `DEBUG` or a span in module code (OBS-01, OBS-03 to OBS-06).
+    /// event at any level but `DEBUG`, or a span, in module code (OBS-01, OBS-03 to OBS-06).
     #[command(name = "check-instrument")]
     Instrument,
 }

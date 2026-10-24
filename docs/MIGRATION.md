@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** resolve pass 2 of the conformance review of cf1253c, step 1.2, which stopped under "no progress". The message of the commit that recorded the pass lists its 17 verified findings, 2 of them must-fix, with the evidence for each. Each must-fix finding gets one resolution, and each should-fix finding is applied and checked one by one; no further pass runs. Step 1.3, telemetry, follows.
+**Next:** step 1.3 of the build order, telemetry, in this order: the spec, the code test-first, and the conformance review. It closes the known gaps of ERR-11 and ERR-12 with the metric macro, and decides the proposals that wait on it. Step 1.2 is built, and its review stopped at pass 2.
 
 **Waiting on the owner:** nothing.
 
@@ -69,7 +69,7 @@ Each module goes through these stages, in order:
 
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
-| `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle | database, configuration, errors, types, request pipeline, lifecycle, telemetry names and the logging setup | database, configuration, errors, types |
+| `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle | database, configuration, errors, types, request pipeline, lifecycle, telemetry names and the logging setup | database, configuration, errors, types, request pipeline, lifecycle, telemetry names and the logging setup |
 | `accounts` | USER | first slice | first slice | | | |
 | `auth` | AUTH | first slice | first slice | | | |
 | `access` | WS | first slice | first slice | | | |
@@ -80,7 +80,7 @@ Each module goes through these stages, in order:
 | `mail` | MAIL | first slice | first slice | | | |
 | `files` | FILE | | | | | |
 | `client_telemetry` | OBS | | | | | |
-| `system` | HTTP, OPS | capabilities | capabilities | capabilities | capabilities | |
+| `system` | HTTP, OPS | capabilities | capabilities | capabilities | capabilities | capabilities |
 
 ## CI checks
 
@@ -127,6 +127,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Research | API-15 names the draft it follows: draft-ietf-httpapi-ratelimit-headers-11 (2026-05), with `RateLimit: "default";r=50;t=30` and `RateLimit-Policy: "burst";q=100;w=60`. | 2.1 |
 | Research | API-12 names the draft it follows: draft-ietf-httpapi-idempotency-key-header-08 (2026-10), whose key is a structured-field string. | 2.2 |
 | Conformance review of cf1253c | API-07, API-09: whether `request.invalid_query` names the unknown parameters in `errors`, since clients never act on `detail` (ERR-09) | 2.1, with the first route that parses query values |
+| Conformance review of cf1253c | ARCH-12: whether the clock, readiness and the database that `main.rs` opens count among the services that only `composition.rs` builds | 2.1, with the first services |
 | Conformance review of c252bab | DATA-20: a check reads the locked sqlx sources and fails on a public function that takes SQL text and that `clippy.toml` doesn't ban, so the bans stay complete when sqlx is updated. | 2.1, which writes the first queries of a module |
 
 ## Conformance reviews
