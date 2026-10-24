@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** act on pass 1 of the conformance review of cf1253c, step 1.2, with the `conformance-review` skill. The message of the commit that recorded the pass lists its 17 verified findings, 9 of them must-fix, with the evidence for each. Fix each finding test-first, or turn it into a proposal, then run pass 2 with the fixing commits as its baseline. The five proposals the reviewers raised are decided with these fixes. Step 1.3, telemetry, follows the review.
+**Next:** resolve pass 2 of the conformance review of cf1253c, step 1.2, which stopped under "no progress". The message of the commit that recorded the pass lists its 17 verified findings, 2 of them must-fix, with the evidence for each. Each must-fix finding gets one resolution, and each should-fix finding is applied and checked one by one; no further pass runs. Step 1.3, telemetry, follows.
 
 **Waiting on the owner:** nothing.
 
@@ -141,7 +141,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | Built parts that step 1.2 doesn't rewrite: `xtask`; `platform::db`, configuration, errors and types; the test support; the migration; CI and build files | 2 | 5 (5, 2, 2 shared) | 4 | 2 | `stopped: no progress`: b34412c, 6f66c22 |
 | c252bab: the documentation rules and their format checks, the rules it rewrote against the code they describe, and the new clippy bans | 1 | 22 (18, 6, 2 shared) | 8 | 0 | `next pass`: 58d9917 |
 | c252bab: the documentation rules and their format checks, the rules it rewrote against the code they describe, and the new clippy bans | 2 | 15 (12, 7, 4 shared) | 2 | 2 | `stopped: no progress`: c891b3a |
-| cf1253c: step 1.2, the request pipeline, and the built code it rewrites: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle` | 1 | 17 (16, 10, 9 shared) | 9 | 0 | `next pass` |
+| cf1253c: step 1.2, the request pipeline, and the built code it rewrites: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle` | 1 | 17 (16, 10, 9 shared) | 9 | 0 | `next pass`: aa2ce06 |
+| cf1253c: step 1.2, the request pipeline, and the built code it rewrites: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle` | 2 | 17 (12, 7, 2 shared) | 2 | 1 | `stopped: no progress` |
 
 ## Decisions
 
