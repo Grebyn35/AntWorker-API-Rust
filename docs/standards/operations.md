@@ -86,7 +86,7 @@ Every CI step that builds or checks the code runs a `just` task. The steps that 
 - Check: `review`, plus `ci: check-protection` (a scheduled job that compares the repository's branch protection with the documented list).
 
 ### OPS-13 Everything is pinned
-The toolchain comes from `rust-toolchain.toml`. Actions are pinned by commit SHA, images by digest, and the runner by version.
+The toolchain comes from `rust-toolchain.toml`. Actions are pinned by commit SHA, images by digest, and the runner by version. The tools the tasks use, such as cargo-deny and watchexec, are pinned by version in the justfile: `just setup` checks them, and CI installs them from it.
 - Why: a build today is reproducible tomorrow (D21).
 - Check: `ci: check-pins`.
 
@@ -120,6 +120,6 @@ A load-test task records requests per second per replica at the latency objectiv
 ## Local development
 
 ### OPS-19 Two commands from clone to running
-`just setup` checks the required tools and writes `.env` with generated development secrets. `just dev` starts Postgres and the local stand-ins for object storage and email, then runs the API with auto-reload. Both work on Windows, macOS and Linux, with Docker available. Development secrets are never committed.
+`just setup` checks the required tools and the versions the justfile pins, and writes `.env` with generated development secrets. `just dev` starts Postgres and the local stand-ins for object storage and email, then runs the API with auto-reload, and `just dev observe` also starts the observability stack and exports the API's telemetry to it. Both work on Windows, macOS and Linux, with Docker available. Development secrets are never committed.
 - Why: a fork is productive within minutes (D28).
 - Check: `ci: setup-smoke`. On Linux it runs `just setup` and `just dev` end to end. On Windows and macOS, where hosted runners can't run Linux containers, it runs `just setup` and builds the workspace.

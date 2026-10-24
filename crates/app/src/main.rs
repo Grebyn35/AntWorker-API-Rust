@@ -12,7 +12,7 @@ use clap::{Parser, Subcommand};
 use platform::{
     clock::{SharedClock, SystemClock},
     config::{
-        BootstrapConfig, ConfigError, Environment, LoggingConfig, MigrateConfig, ServerConfig,
+        BootstrapConfig, ConfigError, Environment, MigrateConfig, ServerConfig, TelemetryConfig,
     },
     db::Database,
     http::Pipeline,
@@ -53,31 +53,34 @@ fn main() -> ExitCode {
     let command = Cli::parse().command;
     let settings = platform::config::from_process();
     match command {
-        Command::Bootstrap => start(settings.logging(), settings.bootstrap(), bootstrap),
-        Command::Migrate => start(settings.logging(), settings.migrate(), migrate),
-        Command::Serve => start(settings.logging(), settings.server(), serve),
+        Command::Bootstrap => start(settings.telemetry(), settings.bootstrap(), bootstrap),
+        Command::Migrate => start(settings.telemetry(), settings.migrate(), migrate),
+        Command::Serve => start(settings.telemetry(), settings.server(), serve),
         Command::Openapi { path } => openapi(&path),
     }
 }
 
 /// Sets up telemetry, runs `task` with its configuration on a new async runtime, then writes
-/// out the logs.
+/// out the telemetry and the logs (PLATFORM-042).
 fn start<C, F>(
-    logging: Result<LoggingConfig, ConfigError>,
+    telemetry: Result<TelemetryConfig, ConfigError>,
     config: Result<C, ConfigError>,
     task: impl FnOnce(C) -> F,
 ) -> ExitCode
 where
     F: Future<Output = ExitCode>,
 {
-    let environment = logging.as_ref().ok().map(|logging| logging.environment);
-    let (logging, config) = match logging.and_then(|logging| Ok((logging, config?))) {
+    let environment = telemetry
+        .as_ref()
+        .ok()
+        .map(|telemetry| telemetry.environment);
+    let (telemetry, config) = match telemetry.and_then(|telemetry| Ok((telemetry, config?))) {
         Ok(loaded) => loaded,
         Err(error) => return failed_before_logging(environment, "config", &error),
     };
-    let telemetry = match platform::telemetry::init(SERVICE, &logging) {
+    let telemetry = match platform::telemetry::init(SERVICE, &telemetry) {
         Ok(telemetry) => telemetry,
-        Err(error) => return failed_before_logging(environment, "logging", &error),
+        Err(error) => return failed_before_logging(environment, "telemetry", &error),
     };
     let code = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()

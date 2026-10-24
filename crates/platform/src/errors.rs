@@ -10,7 +10,7 @@ use axum::{
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::telemetry::{self, names};
+use crate::telemetry::{self, metrics::Counter, names};
 
 /// The kind of a failure. The category alone sets the status of the response (ERR-03).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -311,15 +311,24 @@ impl ErrorCode for Internal {
     }
 }
 
-/// Ignores `error` on purpose, and writes one `WARN` line that says so (ERR-11). `reason` is a
-/// short `snake_case` name for the failure, such as `tracer_shutdown`, written as `error.type`,
-/// and the line's `exception.message` is the error's cause chain.
+static ERRORS_IGNORED: Counter<1> = Counter::new(
+    "platform.errors_ignored",
+    "{error}",
+    "Errors ignored on purpose, by the name of the failure (ERR-11).",
+    [names::ERROR_TYPE],
+);
+
+/// Ignores `error` on purpose, writes one `WARN` line that says so, and counts it (ERR-11).
+/// `reason` is a short `snake_case` name for the failure, such as `tracer_shutdown`, written as
+/// `error.type` in the line and the count, and the line's `exception.message` is the error's
+/// cause chain.
 pub fn ignore(error: &(dyn Error + 'static), reason: &'static str) {
     tracing::warn!(
         { names::ERROR_TYPE } = reason,
         { names::EXCEPTION_MESSAGE } = chain(error),
         "error ignored"
     );
+    ERRORS_IGNORED.add(1, [reason.into()]);
 }
 
 /// `error` and each of its causes, outermost first, joined with `: `.

@@ -26,13 +26,15 @@ This is a Rust API built as a template to fork. Read these before changing anyth
 ## Commands
 
 ```
-just setup           # writes .env, with generated passwords
+just setup           # checks the tools' pinned versions, and writes .env, with generated passwords
+just dev             # the API with auto-reload; `just dev observe` adds the observability stack
 just ci              # every check CI runs
 just check-test-map  # which spec behaviors tests prove
 just test            # the tests; they start Postgres through Compose
 just run             # the API with the settings in .env, after bootstrap and migrate
 just migrate         # applies new migrations
 just prepare         # rewrites the query cache in .sqlx/ (DATA-20)
+just metrics         # rewrites the metric catalog from the declarations (OBS-12)
 ```
 
 Queries are checked against the database while compiling, and `migrate` is part of the same binary. Add a migration and run `just migrate` before writing the queries that use it, then run `just prepare` before `just ci`.

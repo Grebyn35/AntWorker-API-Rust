@@ -52,11 +52,10 @@ Inbound W3C `traceparent` from clients is accepted. Every job and event row stor
 - Why: background work leads back to the request that caused it (D10).
 - Check: `test`.
 
-### OBS-08 Errors are always kept
-The SDK samples every trace except the health probes (OBS-15). The collector's tail sampling keeps every trace with `http.response.status_code >= 400` or an error status, plus a configured share of the rest.
-Logs are never sampled. Latency histograms record exemplars that link to their traces.
-- Why: every trace ID a user can report as a problem resolves to a trace, and every request's logs are kept (D10).
-- Check: `ci: check-telemetry-config` (the sampling policy in the collector config), plus `test` (end to end).
+### OBS-08 Errors and slow requests are always kept
+The SDK samples every trace except the health probes (OBS-15). The collector's tail sampling keeps every trace with `http.response.status_code >= 400` or an error status, every trace slower than the latency objective, and a configured share of the rest. Logs are never sampled. The dashboard of request latency lists the kept traces slower than the objective in the time range it shows, each leading to its trace.
+- Why: every trace ID a user can report as a problem resolves to a trace, a latency spike leads to the requests behind it, and every request's logs are kept (D10).
+- Check: `ci: check-telemetry-config` (the sampling policies in the collector's configuration, and the same objective in them, the alerts and the dashboard), plus `test` (end to end).
 
 ### OBS-09 Identity on spans comes from the server
 User and workspace attributes on spans come from `Principal` and `Authorized<P>`, never from client-supplied baggage.
@@ -71,12 +70,12 @@ With telemetry enabled, startup fails if an exporter can't be built. Export fail
 ## Metrics
 
 ### OBS-11 Metrics are declared, named and bounded
-Each module declares its metrics in `metrics.rs`, and `platform` declares its own in the area that records them, all with the one declaration macro: name, type, unit, labels and description. Names follow OpenTelemetry semantic conventions where one exists, and `app.<module>.<name>` otherwise, with `platform` as the module name for its own metrics. Label names come from the list in `platform::telemetry` (OBS-05), and the macro takes the list's constants. Labels come from bounded sets and never include IDs or personal data.
-- Why: every metric is known, documented and cheap to store (D19).
-- Check: `compiler` (the macro), plus `ci: check-metrics`.
+Every metric is declared once, as a `static` of one of the declaration types in `platform::telemetry::metrics`, with its name, unit, description and label names, and a histogram's bucket boundaries. Each module declares its metrics in `metrics.rs`, and `platform` declares its own in the area that records them. A name is OpenTelemetry's wherever a semantic convention defines the metric, checked against the conventions' published name as OBS-05's are. Any other name is `<module>.<name>`: the declaring module's name, `platform` for its own, then what it counts or measures in `snake_case`, such as `platform.panics`. Label names are the constants of the list in `platform::telemetry` (OBS-05), and a recording passes one value for each, in order. Labels come from bounded sets and never include IDs or personal data.
+- Why: every metric is known, documented and cheap to store, and an own name can't pass for one of the conventions' (D19). The conventions use `app.` for client applications.
+- Check: `compiler` (the declaration types, and the conventions' names), `clippy` (OpenTelemetry's instrument builders outside the declaration types), plus `ci: check-metrics` (own names, and label names from the list).
 
 ### OBS-12 The metric catalog is generated
-`docs/operations/metrics.md` is generated from the declarations. CI fails if it is out of date, if a dashboard or alert uses a metric that isn't declared, or if a declared metric isn't used anywhere.
+`docs/operations/metrics.md` is generated from the declarations, and from `deploy/observability/metrics.yaml`, which lists the metrics that other parts of the stack produce, such as the collector's own. CI fails if the catalog is out of date, if a dashboard or alert uses a metric that neither declares, or if a metric either declares isn't used by any dashboard or alert.
 - Why: dashboards, alerts and code can't drift apart (D19).
 - Check: `ci: check-metrics`.
 
@@ -85,7 +84,7 @@ Each module declares its metrics in `metrics.rs`, and `platform` declares its ow
 ### OBS-13 Dashboards answer named questions
 Dashboards are provisioned from `deploy/observability/grafana/` and read-only in Grafana. One overview dashboard links to one dashboard per area. Each panel's title is the question it answers.
 - Why: a dashboard is read under pressure, and must say what it shows (D19).
-- Check: `ci: check-metrics` (queries), plus `review` (titles).
+- Check: `ci: check-metrics` (queries, and titles that end in a question mark), plus `review` (what each title asks).
 
 ### OBS-14 Alerts fire on symptoms and have runbooks
 Alerts are of two kinds:

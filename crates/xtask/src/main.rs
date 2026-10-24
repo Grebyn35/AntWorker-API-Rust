@@ -2,14 +2,20 @@
 //! API crates never depend on this one (ARCH-01).
 
 mod acronyms;
+mod alerts;
 mod catalog;
+mod declarations;
 mod docs;
 mod formats;
 mod instrument;
 mod markdown;
+mod metrics;
 mod openapi;
+mod promql;
 mod repo;
 mod routes;
+mod stack;
+mod telemetry_config;
 mod test_map;
 mod text;
 
@@ -50,6 +56,23 @@ enum Command {
     /// OBS-03 to OBS-06).
     #[command(name = "check-instrument")]
     Instrument,
+    /// Fails on a metric declared or named outside OBS-11, a catalog that differs from the
+    /// declarations, a dashboard or alert that reads a metric nothing declares or lists, a
+    /// metric that nothing reads, or a panel title that isn't a question (OBS-11 to OBS-13).
+    #[command(name = "check-metrics")]
+    Metrics,
+    /// Writes the metric catalog, `docs/operations/metrics.md`, from the declarations (OBS-12).
+    #[command(name = "metric-catalog")]
+    MetricCatalog,
+    /// Fails on a collector configuration whose tail sampling doesn't keep the traces OBS-08
+    /// names, or a latency objective that differs between the sampling, the alerts and the
+    /// latency dashboard (OBS-08).
+    #[command(name = "check-telemetry-config")]
+    TelemetryConfig,
+    /// Fails on an alert without a severity, a runbook section, or a test that expects it to
+    /// fire (OBS-14).
+    #[command(name = "alert-rules")]
+    AlertRules,
 }
 
 /// A problem a check found, at a line of a file.
@@ -101,8 +124,27 @@ fn main() -> ExitCode {
         Command::Docs => docs::check(&repo, &catalog),
         Command::Openapi => openapi::check(&repo),
         Command::Instrument => instrument::check(&repo),
+        Command::Metrics => metrics::check(&repo),
+        Command::MetricCatalog => write_catalog(&repo),
+        Command::TelemetryConfig => telemetry_config::check(&repo),
+        Command::AlertRules => alerts::check(&repo),
     };
     print(&outcome)
+}
+
+/// Writes the metric catalog, or reports why it can't be written.
+fn write_catalog(repo: &repo::Repo) -> Outcome {
+    let findings = match metrics::write(repo) {
+        Ok(text) => match repo::write(metrics::CATALOG, &text) {
+            Ok(()) => Vec::new(),
+            Err(error) => vec![Finding::new(metrics::CATALOG, 1, error.to_string())],
+        },
+        Err(findings) => findings,
+    };
+    Outcome {
+        report: Vec::new(),
+        findings,
+    }
 }
 
 #[expect(

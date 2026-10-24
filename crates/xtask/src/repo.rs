@@ -111,6 +111,16 @@ fn read(path: &Path) -> io::Result<Vec<u8>> {
     std::fs::read(path)
 }
 
+/// Writes `text` to the file at `path`, a path from the repository root, with line feeds.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the checks run as a synchronous program, with no async runtime to stall"
+)]
+pub fn write(path: &str, text: &str) -> io::Result<()> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    std::fs::write(root.join(path), text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

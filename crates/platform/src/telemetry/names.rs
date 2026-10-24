@@ -9,8 +9,9 @@
 
 use opentelemetry_semantic_conventions::attribute as otel;
 
-/// `name`, which compiles only when it equals `published`, the conventions' own name.
-const fn convention(name: &'static str, published: &'static str) -> &'static str {
+/// `name`, which compiles only when it equals `published`, the conventions' own name, such as
+/// a constant of `opentelemetry_semantic_conventions`' `attribute` or `metric` module.
+pub const fn convention(name: &'static str, published: &'static str) -> &'static str {
     let (a, b) = (name.as_bytes(), published.as_bytes());
     assert!(a.len() == b.len(), "the name differs from the conventions'");
     let mut i = 0;
@@ -25,6 +26,8 @@ const fn convention(name: &'static str, published: &'static str) -> &'static str
 pub const SERVICE_NAME: &str = convention("service.name", otel::SERVICE_NAME);
 /// The version of the service that wrote the line.
 pub const SERVICE_VERSION: &str = convention("service.version", otel::SERVICE_VERSION);
+/// The process that exported the telemetry: a UUID drawn when it starts.
+pub const SERVICE_INSTANCE_ID: &str = convention("service.instance.id", otel::SERVICE_INSTANCE_ID);
 /// Where the service runs: `development`, `test` or `production`.
 pub const DEPLOYMENT_ENVIRONMENT_NAME: &str = convention(
     "deployment.environment.name",

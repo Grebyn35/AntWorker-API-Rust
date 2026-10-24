@@ -40,7 +40,7 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
   - the event types' declaration
   - the outbound HTTP clients (SEC-09)
   - the clock and the random source (CODE-06)
-  - the metric declaration macro (OBS-11)
+  - the metric declarations: `Counter`, `Histogram` and `Gauge` (OBS-11)
   - the list of telemetry names (OBS-05)
 
 ## Routes
@@ -118,6 +118,16 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
 | PLATFORM-023 | Settings are trimmed and an empty value counts as unset. A missing required setting fails startup in the one startup-failure format. | OPS-01, OPS-03 | `platform_023_` |
+| PLATFORM-041 | A subcommand that logs refuses to start while one of the OpenTelemetry variables that `.env.example` lists is set, even to an empty value, and the refusal names it. | OPS-01 | `platform_041_` |
+
+### Telemetry
+
+| ID | Behavior | Rules | Test prefix |
+|---|---|---|---|
+| PLATFORM-039 | With `OTEL_EXPORTER_OTLP_ENDPOINT` set, a subcommand that logs exports its spans, its log records and its metrics to the endpoint over the OpenTelemetry Protocol (OTLP) on HTTP, each with `service.name`, `service.version`, `deployment.environment.name` and a `service.instance.id` of its own process. A log record written inside a span carries the span's trace and span IDs. Without the setting, nothing is exported. | OBS-01, OBS-02, D10, D19 | `platform_039_` |
+| PLATFORM-040 | Every request except the health probes records its duration in `http.server.request.duration`, with its method, its route if it matched one, its status, and the error code of a 5xx as `error.type`. A method that HTTP's specifications don't define is `_OTHER`, in the request's span and log line too. | OBS-11, OBS-15 | `platform_040_` |
+| PLATFORM-042 | Before the process exits, `main` writes out the spans, log records and metrics not yet exported, the counts of the exports that failed included. | OPS-06, OBS-10 | `platform_042_` |
+| PLATFORM-043 | `serve` records in `platform.database_reachable`, after every check, whether the instance's own database connection answered it, with the database's name as `db.namespace`. | OPS-05, D19 | `platform_043_` |
 
 ## Design
 
@@ -213,21 +223,49 @@ A route that documents its own response for one of those statuses keeps it, and 
 
 **Errors.** `ErrorCode` gives an error its code, its title and its category (ERR-02, ERR-03). A handler returns `Result<T, Problem<E>>`, and `?` turns any `E: ErrorCode` into a `Problem<E>`, whose response is the problem of API-07, with the trace ID of the request's span. A 5xx `Problem` also carries its cause chain in a response extension, which the request log writes and removes (ERR-10). The fallbacks answer a path that doesn't exist with 404 `request.not_found`, and a method the path doesn't serve with 405 `request.method_not_allowed`, to which axum adds `Allow` (PLATFORM-032).
 
-**Trace context.** The tracer is OpenTelemetry's SDK, which exports nothing until telemetry export is built (build order 1.3). It samples every request, whatever the flags of an inbound `traceparent` say, so every trace ID a response carries can lead to a trace (OBS-08). The outermost layer of the stack opens the request's server span, as the child of a valid inbound `traceparent`, and writes `server-timing: trace;desc=<traceparent>` with the span's own trace context, because the tracing libraries don't write that header (PLATFORM-022). A 5xx response sets the span's status to error, and a 4xx leaves it unset, as OpenTelemetry's conventions for HTTP servers ask.
+**Trace context.** The tracer is OpenTelemetry's SDK, which exports what [Telemetry export](#telemetry-export) says. It samples every request, whatever the flags of an inbound `traceparent` say, so every trace ID a response carries can lead to a trace (OBS-08). The outermost layer of the stack opens the request's server span, as the child of a valid inbound `traceparent`, and writes `server-timing: trace;desc=<traceparent>` with the span's own trace context, because the tracing libraries don't write that header (PLATFORM-022). A 5xx response sets the span's status to error and its `error.type` to the problem's code, and a 4xx leaves both unset, as OpenTelemetry's conventions for HTTP servers ask. The span, the request's log line and its metric give the method as one of the methods HTTP's specifications define (RFC 9110's, and `QUERY`), or as `_OTHER`, so a client can't add values without bound (PLATFORM-040, OBS-11). The API serves no other method, so no method it serves becomes `_OTHER`.
 
 **Limits.** Each route group's timeout and body limit are constants (OPS-07, API-08). The `public`, `user` and `workspace` groups share a timeout of 10 seconds, twice the 5 seconds an operation waits for a pooled connection, and a body limit of 64 KiB, far above the largest JSON body the first slice accepts. A module spec may set others for its routes. The body limit refuses a declared `Content-Length` over it before the body is read, and stops any other body at the limit while it is read; the extractors that read bodies turn that into the 413 problem when they are built (build order 2.1). The concurrency limit is a setting, because a deployment's capacity decides it (OPS-02).
 
 **Query parameters.** A route accepts the query parameters its documentation lists, which come from the type its handler parses them into. That type declares `#[into_params(parameter_in = Query)]`, without which utoipa leaves its fields out of the query. The builder answers any other name with 400 `request.invalid_query`, before the handler runs, so a route without query parameters refuses any query string (PLATFORM-035).
 
-**Panics.** A panic hook replaces the default one, which would write plain text to stderr. It writes one `ERROR` line with the panic's message and location, inside the span the panic happened in (ERR-12). The catch layer answers the panic with the 500 problem, and marks the response so that the request log writes no `ERROR` line of its own, and the panic is logged once (ERR-10).
+**Panics.** A panic hook replaces the default one, which would write plain text to stderr. It writes one `ERROR` line with the panic's message and location, inside the span the panic happened in, and counts the panic in `platform.panics`, wherever it happened (ERR-12). The catch layer answers the panic with the 500 problem, and marks the response so that the request log writes no `ERROR` line of its own, and the panic is logged once (ERR-10).
 
-**Ignored errors.** `errors::ignore` writes one `WARN` line with a `snake_case` name for the failure as `error.type`, and its cause chain (ERR-11). The pipeline ignores a failure to set a span's inbound parent, which leaves the request in a trace of its own, and a failure to write `server-timing`, which can't happen while the header's value holds only hexadecimal digits and dashes. `Telemetry::finish`, which `main` calls last, ignores a failure to end the tracer.
+**Ignored errors.** `errors::ignore` writes one `WARN` line with a `snake_case` name for the failure as `error.type`, and its cause chain, and counts it in `platform.errors_ignored` with the same `error.type` (ERR-11). The pipeline ignores a failure to set a span's inbound parent, which leaves the request in a trace of its own, and a failure to write `server-timing`, which can't happen while the header's value holds only hexadecimal digits and dashes. `Telemetry::finish` ignores a failure to write out what one of the providers holds (PLATFORM-042).
 
 ### Logging
 
 The logging setup writes one line per event to stdout: JSON in production, and text elsewhere (OBS-01). A JSON line holds `timestamp`, `level`, `message`, the event's fields, `service.name`, `service.version` and `deployment.environment.name`, and, inside a span, `trace_id` and `span_id` (OBS-02). `service.name` is the binary's name, so `just rename` renames it with the binary (ARCH-15). `LOG_LEVEL` is never coarser than `INFO`, because every request's completion line is written at `INFO` (PLATFORM-034).
 
 A dedicated thread writes the lines, fed by a queue of 128,000 lines, so an event doesn't wait for stdout. When the queue is full, the event waits for room instead of being dropped (OBS-08): that wait is the one blocking call the logging setup makes on the async runtime (CODE-05). `main` writes out the queue before the process exits.
+
+With telemetry export on, the same events also become OpenTelemetry log records: the bridge takes the events the lines take, with the same fields and severity, and the trace context of the span each was written in (PLATFORM-039).
+
+### Telemetry export
+
+With `OTEL_EXPORTER_OTLP_ENDPOINT` set, every subcommand that logs exports its spans, its log records and its metrics over OTLP/HTTP with protobuf bodies, to `<endpoint>/v1/traces`, `/v1/logs` and `/v1/metrics`, the paths the protocol's specification defines (PLATFORM-039). Without it, nothing is exported, and the logs still go to stdout. [observability.md](../operations/observability.md) describes the collector that receives the telemetry.
+- **Resource.** Every span, log record and metric carries `service.name`, `service.version`, `deployment.environment.name`, and `service.instance.id`: a version 4 UUID drawn from the operating system's random source when the process starts, so instances running side by side stay apart. The resource holds nothing else.
+- **Spans.** A span's attributes are its own fields, all from the list of names (OBS-05): the bridge from `tracing` adds no source location, thread, target, level or timings. Events stay out of spans, since each event is a log record that its trace context links to its span. A number is recorded as a signed integer, because the bridge writes an unsigned one as text, and the collector's sampling compares `http.response.status_code` as a number (OBS-08).
+- **Transport.** The three exporters share one blocking HTTP client, which runs on a thread of its own, so no export waits on the async runtime or needs it to run (CODE-05). An `https` endpoint is verified against the operating system's certificate store through rustls with its ring provider, as a verified database connection is (D38, SEC-14). SEC-09 lets the telemetry adapter use its library's client.
+- **Batching.** A thread of the SDK exports the queued spans, and another the queued log records, each at least once a second and in batches of up to 512. Each queue holds 2,048 items, and an item that arrives while its queue is full is dropped. A third thread exports the metrics every 15 seconds. An export that hasn't finished within 10 seconds fails.
+- **Failures.** An exporter that can't be built fails startup (OBS-10), in the format of OPS-03, since logging doesn't exist yet. An export that fails at runtime is counted, and the process goes on (OBS-10). A wrapper around each exporter counts what it exported in `otel.sdk.exporter.span.exported`, `otel.sdk.exporter.log.exported` and `otel.sdk.exporter.metric_data_point.exported`, as the conventions define them: a failed export's items carry `error.type`, `timeout` or `export_failed`, and exported items carry none.
+- **One source of settings.** The SDK and the exporter read `OTEL_*` variables of their own, such as headers, timeouts, queue sizes, the sampler and resource attributes, which would change what the API exports without `platform::config` knowing. `platform::config` reads the endpoint itself, and every subcommand that logs refuses to start while one of the others that `.env.example` lists is set (PLATFORM-041), as it does for libpq's.
+- **Shutdown.** `Telemetry::finish`, which `main` calls last, shuts down the tracer, then the logger, then the meter, each after it writes out what it holds, so the last metrics count the exports that failed just before them (PLATFORM-042). The tracer and the logger each have 2 seconds, and the meter takes up to the 5 seconds its SDK allows itself, so writing out telemetry takes at most 9 seconds. Then the log lines are written out (OPS-06).
+
+### Metrics
+
+`platform::telemetry::metrics` holds the declaration types: `Counter`, `Histogram` and `Gauge` (OBS-11). A metric is a `static` that one of their `const fn new` builds from its name, unit, description and label names, and for a histogram its bucket boundaries. The first recording creates the instrument from the process's meter provider, which telemetry sets up before any code records. A recording passes an array of label values as long as the declaration's label names, in their order, so a recording can neither add a label nor leave one out. clippy bans OpenTelemetry's instrument builders outside that module, so no metric is created any other way.
+
+A name that a semantic convention defines is declared through `convention`, as the telemetry names are (OBS-05). The metric names come from `opentelemetry-semantic-conventions`' `metric` module, which holds the conventions' metric names.
+
+`check-metrics` reads every declaration in the workspace. It fails on an own name that isn't `<module>.<name>` for the module that declares it, and on a label name that isn't one of the list's constants. It writes the catalog, [metrics.md](../operations/metrics.md), and fails while the committed catalog differs from it (OBS-12).
+
+The metrics `platform` records:
+- `http.server.request.duration`, by the request log, for every request it logs, with the boundaries the conventions advise (PLATFORM-040). It leaves out `url.scheme`, which the conventions require: the API receives every request over plain HTTP, behind the proxy that ends TLS, so the label would hold one value.
+- `platform.panics`, by the panic hook (ERR-12)
+- `platform.errors_ignored`, by `errors::ignore` (ERR-11)
+- `platform.database_reachable`, 1 or 0, by the readiness check after every ping (PLATFORM-043)
+- the exporters' counts, above
 
 ### Readiness and shutdown
 
@@ -244,7 +282,7 @@ A dedicated thread writes the lines, fed by a queue of 128,000 lines, so an even
 The list in `platform::telemetry` holds one constant per name (OBS-05). A name that a semantic convention defines is declared as `convention("http.route", otel::HTTP_ROUTE)`, a `const fn` that fails compilation when the two names differ. The conventions' constants come from `opentelemetry-semantic-conventions` 0.33.1, which publishes semantic conventions 1.42.0, with its `semconv_experimental` feature for names still in development. A deprecated constant fails clippy.
 
 The names so far:
-- From the conventions: `service.name`, `service.version`, `deployment.environment.name`, `http.request.method`, `http.route`, `http.response.status_code`, `error.type`, `exception.message`, `code.file.path`, `code.line.number`, `server.address`, `server.port` and `db.namespace`.
+- From the conventions: `service.name`, `service.version`, `service.instance.id`, `deployment.environment.name`, `http.request.method`, `http.route`, `http.response.status_code`, `error.type`, `exception.message`, `code.file.path`, `code.line.number`, `server.address`, `server.port` and `db.namespace`.
 - Trace context: `trace_id` and `span_id`, the top-level fields of JSON logs (OBS-05). The conventions' crate has no constant for them, so the list declares them without `convention`.
 - The bridge's fields: `otel.name`, `otel.kind` and `otel.status_code`, which `tracing-opentelemetry` reads to name a span and set its kind and status, and which no JSON log line carries. `otel.status_code` comes from the conventions; the other two are the bridge's own (OBS-05).
 - Own: `request.duration`, in seconds, `startup.area` and `migration.versions`.
@@ -264,4 +302,5 @@ A name joins the list with the first code that writes it, such as `user.id` and 
 | Whether the hub refreshes a stream's cached memberships on every access-change signal for that user, or only on the signal's workspace | `platform_016_` and `platform_017_`, measured against a user in several workspaces |
 | Whether a job enqueued in workspace context re-asks `AccessPolicy` when it runs, so a role change in between is respected | `platform_012_`, with a job enqueued before the enqueuing member's role changes |
 | Whether one listener connection per replica is enough under load, or events and access changes need separate connections | a load test of the hub, recorded under OPS-18 |
+| Whether the SDK's queues of spans and log records drop items under load while every export succeeds. No count shows such a drop, because the SDK counts it only for log records, behind an experimental feature | the load test (build order 1.5), which compares the requests the API served with the server spans the collector accepted |
 | Whether two `bootstrap` runs at once must both succeed. They update the same roles, which belong to the whole server, so one can fail with "tuple concurrently updated". An advisory lock serializes runs only on the same database | the reference deployment (build order 1.5), which decides how `bootstrap` runs |

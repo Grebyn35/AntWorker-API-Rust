@@ -10,7 +10,7 @@ use crate::{
     clock::{Clock, SharedClock},
     errors,
     lifecycle::Readiness,
-    telemetry::names,
+    telemetry::{metrics::Gauge, names},
 };
 
 /// How often the connection is checked.
@@ -19,9 +19,18 @@ const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 /// How long a check waits for the database before it counts as failed.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(2);
 
+static DATABASE_REACHABLE: Gauge<1> = Gauge::new(
+    "platform.database_reachable",
+    "",
+    "1 while the instance's own database connection answered its last check, 0 otherwise, by \
+     the database's name.",
+    [names::DB_NAMESPACE],
+);
+
 /// Checks the database every interval, for as long as the runtime runs, and records each result
-/// in `readiness`.
+/// in `readiness` and in `platform.database_reachable` (PLATFORM-043).
 pub(super) async fn watch(options: PgConnectOptions, readiness: Readiness, clock: SharedClock) {
+    let database = options.get_database().unwrap_or_default().to_owned();
     let mut connection = None;
     let mut reachable = true;
     loop {
@@ -36,6 +45,7 @@ pub(super) async fn watch(options: PgConnectOptions, readiness: Readiness, clock
         }
         reachable = checked.is_ok();
         readiness.set_database(reachable);
+        DATABASE_REACHABLE.set(u64::from(reachable), [database.clone().into()]);
         clock.sleep(CHECK_INTERVAL).await;
     }
 }

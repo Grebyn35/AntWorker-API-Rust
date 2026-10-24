@@ -48,14 +48,14 @@ crates/
   app/              feature modules, routes, composition root, the binary
   xtask/            the custom CI checks, which the API never depends on
 migrations/         one ordered directory; each file name names its owning module
-deploy/             the reference deployment and its configuration
+deploy/             the configuration of the observability stack and of the reference deployment
 docs/
 .github/            thin workflows that call `just`
 .claude/            Claude Code definitions, including the conformance reviewer
 CLAUDE.md
 ```
 
-Everything that only matters when deploying lives under `deploy/`, so the root holds only what a developer uses day to day.
+The configuration of the services the API runs beside lives under `deploy/`, so the root holds only what a developer edits day to day.
 
 ## 4. Crates
 
@@ -74,7 +74,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `authn` | Reads credentials through a credential source, a closed enum whose one variant reads the Bearer header, and verifies them through the `SessionVerifier` that `auth` implements, producing a `Principal`. | D18 |
 | `authz` | The `Authorized<P>` proof and the `Memberships` type, generic over the `Permission` trait. Producing `Authorized<P>` opens the request's unit of work and asks the `AccessPolicy` that `access` implements inside it. Refusals are reported to the `SecurityEventSink` that `audit` implements. | D2, D3, D6 |
 | `errors` | Error categories, the `ErrorCode` trait, and the single conversion to an HTTP response. | D17 |
-| `telemetry` | The logging and tracing setup, the list of telemetry names, and the metric declaration macro. | D10, D19 |
+| `telemetry` | The logging and tracing setup, the export of spans, logs and metrics over the OpenTelemetry Protocol (OTLP), the list of telemetry names, and the metric declarations. | D10, D19 |
 | `storage` | An object storage client. | D1, D14 |
 | `mail` | The SMTP transport and the template engine. The templates themselves live in `app`. | D1, D9 |
 | `outbound` | The only HTTP clients: one for URLs from configuration, and one for URLs supplied by third parties, with protection against server-side request forgery (SSRF) (SEC-09). | D26 |
@@ -303,6 +303,9 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | Logging | `tracing`, `tracing-subscriber`, with `json-subscriber` for JSON lines and `tracing-appender` for the logging thread | The ecosystem standard; `json-subscriber` puts the trace context and the service's fields at the top level of a line (OBS-02, OBS-05) |
 | Trace context | `opentelemetry`, `opentelemetry_sdk`, `tracing-opentelemetry` | The standard bridge from `tracing` spans to OpenTelemetry (D10, D19) |
 | Telemetry names | `opentelemetry-semantic-conventions` | The conventions' names, checked at compile time (OBS-05) |
+| Telemetry export | `opentelemetry-otlp` over HTTP with protobuf bodies, through a blocking `reqwest` client on `rustls` with its ring provider, and `opentelemetry-appender-tracing` for log records | The protocol's default transport; the client runs on a thread of its own, so an export never needs the async runtime (D10, D19) |
+| Observability stack | the OpenTelemetry Collector's contrib distribution, Prometheus, Loki, Tempo, Grafana and Alertmanager | D19's stack, configured once under `deploy/observability/` for development and production |
+| Auto-reload | watchexec | `just dev` restarts the API when its code changes, on Windows, macOS and Linux (D28) |
 | Middleware | `tower`, `tower-http` | The concurrency limit, load shedding, timeouts, panic catching and headers that axum is built to use |
 | OpenAPI | `utoipa`, `utoipa-axum` | The document comes from the handlers' own annotations, and a route is registered with its documentation (API-14, API-17) |
 | Command line | `clap` | The binary's subcommands (ARCH-14) |
@@ -313,7 +316,6 @@ A part's tools and libraries are chosen when it is built, as "Docs for unbuilt p
 
 | Concern | Starting point | Chosen in |
 |---|---|---|
-| Telemetry export | `opentelemetry-otlp` | the telemetry part (1.3) |
 | Reverse proxy and TLS | Caddy | the reference deployment (1.5) |
 | Deploy tooling | none yet | the reference deployment (1.5) |
 | Password hashing | the `argon2` crate, for the Argon2id that SEC-04 requires | `auth` (2.1) |

@@ -1,0 +1,18 @@
+# Alertmanager: it groups the alerts Prometheus sends, and routes each by its severity (OBS-14).
+# The receivers notify no one here. A deployment adds its integrations, such as email or a chat
+# webhook, to `page` and `ticket`, as docs/operations/observability.md says.
+
+route:
+  receiver: unrouted
+  group_by: [alertname]
+  routes:
+    - matchers: [severity="page"]
+      receiver: page
+    - matchers: [severity="ticket"]
+      receiver: ticket
+
+receivers:
+  # An alert without a severity, which alert-rules refuses.
+  - name: unrouted
+  - name: page
+  - name: ticket

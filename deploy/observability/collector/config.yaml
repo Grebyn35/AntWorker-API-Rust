@@ -1,0 +1,75 @@
+# The OpenTelemetry Collector: it receives the API's spans, log records and metrics over
+# OTLP/HTTP, keeps the traces that tail sampling selects (OBS-08), and passes each signal to its
+# store. docs/operations/observability.md describes the pipelines.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Refuses data before the collector runs out of memory, so an overload is counted as refused
+  # instead of ending the process.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  # A trace is decided once its spans have had time to arrive: longer than the request timeout
+  # of 10 seconds, plus the API's export delay of 1 second.
+  tail_sampling:
+    decision_wait: 15s
+    num_traces: 50000
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: responses-400-and-above
+        type: numeric_attribute
+        numeric_attribute:
+          key: http.response.status_code
+          min_value: 400
+      # The latency objective, which the alerts and the latency dashboard share
+      # (check-telemetry-config).
+      - name: slower-than-the-latency-objective
+        type: latency
+        latency:
+          threshold_ms: 500
+      - name: share-of-the-rest
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+  batch: {}
+
+exporters:
+  otlp_http/tempo:
+    endpoint: http://tempo:4318
+  otlp_http/loki:
+    endpoint: http://loki:3100/otlp
+  otlp_http/prometheus:
+    endpoint: http://prometheus:9090/api/v1/otlp
+
+service:
+  telemetry:
+    metrics:
+      level: normal
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tail_sampling, batch]
+      exporters: [otlp_http/tempo]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/loki]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/prometheus]

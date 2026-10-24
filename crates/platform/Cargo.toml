@@ -10,10 +10,16 @@ axum = { workspace = true, features = ["matched-path"] }
 http-body-util.workspace = true
 json-subscriber.workspace = true
 opentelemetry.workspace = true
-opentelemetry-semantic-conventions.workspace = true
+opentelemetry-appender-tracing.workspace = true
+opentelemetry-otlp.workspace = true
+# The names of semantic conventions still in development, such as the SDK's own metrics.
+opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
 opentelemetry_sdk.workspace = true
 percent-encoding.workspace = true
 postgres-protocol.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
@@ -28,10 +34,12 @@ tracing-subscriber.workspace = true
 url.workspace = true
 utoipa.workspace = true
 utoipa-axum.workspace = true
+uuid.workspace = true
 
 [features]
-# Raw database connections for the test support (TEST-06). Only the tests enable it.
-test-support = []
+# Raw database connections, and telemetry kept in memory, for the test support (TEST-06). Only the
+# tests enable it.
+test-support = ["opentelemetry_sdk/testing"]
 
 [lints]
 workspace = true

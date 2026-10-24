@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use crate::db::DatabaseUrl;
+use crate::{db::DatabaseUrl, telemetry::OtlpEndpoint};
 
 /// Where the API runs. Every deployment sets it explicitly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,13 +62,16 @@ impl FromStr for LogLevel {
     }
 }
 
-/// The settings every subcommand reads, for its logging.
-#[derive(Clone, Copy, Debug)]
-pub struct LoggingConfig {
+/// The settings every subcommand that logs reads, for its logging and the export of its
+/// telemetry.
+#[derive(Clone, Debug)]
+pub struct TelemetryConfig {
     /// Where the API runs: production logs JSON lines, other environments readable text.
     pub environment: Environment,
     /// The most detailed level written.
     pub level: LogLevel,
+    /// Where spans, log records and metrics are exported over OTLP, or `None` to export nothing.
+    pub otlp_endpoint: Option<OtlpEndpoint>,
 }
 
 /// The settings `serve` reads.
@@ -128,6 +131,8 @@ enum Problem {
     NotUnicode,
     #[error("must be unset: connections take their settings only from the database URLs")]
     MustBeUnset,
+    #[error("must be unset: telemetry takes its settings only from OTEL_EXPORTER_OTLP_ENDPOINT")]
+    TelemetryMustBeUnset,
 }
 
 impl ConfigError {
@@ -157,6 +162,58 @@ const LIBPQ_VARIABLES: [&str; 7] = [
     "PGOPTIONS",
 ];
 
+const OTLP_ENDPOINT_EXPECTED: &str = "an http or https URL with a host, and no user, password, \
+     query or fragment";
+
+/// The environment variables that OpenTelemetry's SDK and its OTLP exporter read on their own,
+/// other than `OTEL_EXPORTER_OTLP_ENDPOINT`, which `platform::config` reads. Each would change
+/// what the API exports, such as by adding headers or resource attributes, or by replacing the
+/// sampler.
+const OTEL_VARIABLES: [&str; 42] = [
+    "OTEL_BLRP_EXPORT_TIMEOUT",
+    "OTEL_BLRP_MAX_EXPORT_BATCH_SIZE",
+    "OTEL_BLRP_MAX_QUEUE_SIZE",
+    "OTEL_BLRP_SCHEDULE_DELAY",
+    "OTEL_BSP_EXPORT_TIMEOUT",
+    "OTEL_BSP_MAX_CONCURRENT_EXPORTS",
+    "OTEL_BSP_MAX_EXPORT_BATCH_SIZE",
+    "OTEL_BSP_MAX_QUEUE_SIZE",
+    "OTEL_BSP_SCHEDULE_DELAY",
+    "OTEL_METRIC_EXPORT_INTERVAL",
+    "OTEL_METRIC_EXPORT_TIMEOUT",
+    "OTEL_RESOURCE_ATTRIBUTES",
+    "OTEL_SERVICE_NAME",
+    "OTEL_SPAN_ATTRIBUTE_COUNT_LIMIT",
+    "OTEL_SPAN_EVENT_COUNT_LIMIT",
+    "OTEL_SPAN_LINK_COUNT_LIMIT",
+    "OTEL_TRACES_SAMPLER",
+    "OTEL_TRACES_SAMPLER_ARG",
+    "OTEL_EXPORTER_OTLP_COMPRESSION",
+    "OTEL_EXPORTER_OTLP_HEADERS",
+    "OTEL_EXPORTER_OTLP_INSECURE",
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_LOGS_COMPRESSION",
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+    "OTEL_EXPORTER_OTLP_LOGS_INSECURE",
+    "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_METRICS_COMPRESSION",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+    "OTEL_EXPORTER_OTLP_METRICS_INSECURE",
+    "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+    "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_TRACES_COMPRESSION",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+    "OTEL_EXPORTER_OTLP_TRACES_INSECURE",
+    "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
+];
+
 /// Reads settings from a source of environment variables and the files they name.
 pub struct Settings<E, F> {
     env: E,
@@ -173,11 +230,20 @@ where
         Self { env, read_file }
     }
 
-    /// The settings for logging.
-    pub fn logging(&self) -> Result<LoggingConfig, ConfigError> {
-        Ok(LoggingConfig {
+    /// The settings for logging and telemetry. Every OpenTelemetry variable that the SDK would
+    /// read on its own must be unset, so these settings are the only source of telemetry's. A
+    /// variable set to an empty value counts as set.
+    pub fn telemetry(&self) -> Result<TelemetryConfig, ConfigError> {
+        if let Some(variable) = OTEL_VARIABLES
+            .iter()
+            .find(|variable| (self.env)(variable).is_some())
+        {
+            return Err(ConfigError::new(variable, Problem::TelemetryMustBeUnset));
+        }
+        Ok(TelemetryConfig {
             environment: self.required("ENVIRONMENT", "development, test or production")?,
             level: self.optional("LOG_LEVEL", LogLevel::Info, "info, debug or trace")?,
+            otlp_endpoint: self.parsed("OTEL_EXPORTER_OTLP_ENDPOINT", OTLP_ENDPOINT_EXPECTED)?,
         })
     }
 
@@ -372,7 +438,7 @@ mod tests {
             .unwrap();
         assert_eq!(config.listen_addr.to_string(), "0.0.0.0:8080");
         let logging = settings(&[("ENVIRONMENT", "  production ")], &[])
-            .logging()
+            .telemetry()
             .unwrap();
         assert_eq!(logging.environment, Environment::Production);
     }
@@ -380,7 +446,7 @@ mod tests {
     #[test]
     fn platform_023_an_empty_value_counts_as_unset() {
         let error = settings(&[("ENVIRONMENT", "   ")], &[])
-            .logging()
+            .telemetry()
             .unwrap_err();
         assert_eq!(error.to_string(), "ENVIRONMENT is required");
     }
@@ -448,7 +514,7 @@ mod tests {
     fn ops_01_the_log_level_is_info_or_finer() {
         for level in ["warn", "error"] {
             let error = settings(&[("ENVIRONMENT", "test"), ("LOG_LEVEL", level)], &[])
-                .logging()
+                .telemetry()
                 .unwrap_err();
             assert_eq!(
                 error.to_string(),
@@ -460,8 +526,11 @@ mod tests {
 
     #[test]
     fn ops_01_an_optional_setting_has_its_default() {
-        let logging = settings(&[("ENVIRONMENT", "test")], &[]).logging().unwrap();
-        assert_eq!(logging.level, LogLevel::Info);
+        let telemetry = settings(&[("ENVIRONMENT", "test")], &[])
+            .telemetry()
+            .unwrap();
+        assert_eq!(telemetry.level, LogLevel::Info);
+        assert!(telemetry.otlp_endpoint.is_none());
         let config = settings(&SERVER, &[]).server().unwrap();
         assert_eq!(config.database_max_connections, 10);
         assert_eq!(config.max_concurrent_requests, 100);
@@ -604,6 +673,79 @@ mod tests {
         let example = include_str!("../../../.env.example");
         for name in LIBPQ_VARIABLES {
             assert!(example.contains(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn platform_041_the_sdk_s_own_variables_must_be_unset() {
+        for name in OTEL_VARIABLES {
+            for value in ["x", "", "  "] {
+                let error = settings(&[("ENVIRONMENT", "test"), (name, value)], &[])
+                    .telemetry()
+                    .unwrap_err();
+                assert_eq!(
+                    error.to_string(),
+                    format!(
+                        "{name} must be unset: telemetry takes its settings only from OTEL_EXPORTER_OTLP_ENDPOINT"
+                    ),
+                    "{name}={value:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn platform_041_env_example_names_every_variable_that_must_be_unset() {
+        let example = include_str!("../../../.env.example");
+        let words: Vec<&str> = example
+            .split(|c: char| !(c.is_ascii_uppercase() || c == '_'))
+            .collect();
+        for name in OTEL_VARIABLES {
+            assert!(words.contains(&name), "{name}");
+        }
+    }
+
+    #[test]
+    fn platform_039_the_endpoint_is_an_http_or_https_url() {
+        for endpoint in ["http://127.0.0.1:4318", "https://collector.internal/otlp/"] {
+            let config = settings(
+                &[
+                    ("ENVIRONMENT", "test"),
+                    ("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint),
+                ],
+                &[],
+            )
+            .telemetry()
+            .unwrap();
+            assert!(config.otlp_endpoint.is_some(), "{endpoint}");
+        }
+    }
+
+    #[test]
+    fn obs_10_an_endpoint_the_exporters_can_t_use_fails_startup() {
+        for endpoint in [
+            "collector:4318",
+            "ftp://collector:4318",
+            "http://",
+            "http://user:secret@collector:4318",
+            "http://collector:4318?token=secret",
+            "http://collector:4318#traces",
+        ] {
+            let error = settings(
+                &[
+                    ("ENVIRONMENT", "test"),
+                    ("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint),
+                ],
+                &[],
+            )
+            .telemetry()
+            .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!("OTEL_EXPORTER_OTLP_ENDPOINT must be {OTLP_ENDPOINT_EXPECTED}"),
+                "{endpoint}"
+            );
+            assert!(!error.to_string().contains("secret"));
         }
     }
 }

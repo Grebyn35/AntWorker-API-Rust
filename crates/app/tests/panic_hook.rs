@@ -4,7 +4,7 @@
 use platform::telemetry::{Service, testing};
 
 #[test]
-fn err_12_a_panic_writes_one_error_line_with_its_message_and_location() {
+fn err_12_a_panic_writes_one_error_line_with_its_message_and_location_and_is_counted() {
     testing::install(Service {
         name: "api",
         version: "0.0.0",
@@ -39,4 +39,9 @@ fn err_12_a_panic_writes_one_error_line_with_its_message_and_location() {
     );
     assert!(line["code.line.number"].as_u64().unwrap() > 0);
     assert_eq!(line["trace_id"].as_str().unwrap().len(), 32);
+    let panics: Vec<f64> = testing::recorded("platform.panics")
+        .into_iter()
+        .map(|point| point.value)
+        .collect();
+    assert_eq!(panics, [1.0]);
 }

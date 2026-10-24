@@ -62,16 +62,9 @@ const SPANS: [&str; 6] = [
 /// rules for levels and spans, and every crate's exceptions to the print lints.
 pub fn check(repo: &Repo) -> Outcome {
     let mut findings = Vec::new();
-    let names = match repo.file(NAMES).map(|file| list(&file.text)) {
-        Some(Ok(names)) => names,
-        Some(Err(message)) => return failed(Finding::new(NAMES, 1, message)),
-        None => {
-            return failed(Finding::new(
-                NAMES,
-                1,
-                "the list of telemetry names is missing",
-            ));
-        }
+    let names = match names(repo) {
+        Ok(names) => names,
+        Err(finding) => return failed(finding),
     };
     for file in repo.files() {
         if !file.path.starts_with("crates/") || !file.path.ends_with(".rs") {
@@ -94,6 +87,19 @@ pub fn check(repo: &Repo) -> Outcome {
     Outcome {
         report: Vec::new(),
         findings,
+    }
+}
+
+/// The list of telemetry names: each constant, with the name it holds (OBS-05).
+pub fn names(repo: &Repo) -> Result<BTreeMap<String, String>, Finding> {
+    match repo.file(NAMES).map(|file| list(&file.text)) {
+        Some(Ok(names)) => Ok(names),
+        Some(Err(message)) => Err(Finding::new(NAMES, 1, message)),
+        None => Err(Finding::new(
+            NAMES,
+            1,
+            "the list of telemetry names is missing",
+        )),
     }
 }
 

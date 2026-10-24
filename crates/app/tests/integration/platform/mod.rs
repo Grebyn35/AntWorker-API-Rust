@@ -8,3 +8,4 @@ mod lifecycle;
 mod logging;
 mod migrations;
 mod startup;
+mod telemetry;

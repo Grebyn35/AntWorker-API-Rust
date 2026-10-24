@@ -1,0 +1,49 @@
+# The metrics that the dashboards and alerts read and that other parts of the stack produce, by
+# their names in Prometheus. check-metrics fails on a query of a metric that neither the API's
+# declarations nor this list holds, and on a metric here that nothing reads (OBS-12).
+
+metrics:
+  - name: up
+    kind: gauge
+    producer: Prometheus
+    description: 1 while Prometheus scrapes the target, 0 otherwise.
+  - name: ALERTS
+    kind: gauge
+    producer: Prometheus
+    description: One series for each alert that is pending or firing, with its labels.
+  - name: otelcol_receiver_refused_spans
+    kind: counter
+    producer: the collector
+    description: Spans the collector refused, such as at its memory limit.
+  - name: otelcol_receiver_refused_log_records
+    kind: counter
+    producer: the collector
+    description: Log records the collector refused.
+  - name: otelcol_receiver_refused_metric_points
+    kind: counter
+    producer: the collector
+    description: Metric data points the collector refused.
+  - name: otelcol_exporter_send_failed_spans
+    kind: counter
+    producer: the collector
+    description: Spans the collector failed to send to Tempo.
+  - name: otelcol_exporter_send_failed_log_records
+    kind: counter
+    producer: the collector
+    description: Log records the collector failed to send to Loki.
+  - name: otelcol_exporter_send_failed_metric_points
+    kind: counter
+    producer: the collector
+    description: Metric data points the collector failed to send to Prometheus.
+  - name: otelcol_processor_tail_sampling_sampling_trace_dropped_too_early
+    kind: counter
+    producer: the collector
+    description: Traces tail sampling dropped before deciding them, because it held too many.
+  - name: otelcol_processor_tail_sampling_sampling_traces_on_memory
+    kind: gauge
+    producer: the collector
+    description: The traces tail sampling holds while it waits to decide them.
+  - name: otelcol_processor_tail_sampling_count_traces_sampled
+    kind: counter
+    producer: the collector
+    description: Traces each sampling policy decided, by the policy and whether it kept them.

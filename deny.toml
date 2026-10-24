@@ -1,5 +1,18 @@
 [graph]
 all-features = true
+# The platforms a developer builds on (OPS-19) and the image's (OPS-14). A crate that only other
+# targets compile, such as one for WebAssembly, never reaches a build, so its license and
+# advisories don't apply.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
 
 [advisories]
 version = 2

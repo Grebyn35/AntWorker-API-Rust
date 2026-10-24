@@ -8,7 +8,7 @@ use axum::{
     body::Body,
     error_handling::HandleErrorLayer,
     extract::{MatchedPath, Request, State},
-    http::{HeaderMap, HeaderName, HeaderValue, header},
+    http::{HeaderMap, HeaderName, HeaderValue, Method, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::MethodRouter,
@@ -16,19 +16,24 @@ use axum::{
 use http_body_util::Limited;
 use opentelemetry::propagation::{Extractor, TextMapPropagator};
 use opentelemetry_sdk::propagation::TraceContextPropagator;
+use opentelemetry_semantic_conventions::metric as otel;
 use tower::{
     BoxError, ServiceBuilder, limit::GlobalConcurrencyLimitLayer, load_shed::LoadShedLayer,
     timeout::TimeoutLayer,
 };
 use tower_http::{catch_panic::CatchPanicLayer, set_header::SetResponseHeaderLayer};
-use tracing::{Instrument, field::Empty};
+use tracing::{Instrument, Span, field::Empty};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::docs::QueryNames;
 use crate::{
     clock::SharedClock,
     errors::{self, ErrorReport, Internal, Problem, RequestError},
-    telemetry::{self, names},
+    telemetry::{
+        self,
+        metrics::Histogram,
+        names::{self, convention},
+    },
 };
 
 /// How long a request of the `public`, `user` and `workspace` groups may run: twice the five
@@ -40,6 +45,30 @@ const GROUP_BODY_LIMIT: usize = 64 * 1024;
 
 /// What a client should wait before it retries a request that load shedding refused.
 const RETRY_AFTER_SECONDS: &str = "1";
+
+/// The method of a request whose method HTTP's specifications don't define, and the error type
+/// of a 5xx whose error the request log doesn't know (PLATFORM-040).
+const OTHER: &str = "_OTHER";
+
+static REQUEST_DURATION: Histogram<4> = Histogram::new(
+    convention(
+        "http.server.request.duration",
+        otel::HTTP_SERVER_REQUEST_DURATION,
+    ),
+    "s",
+    "How long each request took, from the request log's start to its response, health probes \
+     aside.",
+    [
+        names::HTTP_REQUEST_METHOD,
+        names::HTTP_ROUTE,
+        names::HTTP_RESPONSE_STATUS_CODE,
+        names::ERROR_TYPE,
+    ],
+    // The boundaries the conventions advise for this metric.
+    &[
+        0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0,
+    ],
+);
 
 /// The security headers on every response, health probes included (SEC-11).
 pub(super) fn security_headers(router: Router) -> Router {
@@ -89,22 +118,25 @@ where
 /// the span's trace context into `server-timing` (PLATFORM-022, API-16).
 async fn trace(request: Request, next: Next) -> Response {
     let parent = TraceContextPropagator::new().extract(&Headers(request.headers()));
-    let method = request.method().clone();
+    let method = method_name(request.method());
     let route = request
         .extensions()
         .get::<MatchedPath>()
         .map(|route| route.as_str().to_owned());
+    // The conventions name a span of an unknown method after the protocol instead.
+    let shown = if method == OTHER { "HTTP" } else { method };
     let name = route
         .as_ref()
-        .map_or_else(|| method.to_string(), |route| format!("{method} {route}"));
+        .map_or_else(|| shown.to_owned(), |route| format!("{shown} {route}"));
     let span = tracing::info_span!(
         "request",
         { names::OTEL_NAME } = name,
         { names::OTEL_KIND } = "server",
         { names::OTEL_STATUS_CODE } = Empty,
-        { names::HTTP_REQUEST_METHOD } = %method,
+        { names::HTTP_REQUEST_METHOD } = method,
         { names::HTTP_ROUTE } = route,
         { names::HTTP_RESPONSE_STATUS_CODE } = Empty,
+        { names::ERROR_TYPE } = Empty,
     );
     // An inbound context that isn't valid leaves the span the root of a new trace. Setting the
     // parent fails only if the span isn't one the tracer follows, and then the request goes on
@@ -114,7 +146,9 @@ async fn trace(request: Request, next: Next) -> Response {
     }
     let mut response = next.run(request).instrument(span.clone()).await;
     let status = response.status();
-    span.record(names::HTTP_RESPONSE_STATUS_CODE, status.as_u16());
+    // The bridge to OpenTelemetry records an unsigned value as text, and the conventions define
+    // the status as a number, which the collector's sampling compares (OBS-08).
+    span.record(names::HTTP_RESPONSE_STATUS_CODE, i64::from(status.as_u16()));
     if status.is_server_error() {
         span.record(names::OTEL_STATUS_CODE, "error");
     }
@@ -138,10 +172,12 @@ async fn trace(request: Request, next: Next) -> Response {
 struct PanicLogged;
 
 /// Writes one `INFO` line when the request completes, and before it the `ERROR` line of a 5xx
-/// with its cause chain, unless the 5xx answers a panic (PLATFORM-034).
+/// with its cause chain, unless the 5xx answers a panic (PLATFORM-034). It records the request's
+/// duration, and gives a 5xx's error code to the metric and the request's span as `error.type`
+/// (PLATFORM-040).
 async fn log(State(clock): State<SharedClock>, request: Request, next: Next) -> Response {
     let start = clock.now();
-    let method = request.method().clone();
+    let method = method_name(request.method());
     let route = request
         .extensions()
         .get::<MatchedPath>()
@@ -149,29 +185,62 @@ async fn log(State(clock): State<SharedClock>, request: Request, next: Next) -> 
     let mut response = next.run(request).await;
     let status = response.status();
     let panicked = response.extensions_mut().remove::<PanicLogged>().is_some();
-    if status.is_server_error() && !panicked {
+    let mut error_type = None;
+    if status.is_server_error() {
         let report = response.extensions_mut().remove::<ErrorReport>();
-        tracing::error!(
-            { names::ERROR_TYPE } = report.as_ref().map(|report| report.code),
-            { names::EXCEPTION_MESSAGE } = report.as_ref().map(|report| report.chain.as_str()),
-            "request failed"
-        );
+        let code = report.as_ref().map_or(OTHER, |report| report.code);
+        Span::current().record(names::ERROR_TYPE, code);
+        error_type = Some(code);
+        if !panicked {
+            tracing::error!(
+                { names::ERROR_TYPE } = report.as_ref().map(|report| report.code),
+                { names::EXCEPTION_MESSAGE } = report.as_ref().map(|report| report.chain.as_str()),
+                "request failed"
+            );
+        }
     }
+    let duration = clock.now().duration_since(start).as_secs_f64();
     tracing::info!(
-        { names::HTTP_REQUEST_METHOD } = %method,
+        { names::HTTP_REQUEST_METHOD } = method,
         { names::HTTP_ROUTE } = route,
         { names::HTTP_RESPONSE_STATUS_CODE } = status.as_u16(),
-        { names::REQUEST_DURATION } = clock.now().duration_since(start).as_secs_f64(),
+        { names::REQUEST_DURATION } = duration,
         "request completed"
     );
+    REQUEST_DURATION.observe(
+        duration,
+        [
+            method.into(),
+            route.into(),
+            i64::from(status.as_u16()).into(),
+            error_type.into(),
+        ],
+    );
     response
+}
+
+/// The method as OpenTelemetry's conventions give it: one of RFC 9110's methods, `PATCH` or
+/// `QUERY`, or `_OTHER` for any other, so a client can't add values without bound.
+fn method_name(method: &Method) -> &'static str {
+    match method.as_str() {
+        "CONNECT" => "CONNECT",
+        "DELETE" => "DELETE",
+        "GET" => "GET",
+        "HEAD" => "HEAD",
+        "OPTIONS" => "OPTIONS",
+        "PATCH" => "PATCH",
+        "POST" => "POST",
+        "PUT" => "PUT",
+        "QUERY" => "QUERY",
+        "TRACE" => "TRACE",
+        _ => OTHER,
+    }
 }
 
 /// Answers a panic with the 500 problem. The panic hook has already logged it, with its
 /// message and location (ERR-12).
 fn panicked(_payload: Box<dyn Any + Send + 'static>) -> Response {
     let mut response = Problem(RequestError::Panicked).into_response();
-    response.extensions_mut().remove::<ErrorReport>();
     response.extensions_mut().insert(PanicLogged);
     response
 }

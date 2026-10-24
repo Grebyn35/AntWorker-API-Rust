@@ -1,0 +1,173 @@
+# The tests of rules.yaml, which `just alert-rules` runs with promtool (OBS-14). Each alert fires
+# on the input of its test, and a slow burn-rate alert's input stays below the fast alert's
+# thresholds.
+
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # 10% of requests fail: well past both fast windows' thresholds.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="api", http_response_status_code="200"}'
+        values: "0+90x70"
+      - series: 'http_server_request_duration_seconds_count{job="api", http_response_status_code="500"}'
+        values: "0+10x70"
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: AvailabilityBudgetBurningFast
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: api
+            exp_annotations:
+              summary: The API answers with 5xx fast enough to spend its availability budget within days.
+              runbook: docs/operations/runbooks.md#availabilitybudgetburningfast
+
+  # 0.5% of requests fail: past the slow thresholds, below the fast ones.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="api", http_response_status_code="200"}'
+        values: "0+199x130"
+      - series: 'http_server_request_duration_seconds_count{job="api", http_response_status_code="500"}'
+        values: "0+1x130"
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: AvailabilityBudgetBurningSlowly
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job: api
+            exp_annotations:
+              summary: The API answers with 5xx often enough to spend its availability budget within the month.
+              runbook: docs/operations/runbooks.md#availabilitybudgetburningslowly
+      - eval_time: 2h
+        alertname: AvailabilityBudgetBurningFast
+        exp_alerts: []
+
+  # 20% of requests take longer than 0.5 seconds.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_bucket{job="api", le="0.5"}'
+        values: "0+80x70"
+      - series: 'http_server_request_duration_seconds_count{job="api", http_response_status_code="200"}'
+        values: "0+100x70"
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: LatencyBudgetBurningFast
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: api
+            exp_annotations:
+              summary: Requests take longer than 0.5 seconds often enough to spend the latency budget within days.
+              runbook: docs/operations/runbooks.md#latencybudgetburningfast
+
+  # 5% of requests take longer than 0.5 seconds: past the slow thresholds, below the fast ones.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_bucket{job="api", le="0.5"}'
+        values: "0+95x130"
+      - series: 'http_server_request_duration_seconds_count{job="api", http_response_status_code="200"}'
+        values: "0+100x130"
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: LatencyBudgetBurningSlowly
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job: api
+            exp_annotations:
+              summary: Requests take longer than 0.5 seconds often enough to spend the latency budget within the month.
+              runbook: docs/operations/runbooks.md#latencybudgetburningslowly
+      - eval_time: 2h
+        alertname: LatencyBudgetBurningFast
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'platform_database_reachable{job="api", instance="a", db_namespace="api"}'
+        values: "1 1 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: DatabaseUnreachable
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: DatabaseUnreachable
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: api
+              instance: a
+              db_namespace: api
+            exp_annotations:
+              summary: An instance's own connection to the database stopped answering its checks.
+              runbook: docs/operations/runbooks.md#databaseunreachable
+
+  # The last instance stops exporting after 3 minutes.
+  - interval: 1m
+    input_series:
+      - series: 'platform_database_reachable{job="api", instance="a", db_namespace="api"}'
+        values: "1 1 1 1"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ApiTelemetryMissing
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: ApiTelemetryMissing
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: No instance of the API has exported metrics for five minutes.
+              runbook: docs/operations/runbooks.md#apitelemetrymissing
+
+  - interval: 1m
+    input_series:
+      - series: 'otel_sdk_exporter_log_exported_total{job="api", instance="a"}'
+        values: "0+50x6"
+      - series: 'otel_sdk_exporter_log_exported_total{job="api", instance="a", error_type="export_failed"}'
+        values: "0 0 5 5 5 5 5"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: TelemetryExportFailing
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job: api
+              instance: a
+            exp_annotations:
+              summary: An instance of the API failed to export spans, log records or metrics in the last 10 minutes.
+              runbook: docs/operations/runbooks.md#telemetryexportfailing
+
+  - interval: 1m
+    input_series:
+      - series: 'otelcol_exporter_send_failed_spans{job="collector", instance="collector:8888"}'
+        values: "0 0 10 10 10"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: CollectorDroppingTelemetry
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: The collector refused, or failed to pass on, telemetry in the last 10 minutes.
+              runbook: docs/operations/runbooks.md#collectordroppingtelemetry
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="loki", instance="loki:3100"}'
+        values: "0x10"
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: ObservabilityServiceDown
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job: loki
+              instance: loki:3100
+            exp_annotations:
+              summary: Prometheus can't reach a service of the observability stack.
+              runbook: docs/operations/runbooks.md#observabilityservicedown

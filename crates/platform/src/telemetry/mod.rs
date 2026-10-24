@@ -1,31 +1,50 @@
-//! The logging and tracing setup (OBS-01, OBS-02), and the trace context of the current
+//! The logging and tracing setup (OBS-01, OBS-02), the export of telemetry over OTLP
+//! (PLATFORM-039), the metric declarations (OBS-11), and the trace context of the current
 //! request.
 
+mod export;
+pub mod metrics;
 pub mod names;
 
 use std::{io, panic::PanicHookInfo};
 
 use json_subscriber::JsonLayer;
 use opentelemetry::trace::{TraceContextExt, TracerProvider};
-use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider};
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
+use opentelemetry_sdk::{
+    logs::SdkLoggerProvider,
+    metrics::SdkMeterProvider,
+    trace::{Sampler, SdkTracerProvider},
+};
 use tracing::{Span, Subscriber};
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::{
     Layer,
-    filter::{LevelFilter, Targets},
+    filter::{self, LevelFilter, Targets},
     fmt::MakeWriter,
     layer::SubscriberExt,
     registry::LookupSpan,
 };
 
-use crate::config::{Environment, LogLevel, LoggingConfig};
+pub use export::{ExportError, OtlpEndpoint};
+
+use self::metrics::Counter;
+use crate::config::{Environment, LogLevel, TelemetryConfig};
 
 /// The lines the logging thread holds before an event waits for room. An event never waits for
 /// stdout itself, and no line is dropped (CODE-05, OBS-08).
 const QUEUED_LINES: usize = 128_000;
 
-/// What identifies the service in every JSON line (OBS-02).
+static PANICS: Counter<0> = Counter::new(
+    "platform.panics",
+    "{panic}",
+    "Panics, wherever they happened (ERR-12).",
+    [],
+);
+
+/// What identifies the service in every JSON line and every exported span, log record and
+/// metric (OBS-02).
 #[derive(Clone, Copy, Debug)]
 pub struct Service {
     /// The binary's name, which `just rename` renames (ARCH-15).
@@ -34,60 +53,110 @@ pub struct Service {
     pub version: &'static str,
 }
 
-/// The installed telemetry. [`Telemetry::finish`] writes out the queued log lines.
+/// The installed telemetry. [`Telemetry::finish`] writes out what it holds.
 #[derive(Debug)]
 pub struct Telemetry {
     writer: WorkerGuard,
     tracer: SdkTracerProvider,
+    logs: Option<SdkLoggerProvider>,
+    metrics: Option<SdkMeterProvider>,
 }
 
 impl Telemetry {
-    /// Ends the tracer, then writes out every queued log line. `main` calls it last.
+    /// Writes out the spans, then the log records, then the metrics not yet exported, so the last
+    /// metrics count the exports just before them, and then every queued log line (PLATFORM-042).
+    /// The tracer and the logger each have 2 seconds, and the meter the 5 seconds its SDK allows
+    /// itself. `main` calls it last.
     pub fn finish(self) {
-        if let Err(error) = self.tracer.shutdown() {
+        if let Err(error) = self.tracer.shutdown_with_timeout(export::FLUSH_TIMEOUT) {
             crate::errors::ignore(&error, "tracer_shutdown");
+        }
+        if let Some(logs) = self.logs
+            && let Err(error) = logs.shutdown_with_timeout(export::FLUSH_TIMEOUT)
+        {
+            crate::errors::ignore(&error, "logger_shutdown");
+        }
+        if let Some(metrics) = self.metrics
+            && let Err(error) = metrics.shutdown()
+        {
+            crate::errors::ignore(&error, "meter_shutdown");
         }
         drop(self.writer);
     }
 }
 
-/// Telemetry couldn't be set up, because another logger is already installed.
+/// Telemetry couldn't be set up.
 #[derive(Debug, thiserror::Error)]
-#[error("a logger is already installed")]
-pub struct TelemetryError;
+pub enum TelemetryError {
+    /// Another logger is already installed.
+    #[error("a logger is already installed")]
+    Installed,
+    /// The exporters couldn't be built (OBS-10).
+    #[error("telemetry export couldn't be set up")]
+    Export(#[from] ExportError),
+}
 
-/// Installs the process-wide logger and tracer, and the panic hook. Lines go to stdout through
-/// a thread of their own (CODE-05).
-pub fn init(service: Service, config: &LoggingConfig) -> Result<Telemetry, TelemetryError> {
+/// Installs the process-wide logger and tracer, the panic hook, and with an endpoint the export
+/// of spans, log records and metrics over OTLP (PLATFORM-039). Lines go to stdout through a
+/// thread of their own (CODE-05). Call it before the async runtime starts, since the exporters'
+/// HTTP client starts a runtime of its own.
+pub fn init(service: Service, config: &TelemetryConfig) -> Result<Telemetry, TelemetryError> {
+    let exporting = config
+        .otlp_endpoint
+        .as_ref()
+        .map(|endpoint| export::build(service, config.environment, endpoint))
+        .transpose()?;
     let (writer, guard) = NonBlockingBuilder::default()
         .lossy(false)
         .buffered_lines_limit(QUEUED_LINES)
         .thread_name("logging")
         .finish(io::stdout());
-    let tracer = tracer();
-    let spans = spans(&tracer);
-    let only_ours = lines_filter(service, level_filter(config.level), &[]);
+    let level = level_filter(config.level);
+    let only_ours = lines_filter(service, level, &[]);
     let lines = match config.environment {
         Environment::Production => json(service, config.environment, writer)
-            .with_filter(only_ours)
+            .with_filter(only_ours.clone())
             .boxed(),
         Environment::Development | Environment::Test => tracing_subscriber::fmt::layer()
             .with_writer(writer)
-            .with_filter(only_ours)
+            .with_filter(only_ours.clone())
             .boxed(),
     };
-    let subscriber = tracing_subscriber::registry().with(spans).with(lines);
-    tracing::subscriber::set_global_default(subscriber).map_err(|_| TelemetryError)?;
+    let mut tracer = SdkTracerProvider::builder().with_sampler(Sampler::AlwaysOn);
+    let (logs, metrics) = match exporting {
+        Some(exporting) => {
+            tracer = tracer
+                .with_resource(exporting.resource)
+                .with_span_processor(exporting.spans);
+            (Some(exporting.logs), Some(exporting.metrics))
+        }
+        None => (None, None),
+    };
+    let tracer = tracer.build();
+    let records = logs
+        .as_ref()
+        .map(|logs| OpenTelemetryTracingBridge::new(logs).with_filter(only_ours));
+    let subscriber = tracing_subscriber::registry()
+        .with(spans(&tracer))
+        .with(lines)
+        .with(records);
+    tracing::subscriber::set_global_default(subscriber).map_err(|_| TelemetryError::Installed)?;
+    if let Some(metrics) = &metrics {
+        opentelemetry::global::set_meter_provider(metrics.clone());
+    }
     std::panic::set_hook(Box::new(log_panic));
     Ok(Telemetry {
         writer: guard,
         tracer,
+        logs,
+        metrics,
     })
 }
 
-/// The events the log lines take: those of the workspace's own crates, `platform`, `app` and the
-/// binary, and of `also`, at `level` and above. Other crates' events name their fields outside
-/// the list and don't keep their messages constant, so they aren't written (OBS-01, OBS-05).
+/// The events the log lines and records take: those of the workspace's own crates, `platform`,
+/// `app` and the binary, and of `also`, at `level` and above. Other crates' events name their
+/// fields outside the list and don't keep their messages constant, so they aren't written
+/// (OBS-01, OBS-05). The exporters' own events stay out, so exporting never feeds itself.
 fn lines_filter(service: Service, level: LevelFilter, also: &[&str]) -> Targets {
     ["platform", "app", &service.name.replace('-', "_")]
         .into_iter()
@@ -97,23 +166,29 @@ fn lines_filter(service: Service, level: LevelFilter, also: &[&str]) -> Targets 
         })
 }
 
-/// The tracer: OpenTelemetry's SDK, sampling every request whatever an inbound `traceparent`
-/// says (OBS-08). It exports nothing until telemetry export is built.
-fn tracer() -> SdkTracerProvider {
-    SdkTracerProvider::builder()
-        .with_sampler(Sampler::AlwaysOn)
-        .build()
-}
-
 /// The layer that turns `INFO` spans and above into OpenTelemetry spans, whatever level the
-/// logs are written at, so every request has a trace context.
+/// logs are written at, so every request has a trace context. A span's attributes are its own
+/// fields, all from the list of names (OBS-05): the bridge adds no source location, thread,
+/// target, level or timings. Events stay out of spans, since each is a log record that its trace
+/// context links to its span.
 fn spans<S>(tracer: &SdkTracerProvider) -> impl Layer<S>
 where
     S: Subscriber + for<'lookup> LookupSpan<'lookup>,
 {
     tracing_opentelemetry::layer()
         .with_tracer(tracer.tracer("platform"))
-        .with_filter(LevelFilter::INFO)
+        .with_location(false)
+        .with_threads(false)
+        .with_target(false)
+        .with_level(false)
+        .with_tracked_inactivity(false)
+        .with_error_fields_to_exceptions(false)
+        .with_error_records_to_exceptions(false)
+        .with_error_events_to_exceptions(false)
+        .with_error_events_to_status(false)
+        .with_filter(filter::filter_fn(|metadata| {
+            metadata.is_span() && *metadata.level() <= tracing::Level::INFO
+        }))
 }
 
 /// One JSON object per line, with the event's fields at the top level next to `timestamp`,
@@ -196,7 +271,7 @@ pub(crate) fn traceparent(span: &Span) -> Option<String> {
 }
 
 /// Writes one `ERROR` line for a panic, in the span it happened in, instead of the default
-/// hook's plain text on stderr (ERR-12).
+/// hook's plain text on stderr, and counts it (ERR-12).
 fn log_panic(info: &PanicHookInfo<'_>) {
     let message = info
         .payload()
@@ -213,99 +288,11 @@ fn log_panic(info: &PanicHookInfo<'_>) {
         { names::CODE_LINE_NUMBER } = line,
         "panicked"
     );
+    PANICS.add(1, []);
 }
 
-/// The telemetry of the tests, which compile with the `test-support` feature.
 #[cfg(feature = "test-support")]
-pub mod testing {
-    use std::{
-        io,
-        sync::{Mutex, OnceLock, PoisonError},
-    };
-
-    use opentelemetry_sdk::trace::SdkTracerProvider;
-    use serde_json::Value;
-    use tracing_subscriber::{Layer, filter::LevelFilter, fmt::MakeWriter, layer::SubscriberExt};
-
-    use super::{Service, TelemetryError, names};
-    use crate::config::Environment;
-
-    /// Every line the process's logger has written.
-    static LINES: Mutex<Vec<u8>> = Mutex::new(Vec::new());
-
-    /// The test binaries, whose own events the tests' logger writes too.
-    const TEST_BINARIES: [&str; 2] = ["integration", "panic_hook"];
-
-    /// Installs the API's tracer, and its JSON logger at `INFO` writing into memory, as the
-    /// process's subscriber. Requests that tests send get the trace context the API gives them,
-    /// and a test reads the lines of its own requests by their trace ID, whatever other tests
-    /// run alongside. Later calls do nothing. Fails if something else installed a subscriber
-    /// first.
-    pub fn install(service: Service) -> Result<(), TelemetryError> {
-        static TRACER: OnceLock<Option<SdkTracerProvider>> = OnceLock::new();
-        let installed = TRACER.get_or_init(|| {
-            let tracer = super::tracer();
-            let subscriber = tracing_subscriber::registry()
-                .with(super::spans(&tracer))
-                .with(super::json(service, Environment::Test, Memory).with_filter(
-                    super::lines_filter(service, LevelFilter::INFO, &TEST_BINARIES),
-                ));
-            tracing::subscriber::set_global_default(subscriber)
-                .is_ok()
-                .then_some(tracer)
-        });
-        installed.as_ref().map(|_| ()).ok_or(TelemetryError)
-    }
-
-    /// Every line logged in the trace `trace_id`, in order.
-    pub fn logged(trace_id: &str) -> Vec<Value> {
-        all_logged()
-            .into_iter()
-            .filter(|line| line[names::TRACE_ID] == trace_id)
-            .collect()
-    }
-
-    /// Every line logged so far, in order.
-    pub fn all_logged() -> Vec<Value> {
-        let lines = LINES.lock().unwrap_or_else(PoisonError::into_inner);
-        String::from_utf8_lossy(&lines)
-            .lines()
-            .filter_map(|line| serde_json::from_str(line).ok())
-            .collect()
-    }
-
-    /// Installs the API's panic hook (ERR-12). It replaces the hook that prints a failing test's
-    /// message, so only a test binary of its own installs it.
-    pub fn install_panic_hook() {
-        std::panic::set_hook(Box::new(super::log_panic));
-    }
-
-    /// Writes into [`LINES`].
-    #[derive(Clone, Copy)]
-    struct Memory;
-
-    impl io::Write for Memory {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            LINES
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl MakeWriter<'_> for Memory {
-        type Writer = Self;
-
-        fn make_writer(&self) -> Self::Writer {
-            *self
-        }
-    }
-}
+pub mod testing;
 
 fn level_filter(level: LogLevel) -> LevelFilter {
     match level {
