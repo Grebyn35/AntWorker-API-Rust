@@ -235,7 +235,7 @@ Nothing runs after the response except background work driven by committed rows.
 - **No business logic lives in SQL**, and there are no stored procedures or `SECURITY DEFINER` functions (DATA-07).
 - **What the role can't protect against.** A compromised API process can read and change anything `app` can. The defenses for that case are:
   - The database is not reachable from outside the private network.
-  - Roles have least privilege: no data definition statements (DDL), no superuser, no other schemas.
+  - Roles have least privilege: no data definition language (DDL) statements, no superuser, no other schemas.
   - Secrets are handled under D26.
   - The audit log and backups support detection and recovery (D6, D30).
 - **Conventions (D24):**

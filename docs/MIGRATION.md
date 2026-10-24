@@ -128,6 +128,8 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Research | API-12 names the draft it follows: draft-ietf-httpapi-idempotency-key-header-08 (2026-10), whose key is a structured-field string. | 2.2 |
 | Conformance review of cf1253c | API-07, API-09: whether `request.invalid_query` names the unknown parameters in `errors`, since clients never act on `detail` (ERR-09) | 2.1, with the first route that parses query values |
 | Conformance review of cf1253c | ARCH-12: whether the clock, readiness and the database that `main.rs` opens count among the services that only `composition.rs` builds | 2.1, with the first services |
+| Conformance review of b60787f..9a0522d | DOC-15: `check-docs` reads the `tag` of each `#[utoipa::path]` under `crates/app/src/modules/<module>/`, and fails unless it is `<module>`. | 2.1, with the second module that serves routes |
+| Conformance review of b60787f..9a0522d | API-17: the test support checks each request body an integration test sends against its operation's documented request, and `check-openapi` checks that each field of a domain type carries the type's limits. | 2.1, with the first route that takes a body |
 | Conformance review of c252bab | DATA-20: a check reads the locked sqlx sources and fails on a public function that takes SQL text and that `clippy.toml` doesn't ban, so the bans stay complete when sqlx is updated. | 2.1, which writes the first queries of a module |
 
 ## Conformance reviews

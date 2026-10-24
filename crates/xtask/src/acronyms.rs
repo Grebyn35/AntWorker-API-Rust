@@ -5,8 +5,10 @@
 //!
 //! An acronym counts as spelled out when its first use stands alone in parentheses, as in "the
 //! Simple Mail Transfer Protocol (SMTP)", or when it, or the hyphenated name it starts, comes
-//! right before them, as in "ADRs (the context…)" or "SCRAM-SHA-256 (Salted Challenge…)".
-//! Whether the words in the parentheses are the right ones is left to review.
+//! right before them, as in "SMTP (Simple Mail…)" or "SCRAM-SHA-256 (Salted Challenge…)".
+//! Whether the words abbreviate the acronym is left to review: an acronym's letters don't always
+//! start its words, as OTLP's don't in "OpenTelemetry Protocol", and letters matched inside
+//! words would let unrelated text pass.
 
 use std::collections::BTreeSet;
 
@@ -185,7 +187,7 @@ mod tests {
 
     #[test]
     fn doc_09_spelled_out_and_listed_acronyms_pass() {
-        let document = "Email goes over the Simple Mail Transfer Protocol (SMTP), then SMTP again.\nArchitecture decision records, or ADRs (the reasons), and an HTTP API. SHA-256 is a name, and SCRAM-SHA-256 (Salted Challenge Response Authentication Mechanism) is spelled out. See [the inventory](inventory/SYNTHESIS.md) and `ERROR`. D12 and Q1 are IDs, and so is factor IV.\n";
+        let document = "Email goes over the Simple Mail Transfer Protocol (SMTP), then SMTP again.\nADRs (architecture decision records), and an HTTP API. SHA-256 is a name, and SCRAM-SHA-256 (Salted Challenge Response Authentication Mechanism) is spelled out. See [the inventory](inventory/SYNTHESIS.md) and `ERROR`. D12 and Q1 are IDs, and so is factor IV.\n";
         assert_eq!(findings(document), Vec::<String>::new());
     }
 

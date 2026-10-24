@@ -24,7 +24,7 @@ Every JSON log line carries `service.name`, `service.version` and `deployment.en
 
 Module code writes events only at `DEBUG`. Every `INFO`, `WARN` and `ERROR` event comes from `platform` or the binary's `main.rs`. A business event that matters is an audit entry (DATA-27), not a log line.
 - Why: a level tells the reader what to do, and every request has at least one log line (D10). When the mechanisms write every event above `DEBUG`, each kind of event is written once, in one shape.
-- Check: `ci: check-instrument` (the levels of events written outside `platform` and `main.rs`), plus `review`.
+- Check: `ci: check-instrument` (the levels of events in `app`'s code outside `main.rs`), plus `review`.
 
 ### OBS-04 No personal data or secrets in telemetry
 Logs, spans and metric labels never contain personal data or secrets. The `EmailAddress` and `Secret` types redact themselves when formatted. Every `#[instrument]` uses `skip_all` and lists its fields explicitly.
@@ -45,7 +45,7 @@ Every field name in logs and spans, and every metric label name, comes from the 
 ### OBS-06 One server span per request, child spans for work
 Each request has one server span. Database transactions, outbound calls and job runs get child spans. Spans come only from `platform` and the binary's `main.rs`; module code opens none. CPU-heavy work runs through the `platform` helper that adds its span (CODE-05), so slow steps such as password hashing still show in traces.
 - Why: a trace shows where a request spent its time, and every span has the same shape wherever it comes from.
-- Check: `ci: check-instrument` (no spans outside `platform` and `main.rs`), plus `review`.
+- Check: `ci: check-instrument` (no spans in `app`'s code outside `main.rs`), plus `review`.
 
 ### OBS-07 Trace context carries across work that happens later
 Inbound W3C `traceparent` from clients is accepted. Every job and event row stores the trace context that created it. The span for running that job or delivering that event links to the stored context. Outbound requests send trace context only to our own infrastructure, never to third parties.

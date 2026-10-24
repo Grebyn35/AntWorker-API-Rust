@@ -203,7 +203,7 @@ A rate-limit check counts the request in its own short transaction, before the o
 
 The order of the middleware stack is in [architecture.md §6](../architecture.md#6-request-lifecycle). The health probes are answered before the stack (OPS-05), and the security headers (SEC-11) wrap both.
 
-**Routes and their documentation.** A module's `routes()` returns `Routes`, which only the builders of API-14 add to. A builder takes the output of utoipa-axum's `routes!`, whose path and methods come from the handler's `#[utoipa::path]`, so a route serves the path and methods its documentation names, and `HEAD` wherever it serves `GET`, as HTTP asks. To each operation, the builder adds:
+**Routes and their documentation.** A module's `routes()` returns `Routes`, which only the builders of API-14 add to. A builder takes a route's documentation with its method router, as utoipa-axum's `routes!` makes both from the handler's `#[utoipa::path]`. A route serves `HEAD` wherever it serves `GET`, as HTTP asks. To each operation, the builder adds:
 - its access level, as the extension `x-access`
 - the problems the pipeline can answer on any route of its group: `request.invalid_query`, `request.payload_too_large`, `request.timed_out` and `request.overloaded`, whose 503 carries `Retry-After`, and `request.internal_error`
 
@@ -257,8 +257,6 @@ A name joins the list with the first code that writes it, such as `user.id` and 
 - a message that isn't constant (OBS-01)
 - an `#[instrument]` without `skip_all` (OBS-04)
 - an event at any level but `DEBUG`, or a span, in `app` code other than `main.rs` (OBS-03, OBS-06)
-
-It also reads the `#[expect]` attributes of every crate, and fails on one that excepts a print lint outside the places CODE-03 allows printing: `print_stderr` in the binary's `main.rs`, and both print lints in `xtask`.
 
 ## Open design questions
 

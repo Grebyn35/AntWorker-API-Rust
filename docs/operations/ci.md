@@ -19,7 +19,7 @@ CI runs `just setup`, then `just ci`, on every pull request and on every push to
 
 `check-openapi` covers the parts of the rules that name it whose subjects exist: the paths, the property names, the access levels, the response descriptions, the error codes, and the references. It checks list shapes (API-05), methods (API-03), statuses (API-04), scopes in paths (API-02) and formats (API-11) once a route has them, and the breaking-change diff (API-18, ERR-02) from the first release on. Tests, not this check, compare the committed document with the one the code writes, and every documented path's methods with the ones it serves (API-17).
 
-`check-docs` doesn't cover two of the rules that name it: the names of other codebases (DOC-04), and accepted architecture decision records, or ADRs (DOC-11), which waits for the first ADR. Review enforces both until then.
+`check-docs` doesn't cover two of the rules that name it: the names of other codebases (DOC-04), and accepted architecture decision records (ADRs), whose check waits for the first ADR (DOC-11). Review enforces both until then.
 
 Builds check queries against the query cache committed in `.sqlx/` (DATA-20), so a query missing from the cache fails `lint` and `test`. `just prepare` rewrites the cache from the migrated database.
 

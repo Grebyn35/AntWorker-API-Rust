@@ -32,9 +32,8 @@ impl Access {
 }
 
 /// A module's routes, each registered with its documentation. Every route is added through a
-/// builder that states its access level (API-14), and takes the output of
-/// `utoipa_axum::routes!`, so a route serves the path and methods its `#[utoipa::path]`
-/// documents, and `HEAD` wherever it serves `GET` (API-17).
+/// builder that states its access level (API-14), and registers the route at the paths its
+/// documentation names (API-17).
 pub struct Routes<S = ()> {
     router: OpenApiRouter<S>,
 }

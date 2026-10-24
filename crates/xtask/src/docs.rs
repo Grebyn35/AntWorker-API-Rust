@@ -1,7 +1,9 @@
 //! `check-docs`: links, IDs and the CI checks the rules name all resolve (DOC-13); prose and
 //! comments hold no history markers (DOC-01) and no unfinished-work markers (DOC-07); every
-//! document belongs to the documentation set (DOC-08); and specs, rules and the tracker keep
-//! their formats (DOC-14 to DOC-16, in `formats`).
+//! document belongs to the documentation set (DOC-08); documents spell out acronyms where they
+//! first use them (DOC-09, in `acronyms`); specs, rules and the tracker keep their formats
+//! (DOC-14 to DOC-16, in `formats`); and each spec's Routes table matches `openapi.json`
+//! (DOC-15, in `routes`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -277,14 +279,14 @@ fn locations(repo: &Repo) -> Vec<Finding> {
         .collect()
 }
 
-/// Whether `path` belongs to the documentation set (DOC-08), or to the migration workspace
-/// (DOC-04).
 /// Whether DOC-09's check of acronyms reads the document at `path`: the documentation set
 /// outside the migration workspace.
 pub fn checks_acronyms(path: &str) -> bool {
     in_documentation_set(path) && !path.starts_with(INVENTORY) && path != TRACKER
 }
 
+/// Whether `path` belongs to the documentation set (DOC-08), or to the migration workspace
+/// (DOC-04).
 fn in_documentation_set(path: &str) -> bool {
     const FILES: [&str; 7] = [
         "README.md",

@@ -97,13 +97,16 @@ check-openapi:
     {{ xtask }} check-openapi
 
 # Fails on a log or span field name outside the list in platform::telemetry::names, a message
-# that isn't constant, an #[instrument] without skip_all, and an event at any level but DEBUG, or
-# a span, in module code (OBS-01, OBS-03 to OBS-06).
+# that isn't constant, an #[instrument] without skip_all, an event at any level but DEBUG, or a
+# span, in app code other than main.rs, and an exception to a print lint outside the places
+# printing is allowed (CODE-03, OBS-01, OBS-03 to OBS-06).
 check-instrument:
     {{ xtask }} check-instrument
 
 # Fails on a link, ID or named CI check that doesn't resolve, a history marker, an
-# unfinished-work marker, a document outside the documentation set, or a spec, rule or tracker
-# whose format breaks DOC-15 or DOC-16 (DOC-01, DOC-07, DOC-08, DOC-13 to DOC-16).
+# unfinished-work marker, a document outside the documentation set, an acronym not spelled out
+# where a document first uses it, a spec, rule or tracker whose format breaks DOC-15 or DOC-16,
+# or a spec's Routes table that doesn't match openapi.json (DOC-01, DOC-07 to DOC-09, DOC-13 to
+# DOC-16).
 check-docs:
     {{ xtask }} check-docs

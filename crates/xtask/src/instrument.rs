@@ -52,7 +52,8 @@ const SPANS: [&str; 6] = [
     "error_span",
 ];
 
-/// Checks every file of the API's code against the list of names.
+/// Checks every Rust file under `crates/`: the API's code against the list of names and the
+/// rules for levels and spans, and every crate's exceptions to the print lints.
 pub fn check(repo: &Repo) -> Outcome {
     let mut findings = Vec::new();
     let names = match repo.file(NAMES).map(|file| list(&file.text)) {
@@ -155,7 +156,12 @@ impl Scan<'_> {
                     }
                 }
                 TokenTree::Punct(hash) if hash.as_char() == '#' => {
-                    if let Some(TokenTree::Group(attribute)) = tokens.get(at + 1)
+                    // An inner attribute, `#![...]`, has a `!` before its brackets.
+                    let brackets = match tokens.get(at + 1) {
+                        Some(TokenTree::Punct(bang)) if bang.as_char() == '!' => at + 2,
+                        _ => at + 1,
+                    };
+                    if let Some(TokenTree::Group(attribute)) = tokens.get(brackets)
                         && attribute.delimiter() == Delimiter::Bracket
                     {
                         self.attribute(attribute);
@@ -324,13 +330,20 @@ impl Scan<'_> {
     }
 
     /// An `expect` attribute that names `print_stdout` or `print_stderr` outside the places
-    /// CODE-03 allows them.
+    /// CODE-03 allows them, whether written alone or inside a `cfg_attr`.
     fn printing(&mut self, tokens: &[TokenTree], line: usize) {
         let (Some(TokenTree::Ident(kind)), Some(TokenTree::Group(lints))) =
             (tokens.first(), tokens.get(1))
         else {
             return;
         };
+        if kind == "cfg_attr" {
+            // `cfg_attr(condition, attribute, ...)`: the attributes follow the condition.
+            for attribute in segments(lints.stream()).iter().skip(1) {
+                self.printing(attribute, line);
+            }
+            return;
+        }
         if kind != "expect" {
             return;
         }
@@ -565,6 +578,17 @@ mod tests {
             findings("crates/xtask/src/main.rs", stdout),
             Vec::<String>::new()
         );
+        let inner = r#"#![expect(clippy::print_stdout, reason = "r")]"#;
+        let conditional =
+            r#"#[cfg_attr(not(test), expect(clippy::print_stdout, reason = "r"))] fn f() {}"#;
+        for code in [inner, conditional] {
+            assert_eq!(
+                findings(PLATFORM, code),
+                [
+                    "an exception to `print_stdout` outside the places CODE-03 allows printing (CODE-03)"
+                ]
+            );
+        }
     }
 
     #[test]

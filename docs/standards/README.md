@@ -59,7 +59,7 @@ A review runs in passes over its whole scope. Each pass is two independent revie
 
 - A fix rewrites the whole group of rules a finding touches, so they stay coherent with each other. It never patches a single sentence in isolation.
 - A fix writes each fact in its home, and nowhere else (DOC-14).
-- A fix for a defect that a check could have caught also adds that check, such as a clippy ban or a test, or proposes it. The next pass then doesn't have to look for that kind of defect again. A fix that leaves that kind of defect to review states, in the finding's resolution, why no check can cover it.
+- A fix for a defect that a check could have caught also adds that check, such as a clippy ban or a test, or proposes it. The next pass then doesn't have to look for that kind of defect again. A fix that neither adds nor proposes a check states, in the finding's resolution, why no check can cover the defect.
 - A fix adds a new rule only when a `must-fix` finding requires one. Any other "missing rule" finding becomes a proposal, as in [Changing a rule](#changing-a-rule).
 
 ### When the review stops
