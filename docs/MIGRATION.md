@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** finish the conformance review of the commit that settled the workspace shapes (D39, D40) and added the table check of DOC-15, then step 1.3 of the build order, telemetry: the spec, the code test-first, and its conformance review. Step 1.3 closes the known gaps of ERR-11 and ERR-12 with the metric macro, and decides the proposals that wait on it.
+**Next:** step 1.3 of the build order, telemetry, in this order: the spec, the code test-first, and the conformance review. It closes the known gaps of ERR-11 and ERR-12 with the metric macro, and decides the proposals that wait on it. The workspace shapes (D39, D40) and DOC-15's table check are settled, and their review stopped at pass 2 with every must-fix finding resolved.
 
 **Waiting on the owner:** nothing.
 
@@ -153,7 +153,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | b60787f..9a0522d: API-17's method test, and the checks that took over review for DOC-09, DOC-15, CODE-03, OBS-03 and OBS-06 | 1 | 7 (7, 3, 3 shared) | 3 | 0 | `next pass`: ffb3316 |
 | b60787f..9a0522d: API-17's method test, and the checks that took over review for DOC-09, DOC-15, CODE-03, OBS-03 and OBS-06 | 2 | 6 (5, 1, 0 shared) | 3 | 2 | `stopped: no progress`: 9dca252 |
 | 3ae7168: the workspace shapes (D39, D40), and the table check of DOC-15 | 1 | 9 (8, 2, 1 shared) | 3 | 0 | `next pass`: 16f4aae |
-| 3ae7168: the workspace shapes (D39, D40), and the table check of DOC-15 | 2 | 7 (7, 3, 3 shared) | 1 | 1 | `stopped: no progress` |
+| 3ae7168: the workspace shapes (D39, D40), and the table check of DOC-15 | 2 | 7 (7, 3, 3 shared) | 1 | 1 | `stopped: no progress`: 1e56256 |
 
 ## Decisions
 
