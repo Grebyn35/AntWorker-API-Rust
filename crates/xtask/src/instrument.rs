@@ -32,6 +32,12 @@ const PRINTING: [(&str, &[&str]); 2] = [
     ("crates/xtask/src/", &["print_stdout", "print_stderr"]),
 ];
 
+/// The print lints.
+const PRINT_LINTS: [&str; 2] = ["print_stdout", "print_stderr"];
+
+/// The lint group that holds the print lints: an exception to it excepts them both.
+const PRINT_GROUP: &str = "restriction";
+
 /// The event macros, with the level each writes at, or `None` for `event!`, which takes it.
 const EVENTS: [(&str, Option<&str>); 6] = [
     ("trace", Some("TRACE")),
@@ -68,7 +74,7 @@ pub fn check(repo: &Repo) -> Outcome {
         }
     };
     for file in repo.files() {
-        if !file.path.starts_with("crates/") || !file.path.ends_with(".rs") || file.path == NAMES {
+        if !file.path.starts_with("crates/") || !file.path.ends_with(".rs") {
             continue;
         }
         match file.text.parse::<TokenStream>() {
@@ -359,6 +365,14 @@ impl Scan<'_> {
                         line,
                         format!("an exception to `{lint}` outside the places CODE-03 allows printing (CODE-03)"),
                     );
+                } else if lint == PRINT_GROUP
+                    && let Some(excepted) =
+                        PRINT_LINTS.iter().find(|print| !allowed.contains(print))
+                {
+                    self.find(
+                        line,
+                        format!("an exception to `{lint}`, the group that holds `{excepted}`, outside the places CODE-03 allows printing (CODE-03)"),
+                    );
                 }
             }
         }
@@ -589,6 +603,29 @@ mod tests {
                 ]
             );
         }
+        let list = format!("{LIST}\n{stdout}");
+        let repo = Repo::of(&[(NAMES, list.as_str())]);
+        let in_list: Vec<String> = check(&repo)
+            .findings
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect();
+        assert_eq!(
+            in_list,
+            ["an exception to `print_stdout` outside the places CODE-03 allows printing (CODE-03)"]
+        );
+    }
+
+    #[test]
+    fn code_03_the_group_that_holds_the_print_lints_is_excepted_only_where_both_are_allowed() {
+        let group = r#"#[expect(clippy::restriction, clippy::blanket_clippy_restriction_lints, reason = "r")] fn f() {}"#;
+        let message = "an exception to `restriction`, the group that holds `print_stdout`, outside the places CODE-03 allows printing (CODE-03)";
+        assert_eq!(findings(PLATFORM, group), [message]);
+        assert_eq!(findings(MAIN, group), [message]);
+        assert_eq!(
+            findings("crates/xtask/src/main.rs", group),
+            Vec::<String>::new()
+        );
     }
 
     #[test]

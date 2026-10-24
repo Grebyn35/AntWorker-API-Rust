@@ -92,7 +92,7 @@ Each kind of fact has one home, listed below. A fact is written in its home as s
 - A module's spec lists, in its Routes table, each operation that `openapi.json` documents for the module, with its access level. Each operation names its module as its first tag. Once the module is built, its Routes table lists no operation the document lacks; until then, the table is the plan.
 - A rule follows the format in the [standards README](README.md#rule-format): a heading with its ID and its name, the statement, a `Why` line, and a `Check` line that starts with one of the kinds of check the README lists. Its ID starts with the prefix the README gives its file.
 - Why: every document of a kind reads the same way, and an edit that changes a document's shape fails CI instead of waiting for a reader to notice (D27).
-- Check: `ci: check-docs`, plus `review` (an operation's first tag names the module that serves it).
+- Check: `ci: check-docs`, plus `review` (an operation's first tag names the module that serves it, and a spec lists the routes its module serves outside `openapi.json`, such as the health probes).
 
 ## Specs, ADRs and the changelog
 

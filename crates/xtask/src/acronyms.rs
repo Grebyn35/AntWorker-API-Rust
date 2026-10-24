@@ -1,7 +1,7 @@
 //! `check-docs`, the acronyms: a document spells out each acronym where it first uses it, unless
 //! the glossary lists it among those a developer is assumed to know, or among the names written
-//! in capitals (DOC-09). The migration workspace isn't checked (DOC-04, DOC-16), and a marker
-//! of unfinished work is DOC-07's to report.
+//! in capitals (DOC-09). The migration workspace isn't checked, as DOC-09's Check line says, and
+//! a marker of unfinished work is DOC-07's to report.
 //!
 //! An acronym counts as spelled out when its first use stands alone in parentheses, as in "the
 //! Simple Mail Transfer Protocol (SMTP)", or when it, or the hyphenated name it starts, comes

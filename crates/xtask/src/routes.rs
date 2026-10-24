@@ -199,6 +199,21 @@ mod tests {
     }
 
     #[test]
+    fn doc_15_an_operation_names_a_module_with_a_spec_as_its_first_tag() {
+        let document =
+            r#"{"paths": {"/v1/things": {"get": {"tags": ["things"], "x-access": "public"}}}}"#;
+        let repo = Repo::of(&[(DOCUMENT, document)]);
+        let found: Vec<String> = check(&repo)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect();
+        assert_eq!(
+            found,
+            ["`GET /v1/things` names no module with a spec as its first tag (DOC-15)"]
+        );
+    }
+
+    #[test]
     fn doc_15_a_spec_lists_each_operation_of_its_module() {
         let workspaces = routes("| `POST /v1/workspaces` | `user` | WORKSPACES-001 |");
         assert_eq!(

@@ -64,21 +64,6 @@ async fn api_17_every_path_serves_exactly_the_methods_its_documentation_lists() 
             .map(|part| if part.starts_with('{') { "0" } else { part })
             .collect::<Vec<_>>()
             .join("/");
-        let response = api
-            .request(Method::from_bytes(b"PROBE").unwrap(), &path)
-            .send()
-            .await;
-
-        assert_eq!(
-            response.status,
-            StatusCode::METHOD_NOT_ALLOWED,
-            "{template}"
-        );
-        let served: BTreeSet<String> = response
-            .header("allow")
-            .split(',')
-            .map(|method| method.trim().to_ascii_lowercase())
-            .collect();
         let mut documented: BTreeSet<String> = item
             .as_object()
             .unwrap()
@@ -89,9 +74,35 @@ async fn api_17_every_path_serves_exactly_the_methods_its_documentation_lists() 
         if documented.contains("get") {
             documented.insert("head".to_owned());
         }
-        assert_eq!(
-            served, documented,
-            "{template} serves other methods than it documents"
-        );
+        // Each method OpenAPI can document that the path doesn't, since a layer or a method
+        // router's fallback could serve one and leave the others to the 405, and one no route
+        // serves.
+        let undocumented = methods
+            .iter()
+            .filter(|method| !documented.contains(**method))
+            .map(|method| method.to_ascii_uppercase())
+            .chain(["PROBE".to_owned()]);
+
+        for method in undocumented {
+            let response = api
+                .request(Method::from_bytes(method.as_bytes()).unwrap(), &path)
+                .send()
+                .await;
+
+            assert_eq!(
+                response.status,
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{method} {template}"
+            );
+            let served: BTreeSet<String> = response
+                .header("allow")
+                .split(',')
+                .map(|allowed| allowed.trim().to_ascii_lowercase())
+                .collect();
+            assert_eq!(
+                served, documented,
+                "{template} serves other methods than it documents"
+            );
+        }
     }
 }
