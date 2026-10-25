@@ -28,8 +28,8 @@ pub const API_ADDRESS: &str = "api.localhost";
 pub const GRAFANA_ADDRESS: &str = "grafana.localhost";
 
 /// How many deployments of the suite run the self-hosted stack at once: one. Each server pulls
-/// the stack's images into a store of its own, 3.4 GB of them, so one at a time bounds the disk
-/// the suite takes, which a CI runner is short of (docs/operations/ci.md).
+/// the stack's images into a store of its own, of the size docs/operations/ci.md gives, so one
+/// at a time bounds the disk the suite takes, which a CI runner is short of.
 static STACKS: Semaphore = Semaphore::const_new(1);
 
 /// A deployment on a server of its own.
@@ -37,7 +37,8 @@ pub struct Deployment {
     pub server: Server,
     /// The API's image under test, as the server pulls it.
     pub api: String,
-    postgres: String,
+    /// The deployment's Postgres image under test, as the server pulls it.
+    pub postgres: String,
     /// The managed database, or none for the bundled one.
     database: Option<TestDatabase>,
     /// The settings of its kind of deployment, which `changes` of `set` add to or replace.
@@ -173,13 +174,19 @@ impl Deployment {
     /// shares (the platform spec's Database roles). A deploy that runs the self-hosted stack
     /// first waits for a share of `STACKS`, before it takes that lock.
     pub async fn apply(&self, api: &str, options: &[&str]) -> Output {
+        self.apply_images(api, &self.postgres, options).await
+    }
+
+    /// Deploys `api`, the API's image, and `postgres`, the deployment's Postgres image, with
+    /// `options`, as `apply` does.
+    pub async fn apply_images(&self, api: &str, postgres: &str, options: &[&str]) -> Output {
         if self.runs_stack.load(Ordering::Relaxed) && self.stack.get().is_none() {
             let permit = STACKS.acquire().await.expect("STACKS stays open");
             self.stack
                 .set(permit)
                 .expect("one share for each deployment");
         }
-        let mut args = vec!["apply", api, &self.postgres];
+        let mut args = vec!["apply", api, postgres];
         args.extend(options);
         match &self.database {
             Some(database) => {
@@ -191,12 +198,12 @@ impl Deployment {
         }
     }
 
-    /// An image of the API's under test with the Dockerfile `instructions` added, built on the
-    /// server and pushed to Compose's registry as `name`. Returns it by its digest.
-    pub fn api_with(&self, name: &str, instructions: &str) -> String {
+    /// The image `base`, such as the API's under test, with the Dockerfile `instructions` added,
+    /// built on the server and pushed to Compose's registry as `name`. Returns it by its digest.
+    pub fn image_from(&self, base: &str, name: &str, instructions: &str) -> String {
         self.server.write(
             &format!("/root/{name}/Dockerfile"),
-            &format!("FROM {}\n{instructions}\n", self.api),
+            &format!("FROM {base}\n{instructions}\n"),
         );
         self.server.shell_ok(&format!(
             "docker build --quiet --tag registry:5000/{name}:e2e /root/{name} > /dev/null \

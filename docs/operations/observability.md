@@ -42,7 +42,7 @@ Prometheus keeps metrics for 15 days, and Loki and Tempo keep logs and traces fo
 
 ## A managed backend
 
-A deployment may send its telemetry to a managed backend that accepts the OpenTelemetry Protocol (OTLP), such as Grafana Cloud, instead of running Prometheus, Loki, Tempo, Grafana and Alertmanager itself (D42). With `TELEMETRY=managed`, the reference deployment runs only the collector, with [managed.yaml](../../deploy/observability/collector/managed.yaml) merged over its configuration: the same receivers and processors, tail sampling among them (OBS-08), and one exporter, to the backend. The API exports to the collector as before, so its settings don't change, and only the collector holds the backend's credentials.
+A deployment may send its telemetry to a managed backend that accepts the OpenTelemetry Protocol (OTLP), such as Grafana Cloud, instead of running Prometheus, Loki, Tempo, Grafana and Alertmanager itself (D42). With `TELEMETRY=managed`, the reference deployment runs only the collector, with [managed.yaml](../../deploy/observability/collector/managed.yaml) merged over its configuration: the same receivers and processors, tail sampling among them (OBS-08), with what the self-hosted stack does elsewhere, below, and one exporter, to the backend. The API exports to the collector as before, so its settings don't change, and only the collector holds the backend's credentials.
 
 The deployment's settings name the backend's OTLP endpoint, which is HTTPS (OPS-20), and the user the collector signs in as: `MANAGED_OTLP_ENDPOINT` and `MANAGED_OTLP_USER`, which [deploy/settings.env.example](../../deploy/settings.env.example) describes. The token goes in the secret file `secrets/managed_otlp_token`. A backend whose certificate a private authority signed is trusted through that authority's certificate in `certs/managed-otlp-ca.crt`.
 
@@ -90,7 +90,7 @@ The health probes don't count, since they aren't measured (OBS-15). The latency 
 
 Each objective has two alerts that fire on how fast the errors spend its budget (OBS-14). The fast alert pages when an hour's errors would spend 2% of a 30-day budget, or 6 hours' errors 5% of it. The slow alert opens a ticket when a day's errors would spend 10% of it, or 3 days' errors 10% of it at a steady rate. The other alerts name a cause: the database is unreachable, telemetry is being lost, or the bundled database's backups have stopped ([backups.md](backups.md#alerts)).
 
-Every alert has a severity, `page` or `ticket`, a section in [runbooks.md](runbooks.md), and a test in [rules.test.yaml](../../deploy/observability/prometheus/rules.test.yaml). Alertmanager routes each alert by its severity to the receiver of the same name, and the [receivers](../../deploy/observability/alertmanager/alertmanager.yaml) notify no one until a deployment adds its integrations, such as email or a chat webhook, to `page` and `ticket`.
+Every alert has a severity, `page` or `ticket`, a section in [runbooks.md](runbooks.md), and a test in [rules.test.yaml](../../deploy/observability/prometheus/rules.test.yaml). Alertmanager routes each alert by its severity to the receiver of the same name, and the [receivers](../../deploy/observability/alertmanager/alertmanager.yaml) notify no one: a deployment's integrations, such as email or a chat webhook, have no place yet that a deploy keeps.
 
 ## Adding a metric
 

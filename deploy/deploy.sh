@@ -64,8 +64,20 @@ lock() {
     if ! mkdir "$state/lock" 2> /dev/null; then
         fail "another deploy, backup or restore is running; if none is, remove $state/lock"
     fi
-    trap 'rmdir "$state/lock"' EXIT
+    trap finish EXIT
     trap 'exit 1' HUP INT TERM
+}
+
+# Runs as the script exits, once it holds the lock: a deploy that didn't finish puts back the
+# deployment files it replaced, which it kept in state/previous/, then the lock goes.
+finish() {
+    status=$?
+    if [ "$status" -ne 0 ] && [ -d "$state/previous" ]; then
+        say "putting back the deployment files that this deploy replaced"
+        copy_release "$state/previous" "$deployment"
+    fi
+    rm -rf "$state/previous"
+    rmdir "$state/lock"
 }
 
 # Makes the directory $2 hold exactly the files of the directory $1, writing each file in place,
@@ -84,15 +96,26 @@ fingerprint() {
     if [ -d "$1" ]; then (cd "$1" && find . -type f -exec cksum {} + | sort | cksum); fi
 }
 
-# Installs this release's files into the deployment's directory.
-install_release() {
-    if [ "$here" = "$deployment" ]; then return; fi
+# Copies a release's deployment files from the directory $1 into the directory $2.
+copy_release() {
     for file in compose.yaml deploy.sh verify-release.sh settings.env.example; do
-        cp "$here/$file" "$deployment/$file"
+        cp "$1/$file" "$2/$file"
     done
     for directory in caddy observability tools; do
-        sync_directory "$here/$directory" "$deployment/$directory"
+        sync_directory "$1/$directory" "$2/$directory"
     done
+}
+
+# Installs this release's files into the deployment's directory, and keeps the ones they replace
+# in state/previous/ until the deploy finishes.
+install_release() {
+    if [ "$here" = "$deployment" ]; then return; fi
+    rm -rf "$state/previous"
+    if [ -f "$deployment/compose.yaml" ]; then
+        mkdir -p "$state/previous"
+        copy_release "$deployment" "$state/previous"
+    fi
+    copy_release "$here" "$deployment"
 }
 
 # The services of the observability stack that read their configuration files only when they
@@ -167,7 +190,7 @@ read_settings() {
     case $database in
         bundled)
             profiles="$profiles --profile database"
-            whole_number BACKUP_RETENTION_FULL "$(setting BACKUP_RETENTION_FULL 4)" 1 52
+            whole_number BACKUP_RETENTION_DAYS "$(setting BACKUP_RETENTION_DAYS 28)" 1 3650
             whole_number BACKUP_HOUR "$(setting BACKUP_HOUR 3)" 0 23
             ;;
         managed) ;;
@@ -194,8 +217,8 @@ read_settings() {
 # Fails unless the connections that every replica of both colors opens, with migrate's, fit within
 # what Postgres allows to roles that aren't superusers: all but the 3 it reserves for superusers
 # (OPS-21). The bundled database's bootstrap and backups connect as its superuser, so they use
-# those 3: one connection each, of a deploy's bootstrap, then its backup, beside the scheduled
-# backup's. On a managed database, bootstrap runs before the new color starts, while only the
+# those 3: one connection each, of a deploy's first backup, then its bootstrap, beside the
+# scheduled backup's. On a managed database, bootstrap runs before the new color starts, while only the
 # live one runs.
 check_connections() {
     needed=$((2 * replicas * (pool + 1) + 1))
@@ -405,7 +428,6 @@ apply() {
     if [ "$allow_restart" = yes ]; then recreate=""; else recreate="--no-recreate"; fi
     # shellcheck disable=SC2086 # $recreate is an option or nothing, and $single and $shared hold one service per word.
     if ! compose up --detach --wait --quiet-pull $recreate $single || { [ -n "$shared" ] && ! compose up --detach --wait --quiet-pull $shared; }; then
-        # shellcheck disable=SC2086 # $single and $shared hold one service per word.
         compose logs --tail 30 $single $shared >&2 || true
         fail "the services the replicas use didn't start; their logs are above"
     fi
@@ -535,11 +557,14 @@ command=${1:-}
 case $command in
     deploy)
         if [ "$#" -lt 2 ]; then fail "usage: deploy.sh deploy <version> [--allow-restart]"; fi
-        deploy_release "$2" "$(allow_restart "${3:-}")"
+        # An assignment, so that the script stops when allow_restart refuses.
+        restart=$(allow_restart "${3:-}")
+        deploy_release "$2" "$restart"
         ;;
     apply)
         if [ "$#" -lt 3 ]; then fail "usage: deploy.sh apply <API image> <Postgres image> [--allow-restart]"; fi
-        apply "$2" "$3" "$(allow_restart "${4:-}")"
+        restart=$(allow_restart "${4:-}")
+        apply "$2" "$3" "$restart"
         ;;
     backup) backup ;;
     restore) restore "${2:-}" ;;

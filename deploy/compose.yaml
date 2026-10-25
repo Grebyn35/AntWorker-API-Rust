@@ -27,8 +27,8 @@ x-api: &api
     SHUTDOWN_DELAY_SECONDS: "5"
     SHUTDOWN_DRAIN_SECONDS: "10"
   secrets: [database_url]
-  # The shutdown delay and the drain take at most 15 seconds, and writing out telemetry 9 more
-  # (the platform spec's Telemetry export).
+  # The shutdown delay and the drain take at most 15 seconds, and writing out telemetry the time
+  # that the platform spec's Telemetry export bounds it to, which fits in the rest.
   stop_grace_period: 30s
   deploy:
     resources:
@@ -48,7 +48,7 @@ x-backups: &backups
   # The certificates the bucket's certificate is checked against: the operating system's, or the
   # authority in certs/backup-ca.crt of the deployment's directory, when deploy.sh finds it there.
   PGBACKREST_REPO1_STORAGE_CA_FILE: ${BACKUP_CA_FILE:-/etc/ssl/certs/ca-certificates.crt}
-  PGBACKREST_REPO1_RETENTION_FULL: ${BACKUP_RETENTION_FULL:-4}
+  PGBACKREST_REPO1_RETENTION_FULL: ${BACKUP_RETENTION_DAYS:-28}
   # pgBackRest's locks, in the volume that Postgres's container and the backup service's share, so
   # a scheduled backup and one that `just backup` asks for never run at once.
   PGBACKREST_LOCK_PATH: /var/run/postgresql/pgbackrest
@@ -244,15 +244,6 @@ services:
     secrets: [grafana_admin_password]
     networks: [edge, telemetry]
     restart: unless-stopped
-
-  # The tools that deploy.sh runs to verify a release (OPS-14).
-  crane:
-    extends: { file: tools/compose.yaml, service: crane }
-    profiles: [tools]
-
-  cosign:
-    extends: { file: tools/compose.yaml, service: cosign }
-    profiles: [tools]
 
 networks:
   # Caddy, the replicas and Grafana.

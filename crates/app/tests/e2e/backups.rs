@@ -122,7 +122,8 @@ async fn ops_17_a_restore_after_a_failed_deploy_migrates_with_the_live_release()
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
     // The API's image, whose every subcommand fails, so a deploy of it fails in `bootstrap`.
-    let broken = deployment.api_with(
+    let broken = deployment.image_from(
+        &deployment.api,
         "broken",
         r#"ENTRYPOINT ["/usr/local/bin/antworker-api", "no-such-subcommand"]"#,
     );

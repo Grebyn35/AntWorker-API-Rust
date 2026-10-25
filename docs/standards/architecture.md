@@ -85,7 +85,7 @@ No trait exists just so something can be mocked. Traits that define a behavior m
 - Check: `review`.
 
 ### ARCH-14 Application tasks are binary subcommands
-Every task that runs application logic against the database, such as bootstrap, migrate and seed, is a subcommand of the app binary. Backup and restore use pgBackRest, the reference deployment's backup tool (D44): the deployment's `backup` service takes the scheduled backups, and `just backup` and `just restore` run it on demand (OPS-17). CI checks that inspect the schema or the compiled queries also connect to the database, and so does `just prepare`, which rewrites the query cache from the migrated database (DATA-20). No other script does.
+Every task that runs application logic against the database, such as bootstrap, migrate and seed, is a subcommand of the app binary. Backup and restore use pgBackRest, the reference deployment's backup tool (D44): the deployment's `backup` service takes the scheduled backups, and `just backup` and `just restore` run it on demand (OPS-17); a restore also asks Postgres, through `psql`, when its recovery ends. CI checks that inspect the schema or the compiled queries also connect to the database, and so does `just prepare`, which rewrites the query cache from the migrated database (DATA-20). No other script does.
 - Why: application tasks use the same configuration, types and checks as the server.
 - Check: `review`.
 

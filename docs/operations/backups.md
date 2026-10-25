@@ -9,7 +9,7 @@ pgBackRest, in the release's Postgres image, backs up the bundled database in tw
 - **The write-ahead log**, Postgres's record of every change, is archived to the bucket as each segment of it, 16 megabytes, fills, and at least once a minute while the database changes: Postgres runs `pgbackrest archive-push` for each segment, and keeps the segment until the archive succeeds.
 - **Base backups**, copies of the whole database, are taken by the `backup` service every day at `BACKUP_HOUR` o'clock UTC: a full backup on Sundays, and a differential one, of what changed since the last full backup, on the other days. The first deploy takes the first full backup.
 
-A restore starts from the newest base backup before the moment it restores to, and replays the archived log up to that moment. The bucket keeps `BACKUP_RETENTION_FULL` full backups, with the backups and the log that depend on them, so a restore reaches back about that many weeks.
+A restore starts from the newest base backup before the moment it restores to, and replays the archived log up to that moment. The bucket keeps the backups and the log that reach back `BACKUP_RETENTION_DAYS` days: a full backup expires only once a newer one is that old, so the full backups that `just backup` and the restores take never shorten the reach.
 
 pgBackRest compresses everything with zstd, and encrypts it with AES-256 before it leaves the server, with the passphrase in `secrets/backup_cipher_pass` (OPS-20). The bucket's provider sees nothing it can read.
 
@@ -20,7 +20,7 @@ The backups don't hold the deployment's settings and secrets, which the next sec
 | Target | The reference deployment's |
 |---|---|
 | Data lost when the server is lost | At most the changes of the last minute, plus however long the last archive took to reach the bucket |
-| Moments a restore reaches | Any moment from the oldest full backup kept, about `BACKUP_RETENTION_FULL` weeks ago, to the last archived change |
+| Moments a restore reaches | Any moment from `BACKUP_RETENTION_DAYS` days ago, or the first deploy if that came later, to the last archived change |
 | Time a restore takes | The time to download the newest base backup before the moment, and to replay the log from it to the moment, which the daily base backup bounds to a day of changes. The database is unavailable meanwhile |
 
 The time a restore takes grows with the database and with its rate of change, so measure it on the server, as [Restoring onto a new server](#restoring-onto-a-new-server) does.

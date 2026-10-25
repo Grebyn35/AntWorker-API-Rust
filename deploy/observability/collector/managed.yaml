@@ -1,8 +1,9 @@
 # The collector with a managed backend in place of the self-hosted stack (D42). The collector
 # merges this file over config.yaml, so it keeps the receivers and the processors, tail sampling
-# among them (OBS-08), and changes only where the telemetry goes: every signal to the backend's
-# OTLP endpoint, which MANAGED_OTLP_ENDPOINT names, signed in as MANAGED_OTLP_USER with the token
-# in the secret file managed_otlp_token. docs/operations/observability.md describes the path,
+# among them (OBS-08). It adds what the self-hosted stack's Prometheus does, scraping the
+# collector's own metrics and turning resource attributes into labels, and sends every signal to
+# the backend's OTLP endpoint, which MANAGED_OTLP_ENDPOINT names, signed in as MANAGED_OTLP_USER
+# with the token in the secret file managed_otlp_token. docs/operations/observability.md describes the path,
 # with Grafana Cloud as the worked example.
 
 extensions:

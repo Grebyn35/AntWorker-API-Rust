@@ -116,6 +116,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 |---|---|---|
 | OPS-18 | A release's capacity, which `just load-test` measures, has no release notes to go in: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 | OBS-13, OBS-14 | With `TELEMETRY=managed`, nothing imports the dashboards into the managed Grafana or loads the rules into its ruler | 1.5, with the run against a Grafana Cloud account |
+| OBS-14 | Alertmanager's receivers notify no one, and a deployment has no place for its integrations and their credentials that a deploy doesn't rewrite | 1.5, before the trial deploy, with a test that delivers an alert |
 | DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 
 ## Rule proposals

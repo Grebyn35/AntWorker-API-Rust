@@ -26,7 +26,7 @@ flowchart LR
 ## What a server needs
 
 - **Linux on amd64 or arm64, with Docker Engine 29 or later and its Compose and Buildx plugins**, which Docker's own packages install as `docker compose` and `docker buildx`; `deploy/verify-release.sh` reads a release's images through `docker buildx imagetools`. The user that Secure Shell (SSH) signs in as belongs to the `docker` group.
-- **An encrypted disk** for its volumes, such as a provider's encrypted block storage, or a disk encrypted with LUKS (OPS-20).
+- **An encrypted disk** for its volumes, such as a provider's encrypted block storage, or a disk encrypted with Linux Unified Key Setup (LUKS) (OPS-20).
 - **A firewall** that admits SSH, and ports 80 and 443 from anywhere. Ports 80 and 443 must be open for Let's Encrypt to issue the certificates.
 - **DNS records** that point `API_ADDRESS`, and with the self-hosted stack `GRAFANA_ADDRESS`, to the server, such as `api.example.com` and `grafana.example.com`.
 - **A registry login** that can read the release's images: `docker login ghcr.io`, with a token that can read the repository's packages, for a private repository. The tools that verify a release read the login from `~/.docker/config.json`.
@@ -64,7 +64,7 @@ The first argument is the server as SSH names it: `user@address`, or a `Host` of
 It refuses a version that no release has, and says to make one first ([release.md](release.md)). Otherwise it copies the deployment's files from the release's tag, `v1.4.0`, to `~/deployment/releases/1.4.0` on the server, never a checkout of the repository, and runs that release's `deploy.sh` there, which:
 
 1. Verifies the release's two images, as `just verify-release` does ([release.md](release.md#verifying-a-release)), and refuses a release that doesn't verify.
-2. Installs the release's files into `~/deployment`, beside the settings and the secrets.
+2. Installs the release's files into `~/deployment`, beside the settings and the secrets. A deploy that refuses or fails from here on puts back the files it replaced; a service that already read the new ones keeps them until the next deploy makes it read its files.
 3. Checks the settings, and the connection budget below (OPS-21).
 4. Pulls the images by digest, and starts the services the replicas use: Caddy, the bundled Postgres and its backups, and the collector and the stack.
 5. Runs `bootstrap` and `migrate` from the release's image. Migrations follow expand and contract, so the running replicas keep working against the new schema (DATA-10).
@@ -134,7 +134,7 @@ With the self-hosted stack, Grafana answers at `https://<GRAFANA_ADDRESS>`. Sign
 | `settings.env` | The deployment's settings | the operator |
 | `secrets/` | One secret per file | the operator, and the first deploy |
 | `certs/backup-ca.crt` | The authority of a private bucket's certificate, if any | the operator |
-| `compose.yaml`, `deploy.sh`, `caddy/`, `observability/`, `tools/` | The deployment files of the release the last deploy installed. A deploy installs them first, so one that refuses or fails leaves its release's, and the next deploy installs its own and makes the stack read them | each deploy |
+| `compose.yaml`, `deploy.sh`, `caddy/`, `observability/`, `tools/` | The deployment files of the release that the last finished deploy installed: a deploy that refuses or fails once it installed its own puts these back | each deploy |
 | `releases/<version>/` | Each deployed release's files, as `just deploy` copied them | `just deploy` |
 | `state/` | Which color serves, the images each color runs, Caddy's sites and replicas, and the files each service of the stack last read | each deploy |
 
@@ -145,6 +145,6 @@ The image and its settings don't depend on this deployment, so a fork can run th
 - one Postgres that every replica shares, with point-in-time recovery (OPS-17);
 - object storage, once the `files` module stores files;
 - routing that sends requests only to replicas whose `/health/ready` answers 200, and stops within `SHUTDOWN_DELAY_SECONDS` of a replica answering `draining`;
-- a grace period after the shutdown signal longer than `SHUTDOWN_DELAY_SECONDS` plus `SHUTDOWN_DRAIN_SECONDS` plus the 9 seconds that writing out telemetry may take;
+- a grace period after the shutdown signal longer than `SHUTDOWN_DELAY_SECONDS` plus `SHUTDOWN_DRAIN_SECONDS` plus the time that writing out telemetry may take, which the platform spec's [Telemetry export](../spec/platform.md#telemetry-export) bounds;
 - TLS for every connection that leaves the host, and encryption at rest (OPS-20);
 - a connection budget that fits, as above, counting every replica that runs at once during a rollout.

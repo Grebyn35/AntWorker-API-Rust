@@ -221,7 +221,8 @@ check-telemetry-config:
     {{ xtask }} check-telemetry-config
 
 # Fails on an alert without a severity, a runbook section or a test, then runs promtool's checks
-# and tests of the rules, with the Prometheus image that compose.yaml pins (OBS-14).
+# and tests of the rules, with the Prometheus image that deploy/observability/compose.yaml pins
+# (OBS-14).
 alert-rules:
     {{ xtask }} alert-rules
     docker compose --profile observability run --rm --no-deps --volume ./deploy/observability/prometheus:/rules:ro --workdir /rules --entrypoint promtool prometheus check rules rules.yaml

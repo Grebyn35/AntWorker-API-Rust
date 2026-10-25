@@ -1,5 +1,5 @@
 //! Deploys of the reference deployment (OPS-16, OPS-20, OPS-21), on a server of the tests' own,
-//! with Compose's Postgres as a managed database.
+//! with Compose's Postgres as a managed database, or the bundled one where a test says so.
 
 use crate::{
     deployment::{API_ADDRESS, Deployment, Traffic, assert_all_succeeded, get},
@@ -34,11 +34,16 @@ async fn ops_16_a_release_whose_replicas_never_become_ready_is_removed_while_the
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
     let blue = deployment.server.running("api-blue");
-    // The API's image, with a health check that always fails.
-    let unready = deployment.api_with(
+    // The API's image, with a health check that always fails, in a release whose deployment
+    // files differ from the live one's.
+    let unready = deployment.image_from(
+        &deployment.api,
         "unready",
         r#"HEALTHCHECK --interval=1s --retries=2 CMD ["/usr/local/bin/antworker-api", "openapi", "/proc/unwritable"]"#,
     );
+    deployment
+        .server
+        .shell_ok("echo '# The unready release.' >> /root/release/compose.yaml");
 
     let traffic = Traffic::start(
         deployment.server.caddy_root(),
@@ -56,6 +61,10 @@ async fn ops_16_a_release_whose_replicas_never_become_ready_is_removed_while_the
     assert_eq!(deployment.server.running("api-blue"), blue);
     assert!(deployment.server.running("api-green").is_empty());
     assert_all_succeeded(&outcomes);
+    let installed = deployment
+        .server
+        .shell_ok(&format!("cat {DEPLOYMENT}/compose.yaml"));
+    assert!(!installed.contains("The unready release"), "{installed}");
 }
 
 #[tokio::test]
@@ -177,4 +186,66 @@ async fn ops_16_a_deploy_stops_the_services_that_the_settings_no_longer_choose()
     );
     assert!(deployment.server.running("collector-managed").is_empty());
     assert_eq!(deployment.server.running("api-green").len(), 2);
+}
+
+#[tokio::test]
+async fn ops_16_a_deploy_refuses_an_option_it_doesn_t_know() {
+    let deployment = Deployment::managed(&[]).await;
+
+    let refused = deployment
+        .apply(&deployment.api, &["--allow-restarts"])
+        .await;
+
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains("unknown option --allow-restarts"),
+        "{}",
+        lossy(&refused)
+    );
+    assert!(deployment.server.running("caddy").is_empty());
+}
+
+#[tokio::test]
+async fn ops_16_a_deploy_restarts_the_bundled_database_only_for_other_files_and_with_consent() {
+    let deployment = Deployment::bundled(&[]);
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    let postgres = deployment.server.running("postgres");
+    // The same files under another version, as each release's image is, and other files.
+    let relabeled = deployment.image_from(
+        &deployment.postgres,
+        "relabeled",
+        "LABEL org.opencontainers.image.version=e2e-other",
+    );
+    let rebuilt = deployment.image_from(
+        &deployment.postgres,
+        "rebuilt",
+        "LABEL build.inputs=other-files",
+    );
+
+    let same = deployment
+        .apply_images(&deployment.api, &relabeled, &[])
+        .await;
+    let kept = deployment.server.running("postgres");
+    let refused = deployment
+        .apply_images(&deployment.api, &rebuilt, &[])
+        .await;
+    let refused_postgres = deployment.server.running("postgres");
+    let allowed = deployment
+        .apply_images(&deployment.api, &rebuilt, &["--allow-restart"])
+        .await;
+
+    assert!(same.status.success(), "{}", lossy(&same));
+    assert_eq!(kept, postgres);
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains("changes postgres"),
+        "{}",
+        lossy(&refused)
+    );
+    assert_eq!(refused_postgres, postgres);
+    assert!(allowed.status.success(), "{}", lossy(&allowed));
+    let restarted = deployment.server.running("postgres");
+    assert_eq!(restarted.len(), 1);
+    assert_ne!(restarted, postgres);
 }
