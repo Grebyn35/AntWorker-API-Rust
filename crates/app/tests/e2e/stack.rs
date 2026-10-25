@@ -80,6 +80,12 @@ async fn ops_16_a_deploy_installs_the_release_s_alert_rules_and_prometheus_reads
     let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]).await;
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
+    // The services that the first deploy starts read its files as they start.
+    assert!(
+        !lossy(&first).contains("configuration changed"),
+        "{}",
+        lossy(&first)
+    );
     // A release whose rules hold one rule more.
     deployment.server.shell_ok(
         "printf '  - name: e2e\n    rules:\n      - alert: ReleaseMarker\n        expr: vector(0) > 1\n' \

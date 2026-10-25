@@ -66,7 +66,7 @@ docker run --rm --volume deployment_postgres:/data alpine rm -r /data/18/before-
 
 ### Restoring onto a new server
 
-After losing the server, set up a new one as [deploy.md](deploy.md#setting-up-a-server) says, with the same `settings.env` and the copies of `secrets/`, and deploy the release that ran. The deploy stops before its replicas start, because the new server's database, which Postgres has just created empty, isn't the one whose backups the bucket holds: pgBackRest refuses it. Then run `just restore` without a moment, and `just deploy` again.
+After losing the server, set up a new one as [deploy.md](deploy.md#setting-up-a-server) says, with the same `settings.env` and the copies of `secrets/`, and deploy the release that ran. The deploy stops before its replicas start, because the new server's database, which Postgres has just created empty, isn't the one whose backups the bucket holds: pgBackRest refuses it. Then run `just restore` without a moment, and `just deploy` again. CI does the same, on a new server of its own set up from a lost one's settings, secrets and bucket, and checks that the first deploy stops before any replica starts, and that the deploy after the restore serves the lost server's data (OPS-17).
 
 ## What to keep off the server
 

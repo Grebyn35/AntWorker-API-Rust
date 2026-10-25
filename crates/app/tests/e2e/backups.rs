@@ -74,3 +74,44 @@ async fn ops_17_a_restore_recovers_the_database_as_it_stood_at_a_moment() {
         "the first deploy's, `backup`'s, and the restore's"
     );
 }
+
+#[tokio::test]
+async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucket_holds() {
+    let lost = Deployment::bundled(&[]);
+    let deployed = lost.apply(&lost.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    lost.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('on the lost server');",
+    );
+    archive_everything_committed(&lost);
+    let new = lost.on_a_new_server();
+    // The server is lost, while its bucket, which stands in for one off the server, stays.
+    lost.server.shell_ok(
+        "docker ps --quiet --filter label=com.docker.compose.project=deployment | xargs docker rm --force",
+    );
+
+    let refused = new.apply(&new.api, &[]).await;
+    let refused_replicas = new.server.running("api-blue");
+    let restored = new.server.deploy(&["restore"]);
+    let deployed = new.apply(&new.api, &[]).await;
+
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains("holds the backups of another database"),
+        "{}",
+        lossy(&refused)
+    );
+    assert_eq!(refused_replicas.len(), 0);
+    assert!(restored.status.success(), "{}", lossy(&restored));
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    assert_eq!(
+        new.sql("SELECT name FROM restore_marker"),
+        "on the lost server"
+    );
+    let (status, _) = get(
+        new.server.caddy_root(),
+        new.url("https", 443, "/v1/capabilities"),
+    );
+    assert_eq!(status, 200);
+}

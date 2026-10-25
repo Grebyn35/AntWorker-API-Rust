@@ -28,8 +28,8 @@ pub const API_ADDRESS: &str = "api.localhost";
 pub const GRAFANA_ADDRESS: &str = "grafana.localhost";
 
 /// How many deployments of the suite run the self-hosted stack at once: one. Each server pulls
-/// the stack's images into a store of its own, 3.4 GB of them, and a CI runner has room for one
-/// such server beside the rest of the suite (docs/operations/ci.md).
+/// the stack's images into a store of its own, 3.4 GB of them, so one at a time bounds the disk
+/// the suite takes, which a CI runner is short of (docs/operations/ci.md).
 static STACKS: Semaphore = Semaphore::const_new(1);
 
 /// A deployment on a server of its own.
@@ -85,6 +85,26 @@ impl Deployment {
             .map(|(name, value)| (name.as_str(), value.as_str()))
             .collect();
         Self::on(server, None, &kind, changes)
+    }
+
+    /// A deployment of this one's kind on a new server, set up as backups.md says after losing a
+    /// server: with this one's settings, and the copies of its secrets and of the bucket's
+    /// authority, so it backs up to this one's bucket. The database must be bundled.
+    pub fn on_a_new_server(&self) -> Self {
+        assert!(self.database.is_none(), "a bundled database");
+        let deployment = Self {
+            server: Server::start(),
+            api: self.api.clone(),
+            postgres: self.postgres.clone(),
+            database: None,
+            base: self.base.clone(),
+            runs_stack: AtomicBool::new(false),
+            stack: OnceLock::new(),
+        };
+        deployment.set(&[]);
+        self.server
+            .copy_to(&deployment.server, &["secrets", "certs"]);
+        deployment
     }
 
     fn new(

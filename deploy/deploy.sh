@@ -88,8 +88,7 @@ fingerprint() {
 configured_once="collector prometheus alertmanager loki tempo"
 
 # Installs this release's files into the deployment's directory, and records in $reconfigured
-# the services of the stack whose configuration files changed, which read them again after the
-# deploy starts its services.
+# the services of the stack whose configuration files changed.
 install_release() {
     reconfigured=""
     if [ "$here" = "$deployment" ]; then return; fi
@@ -112,24 +111,32 @@ install_release() {
     done
 }
 
-# Makes each running service whose configuration in $reconfigured changed read its files again:
-# Prometheus and Alertmanager reload on SIGHUP, and the others restart. The collector's directory
-# serves the managed backend's collector too. Grafana reads its dashboards' files every 30 seconds
-# on its own, and Caddy reloads below.
-reread_configuration() {
+# The running services whose configuration in $reconfigured changed, one per line. The
+# collector's directory serves the managed backend's collector too. A service that the deploy
+# starts afterwards reads the new files as it starts, so the deploy finds these before it starts
+# any.
+stale_services() {
     for configuration in $reconfigured; do
         case $configuration in
             collector) services="collector collector-managed" ;;
             *) services=$configuration ;;
         esac
         for service in $services; do
-            if [ -z "$(running "$service")" ]; then continue; fi
-            say "$service's configuration changed; it reads it again"
-            case $service in
-                prometheus | alertmanager) compose kill --signal SIGHUP "$service" ;;
-                *) compose restart "$service" ;;
-            esac
+            if [ -n "$(running "$service")" ]; then echo "$service"; fi
         done
+    done
+}
+
+# Makes each service in $1, which runs with configuration files that changed since it started,
+# read them again: Prometheus and Alertmanager reload on SIGHUP, and the others restart. Grafana
+# reads its dashboards' files every 30 seconds on its own, and the deploy reloads Caddy itself.
+reread_configuration() {
+    for service in $1; do
+        say "$service's configuration changed; it reads it again"
+        case $service in
+            prometheus | alertmanager) compose kill --signal SIGHUP "$service" ;;
+            *) compose restart "$service" ;;
+        esac
     done
 }
 
@@ -301,9 +308,15 @@ roll_back() {
 # Prepares pgBackRest's stanza in the bucket, and takes the first full backup, so a restore can
 # reach any moment from the first deploy on.
 prepare_backups() {
-    if ! compose exec -T --user postgres postgres pgbackrest --stanza=db stanza-create; then
-        fail "pgBackRest refused the backup bucket for this database. If the bucket holds the backups of a database this server should restore, run \`just restore\`; docs/operations/backups.md says how"
-    fi
+    status=0
+    compose exec -T --user postgres postgres pgbackrest --stanza=db stanza-create || status=$?
+    # pgBackRest's error 28: the bucket's backups are of another database than the one Postgres
+    # runs, such as on a new server, where Postgres has just created an empty one.
+    case $status in
+        0) ;;
+        28) fail "the backup bucket holds the backups of another database. If they are this deployment's, as on a new server, run \`just restore\`, then deploy again; docs/operations/backups.md says how" ;;
+        *) fail "pgBackRest couldn't prepare the backup bucket; its error is above" ;;
+    esac
     if ! compose exec -T --user postgres postgres pgbackrest --stanza=db info --output=json | grep -q '"backup":\[{'; then
         say "taking the first full backup"
         full_backup
@@ -365,6 +378,7 @@ apply() {
     fi
     write_caddy_state
 
+    stale=$(stale_services)
     say "starting the services the replicas use"
     single="caddy"
     shared=""
@@ -378,7 +392,7 @@ apply() {
         compose logs --tail 30 $single $shared >&2 || true
         fail "the services the replicas use didn't start; their logs are above"
     fi
-    reread_configuration
+    reread_configuration "$stale"
     compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
     if [ "$database" = bundled ]; then prepare_backups; fi
 

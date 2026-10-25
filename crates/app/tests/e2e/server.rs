@@ -132,6 +132,31 @@ impl Server {
         self.container.address(port)
     }
 
+    /// Copies each of `paths`, a file or a directory of the deployment's directory, to the same
+    /// place on `other`.
+    pub fn copy_to(&self, other: &Server, paths: &[&str]) {
+        for path in paths {
+            let mut from = Command::new("docker")
+                .args([
+                    "cp",
+                    &format!("{}:{DEPLOYMENT}/{path}", self.container.id()),
+                    "-",
+                ])
+                .stdout(Stdio::piped())
+                .spawn()
+                .expect("run docker cp");
+            let to = Command::new("docker")
+                .args(["cp", "-", &format!("{}:{DEPLOYMENT}", other.container.id())])
+                .stdin(from.stdout.take().expect("its output"))
+                .status()
+                .expect("run docker cp");
+            assert!(
+                from.wait().expect("wait for docker cp").success() && to.success(),
+                "copy {path}"
+            );
+        }
+    }
+
     /// Starts the stand-in for a managed observability backend on the server: a collector that
     /// receives OTLP over HTTPS on the server's own address, port 4319, with a certificate from
     /// an authority of the test's own, which the deployment trusts as
