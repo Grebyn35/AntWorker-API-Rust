@@ -4,9 +4,9 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 1.5, the reference deployment. Its spec is written: [architecture.md §9](architecture.md#9-runtime-topology), OPS-16 to OPS-18, OPS-20, OPS-21, CODE-16, OBS-13, OBS-14 and PLATFORM-045. The code comes next, test-first, with `docs/operations/deploy.md` and `docs/operations/backups.md`, then the conformance review. Building it also changes OPS-14 and [release.md](operations/release.md) for the second image, Postgres with pgBackRest (D44). Research into its tools, with sources, is in the message of the commit "Hand off after the documentation review". The step ends with a deploy to a trial server. The scheduled image jobs first run on a Monday.
+**Next:** step 1.5 is built and reviewed: the conformance review stopped after four passes for no progress, and 9306556 fixed its last must-fix finding. Two runs end the step, and both wait on the owner. The first builds the import of the dashboards and the rules into a managed Grafana, and checks it against a Grafana Cloud account, which closes the known gap of OBS-13 and OBS-14. The second deploys 0.1.0-rc.2 to a trial server, takes a backup and restores it, writes the restore's time into [backups.md](operations/backups.md), and fixes what the run shows. Until they come, step 2.1's spec can start.
 
-**Waiting on the owner:** a free Grafana Cloud account, with its tokens in a local file, for the import of the dashboards and the rules; a trial server, two subdomains, a backup bucket, SSH access from the session's machine, a token that reads the packages, and the prerelease 0.1.0-rc.2 through `just release`. A prerelease is enough: a deploy takes any release, and a final release would fix the HTTP contract.
+**Waiting on the owner:** a free Grafana Cloud account, with its tokens in a local file; a trial server with Docker, two subdomains that point at it, a backup bucket with its key pair, SSH access from the session's machine as the Host `trial`, a token that reads the packages, and the prerelease 0.1.0-rc.2 through `just release`. A prerelease is enough: a deploy takes any release, and a final release would fix the HTTP contract.
 
 ## Build order
 
@@ -47,7 +47,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | Rate limiting: the IP, per-user and per-action limits, with the client IP taken from trusted proxies | D11 | 2.1 |
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | built |
 | The image and the delivery pipeline, with the release docs | D15, D21, D43 | built |
-| The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30 | 1.5 |
+| The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30, D44, D45, D47, D49, D50 | built |
 | Grafana on an HTTPS address of its own with sign-in, and the path to a managed observability backend through the collector, with Grafana Cloud as the worked example | D19, D42 | 1.5 |
 | The command that removes an optional part, which `check-removable` runs | D29, D39 | 2.3 |
 | `just seed` and the OpenAPI UI in development | D28 | 2.4 |
@@ -161,7 +161,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 87c8718..1a85dbc: step 1.5, the reference deployment | 1 | 20 (18, 10, 8 shared) | 8 | 0 | `next pass`: 3960dba |
 | 87c8718..3960dba: step 1.5, the reference deployment | 2 | 11 (9, 4, 2 shared) | 2 | 0 | `next pass`: 737c1be |
 | 87c8718..353e0e9: step 1.5, the reference deployment | 3 | 10 (8, 4, 2 shared) | 1 | 0 | `next pass`: 97f5cae |
-| 87c8718..97f5cae: step 1.5, the reference deployment | 4 | 9 (5, 5, 1 shared) | 1 | 0 | `stopped: no progress` |
+| 87c8718..97f5cae: step 1.5, the reference deployment | 4 | 9 (5, 5, 1 shared) | 1 | 0 | `stopped: no progress`: 9306556 |
 
 ## Decisions
 
@@ -215,3 +215,7 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D44 | The bundled Postgres has point-in-time recovery: pgBackRest archives its write-ahead log continuously and takes scheduled base backups, encrypted, to a bucket off the server, from a Postgres image the pipeline builds (OPS-17) | accepted |
 | D45 | The reference deployment's deploy is a script of its own around Docker Compose, with two colors of replicas that Caddy names and health-checks one by one: a deploy starts the idle color, waits until Caddy finds it ready, then stops the live one ([architecture](architecture.md#9-runtime-topology)) | accepted |
 | D46 | The image's static binary allocates through mimalloc, since under musl's own allocator a replica's memory grew with every request it served ([architecture](architecture.md#10-technology)) | accepted |
+| D47 | The bundled database's backups are kept by time, `BACKUP_RETENTION_DAYS`, rather than by a count of full backups, so the full backups that `just backup` and a restore take never shorten how far a restore reaches ([backups.md](operations/backups.md)) | accepted |
+| D48 | The end-to-end tests' servers pull Docker Hub's images through a pull-through cache that Compose runs and `just e2e` fills for their platform beforehand, and can't reach Docker Hub themselves (TEST-07, [ci.md](operations/ci.md)) | accepted |
+| D49 | A deployment's alert integrations are its release's, in the fork's `alertmanager.yaml`, and their credentials the deployment's, in `secrets/alertmanager/`, which each integration reads through its option for a file ([observability.md](operations/observability.md#alerts)) | accepted |
+| D50 | A deploy that refuses or fails once it installed its release's files puts back the ones it replaced, so the deployment's directory holds the files of the last deploy that finished (OPS-16, [deploy.md](operations/deploy.md#the-files-on-the-server)) | accepted |
