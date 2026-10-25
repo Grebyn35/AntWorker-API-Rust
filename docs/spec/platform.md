@@ -289,7 +289,7 @@ The names so far:
 - From the conventions: `service.name`, `service.version`, `service.instance.id`, `deployment.environment.name`, `http.request.method`, `http.route`, `http.response.status_code`, `error.type`, `exception.message`, `code.file.path`, `code.line.number`, `server.address`, `server.port` and `db.namespace`.
 - Trace context: `trace_id` and `span_id`, the top-level fields of JSON logs (OBS-05). The conventions' crate has no constant for them, so the list declares them without `convention`.
 - The bridge's fields: `otel.name`, `otel.kind` and `otel.status_code`, which `tracing-opentelemetry` reads to name a span and set its kind and status, and which no JSON log line carries. `otel.status_code` comes from the conventions; the other two are the bridge's own (OBS-05).
-- Own: `request.duration`, in seconds, `startup.area` and `migration.versions`.
+- Own: `request.duration`, in seconds, `startup.area`, `migration.versions` and `database.connections`.
 
 A name joins the list with the first code that writes it, such as `user.id` and `workspace.id` with authentication (build order 2.1).
 

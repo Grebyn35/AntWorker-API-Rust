@@ -74,3 +74,5 @@ pub const REQUEST_DURATION: &str = "request.duration";
 pub const STARTUP_AREA: &str = "startup.area";
 /// The migration versions `migrate` applied.
 pub const MIGRATION_VERSIONS: &str = "migration.versions";
+/// The most connections to the database that an instance opens (OPS-21).
+pub const DATABASE_CONNECTIONS: &str = "database.connections";

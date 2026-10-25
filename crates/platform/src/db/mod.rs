@@ -92,6 +92,12 @@ impl Database {
         Ok(Self { pool, options })
     }
 
+    /// The most connections the instance opens: the pool's, plus the one of its own that
+    /// [`Database::watch`] checks the database on (OPS-21).
+    pub fn connections(&self) -> u32 {
+        self.pool.options().get_max_connections().saturating_add(1)
+    }
+
     /// Checks the database on a connection of its own every five seconds, for as long as the
     /// async runtime runs, and records each result in `readiness` (PLATFORM-037).
     pub fn watch(&self, readiness: Readiness, clock: SharedClock) {

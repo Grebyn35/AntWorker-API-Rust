@@ -26,6 +26,24 @@ async fn test_06_the_api_under_test_connects_as_the_app_role() {
 }
 
 #[tokio::test]
+async fn platform_045_serve_logs_the_most_connections_the_instance_opens() {
+    let db = TestDatabase::migrated().await;
+
+    let server = db
+        .serve(&[
+            ("ENVIRONMENT", "production"),
+            ("DATABASE_MAX_CONNECTIONS", "7"),
+        ])
+        .await;
+
+    let connected = server
+        .started(|line| line["message"] == "connected to the database")
+        .expect("the line that gives the connections");
+    assert_eq!(connected["level"], "INFO", "{connected}");
+    assert_eq!(connected["database.connections"], 8, "{connected}");
+}
+
+#[tokio::test]
 async fn platform_009_serve_refuses_a_role_with_power_beyond_logging_in() {
     let db = TestDatabase::migrated().await;
     for (attribute, problem) in [

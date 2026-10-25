@@ -141,6 +141,10 @@ async fn serve(config: ServerConfig) -> ExitCode {
         Ok(database) => database,
         Err(error) => return failed("database", &error),
     };
+    tracing::info!(
+        { names::DATABASE_CONNECTIONS } = database.connections(),
+        "connected to the database"
+    );
     let clock: SharedClock = Arc::new(SystemClock);
     let readiness = Readiness::new();
     database.watch(readiness.clone(), clock.clone());

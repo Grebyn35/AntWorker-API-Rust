@@ -392,7 +392,7 @@ pub struct Server {
     child: Child,
     lines: mpsc::UnboundedReceiver<String>,
     address: SocketAddr,
-    listening: Value,
+    started: Vec<Value>,
 }
 
 impl Server {
@@ -414,10 +414,17 @@ impl Server {
             child,
             lines,
             address: SocketAddr::from(([127, 0, 0, 1], 0)),
-            listening: Value::Null,
+            started: Vec::new(),
         };
-        server.listening = server.line(|line| line["message"] == "listening").await;
-        let port = server.listening["server.port"]
+        loop {
+            let line = server.line(|_| true).await;
+            let listening = line["message"] == "listening";
+            server.started.push(line);
+            if listening {
+                break;
+            }
+        }
+        let port = server.listening()["server.port"]
             .as_u64()
             .expect("the port it listens on");
         server.address.set_port(u16::try_from(port).unwrap());
@@ -431,7 +438,15 @@ impl Server {
 
     /// The line the server wrote when it started listening.
     pub fn listening(&self) -> &Value {
-        &self.listening
+        self.started
+            .last()
+            .expect("the line it wrote when it started listening")
+    }
+
+    /// The first line for which `matches` holds among those the server wrote up to the one it
+    /// wrote when it started listening.
+    pub fn started(&self, matches: impl Fn(&Value) -> bool) -> Option<&Value> {
+        self.started.iter().find(|line| matches(line))
     }
 
     /// The next line the server writes for which `matches` holds, as JSON. Panics if the
