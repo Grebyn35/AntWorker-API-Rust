@@ -18,7 +18,9 @@ services:
     volumes:
       - postgres:/var/lib/postgresql
     healthcheck:
-      test: ["CMD", "pg_isready", "--username=postgres", "--dbname=api"]
+      # Over TCP: while the image initializes a new database, it runs a server that listens only
+      # on its socket, then stops it and starts the real one.
+      test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=postgres", "--dbname=api"]
       interval: 2s
       timeout: 5s
       retries: 30
