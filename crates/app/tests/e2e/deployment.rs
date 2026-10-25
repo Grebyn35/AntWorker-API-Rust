@@ -27,10 +27,10 @@ pub const API_ADDRESS: &str = "api.localhost";
 /// Grafana's address in the tests, under `localhost` as the API's is.
 pub const GRAFANA_ADDRESS: &str = "grafana.localhost";
 
-/// How many deployments of the suite run the self-hosted stack at once. Each server pulls the
-/// stack's images into a store of its own, 3.4 GB of them, so the suite's disk stays within what
-/// a CI runner has free (docs/operations/ci.md).
-static STACKS: Semaphore = Semaphore::const_new(2);
+/// How many deployments of the suite run the self-hosted stack at once: one. Each server pulls
+/// the stack's images into a store of its own, 3.4 GB of them, and a CI runner has room for one
+/// such server beside the rest of the suite (docs/operations/ci.md).
+static STACKS: Semaphore = Semaphore::const_new(1);
 
 /// A deployment on a server of its own.
 pub struct Deployment {
