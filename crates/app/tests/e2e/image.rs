@@ -9,16 +9,16 @@ use crate::{
 };
 
 /// The port `serve` binds in the container.
-const PORT: u16 = 8080;
+pub const PORT: u16 = 8080;
 
 /// The API's image under test, which a container on this machine runs.
-struct Image {
+pub struct Image {
     reference: String,
     platform: String,
 }
 
 impl Image {
-    fn pushed() -> Self {
+    pub fn pushed() -> Self {
         let image = Pushed::api();
         Self {
             reference: image.on_host(),
@@ -43,7 +43,7 @@ impl Image {
     }
 
     /// Runs the subcommand `command` in a container of the image until it exits.
-    fn run(&self, network: &str, env: &[String], command: &str) -> Output {
+    pub fn run(&self, network: &str, env: &[String], command: &str) -> Output {
         Command::new("docker")
             .args(["run", "--rm"])
             .args(self.arguments(network, env))
@@ -53,7 +53,7 @@ impl Image {
     }
 
     /// Starts `serve` in a container of the image, with its port published on 127.0.0.1.
-    fn serve(&self, network: &str, env: &[String]) -> Container {
+    pub fn serve(&self, network: &str, env: &[String]) -> Container {
         let published = format!("127.0.0.1::{PORT}");
         let mut arguments = self.arguments(network, env);
         arguments.extend(["--publish", &published, &self.reference, "serve"]);
@@ -63,7 +63,7 @@ impl Image {
 
 /// The settings of a container of the image, which reaches `database` as `postgres` on
 /// Compose's network.
-fn settings(database: &TestDatabase) -> Vec<String> {
+pub fn settings(database: &TestDatabase) -> Vec<String> {
     let mut settings = vec![
         "ENVIRONMENT=production".to_owned(),
         format!("LISTEN_ADDR=0.0.0.0:{PORT}"),

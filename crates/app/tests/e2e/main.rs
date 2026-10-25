@@ -31,3 +31,5 @@ mod stack;
 )]
 #[path = "../integration/support/mod.rs"]
 mod support;
+#[cfg(test)]
+mod traces;
