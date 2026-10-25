@@ -216,6 +216,23 @@ impl TestDatabase {
         close(admin).await;
     }
 
+    /// Makes the database refuse `app`: it revokes `app`'s right to connect, then ends its open
+    /// connections. Each runs in a transaction of its own, so a connection that a pool opens again
+    /// as its old ones end meets the revoked right; in one transaction, such a connection could
+    /// open before the right's revocation committed, and outlive the end of the others.
+    pub async fn cut_off_app(&self) {
+        let name = self.name();
+        self.admin_executes(&format!(
+            "REVOKE CONNECT ON DATABASE \"{name}\" FROM PUBLIC, app"
+        ))
+        .await;
+        self.admin_executes(&format!(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
+             WHERE datname = '{name}' AND usename = 'app'"
+        ))
+        .await;
+    }
+
     /// The first column of every row `sql` returns, read as `owner` (TEST-06), for tables a
     /// test created itself.
     pub async fn owner_reads(&self, sql: &str) -> Vec<String> {

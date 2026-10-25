@@ -236,14 +236,7 @@ async fn platform_043_the_database_gauge_follows_each_check() {
     clock.sleeping(CHECK_INTERVAL).await;
     let answered = reachable();
 
-    database
-        .admin_executes(&format!(
-            "REVOKE CONNECT ON DATABASE \"{0}\" FROM PUBLIC, app;
-             SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-             WHERE datname = '{0}' AND usename = 'app'",
-            database.name()
-        ))
-        .await;
+    database.cut_off_app().await;
     clock.advance(CHECK_INTERVAL);
     clock.sleeping(CHECK_INTERVAL).await;
     let unanswered = reachable();

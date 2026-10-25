@@ -49,14 +49,7 @@ async fn platform_037_readiness_follows_the_instance_s_own_database_connection()
     let ready = api.get("/health/ready").send().await;
 
     // Nothing can connect as app any more, and its open connections end.
-    database
-        .admin_executes(&format!(
-            "REVOKE CONNECT ON DATABASE \"{0}\" FROM PUBLIC, app;
-             SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-             WHERE datname = '{0}' AND usename = 'app'",
-            database.name()
-        ))
-        .await;
+    database.cut_off_app().await;
     clock.advance(CHECK_INTERVAL);
     clock.sleeping(CHECK_INTERVAL).await;
     let unavailable = api.get("/health/ready").send().await;
@@ -143,14 +136,7 @@ async fn platform_044_health_exits_1_and_names_the_answer_while_the_instance_isn
     let database = TestDatabase::migrated().await;
     let mut server = database.serve(&[("ENVIRONMENT", "production")]).await;
     // Nothing can connect as app any more, and its open connections end.
-    database
-        .admin_executes(&format!(
-            "REVOKE CONNECT ON DATABASE \"{0}\" FROM PUBLIC, app;
-             SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-             WHERE datname = '{0}' AND usename = 'app'",
-            database.name()
-        ))
-        .await;
+    database.cut_off_app().await;
     server
         .line(|line| line["message"] == "the database stopped answering")
         .await;
