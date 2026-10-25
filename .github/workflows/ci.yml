@@ -87,11 +87,15 @@ jobs:
       - run: just image-scan
 
   # The digests the image job built, booted on each platform with the end-to-end tests, arm64
-  # through QEMU (OPS-14, OPS-15).
+  # through QEMU (OPS-14, OPS-15), each platform on a runner of its own.
   verify:
     needs: image
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
     steps:
       # The runner's preinstalled toolchains that no task uses, deleted for the disk that the
       # end-to-end tests' servers need (docs/operations/ci.md).
@@ -111,9 +115,9 @@ jobs:
         with:
           name: image
           path: target
-      - run: docker compose run --rm binfmt --install arm64
-      - run: just e2e linux/amd64
-      - run: just e2e linux/arm64
+      - if: matrix.platform == 'linux/arm64'
+        run: docker compose run --rm binfmt --install arm64
+      - run: just e2e ${{ matrix.platform }}
 
   # The tested digests, published on main as sha-<commit>, and as edge while it is main's head.
   publish:
