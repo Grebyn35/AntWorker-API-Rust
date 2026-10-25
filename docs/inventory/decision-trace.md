@@ -2,7 +2,7 @@
 
 Where each commitment in the recommendation text of D1 to D36 ([SYNTHESIS.md](SYNTHESIS.md)) is carried: by a rule in `docs/standards/`, a behavior or design section in `docs/spec/`, or `docs/architecture.md`. It checks a fixed list, so it converges: each commitment is carried, contradicted or not yet carried.
 
-Of 291 commitments, 229 are carried, 23 are refined or contradicted by the rules, 5 aren't yet carried in the first slice, and 29 wait for later steps.
+It lists the commitments that the rules refine or contradict, and those not yet carried, each with the step that carries it. Every other commitment is carried as its recommendation text states it.
 
 ## Use
 
@@ -50,7 +50,6 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D11 | Each user holds a capped number of concurrent streams | the `realtime` step |
 | D12 | Idempotency keys are compared exactly as sent | the idempotency step |
 | D18 | Sign-in and refresh responses come from one function that issues the session | the `auth` step |
-| D20 | Startup logs the connection budget | the request pipeline (build order 1.2), when `serve` keeps its pool |
 
 ### For later steps
 
@@ -63,7 +62,7 @@ Modules carry their own; the build order step of each other area is in parenthes
 | `auth` | the ADR on accepted enumeration (D7); forgot-password answers 503 with email off (D9); the OAuth redirect allowlist (D18); password reset that sets the first password of an account created without one, and verifies its address (the `workspaces` spec's setup subcommand, D39) |
 | `accounts` | deletion refused while the user owns a shared workspace, sole-member workspaces deleted with the account, and the ADR on immediate deletion (D16); the export endpoint, one per 24 hours, its archive, notice and download, and the optional erasure precondition (D31) |
 | `files` | a bucket for anonymous public-file downloads (D11) |
-| Deploy and CI (1.5 and 2.4) | Caddy's trusted proxies (D11); TLS everywhere and storage encrypted at rest (D14, queued); alerts that don't depend on the deploy tooling (D15); Compose memory and CPU limits (D20); shellcheck, of the justfile's bash recipes and the deploy tooling's scripts (D21); the OpenAPI UI in development only, in step 2.4 (D28) |
+| Deploy and CI (1.5 and 2.4) | Caddy's trusted proxies (D11); TLS everywhere and storage encrypted at rest (D14, queued); alerts that don't depend on the deploy tooling (D15); Compose memory and CPU limits, and startup logging the connection budget (D20); shellcheck, of the justfile's bash recipes and the deploy tooling's scripts (D21); the OpenAPI UI in development only, in step 2.4 (D28) |
 | Template (5, 6) | a GitHub template repository and `just new-module` (D29); the ADR on hard deletes (D24) |
 | Backups (1.5) | the backup tool, point-in-time recovery on managed Postgres, bucket versioning, and a separate backup of the secrets key (D30) |
 | Security (6) | the ASVS Level 2 conformance pass (D26) |
