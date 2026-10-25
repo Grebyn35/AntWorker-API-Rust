@@ -190,6 +190,9 @@ read_settings() {
     case $database in
         bundled)
             profiles="$profiles --profile database"
+            for name in BACKUP_S3_ENDPOINT BACKUP_S3_REGION BACKUP_S3_BUCKET; do
+                if [ -z "$(setting "$name")" ]; then fail "$name is required with DATABASE=bundled, for its backups (docs/operations/backups.md)"; fi
+            done
             whole_number BACKUP_RETENTION_DAYS "$(setting BACKUP_RETENTION_DAYS 28)" 1 3650
             whole_number BACKUP_HOUR "$(setting BACKUP_HOUR 3)" 0 23
             ;;
@@ -235,18 +238,30 @@ random() { od -An -N24 -tx1 /dev/urandom | tr -d ' \n'; }
 # container, as Compose mounts them, so the directory admits only the deployment's owner.
 write_secrets() {
     secrets=$deployment/secrets
+    umask 022
     mkdir -p "$secrets/alertmanager"
     chmod 700 "$secrets"
-    umask 022
-    if [ "$database" = bundled ] && [ ! -f "$secrets/database_url" ]; then
-        admin=$(random) owner=$(random) app=$(random)
-        printf '%s' "$admin" > "$secrets/postgres_password"
+    # The bundled database's URLs, written the first time it runs, and again when they name
+    # another database, such as the managed one before DATABASE=bundled, whose URLs move aside.
+    # The superuser keeps its password, which an existing data directory holds; bootstrap sets the
+    # other roles' passwords from their URLs.
+    if [ "$database" = bundled ] && ! grep -q '@postgres:5432/api$' "$secrets/database_url" 2> /dev/null; then
+        for name in database_url database_owner_url database_admin_url; do
+            if [ -s "$secrets/$name" ]; then
+                mv "$secrets/$name" "$secrets/$name.before-bundled"
+                say "moved $secrets/$name, which named another database, to $name.before-bundled"
+            fi
+        done
+        if [ ! -s "$secrets/postgres_password" ]; then random > "$secrets/postgres_password"; fi
+        admin=$(cat "$secrets/postgres_password") owner=$(random) app=$(random)
         printf 'postgres://postgres:%s@postgres:5432/api' "$admin" > "$secrets/database_admin_url"
         printf 'postgres://owner:%s@postgres:5432/api' "$owner" > "$secrets/database_owner_url"
         printf 'postgres://app:%s@postgres:5432/api' "$app" > "$secrets/database_url"
         say "wrote the bundled database's passwords to $secrets"
     fi
-    if [ "$telemetry" = self-hosted ] && [ ! -f "$secrets/grafana_admin_password" ]; then
+    # A file that exists empty stands in for a secret the services didn't use before, so it counts
+    # as missing.
+    if [ "$telemetry" = self-hosted ] && [ ! -s "$secrets/grafana_admin_password" ]; then
         random > "$secrets/grafana_admin_password"
         say "wrote Grafana's administrator password to $secrets/grafana_admin_password"
     fi

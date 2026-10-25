@@ -61,7 +61,7 @@ CI restores to a moment between two writes, then checks that the first one is th
 The data that the restore replaced stays in the volume, so a restore can be undone. Once the restored database is right, remove it on the server, with the name the restore printed:
 
 ```
-docker run --rm --volume deployment_postgres:/data alpine rm -r /data/18/before-restore-20261025T104131Z
+docker run --rm --volume deployment_postgres:/data --entrypoint rm "$(sed -n 's/^POSTGRES_IMAGE=//p' ~/deployment/state/deploy.env)" -r /data/18/before-restore-20261025T104131Z
 ```
 
 ### Restoring onto a new server

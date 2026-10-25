@@ -276,7 +276,7 @@ pub fn get(root: String, url: String) -> (u16, reqwest::header::HeaderMap) {
 
 /// Sends `POST` to `url` with the JSON body `body`, through a client that trusts `root`, and
 /// returns the response's status and body.
-pub fn post(root: String, url: String, body: &'static str) -> (u16, String) {
+pub fn post(root: String, url: String, body: String) -> (u16, String) {
     thread::spawn(move || {
         let response = client(&root)
             .post(&url)

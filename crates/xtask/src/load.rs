@@ -9,7 +9,7 @@
 //!
 //! Each step also compares the requests the replica served with the spans the collector
 //! accepted, so a span that the API's queue dropped under load shows as a difference (the
-//! platform spec's open design questions).
+//! platform spec's Telemetry export, under Batching).
 //!
 //! The search is a pure function, so tests cover it without Docker.
 

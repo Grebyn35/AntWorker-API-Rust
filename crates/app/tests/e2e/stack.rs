@@ -9,10 +9,17 @@ use crate::{
 
 #[tokio::test]
 async fn sec_18_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer_in() {
-    let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]).await;
+    // The bundled database, and a stack that a later deploy adds, after one that ran without it.
+    let deployment = Deployment::bundled(&[]);
+    let without = deployment.apply(&deployment.api, &[]).await;
+    assert!(without.status.success(), "{}", lossy(&without));
+    deployment.set(&[("TELEMETRY", "self-hosted")]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
     let root = deployment.server.caddy_root();
+    let password = deployment
+        .server
+        .shell_ok(&format!("cat {DEPLOYMENT}/secrets/grafana_admin_password"));
 
     let containers = deployment.server.shell_ok(
         "docker ps --filter label=com.docker.compose.project=deployment --format '{{.Names}} {{.Ports}}'",
@@ -26,9 +33,15 @@ async fn sec_18_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
         deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/api/search"),
     );
     let (sign_up, refusal) = post(
-        root,
+        root.clone(),
         deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/api/user/signup/step2"),
-        r#"{"email":"viewer@example.invalid","username":"viewer","password":"a password of the e2e tests"}"#,
+        r#"{"email":"viewer@example.invalid","username":"viewer","password":"a password of the e2e tests"}"#
+            .to_owned(),
+    );
+    let (sign_in, signed_in) = post(
+        root,
+        deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/login"),
+        serde_json::json!({"user": "admin", "password": password}).to_string(),
     );
 
     let publishing: Vec<&str> = containers
@@ -56,6 +69,13 @@ async fn sec_18_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     assert_eq!(search, 401);
     assert_eq!(sign_up, 401, "{refusal}");
     assert!(refusal.contains("signup is disabled"), "{refusal}");
+    assert!(
+        lossy(&deployed).contains("wrote Grafana's administrator password"),
+        "{}",
+        lossy(&deployed)
+    );
+    assert!(password.len() >= 32, "{password}");
+    assert_eq!(sign_in, 200, "{signed_in}");
 }
 
 #[tokio::test]

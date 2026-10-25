@@ -138,17 +138,33 @@ impl Container {
 }
 
 impl Drop for Container {
+    /// Removes the container and its anonymous volumes. A removal that fails is tried once more,
+    /// and a container that is gone by then counts as removed.
     fn drop(&mut self) {
-        let removed = Command::new("docker")
-            .args(["rm", "--force", "--volumes", &self.id])
-            .output();
-        if !std::thread::panicking() {
-            assert!(
-                removed.is_ok_and(|output| output.status.success()),
-                "remove the container {}",
-                self.id
-            );
+        let remove = || {
+            Command::new("docker")
+                .args(["rm", "--force", "--volumes", &self.id])
+                .output()
+                .expect("run docker rm")
+        };
+        let first = remove();
+        if first.status.success() || std::thread::panicking() {
+            return;
         }
+        let second = remove();
+        let gone = !Command::new("docker")
+            .args(["inspect", "--format", "{{.Id}}", &self.id])
+            .output()
+            .expect("run docker inspect")
+            .status
+            .success();
+        assert!(
+            second.status.success() || gone,
+            "remove the container {}: {}{}",
+            self.id,
+            lossy(&first),
+            lossy(&second)
+        );
     }
 }
 

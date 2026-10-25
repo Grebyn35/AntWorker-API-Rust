@@ -22,8 +22,8 @@ x-api: &api
     DATABASE_MAX_CONNECTIONS: ${DATABASE_MAX_CONNECTIONS:-10}
     DATABASE_URL_FILE: /run/secrets/database_url
     OTEL_EXPORTER_OTLP_ENDPOINT: ${API_TELEMETRY_ENDPOINT:-}
-    # Caddy stops sending requests to a draining replica within 3 seconds (deploy/caddy), so the
-    # replica keeps serving for 5 (OPS-06).
+    # Caddy stops sending requests to a draining replica within its health checks' interval and
+    # timeout (deploy/caddy/sites/api.caddy), so the replica keeps serving for longer (OPS-06).
     SHUTDOWN_DELAY_SECONDS: "5"
     SHUTDOWN_DRAIN_SECONDS: "10"
   secrets: [database_url]

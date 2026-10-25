@@ -13,8 +13,8 @@
 		lb_try_duration 5s
 		lb_try_interval 250ms
 		# A replica that starts to drain answers 503 here, and Caddy stops sending it requests
-		# within the interval and the timeout, 3 seconds, while the replica keeps serving for its
-		# shutdown delay of 5 (OPS-06).
+		# within the interval and the timeout, while the replica keeps serving for its shutdown
+		# delay, which deploy/compose.yaml sets longer (OPS-06).
 		health_uri /health/ready
 		health_interval 2s
 		health_timeout 1s

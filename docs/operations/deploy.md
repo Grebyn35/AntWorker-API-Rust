@@ -8,7 +8,7 @@ The reference deployment runs the API on one Linux server, in Docker Compose, wi
 flowchart LR
   client[Clients] -- HTTPS --> caddy[Caddy]
   caddy --> blue[api-blue replicas] & green[api-green replicas]
-  caddy -- HTTPS --> grafana[Grafana]
+  caddy --> grafana[Grafana]
   blue & green --> postgres[(Postgres)]
   postgres -- write-ahead log, base backups --> bucket[(Backup bucket, off the server)]
   blue & green -- OTLP --> collector[Collector]
@@ -41,12 +41,12 @@ The deployment's files live in `~/deployment` of the user SSH signs in as. On th
    ```
    mkdir -p ~/deployment/secrets && chmod 700 ~/deployment/secrets
    ```
-3. Write `~/deployment/settings.env` from [deploy/settings.env.example](../../deploy/settings.env.example), which lists every setting with its meaning. Set at least `IMAGE_REPOSITORY`, `SOURCE`, `API_ADDRESS`, and with the self-hosted stack `GRAFANA_ADDRESS`.
+3. Write `~/deployment/settings.env` from [deploy/settings.env.example](../../deploy/settings.env.example), which lists every setting with its meaning. Set at least `IMAGE_REPOSITORY`, `SOURCE`, `API_ADDRESS`, with the bundled database the bucket's `BACKUP_S3_ENDPOINT`, `BACKUP_S3_REGION` and `BACKUP_S3_BUCKET`, and with the self-hosted stack `GRAFANA_ADDRESS`; a deploy refuses settings without them.
 4. Write the secrets the operator holds into `~/deployment/secrets/`, one value per file, with nothing else in it:
    - With the bundled database: `backup_s3_key` and `backup_s3_key_secret`, the bucket's key pair, and `backup_cipher_pass`, the passphrase that encrypts the backups, such as the output of `openssl rand -base64 48`. Keep a copy of the passphrase off the server: without it, no backup can be restored ([backups.md](backups.md#what-to-keep-off-the-server)).
    - With a managed database: `database_admin_url`, `database_owner_url` and `database_url`, as `.env.example` describes `DATABASE_ADMIN_URL`, `DATABASE_OWNER_URL` and `DATABASE_URL`, each with `sslmode=verify-full` (OPS-20).
 
-   The deploy writes the others the first time: the bundled database's passwords and the URLs made from them, and Grafana's administrator password. Compose mounts each secret file into the containers that read it, where any user of the container can read it, so the directory admits only its owner.
+   The deploy writes the others the first time the services need them: the bundled database's passwords and the URLs made from them, and Grafana's administrator password. When `DATABASE` moves from `managed` to `bundled`, the deploy moves the managed database's URLs aside, to `<name>.before-bundled`, and writes the bundled one's. Compose mounts each secret file into the containers that read it, where any user of the container can read it, so write each file readable by every user, as `umask 022` does; the directory itself admits only its owner.
 5. With a bucket of the operator's own whose certificate a private authority signed, put that authority's certificate at `~/deployment/certs/backup-ca.crt`.
 
 Then deploy a release from your machine, as below. The first deploy creates the backups' stanza in the bucket, pgBackRest's record of the database it backs up, and takes the first full backup.

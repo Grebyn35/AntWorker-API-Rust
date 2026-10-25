@@ -249,3 +249,35 @@ async fn ops_16_a_deploy_restarts_the_bundled_database_only_for_other_files_and_
     assert_eq!(restarted.len(), 1);
     assert_ne!(restarted, postgres);
 }
+
+#[tokio::test]
+async fn ops_16_a_deploy_gives_the_bundled_database_its_own_secrets_once_the_settings_choose_it() {
+    let deployment = Deployment::managed(&[]).await;
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    let mut bundled = vec![("DATABASE", "bundled")];
+    let bucket = deployment.server.start_bucket();
+    bundled.extend(
+        bucket
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str())),
+    );
+    deployment.set(&bundled);
+
+    let second = deployment.apply(&deployment.api, &[]).await;
+
+    assert!(second.status.success(), "{}", lossy(&second));
+    let url = deployment
+        .server
+        .shell_ok(&format!("cat {DEPLOYMENT}/secrets/database_url"));
+    assert!(url.ends_with("@postgres:5432/api"), "{url}");
+    deployment.server.shell_ok(&format!(
+        "test -s {DEPLOYMENT}/secrets/database_url.before-bundled"
+    ));
+    assert_eq!(deployment.server.running("api-green").len(), 2);
+    let (status, _) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/capabilities"),
+    );
+    assert_eq!(status, 200);
+}

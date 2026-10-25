@@ -46,6 +46,10 @@ async fn ops_17_a_restore_recovers_the_database_as_it_stood_at_a_moment() {
     );
     let backed_up = deployment.server.deploy(&["backup"]);
     assert!(backed_up.status.success(), "{}", lossy(&backed_up));
+    // A differential backup, as the backup service takes on schedule, from its container.
+    deployment
+        .server
+        .shell_ok("docker exec deployment-backup-1 pgbackrest --stanza=db backup --type=diff");
     let moment = deployment.sql("SELECT now()");
     deployment.sql("INSERT INTO restore_marker VALUES ('after the moment')");
     archive_everything_committed(&deployment);
@@ -70,8 +74,8 @@ async fn ops_17_a_restore_recovers_the_database_as_it_stood_at_a_moment() {
         .collect();
     assert_eq!(
         kinds,
-        ["full", "full", "full"],
-        "the first deploy's, `backup`'s, and the restore's"
+        ["full", "full", "diff", "full"],
+        "the first deploy's, `backup`'s, the backup service's, and the restore's"
     );
 }
 

@@ -1,7 +1,7 @@
 # The images of the tools that verify a release (OPS-14): crane reads the registry, and cosign
 # checks the signatures. compose.yaml at the root extends them for the release tasks, and
-# deploy/compose.yaml for the deploy on a server, which runs deploy/verify-release.sh before it
-# pulls a release.
+# deploy.sh reads their names from this file, for the deploy on a server, which runs
+# deploy/verify-release.sh before it pulls a release.
 
 services:
   crane:
