@@ -6,7 +6,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 **Next:** step 1.5, the reference deployment. Its spec is written: [architecture.md §9](architecture.md#9-runtime-topology), OPS-16 to OPS-18, OPS-20, OPS-21, CODE-16, OBS-13, OBS-14 and PLATFORM-045. The code comes next, test-first, with `docs/operations/deploy.md` and `docs/operations/backups.md`, then the conformance review. Building it also changes OPS-14 and [release.md](operations/release.md) for the second image, Postgres with pgBackRest (D44). Research into its tools, with sources, is in the message of the commit "Hand off after the documentation review". The step ends with a deploy to a trial server. The scheduled image jobs first run on a Monday.
 
-**Waiting on the owner:** nothing yet. Once the path to a managed backend is built: a free Grafana Cloud account, with its token in a local file. Once the deploy passes CI: a trial server, two subdomains, a backup bucket, and a final release through `just release`.
+**Waiting on the owner:** a free Grafana Cloud account, with its tokens in a local file, for the import of the dashboards and the rules; a trial server, two subdomains, a backup bucket, SSH access from the session's machine, a token that reads the packages, and the prerelease 0.1.0-rc.2 through `just release`. A prerelease is enough: a deploy takes any release, and a final release would fix the HTTP contract.
 
 ## Build order
 
@@ -115,6 +115,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 | Rule or behavior | Built code that doesn't follow it | Closed by |
 |---|---|---|
 | OPS-18 | A release's capacity, which `just load-test` measures, has no release notes to go in: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
+| OBS-13, OBS-14 | With `TELEMETRY=managed`, nothing imports the dashboards into the managed Grafana or loads the rules into its ruler | 1.5, with the run against a Grafana Cloud account |
 | DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 
 ## Rule proposals
