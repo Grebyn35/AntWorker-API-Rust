@@ -40,6 +40,22 @@ fn fetch_once_it_holds(url: &str, wanted: &str) -> Output {
         .expect("run docker compose")
 }
 
+/// The last lines that the stack's collector, Loki and Tempo logged, which say why a wait ended
+/// without what it waited for.
+fn stack_logs() -> String {
+    compose(&[
+        "--profile",
+        "observability",
+        "logs",
+        "--no-color",
+        "--tail",
+        "20",
+        "collector",
+        "loki",
+        "tempo",
+    ])
+}
+
 #[tokio::test]
 async fn obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace() {
     compose(&[
@@ -83,9 +99,14 @@ async fn obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace()
     let stored = fetch_once_it_holds(&format!("http://tempo:3200/api/traces/{trace}"), "404");
 
     assert!(response.starts_with("HTTP/1.1 404 "), "{response}");
-    assert!(logs.status.success(), "{}", lossy(&logs));
+    assert!(logs.status.success(), "{}\n{}", lossy(&logs), stack_logs());
     assert!(lossy(&logs).contains(&trace), "{}", lossy(&logs));
-    assert!(stored.status.success(), "{}", lossy(&stored));
+    assert!(
+        stored.status.success(),
+        "{}\n{}",
+        lossy(&stored),
+        stack_logs()
+    );
     assert!(
         lossy(&stored).contains("http.response.status_code"),
         "{}",

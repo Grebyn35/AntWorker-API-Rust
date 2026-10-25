@@ -4,7 +4,7 @@
 use std::{
     process::Output,
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
@@ -12,6 +12,7 @@ use std::{
 };
 
 use rustls::pki_types::{CertificateDer, pem::PemObject};
+use tokio::sync::{Semaphore, SemaphorePermit};
 
 use crate::{
     docker::{compose, docker},
@@ -26,6 +27,11 @@ pub const API_ADDRESS: &str = "api.localhost";
 /// Grafana's address in the tests, under `localhost` as the API's is.
 pub const GRAFANA_ADDRESS: &str = "grafana.localhost";
 
+/// How many deployments of the suite run the self-hosted stack at once. Each server pulls the
+/// stack's images into a store of its own, 3.4 GB of them, so the suite's disk stays within what
+/// a CI runner has free (docs/operations/ci.md).
+static STACKS: Semaphore = Semaphore::const_new(2);
+
 /// A deployment on a server of its own.
 pub struct Deployment {
     pub server: Server,
@@ -36,6 +42,11 @@ pub struct Deployment {
     database: Option<TestDatabase>,
     /// The settings of its kind of deployment, which `changes` of `set` add to or replace.
     base: Vec<(String, String)>,
+    /// Whether the settings that `set` last wrote run the self-hosted stack.
+    runs_stack: AtomicBool,
+    /// Its share of `STACKS`, from its first deploy that runs the stack. Declared after `server`,
+    /// so it is released once the server and its store are gone.
+    stack: OnceLock<SemaphorePermit<'static>>,
 }
 
 impl Deployment {
@@ -111,6 +122,8 @@ impl Deployment {
             postgres: Pushed::postgres().in_network(),
             database,
             base,
+            runs_stack: AtomicBool::new(false),
+            stack: OnceLock::new(),
         };
         deployment.set(changes);
         deployment
@@ -123,6 +136,10 @@ impl Deployment {
             settings.retain(|(existing, _)| existing != name);
             settings.push(((*name).to_owned(), (*value).to_owned()));
         }
+        let runs_stack = settings
+            .iter()
+            .any(|(name, value)| name == "TELEMETRY" && value == "self-hosted");
+        self.runs_stack.store(runs_stack, Ordering::Relaxed);
         let text: String = settings
             .iter()
             .map(|(name, value)| format!("{name}={value}\n"))
@@ -133,8 +150,15 @@ impl Deployment {
 
     /// Deploys `api`, the API's image, with `options`. With a managed database, no other test
     /// runs `bootstrap` meanwhile, since the deploy runs it on the roles every test database
-    /// shares (the platform spec's Database roles).
+    /// shares (the platform spec's Database roles). A deploy that runs the self-hosted stack
+    /// first waits for a share of `STACKS`, before it takes that lock.
     pub async fn apply(&self, api: &str, options: &[&str]) -> Output {
+        if self.runs_stack.load(Ordering::Relaxed) && self.stack.get().is_none() {
+            let permit = STACKS.acquire().await.expect("STACKS stays open");
+            self.stack
+                .set(permit)
+                .expect("one share for each deployment");
+        }
         let mut args = vec!["apply", api, &self.postgres];
         args.extend(options);
         match &self.database {
