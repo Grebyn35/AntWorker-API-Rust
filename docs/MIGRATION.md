@@ -159,7 +159,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 63e2951..76e2b75: step 1.4, the image, the delivery pipeline and releases | 1 | 14 (11, 6, 3 shared) | 4 | 0 | `next pass`: 5375877 |
 | 63e2951..5375877: step 1.4, the image, the delivery pipeline and releases | 2 | 6 (5, 2, 1 shared) | 0 | 0 | `clean` |
 | 87c8718..1a85dbc: step 1.5, the reference deployment | 1 | 20 (18, 10, 8 shared) | 8 | 0 | `next pass`: 3960dba |
-| 87c8718..3960dba: step 1.5, the reference deployment | 2 | 11 (9, 4, 2 shared) | 2 | 0 | `next pass` |
+| 87c8718..3960dba: step 1.5, the reference deployment | 2 | 11 (9, 4, 2 shared) | 2 | 0 | `next pass`: 737c1be |
+| 87c8718..353e0e9: step 1.5, the reference deployment | 3 | 10 (8, 4, 2 shared) | 1 | 0 | `next pass` |
 
 ## Decisions
 
