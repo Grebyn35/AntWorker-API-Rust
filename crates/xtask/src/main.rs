@@ -1,11 +1,13 @@
-//! The repository's custom CI checks, and the release task. Each subcommand runs as a `just`
-//! task (OPS-12), and the API crates never depend on this one (ARCH-01).
+//! The repository's custom CI checks, the release task, and the reference deployment's tasks.
+//! Each subcommand runs as a `just` task (OPS-12), and the API crates never depend on this one
+//! (ARCH-01).
 
 mod acronyms;
 mod alerts;
 mod boards;
 mod catalog;
 mod declarations;
+mod deploy;
 mod docs;
 mod formats;
 mod inputs;
@@ -29,7 +31,9 @@ use std::{fmt, io, process::ExitCode};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(about = "The repository's custom CI checks, and the release task")]
+#[command(
+    about = "The repository's custom CI checks, the release task, and the deployment's tasks"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -95,6 +99,31 @@ enum Command {
         /// The version, such as 1.4.0, or 1.4.0-rc.1 for a prerelease.
         version: String,
     },
+    /// Deploys the release `version` to the reference deployment that SSH reaches at `host`
+    /// (OPS-16).
+    Deploy {
+        /// The server, as SSH names it: user@address, or a Host of ~/.ssh/config.
+        host: String,
+        /// The release's version, such as 1.4.0.
+        version: String,
+        /// Restarts Postgres or Caddy if the release changes them, which interrupts requests for
+        /// a few seconds.
+        #[arg(long)]
+        allow_restart: bool,
+    },
+    /// Takes a full base backup of the bundled database of the deployment at `host` (OPS-17).
+    Backup {
+        /// The server, as SSH names it.
+        host: String,
+    },
+    /// Restores the bundled database of the deployment at `host`, as it stood at `moment`, or at
+    /// the latest moment its backups hold (OPS-17).
+    Restore {
+        /// The server, as SSH names it.
+        host: String,
+        /// The moment: a time with its offset from UTC, as Postgres writes it.
+        moment: Option<String>,
+    },
     /// Prints an identifier of the files under `directory` as they stand in the working tree,
     /// which an image built from them carries (OPS-16).
     Inputs {
@@ -152,6 +181,13 @@ fn main() -> ExitCode {
         Command::Release { version } => return release::run(&version),
         Command::ReleaseCheck { version } => return release::check(&version),
         Command::Inputs { directory } => return inputs::run(&directory),
+        Command::Deploy {
+            host,
+            version,
+            allow_restart,
+        } => return deploy::deploy(&host, &version, allow_restart),
+        Command::Backup { host } => return deploy::backup(&host),
+        Command::Restore { host, moment } => return deploy::restore(&host, moment.as_deref()),
         command => command,
     };
     let repo = match repo::Repo::load() {
@@ -170,9 +206,12 @@ fn main() -> ExitCode {
         Command::AlertRules => alerts::check(&repo),
         Command::Pins => pins::check(&repo),
         Command::Shell => shell::check(&repo),
-        Command::Release { .. } | Command::ReleaseCheck { .. } | Command::Inputs { .. } => {
-            Outcome::default()
-        }
+        Command::Release { .. }
+        | Command::ReleaseCheck { .. }
+        | Command::Inputs { .. }
+        | Command::Deploy { .. }
+        | Command::Backup { .. }
+        | Command::Restore { .. } => Outcome::default(),
     };
     print(&outcome)
 }

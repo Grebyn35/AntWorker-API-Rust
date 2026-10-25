@@ -348,6 +348,25 @@ publish repository commit:
 release version:
     {{ xtask }} release {{ version }}
 
+# Deploys the release `version` to the reference deployment on `host`, an SSH destination such as
+# deploy@203.0.113.7 or a Host of ~/.ssh/config (OPS-16): refuses a version that no release has,
+# copies the deployment's files from the release's tag to the server, and runs that release's
+# deploy/deploy.sh there, which verifies the release's images before it pulls them. `--allow-restart`
+# lets it restart Postgres or Caddy. docs/operations/deploy.md describes a deploy.
+deploy host version *options:
+    {{ xtask }} deploy {{ host }} {{ version }} {{ options }}
+
+# Takes a full base backup of the bundled database of the reference deployment on `host` (OPS-17).
+backup host:
+    {{ xtask }} backup {{ host }}
+
+# Restores the bundled database of the reference deployment on `host`, as it stood at `moment`, a
+# time with its offset from UTC as Postgres writes it, or at the latest moment its backups hold
+# (OPS-17).
+# docs/operations/backups.md describes a restore.
+restore host moment="":
+    {{ xtask }} restore {{ host }} "{{ moment }}"
+
 # Releases the app's version from the images this run on main published for `commit`, if a commit
 # since the latest release asks for it and no release has it yet (OPS-14): gives each image the
 # version's tag, signs it, verifies the release, and only then tags the commit v<version>. The
