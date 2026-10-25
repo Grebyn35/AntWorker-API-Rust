@@ -1,6 +1,6 @@
 # Weekly pull requests that update the pins (OPS-13): the crates, the actions, the images in the
-# Dockerfile and in compose.yaml, and the toolchain. Each runs the whole pipeline before it can
-# merge. docs/operations/ci.md lists the pins updated by hand.
+# Dockerfile and in compose.yaml, and the toolchain. Each runs the whole pipeline.
+# docs/operations/ci.md lists the pins updated by hand.
 version: 2
 updates:
   - package-ecosystem: cargo

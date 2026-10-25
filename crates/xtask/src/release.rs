@@ -30,6 +30,20 @@ fn request(version: Version) -> String {
     format!("Release {version}")
 }
 
+/// Whether a commit with `subject` asks for the release of `version`: the subject [`request`]
+/// writes, or that subject with the number GitHub appends when it squash-merges a pull request,
+/// such as "Release 1.4.0 (#12)". `release-image` in the justfile matches the same two forms.
+fn asks_for(subject: &str, version: Version) -> bool {
+    let Some(rest) = subject.strip_prefix(&request(version)) else {
+        return false;
+    };
+    rest.is_empty()
+        || rest
+            .strip_prefix(" (#")
+            .and_then(|rest| rest.strip_suffix(')'))
+            .is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// A release's version: `X.Y.Z`, or `X.Y.Z-rc.N` for a prerelease, as a tag `vX.Y.Z` names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Version {
@@ -379,7 +393,7 @@ impl Git<'_> {
             .and_then(|rest| rest.strip_suffix('"'))
             .and_then(|version| version.parse().ok())
             .ok_or(format!("{MANIFEST} has no version that a release can have"))?;
-        let pending = subjects.lines().any(|subject| subject == request(current));
+        let pending = subjects.lines().any(|subject| asks_for(subject, current));
         Ok(State {
             changed,
             branch,
@@ -581,6 +595,23 @@ mod tests {
 
         assert_eq!(refusal(&state, v("1.3.0")), None);
         assert_eq!(request(v("1.3.0")), "Release 1.3.0");
+    }
+
+    #[test]
+    fn ops_14_a_request_merged_through_a_pull_request_still_asks_for_its_release() {
+        let version = v("1.4.0");
+
+        assert!(asks_for("Release 1.4.0", version));
+        assert!(asks_for("Release 1.4.0 (#12)", version));
+        for other in [
+            "Release 1.4.0-rc.1",
+            "Release 1.4.0 (#)",
+            "Release 1.4.0 (#12) and more",
+            "Release 1.4.01",
+            "Prepare the release 1.4.0",
+        ] {
+            assert!(!asks_for(other, version), "{other}");
+        }
     }
 
     #[test]

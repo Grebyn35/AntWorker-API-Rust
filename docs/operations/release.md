@@ -4,7 +4,7 @@ A release is a version of the API that you have decided is ready to deploy. This
 
 ## What a release is
 
-Every commit that reaches `main` and passes CI is published: its image goes to the GitHub Container Registry, tagged with the commit's hash. A release takes one of those commits and gives it a version, such as 1.4.0, so that people can name it, deploy it, and go back to it.
+Each run of CI on `main` that passes publishes its commit: the commit's image goes to the GitHub Container Registry, tagged with the commit's hash. A release takes one of those commits and gives it a version, such as 1.4.0, so that people can name it, deploy it, and go back to it.
 
 - **A version** is three numbers, `MAJOR.MINOR.PATCH`, as semantic versioning defines them. Each release raises one of them, by what changed since the release before:
   - the patch, as from 1.4.0 to 1.4.1, for fixes;
@@ -40,7 +40,7 @@ It checks that `main` can release that version, sets the version in `crates/app/
 | Nothing has changed since the latest release | Nothing: the latest release is current |
 | `main` holds that version already, waiting for a run that passes | Fix what failed, and push the fix: its run releases the version |
 
-If `main` takes changes only through pull requests, GitHub refuses the push, and `just release` says how to release through a pull request instead.
+If `main` takes changes only through pull requests, GitHub refuses the push, and `just release` says how to release through a pull request instead. Any way of merging it works, a squash merge included, as long as its commit's subject stays "Release 1.4.0", or becomes "Release 1.4.0 (#12)" as GitHub writes it.
 
 ## When a release fails
 
@@ -62,7 +62,7 @@ The tag comes last, so a version that has a tag is released completely, with its
 The image holds the API's binary, built static against musl for linux/amd64 and linux/arm64, on distroless's static base, which holds the operating system's certificate store, time zone data and the unprivileged user 65532, and no shell, package manager or C library (OPS-15).
 - Its entry point is the binary, and its default command is `serve`. Every other subcommand runs from the same image, such as `docker run <image> migrate`, with the settings that `.env.example` lists in its environment.
 - It writes nothing to its filesystem, so it runs with a read-only root filesystem.
-- Its health check runs the `health` subcommand every 10 seconds, which succeeds only while `serve` answers 200 on `/health/ready` at `LISTEN_ADDR` (PLATFORM-044). For the first 60 seconds, a check runs every second and a failure doesn't count, so a new instance is healthy within a second of being ready. After that, three failures in a row make it unhealthy.
+- Its health check runs the `health` subcommand, which succeeds only while `serve` answers 200 on `/health/ready` at `LISTEN_ADDR` (PLATFORM-044). While the instance starts, checks run often and their failures don't count, so it is healthy soon after it is ready; after that, a few failures in a row make it unhealthy. The `HEALTHCHECK` in the Dockerfile sets the intervals and the counts.
 - Its labels name the app's version, as `org.opencontainers.image.version`, and the commit it was built from, as `org.opencontainers.image.revision`.
 - Its index holds a software bill of materials (SBOM) for each platform, in the format of the Software Package Data Exchange (SPDX), which lists the base's packages and the crates the binary records. It also holds the provenance of each platform's image, in the format of Supply-chain Levels for Software Artifacts (SLSA), which records how BuildKit built it.
 

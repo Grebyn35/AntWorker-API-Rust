@@ -20,6 +20,7 @@ This is a Rust API built as a template to fork. Read these before changing anyth
 - **Docs and comments describe the current state only** (DOC-01 to DOC-04). Edits rewrite in place. History belongs in git, architecture decision records (ADRs) and `CHANGELOG.md`.
 - **End every session with the `handoff` skill** in `.claude/skills/`, so the next session, on any machine, starts from the repository alone.
 - **No `TODO` or `FIXME`.** Known work is tracked as an issue, and in the tracker while the migration runs (DOC-07, DOC-14).
+- **Releases are the owner's to start.** A release makes the repository's name public in Sigstore's logs, so a session runs `just release` only when the owner asks for that release.
 - **Agents send no personal data.** An agent that may make web requests is told to put no email address, name or other personal information in any request, header or URL.
 - **`docs/inventory/` describes the old API.** Use it to look up old behavior. DOC-04 lists the only places outside it that may point into it.
 

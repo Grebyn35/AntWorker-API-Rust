@@ -50,10 +50,8 @@ jobs:
         env:
           REPOSITORY: ${{ github.repository }}
 
-  # Every Monday: the registry keeps every release, edge, the prereleases of the last 90 days, and
-  # the images main published in the last 30. Older prerelease and sha-<commit> tags go, and so do
-  # the images that then have no tag, and the signatures of images that are gone. The action keeps
-  # each platform's image of an index it keeps.
+  # Every Monday: the registry's upkeep, which keeps the tags as long as
+  # docs/operations/release.md says. The action keeps each platform's image of an index it keeps.
   prune:
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '43 4 * * 1'
     runs-on: ubuntu-24.04

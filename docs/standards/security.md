@@ -90,7 +90,7 @@ An IP limit applies to every route except the health probes, before authenticati
 ## Supply chain
 
 ### SEC-13 Advisories block the build
-`cargo-deny` fails CI on any RustSec advisory affecting a dependency. Image scans fail CI on fixable critical or high vulnerabilities, in the image's operating system packages and in the crates its binary records: the scan of the image each pipeline run builds, and a weekly scan of the published images.
+`cargo-deny` fails CI on any RustSec advisory affecting a dependency. Image scans fail CI on fixable critical or high vulnerabilities, in the image's operating system packages and in the crates its binary records: the scan of the image each pipeline run builds, and a weekly scan of the published `edge` and of the newest release and prerelease.
 - Why: known vulnerabilities never ship (D21).
 - Check: `ci: deny`, plus `ci: image-scan` and `ci: image-rescan`.
 

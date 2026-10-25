@@ -1,6 +1,6 @@
 # CI
 
-CI runs on GitHub Actions, in three workflows that only orchestrate `just` tasks (OPS-12). Every action, image, runner and tool they use is pinned (OPS-13).
+CI runs on GitHub Actions, in workflows that only orchestrate `just` tasks (OPS-12). Every action, image, runner and tool they use is pinned (OPS-13).
 
 ## The pipeline
 
@@ -14,12 +14,12 @@ CI runs on GitHub Actions, in three workflows that only orchestrate `just` tasks
 | `publish` | On `main` only: `just publish`, which pushes that digest to the GitHub Container Registry as `sha-<commit>`, and moves `edge` to it while the commit is the head of `main` | `checks`, `verify` |
 | `release` | On `main` only: `just release-image`, which releases from that digest the version that `just release` asked for, if no release has it yet, as [release.md](release.md) describes | `publish` |
 
-A newer push to a pull request cancels the older run. Every run on `main` finishes, and the registry takes one write at a time, so `edge` never moves to an older commit. BuildKit's cache of the build tools and the compiled dependencies is kept between runs, keyed by the files that change them, and the build writes it back only when the key missed.
+A newer push to a pull request cancels the older run. On `main`, a run that has started finishes, and the registry takes one write at a time, so `edge` never moves to an older commit. While a run on `main` goes on, a newer push replaces a run that is still waiting, so a commit pushed in between gets no run, and no image, of its own; the newer run builds a commit that holds it. BuildKit's cache of the build tools and the compiled dependencies is kept between runs, keyed by the files that change them, and the build writes it back only when the key missed.
 
 `scheduled.yml` runs every day at 05:17 UTC, every Monday at 04:43 UTC, and on demand:
 - Every day, `just deny`, so an advisory published against a locked dependency fails CI without waiting for a push (SEC-13).
-- Every Monday, `just image-rescan`, which scans `edge` and the newest release again (SEC-13).
-- Every Monday, the registry's upkeep. The registry keeps every release, `edge`, the prereleases of the last 90 days, and every image that `main` published in the last 30 days. Older prerelease and `sha-<commit>` tags go, and so do the images left with no tag, and the signatures of images that are gone. A pinned action does it, and keeps each platform's image of an index it keeps. If GitHub refuses the deletions, the package's settings grant the repository the Admin role under "Manage Actions access".
+- Every Monday, `just image-rescan`, which scans `edge`, and the newest release and the newest prerelease, again (SEC-13).
+- Every Monday, the registry's upkeep: it deletes the tags older than [release.md](release.md#where-it-is-published) keeps them, then the images left with no tag, and the signatures of images that are gone. A pinned action does it, and keeps each platform's image of an index it keeps. If GitHub refuses the deletions, the package's settings grant the repository the Admin role under "Manage Actions access".
 
 `just setup` writes `.env` with generated passwords, and the tests start Postgres through Compose with them, as they do on a developer's machine (TEST-11). A job that only runs the tools Compose holds runs `just env` instead, which writes `.env` alone, because Compose reads it.
 
@@ -52,7 +52,7 @@ On a developer's machine, `just ci` runs what CI runs: `just checks`, `just imag
 
 `check-docs` doesn't cover two of the rules that name it: the names of other codebases (DOC-04), and accepted architecture decision records (ADRs), whose check waits for the first ADR (DOC-11). Review enforces both until then.
 
-`image-scan` and `image-rescan` run Grype, which reads the packages of the image's base, and the crates that cargo-auditable records in the binary. `e2e` pushes the image layout to the registry that Compose runs on 127.0.0.1:5001, and the tests run the image from there by the digest of its platform's image, against the Postgres that `just services` starts. They compile only with the `e2e` feature of the `app` crate, which `just e2e` and `just lint` turn on, so `just test` needs no image. `just e2e linux/arm64` runs the arm64 image on a machine that can run its binaries, as Docker Desktop can, and as CI's runner can once QEMU is installed. `publish`, `release-image`, `verify-release` and `image-rescan` sign in to the registry with the runner's credentials, so they run only in CI.
+`image-scan` and `image-rescan` run Grype, which reads the packages of the image's base, and the crates that cargo-auditable records in the binary. `e2e` pushes the image layout to the registry that Compose runs on 127.0.0.1:5001, and the tests run the image from there by the digest of its platform's image, against the Postgres that `just services` starts. They compile only with the `e2e` feature of the `app` crate, which `just e2e` and `just lint` turn on, so `just test` needs no image. `just e2e linux/arm64` runs the arm64 image on a machine that can run its binaries, as Docker Desktop can, and as CI's runner can once QEMU is installed. `publish`, `release-image` and `image-rescan` sign in to the registry with the runner's credentials, so they run only in CI. `verify-release` needs only a sign-in to the registry, so anyone who can pull the image can run it, on Linux or macOS.
 
 Builds check queries against the query cache committed in `.sqlx/` (DATA-20), so a query missing from the cache fails `lint` and `test`. `just prepare` rewrites the cache from the migrated database.
 
@@ -60,15 +60,16 @@ A `ci:` check that a rule names but that isn't listed in the table above doesn't
 
 ## Dependency updates
 
-Each week, Dependabot opens pull requests for the pins it can read, as `.github/dependabot.yml` configures: the crates, the actions, the images in the Dockerfile and in `compose.yaml`, and the toolchain in `rust-toolchain.toml`. Each runs the whole pipeline before it can merge. `compose.yaml` holds the images the tasks run, such as Grype's and BuildKit's, so that these updates reach them.
+Each week, Dependabot opens pull requests for the pins it can read, as `.github/dependabot.yml` configures: the crates, the actions, the images in the Dockerfile and in `compose.yaml`, and the toolchain in `rust-toolchain.toml`. Each runs the whole pipeline, as every pull request does. `compose.yaml` holds the images the tasks run, such as Grype's and BuildKit's, so that these updates reach them.
 
 These pins are updated by hand, and `check-pins` checks their form:
 - the versions of the tools in the justfile, and of `just` in the workflows;
+- the runner's version in the workflows, such as `ubuntu-24.04`;
 - in the Dockerfile, the frontend on its first line, the zig download with its checksums, and the versions of the crates it installs.
 
 ## Checks required for merging
 
-A pull request merges only once these jobs of `ci.yml` pass: `checks`, `image` and `verify`. `publish` and `release` run only on `main`, so no pull request has them.
+These are the jobs of `ci.yml` to require before a pull request merges: `checks`, `image` and `verify`. `publish` and `release` run only on `main`, so no pull request has them.
 
 To require them on GitHub, open the repository's Settings, then either:
 - Rules, Rulesets, New branch ruleset: target the default branch, turn on "Require status checks to pass", and add `checks`, `image` and `verify`.

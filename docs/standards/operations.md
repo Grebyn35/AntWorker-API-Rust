@@ -88,17 +88,17 @@ Every CI step that builds, checks, publishes or releases runs a `just` task. The
 ### OPS-13 Everything is pinned
 The toolchain comes from `rust-toolchain.toml`, in CI and in the image's build. Actions are pinned by commit SHA, images by digest, downloads by checksum, the crates the image's build installs by exact version with `--locked`, and the runner by version. The images the tasks run are pinned in `compose.yaml`, beside the services' images. The other tools the tasks use, such as cargo-deny and watchexec, are pinned by version in the justfile: `just setup` checks them, and CI installs them from it. `just` itself is the exception: CI installs it before any task can run, so the workflows pin its version too. Dependabot proposes updates to the pins it can read, and `docs/operations/ci.md` lists the ones updated by hand.
 - Why: a build today is reproducible tomorrow, and a pin moves only in a change that CI checks (D21).
-- Check: `ci: check-pins`.
+- Check: `ci: check-pins`, plus `review` (an image or a download that a recipe or a workflow's `run:` step names, which `check-pins` doesn't read, and the list in `docs/operations/ci.md` of the pins updated by hand).
 
 ### OPS-14 Build once, then promote that digest
-Each pipeline run builds the image once, for linux/amd64 and linux/arm64, with its software bill of materials (SBOM) and its provenance attached. Every later step scans, boots, tests and publishes that same digest: on `main`, as `sha-<commit>`, and as `edge` while the commit is the head of `main`. `just release` asks for a release: it sets the app's version, refusing one that doesn't come after every release, and commits it. The first run on `main` that then passes with that version releases it, unless a release has it already: it gives the digest the version's tag, `X.Y.Z`, or `X.Y.Z-rc.N` for a prerelease, signs it, and only then tags the commit `vX.Y.Z`. A version that no `just release` asked for releases nothing. Nothing is rebuilt.
+Each pipeline run builds the image once, for linux/amd64 and linux/arm64, with its software bill of materials (SBOM) and its provenance attached. Every later step scans, boots, tests and publishes that same digest: on `main`, as `sha-<commit>`, and as `edge` while the commit is the head of `main`. `just release` asks for a release: it sets the app's version, refusing one that doesn't come after every release, and commits it. The first run on `main` that then passes with that version releases it, unless a release has it already: it gives the digest the version's tag, `X.Y.Z`, or `X.Y.Z-rc.N` for a prerelease, signs it, and only then tags the commit `v<version>`, such as `v1.4.0` or `v1.4.0-rc.1`. A version that no `just release` asked for releases nothing. Nothing is rebuilt.
 - Why: what ships is exactly what was tested, and a release is always a commit that passed every check (D15, D21).
 - Check: `review` (the workflows' structure), `ci: e2e` (each platform's image boots), `ci: verify-release` (the version's tag names the tested digest, signed by the run on `main`, with the SBOM and provenance of both platforms), plus `test` (what `just release` refuses).
 
 ### OPS-15 The image is minimal and unprivileged
 One image serves every subcommand. It holds the API's static binary on a base with no shell, no package manager and no C library, which provides the operating system's certificate store and time zone data. It runs as a non-root user with a read-only root filesystem, and has a `HEALTHCHECK`, which runs the `health` subcommand (PLATFORM-044).
 - Why: a small attack surface, and the same artifact everywhere.
-- Check: `ci: image-scan` (no vulnerability that has a fix and is rated high or critical), plus `ci: e2e` (every subcommand runs from the image as its user on a read-only root, and the health check reports a serving instance healthy).
+- Check: `ci: image-scan` (no vulnerability that has a fix and is rated high or critical), plus `ci: e2e` (bootstrap, migrate and serve run from the image as its user on a read-only root, and the health check, which runs `health`, reports the serving instance healthy).
 
 ## Deploy and recovery
 

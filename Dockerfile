@@ -22,10 +22,10 @@ FROM zig-$BUILDARCH AS zig
 FROM --platform=$BUILDPLATFORM rust:1.99.1-slim-trixie@sha256:1a939748a7cbab172de91a014e3804a97af1394a8c844faa67fce9401c4e40fb AS tools
 COPY --from=zig /zig /opt/zig
 ENV PATH=/opt/zig:$PATH
-RUN cargo install --locked cargo-zigbuild@0.24.0 cargo-auditable@0.7.7 cargo-chef@0.1.78
 WORKDIR /src
 COPY rust-toolchain.toml .
 RUN rustup toolchain install && rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+RUN cargo install --locked cargo-zigbuild@0.24.0 cargo-auditable@0.7.7 cargo-chef@0.1.78
 
 FROM tools AS planner
 COPY . .
@@ -48,9 +48,10 @@ FROM gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be
 ARG TARGETARCH
 COPY --from=build /out/$TARGETARCH/antworker-api /usr/local/bin/antworker-api
 USER 65532:65532
-# health waits up to 3 seconds itself (PLATFORM-044), within the check's timeout. A one-shot
-# subcommand, such as migrate, serves nothing, so its checks fail; the start period keeps a short
-# run from being marked unhealthy.
+# health waits up to 3 seconds for the connection, and up to 3 for each read of the answer
+# (PLATFORM-044); a check that runs past its 5-second timeout fails. A one-shot subcommand, such
+# as migrate, serves nothing, so its checks fail; the start period keeps a short run from being
+# marked unhealthy.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --start-interval=1s --retries=3 \
     CMD ["/usr/local/bin/antworker-api", "health"]
 ENTRYPOINT ["/usr/local/bin/antworker-api"]

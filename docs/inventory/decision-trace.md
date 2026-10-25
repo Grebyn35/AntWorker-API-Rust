@@ -2,7 +2,7 @@
 
 Where each commitment in the recommendation text of D1 to D36 ([SYNTHESIS.md](SYNTHESIS.md)) is carried: by a rule in `docs/standards/`, a behavior or design section in `docs/spec/`, or `docs/architecture.md`. It checks a fixed list, so it converges: each commitment is carried, contradicted or not yet carried.
 
-Of 291 commitments, 230 are carried, 22 are refined or contradicted by the rules, 5 aren't yet carried in the first slice, and 29 wait for later steps.
+Of 291 commitments, 229 are carried, 23 are refined or contradicted by the rules, 5 aren't yet carried in the first slice, and 29 wait for later steps.
 
 ## Use
 
@@ -26,6 +26,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D22 | Traits exist only where there are two real implementations | ARCH-13 also allows traits that invert a dependency |
 | D25 | Each type's constructor trims | AUTH-003: a password isn't trimmed |
 | D15 | `vX.Y.Z` tags publish releases, and `vX.Y.Z-rc.N` tags prerelease images | OPS-14: `just release` sets the app's version, and the run on `main` that passes with it releases it and creates its tag `vX.Y.Z` or `vX.Y.Z-rc.N` |
+| D21 | Workflows are split by purpose: pull requests and `main`, release tags, and scheduled jobs | OPS-12: `ci.yml` for pull requests and `main`, whose runs on `main` also publish and release, and `scheduled.yml` for scheduled jobs |
 | D21 | A release tag attaches build provenance | OPS-14: the build attaches the SBOM and the provenance to every image, and a release signs the index that holds them |
 | D21 | The required checks are applied as branch protection by a script | OPS-12: `docs/operations/ci.md` lists the required checks and says how to require them; requiring them is the repository owner's choice, since a fork doesn't inherit branch protection and GitHub offers it for a private repository only on a paid plan |
 | D20 | Runtime threads come from configuration | OPS-02: the async runtime sizes itself to the CPUs the container may use, so no two deployments would set it differently, and it isn't a setting |

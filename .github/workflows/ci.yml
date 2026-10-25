@@ -8,8 +8,8 @@ on:
 permissions:
   contents: read
 
-# A newer push to a pull request replaces its run. Every run on main finishes, so each commit
-# that passes is published (OPS-14).
+# A newer push to a pull request replaces its run. A run on main that has started finishes, and
+# a newer push replaces one still waiting (docs/operations/ci.md).
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

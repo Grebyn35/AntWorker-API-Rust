@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** the conformance review of step 1.4, the image and the pipeline, which the commits after 63e2951 built, with the `conformance-review` skill. Its scope is those commits' changes: the Dockerfile, the workflows and Dependabot's configuration, the tools in `compose.yaml`, the justfile's image tasks, `just release` and the `release` job, `health` and `lifecycle::probe`, `check-pins`, the end-to-end tests, and the rules and documents they changed. The prerelease v0.1.0-rc.1 ran the release path once, end to end; the scheduled image jobs first run on a Monday. Each release is the owner's to start, because it makes the repository's name public in Sigstore's logs. Step 1.5 then builds the reference deployment, with Grafana on an HTTPS address and the path to a managed observability backend (D42).
+**Next:** the conformance review of step 1.4, the image and the pipeline, which the commits after 63e2951 built, with the `conformance-review` skill. Its scope is those commits' changes: the Dockerfile, the workflows and Dependabot's configuration, the tools in `compose.yaml`, the justfile's image tasks, `just release` and the `release` job, `health` and `lifecycle::probe`, `check-pins`, the end-to-end tests, and the rules and documents they changed. The prerelease v0.1.0-rc.1 ran the release path once, end to end; the scheduled image jobs first run on a Monday. Step 1.5 then builds the reference deployment, with Grafana on an HTTPS address and the path to a managed observability backend (D42).
 
 **Waiting on the owner:** nothing.
 
@@ -114,6 +114,8 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 
 | Rule or behavior | Built code that doesn't follow it | Closed by |
 |---|---|---|
+| OPS-18 | A release runs no load test, and has no result to carry in its notes: the load-test task isn't built | 1.5, with the load test |
+| DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 
 ## Rule proposals
 

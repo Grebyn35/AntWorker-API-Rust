@@ -32,7 +32,7 @@ version := replace_regex(read("crates/app/Cargo.toml"), '(?s)^.*?\nversion = "([
 buildkit_image := `docker compose config --images buildkit`
 sbom_generator_image := `docker compose config --images sbom-generator`
 # The builder the image builds in, one for each BuildKit image.
-image_builder := "antworker-" + sha256(buildkit_image)
+image_builder := "buildkit-" + sha256(buildkit_image)
 # A directory that keeps BuildKit's cache between runs of `just image`, as CI's cache does, and
 # whether the build writes its cache back there. CI writes it only when its cache missed.
 image_cache := env("IMAGE_CACHE", "")
@@ -349,9 +349,11 @@ release-image repository commit source:
         exit 0
     fi
     if latest=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "{{ commit }}" 2> /dev/null); then since="$latest..{{ commit }}"; else since="{{ commit }}"; fi
-    # Captured first: grep stops reading at the first match, which would fail git log's write.
+    # Captured first: grep stops reading at the first match, which would fail git log's write. The
+    # request matches as `asks_for` in crates/xtask/src/release.rs does: its subject alone, or with
+    # the number a squash merge appends.
     subjects=$(git log --format=%s "$since")
-    if ! grep --quiet --fixed-strings --line-regexp "Release $version" <<< "$subjects"; then
+    if ! grep --quiet --extended-regexp --line-regexp "Release ${version//./\\.}( \(#[0-9]+\))?" <<< "$subjects"; then
         echo "No commit since the latest release asks for the release of $version, so this commit is published but not released. To release it, run \`just release\`."
         exit 0
     fi
@@ -395,8 +397,9 @@ verify-release repository version digest source:
         done
     done
 
-# Scans the published images of `repository`, such as owner/name, again, `edge` and the newest
-# release, for vulnerabilities published since they were tested (SEC-13). The scheduled workflow
+# Scans the published images of `repository`, such as owner/name, again: `edge`, and the newest
+# release and the newest prerelease, for vulnerabilities published since they were tested
+# (SEC-13). The scheduled workflow
 # runs it every week, after a `docker login`.
 [unix]
 image-rescan repository:
@@ -407,8 +410,10 @@ image-rescan repository:
     # image's root, which can read it too, and write the database to the volume Compose made.
     crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
     grype() { docker compose run --rm --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker grype "$@"; }
-    newest=$(crane ls "$repository" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
-    for tag in edge $newest; do
+    tags=$(crane ls "$repository")
+    release=$(grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tags" | sort -V | tail -n 1 || true)
+    prerelease=$(grep -E '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' <<< "$tags" | sort -V | tail -n 1 || true)
+    for tag in edge $release $prerelease; do
         for platform in linux/amd64 linux/arm64; do
             grype "registry:$repository:$tag" --platform "$platform" --only-fixed --fail-on high
         done
