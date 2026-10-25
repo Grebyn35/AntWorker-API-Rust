@@ -338,7 +338,8 @@ release-image repository commit source:
     set -euo pipefail
     image={{ image_registry }}/{{ lowercase(repository) }}
     crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
-    cosign() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN cosign "$@"; }
+    # cosign keeps Sigstore's trust data in its home, which the runner's user can write only in /tmp.
+    cosign() { docker compose run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN cosign "$@"; }
     # An error annotation, which GitHub shows on the run's page.
     fail() { echo "::error::$1" >&2; exit 1; }
     version={{ version }}
@@ -376,7 +377,8 @@ verify-release repository version digest source:
     set -euo pipefail
     repository={{ image_registry }}/{{ lowercase(repository) }}
     crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
-    cosign() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker cosign "$@"; }
+    # cosign keeps Sigstore's trust data in its home, which the runner's user can write only in /tmp.
+    cosign() { docker compose run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker cosign "$@"; }
     tagged=$(crane digest "$repository:{{ version }}")
     if [ "$tagged" != "{{ digest }}" ]; then echo "{{ version }} is $tagged, not the tested {{ digest }}" >&2; exit 1; fi
     cosign verify --certificate-identity "{{ source }}/.github/workflows/ci.yml@refs/heads/main" \
@@ -401,10 +403,13 @@ image-rescan repository:
     #!/usr/bin/env bash
     set -euo pipefail
     repository={{ image_registry }}/{{ lowercase(repository) }}
-    run() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker "$@"; }
-    newest=$(run crane ls "$repository" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+    # crane runs as the runner's user, who alone can read the registry login. Grype runs as its
+    # image's root, which can read it too, and write the database to the volume Compose made.
+    crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
+    grype() { docker compose run --rm --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker grype "$@"; }
+    newest=$(crane ls "$repository" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
     for tag in edge $newest; do
         for platform in linux/amd64 linux/arm64; do
-            run grype "registry:$repository:$tag" --platform "$platform" --only-fixed --fail-on high
+            grype "registry:$repository:$tag" --platform "$platform" --only-fixed --fail-on high
         done
     done
