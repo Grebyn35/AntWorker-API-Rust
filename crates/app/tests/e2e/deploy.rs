@@ -39,7 +39,10 @@ async fn ops_16_a_release_whose_replicas_never_become_ready_is_removed_while_the
     let unready = deployment.image_from(
         &deployment.api,
         "unready",
-        r#"HEALTHCHECK --interval=1s --retries=2 CMD ["/usr/local/bin/antworker-api", "openapi", "/proc/unwritable"]"#,
+        &format!(
+            r#"HEALTHCHECK --interval=1s --retries=2 CMD ["{}", "openapi", "/proc/unwritable"]"#,
+            deployment.api_binary()
+        ),
     );
     deployment
         .server
@@ -280,4 +283,60 @@ async fn ops_16_a_deploy_gives_the_bundled_database_its_own_secrets_once_the_set
         deployment.url("https", 443, "/v1/capabilities"),
     );
     assert_eq!(status, 200);
+}
+
+#[tokio::test]
+async fn ops_16_a_deploy_refuses_a_managed_database_while_its_urls_name_the_bundled_one() {
+    let deployment = Deployment::bundled(&[]);
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    deployment.set(&[("DATABASE", "managed")]);
+
+    let refused = deployment.apply(&deployment.api, &[]).await;
+
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains("names the bundled database"),
+        "{}",
+        lossy(&refused)
+    );
+    assert_eq!(deployment.server.running("postgres").len(), 1);
+}
+
+#[tokio::test]
+async fn ops_16_a_deploy_that_leaves_the_bundled_database_stops_it_and_its_backups_status() {
+    let deployment = Deployment::managed(&[]).await;
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    let mut bundled = vec![("DATABASE", "bundled")];
+    let bucket = deployment.server.start_bucket();
+    bundled.extend(
+        bucket
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str())),
+    );
+    deployment.set(&bundled);
+    let second = deployment.apply(&deployment.api, &[]).await;
+    assert!(second.status.success(), "{}", lossy(&second));
+    // Back to the managed database, whose URLs the move to the bundled one kept aside.
+    deployment.server.shell_ok(&format!(
+        "cd {DEPLOYMENT}/secrets && for name in database_url database_owner_url database_admin_url; \
+         do mv $name.before-bundled $name; done"
+    ));
+    deployment.set(&[]);
+
+    let third = deployment.apply(&deployment.api, &[]).await;
+
+    assert!(third.status.success(), "{}", lossy(&third));
+    assert!(deployment.server.running("postgres").is_empty());
+    assert!(deployment.server.running("backup").is_empty());
+    let status = deployment
+        .server
+        .shell_ok("ls -A /var/lib/docker/volumes/deployment_backup-status/_data");
+    assert_eq!(status, "", "the backups' status files that stayed");
+    let (served, _) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/capabilities"),
+    );
+    assert_eq!(served, 200);
 }

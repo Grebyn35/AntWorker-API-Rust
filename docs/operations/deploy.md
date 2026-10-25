@@ -41,15 +41,16 @@ The deployment's files live in `~/deployment` of the user SSH signs in as. On th
    ```
    mkdir -p ~/deployment/secrets && chmod 700 ~/deployment/secrets
    ```
-3. Write `~/deployment/settings.env` from [deploy/settings.env.example](../../deploy/settings.env.example), which lists every setting with its meaning. Set at least `IMAGE_REPOSITORY`, `SOURCE`, `API_ADDRESS`, with the bundled database the bucket's `BACKUP_S3_ENDPOINT`, `BACKUP_S3_REGION` and `BACKUP_S3_BUCKET`, and with the self-hosted stack `GRAFANA_ADDRESS`; a deploy refuses settings without them.
+3. Write `~/deployment/settings.env` from [deploy/settings.env.example](../../deploy/settings.env.example), which lists every setting with its meaning. Set at least `IMAGE_REPOSITORY`, `SOURCE`, `API_ADDRESS`, with the bundled database the bucket's `BACKUP_S3_ENDPOINT`, `BACKUP_S3_REGION` and `BACKUP_S3_BUCKET`, with the self-hosted stack `GRAFANA_ADDRESS`, and with a managed backend `MANAGED_OTLP_ENDPOINT` and `MANAGED_OTLP_USER`; a deploy refuses settings without them.
 4. Write the secrets the operator holds into `~/deployment/secrets/`, one value per file, with nothing else in it:
    - With the bundled database: `backup_s3_key` and `backup_s3_key_secret`, the bucket's key pair, and `backup_cipher_pass`, the passphrase that encrypts the backups, such as the output of `openssl rand -base64 48`. Keep a copy of the passphrase off the server: without it, no backup can be restored ([backups.md](backups.md#what-to-keep-off-the-server)).
    - With a managed database: `database_admin_url`, `database_owner_url` and `database_url`, as `.env.example` describes `DATABASE_ADMIN_URL`, `DATABASE_OWNER_URL` and `DATABASE_URL`, each with `sslmode=verify-full` (OPS-20).
+   - With a managed backend: `managed_otlp_token`, the token the collector signs in with ([observability.md](observability.md#a-managed-backend)).
 
    The deploy writes the others the first time the services need them: the bundled database's passwords and the URLs made from them, and Grafana's administrator password. When `DATABASE` moves from `managed` to `bundled`, the deploy moves the managed database's URLs aside, to `<name>.before-bundled`, and writes the bundled one's. Compose mounts each secret file into the containers that read it, where any user of the container can read it, so write each file readable by every user, as `umask 022` does; the directory itself admits only its owner.
 5. With a bucket of the operator's own whose certificate a private authority signed, put that authority's certificate at `~/deployment/certs/backup-ca.crt`.
 
-Then deploy a release from your machine, as below. The first deploy creates the backups' stanza in the bucket, pgBackRest's record of the database it backs up, and takes the first full backup.
+Then deploy a release from your machine, as below. The first deploy that runs the bundled database creates the backups' stanza in the bucket, pgBackRest's record of the database it backs up, and takes the first full backup.
 
 ## Deploying a release
 
@@ -105,12 +106,12 @@ exceeds `POSTGRES_MAX_CONNECTIONS` less the 3 connections Postgres reserves for 
 
 ## Choosing the services
 
-Each service the API depends on is bundled or a provider's, chosen by one setting, with no file to edit; [deploy/settings.env.example](../../deploy/settings.env.example) gives each one's default. The deploy runs only the services the choice needs, and the API's settings change only in the addresses and credentials they hold.
+Each service the API depends on is bundled or a provider's, chosen by one setting, with no file to edit; [deploy/settings.env.example](../../deploy/settings.env.example) gives each one's default. The deploy runs only the services the choice needs, and stops the ones an earlier choice started once no replica uses them: their volumes stay, with the bundled database's data, while its backups' status goes, so no alert watches backups the deployment doesn't take. Before `DATABASE` moves to `managed`, write the managed database's URLs into `secrets/`: the deploy refuses while `database_url` names the bundled database. The API's settings change only in the addresses and credentials they hold.
 
 | Setting | Values | What runs |
 |---|---|---|
 | `DATABASE` | `bundled` | Postgres and its backups, on the server ([backups.md](backups.md)) |
-| | `managed` | Nothing: the API connects to a provider's Postgres, which must back it up with point-in-time recovery, as OPS-17 requires, and encrypt what it stores, as OPS-20 does |
+| | `managed` | Nothing: the API connects to a provider's Postgres, which must back it up with point-in-time recovery, which restores the database as it stood at any moment it reaches, as OPS-17 requires, and encrypt what it stores, as OPS-20 does |
 | `TELEMETRY` | `self-hosted` | The collector, Prometheus, Loki, Tempo, Alertmanager, and Grafana at `GRAFANA_ADDRESS` |
 | | `managed` | The collector alone, which sends every signal to a managed backend ([observability.md](observability.md#a-managed-backend)) |
 | | `off` | Nothing: the API's logs go only to its containers' output |
@@ -125,16 +126,16 @@ Caddy replaces each request's `X-Forwarded-For` with the address it came from, s
 
 ## Grafana
 
-With the self-hosted stack, Grafana answers at `https://<GRAFANA_ADDRESS>`. Sign in as `admin`, with the password in `~/deployment/secrets/grafana_admin_password`, which the first deploy wrote; Grafana reads it only the first time it starts, so change it in Grafana afterwards. Add every other viewer as a user in Grafana: nobody views it anonymously, and nobody signs up (SEC-18). The dashboards are read-only, and change only through their files (OBS-13).
+With the self-hosted stack, Grafana answers at `https://<GRAFANA_ADDRESS>`. Sign in as `admin`, with the password in `~/deployment/secrets/grafana_admin_password`, which the first deploy with the self-hosted stack wrote; Grafana reads it only the first time it starts, so change it in Grafana afterwards. Add every other viewer as a user in Grafana: nobody views it anonymously, and nobody signs up (SEC-18). The dashboards are read-only, and change only through their files (OBS-13).
 
 ## The files on the server
 
 | Path in `~/deployment` | Holds | Written by |
 |---|---|---|
 | `settings.env` | The deployment's settings | the operator |
-| `secrets/` | One secret per file | the operator, and the first deploy |
-| `certs/backup-ca.crt` | The authority of a private bucket's certificate, if any | the operator |
-| `compose.yaml`, `deploy.sh`, `caddy/`, `observability/`, `tools/` | The deployment files of the release that the last finished deploy installed: a deploy that refuses or fails once it installed its own puts these back | each deploy |
+| `secrets/` | One secret per file | the operator, and the first deploy that needs each generated one |
+| `certs/backup-ca.crt`, `certs/managed-otlp-ca.crt` | The authority of a private bucket's certificate, and of a managed backend's, if any | the operator |
+| `compose.yaml`, `deploy.sh`, `verify-release.sh`, `settings.env.example`, `caddy/`, `observability/`, `tools/` | The deployment files of the release that the last finished deploy installed: a deploy that refuses or fails once it installed its own puts these back | each deploy |
 | `releases/<version>/` | Each deployed release's files, as `just deploy` copied them | `just deploy` |
 | `state/` | Which color serves, the images each color runs, Caddy's sites and replicas, and the files each service of the stack last read | each deploy |
 

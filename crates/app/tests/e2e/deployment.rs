@@ -198,6 +198,16 @@ impl Deployment {
         }
     }
 
+    /// The path of the API's binary in its image under test, its entry point, so a test names
+    /// no binary of its own.
+    pub fn api_binary(&self) -> String {
+        self.server.shell_ok(&format!(
+            "docker pull --quiet {api} > /dev/null \
+             && docker image inspect --format '{{{{index .Config.Entrypoint 0}}}}' {api}",
+            api = self.api
+        ))
+    }
+
     /// The image `base`, such as the API's under test, with the Dockerfile `instructions` added,
     /// built on the server and pushed to Compose's registry as `name`. Returns it by its digest.
     pub fn image_from(&self, base: &str, name: &str, instructions: &str) -> String {

@@ -4,7 +4,7 @@
 # collector's own metrics and turning resource attributes into labels, and sends every signal to
 # the backend's OTLP endpoint, which MANAGED_OTLP_ENDPOINT names, signed in as MANAGED_OTLP_USER
 # with the token in the secret file managed_otlp_token. docs/operations/observability.md describes the path,
-# with Grafana Cloud as the worked example.
+# for a backend such as Grafana Cloud.
 
 extensions:
   basicauth/managed:

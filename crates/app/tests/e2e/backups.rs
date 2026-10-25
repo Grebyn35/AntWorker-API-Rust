@@ -129,7 +129,10 @@ async fn ops_17_a_restore_after_a_failed_deploy_migrates_with_the_live_release()
     let broken = deployment.image_from(
         &deployment.api,
         "broken",
-        r#"ENTRYPOINT ["/usr/local/bin/antworker-api", "no-such-subcommand"]"#,
+        &format!(
+            r#"ENTRYPOINT ["{}", "no-such-subcommand"]"#,
+            deployment.api_binary()
+        ),
     );
     let failed = deployment.apply(&broken, &[]).await;
 

@@ -145,13 +145,17 @@ impl Drop for Container {
             Command::new("docker")
                 .args(["rm", "--force", "--volumes", &self.id])
                 .output()
-                .expect("run docker rm")
         };
-        let first = remove();
-        if first.status.success() || std::thread::panicking() {
+        // A test that panicked reports its own failure, which a second panic would abort.
+        if std::thread::panicking() {
+            let _removed = remove();
             return;
         }
-        let second = remove();
+        let first = remove().expect("run docker rm");
+        if first.status.success() {
+            return;
+        }
+        let second = remove().expect("run docker rm");
         let gone = !Command::new("docker")
             .args(["inspect", "--format", "{{.Id}}", &self.id])
             .output()

@@ -217,12 +217,8 @@ read_settings() {
     esac
 }
 
-# Fails unless the connections that every replica of both colors opens, with migrate's, fit within
-# what Postgres allows to roles that aren't superusers: all but the 3 it reserves for superusers
-# (OPS-21). The bundled database's bootstrap and backups connect as its superuser, so they use
-# those 3: one connection each, of a deploy's first backup, then its bootstrap, beside the
-# scheduled backup's. On a managed database, bootstrap runs before the new color starts, while only the
-# live one runs.
+# Fails unless the connections of both colors' replicas and of migrate fit within what Postgres
+# allows the roles that aren't superusers, as docs/operations/deploy.md's Scaling says (OPS-21).
 check_connections() {
     needed=$((2 * replicas * (pool + 1) + 1))
     allowed=$((connections - 3))
@@ -268,6 +264,11 @@ write_secrets() {
     for name in database_url database_owner_url database_admin_url; do
         if [ ! -f "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
     done
+    # Replicas that a deploy to a managed database starts with the bundled database's URLs would use
+    # the bundled Postgres, which the deploy then stops.
+    if [ "$database" = managed ] && grep -q '@postgres:5432/api$' "$secrets/database_url"; then
+        fail "$secrets/database_url names the bundled database; write the managed database's URLs into database_admin_url, database_owner_url and database_url first (docs/operations/deploy.md)"
+    fi
     if [ "$database" = bundled ]; then
         for name in backup_s3_key backup_s3_key_secret backup_cipher_pass; do
             if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
@@ -329,9 +330,13 @@ write_caddy_state() {
     echo "$upstreams" > "$state/caddy/upstreams"
 }
 
-# The services that would restart, because their configuration differs from the running ones'.
+# The services that run once and would restart, because their configuration differs from the
+# running ones'. The bundled Postgres counts only while the settings choose it: otherwise the deploy
+# stops it instead.
 changed_single_services() {
-    for service in caddy postgres; do
+    services=caddy
+    if [ "$database" = bundled ]; then services="caddy postgres"; fi
+    for service in $services; do
         container=$(running "$service")
         if [ -z "$container" ]; then continue; fi
         current=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.config-hash" }}' "$container")
@@ -361,7 +366,7 @@ roll_back() {
 }
 
 # Prepares pgBackRest's stanza in the bucket, and takes the first full backup, so a restore can
-# reach any moment from the first deploy on.
+# reach any moment from the first deploy that runs the bundled database on.
 prepare_backups() {
     status=0
     compose exec -T --user postgres postgres pgbackrest --stanza=db stanza-create || status=$?
@@ -475,21 +480,30 @@ apply() {
     say "deployed $api_image: $replicas $target replicas serve"
 }
 
-# Stops the services that an earlier DATABASE or TELEMETRY started and the settings no longer
-# choose, once no replica uses them. Their volumes, with the bundled database's data, stay.
+# Stops the services that an earlier DATABASE or TELEMETRY started and the settings don't
+# choose, once no replica uses them. Their volumes, with the bundled database's data, stay, but
+# the bundled database's backup status goes with it, so no alert watches backups that the
+# deployment doesn't take.
 stop_unused_services() {
     unused=""
     if [ "$database" != bundled ]; then unused="$unused postgres backup"; fi
     if [ "$telemetry" != self-hosted ]; then unused="$unused collector prometheus alertmanager loki tempo grafana"; fi
     if [ "$telemetry" != managed ]; then unused="$unused collector-managed"; fi
+    left=""
     for service in $unused; do
         container=$(running "$service")
         if [ -z "$container" ]; then continue; fi
         say "stopping $service, which DATABASE=$database and TELEMETRY=$telemetry don't use; its volumes stay"
+        if [ "$service" = postgres ]; then left=$(docker inspect --format '{{ .Config.Image }}' "$container"); fi
         # As long as Compose would give Postgres, the longest of the services' grace periods.
         docker stop --time 60 "$container" > /dev/null
         docker rm "$container" > /dev/null
     done
+    # Postgres archives its last segment as it stops, which sets a status file, so the status
+    # goes once it has stopped, from a container of the image it ran.
+    if [ -n "$left" ]; then
+        docker run --rm --volume "${project}_backup-status:/var/lib/backup-status" --entrypoint sh "$left"             -c 'rm -f /var/lib/backup-status/*'
+    fi
 }
 
 deploy_release() {

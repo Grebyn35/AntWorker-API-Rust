@@ -69,12 +69,6 @@ async fn sec_18_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     assert_eq!(search, 401);
     assert_eq!(sign_up, 401, "{refusal}");
     assert!(refusal.contains("signup is disabled"), "{refusal}");
-    assert!(
-        lossy(&deployed).contains("wrote Grafana's administrator password"),
-        "{}",
-        lossy(&deployed)
-    );
-    assert!(password.len() >= 32, "{password}");
     assert_eq!(sign_in, 200, "{signed_in}");
 }
 

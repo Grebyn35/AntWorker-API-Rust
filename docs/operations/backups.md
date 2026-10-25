@@ -7,7 +7,7 @@ The reference deployment's bundled Postgres is backed up continuously, to a buck
 pgBackRest, in the release's Postgres image, backs up the bundled database in two ways:
 
 - **The write-ahead log**, Postgres's record of every change, is archived to the bucket as each segment of it, 16 megabytes, fills, and at least once a minute while the database changes: Postgres runs `pgbackrest archive-push` for each segment, and keeps the segment until the archive succeeds.
-- **Base backups**, copies of the whole database, are taken by the `backup` service every day at `BACKUP_HOUR` o'clock UTC: a full backup on Sundays, and a differential one, of what changed since the last full backup, on the other days. The first deploy takes the first full backup.
+- **Base backups**, copies of the whole database, are taken by the `backup` service every day at `BACKUP_HOUR` o'clock UTC: a full backup on Sundays, and a differential one, of what changed since the last full backup, on the other days. The first deploy that runs the bundled database takes the first full backup.
 
 A restore starts from the newest base backup before the moment it restores to, and replays the archived log up to that moment. The bucket keeps the backups and the log that reach back `BACKUP_RETENTION_DAYS` days: a full backup expires only once a newer one is that old, so the full backups that `just backup` and the restores take never shorten the reach.
 
@@ -20,7 +20,7 @@ The backups don't hold the deployment's settings and secrets, which the next sec
 | Target | The reference deployment's |
 |---|---|
 | Data lost when the server is lost | At most the changes of the last minute, plus however long the last archive took to reach the bucket |
-| Moments a restore reaches | Any moment from `BACKUP_RETENTION_DAYS` days ago, or the first deploy if that came later, to the last archived change |
+| Moments a restore reaches | Any moment from `BACKUP_RETENTION_DAYS` days ago, or from the first deploy that ran the bundled database if that came later, to the last archived change |
 | Time a restore takes | The time to download the newest base backup before the moment, and to replay the log from it to the moment, which the daily base backup bounds to a day of changes. The database is unavailable meanwhile |
 
 The time a restore takes grows with the database and with its rate of change, so measure it on the server, as [Restoring onto a new server](#restoring-onto-a-new-server) does.
@@ -64,6 +64,12 @@ The data that the restore replaced stays in the volume, so a restore can be undo
 docker run --rm --volume deployment_postgres:/data --entrypoint rm "$(sed -n 's/^POSTGRES_IMAGE=//p' ~/deployment/state/deploy.env)" -r /data/18/before-restore-20261025T104131Z
 ```
 
+A restore that fails once it moved the data directory aside leaves Postgres stopped, and the API with it; its output says why. Fix the cause, such as a moment that the backups don't reach, and run the restore again, which moves aside what it finds in turn. To go back to the data as it was instead, put the directory back, and deploy the live release again, which starts Postgres:
+
+```
+docker run --rm --volume deployment_postgres:/data --entrypoint sh "$(sed -n 's/^POSTGRES_IMAGE=//p' ~/deployment/state/deploy.env)" -c 'rm -rf /data/18/docker && mv /data/18/before-restore-20261025T104131Z /data/18/docker'
+```
+
 ### Restoring onto a new server
 
 After losing the server, set up a new one as [deploy.md](deploy.md#setting-up-a-server) says, with the same `settings.env` and the copies of `secrets/`, and deploy the release that ran. The deploy stops before its replicas start, because the new server's database, which Postgres has just created empty, isn't the one whose backups the bucket holds: pgBackRest refuses it. Then run `just restore` without a moment, and `just deploy` again. CI does the same, on a new server of its own set up from a lost one's settings, secrets and bucket, and checks that the first deploy stops before any replica starts, and that the deploy after the restore serves the lost server's data (OPS-17).
@@ -78,7 +84,7 @@ Keep a copy of these where the server's loss doesn't reach them, such as a passw
 
 ## Alerts
 
-Two alerts watch the backups, from the times that the `pgbackrest` wrapper and the `backup` service set on files of the volume `deployment_backup-status`, which the collector reads (OBS-14):
+Two alerts watch the backups, from the times that the `pgbackrest` wrapper and the `backup` service set on files of the volume `deployment_backup-status`, which the collector reads (OBS-14). With `TELEMETRY=off`, no collector runs, so nothing watches the backups: read `docker compose logs backup` on the server instead.
 
 - [BackupArchivingFailing](runbooks.md#backuparchivingfailing) pages when an archive of the write-ahead log has failed more recently than one succeeded, for five minutes.
 - [BaseBackupTooOld](runbooks.md#basebackuptooold) opens a ticket when no base backup has completed for 26 hours.
