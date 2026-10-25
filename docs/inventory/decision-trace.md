@@ -63,7 +63,7 @@ Modules carry their own; the build order step of each other area is in parenthes
 | `auth` | the ADR on accepted enumeration (D7); forgot-password answers 503 with email off (D9); the OAuth redirect allowlist (D18); password reset that sets the first password of an account created without one, and verifies its address (the `workspaces` spec's setup subcommand, D39) |
 | `accounts` | deletion refused while the user owns a shared workspace, sole-member workspaces deleted with the account, and the ADR on immediate deletion (D16); the export endpoint, one per 24 hours, its archive, notice and download, and the optional erasure precondition (D31) |
 | `files` | a bucket for anonymous public-file downloads (D11) |
-| Deploy and CI (1.5 and 2.4) | Caddy's trusted proxies (D11); TLS everywhere and storage encrypted at rest (D14, queued); alerts that don't depend on the deploy tooling (D15); Compose memory and CPU limits (D20); shellcheck, with the deploy tooling's scripts (D21); the OpenAPI UI in development only, in step 2.4 (D28) |
+| Deploy and CI (1.5 and 2.4) | Caddy's trusted proxies (D11); TLS everywhere and storage encrypted at rest (D14, queued); alerts that don't depend on the deploy tooling (D15); Compose memory and CPU limits (D20); shellcheck, of the justfile's bash recipes and the deploy tooling's scripts (D21); the OpenAPI UI in development only, in step 2.4 (D28) |
 | Template (5, 6) | a GitHub template repository and `just new-module` (D29); the ADR on hard deletes (D24) |
 | Backups (1.5) | the backup tool, point-in-time recovery on managed Postgres, bucket versioning, and a separate backup of the secrets key (D30) |
 | Security (6) | the ASVS Level 2 conformance pass (D26) |

@@ -60,7 +60,7 @@ Inserts take their IDs from the column default, using `RETURNING`. Application c
 ### DATA-09 Forward-only migrations in one directory
 Migrations live in `migrations/` and run through the sqlx migrator. Each file is named `<timestamp>_<module>_<description>.sql`. A migration in a release is never edited. A migration that no release contains yet may be edited, and every database that applied it is then recreated, because `migrate` and `serve` refuse a database whose applied migration differs from its file (PLATFORM-029, PLATFORM-030). Migration files that tests use to exercise the migrator are test fixtures, not part of the product schema.
 - Why: the schema history is linear and verifiable by checksum (D15).
-- Check: `ci: check-migrations` (no applied file changed relative to the last release).
+- Check: `ci: check-migrations` (no applied file changed relative to the last final release).
 
 ### DATA-10 Expand, then contract
 A migration keeps the previous release working. A column or table is removed or renamed only after a release in which no code uses it.

@@ -117,7 +117,8 @@ fn settings(database: &TestDatabase) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn ops_15_one_image_runs_each_subcommand_as_a_non_root_user_on_a_read_only_root() {
+async fn ops_15_bootstrap_migrate_and_serve_run_from_one_image_as_a_non_root_user_on_a_read_only_root()
+ {
     let image = Image::pushed();
     let database = TestDatabase::empty().await;
     let network = postgres_network();

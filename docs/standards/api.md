@@ -127,7 +127,7 @@ Every response except the health probes (OBS-15), including streams and download
 ### API-18 `/v1` only grows
 Within `/v1`, changes are additive: new routes, new optional request fields, new response fields. Removing or changing anything existing requires `/v2`.
 - Why: a client built against `/v1` keeps working.
-- Check: `ci: check-openapi` (a breaking-change diff against the last release).
+- Check: `ci: check-openapi` (a breaking-change diff against the last final release).
 
 ### API-19 Event names and payloads
 Server-sent events (SSE) are named `<resource>.<past-tense verb>`, for example `member.removed`. A payload carries IDs and non-sensitive fields only. Clients fetch details over REST.

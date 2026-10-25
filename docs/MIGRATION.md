@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** the conformance review of step 1.4, the image and the pipeline, which the commits after 63e2951 built, with the `conformance-review` skill. Its scope is those commits' changes: the Dockerfile, the workflows and Dependabot's configuration, the tools in `compose.yaml`, the justfile's image tasks, `just release` and the `release` job, `health` and `lifecycle::probe`, `check-pins`, the end-to-end tests, and the rules and documents they changed. The prerelease v0.1.0-rc.1 ran the release path once, end to end; the scheduled image jobs first run on a Monday. Step 1.5 then builds the reference deployment, with Grafana on an HTTPS address and the path to a managed observability backend (D42).
+**Next:** step 1.5 of the build order, the reference deployment, in this order: the spec, the code test-first, and the conformance review. It brings Grafana on an HTTPS address of its own and the path to a managed observability backend (D42), the load test that closes the known gap of OPS-18, shellcheck for the justfile's bash recipes and the deploy tooling's scripts, and a deploy that takes a release by its version (architecture.md §9). Its first deploy needs a final release, which the owner starts with `just release`. The scheduled image jobs first run on a Monday.
 
 **Waiting on the owner:** nothing.
 
@@ -20,7 +20,7 @@ Every part of the system is listed under [Foundation](#foundation), [Modules](#m
    1. **Review tools:** the checker tool in `xtask`, the conformance reviewer and the handoff skill in `.claude/` (D27). The checker starts with `check-test-map`, which reports every behavior that no test proves, and `check-docs`, which fails on any ID or link that doesn't resolve (DOC-13), on a check a rule names that neither [operations/ci.md](operations/ci.md) nor [CI checks](#ci-checks) lists, and on a document whose format breaks DOC-15 or DOC-16.
    2. **Request pipeline:** problem responses with trace IDs, trace context in and out, the middleware stack except rate limiting, readiness and bounded shutdown, and the capabilities endpoint as the first `/v1` route, with `openapi.json`, against which the test support checks every response the integration tests receive. The step's conformance review also covers the built code it rewrites, which no review has covered yet: `main.rs`, `composition.rs`, `platform::telemetry` and `platform::lifecycle`.
    3. **Telemetry:** traces, logs and metrics exported over the OpenTelemetry Protocol (OTLP); the metric declarations; the collector, Prometheus, Loki, Tempo, Grafana and Alertmanager, with logs and traces linked both ways; the first dashboard questions and alerts; and the generated metric catalog. `just dev` runs the API with the stack one flag away.
-   4. **Image and pipeline:** the image, and CI that builds it once, scans it, boots it, runs the end-to-end suite against it, and promotes its digest, with signed releases on tags.
+   4. **Image and pipeline:** the image, and CI that builds it once, scans it, boots it, runs the end-to-end suite against it, and promotes its digest, with signed releases that `just release` asks for.
    5. **Reference deployment:** the production setup on one server, its deploy tooling, scheduled backups and restore, and the load test, with Grafana on an HTTPS address of its own and the path to a managed observability backend (D42). The end-to-end suite proves a deploy with no downtime, a rollback, a restore, and the trace-ID guarantee for a 4xx response (D10).
 2. **Thin slice.** Spec it, then build it test-first, each part extending the skeleton:
    1. `accounts`, `auth` and the `audit` writer, with authentication (`Principal` and `SessionVerifier`) and rate limiting: the IP and per-user limits and the per-email sign-in limit, built once with all three callers. It settles the `auth` items in [inventory/decision-trace.md](inventory/decision-trace.md), and extends the trace-ID guarantee to a 5xx response.
@@ -97,7 +97,7 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `check-openapi`, `check-instrument` | built |
 | `check-metrics`, `check-telemetry-config`, `alert-rules` | built |
 | `check-openapi`, for list shapes, methods, statuses, scopes and formats (API-02 to API-05, API-11) | 2.1, with the first routes that have them |
-| `check-openapi`, for the breaking-change diff (API-18, ERR-02) | the first release |
+| `check-openapi`, for the breaking-change diff (API-18, ERR-02) | the first final release |
 | `check-pins`, `image-scan`, `image-rescan`, `verify-release` | built |
 | `e2e` | built, and extended by every later step |
 | `check-layers`, `check-deps`, `check-schema` | 2.1, with the first service, the first call between modules and the first tables |
@@ -105,7 +105,7 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `check-layout`, `check-table-ownership`, `check-config`, `check-migrations`, `sqlx-check`, `setup-smoke` | 3 decides: built, or the rule's check changes |
 | `check-personal-data` | 5, with export and erasure in `accounts` |
 | `check-removable` | 2.3, with the first removal that leaves a workspace shape: `invitations`, for the personal shape |
-| `test-migrations` | 6, with the first release |
+| `test-migrations` | 6, with the first final release |
 | `check-rename` | 6, with `just rename` |
 
 ## Known gaps

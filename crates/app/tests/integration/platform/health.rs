@@ -1,6 +1,7 @@
 //! The health probes (OPS-05).
 
 use std::{
+    io::Write,
     net::{SocketAddr, TcpListener},
     process::Output,
     time::Duration,
@@ -192,4 +193,23 @@ async fn platform_044_health_exits_1_when_the_instance_doesn_t_answer_within_3_s
         format!("{address} didn't answer within 3 seconds")
     );
     drop(silent);
+}
+
+#[tokio::test]
+async fn platform_044_health_exits_1_when_the_answer_isn_t_http() {
+    // A server of another protocol on the address, which answers and hangs up.
+    let other = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = other.local_addr().unwrap();
+    let answered = std::thread::spawn(move || {
+        let (mut stream, _) = other.accept().unwrap();
+        stream.write_all(b"SSH-2.0-OpenSSH_9.9\r\n").unwrap();
+    });
+
+    let output = health(address).await;
+
+    assert_eq!(
+        failure(&output)["exception.message"],
+        format!("{address} didn't answer with HTTP")
+    );
+    answered.join().unwrap();
 }

@@ -364,6 +364,9 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |
 | File | Stored bytes plus metadata. A user file or a workspace file, each private or public. |
 | Personal data contract | A module's export and erasure of the personal data it stores (D31). |
+| Release | A version that `just release` asked for, which a run of CI on `main` then signed and tagged `v<version>` (OPS-14). A final release is `X.Y.Z`. A prerelease, `X.Y.Z-rc.N`, comes before the final release of the same number, and is a version to try: a final release fixes the HTTP contract, the error codes and the applied migrations (API-18, ERR-02, DATA-09), and a prerelease doesn't. |
+| Digest | The hash of an image's content, which names exactly that image. A tag can move to another image; a digest can't. |
+| Image index | The list in a registry that names one image's version for each platform, with each one's SBOM and provenance. A multi-platform image's digest is its index's. |
 | Capability | A feature that a deployment can turn off, which the capabilities endpoint lists with whether it is on (D9). |
 | Trace ID | The identifier, returned with every response except the health probes, that leads to a request's logs, and to its trace whenever the request ended in an error (D10). |
 | Personal data | In these documents: information that identifies a person directly, such as email addresses, names, avatars, IP addresses, user agents, file names and text a user writes. User and workspace IDs are pseudonymous. The General Data Protection Regulation (GDPR) still counts them as personal data, so export and erasure cover them (D31), but they may appear in telemetry and audit entries. |

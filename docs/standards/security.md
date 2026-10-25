@@ -65,7 +65,7 @@ All outbound HTTP that application code makes uses one of the two clients in `pl
 
 In the test environment only, the untrusted client accepts one configured loopback address, so tests can reach a fake provider. Startup refuses that setting in any other environment.
 - Why: no server-side request forgery, while every path stays testable (D26).
-- Check: `ci: check-layers` (no other HTTP client is built), plus `test` (including a test that the loopback setting is refused outside the test environment).
+- Check: `ci: check-layers` (no other HTTP client is built, apart from the probe of the `health` subcommand), plus `test` (including a test that the loopback setting is refused outside the test environment).
 
 ### SEC-10 Uploaded content can't run in a browser
 Stored files are served with:
@@ -90,7 +90,7 @@ An IP limit applies to every route except the health probes, before authenticati
 ## Supply chain
 
 ### SEC-13 Advisories block the build
-`cargo-deny` fails CI on any RustSec advisory affecting a dependency. Image scans fail CI on fixable critical or high vulnerabilities, in the image's operating system packages and in the crates its binary records: the scan of the image each pipeline run builds, and a weekly scan of the published `edge` and of the newest release and prerelease.
+`cargo-deny` fails CI on any RustSec advisory affecting a dependency. Image scans fail CI on fixable critical or high vulnerabilities, in the image's operating system packages and in the crates its binary records: the scan of the image each pipeline run builds, and a weekly scan of the published `edge`, the newest final release and the newest prerelease.
 - Why: known vulnerabilities never ship (D21).
 - Check: `ci: deny`, plus `ci: image-scan` and `ci: image-rescan`.
 

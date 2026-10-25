@@ -397,7 +397,7 @@ verify-release repository version digest source:
         done
     done
 
-# Scans the published images of `repository`, such as owner/name, again: `edge`, and the newest
+# Scans the published images of `repository`, such as owner/name, again: `edge`, the newest final
 # release and the newest prerelease, for vulnerabilities published since they were tested
 # (SEC-13). The scheduled workflow
 # runs it every week, after a `docker login`.

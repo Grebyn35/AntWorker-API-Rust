@@ -18,7 +18,7 @@ A newer push to a pull request cancels the older run. On `main`, a run that has 
 
 `scheduled.yml` runs every day at 05:17 UTC, every Monday at 04:43 UTC, and on demand:
 - Every day, `just deny`, so an advisory published against a locked dependency fails CI without waiting for a push (SEC-13).
-- Every Monday, `just image-rescan`, which scans `edge`, and the newest release and the newest prerelease, again (SEC-13).
+- Every Monday, `just image-rescan`, which scans `edge`, the newest final release and the newest prerelease again (SEC-13).
 - Every Monday, the registry's upkeep: it deletes the tags older than [release.md](release.md#where-it-is-published) keeps them, then the images left with no tag, and the signatures of images that are gone. A pinned action does it, and keeps each platform's image of an index it keeps. If GitHub refuses the deletions, the package's settings grant the repository the Admin role under "Manage Actions access".
 
 `just setup` writes `.env` with generated passwords, and the tests start Postgres through Compose with them, as they do on a developer's machine (TEST-11). A job that only runs the tools Compose holds runs `just env` instead, which writes `.env` alone, because Compose reads it.
@@ -42,7 +42,7 @@ On a developer's machine, `just ci` runs what CI runs: `just checks`, `just imag
 | Every alert has a severity, a runbook section and a test; promtool checks the rules and runs their tests | `alert-rules` | OBS-14 |
 | Actions pinned by commit SHA, runners by version, images by digest, downloads by checksum, and the crates the image's build installs by exact version; exact tool versions in the justfile, and the same `just` in the workflows; the toolchain only from `rust-toolchain.toml`; edition 2024 in every crate | `check-pins` | CODE-01, OPS-13 |
 | No vulnerability that has a fix and is rated high or critical, in either platform's image: in its operating system packages, and in the crates its binary records | `image-scan` | SEC-13, OPS-15 |
-| The same scan, every week, of `edge` and the newest release | `image-rescan` | SEC-13 |
+| The same scan, every week, of the images SEC-13 names | `image-rescan` | SEC-13 |
 | The end-to-end tests, against the image built from the commit | `e2e` | OPS-14, OPS-15, and the rules and behaviors they prove (TEST-04) |
 | A release's tag names the tested digest, which the run on `main` signed, with the SBOM and the provenance of both platforms | `verify-release` | OPS-14 |
 
@@ -52,7 +52,7 @@ On a developer's machine, `just ci` runs what CI runs: `just checks`, `just imag
 
 `check-docs` doesn't cover two of the rules that name it: the names of other codebases (DOC-04), and accepted architecture decision records (ADRs), whose check waits for the first ADR (DOC-11). Review enforces both until then.
 
-`image-scan` and `image-rescan` run Grype, which reads the packages of the image's base, and the crates that cargo-auditable records in the binary. `e2e` pushes the image layout to the registry that Compose runs on 127.0.0.1:5001, and the tests run the image from there by the digest of its platform's image, against the Postgres that `just services` starts. They compile only with the `e2e` feature of the `app` crate, which `just e2e` and `just lint` turn on, so `just test` needs no image. `just e2e linux/arm64` runs the arm64 image on a machine that can run its binaries, as Docker Desktop can, and as CI's runner can once QEMU is installed. `publish`, `release-image` and `image-rescan` sign in to the registry with the runner's credentials, so they run only in CI. `verify-release` needs only a sign-in to the registry, so anyone who can pull the image can run it, on Linux or macOS.
+`image-scan` and `image-rescan` run Grype, which reads the packages of the image's base, and the crates that cargo-auditable records in the binary. `e2e` pushes the image layout to the registry that Compose runs on 127.0.0.1:5001, and the tests run the image from there by the digest of its platform's image, against the Postgres that `just services` starts. They compile only with the `e2e` feature of the `app` crate, which `just e2e` and `just lint` turn on, so `just test` needs no image. `just e2e linux/arm64` runs the arm64 image on a machine that can run its binaries, as Docker Desktop can, and as CI's runner can once QEMU is installed. `publish`, `release-image` and `image-rescan` sign in to the registry with the runner's credentials, so they run only in CI. `verify-release` needs a checkout, `just env` and a sign-in to the registry, so anyone who can pull the image can run it, on Linux or macOS.
 
 Builds check queries against the query cache committed in `.sqlx/` (DATA-20), so a query missing from the cache fails `lint` and `test`. `just prepare` rewrites the cache from the migrated database.
 

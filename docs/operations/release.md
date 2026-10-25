@@ -10,7 +10,7 @@ Each run of CI on `main` that passes publishes its commit: the commit's image go
   - the patch, as from 1.4.0 to 1.4.1, for fixes;
   - the minor version, as from 1.4.1 to 1.5.0, for new features that keep everything else working;
   - the major version, as from 1.5.0 to 2.0.0, for a change that makes a fork, a client or a deployment change something to upgrade, such as a setting that is removed.
-- **A prerelease**, such as 1.5.0-rc.1, is a version to try before its release. It comes before 1.5.0, and the next prerelease of the same release is 1.5.0-rc.2.
+- **A prerelease**, such as 1.5.0-rc.1, is a release to try before the final release of its number. It comes before 1.5.0, and the next prerelease of the same number is 1.5.0-rc.2. Only a final release fixes the API's contract and migrations ([architecture.md](../architecture.md#11-glossary)).
 - **A tag** is a name that git gives one commit for good. The release of 1.4.0 tags its commit `v1.4.0`, so anyone can find exactly the code of that release. CI creates the tag; nobody runs git's tag commands.
 - **The release's image** is the image CI tested for that commit, which the registry then also tags `1.4.0`, signed. Nothing is rebuilt (OPS-14).
 
@@ -61,10 +61,10 @@ The tag comes last, so a version that has a tag is released completely, with its
 
 The image holds the API's binary, built static against musl for linux/amd64 and linux/arm64, on distroless's static base, which holds the operating system's certificate store, time zone data and the unprivileged user 65532, and no shell, package manager or C library (OPS-15).
 - Its entry point is the binary, and its default command is `serve`. Every other subcommand runs from the same image, such as `docker run <image> migrate`, with the settings that `.env.example` lists in its environment.
-- It writes nothing to its filesystem, so it runs with a read-only root filesystem.
+- Only `openapi` writes a file, the one it is given, so the image runs with a read-only root filesystem, and `openapi` writes to a mounted directory.
 - Its health check runs the `health` subcommand, which succeeds only while `serve` answers 200 on `/health/ready` at `LISTEN_ADDR` (PLATFORM-044). While the instance starts, checks run often and their failures don't count, so it is healthy soon after it is ready; after that, a few failures in a row make it unhealthy. The `HEALTHCHECK` in the Dockerfile sets the intervals and the counts.
 - Its labels name the app's version, as `org.opencontainers.image.version`, and the commit it was built from, as `org.opencontainers.image.revision`.
-- Its index holds a software bill of materials (SBOM) for each platform, in the format of the Software Package Data Exchange (SPDX), which lists the base's packages and the crates the binary records. It also holds the provenance of each platform's image, in the format of Supply-chain Levels for Software Artifacts (SLSA), which records how BuildKit built it.
+- Its image index holds a software bill of materials (SBOM) for each platform, in the format of the Software Package Data Exchange (SPDX), which lists the base's packages and the crates the binary records. It also holds the provenance of each platform's image, in the format of Supply-chain Levels for Software Artifacts (SLSA), which records how BuildKit built it.
 
 `just image` builds it into `target/image`, `just image-scan` scans it, and `just e2e` runs the end-to-end tests against it.
 
@@ -74,12 +74,12 @@ The image holds the API's binary, built static against musl for linux/amd64 and 
 
 | Tag | Image | Kept |
 |---|---|---|
-| `X.Y.Z` | A release | Always |
+| `X.Y.Z` | A final release | Always |
 | `X.Y.Z-rc.N` | A prerelease | 90 days |
-| `edge` | The newest commit on `main` that passed | Until a newer one passes |
+| `edge` | The commit at the head of `main` when its run published it | Until a later run moves it |
 | `sha-<commit>` | Each commit that `main` tested | 30 days |
 
-A deployment pins a release by the digest its tag names.
+A deployment pins a release by the digest its tag names. The glossary in [architecture.md](../architecture.md#11-glossary) defines releases, digests and image indexes.
 
 ## Signing
 
