@@ -41,6 +41,10 @@ http-body-util.workspace = true
 jsonschema.workspace = true
 # The tests read what the stand-in collector decoded.
 opentelemetry-proto.workspace = true
+# The end-to-end tests send requests over HTTPS to the reference deployment's proxy, trusting the
+# authority that signs its certificates in the tests.
+reqwest.workspace = true
+rustls.workspace = true
 serde_json.workspace = true
 # The test support shares the template database through tokio::sync::OnceCell, and the tests
 # of timeouts pause tokio's time.

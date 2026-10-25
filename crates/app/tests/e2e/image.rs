@@ -1,24 +1,17 @@
 //! The image (OPS-14, OPS-15).
 
-use std::{
-    path::Path,
-    process::{Command, Output},
-};
-
-use serde_json::Value;
+use std::process::{Command, Output};
 
 use crate::{
-    docker::{Container, compose, lossy, postgres_network},
+    docker::{Container, lossy, postgres_network},
+    images::Pushed,
     support::{TestDatabase, http_request},
 };
 
 /// The port `serve` binds in the container.
 const PORT: u16 = 8080;
 
-/// The image under test: the image for the platform `E2E_PLATFORM` names, of the index that
-/// `just image` wrote to target/image, as the registry that Compose runs holds it. A container
-/// runs it by its own digest, not the index's: Docker's classic image store holds one platform
-/// under a digest, and refuses to pull a second one under the same.
+/// The API's image under test, which a container on this machine runs.
 struct Image {
     reference: String,
     platform: String,
@@ -26,24 +19,10 @@ struct Image {
 
 impl Image {
     fn pushed() -> Self {
-        let platform = std::env::var("E2E_PLATFORM").expect("E2E_PLATFORM; run `just e2e`");
-        let name = std::env::var("E2E_IMAGE_NAME").expect("E2E_IMAGE_NAME; run `just e2e`");
-        let index = index_digest();
-        let digest = compose(&[
-            "run",
-            "--rm",
-            "--no-TTY",
-            "crane",
-            "digest",
-            "--insecure",
-            "--platform",
-            &platform,
-            &format!("registry:5000/{name}@{index}"),
-        ]);
-        let registry = compose(&["port", "registry", "5000"]);
+        let image = Pushed::api();
         Self {
-            reference: format!("{registry}/{name}@{digest}"),
-            platform,
+            reference: image.on_host(),
+            platform: image.platform().to_owned(),
         }
     }
 
@@ -80,23 +59,6 @@ impl Image {
         arguments.extend(["--publish", &published, &self.reference, "serve"]);
         Container::start(&arguments)
     }
-}
-
-/// The digest of the index in target/image.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "tests may block, each on a runtime of its own (CODE-05)"
-)]
-fn index_digest() -> String {
-    let layout = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/image/index.json");
-    let index: Value = serde_json::from_str(
-        &std::fs::read_to_string(&layout).expect("target/image/index.json; run `just image`"),
-    )
-    .expect("an OCI index");
-    index["manifests"][0]["digest"]
-        .as_str()
-        .expect("the image's digest")
-        .to_owned()
 }
 
 /// The settings of a container of the image, which reaches `database` as `postgres` on

@@ -7,9 +7,15 @@
 //! `unwrap` and `expect` (CODE-03).
 
 #[cfg(test)]
+mod deploy;
+#[cfg(test)]
 mod docker;
 #[cfg(test)]
 mod image;
+#[cfg(test)]
+mod images;
+#[cfg(test)]
+mod server;
 #[cfg(test)]
 #[expect(
     dead_code,

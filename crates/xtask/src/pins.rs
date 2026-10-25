@@ -153,11 +153,13 @@ fn action_problem(action: &str) -> Option<String> {
     })
 }
 
-/// Checks the images that the compose file at `path` names.
+/// Checks the images that the compose file at `path` names. An image that is one required
+/// variable, such as `${API_IMAGE_BLUE:?...}`, comes from the deploy, which names it by digest.
 fn compose_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
     for (number, line) in numbered(text) {
         if let Some(image) = value_of(line.trim_start(), "image:")
             && !has_digest(image)
+            && !is_required_variable(image)
         {
             findings.push(Finding::new(
                 path,
@@ -370,6 +372,23 @@ fn has_line(text: &str, wanted: &str) -> bool {
     text.lines().any(|line| line.trim() == wanted)
 }
 
+/// Whether `value` is one variable that Compose requires, `${NAME}` or `${NAME:?message}`, with
+/// no default it could fall back to.
+fn is_required_variable(value: &str) -> bool {
+    let Some(inner) = value
+        .strip_prefix("${")
+        .and_then(|rest| rest.strip_suffix('}'))
+    else {
+        return false;
+    };
+    let (name, rest) = inner.split_at(
+        inner
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .unwrap_or(inner.len()),
+    );
+    !name.is_empty() && (rest.is_empty() || rest.starts_with(":?") || rest.starts_with('?'))
+}
+
 fn has_digest(image: &str) -> bool {
     image.rsplit_once("@sha256:").is_some_and(|(_, digest)| {
         digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit())
@@ -479,6 +498,21 @@ mod tests {
         assert_eq!(
             compose,
             ["deploy/compose.yaml:3: the image caddy:2.11.7 is pinned by digest (OPS-13)"]
+        );
+    }
+
+    #[test]
+    fn ops_13_a_compose_image_from_a_required_variable_passes_and_one_with_a_default_fails() {
+        let findings = findings_with(
+            "deploy/compose.yaml",
+            "services:\n  a:\n    image: ${API_IMAGE:?the image, from the deploy}\n  b:\n    image: ${OTHER}\n  c:\n    image: ${FALLBACK:-postgres:18}\n",
+        );
+
+        assert_eq!(
+            findings,
+            [
+                "deploy/compose.yaml:7: the image ${FALLBACK:-postgres:18} is pinned by digest (OPS-13)"
+            ]
         );
     }
 

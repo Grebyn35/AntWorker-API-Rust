@@ -1,5 +1,5 @@
 # Weekly pull requests that update the pins (OPS-13): the crates, the actions, the images in the
-# Dockerfiles and in compose.yaml, and the toolchain. Each runs the whole pipeline.
+# Dockerfiles and in the compose files, and the toolchain. Each runs the whole pipeline.
 # docs/operations/ci.md lists the pins updated by hand.
 version: 2
 updates:
@@ -29,7 +29,9 @@ updates:
       interval: weekly
 
   - package-ecosystem: docker-compose
-    directory: /
+    # Development's services and the tasks' tools, and the reference deployment's, with the
+    # services and tools both share.
+    directories: [/, /deploy, /deploy/observability, /deploy/tools]
     schedule:
       interval: weekly
     groups:

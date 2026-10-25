@@ -67,6 +67,11 @@ impl Container {
         Self { id }
     }
 
+    /// The container's ID.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
     /// The value of `format`, a Go template, for the container, such as `{{.Config.User}}`.
     pub fn inspect(&self, format: &str) -> String {
         docker(&["inspect", "--format", format, &self.id])

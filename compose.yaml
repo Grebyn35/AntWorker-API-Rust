@@ -23,68 +23,43 @@ services:
       timeout: 5s
       retries: 30
 
-  # The observability stack, in the same topology as in production (D19):
-  # docs/operations/observability.md describes it.
+  # The observability stack, in the same topology as in production (D19), from the services that
+  # deploy/observability/compose.yaml defines for both: docs/operations/observability.md describes
+  # it. Here each service publishes its port, and Grafana opens without signing in.
   collector:
+    extends: { file: deploy/observability/compose.yaml, service: collector }
     profiles: [observability]
-    image: otel/opentelemetry-collector-contrib:0.163.2@sha256:7f22d2a6748110ffb6a59bc0df448bccbf501cdb667d610ede4c61d3863d5849
-    command: ["--config=/etc/collector/config.yaml"]
-    volumes:
-      - ./deploy/observability/collector/config.yaml:/etc/collector/config.yaml:ro
     ports:
       - "127.0.0.1:4318:4318"
     depends_on: [prometheus, loki, tempo]
 
   prometheus:
+    extends: { file: deploy/observability/compose.yaml, service: prometheus }
     profiles: [observability]
-    image: prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
-    command:
-      - --config.file=/etc/prometheus/prometheus.yaml
-      - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=15d
-      - --web.enable-otlp-receiver
-    volumes:
-      - ./deploy/observability/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
-      - ./deploy/observability/prometheus/rules.yaml:/etc/prometheus/rules.yaml:ro
-      - prometheus:/prometheus
     ports:
       - "127.0.0.1:9090:9090"
 
   alertmanager:
+    extends: { file: deploy/observability/compose.yaml, service: alertmanager }
     profiles: [observability]
-    image: prom/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
-    command:
-      - --config.file=/etc/alertmanager/alertmanager.yaml
-      - --storage.path=/alertmanager
-    volumes:
-      - ./deploy/observability/alertmanager/alertmanager.yaml:/etc/alertmanager/alertmanager.yaml:ro
-      - alertmanager:/alertmanager
     ports:
       - "127.0.0.1:9093:9093"
 
   loki:
+    extends: { file: deploy/observability/compose.yaml, service: loki }
     profiles: [observability]
-    image: grafana/loki:3.7.9@sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28
-    command: ["-config.file=/etc/loki/config.yaml"]
-    volumes:
-      - ./deploy/observability/loki/config.yaml:/etc/loki/config.yaml:ro
-      - loki:/loki
     ports:
       - "127.0.0.1:3100:3100"
 
   tempo:
+    extends: { file: deploy/observability/compose.yaml, service: tempo }
     profiles: [observability]
-    image: grafana/tempo:3.1.1@sha256:64e2fbd56d9c2b3412a4b430a58ea59e91a670b1e75f920a0c702213ad145044
-    command: ["-target=all", "-config.file=/etc/tempo/config.yaml"]
-    volumes:
-      - ./deploy/observability/tempo/config.yaml:/etc/tempo/config.yaml:ro
-      - tempo:/var/tempo
     ports:
       - "127.0.0.1:3200:3200"
 
   grafana:
+    extends: { file: deploy/observability/compose.yaml, service: grafana }
     profiles: [observability]
-    image: grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
     # On a developer's machine, anyone who reaches 127.0.0.1:3000 views the dashboards and explores
     # without signing in.
     environment:
@@ -92,13 +67,6 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_USERS_VIEWERS_CAN_EDIT: "true"
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
-      GF_ANALYTICS_REPORTING_ENABLED: "false"
-      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
-    volumes:
-      - ./deploy/observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-      - ./deploy/observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana:/var/lib/grafana
     ports:
       - "127.0.0.1:3000:3000"
     depends_on: [prometheus, loki, tempo, alertmanager]
@@ -119,8 +87,8 @@ services:
       retries: 30
 
   crane:
+    extends: { file: deploy/tools/compose.yaml, service: crane }
     profiles: [tools]
-    image: gcr.io/go-containerregistry/crane:v0.22.1@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1
     volumes:
       - ./target/image:/image:ro
       - ./target/image-postgres:/image-postgres:ro
@@ -136,8 +104,14 @@ services:
       - grype:/cache
 
   cosign:
+    extends: { file: deploy/tools/compose.yaml, service: cosign }
     profiles: [tools]
-    image: ghcr.io/sigstore/cosign/cosign:v3.1.4@sha256:0f06154836d2de34f887a5c273506d52ca43edaa1d9e53e6510fa78a48f69c2d
+
+  # The server that the end-to-end tests deploy to: Docker in a container of its own, running the
+  # reference deployment as a server's Docker would (TEST-04, OPS-16).
+  server:
+    profiles: [tools]
+    image: docker:29.9.2-dind@sha256:9e79b879b177fbd72c34376a3dd3d91747da5db49e1f560f76aea59561471977
 
   # shellcheck, which `just check-shell` runs on the justfile's recipes and the deployment's
   # scripts (CODE-16).

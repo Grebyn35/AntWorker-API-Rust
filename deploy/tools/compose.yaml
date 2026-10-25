@@ -1,0 +1,11 @@
+# The images of the tools that verify a release (OPS-14): crane reads the registry, and cosign
+# checks the signatures. compose.yaml at the root extends them for the release tasks, and
+# deploy/compose.yaml for the deploy on a server, which runs deploy/verify-release.sh before it
+# pulls a release.
+
+services:
+  crane:
+    image: gcr.io/go-containerregistry/crane:v0.22.1@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1
+
+  cosign:
+    image: ghcr.io/sigstore/cosign/cosign:v3.1.4@sha256:0f06154836d2de34f887a5c273506d52ca43edaa1d9e53e6510fa78a48f69c2d

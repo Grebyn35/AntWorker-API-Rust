@@ -14,7 +14,7 @@ Configuration, background jobs, runtime behavior, CI, releases, deploys, backups
 - Check: `test`.
 
 ### OPS-02 Every setting earns its place and is documented
-A setting exists only if two deployments would set it differently, such as a URL, a credential, a capacity or a feature switch. A value every deployment would share is a constant in code. Every setting appears in `.env.example` with its type, default and meaning. Compose passes each container only the settings it reads.
+A setting exists only if two deployments would set it differently, such as a URL, a credential, a capacity or a feature switch. A value every deployment would share is a constant in code. Every setting of the API appears in `.env.example`, and every setting of the reference deployment in `deploy/settings.env.example`, each with its type, default and meaning. Compose passes each container only the settings it reads.
 - Why: a small configuration surface is one a fork can understand, and no container holds settings it doesn't use (D9, D15).
 - Check: `ci: check-config` (the settings the API reads must match `.env.example` both ways, and the API container's Compose environment must match them), plus `review` for the third-party containers and for the "would two deployments differ" question.
 

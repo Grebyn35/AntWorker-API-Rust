@@ -1,0 +1,17 @@
+# Caddy, the reference deployment's proxy (D45): it terminates TLS for every site, with
+# certificates it obtains through ACME, and passes each request on. deploy.sh writes the sites the
+# deployment serves, and the API's replicas, into state/, which Caddy sees at /etc/caddy-state,
+# and reloads Caddy when they change. docs/operations/deploy.md describes the deployment.
+{
+	servers {
+		# The addresses whose X-Forwarded-For Caddy keeps, such as a content delivery network in
+		# front of the server. From any other client, Caddy replaces the header with the
+		# connection's address (SEC-12).
+		trusted_proxies static {$TRUSTED_PROXIES}
+		timeouts {
+			read_header 10s
+		}
+	}
+}
+
+import /etc/caddy-state/sites/*.caddy

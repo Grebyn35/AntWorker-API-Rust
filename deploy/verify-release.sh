@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Verifies a release (OPS-14): for each image named, the image tagged with the version is signed
 # by the run of ci.yml on main of the repository at the source address, and its image index holds
 # the SBOM and the provenance of both platforms. It prints each image with its digest, as
@@ -11,7 +11,7 @@
 #
 # CRANE and COSIGN name the images of crane and cosign to run, pinned by digest. The tools read the
 # registry login in ~/.docker.
-set -euo pipefail
+set -eu
 
 if [ "$#" -lt 3 ]; then
     echo "usage: verify-release.sh <version> <source> <image>..." >&2

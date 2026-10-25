@@ -1,0 +1,263 @@
+# The single-host reference deployment (D15, D20, D45): Caddy, the API in two colors, the bundled
+# Postgres with its backups (D44), and the telemetry path (D42). deploy.sh runs it on its server,
+# from the deployment's directory, with the settings in settings.env, which
+# settings.env.example lists, and the values it derives in state/deploy.env. Profiles choose the
+# optional services: `database` for the bundled Postgres, `telemetry` for the collector, and
+# `observability` for the self-hosted stack. docs/operations/deploy.md describes the deployment.
+
+name: deployment
+
+# An API replica. The two colors differ only in their image.
+x-api: &api
+  command: ["serve"]
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  environment:
+    ENVIRONMENT: production
+    LISTEN_ADDR: 0.0.0.0:8080
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    MAX_CONCURRENT_REQUESTS: ${MAX_CONCURRENT_REQUESTS:-100}
+    DATABASE_MAX_CONNECTIONS: ${DATABASE_MAX_CONNECTIONS:-10}
+    DATABASE_URL_FILE: /run/secrets/database_url
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${API_TELEMETRY_ENDPOINT:-}
+    # Caddy stops sending requests to a draining replica within 3 seconds (deploy/caddy), so the
+    # replica keeps serving for 5 (OPS-06).
+    SHUTDOWN_DELAY_SECONDS: "5"
+    SHUTDOWN_DRAIN_SECONDS: "10"
+  secrets: [database_url]
+  # The shutdown delay and the drain take at most 15 seconds, and writing out telemetry 9 more
+  # (the platform spec's Telemetry export).
+  stop_grace_period: 30s
+  deploy:
+    resources:
+      limits:
+        cpus: "${API_CPUS:-1}"
+        memory: ${API_MEMORY:-512M}
+  networks: [edge, data, telemetry]
+  restart: unless-stopped
+
+# pgBackRest's settings, from the deployment's (deploy/postgres/pgbackrest.conf has the rest).
+x-backups: &backups
+  PGBACKREST_REPO1_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+  PGBACKREST_REPO1_STORAGE_PORT: ${BACKUP_S3_PORT:-443}
+  PGBACKREST_REPO1_S3_REGION: ${BACKUP_S3_REGION:-}
+  PGBACKREST_REPO1_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+  PGBACKREST_REPO1_S3_URI_STYLE: ${BACKUP_S3_URI_STYLE:-host}
+  PGBACKREST_REPO1_STORAGE_CA_FILE: ${BACKUP_S3_CA_FILE:-/etc/ssl/certs/ca-certificates.crt}
+  PGBACKREST_REPO1_RETENTION_FULL: ${BACKUP_RETENTION_FULL:-4}
+
+services:
+  caddy:
+    image: caddy:2.11.7@sha256:504a44d7d74bd2bc28a66afc4774912fc21223ca8a67734af1c54ab2f999b489
+    environment:
+      API_ADDRESS: ${API_ADDRESS:?the API's address, in settings.env}
+      GRAFANA_ADDRESS: ${GRAFANA_ADDRESS:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./caddy:/etc/caddy:ro
+      - ./state/caddy:/etc/caddy-state:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    read_only: true
+    tmpfs: [/tmp]
+    # Caddy needs only to bind the ports below 1024.
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [edge]
+    restart: unless-stopped
+
+  api-blue:
+    <<: *api
+    image: ${API_IMAGE_BLUE:?the image of the blue replicas, in state/deploy.env}
+
+  api-green:
+    <<: *api
+    image: ${API_IMAGE_GREEN:?the image of the green replicas, in state/deploy.env}
+
+  # The one-shot subcommands that a deploy runs with the release's image, before its replicas.
+  bootstrap:
+    image: ${API_IMAGE_NEW:?the release's image, in state/deploy.env}
+    profiles: [tasks]
+    command: ["bootstrap"]
+    read_only: true
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${API_TELEMETRY_ENDPOINT:-}
+      DATABASE_ADMIN_URL_FILE: /run/secrets/database_admin_url
+      DATABASE_OWNER_URL_FILE: /run/secrets/database_owner_url
+      DATABASE_URL_FILE: /run/secrets/database_url
+    secrets: [database_admin_url, database_owner_url, database_url]
+    networks: [data, telemetry]
+
+  migrate:
+    image: ${API_IMAGE_NEW:?the release's image, in state/deploy.env}
+    profiles: [tasks]
+    command: ["migrate"]
+    read_only: true
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${API_TELEMETRY_ENDPOINT:-}
+      DATABASE_OWNER_URL_FILE: /run/secrets/database_owner_url
+    secrets: [database_owner_url]
+    networks: [data, telemetry]
+
+  # The bundled Postgres, which archives its write-ahead log to the backup bucket (OPS-17). Only
+  # the network `data` reaches it.
+  postgres:
+    image: ${POSTGRES_IMAGE:?the Postgres image, in state/deploy.env}
+    profiles: [database]
+    command:
+      - postgres
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-100}
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=pgbackrest --stanza=db archive-push %p
+      - -c
+      - archive_timeout=60
+    environment:
+      <<: *backups
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_DB: api
+    secrets: [postgres_password, backup_s3_key, backup_s3_key_secret, backup_cipher_pass]
+    volumes:
+      - postgres:/var/lib/postgresql
+      - postgres-socket:/var/run/postgresql
+      - backup-status:/var/lib/backup-status
+    healthcheck:
+      test: ["CMD", "pg_isready", "--username=postgres", "--dbname=api"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    stop_grace_period: 60s
+    networks: [data]
+    restart: unless-stopped
+
+  # The scheduled base backups, taken from Postgres's data directory and its socket.
+  backup:
+    image: ${POSTGRES_IMAGE:?the Postgres image, in state/deploy.env}
+    profiles: [database]
+    user: postgres
+    entrypoint: ["backup-schedule"]
+    environment:
+      <<: *backups
+      BACKUP_HOUR: ${BACKUP_HOUR:-3}
+    secrets: [backup_s3_key, backup_s3_key_secret, backup_cipher_pass]
+    volumes:
+      - postgres:/var/lib/postgresql:ro
+      - postgres-socket:/var/run/postgresql
+      - backup-status:/var/lib/backup-status
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data]
+    restart: unless-stopped
+
+  # The collector, which every telemetry path keeps (D42). It reads the backups' status files.
+  collector:
+    extends: { file: observability/compose.yaml, service: collector }
+    profiles: [telemetry]
+    volumes:
+      - backup-status:/var/lib/backup-status:ro
+    networks: [telemetry]
+    restart: unless-stopped
+
+  prometheus:
+    extends: { file: observability/compose.yaml, service: prometheus }
+    profiles: [observability]
+    networks: [telemetry]
+    restart: unless-stopped
+
+  alertmanager:
+    extends: { file: observability/compose.yaml, service: alertmanager }
+    profiles: [observability]
+    networks: [telemetry]
+    restart: unless-stopped
+
+  loki:
+    extends: { file: observability/compose.yaml, service: loki }
+    profiles: [observability]
+    networks: [telemetry]
+    restart: unless-stopped
+
+  tempo:
+    extends: { file: observability/compose.yaml, service: tempo }
+    profiles: [observability]
+    networks: [telemetry]
+    restart: unless-stopped
+
+  # Grafana, at its own address behind Caddy, where every viewer signs in (D42).
+  grafana:
+    extends: { file: observability/compose.yaml, service: grafana }
+    profiles: [observability]
+    environment:
+      GF_SERVER_ROOT_URL: https://${GRAFANA_ADDRESS:-}/
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    secrets: [grafana_admin_password]
+    networks: [edge, telemetry]
+    restart: unless-stopped
+
+  # The tools that deploy.sh runs to verify a release (OPS-14).
+  crane:
+    extends: { file: tools/compose.yaml, service: crane }
+    profiles: [tools]
+
+  cosign:
+    extends: { file: tools/compose.yaml, service: cosign }
+    profiles: [tools]
+
+networks:
+  # Caddy, the replicas and Grafana.
+  edge:
+  # The replicas, the one-shot subcommands, Postgres and its backups.
+  data:
+  # Everything that sends or stores telemetry.
+  telemetry:
+
+volumes:
+  caddy-data:
+  caddy-config:
+  postgres:
+  postgres-socket:
+  backup-status:
+  prometheus:
+  alertmanager:
+  loki:
+  tempo:
+  grafana:
+
+# The secret files, in secrets/ of the deployment's directory. deploy.sh writes those of the
+# bundled Postgres and Grafana; the operator writes the others (docs/operations/deploy.md).
+secrets:
+  database_url:
+    file: ./secrets/database_url
+  database_owner_url:
+    file: ./secrets/database_owner_url
+  database_admin_url:
+    file: ./secrets/database_admin_url
+  postgres_password:
+    file: ./secrets/postgres_password
+  backup_s3_key:
+    file: ./secrets/backup_s3_key
+  backup_s3_key_secret:
+    file: ./secrets/backup_s3_key_secret
+  backup_cipher_pass:
+    file: ./secrets/backup_cipher_pass
+  grafana_admin_password:
+    file: ./secrets/grafana_admin_password

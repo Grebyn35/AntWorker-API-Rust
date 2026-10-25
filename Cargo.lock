@@ -66,6 +66,8 @@ dependencies = [
  "jsonschema",
  "opentelemetry-proto",
  "platform",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "sqlx",

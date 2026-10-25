@@ -76,7 +76,7 @@ Each kind of fact has one home, listed below. A fact is written in its home as s
 | A working rule for Claude Code sessions | `CLAUDE.md` |
 | How to operate the system: CI, releases, deploys, backups, dashboards and alerts | `docs/operations/` |
 | How to carry out a task, such as adding a module or renaming a fork | `docs/guides/` |
-| A setting, with its type, default and meaning | `.env.example` (OPS-02) |
+| A setting, with its type, default and meaning | `.env.example` for the API's, and `deploy/settings.env.example` for the reference deployment's (OPS-02) |
 | What a public item does | its doc comment (DOC-05) |
 | What the code can't show | an inline comment (DOC-06) |
 | Known work, and built code that doesn't follow a rule yet | an issue (DOC-07); while the migration runs, the tracker (DOC-16) |
