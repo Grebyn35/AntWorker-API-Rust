@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 1.5 of the build order, the reference deployment, in this order: the spec, the code test-first, and the conformance review. It brings Grafana on an HTTPS address of its own and the path to a managed observability backend (D42), the load test that closes the known gap of OPS-18, shellcheck for the justfile's bash recipes and the deploy tooling's scripts, and a deploy that takes a release by its version (architecture.md §9). Its first deploy needs a final release, which the owner starts with `just release`. The scheduled image jobs first run on a Monday.
+**Next:** step 1.5 of the build order, the reference deployment, in this order: the spec, the code test-first, and the conformance review. It brings Grafana on an HTTPS address of its own and the path to a managed observability backend (D42), the load test that closes the known gap of OPS-18, shellcheck for the justfile's bash recipes and the deploy tooling's scripts, and a deploy that takes a release by its version (architecture.md §9). Its spec carries every commitment that [inventory/decision-trace.md](inventory/decision-trace.md) gives step 1.5, D20's connection budget among them. Research into its tools, with sources, is in the message of the commit "Hand off after the documentation review"; nothing is chosen yet. Its first deploy needs a final release, which the owner starts with `just release`. The scheduled image jobs first run on a Monday.
 
 **Waiting on the owner:** nothing.
 
