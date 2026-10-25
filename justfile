@@ -49,7 +49,7 @@ export E2E_IMAGE_NAME := e2e_image
 ci: checks image image-scan e2e
 
 # Runs the checks of the code, the part of CI that needs no image.
-checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins
+checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell
 
 # Lists the tools `just checks` needs besides just and the toolchain, as CI's install step takes
 # them.
@@ -117,8 +117,8 @@ run: migrate
 # changes. `just dev observe` also starts the observability stack and exports the API's
 # telemetry to it; docs/operations/observability.md lists where each service answers.
 [unix]
-dev mode="": bootstrap
-    case "{{ mode }}" in "") ;; observe) docker compose --profile observability up --detach --wait ;; *) echo "just dev takes nothing, or observe" >&2; exit 1 ;; esac
+dev $mode="": bootstrap
+    case "$mode" in "") ;; observe) docker compose --profile observability up --detach --wait ;; *) echo "just dev takes nothing, or observe" >&2; exit 1 ;; esac
     {{ if mode == "observe" { "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 " } else { "" } }}watchexec --restart --shell=none --watch crates --watch migrations --exts rs,sql,toml -- just _dev-serve
 
 # Runs the API on this machine with auto-reload (OPS-19): starts Postgres and bootstraps the
@@ -237,6 +237,12 @@ check-docs:
 check-pins:
     {{ xtask }} check-pins
 
+# Fails on a finding of shellcheck, run from the image compose.yaml pins, in a recipe of this
+# justfile that runs on Linux and macOS, or in a shell script under deploy/ (CODE-16). It reads
+# the recipes from this file, so it checks the same ones on every platform.
+check-shell:
+    {{ xtask }} check-shell
+
 # Prints the name of the package that the image of `repository`, such as owner/name, is in the
 # registry, for the workflows.
 image-package repository:
@@ -269,7 +275,7 @@ _image-builder:
 # holds only what the last build used.
 [unix]
 _image-cache:
-    if [ -n "{{ image_cache }}" ] && [ -d "{{ image_cache }}-new" ]; then rm -rf "{{ image_cache }}" && mv "{{ image_cache }}-new" "{{ image_cache }}"; fi
+    if [ -n "${IMAGE_CACHE:-}" ] && [ -d "$IMAGE_CACHE-new" ]; then rm -rf "$IMAGE_CACHE" && mv "$IMAGE_CACHE-new" "$IMAGE_CACHE"; fi
 
 # Replaces the cache in IMAGE_CACHE with the one the build wrote, if it wrote one, so the cache
 # holds only what the last build used.

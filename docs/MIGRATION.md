@@ -98,8 +98,7 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `check-metrics`, `check-telemetry-config`, `alert-rules` | built |
 | `check-openapi`, for list shapes, methods, statuses, scopes and formats (API-02 to API-05, API-11) | 2.1, with the first routes that have them |
 | `check-openapi`, for the breaking-change diff (API-18, ERR-02) | the first final release |
-| `check-pins`, `image-scan`, `image-rescan`, `verify-release` | built |
-| `check-shell` | 1.5 |
+| `check-pins`, `image-scan`, `image-rescan`, `verify-release`, `check-shell` | built |
 | `e2e` | built, and extended by every later step |
 | `check-layers`, `check-deps`, `check-schema` | 2.1, with the first service, the first call between modules and the first tables |
 | `check-tenancy` | 2.2, with the first workspace tables |

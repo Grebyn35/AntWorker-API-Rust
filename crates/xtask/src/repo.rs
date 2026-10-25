@@ -121,6 +121,23 @@ pub fn write(path: &str, text: &str) -> io::Result<()> {
     std::fs::write(root.join(path), text)
 }
 
+/// Makes the directory at `path`, a path from the repository root, empty: it removes what the
+/// directory holds, or creates it.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the checks run as a synchronous program, with no async runtime to stall"
+)]
+pub fn empty_directory(path: &str) -> io::Result<()> {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(path);
+    match std::fs::remove_dir_all(&directory) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
+    std::fs::create_dir_all(directory)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -17,6 +17,7 @@ mod promql;
 mod release;
 mod repo;
 mod routes;
+mod shell;
 mod stack;
 mod telemetry_config;
 mod test_map;
@@ -82,6 +83,10 @@ enum Command {
     /// edition isn't the workspace's 2024 (CODE-01, OPS-13).
     #[command(name = "check-pins")]
     Pins,
+    /// Fails on a finding of shellcheck in a recipe of the justfile that runs on Linux and
+    /// macOS, or in a shell script under `deploy/` (CODE-16).
+    #[command(name = "check-shell")]
+    Shell,
     /// Sets the app's version to `version` on `main`, commits it and pushes it, after it checks
     /// that `version` can be released from `main` as it is. The run on `main` that passes with
     /// the version releases it (OPS-14).
@@ -156,6 +161,7 @@ fn main() -> ExitCode {
         Command::TelemetryConfig => telemetry_config::check(&repo),
         Command::AlertRules => alerts::check(&repo),
         Command::Pins => pins::check(&repo),
+        Command::Shell => shell::check(&repo),
         Command::Release { .. } | Command::ReleaseCheck { .. } => Outcome::default(),
     };
     print(&outcome)
