@@ -30,6 +30,11 @@ tracing.workspace = true
 utoipa.workspace = true
 utoipa-axum.workspace = true
 
+# The allocator of the image's static binary: musl's own lets a replica's memory grow with each
+# request it serves (architecture.md, §10).
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc.workspace = true
+
 [dev-dependencies]
 platform = { workspace = true, features = ["test-support"] }
 # The fixture routes parse a query.

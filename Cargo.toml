@@ -17,6 +17,7 @@ http = "1.5.0"
 http-body-util = "0.1.5"
 jsonschema = { version = "0.60.1", default-features = false }
 json-subscriber = { version = "0.3.1", default-features = false, features = ["tracing-opentelemetry-0-34"] }
+mimalloc = { version = "0.1.52", default-features = false }
 opentelemetry = { version = "0.33.1", default-features = false, features = ["trace", "metrics", "logs"] }
 opentelemetry-appender-tracing = { version = "0.33.1", default-features = false }
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs"] }

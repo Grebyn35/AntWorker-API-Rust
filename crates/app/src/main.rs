@@ -22,6 +22,12 @@ use platform::{
 };
 use tokio::net::TcpListener;
 
+/// The image's static binary allocates through mimalloc: under musl's own allocator, a replica's
+/// memory grew with each request it served, until the container's limit killed it.
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 /// What identifies the API in its telemetry and its OpenAPI document.
 const SERVICE: Service = Service {
     name: env!("CARGO_BIN_NAME"),
