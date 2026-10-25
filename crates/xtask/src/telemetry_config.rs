@@ -65,6 +65,19 @@ fn overlay_keeps_sampling(repo: &Repo, findings: &mut Vec<Finding>) {
     }
 }
 
+/// The latency objective, in milliseconds, which the collector's tail sampling keeps every trace
+/// above, as `just load-test` measures against it; or why it can't be read.
+pub fn latency_objective(repo: &Repo) -> Result<f64, String> {
+    let mut findings = Vec::new();
+    sampling(repo, &mut findings).ok_or_else(|| {
+        findings
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect::<Vec<_>>()
+            .join("; ")
+    })
+}
+
 /// Checks the tail sampling of the traces pipeline, and returns the latency objective it keeps
 /// traces above, in milliseconds.
 fn sampling(repo: &Repo, findings: &mut Vec<Finding>) -> Option<f64> {
@@ -389,6 +402,15 @@ mod tests {
         };
         assert!(findings(&collector(POLICIES), RULES, &panel(0.5)).is_empty());
         assert_eq!(findings(&collector(POLICIES), RULES, &panel(1.0)).len(), 1);
+    }
+
+    #[test]
+    fn ops_18_the_load_test_measures_against_the_latency_policy_s_threshold() {
+        let repo = Repo::of(&[(stack::COLLECTOR, &collector(POLICIES))]);
+        let without = Repo::of(&[(stack::COLLECTOR, &collector(""))]);
+
+        assert_eq!(latency_objective(&repo), Ok(500.0));
+        assert!(latency_objective(&without).is_err());
     }
 
     #[test]

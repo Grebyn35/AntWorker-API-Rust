@@ -2,7 +2,7 @@
 //! tests' own.
 
 use crate::{
-    deployment::{Deployment, GRAFANA_ADDRESS, get},
+    deployment::{Deployment, GRAFANA_ADDRESS, get, post},
     docker::lossy,
 };
 
@@ -21,8 +21,13 @@ async fn sec_18_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
         deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/"),
     );
     let (search, _) = get(
-        root,
+        root.clone(),
         deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/api/search"),
+    );
+    let (sign_up, refusal) = post(
+        root,
+        deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/api/user/signup/step2"),
+        r#"{"email":"viewer@example.invalid","username":"viewer","password":"a password of the e2e tests"}"#,
     );
 
     let publishing: Vec<&str> = containers
@@ -48,6 +53,8 @@ async fn sec_18_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
         "max-age=31536000; includeSubDomains"
     );
     assert_eq!(search, 401);
+    assert_eq!(sign_up, 401, "{refusal}");
+    assert!(refusal.contains("signup is disabled"), "{refusal}");
 }
 
 #[tokio::test]
@@ -86,18 +93,27 @@ async fn ops_16_a_deploy_installs_the_release_s_alert_rules_and_prometheus_reads
         "{}",
         lossy(&first)
     );
-    // A release whose rules hold one rule more.
+    // A release whose rules hold one rule more, and that restarts Caddy, so the deploy that
+    // first installs its files refuses before the services read them.
     deployment.server.shell_ok(
         "printf '  - name: e2e\n    rules:\n      - alert: ReleaseMarker\n        expr: vector(0) > 1\n' \
          >> /root/release/observability/prometheus/rules.yaml",
     );
+    deployment.set(&[
+        ("TELEMETRY", "self-hosted"),
+        ("TRUSTED_PROXIES", "203.0.113.0/24"),
+    ]);
 
-    let second = deployment.apply(&deployment.api, &[]).await;
+    let refused = deployment.apply(&deployment.api, &[]).await;
+    let second = deployment
+        .apply(&deployment.api, &["--allow-restart"])
+        .await;
     let rules = deployment.server.shell(
         "timeout 60 sh -c 'until docker exec deployment-prometheus-1 wget -qO- http://localhost:9090/api/v1/rules \
          | grep -q ReleaseMarker; do sleep 1; done'",
     );
 
+    assert!(!refused.status.success(), "{}", lossy(&refused));
     assert!(second.status.success(), "{}", lossy(&second));
     assert!(
         lossy(&second).contains("prometheus's configuration changed"),

@@ -25,7 +25,7 @@ flowchart LR
 
 ## What a server needs
 
-- **Linux on amd64 or arm64, with Docker Engine 29 or later and its Compose plugin**, which Docker's own packages install as `docker compose`. The user that Secure Shell (SSH) signs in as belongs to the `docker` group.
+- **Linux on amd64 or arm64, with Docker Engine 29 or later and its Compose and Buildx plugins**, which Docker's own packages install as `docker compose` and `docker buildx`; `deploy/verify-release.sh` reads a release's images through `docker buildx imagetools`. The user that Secure Shell (SSH) signs in as belongs to the `docker` group.
 - **An encrypted disk** for its volumes, such as a provider's encrypted block storage, or a disk encrypted with LUKS (OPS-20).
 - **A firewall** that admits SSH, and ports 80 and 443 from anywhere. Ports 80 and 443 must be open for Let's Encrypt to issue the certificates.
 - **DNS records** that point `API_ADDRESS`, and with the self-hosted stack `GRAFANA_ADDRESS`, to the server, such as `api.example.com` and `grafana.example.com`.
@@ -49,7 +49,7 @@ The deployment's files live in `~/deployment` of the user SSH signs in as. On th
    The deploy writes the others the first time: the bundled database's passwords and the URLs made from them, and Grafana's administrator password. Compose mounts each secret file into the containers that read it, where any user of the container can read it, so the directory admits only its owner.
 5. With a bucket of the operator's own whose certificate a private authority signed, put that authority's certificate at `~/deployment/certs/backup-ca.crt`.
 
-Then deploy a release from your machine, as below. The first deploy creates the backups' stanza in the bucket and takes the first full backup.
+Then deploy a release from your machine, as below. The first deploy creates the backups' stanza in the bucket, pgBackRest's record of the database it backs up, and takes the first full backup.
 
 ## Deploying a release
 
@@ -87,7 +87,7 @@ What a deploy refuses, and what to do:
 
 ### Restarting Postgres or Caddy
 
-Postgres and Caddy each run once, so restarting either interrupts requests for a few seconds. A deploy restarts them only when you allow it: when a release changes the Postgres image or Caddy's, or a setting they read, the deploy refuses and says which, and `just deploy <host> <version> --allow-restart` restarts them. A release whose Postgres image is built from the same files as the running one leaves Postgres running, since each release's image differs only in its labels ([release.md](release.md#the-images)). Changes to Caddy's sites or to the replicas it names reload Caddy, which drops no connection.
+Postgres and Caddy each run once, so restarting either interrupts requests for a few seconds. A deploy restarts them only when you allow it: when a release changes the Postgres image or Caddy's, or a setting they read, the deploy refuses and says which, and `just deploy <host> <version> --allow-restart` restarts them. A release whose Postgres image is built from the same files as the running one leaves Postgres running, since such an image runs the same Postgres and pgBackRest, at the versions it pins ([release.md](release.md#the-images)). Changes to Caddy's sites or to the replicas it names reload Caddy, which drops no connection.
 
 ## Rolling back
 
@@ -101,17 +101,17 @@ Each replica opens at most `DATABASE_MAX_CONNECTIONS` pooled connections, plus o
 
 2 × `API_REPLICAS` × (`DATABASE_MAX_CONNECTIONS` + 1) + 1, for `migrate`
 
-exceeds `POSTGRES_MAX_CONNECTIONS` less the 3 connections Postgres reserves for its superusers (OPS-21). With the defaults, 2 replicas and 10 connections each, that is 45 of 97. With a managed database, set `POSTGRES_MAX_CONNECTIONS` to the provider's limit.
+exceeds `POSTGRES_MAX_CONNECTIONS` less the 3 connections Postgres reserves for its superusers (OPS-21). The other connections fit in those 3: on the bundled database, `bootstrap` and the backups connect as its superuser, one connection each, and a deploy runs its `bootstrap` and its first backup one after the other, beside the scheduled backup. On a managed database, `bootstrap` runs before the new color starts, while only the live one runs. With the defaults of [deploy/settings.env.example](../../deploy/settings.env.example), that is 45 of 97. With a managed database, set `POSTGRES_MAX_CONNECTIONS` to the provider's limit.
 
 ## Choosing the services
 
-Each service the API depends on is bundled or a provider's, chosen by one setting, with no file to edit. The deploy runs only the services the choice needs, and the API's settings change only in the addresses and credentials they hold.
+Each service the API depends on is bundled or a provider's, chosen by one setting, with no file to edit; [deploy/settings.env.example](../../deploy/settings.env.example) gives each one's default. The deploy runs only the services the choice needs, and the API's settings change only in the addresses and credentials they hold.
 
 | Setting | Values | What runs |
 |---|---|---|
-| `DATABASE` | `bundled`, the default | Postgres and its backups, on the server ([backups.md](backups.md)) |
-| | `managed` | Nothing: the API connects to a provider's Postgres, whose provider backs it up with point-in-time recovery, which OPS-17 requires of it |
-| `TELEMETRY` | `self-hosted`, the default | The collector, Prometheus, Loki, Tempo, Alertmanager, and Grafana at `GRAFANA_ADDRESS` |
+| `DATABASE` | `bundled` | Postgres and its backups, on the server ([backups.md](backups.md)) |
+| | `managed` | Nothing: the API connects to a provider's Postgres, which must back it up with point-in-time recovery, as OPS-17 requires, and encrypt what it stores, as OPS-20 does |
+| `TELEMETRY` | `self-hosted` | The collector, Prometheus, Loki, Tempo, Alertmanager, and Grafana at `GRAFANA_ADDRESS` |
 | | `managed` | The collector alone, which sends every signal to a managed backend ([observability.md](observability.md#a-managed-backend)) |
 | | `off` | Nothing: the API's logs go only to its containers' output |
 
@@ -134,9 +134,9 @@ With the self-hosted stack, Grafana answers at `https://<GRAFANA_ADDRESS>`. Sign
 | `settings.env` | The deployment's settings | the operator |
 | `secrets/` | One secret per file | the operator, and the first deploy |
 | `certs/backup-ca.crt` | The authority of a private bucket's certificate, if any | the operator |
-| `compose.yaml`, `deploy.sh`, `caddy/`, `observability/`, `tools/` | The live release's deployment files | each deploy |
+| `compose.yaml`, `deploy.sh`, `caddy/`, `observability/`, `tools/` | The deployment files of the release the last deploy installed. A deploy installs them first, so one that refuses or fails leaves its release's, and the next deploy installs its own and makes the stack read them | each deploy |
 | `releases/<version>/` | Each deployed release's files, as `just deploy` copied them | `just deploy` |
-| `state/` | Which color serves, the images each color runs, and Caddy's sites and replicas | each deploy |
+| `state/` | Which color serves, the images each color runs, Caddy's sites and replicas, and the files each service of the stack last read | each deploy |
 
 ## On another platform
 

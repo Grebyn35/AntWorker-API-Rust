@@ -84,7 +84,7 @@ To find the slow requests of a time range instead, the API requests dashboard li
 | Availability | 99.9% of requests answer without a 5xx | 0.1% of requests |
 | Latency | 99% of requests answer within 0.5 seconds | 1% of requests |
 
-The health probes don't count, since they aren't measured (OBS-15). The latency objective is one number in four places: the collector's latency policy, the rules that count slow requests, the dashboard's list of slow traces, and the line its slowest requests' panel draws. `check-telemetry-config` fails while they differ.
+The health probes don't count, since they aren't measured (OBS-15). The latency objective is one number in four places: the collector's latency policy, the rules that count slow requests, the dashboard's list of slow traces, and the line its slowest requests' panel draws. `check-telemetry-config` fails while they differ, and `just load-test` reads it from the collector's policy.
 
 ## Alerts
 

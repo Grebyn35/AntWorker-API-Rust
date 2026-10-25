@@ -49,6 +49,9 @@ x-backups: &backups
   # authority in certs/backup-ca.crt of the deployment's directory, when deploy.sh finds it there.
   PGBACKREST_REPO1_STORAGE_CA_FILE: ${BACKUP_CA_FILE:-/etc/ssl/certs/ca-certificates.crt}
   PGBACKREST_REPO1_RETENTION_FULL: ${BACKUP_RETENTION_FULL:-4}
+  # pgBackRest's locks, in the volume that Postgres's container and the backup service's share, so
+  # a scheduled backup and one that `just backup` asks for never run at once.
+  PGBACKREST_LOCK_PATH: /var/run/postgresql/pgbackrest
 
 services:
   caddy:

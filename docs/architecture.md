@@ -46,7 +46,7 @@ compose.yaml        the services a developer runs locally, and the images of the
 crates/
   platform/         shared mechanisms, no product knowledge
   app/              feature modules, routes, composition root, the binary
-  xtask/            the custom CI checks and the release task, which the API never depends on
+  xtask/            the custom CI checks, and the tasks that release, deploy and test
 migrations/         one ordered directory; each file name names its owning module
 deploy/             the configuration of the observability stack and of the reference deployment
 docs/
@@ -59,7 +59,7 @@ The configuration of the services the API runs beside lives under `deploy/`, so 
 
 ## 4. Crates
 
-The API has two crates. Cargo forbids `platform` from depending on `app`, so the shared mechanisms can never come to depend on a feature. The workspace's third crate, `xtask`, holds the custom CI checks and the release task, and neither API crate depends on it.
+The API has two crates. Cargo forbids `platform` from depending on `app`, so the shared mechanisms can never come to depend on a feature. The workspace's third crate, `xtask`, holds the custom CI checks, and the tasks that `just` runs to release, deploy and test, such as `just release`, `just deploy` and `just load-test`, and neither API crate depends on it.
 
 ### `platform`
 
@@ -295,7 +295,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 - **Telemetry in a deployment** goes to one of two places (D42):
   - The self-hosted stack, the default. Grafana answers on an HTTPS address of its own behind Caddy, and every viewer signs in; nobody views it anonymously.
   - A managed backend that accepts OTLP, such as Grafana Cloud, instead of Prometheus, Loki, Tempo, Grafana and Alertmanager. The collector still runs beside the API, keeps its tail sampling (OBS-08) and holds the backend's credentials, and only its exporters change, so the API's configuration is the same. Grafana Cloud is the worked example, into which the dashboards and the rules are imported. With another vendor, the telemetry arrives the same way, and a fork rebuilds the dashboards and alerts in the vendor's tools.
-- **Scaling out** means adding replicas. An instance opens at most its pool's size plus one connection of its own, for readiness and the listener, and logs that number when it starts. While a deploy runs, both colors do, so the connection budget is 2 × replicas × (pool size + 1), plus the connections of the one-shot subcommands and of the backups, and it must fit within Postgres's `max_connections` (OPS-21). The listener needs a direct connection, which rules out PgBouncer in transaction mode. Under load, each replica sheds requests with 503 and `Retry-After` instead of queuing without bound (D20).
+- **Scaling out** means adding replicas. An instance opens at most its pool's size plus one connection of its own, for readiness and the listener, and logs that number when it starts. While a deploy runs, both colors do, so the connection budget is 2 × replicas × (pool size + 1), plus `migrate`'s, and it must fit within the connections of Postgres's `max_connections` that roles other than superusers may open. On the bundled database, `bootstrap` and the backups connect as the superuser, into the connections Postgres reserves for it; on a managed one, `bootstrap` runs while only one color does (OPS-21). The listener needs a direct connection, which rules out PgBouncer in transaction mode. Under load, each replica sheds requests with 503 and `Retry-After` instead of queuing without bound (D20).
 - **Multiple hosts.** The image and its environment contract don't depend on a platform. The operations docs state what any platform must provide: shared Postgres with point-in-time recovery, readiness checks that stop traffic before an instance drains, a grace period longer than its shutdown, and TLS and encryption at rest (OPS-20).
 
 ## 10. Technology
@@ -320,12 +320,15 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | OpenAPI | `utoipa`, `utoipa-axum` | The document comes from the handlers' own annotations, and a route is registered with its documentation (API-14, API-17) |
 | Command line | `clap` | The binary's subcommands (ARCH-14) |
 | Container image | BuildKit, through `docker buildx`; zig, through cargo-zigbuild, which compiles both platforms' static binaries against musl on one machine; cargo-chef; cargo-auditable; distroless's static base (D43) | One build gives both platforms' images, the compiled dependencies stay cached, the scans and the software bill of materials (SBOM) see the binary's crates, and the base has no shell, package manager or C library (OPS-14, OPS-15) |
-| Allocator of the image's binary | `mimalloc`, for the musl targets only | Under musl's own allocator, a replica's memory grew with every request it served, and the container's memory limit killed it; under mimalloc it stays flat (OPS-18) |
+| Allocator of the image's binary | `mimalloc`, for the musl targets only | Under musl's own allocator, a replica's memory grows with every request it serves, until the container's memory limit kills it; under mimalloc it stays flat (OPS-18) |
+| Reverse proxy and TLS | Caddy | It obtains and renews certificates through the ACME protocol on its own, and checks the replicas' readiness before it sends them requests (OPS-16, OPS-20) |
+| Deployment | Docker Compose on one server, driven by `deploy/deploy.sh`, a script for any shell of the Portable Operating System Interface (POSIX), which `just deploy`, `just backup` and `just restore` run over Secure Shell (SSH) | The server needs only Docker; the release's files and its signed images are all a deploy takes, with no agent and no checkout on the server (D45) |
+| Load testing | k6 | Constant-arrival-rate scenarios measure the rate a replica serves within the latency objective (OPS-18) |
 | Backups | pgBackRest, in the reference deployment's image of the official Postgres | Continuous archiving of the write-ahead log, and point-in-time recovery from an S3-compatible bucket, encrypted, with retention (D44) |
 | Image scan | Grype | It reads both the base's packages and the crates the binary records (SEC-13) |
 | Shell linting | shellcheck | The standard linter for shell, run on the justfile's recipes and the deployment's scripts (CODE-16) |
 | Registry and signing | crane, and cosign with keyless signing | crane copies and tags an image without changing its digest, so promoting it never rewrites it (OPS-14) |
-| Dependency updates | Dependabot | It reads the crates, the actions, the images of the Dockerfile and of `compose.yaml`, and the toolchain, and needs no app installed (OPS-13) |
+| Dependency updates | Dependabot | It reads the crates, the actions, the images of both Dockerfiles and of every Compose file, and the toolchain, and needs no app installed (OPS-13) |
 
 ### Starting points
 
@@ -333,8 +336,6 @@ A part's tools and libraries are chosen when it is built, as "Docs for unbuilt p
 
 | Concern | Starting point | Chosen in |
 |---|---|---|
-| Reverse proxy and TLS | Caddy | the reference deployment (1.5) |
-| Deploy tooling | none yet | the reference deployment (1.5) |
 | Password hashing | the `argon2` crate, for the Argon2id that SEC-04 requires | `auth` (2.1) |
 | Email | `lettre`, with Mailpit catching development email (D28) | `mail` (2.3) |
 | Object storage | `object_store`, with SeaweedFS in development (D28) | `files` (5) |

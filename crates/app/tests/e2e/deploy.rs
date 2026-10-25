@@ -4,6 +4,7 @@
 use crate::{
     deployment::{API_ADDRESS, Deployment, Traffic, assert_all_succeeded, get},
     docker::lossy,
+    server::DEPLOYMENT,
 };
 
 #[tokio::test]
@@ -34,13 +35,10 @@ async fn ops_16_a_release_whose_replicas_never_become_ready_is_removed_while_the
     assert!(first.status.success(), "{}", lossy(&first));
     let blue = deployment.server.running("api-blue");
     // The API's image, with a health check that always fails.
-    let unready = deployment.server.shell_ok(&format!(
-        "printf 'FROM {}\\nHEALTHCHECK --interval=1s --retries=2 CMD [\"/usr/local/bin/antworker-api\", \"openapi\", \"/proc/unwritable\"]\\n' \
-         | docker build --quiet --tag registry:5000/unready:e2e - > /dev/null \
-         && docker push --quiet registry:5000/unready:e2e > /dev/null \
-         && docker image inspect --format '{{{{index .RepoDigests 0}}}}' registry:5000/unready:e2e",
-        deployment.api
-    ));
+    let unready = deployment.api_with(
+        "unready",
+        r#"HEALTHCHECK --interval=1s --retries=2 CMD ["/usr/local/bin/antworker-api", "openapi", "/proc/unwritable"]"#,
+    );
 
     let traffic = Traffic::start(
         deployment.server.caddy_root(),
@@ -127,4 +125,56 @@ async fn ops_20_the_proxy_answers_http_with_a_redirect_to_https_and_https_with_h
         "max-age=31536000; includeSubDomains"
     );
     assert!(secure_headers.get("server").is_none());
+}
+
+#[tokio::test]
+async fn ops_16_a_deploy_refuses_to_run_while_another_deploy_backup_or_restore_runs() {
+    let deployment = Deployment::managed(&[]).await;
+    // The lock of a task that runs.
+    deployment
+        .server
+        .shell_ok(&format!("mkdir -p {DEPLOYMENT}/state/lock"));
+
+    let refused = deployment.apply(&deployment.api, &[]).await;
+
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains("another deploy, backup or restore is running"),
+        "{}",
+        lossy(&refused)
+    );
+    assert!(deployment.server.running("caddy").is_empty());
+    deployment
+        .server
+        .shell_ok(&format!("test -d {DEPLOYMENT}/state/lock"));
+}
+
+#[tokio::test]
+async fn ops_16_a_deploy_stops_the_services_that_the_settings_no_longer_choose() {
+    let deployment = Deployment::managed(&[]).await;
+    let backend = deployment.server.start_otlp_backend();
+    let mut managed = vec![("TELEMETRY", "managed")];
+    managed.extend(
+        backend
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str())),
+    );
+    deployment.set(&managed);
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    let collector = deployment.server.running("collector-managed");
+    // TELEMETRY back to off.
+    deployment.set(&[]);
+
+    let second = deployment.apply(&deployment.api, &[]).await;
+
+    assert_eq!(collector.len(), 1);
+    assert!(second.status.success(), "{}", lossy(&second));
+    assert!(
+        lossy(&second).contains("stopping collector-managed"),
+        "{}",
+        lossy(&second)
+    );
+    assert!(deployment.server.running("collector-managed").is_empty());
+    assert_eq!(deployment.server.running("api-green").len(), 2);
 }

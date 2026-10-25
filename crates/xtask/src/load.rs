@@ -3,8 +3,9 @@
 //! memory for a replica, against Compose's Postgres, with its telemetry exported to Compose's
 //! collector. Then k6 sends it requests at constant rates, raising the rate until a step fails,
 //! and narrowing the gap. A step passes when no request failed, k6 dropped none for want of a
-//! client, and the 99th percentile of their durations is within the latency objective. The
-//! highest rate that passed is the capacity.
+//! client, and the 99th percentile of their durations is within the latency objective, which it
+//! reads from the collector's tail sampling, as `check-telemetry-config` does. The highest rate
+//! that passed is the capacity.
 //!
 //! Each step also compares the requests the replica served with the spans the collector
 //! accepted, so a span that the API's queue dropped under load shows as a difference (the
@@ -20,8 +21,8 @@ use std::{
 
 use serde_json::Value;
 
-/// The latency objective, in milliseconds (docs/operations/observability.md).
-const OBJECTIVE_MS: f64 = 500.0;
+use crate::{repo::Repo, telemetry_config};
+
 /// The rate the search starts at, in requests a second.
 const FIRST_RATE: u64 = 200;
 /// The port `serve` binds in the replica's container.
@@ -36,15 +37,17 @@ pub struct Step {
     pub dropped: u64,
     pub p99_ms: f64,
     pub spans: u64,
+    /// The latency objective the step was measured against, in milliseconds.
+    pub objective_ms: f64,
 }
 
 impl Step {
     /// Whether the replica served the step's rate.
     pub fn passed(&self) -> bool {
-        self.failed == 0 && self.dropped == 0 && self.p99_ms <= OBJECTIVE_MS
+        self.failed == 0 && self.dropped == 0 && self.p99_ms <= self.objective_ms
     }
 
-    fn parse(line: &str) -> Option<Self> {
+    fn parse(line: &str, objective_ms: f64) -> Option<Self> {
         let value: Value = serde_json::from_str(line).ok()?;
         let count = |name: &str| value[name].as_u64().unwrap_or_default();
         Some(Self {
@@ -54,6 +57,7 @@ impl Step {
             dropped: count("dropped"),
             p99_ms: value["p99_ms"].as_f64().unwrap_or_default(),
             spans: count("spans"),
+            objective_ms,
         })
     }
 }
@@ -95,6 +99,13 @@ pub fn run() -> ExitCode {
     let (cpus, memory) = match limits(&root) {
         Ok(limits) => limits,
         Err(error) => return fail(&error),
+    };
+    let objective_ms = match Repo::load()
+        .map_err(|error| error.to_string())
+        .and_then(|repo| telemetry_config::latency_objective(&repo))
+    {
+        Ok(objective_ms) => objective_ms,
+        Err(error) => return fail(&format!("can't read the latency objective: {error}")),
     };
     let network = match docker(
         &root,
@@ -150,7 +161,7 @@ pub fn run() -> ExitCode {
         Ok(id) => id,
         Err(error) => return fail(&format!("the replica didn't start: {error}")),
     };
-    let outcome = measure(&root, &replica, &cpus, &memory);
+    let outcome = measure(&root, &replica, (&cpus, &memory), objective_ms);
     let removed = docker(&root, &["rm", "--force", &replica]);
     if let Err(error) = removed {
         report(&format!("couldn't remove the replica {replica}: {error}"));
@@ -158,7 +169,14 @@ pub fn run() -> ExitCode {
     outcome
 }
 
-fn measure(root: &Path, replica: &str, cpus: &str, memory: &str) -> ExitCode {
+/// Measures the replica `replica`, which runs with the limits `(cpus, memory)`, against the
+/// latency objective `objective_ms`.
+fn measure(
+    root: &Path,
+    replica: &str,
+    (cpus, memory): (&str, &str),
+    objective_ms: f64,
+) -> ExitCode {
     if let Err(error) = healthy(root, replica) {
         return fail(&error);
     }
@@ -176,7 +194,7 @@ fn measure(root: &Path, replica: &str, cpus: &str, memory: &str) -> ExitCode {
     };
     let mut steps: Vec<Step> = Vec::new();
     while let Some(rate) = next_rate(&steps) {
-        let step = match step(root, &address, rate) {
+        let step = match step(root, &address, rate, objective_ms) {
             Ok(step) => step,
             Err(error) => return fail(&error),
         };
@@ -221,20 +239,19 @@ fn measure(root: &Path, replica: &str, cpus: &str, memory: &str) -> ExitCode {
         return fail("the replica served no rate the search tried");
     };
     report(&format!(
-        "Capacity: {} requests a second to GET /v1/capabilities on one replica with {cpus} CPU and {memory} of memory, with the 99th percentile within {OBJECTIVE_MS} ms and none failed. The collector accepted {} spans for its {} requests.",
-        capacity.rate, capacity.spans, capacity.requests
+        "Capacity: {} requests a second to GET /v1/capabilities on one replica with {cpus} CPU and {memory} of memory, with the 99th percentile within {} ms and none failed. The collector accepted {} spans for its {} requests.",
+        capacity.rate, capacity.objective_ms, capacity.spans, capacity.requests
     ));
     ExitCode::SUCCESS
 }
 
-/// Runs one step at `rate` against the replica at `address`.
-fn step(root: &Path, address: &str, rate: u64) -> Result<Step, String> {
+/// Runs one step at `rate` against the replica at `address`, which passes within the latency
+/// objective `objective_ms`.
+fn step(root: &Path, address: &str, rate: u64, objective_ms: f64) -> Result<Step, String> {
     let output = docker(
         root,
         &[
             "compose",
-            "--profile",
-            "observability",
             "run",
             "--rm",
             "--no-deps",
@@ -256,7 +273,7 @@ fn step(root: &Path, address: &str, rate: u64) -> Result<Step, String> {
     output
         .lines()
         .rev()
-        .find_map(Step::parse)
+        .find_map(|line| Step::parse(line, objective_ms))
         .ok_or_else(|| format!("k6 reported no outcome: {output}"))
 }
 
@@ -413,6 +430,7 @@ mod tests {
             dropped: 0,
             p99_ms: 12.0,
             spans: rate * 30,
+            objective_ms: 500.0,
         }
     }
 
@@ -463,14 +481,15 @@ mod tests {
             r#"{"rate":400,"requests":12000,"failed":0,"dropped":0,"p99_ms":8.25,"spans":12000}"#;
 
         assert_eq!(
-            Step::parse(line),
+            Step::parse(line, 500.0),
             Some(Step {
                 rate: 400,
                 requests: 12000,
                 failed: 0,
                 dropped: 0,
                 p99_ms: 8.25,
-                spans: 12000
+                spans: 12000,
+                objective_ms: 500.0,
             })
         );
     }

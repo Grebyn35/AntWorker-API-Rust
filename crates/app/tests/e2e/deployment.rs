@@ -191,6 +191,20 @@ impl Deployment {
         }
     }
 
+    /// An image of the API's under test with the Dockerfile `instructions` added, built on the
+    /// server and pushed to Compose's registry as `name`. Returns it by its digest.
+    pub fn api_with(&self, name: &str, instructions: &str) -> String {
+        self.server.write(
+            &format!("/root/{name}/Dockerfile"),
+            &format!("FROM {}\n{instructions}\n", self.api),
+        );
+        self.server.shell_ok(&format!(
+            "docker build --quiet --tag registry:5000/{name}:e2e /root/{name} > /dev/null \
+             && docker push --quiet registry:5000/{name}:e2e > /dev/null \
+             && docker image inspect --format '{{{{index .RepoDigests 0}}}}' registry:5000/{name}:e2e"
+        ))
+    }
+
     /// The first column of each row that `sql` returns from the bundled database, as its
     /// administrator, one row per line.
     pub fn sql(&self, sql: &str) -> String {
@@ -248,6 +262,23 @@ pub fn get(root: String, url: String) -> (u16, reqwest::header::HeaderMap) {
     thread::spawn(move || {
         let response = client(&root).get(&url).send().expect("an answer");
         (response.status().as_u16(), response.headers().clone())
+    })
+    .join()
+    .expect("the request")
+}
+
+/// Sends `POST` to `url` with the JSON body `body`, through a client that trusts `root`, and
+/// returns the response's status and body.
+pub fn post(root: String, url: String, body: &'static str) -> (u16, String) {
+    thread::spawn(move || {
+        let response = client(&root)
+            .post(&url)
+            .header("content-type", "application/json")
+            .body(body)
+            .send()
+            .expect("an answer");
+        let status = response.status().as_u16();
+        (status, response.text().expect("the body"))
     })
     .join()
     .expect("the request")

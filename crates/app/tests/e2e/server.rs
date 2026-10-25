@@ -1,7 +1,8 @@
 //! The server the end-to-end tests deploy the reference deployment to: Docker in a container of
-//! its own, joined to Compose's network, where it pulls the images from the registry that Compose
-//! runs (TEST-04). It runs the deployment as a server's Docker would, with the deployment's
-//! scripts in its shell, and publishes Caddy's ports on 127.0.0.1.
+//! its own, joined to Compose's network, where it pulls the API's and the deployment's Postgres
+//! from the registry that Compose runs (TEST-04), and Docker Hub's images through the mirror that
+//! Compose runs (TEST-07). It runs the deployment as a server's Docker would, with the
+//! deployment's scripts in its shell, and publishes Caddy's ports on 127.0.0.1.
 
 use std::{
     io::Write,
@@ -48,8 +49,13 @@ impl Server {
             "1s",
             "--health-retries",
             "3",
+            // Docker Hub's images come through the mirror, which `just e2e` filled, and Docker
+            // Hub itself is out of reach (TEST-07).
+            "--add-host",
+            "registry-1.docker.io:127.0.0.1",
             &image,
             "--insecure-registry=registry:5000",
+            "--registry-mirror=http://mirror:5000",
         ]);
         assert_eq!(container.health(), "healthy", "{}", container.logs());
         let deploy = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../deploy/.");

@@ -307,11 +307,16 @@ image-scan:
 # Runs the end-to-end tests against the images in target, on the platform E2E_PLATFORM, which is
 # this machine's unless named (TEST-04). The tests run the images from the registry that Compose
 # runs, against the Postgres that `just services` starts. Another platform needs the system to run
-# its binaries, such as through QEMU.
+# its binaries, such as through QEMU. Every other image the tests pull is fetched first: this
+# machine's, and, through the mirror, their servers', which run on this machine's platform, so no
+# test reaches a registry outside (TEST-07).
 e2e $E2E_PLATFORM=native_platform: services
-    docker compose up --detach --wait registry
+    docker compose up --detach --wait registry mirror
     docker compose run --rm crane push --insecure /image registry:5000/{{ e2e_image }}:e2e
     docker compose run --rm crane push --insecure /image-postgres registry:5000/{{ e2e_image }}-postgres:e2e
+    docker compose pull --quiet server
+    docker compose --profile observability pull --quiet collector prometheus loki tempo
+    {{ xtask }} mirror {{ native_platform }}
     cargo test --locked --package app --features e2e --test e2e
 
 # Measures one replica's capacity, for the release notes (OPS-18): runs the API's image in

@@ -5,7 +5,7 @@ The enforceable rules behind [docs/architecture.md](../architecture.md). That do
 ## Crates
 
 ### ARCH-01 `platform` never depends on `app`
-The API is built from exactly two crates, `platform` and `app`, and `platform` has no dependency on `app`. The workspace has one other crate, `xtask`, which holds the custom CI checks and the release task. Neither API crate depends on `xtask`, so no check ships in the binary.
+The API is built from exactly two crates, `platform` and `app`, and `platform` has no dependency on `app`. The workspace has one other crate, `xtask`, which holds the custom CI checks, and the tasks that `just` runs to release, deploy and test. Neither API crate depends on `xtask`, so no check ships in the binary.
 - Why: shared mechanisms must never learn about features, and tooling never ships in the API (D22).
 - Check: `compiler` (Cargo rejects the dependency cycle, and `xtask` is a binary with no library, so no crate can use its code).
 
@@ -85,7 +85,7 @@ No trait exists just so something can be mocked. Traits that define a behavior m
 - Check: `review`.
 
 ### ARCH-14 Application tasks are binary subcommands
-Every task that runs application logic against the database, such as bootstrap, migrate and seed, is a subcommand of the app binary. Backup and restore use the standard PostgreSQL tools, run through `just` tasks (OPS-17). CI checks that inspect the schema or the compiled queries also connect to the database, and so does `just prepare`, which rewrites the query cache from the migrated database (DATA-20). No other script does.
+Every task that runs application logic against the database, such as bootstrap, migrate and seed, is a subcommand of the app binary. Backup and restore use pgBackRest, the reference deployment's backup tool (D44): the deployment's `backup` service takes the scheduled backups, and `just backup` and `just restore` run it on demand (OPS-17). CI checks that inspect the schema or the compiled queries also connect to the database, and so does `just prepare`, which rewrites the query cache from the migrated database (DATA-20). No other script does.
 - Why: application tasks use the same configuration, types and checks as the server.
 - Check: `review`.
 

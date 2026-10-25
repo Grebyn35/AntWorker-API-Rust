@@ -76,17 +76,29 @@ services:
   # The images the image tasks run, under the `tools` profile, so the dependency updates that
   # reach every other image reach them too (docs/operations/ci.md). The tasks run them with
   # `docker compose run`, or read their names with `docker compose config --images`. Only the
-  # registry, to which `just e2e` pushes the image, runs as a service.
+  # registry, to which `just e2e` pushes the image, and the mirror run as services.
   registry:
     profiles: [tools]
     image: registry:3.1.2@sha256:01cd312e67026f06f5d89c3e133a4a9adc7cb9eeb9b1194e0b2954dfd770efd2
     ports:
       - "127.0.0.1:5001:5000"
-    healthcheck:
+    healthcheck: &registry-health
       test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:5000/v2/"]
       interval: 2s
       timeout: 5s
       retries: 30
+
+  # A cache of Docker Hub, from which the end-to-end tests' servers pull every image that Docker
+  # Hub serves. `just e2e` fills it for the servers' platform before the tests run, so no test
+  # reaches a registry outside (TEST-07). It keeps what it holds between runs.
+  mirror:
+    profiles: [tools]
+    image: registry:3.1.2@sha256:01cd312e67026f06f5d89c3e133a4a9adc7cb9eeb9b1194e0b2954dfd770efd2
+    environment:
+      REGISTRY_PROXY_REMOTEURL: https://registry-1.docker.io
+    volumes:
+      - mirror:/var/lib/registry
+    healthcheck: *registry-health
 
   crane:
     extends: { file: deploy/tools/compose.yaml, service: crane }
@@ -121,10 +133,10 @@ services:
     profiles: [tools]
     image: chrislusf/seaweedfs:4.50@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
 
-  # k6, which `just load-test` runs to measure one replica's capacity (OPS-18). It joins the
-  # observability profile, so it reaches the collector to count the spans it accepted.
+  # k6, which `just load-test` runs to measure one replica's capacity (OPS-18). It reaches the
+  # collector, on the same network, to count the spans the collector accepted.
   k6:
-    profiles: [tools, observability]
+    profiles: [tools]
     image: grafana/k6:2.3.0@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8
 
   # shellcheck, which `just check-shell` runs on the justfile's recipes and the deployment's
@@ -153,6 +165,7 @@ services:
 volumes:
   postgres:
   grype:
+  mirror:
   prometheus:
   alertmanager:
   loki:

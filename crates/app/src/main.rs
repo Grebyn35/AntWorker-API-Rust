@@ -23,7 +23,7 @@ use platform::{
 use tokio::net::TcpListener;
 
 /// The image's static binary allocates through mimalloc: under musl's own allocator, a replica's
-/// memory grew with each request it served, until the container's limit killed it.
+/// memory grows with each request it serves, until the container's limit kills it.
 #[cfg(target_env = "musl")]
 #[global_allocator]
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;

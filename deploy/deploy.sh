@@ -84,52 +84,61 @@ fingerprint() {
     if [ -d "$1" ]; then (cd "$1" && find . -type f -exec cksum {} + | sort | cksum); fi
 }
 
-# The services of the observability stack that read their configuration only when they start.
-configured_once="collector prometheus alertmanager loki tempo"
-
-# Installs this release's files into the deployment's directory, and records in $reconfigured
-# the services of the stack whose configuration files changed.
+# Installs this release's files into the deployment's directory.
 install_release() {
-    reconfigured=""
     if [ "$here" = "$deployment" ]; then return; fi
-    before=""
-    for service in $configured_once; do
-        before="$before $service:$(fingerprint "$deployment/observability/$service" | tr ' ' '-')"
-    done
     for file in compose.yaml deploy.sh verify-release.sh settings.env.example; do
         cp "$here/$file" "$deployment/$file"
     done
     for directory in caddy observability tools; do
         sync_directory "$here/$directory" "$deployment/$directory"
     done
-    for service in $configured_once; do
-        after="$service:$(fingerprint "$deployment/observability/$service" | tr ' ' '-')"
-        case " $before " in
-            *" $after "*) ;;
-            *) reconfigured="$reconfigured $service" ;;
-        esac
-    done
 }
 
-# The running services whose configuration in $reconfigured changed, one per line. The
-# collector's directory serves the managed backend's collector too. A service that the deploy
-# starts afterwards reads the new files as it starts, so the deploy finds these before it starts
-# any.
+# The services of the observability stack that read their configuration files only when they
+# start.
+stack_services="collector collector-managed prometheus alertmanager loki tempo grafana"
+
+# The directory of the files that the service $1 of the stack reads when it starts. The managed
+# backend's collector reads the collector's. Grafana reads its dashboards every 30 seconds on its
+# own, and its provisioning only when it starts.
+configuration_of() {
+    case $1 in
+        collector-managed) echo "$deployment/observability/collector" ;;
+        grafana) echo "$deployment/observability/grafana/provisioning" ;;
+        *) echo "$deployment/observability/$1" ;;
+    esac
+}
+
+# The running services of the stack whose files changed since they read them, one per line. For
+# each service it leaves running, a deploy records the fingerprint of the files the service read,
+# in state/read/, so the files of a deploy that stopped before its services read them still
+# count as changed at the next deploy. A service that a deploy starts reads the files as it
+# starts, so the deploy finds these before it starts any.
 stale_services() {
-    for configuration in $reconfigured; do
-        case $configuration in
-            collector) services="collector collector-managed" ;;
-            *) services=$configuration ;;
-        esac
-        for service in $services; do
-            if [ -n "$(running "$service")" ]; then echo "$service"; fi
-        done
+    for service in $stack_services; do
+        if [ -z "$(running "$service")" ]; then continue; fi
+        if [ "$(cat "$state/read/$service" 2> /dev/null)" != "$(fingerprint "$(configuration_of "$service")")" ]; then
+            echo "$service"
+        fi
     done
 }
 
-# Makes each service in $1, which runs with configuration files that changed since it started,
-# read them again: Prometheus and Alertmanager reload on SIGHUP, and the others restart. Grafana
-# reads its dashboards' files every 30 seconds on its own, and the deploy reloads Caddy itself.
+# Records the fingerprint of the files that each running service of the stack has read.
+record_configuration() {
+    mkdir -p "$state/read"
+    for service in $stack_services; do
+        if [ -n "$(running "$service")" ]; then
+            fingerprint "$(configuration_of "$service")" > "$state/read/$service"
+        else
+            rm -f "$state/read/$service"
+        fi
+    done
+}
+
+# Makes each service in $1, which runs with configuration files that changed since it read them,
+# read them again: Prometheus and Alertmanager reload on SIGHUP, and the others restart. The
+# deploy reloads Caddy itself.
 reread_configuration() {
     for service in $1; do
         say "$service's configuration changed; it reads it again"
@@ -156,7 +165,11 @@ read_settings() {
     if [ -z "$(setting API_ADDRESS)" ]; then fail "API_ADDRESS is required"; fi
     profiles=""
     case $database in
-        bundled) profiles="$profiles --profile database" ;;
+        bundled)
+            profiles="$profiles --profile database"
+            whole_number BACKUP_RETENTION_FULL "$(setting BACKUP_RETENTION_FULL 4)" 1 52
+            whole_number BACKUP_HOUR "$(setting BACKUP_HOUR 3)" 0 23
+            ;;
         managed) ;;
         *) fail "DATABASE is bundled or managed, not '$database'" ;;
     esac
@@ -179,7 +192,11 @@ read_settings() {
 }
 
 # Fails unless the connections that every replica of both colors opens, with migrate's, fit within
-# what Postgres allows to roles that aren't superusers: all but the 3 it reserves (OPS-21).
+# what Postgres allows to roles that aren't superusers: all but the 3 it reserves for superusers
+# (OPS-21). The bundled database's bootstrap and backups connect as its superuser, so they use
+# those 3: one connection each, of a deploy's bootstrap, then its backup, beside the scheduled
+# backup's. On a managed database, bootstrap runs before the new color starts, while only the
+# live one runs.
 check_connections() {
     needed=$((2 * replicas * (pool + 1) + 1))
     allowed=$((connections - 3))
@@ -393,6 +410,7 @@ apply() {
         fail "the services the replicas use didn't start; their logs are above"
     fi
     reread_configuration "$stale"
+    record_configuration
     compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
     if [ "$database" = bundled ]; then prepare_backups; fi
 
@@ -416,7 +434,25 @@ apply() {
         compose rm --force "api-$live" > /dev/null
     fi
     echo "$target" > "$state/live"
+    stop_unused_services
     say "deployed $api_image: $replicas $target replicas serve"
+}
+
+# Stops the services that an earlier DATABASE or TELEMETRY started and the settings no longer
+# choose, once no replica uses them. Their volumes, with the bundled database's data, stay.
+stop_unused_services() {
+    unused=""
+    if [ "$database" != bundled ]; then unused="$unused postgres backup"; fi
+    if [ "$telemetry" != self-hosted ]; then unused="$unused collector prometheus alertmanager loki tempo grafana"; fi
+    if [ "$telemetry" != managed ]; then unused="$unused collector-managed"; fi
+    for service in $unused; do
+        container=$(running "$service")
+        if [ -z "$container" ]; then continue; fi
+        say "stopping $service, which DATABASE=$database and TELEMETRY=$telemetry don't use; its volumes stay"
+        # As long as Compose would give Postgres, the longest of the services' grace periods.
+        docker stop --time 60 "$container" > /dev/null
+        docker rm "$container" > /dev/null
+    done
 }
 
 deploy_release() {
@@ -447,6 +483,12 @@ restore() {
     read_settings
     if [ "$database" != bundled ]; then fail "the database is managed: restore it through its provider"; fi
     live=$(live_color)
+    # The live replicas' image, which deploy.env keeps for their color, while its image for
+    # `migrate` is that of the last deploy, which may have failed.
+    case $live in
+        blue) live_image=$(sed -n 's/^API_IMAGE_BLUE=//p' "$state/deploy.env") ;;
+        green) live_image=$(sed -n 's/^API_IMAGE_GREEN=//p' "$state/deploy.env") ;;
+    esac
     say "stopping the API and the backups"
     compose stop api-blue api-green backup
     compose stop postgres
@@ -475,7 +517,7 @@ restore() {
     full_backup
     compose up --detach --wait --quiet-pull backup
     if [ -n "$live" ]; then
-        compose --profile tasks run --rm --no-deps --quiet-pull migrate
+        API_IMAGE_NEW=$live_image compose --profile tasks run --rm --no-deps --quiet-pull migrate
         compose up --detach --wait --quiet-pull --no-deps --scale "api-$live=$replicas" "api-$live"
     fi
     say "restored the database${moment:+ as it stood at $moment}"

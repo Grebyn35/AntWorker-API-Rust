@@ -1,4 +1,4 @@
-//! The repository's custom CI checks, the release task, and the reference deployment's tasks.
+//! The repository's custom CI checks, and the tasks that `just` runs to release, deploy and test.
 //! Each subcommand runs as a `just` task (OPS-12), and the API crates never depend on this one
 //! (ARCH-01).
 
@@ -15,6 +15,7 @@ mod instrument;
 mod load;
 mod markdown;
 mod metrics;
+mod mirror;
 mod openapi;
 mod pins;
 mod promql;
@@ -32,9 +33,7 @@ use std::{fmt, io, process::ExitCode};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(
-    about = "The repository's custom CI checks, the release task, and the deployment's tasks"
-)]
+#[command(about = "The repository's custom CI checks, and the tasks that release, deploy and test")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -129,6 +128,12 @@ enum Command {
     /// none failed and the 99th percentile within the latency objective (OPS-18).
     #[command(name = "load-test")]
     LoadTest,
+    /// Fills the cache of Docker Hub that Compose runs with the images the end-to-end tests'
+    /// servers pull, for `platform`, such as linux/amd64 (TEST-07).
+    Mirror {
+        /// The servers' platform.
+        platform: String,
+    },
     /// Prints an identifier of the files under `directory` as they stand in the working tree,
     /// which an image built from them carries (OPS-16).
     Inputs {
@@ -193,6 +198,7 @@ fn main() -> ExitCode {
         } => return deploy::deploy(&host, &version, allow_restart),
         Command::Backup { host } => return deploy::backup(&host),
         Command::LoadTest => return load::run(),
+        Command::Mirror { platform } => return mirror::run(&platform),
         Command::Restore { host, moment } => return deploy::restore(&host, moment.as_deref()),
         command => command,
     };
@@ -218,7 +224,8 @@ fn main() -> ExitCode {
         | Command::Deploy { .. }
         | Command::Backup { .. }
         | Command::Restore { .. }
-        | Command::LoadTest => Outcome::default(),
+        | Command::LoadTest
+        | Command::Mirror { .. } => Outcome::default(),
     };
     print(&outcome)
 }

@@ -5,8 +5,8 @@
 //! release's deploy.sh, which verifies the release's images before it pulls them. The server
 //! needs no checkout of the repository. docs/operations/deploy.md describes the deployment.
 //!
-//! The refusals are pure functions, so tests cover them without a server; the tasks run git and
-//! ssh as the developer's own.
+//! Which release a version names is a pure function, so tests cover it without a server; the
+//! tasks run git and ssh as the developer's own.
 
 use std::{
     path::{Path, PathBuf},
@@ -18,18 +18,19 @@ use crate::release::Version;
 /// The deployment's directory on the server, in the home of the user SSH signs in as.
 const DEPLOYMENT: &str = "$HOME/deployment";
 
-/// Why `requested` can't be deployed, given whether its tag `v<requested>` exists, if it can't.
-pub fn refusal(requested: &str, tagged: impl Fn(&str) -> bool) -> Option<String> {
+/// The version of the release that `requested` names, as its tag `v<version>` and its images
+/// write it, given whether a tag exists; or why it can't be deployed.
+pub fn release(requested: &str, tagged: impl Fn(&str) -> bool) -> Result<String, String> {
     let Ok(version) = requested.parse::<Version>() else {
-        return Some(format!(
+        return Err(format!(
             "{requested} isn't a version. A deploy takes a release's version, X.Y.Z, such as \
              1.4.0, or X.Y.Z-rc.N for a prerelease."
         ));
     };
     if tagged(&format!("v{version}")) {
-        return None;
+        return Ok(version.to_string());
     }
-    Some(format!(
+    Err(format!(
         "No release has the version {version}, so there is nothing to deploy. A deploy takes a \
          release, which `just release` makes from main once CI passes: \
          docs/operations/release.md says how."
@@ -62,18 +63,19 @@ pub fn deploy(host: &str, version: &str, allow_restart: bool) -> ExitCode {
         )
         .is_ok()
     };
-    if let Some(refused) = refusal(version, tagged) {
-        return refuse(&refused);
-    }
+    let version = match release(version, tagged) {
+        Ok(version) => version,
+        Err(refused) => return refuse(&refused),
+    };
     let release = format!("{DEPLOYMENT}/releases/{version}");
-    if let Err(error) = send_files(&root, host, version, &release) {
+    if let Err(error) = send_files(&root, host, &version, &release) {
         return refuse(&format!(
             "Can't copy the release's files to {host}: {error}"
         ));
     }
     let mut command = format!(
         "DEPLOYMENT={DEPLOYMENT} sh {release}/deploy.sh deploy {}",
-        quoted(version)
+        quoted(&version)
     );
     if allow_restart {
         command.push_str(" --allow-restart");
@@ -169,7 +171,7 @@ mod tests {
 
     #[test]
     fn ops_16_a_version_that_no_release_has_is_refused_with_a_pointer_to_releases() {
-        let refused = refusal("1.4.0", |_| false).unwrap();
+        let refused = release("1.4.0", |_| false).unwrap_err();
 
         assert!(
             refused.contains("No release has the version 1.4.0"),
@@ -180,15 +182,28 @@ mod tests {
 
     #[test]
     fn ops_16_a_released_version_is_deployed_and_a_prerelease_too() {
-        assert_eq!(refusal("1.4.0", |tag| tag == "v1.4.0"), None);
-        assert_eq!(refusal("1.4.0-rc.2", |tag| tag == "v1.4.0-rc.2"), None);
-        assert_eq!(refusal("v1.4.0", |tag| tag == "v1.4.0"), None);
+        assert_eq!(
+            release("1.4.0", |tag| tag == "v1.4.0").as_deref(),
+            Ok("1.4.0")
+        );
+        assert_eq!(
+            release("1.4.0-rc.2", |tag| tag == "v1.4.0-rc.2").as_deref(),
+            Ok("1.4.0-rc.2")
+        );
+    }
+
+    #[test]
+    fn ops_16_a_version_written_as_its_tag_deploys_the_release_of_the_version() {
+        assert_eq!(
+            release("v1.4.0", |tag| tag == "v1.4.0").as_deref(),
+            Ok("1.4.0")
+        );
     }
 
     #[test]
     fn ops_16_what_isn_t_a_version_is_refused() {
         for requested in ["latest", "1.4", "1.4.0.1", ""] {
-            let refused = refusal(requested, |_| true).unwrap();
+            let refused = release(requested, |_| true).unwrap_err();
             assert!(
                 refused.contains("isn't a version"),
                 "{requested}: {refused}"

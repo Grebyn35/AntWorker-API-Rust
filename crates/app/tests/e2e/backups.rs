@@ -115,3 +115,27 @@ async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucke
     );
     assert_eq!(status, 200);
 }
+
+#[tokio::test]
+async fn ops_17_a_restore_after_a_failed_deploy_migrates_with_the_live_release() {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    // The API's image, whose every subcommand fails, so a deploy of it fails in `bootstrap`.
+    let broken = deployment.api_with(
+        "broken",
+        r#"ENTRYPOINT ["/usr/local/bin/antworker-api", "no-such-subcommand"]"#,
+    );
+    let failed = deployment.apply(&broken, &[]).await;
+
+    let restored = deployment.server.deploy(&["restore"]);
+
+    assert!(!failed.status.success(), "{}", lossy(&failed));
+    assert!(restored.status.success(), "{}", lossy(&restored));
+    assert_eq!(deployment.server.running("api-blue").len(), 2);
+    let (status, _) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/capabilities"),
+    );
+    assert_eq!(status, 200);
+}

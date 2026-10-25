@@ -27,7 +27,7 @@ just image
 just load-test
 ```
 
-`just load-test` runs one replica of the image on your machine's platform, with the reference deployment's default limits for a replica, `API_CPUS` and `API_MEMORY`, and sends it requests at constant rates, raising the rate until a step fails. Each step reports the replica's memory after it, which stays flat from one step to the next; a step whose replica stopped fails, and says whether its memory limit killed it. It ends with a line that starts `Capacity:`: the highest rate the replica served with no request failed and the 99th percentile within the latency objective of 0.5 seconds, and how many spans the collector accepted for its requests. The number depends on the machine, so compare a release with the one before it on the same machine. The line belongs in the release's notes.
+`just load-test` runs one replica of the image on your machine's platform, with the reference deployment's default limits for a replica, `API_CPUS` and `API_MEMORY`, and sends it requests at constant rates, raising the rate until a step fails. Each step reports the replica's memory after it, which stays flat from one step to the next; a step whose replica stopped fails, and says whether its memory limit killed it. It ends with a line that starts `Capacity:`: the highest rate the replica served with no request failed and the 99th percentile within the latency objective ([observability.md](observability.md#service-level-objectives)), and how many spans the collector accepted for its requests. The number depends on the machine, so compare a release with the one before it on the same machine. The line belongs in the release's notes.
 
 ## How to release
 

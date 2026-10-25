@@ -9,7 +9,7 @@ pgBackRest, in the release's Postgres image, backs up the bundled database in tw
 - **The write-ahead log**, Postgres's record of every change, is archived to the bucket as each segment of it, 16 megabytes, fills, and at least once a minute while the database changes: Postgres runs `pgbackrest archive-push` for each segment, and keeps the segment until the archive succeeds.
 - **Base backups**, copies of the whole database, are taken by the `backup` service every day at `BACKUP_HOUR` o'clock UTC: a full backup on Sundays, and a differential one, of what changed since the last full backup, on the other days. The first deploy takes the first full backup.
 
-A restore starts from the newest base backup before the moment it restores to, and replays the archived log up to that moment. The bucket keeps `BACKUP_RETENTION_FULL` full backups, 4 by default, with the backups and the log that depend on them, so a restore reaches back about that many weeks.
+A restore starts from the newest base backup before the moment it restores to, and replays the archived log up to that moment. The bucket keeps `BACKUP_RETENTION_FULL` full backups, with the backups and the log that depend on them, so a restore reaches back about that many weeks.
 
 pgBackRest compresses everything with zstd, and encrypts it with AES-256 before it leaves the server, with the passphrase in `secrets/backup_cipher_pass` (OPS-20). The bucket's provider sees nothing it can read.
 
@@ -53,7 +53,7 @@ restores the database as it stood at that moment, a time with its offset from UT
 
 1. It stops the API's replicas and the `backup` service, then Postgres. The API is unavailable until the restore ends.
 2. It moves the data directory aside, to `before-restore-<time>` in the volume `deployment_postgres`, and restores into a new, empty one. Postgres starts only after the restore succeeds; on an empty directory it would create an empty database.
-3. It starts Postgres, which replays the archived log up to the moment, then begins a new timeline, from which the archive goes on.
+3. It starts Postgres, which replays the archived log up to the moment, then begins a new timeline, Postgres's name for a history of the database that branches off at a restore, so the log it archives from then on never mixes with the log it replaced.
 4. It takes a full backup of the restored database, runs `migrate` with the live release, and starts the live replicas again.
 
 CI restores to a moment between two writes, then checks that the first one is there, that the second isn't, and that the API serves through Caddy (OPS-17).
@@ -85,4 +85,4 @@ Two alerts watch the backups, from the times that the `pgbackrest` wrapper and t
 
 ## A managed database
 
-With `DATABASE=managed`, the deployment runs no Postgres, and backs nothing up. The provider must provide point-in-time recovery, for as long as you need to reach back, which every major provider offers, such as Amazon Relational Database Service (RDS), Google Cloud SQL, Azure Database for PostgreSQL and Neon (OPS-17). A provider restores into a new database, with a new address: write its URLs into `secrets/`, and deploy again.
+With `DATABASE=managed`, the deployment runs no Postgres, and backs nothing up. The provider must provide point-in-time recovery, for as long as you need to reach back, which every major provider offers, such as Amazon Relational Database Service (RDS), Google Cloud SQL, Azure Database for PostgreSQL and Neon (OPS-17). It must also encrypt what it stores (OPS-20): where a provider makes that a choice, such as when an RDS instance is created, choose it. A provider restores into a new database, with a new address: write its URLs into `secrets/`, and deploy again.
