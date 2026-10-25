@@ -71,6 +71,22 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **What to do.** Refused data means the collector reached its memory limit: give it more memory. Failed sends name a store: check that Tempo, Loki or Prometheus runs and has disk space. Traces dropped early mean the collector holds more undecided traces than its `num_traces`: raise it, along with the collector's memory.
 
+## BackupArchivingFailing
+
+**What it means.** The bundled Postgres failed to archive a segment of its write-ahead log to the backup bucket, and no archive has succeeded since. Postgres keeps each segment until it is archived, so its disk fills, and the latest moment a restore can reach stops advancing: losing the server now loses everything since the last archive that succeeded (OPS-17).
+
+**Look first.** On the server, `docker logs deployment-postgres-1` holds pgBackRest's error for each attempt, such as a key pair the bucket refuses, an endpoint that doesn't answer, or a certificate the deployment doesn't trust.
+
+**What to do.** Fix what the error names: the bucket's key pair in `secrets/`, the bucket's settings in `settings.env`, or the bucket itself. Postgres retries on its own, and the alert clears with the next archive that succeeds. Then take a base backup with `just backup`, so a restore needs no segment from before the failure.
+
+## BaseBackupTooOld
+
+**What it means.** The bundled database's daily base backup hasn't completed for more than 26 hours. A restore still reaches every moment the archived write-ahead log covers, but it replays more of the log the older the backup it starts from, so it takes longer.
+
+**Look first.** On the server, `docker logs deployment-backup-1` holds a line for each scheduled backup that failed, after pgBackRest's error. If the backup service isn't running, `docker ps --all` shows why it stopped.
+
+**What to do.** Fix what the error names, often the same as for [BackupArchivingFailing](#backuparchivingfailing), then take a full backup at once with `just backup`. The alert clears when it completes.
+
 ## ObservabilityServiceDown
 
 **What it means.** Prometheus can't scrape the collector, Loki, Tempo or Alertmanager. Telemetry that passes through that service may be lost, and alerts may not reach anyone if it is Alertmanager.

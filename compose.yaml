@@ -113,6 +113,12 @@ services:
     profiles: [tools]
     image: docker:29.9.2-dind@sha256:9e79b879b177fbd72c34376a3dd3d91747da5db49e1f560f76aea59561471977
 
+  # The stand-in for the reference deployment's backup bucket, which the end-to-end tests run on
+  # their server: SeaweedFS, which serves the S3 protocol (OPS-17).
+  bucket:
+    profiles: [tools]
+    image: chrislusf/seaweedfs:4.50@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
+
   # shellcheck, which `just check-shell` runs on the justfile's recipes and the deployment's
   # scripts (CODE-16).
   shellcheck:

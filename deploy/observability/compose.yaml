@@ -55,6 +55,13 @@ services:
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana:/var/lib/grafana
+    # Healthy once Grafana answers, which takes it some seconds after it starts, so that waiting
+    # for the stack waits for it.
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
 
 volumes:
   prometheus:

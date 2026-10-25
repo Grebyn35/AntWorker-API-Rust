@@ -11,8 +11,8 @@
 #   deploy.sh backup
 #       Takes a full base backup of the bundled database.
 #   deploy.sh restore [<moment>]
-#       Restores the bundled database, as it stood at <moment>, such as
-#       "2026-10-25 10:41:31+00", or at the latest moment its backups hold, into a fresh data
+#       Restores the bundled database, as it stood at <moment>, a time with its offset from UTC
+#       as Postgres writes it, or at the latest moment its backups hold, into a fresh data
 #       directory, and keeps the one it replaces beside it.
 #
 # A deploy restarts Postgres or Caddy, which each run once, only with --allow-restart, because
@@ -189,6 +189,7 @@ write_deploy_env() {
         echo "API_IMAGE_NEW=$api_image"
         echo "POSTGRES_IMAGE=$postgres_image"
         if [ "$telemetry" = off ]; then echo "API_TELEMETRY_ENDPOINT="; else echo "API_TELEMETRY_ENDPOINT=http://collector:4318"; fi
+        if [ -f "$deployment/certs/backup-ca.crt" ]; then echo "BACKUP_CA_FILE=/etc/deployment-certs/backup-ca.crt"; fi
     } > "$1"
 }
 
@@ -274,6 +275,7 @@ apply() {
     read_settings
     check_connections
     write_secrets
+    mkdir -p "$deployment/certs"
 
     live=$(live_color)
     if [ "$live" = blue ]; then target=green; else target=blue; fi

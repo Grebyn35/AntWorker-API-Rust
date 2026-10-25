@@ -131,4 +131,57 @@ impl Server {
     pub fn address(&self, port: u16) -> SocketAddr {
         self.container.address(port)
     }
+
+    /// Starts the stand-in for the bundled database's backup bucket on the server: SeaweedFS,
+    /// serving S3 over HTTPS on the server's own address, with a certificate for that address
+    /// from an authority of the test's own, which the deployment trusts as certs/backup-ca.crt.
+    /// The deployment's containers reach the server's address, while no name on Compose's
+    /// network resolves inside the server. Writes the bucket's secrets, and returns its
+    /// settings.
+    pub fn start_bucket(&self) -> Vec<(String, String)> {
+        let image = compose(&["config", "--images", "bucket"]);
+        let address = self
+            .container
+            .inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
+        self.write(
+            "/root/bucket/s3.json",
+            r#"{"identities":[{"name":"backup","credentials":[{"accessKey":"e2e","secretKey":"e2e-secret"}],"actions":["Admin","Read","Write","List","Tagging"]}]}"#,
+        );
+        self.shell_ok(&format!(
+            "set -e
+            cd /root/bucket
+            openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -days 1 -subj /CN=e2e-bucket-authority 2> /dev/null
+            openssl req -newkey rsa:2048 -nodes -keyout s3.key -out s3.csr -subj /CN={address} 2> /dev/null
+            echo subjectAltName=IP:{address} > san
+            openssl x509 -req -in s3.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out s3.crt -days 1 -extfile san 2> /dev/null
+            chmod 644 ./*
+            mkdir -p {DEPLOYMENT}/certs
+            cp ca.crt {DEPLOYMENT}/certs/backup-ca.crt
+            docker run --detach --quiet --name bucket --publish 8334:8334 --volume /root/bucket:/bucket:ro {image} \
+                server -dir=/data -s3 -s3.port=8333 -s3.port.https=8334 \
+                -s3.cert.file=/bucket/s3.crt -s3.key.file=/bucket/s3.key -s3.config=/bucket/s3.json > /dev/null
+            # SeaweedFS's master takes a few seconds to start, and the shell can't create the bucket
+            # before it answers.
+            timeout 120 sh -c 'until echo s3.bucket.create -name backups | docker exec --interactive bucket weed shell -master=localhost:9333 2> /dev/null | grep -q created; do sleep 1; done'"
+        ));
+        self.write(&format!("{DEPLOYMENT}/secrets/backup_s3_key"), "e2e");
+        self.write(
+            &format!("{DEPLOYMENT}/secrets/backup_s3_key_secret"),
+            "e2e-secret",
+        );
+        self.write(
+            &format!("{DEPLOYMENT}/secrets/backup_cipher_pass"),
+            "the passphrase of the e2e tests' backups",
+        );
+        [
+            ("BACKUP_S3_ENDPOINT", address.as_str()),
+            ("BACKUP_S3_PORT", "8334"),
+            ("BACKUP_S3_REGION", "us-east-1"),
+            ("BACKUP_S3_BUCKET", "backups"),
+            ("BACKUP_S3_URI_STYLE", "path"),
+        ]
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .collect()
+    }
 }

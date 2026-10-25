@@ -11,6 +11,10 @@ metrics:
     kind: gauge
     producer: Prometheus
     description: One series for each alert that is pending or firing, with its labels.
+  - name: file_mtime_seconds
+    kind: gauge
+    producer: the collector's filestats receiver
+    description: When a backup status file was last changed, in seconds since the Unix epoch, by file_name.
   - name: otelcol_receiver_refused_spans
     kind: counter
     producer: the collector

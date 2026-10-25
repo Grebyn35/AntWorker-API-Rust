@@ -44,7 +44,9 @@ x-backups: &backups
   PGBACKREST_REPO1_S3_REGION: ${BACKUP_S3_REGION:-}
   PGBACKREST_REPO1_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
   PGBACKREST_REPO1_S3_URI_STYLE: ${BACKUP_S3_URI_STYLE:-host}
-  PGBACKREST_REPO1_STORAGE_CA_FILE: ${BACKUP_S3_CA_FILE:-/etc/ssl/certs/ca-certificates.crt}
+  # The certificates the bucket's certificate is checked against: the operating system's, or the
+  # authority in certs/backup-ca.crt of the deployment's directory, when deploy.sh finds it there.
+  PGBACKREST_REPO1_STORAGE_CA_FILE: ${BACKUP_CA_FILE:-/etc/ssl/certs/ca-certificates.crt}
   PGBACKREST_REPO1_RETENTION_FULL: ${BACKUP_RETENTION_FULL:-4}
 
 services:
@@ -137,6 +139,7 @@ services:
       - postgres:/var/lib/postgresql
       - postgres-socket:/var/run/postgresql
       - backup-status:/var/lib/backup-status
+      - ./certs:/etc/deployment-certs:ro
     healthcheck:
       test: ["CMD", "pg_isready", "--username=postgres", "--dbname=api"]
       interval: 5s
@@ -160,6 +163,7 @@ services:
       - postgres:/var/lib/postgresql:ro
       - postgres-socket:/var/run/postgresql
       - backup-status:/var/lib/backup-status
+      - ./certs:/etc/deployment-certs:ro
     depends_on:
       postgres:
         condition: service_healthy

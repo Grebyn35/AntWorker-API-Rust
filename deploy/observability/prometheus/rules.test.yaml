@@ -171,3 +171,59 @@ tests:
             exp_annotations:
               summary: Prometheus can't reach a service of the observability stack.
               runbook: docs/operations/runbooks.md#observabilityservicedown
+
+  # Archiving fails after it last succeeded, then succeeds again.
+  - interval: 1m
+    input_series:
+      - series: 'file_mtime_seconds{file_name="archived"}'
+        values: "60x10 600x10"
+      - series: 'file_mtime_seconds{file_name="archive-failed"}'
+        values: "120x20"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: BackupArchivingFailing
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: BackupArchivingFailing
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: The bundled database's last archive of its write-ahead log failed, more recently than one succeeded, for five minutes.
+              runbook: docs/operations/runbooks.md#backuparchivingfailing
+      - eval_time: 15m
+        alertname: BackupArchivingFailing
+        exp_alerts: []
+
+  # Archiving never succeeded.
+  - interval: 1m
+    input_series:
+      - series: 'file_mtime_seconds{file_name="archive-failed"}'
+        values: "30x10"
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: BackupArchivingFailing
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: The bundled database's last archive of its write-ahead log failed, more recently than one succeeded, for five minutes.
+              runbook: docs/operations/runbooks.md#backuparchivingfailing
+
+  # The last base backup completed at the start, and none since.
+  - interval: 1m
+    input_series:
+      - series: 'file_mtime_seconds{file_name="backup-completed"}'
+        values: "0x1700"
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: BaseBackupTooOld
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: BaseBackupTooOld
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: The bundled database's newest base backup completed more than 26 hours ago, though one runs every day.
+              runbook: docs/operations/runbooks.md#basebackuptooold

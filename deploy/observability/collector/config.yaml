@@ -7,6 +7,16 @@ receivers:
     protocols:
       http:
         endpoint: 0.0.0.0:4318
+  # The times of the bundled database's backup status files, which its pgBackRest wrapper and
+  # its backup schedule set: when an archive of the write-ahead log last succeeded and last
+  # failed, and when a base backup last completed. The alerts on backups read them (OBS-14). In
+  # development, and with a managed database, the directory holds no file.
+  filestats/backups:
+    include: /var/lib/backup-status/*
+    collection_interval: 60s
+    metrics:
+      file.size:
+        enabled: false
 
 processors:
   # Refuses data before the collector runs out of memory, so an overload is counted as refused
@@ -70,6 +80,6 @@ service:
       processors: [memory_limiter, batch]
       exporters: [otlp_http/loki]
     metrics:
-      receivers: [otlp]
+      receivers: [otlp, filestats/backups]
       processors: [memory_limiter, batch]
       exporters: [otlp_http/prometheus]

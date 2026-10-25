@@ -22,6 +22,7 @@ Prometheus stores each metric under the name in its "In Prometheus" column: its 
 |---|---|---|---|
 | `up` | gauge | Prometheus | 1 while Prometheus scrapes the target, 0 otherwise. |
 | `ALERTS` | gauge | Prometheus | One series for each alert that is pending or firing, with its labels. |
+| `file_mtime_seconds` | gauge | the collector's filestats receiver | When a backup status file was last changed, in seconds since the Unix epoch, by file_name. |
 | `otelcol_receiver_refused_spans` | counter | the collector | Spans the collector refused, such as at its memory limit. |
 | `otelcol_receiver_refused_log_records` | counter | the collector | Log records the collector refused. |
 | `otelcol_receiver_refused_metric_points` | counter | the collector | Metric data points the collector refused. |

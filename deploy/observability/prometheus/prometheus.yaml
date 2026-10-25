@@ -16,10 +16,12 @@ alerting:
 # OTLP metrics keep the default translation to Prometheus names: dots become underscores, and the
 # unit and type add their suffixes, so http.server.request.duration becomes
 # http_server_request_duration_seconds. service.name becomes the job label, and
-# service.instance.id the instance label.
+# service.instance.id the instance label. file.name, the name of a backup status file, tells the
+# backups' series apart.
 otlp:
   promote_resource_attributes:
     - deployment.environment.name
+    - file.name
 
 storage:
   tsdb:

@@ -166,6 +166,28 @@ groups:
           summary: The collector refused, failed to pass on, or dropped before deciding, telemetry in the last 10 minutes.
           runbook: docs/operations/runbooks.md#collectordroppingtelemetry
 
+      # The bundled database's backups (OBS-14): the times of the status files that its archiving
+      # of the write-ahead log and its base backups set, which a managed database lacks.
+      - alert: BackupArchivingFailing
+        expr: |
+          max(file_mtime_seconds{file_name="archive-failed"})
+          > (max(file_mtime_seconds{file_name="archived"}) or vector(0))
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: The bundled database's last archive of its write-ahead log failed, more recently than one succeeded, for five minutes.
+          runbook: docs/operations/runbooks.md#backuparchivingfailing
+
+      - alert: BaseBackupTooOld
+        expr: time() - max(file_mtime_seconds{file_name="backup-completed"}) > 26 * 3600
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: The bundled database's newest base backup completed more than 26 hours ago, though one runs every day.
+          runbook: docs/operations/runbooks.md#basebackuptooold
+
       - alert: ObservabilityServiceDown
         expr: up{job=~"collector|loki|tempo|alertmanager"} == 0
         for: 5m

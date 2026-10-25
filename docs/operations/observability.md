@@ -29,7 +29,7 @@ flowchart LR
 ```
 
 - **The API** exports its spans, log records and metrics over the OpenTelemetry Protocol (OTLP), on HTTP, to the collector named by `OTEL_EXPORTER_OTLP_ENDPOINT`. Every signal carries the service's name, its version, the environment, and the instance's own `service.instance.id`, so instances running side by side stay apart. The [platform spec](../spec/platform.md#telemetry-export) says how the API exports.
-- **The collector** ([config](../../deploy/observability/collector/config.yaml)) refuses data before it runs out of memory, and passes each signal to its store. Its tail sampling waits 15 seconds for a trace's spans, then keeps the trace if any policy keeps it (OBS-08):
+- **The collector** ([config](../../deploy/observability/collector/config.yaml)) refuses data before it runs out of memory, and passes each signal to its store. It also reads the times of the bundled database's backup status files, for the backups' alerts. Its tail sampling waits 15 seconds for a trace's spans, then keeps the trace if any policy keeps it (OBS-08):
   - every trace with an error status, or a response of 400 or above
   - every trace slower than the [latency objective](#service-level-objectives)
   - 10% of the rest
@@ -53,7 +53,7 @@ Prometheus keeps metrics for 15 days, and Loki and Tempo keep logs and traces fo
 | Tempo | <http://127.0.0.1:3200> |
 | The collector's OTLP receiver | <http://127.0.0.1:4318> |
 
-Grafana opens without signing in, as a viewer who can explore. Its dashboards are read-only: each is a file in [deploy/observability/grafana/dashboards](../../deploy/observability/grafana/dashboards), and changing one means changing its file. `docker compose stop collector prometheus alertmanager loki tempo grafana` stops the stack and leaves Postgres running. `docker compose --profile observability down` stops every service, Postgres among them, and adding `--volumes` deletes what each stored, the development database included.
+Grafana opens without signing in, as a viewer who can explore. On a server, it answers on an address of its own behind Caddy, where every viewer signs in ([deploy.md](deploy.md#grafana)). Its dashboards are read-only: each is a file in [deploy/observability/grafana/dashboards](../../deploy/observability/grafana/dashboards), and changing one means changing its file. `docker compose stop collector prometheus alertmanager loki tempo grafana` stops the stack and leaves Postgres running. `docker compose --profile observability down` stops every service, Postgres among them, and adding `--volumes` deletes what each stored, the development database included.
 
 ## Following a request from its trace ID
 
@@ -78,7 +78,7 @@ The health probes don't count, since they aren't measured (OBS-15). The latency 
 
 ## Alerts
 
-Each objective has two alerts that fire on how fast the errors spend its budget (OBS-14). The fast alert pages when an hour's errors would spend 2% of a 30-day budget, or 6 hours' errors 5% of it. The slow alert opens a ticket when a day's errors would spend 10% of it, or 3 days' errors 10% of it at a steady rate. The other alerts name a cause: the database is unreachable, or telemetry is being lost.
+Each objective has two alerts that fire on how fast the errors spend its budget (OBS-14). The fast alert pages when an hour's errors would spend 2% of a 30-day budget, or 6 hours' errors 5% of it. The slow alert opens a ticket when a day's errors would spend 10% of it, or 3 days' errors 10% of it at a steady rate. The other alerts name a cause: the database is unreachable, telemetry is being lost, or the bundled database's backups have stopped ([backups.md](backups.md#alerts)).
 
 Every alert has a severity, `page` or `ticket`, a section in [runbooks.md](runbooks.md), and a test in [rules.test.yaml](../../deploy/observability/prometheus/rules.test.yaml). Alertmanager routes each alert by its severity to the receiver of the same name, and the [receivers](../../deploy/observability/alertmanager/alertmanager.yaml) notify no one until a deployment adds its integrations, such as email or a chat webhook, to `page` and `ticket`.
 

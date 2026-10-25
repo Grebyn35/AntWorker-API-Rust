@@ -87,6 +87,11 @@ An IP limit applies to every route except the health probes, before authenticati
 - Why: brute force and abuse are bounded, and the IP can't be spoofed.
 - Check: `test`.
 
+### SEC-18 A server exposes only the API and a Grafana that signs viewers in
+The reference deployment publishes only Caddy's ports, 80 and 443. Caddy serves the API's address and, with the self-hosted observability stack, Grafana's, where every viewer signs in: Grafana admits no anonymous viewer and no one who signs themselves up. Postgres, the collector and the rest of the stack answer only on the deployment's private networks.
+- Why: the database holds everything, and the dashboards, logs and traces show how the system is used (D26, D42).
+- Check: `ci: e2e`.
+
 ## Supply chain
 
 ### SEC-13 Advisories block the build
