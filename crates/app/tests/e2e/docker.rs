@@ -140,7 +140,7 @@ impl Container {
 impl Drop for Container {
     fn drop(&mut self) {
         let removed = Command::new("docker")
-            .args(["rm", "--force", &self.id])
+            .args(["rm", "--force", "--volumes", &self.id])
             .output();
         if !std::thread::panicking() {
             assert!(

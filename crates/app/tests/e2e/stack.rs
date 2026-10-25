@@ -74,3 +74,39 @@ async fn obs_14_the_backups_report_when_an_archive_and_a_base_backup_last_succee
     );
     assert!(series.contains(r#""file_name":"archived""#), "{series}");
 }
+
+#[tokio::test]
+async fn ops_16_a_deploy_installs_the_release_s_alert_rules_and_prometheus_reads_them() {
+    let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]).await;
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    // A release whose rules hold one rule more.
+    deployment.server.shell_ok(
+        "printf '  - name: e2e\n    rules:\n      - alert: ReleaseMarker\n        expr: vector(0) > 1\n' \
+         >> /root/release/observability/prometheus/rules.yaml",
+    );
+
+    let second = deployment.apply(&deployment.api, &[]).await;
+    let rules = deployment.server.shell(
+        "timeout 60 sh -c 'until docker exec deployment-prometheus-1 wget -qO- http://localhost:9090/api/v1/rules \
+         | grep -q ReleaseMarker; do sleep 1; done'",
+    );
+
+    assert!(second.status.success(), "{}", lossy(&second));
+    assert!(
+        lossy(&second).contains("prometheus's configuration changed"),
+        "{}",
+        lossy(&second)
+    );
+    assert!(
+        rules.status.success(),
+        "{}\nPrometheus's rules file ends with:\n{}\nIts log ends with:\n{}",
+        lossy(&rules),
+        deployment
+            .server
+            .shell_ok("docker exec deployment-prometheus-1 tail -n 6 /etc/prometheus/rules.yaml"),
+        deployment
+            .server
+            .shell_ok("docker logs --tail 8 deployment-prometheus-1 2>&1")
+    );
+}

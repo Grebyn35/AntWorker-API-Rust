@@ -79,14 +79,50 @@ sync_directory() {
     done
 }
 
-# Installs this release's files into the deployment's directory.
+# A fingerprint of the files under the directory $1: the same files give the same one.
+fingerprint() {
+    if [ -d "$1" ]; then (cd "$1" && find . -type f -exec cksum {} + | sort | cksum); fi
+}
+
+# The services of the observability stack that read their configuration only when they start.
+configured_once="collector prometheus alertmanager loki tempo"
+
+# Installs this release's files into the deployment's directory, and records in $reconfigured
+# the services of the stack whose configuration files changed, which read them again after the
+# deploy starts its services.
 install_release() {
+    reconfigured=""
     if [ "$here" = "$deployment" ]; then return; fi
+    before=""
+    for service in $configured_once; do
+        before="$before $service:$(fingerprint "$deployment/observability/$service" | tr ' ' '-')"
+    done
     for file in compose.yaml deploy.sh verify-release.sh settings.env.example; do
         cp "$here/$file" "$deployment/$file"
     done
     for directory in caddy observability tools; do
         sync_directory "$here/$directory" "$deployment/$directory"
+    done
+    for service in $configured_once; do
+        after="$service:$(fingerprint "$deployment/observability/$service" | tr ' ' '-')"
+        case " $before " in
+            *" $after "*) ;;
+            *) reconfigured="$reconfigured $service" ;;
+        esac
+    done
+}
+
+# Makes each running service in $reconfigured read its configuration files again: Prometheus and
+# Alertmanager reload on SIGHUP, and the others restart. Grafana reads its dashboards' files every
+# 30 seconds on its own, and Caddy reloads below.
+reread_configuration() {
+    for service in $reconfigured; do
+        if [ -z "$(running "$service")" ]; then continue; fi
+        say "$service's configuration changed; it reads it again"
+        case $service in
+            prometheus | alertmanager) compose kill --signal SIGHUP "$service" ;;
+            *) compose restart "$service" ;;
+        esac
     done
 }
 
@@ -322,6 +358,7 @@ apply() {
         compose logs --tail 30 $single $shared >&2 || true
         fail "the services the replicas use didn't start; their logs are above"
     fi
+    reread_configuration
     compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
     if [ "$database" = bundled ]; then prepare_backups; fi
 

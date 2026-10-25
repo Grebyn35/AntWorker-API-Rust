@@ -103,7 +103,7 @@ One image serves every subcommand. It holds the API's static binary on a base wi
 ## Deploy and recovery
 
 ### OPS-16 Deploys roll without downtime and roll back on failure
-A deploy takes a release by its version, and refuses a version that no release has. It applies the release's migrations, starts new replicas, waits until the load balancer finds every one of them ready, then stops the old replicas, which drain (OPS-06). If a new replica doesn't become ready, the deploy removes the new replicas, and the old ones go on serving. A service that runs as one instance, such as the database or the proxy, is restarted by a deploy only when the operator allows it, because restarting it interrupts requests. One deploy runs at a time. Nothing a deploy does changes the alert rules.
+A deploy takes a release by its version, and refuses a version that no release has. It applies the release's migrations, starts new replicas, waits until the load balancer finds every one of them ready, then stops the old replicas, which drain (OPS-06). If a new replica doesn't become ready, the deploy removes the new replicas, and the old ones go on serving. A service that runs as one instance, such as the database or the proxy, is restarted by a deploy only when the operator allows it, because restarting it interrupts requests. One deploy runs at a time. The alert rules are the release's files, which a deploy installs as they are and the services read again, and which no deploy generates or rewrites.
 - Why: deploying is routine, not a risk, and an alert means the same whatever deployed the system (D15).
 - Check: `ci: e2e` (a deploy of the real images under continuous requests, none of which fails, and the rollback), plus `test` (what `just deploy` refuses).
 
