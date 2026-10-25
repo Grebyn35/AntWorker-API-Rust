@@ -1,10 +1,8 @@
 //! The logging setup (OBS-02, OBS-05).
 
-use std::path::Path;
-
 use platform::telemetry::{Service, testing};
 
-use crate::support::TestDatabase;
+use crate::support::{self, TestDatabase};
 
 #[test]
 fn obs_05_events_from_other_crates_are_not_written() {
@@ -32,8 +30,7 @@ fn obs_05_events_from_other_crates_are_not_written() {
 async fn obs_02_a_json_line_carries_the_service_and_its_trace_context() {
     let database = TestDatabase::migrated().await;
     let mut server = database.serve(&[("ENVIRONMENT", "production")]).await;
-    let binary = Path::new(env!("CARGO_BIN_EXE_antworker-api"));
-    let name = binary.file_stem().unwrap().to_str().unwrap();
+    let name = support::service_name();
 
     let response = server
         .request(

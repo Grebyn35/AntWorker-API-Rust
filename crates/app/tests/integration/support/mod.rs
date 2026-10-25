@@ -24,6 +24,7 @@ use std::{
     hash::{DefaultHasher, Hash, Hasher},
     io::{self, BufRead, BufReader},
     net::SocketAddr,
+    path::Path,
     process::{Child, Command, Output, Stdio},
     sync::{
         Mutex, PoisonError,
@@ -44,6 +45,17 @@ use tokio::{
 };
 
 pub use api::Api;
+
+/// The API binary that Cargo built for the tests.
+pub const BINARY: &str = env!("CARGO_BIN_EXE_antworker-api");
+
+/// The binary's name, which is the service's name in its telemetry (OBS-02).
+pub fn service_name() -> &'static str {
+    Path::new(BINARY)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .expect("the binary's name")
+}
 
 /// The advisory lock that serializes creating the roles and the template, across processes.
 const SETUP_LOCK: i64 = 7_300_154_123;
@@ -167,7 +179,7 @@ impl TestDatabase {
     }
 
     fn api_command<V: AsRef<OsStr>>(&self, args: &[&str], env: &[(&str, V)]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_antworker-api"));
+        let mut command = Command::new(BINARY);
         command
             .args(args)
             .envs(env.iter().map(|(name, value)| (name, value)));
@@ -338,7 +350,7 @@ impl Drop for TestDatabase {
 /// Runs the API binary with `args`, with `env` as its whole environment, for a subcommand that
 /// reads no database settings.
 pub async fn run_binary(args: &[&str], env: &[(&str, &str)]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_antworker-api"));
+    let mut command = Command::new(BINARY);
     command.args(args).env_clear().envs(env.iter().copied());
     // Windows can't open a socket in a process whose environment lacks SystemRoot.
     if let Some(root) = std::env::var_os("SystemRoot") {

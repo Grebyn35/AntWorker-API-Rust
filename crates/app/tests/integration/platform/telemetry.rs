@@ -1,7 +1,7 @@
 //! The export of telemetry over OTLP (PLATFORM-039, PLATFORM-042, OBS-10), and the metrics the
 //! pipeline and the readiness check record (PLATFORM-040, PLATFORM-043, OBS-15).
 
-use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use http::{Method, StatusCode};
 use opentelemetry_proto::tonic::{
@@ -12,7 +12,7 @@ use platform::telemetry::testing::{
     collector::{Collector, Received, attribute, text},
 };
 
-use crate::support::{Api, TestDatabase, fixtures};
+use crate::support::{Api, TestDatabase, fixtures, service_name};
 
 /// How often the instance checks its own database connection.
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
@@ -47,18 +47,12 @@ fn durations() -> Vec<Point> {
     testing::recorded("http.server.request.duration")
 }
 
-/// The binary's name, which is the service's.
-fn service_name() -> String {
-    let binary = Path::new(env!("CARGO_BIN_EXE_antworker-api"));
-    binary.file_stem().unwrap().to_str().unwrap().to_owned()
-}
-
 /// Asserts that `resource` names the service, the environment and a process.
 fn assert_names_the_process(resource: &Resource, environment: &str) -> String {
     let attributes = &resource.attributes;
     assert_eq!(
         attribute(attributes, "service.name").as_deref(),
-        Some(service_name().as_str())
+        Some(service_name())
     );
     assert_eq!(
         attribute(attributes, "service.version").as_deref(),
