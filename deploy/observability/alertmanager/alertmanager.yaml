@@ -1,6 +1,13 @@
 # Alertmanager: it groups the alerts Prometheus sends, and routes each by its severity (OBS-14).
-# The receivers notify no one: a deployment's integrations, such as email or a chat webhook, have
-# no place yet that a deploy keeps, as docs/operations/observability.md says.
+# The receivers notify no one here. A fork adds its integrations, such as email or a chat webhook,
+# to `page` and `ticket` in its repository, so every deploy installs them, and reads each
+# credential from a file of the deployment's secrets/alertmanager/, which Alertmanager sees as
+# /etc/alertmanager-secrets/, as docs/operations/observability.md says. For example:
+#
+#   - name: page
+#     slack_configs:
+#       - api_url_file: /etc/alertmanager-secrets/slack_api_url
+#         channel: "#incidents"
 
 route:
   receiver: unrouted

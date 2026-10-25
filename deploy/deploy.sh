@@ -235,7 +235,7 @@ random() { od -An -N24 -tx1 /dev/urandom | tr -d ' \n'; }
 # container, as Compose mounts them, so the directory admits only the deployment's owner.
 write_secrets() {
     secrets=$deployment/secrets
-    mkdir -p "$secrets"
+    mkdir -p "$secrets/alertmanager"
     chmod 700 "$secrets"
     umask 022
     if [ "$database" = bundled ] && [ ! -f "$secrets/database_url" ]; then

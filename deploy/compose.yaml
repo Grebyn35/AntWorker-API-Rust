@@ -216,6 +216,10 @@ services:
   alertmanager:
     extends: { file: observability/compose.yaml, service: alertmanager }
     profiles: [observability]
+    # The credentials of the integrations that alertmanager.yaml names, which the deployment keeps
+    # in secrets/alertmanager/ (docs/operations/observability.md).
+    volumes:
+      - ./secrets/alertmanager:/etc/alertmanager-secrets:ro
     networks: [telemetry]
     restart: unless-stopped
 

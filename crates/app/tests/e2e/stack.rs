@@ -4,6 +4,7 @@
 use crate::{
     deployment::{Deployment, GRAFANA_ADDRESS, get, post},
     docker::lossy,
+    server::DEPLOYMENT,
 };
 
 #[tokio::test]
@@ -167,5 +168,47 @@ async fn obs_08_a_managed_backend_receives_the_trace_and_the_logs_of_a_4xx_respo
         deployment
             .server
             .shell_ok("docker logs --tail 10 backend 2>&1")
+    );
+}
+
+#[tokio::test]
+async fn obs_14_an_alert_reaches_the_integration_that_the_release_names_through_the_deployment_s_credential()
+ {
+    let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]).await;
+    let receiver = deployment.server.start_alert_receiver();
+    deployment.server.write(
+        &format!("{DEPLOYMENT}/secrets/alertmanager/page_url"),
+        &receiver,
+    );
+    // A release whose `page` receiver posts to a webhook, through the deployment's credential,
+    // and whose rules hold an alert that fires at once.
+    deployment.server.write(
+        "/root/page.awk",
+        "{ print }\n/^  - name: page$/ { print \"    webhook_configs:\"; \
+         print \"      - url_file: /etc/alertmanager-secrets/page_url\" }\n",
+    );
+    deployment.server.shell_ok(
+        "cd /root/release/observability \
+         && awk -f /root/page.awk alertmanager/alertmanager.yaml > /root/alertmanager.yaml \
+         && cp /root/alertmanager.yaml alertmanager/alertmanager.yaml \
+         && printf '  - name: e2e\n    rules:\n      - alert: E2EPage\n        expr: vector(1)\n        labels:\n          severity: page\n' \
+         >> prometheus/rules.yaml",
+    );
+
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    // Prometheus evaluates the rules every 15 seconds, and Alertmanager waits 30 seconds for a
+    // group's first alerts.
+    let received = deployment.server.shell(
+        "timeout 240 sh -c 'until grep -q E2EPage /root/receiver/out/received.json 2> /dev/null; do sleep 5; done'",
+    );
+
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    assert!(
+        received.status.success(),
+        "{}\nAlertmanager's log ends with:\n{}",
+        lossy(&received),
+        deployment
+            .server
+            .shell_ok("docker logs --tail 10 deployment-alertmanager-1 2>&1")
     );
 }

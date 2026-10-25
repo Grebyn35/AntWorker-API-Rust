@@ -220,6 +220,35 @@ impl Server {
         .collect()
     }
 
+    /// Starts the stand-in for an alert integration on the server: a collector that receives
+    /// Alertmanager's webhooks on the server's own address, port 9099, and writes each to
+    /// /root/receiver/out/received.json. Returns the address to send them to.
+    pub fn start_alert_receiver(&self) -> String {
+        let image = compose(&[
+            "--file",
+            "../../deploy/observability/compose.yaml",
+            "config",
+            "--images",
+            "collector",
+        ]);
+        let address = self
+            .container
+            .inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
+        self.write(
+            "/root/receiver/config.yaml",
+            "receivers:\n  webhook_event:\n    endpoint: 0.0.0.0:9099\n    path: /alerts\n\
+             exporters:\n  file:\n    path: /receiver/out/received.json\n\
+             service:\n  pipelines:\n    logs:\n      receivers: [webhook_event]\n      exporters: [file]\n",
+        );
+        self.shell_ok(&format!(
+            "set -e
+            mkdir -p /root/receiver/out && chmod 777 /root/receiver/out
+            docker run --detach --quiet --name receiver --publish 9099:9099 --volume /root/receiver:/receiver {image} \
+                --config=/receiver/config.yaml > /dev/null"
+        ));
+        format!("http://{address}:9099/alerts")
+    }
+
     /// Starts the stand-in for the bundled database's backup bucket on the server: SeaweedFS,
     /// serving S3 over HTTPS on the server's own address, with a certificate for that address
     /// from an authority of the test's own, which the deployment trusts as certs/backup-ca.crt.
