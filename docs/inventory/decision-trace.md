@@ -26,6 +26,9 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D22 | Traits exist only where there are two real implementations | ARCH-13 also allows traits that invert a dependency |
 | D25 | Each type's constructor trims | AUTH-003: a password isn't trimmed |
 | D15 | `vX.Y.Z` tags publish releases, and `vX.Y.Z-rc.N` tags prerelease images | OPS-14: `just release` sets the app's version, and the run on `main` that passes with it releases it and creates its tag `vX.Y.Z` or `vX.Y.Z-rc.N` |
+| D15 | A single-host rolling deploy | OPS-16 and architecture.md §9: a deploy starts every new replica, as a second color, before it stops the old ones (D45) |
+| D20 | Startup logs the computed connection budget | OPS-21: each instance logs the connections it opens, since it can't know how many replicas run, and a deploy refuses replicas whose budget doesn't fit |
+| D11 | Caddy sets security headers | SEC-11: the API sets its security headers on every response, and the proxy sets HSTS |
 | D21 | Workflows are split by purpose: pull requests and `main`, release tags, and scheduled jobs | OPS-12: `ci.yml` for pull requests and `main`, whose runs on `main` also publish and release, and `scheduled.yml` for scheduled jobs |
 | D21 | A release tag attaches build provenance | OPS-14: the build attaches the SBOM and the provenance to every image, and a release signs the index that holds them |
 | D21 | The required checks are applied as branch protection by a script | OPS-12: `docs/operations/ci.md` lists the required checks, says how to require them, and leaves requiring them to the repository owner |
@@ -59,10 +62,9 @@ Modules carry their own; the build order step of each other area is in parenthes
 |---|---|
 | `access` | the permission that reveals IP addresses in audit entries; the ADR on custom roles (D2) |
 | `audit` | reads filtered by permission (D2); the target filterable and visible to that user; bounded retention (D6) |
-| `auth` | the ADR on accepted enumeration (D7); forgot-password answers 503 with email off (D9); the OAuth redirect allowlist (D18); password reset that sets the first password of an account created without one, and verifies its address (the `workspaces` spec's setup subcommand, D39) |
+| `auth` | the ADR on accepted enumeration (D7); forgot-password answers 503 with email off (D9); the OAuth redirect allowlist (D18); password reset that sets the first password of an account created without one, and verifies its address (the `workspaces` spec's setup subcommand, D39); with the key that encrypts provider tokens (SEC-02), a backup of that key kept apart from the database's (D30) |
 | `accounts` | deletion refused while the user owns a shared workspace, sole-member workspaces deleted with the account, and the ADR on immediate deletion (D16); the export endpoint, one per 24 hours, its archive, notice and download, and the optional erasure precondition (D31) |
-| `files` | a bucket for anonymous public-file downloads (D11) |
-| Deploy and CI (1.5 and 2.4) | Caddy's trusted proxies (D11); TLS everywhere and storage encrypted at rest (D14, queued); alerts that don't depend on the deploy tooling (D15); Compose memory and CPU limits, and startup logging the connection budget (D20); shellcheck, of the justfile's bash recipes and the deploy tooling's scripts (D21); the OpenAPI UI in development only, in step 2.4 (D28) |
+| `files` | a bucket for anonymous public-file downloads (D11); versioning on the files' bucket, recommended and documented (D30) |
+| Development (2.4) | the OpenAPI UI in development only (D28) |
 | Template (5, 6) | a GitHub template repository and `just new-module` (D29); the ADR on hard deletes (D24) |
-| Backups (1.5) | the backup tool, point-in-time recovery on managed Postgres, bucket versioning, and a separate backup of the secrets key (D30) |
 | Security (6) | the ASVS Level 2 conformance pass (D26) |

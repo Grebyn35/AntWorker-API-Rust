@@ -64,6 +64,7 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 | PLATFORM-028 | A migration that fails leaves no trace: its changes roll back, it isn't recorded, and `migrate` fails. | DATA-09 | `platform_028_` |
 | PLATFORM-029 | `migrate` applies nothing while an applied migration differs from its file. It ignores a recorded migration that the binary doesn't contain, so an earlier release can run it after a later one. | DATA-09, DATA-10 | `platform_029_` |
 | PLATFORM-030 | `serve` never applies migrations. It refuses to start until every embedded migration is applied, unchanged, and it starts against a schema that also holds a later release's migrations. | DATA-10, D9 | `platform_030_` |
+| PLATFORM-045 | Once `serve` has connected to the database, it writes one `INFO` line with the most connections the instance opens: `DATABASE_MAX_CONNECTIONS` for its pool, plus its own connection for readiness and the listener. | OPS-21, D20 | `platform_045_` |
 
 ### Units of work and authorization
 
@@ -141,6 +142,8 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 - On the database, it revokes `TEMPORARY` from `PUBLIC`, grants `CONNECT` to both roles, revokes `CREATE` on the schema `public` from `PUBLIC`, and grants it to `owner` only. A database created by a Postgres older than 15 grants `PUBLIC` that `CREATE`, which would let `app` create tables.
 
 The first migration grants `app` `SELECT`, `INSERT`, `UPDATE` and `DELETE` on every table `owner` creates, revokes `EXECUTE` on new functions from `PUBLIC`, and lets `app` read the migrations table. Roles belong to the whole Postgres server, so every database on a server shares them, test databases included.
+
+Two `bootstrap` runs at once can't both be relied on: they update the same roles, and one can fail with "tuple concurrently updated", because an advisory lock serializes runs only on the same database. The reference deployment runs `bootstrap` once per deploy, and one deploy at a time (OPS-16), so its runs never overlap; the test support serializes the tests' runs.
 
 ### Migrations
 
@@ -304,4 +307,3 @@ A name joins the list with the first code that writes it, such as `user.id` and 
 | Whether a job enqueued in workspace context re-asks `AccessPolicy` when it runs, so a role change in between is respected | `platform_012_`, with a job enqueued before the enqueuing member's role changes |
 | Whether one listener connection per replica is enough under load, or events and access changes need separate connections | a load test of the hub, recorded under OPS-18 |
 | Whether the SDK's queues of spans and log records drop items under load while every export succeeds. No count shows such a drop, because the SDK counts it only for log records, behind an experimental feature | the load test (build order 1.5), which compares the requests the API served with the server spans the collector accepted |
-| Whether two `bootstrap` runs at once must both succeed. They update the same roles, which belong to the whole server, so one can fail with "tuple concurrently updated". An advisory lock serializes runs only on the same database | the reference deployment (build order 1.5), which decides how `bootstrap` runs |

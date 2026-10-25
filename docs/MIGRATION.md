@@ -4,9 +4,9 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 1.5 of the build order, the reference deployment, in this order: the spec, the code test-first, and the conformance review. It brings Grafana on an HTTPS address of its own and the path to a managed observability backend (D42), the load test that closes the known gap of OPS-18, shellcheck for the justfile's bash recipes and the deploy tooling's scripts, and a deploy that takes a release by its version (architecture.md §9). Its spec carries every commitment that [inventory/decision-trace.md](inventory/decision-trace.md) gives step 1.5, D20's connection budget among them. Research into its tools, with sources, is in the message of the commit "Hand off after the documentation review"; nothing is chosen yet. Its first deploy needs a final release, which the owner starts with `just release`. The scheduled image jobs first run on a Monday.
+**Next:** step 1.5, the reference deployment. Its spec is written: [architecture.md §9](architecture.md#9-runtime-topology), OPS-16 to OPS-18, OPS-20, OPS-21, CODE-16, OBS-13, OBS-14 and PLATFORM-045. The code comes next, test-first, with `docs/operations/deploy.md` and `docs/operations/backups.md`, then the conformance review. Building it also changes OPS-14 and [release.md](operations/release.md) for the second image, Postgres with pgBackRest (D44). Research into its tools, with sources, is in the message of the commit "Hand off after the documentation review". The step ends with a deploy to a trial server. The scheduled image jobs first run on a Monday.
 
-**Waiting on the owner:** nothing.
+**Waiting on the owner:** nothing yet. Once the path to a managed backend is built: a free Grafana Cloud account, with its token in a local file. Once the deploy passes CI: a trial server, two subdomains, a backup bucket, and a final release through `just release`.
 
 ## Build order
 
@@ -99,6 +99,7 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `check-openapi`, for list shapes, methods, statuses, scopes and formats (API-02 to API-05, API-11) | 2.1, with the first routes that have them |
 | `check-openapi`, for the breaking-change diff (API-18, ERR-02) | the first final release |
 | `check-pins`, `image-scan`, `image-rescan`, `verify-release` | built |
+| `check-shell` | 1.5 |
 | `e2e` | built, and extended by every later step |
 | `check-layers`, `check-deps`, `check-schema` | 2.1, with the first service, the first call between modules and the first tables |
 | `check-tenancy` | 2.2, with the first workspace tables |
@@ -123,8 +124,6 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 
 | From | Proposal | Decided in |
 |---|---|---|
-| Standards review | An OPS rule for D14: TLS on every connection that leaves the host, and storage encrypted at rest as a stated deployment requirement. | 1.5 |
-| Cloud observability (D42) | OBS-13 and OBS-14 with a managed backend: how dashboards that a managed Grafana can't provision from files stay read-only and checked, and how the rules and their tests reach its ruler. | 1.5 |
 | Research | API-15 names the draft it follows: draft-ietf-httpapi-ratelimit-headers-11 (2026-05), with `RateLimit: "default";r=50;t=30` and `RateLimit-Policy: "burst";q=100;w=60`. | 2.1 |
 | Research | API-12 names the draft it follows: draft-ietf-httpapi-idempotency-key-header-08 (2026-10), whose key is a structured-field string. | 2.2 |
 | Conformance review of cf1253c | API-07, API-09: whether `request.invalid_query` names the unknown parameters in `errors`, since clients never act on `detail` (ERR-09) | 2.1, with the first route that parses query values |
@@ -209,3 +208,5 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D41 | A latency spike leads to its requests through the kept traces slower than the latency objective, which the latency dashboard lists, rather than through exemplars, which OpenTelemetry's Rust SDK doesn't record (OBS-08) | accepted |
 | D42 | The self-hosted observability stack is the default, with Grafana behind HTTPS and sign-in; a deployment may instead send its telemetry through the collector to a managed backend, with Grafana Cloud as the worked example ([architecture](architecture.md#9-runtime-topology)) | accepted |
 | D43 | The image's binary is static against musl, compiled for both platforms on one machine through zig, on a base with no C library ([architecture](architecture.md#10-technology)) | accepted |
+| D44 | The bundled Postgres has point-in-time recovery: pgBackRest archives its write-ahead log continuously and takes scheduled base backups, encrypted, to a bucket off the server, from a Postgres image the pipeline builds (OPS-17) | accepted |
+| D45 | The reference deployment's deploy is a script of its own around Docker Compose, with two colors of replicas that Caddy names and health-checks one by one: a deploy starts the idle color, waits until Caddy finds it ready, then stops the live one ([architecture](architecture.md#9-runtime-topology)) | accepted |

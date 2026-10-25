@@ -103,19 +103,29 @@ One image serves every subcommand. It holds the API's static binary on a base wi
 ## Deploy and recovery
 
 ### OPS-16 Deploys roll without downtime and roll back on failure
-A deploy starts new replicas, waits until they are ready, shifts traffic to them, then stops the old replicas. If a new replica doesn't become ready, the deploy rolls back. CI runs a deploy against the real image.
-- Why: deploying is routine, not a risk (D15).
-- Check: `ci: e2e`.
+A deploy takes a release by its version, and refuses a version that no release has. It applies the release's migrations, starts new replicas, waits until the load balancer finds every one of them ready, then stops the old replicas, which drain (OPS-06). If a new replica doesn't become ready, the deploy removes the new replicas, and the old ones go on serving. A service that runs as one instance, such as the database or the proxy, is restarted by a deploy only when the operator allows it, because restarting it interrupts requests. One deploy runs at a time. Nothing a deploy does changes the alert rules.
+- Why: deploying is routine, not a risk, and an alert means the same whatever deployed the system (D15).
+- Check: `ci: e2e` (a deploy of the real images under continuous requests, none of which fails, and the rollback), plus `test` (what `just deploy` refuses).
 
-### OPS-17 Backups are scheduled and restores are tested
-The bundled Postgres is backed up on a schedule to object storage, with retention. `just backup` takes a backup on demand, and `just restore` restores one into a fresh database. CI restores a backup and runs the smoke tests against it. `docs/operations/backups.md` states the recovery targets.
-- Why: an untested backup is not a backup (D30).
+### OPS-17 Backups are continuous and restores are tested
+The bundled Postgres archives its write-ahead log continuously, and takes base backups on a schedule, to an S3-compatible bucket off its server, encrypted before they leave it, with retention. A restore recovers the database into a fresh one, as it stood at any moment the retention covers. `just backup` takes a base backup on demand, and `just restore` restores the latest state, or the state at a given moment. CI restores to a moment and runs the smoke tests against the result. `docs/operations/backups.md` states the recovery targets, and requires a managed Postgres to provide point-in-time recovery of its own.
+- Why: losing the server loses at most about a minute of data, a mistake can be undone up to the moment before it, and an untested backup is not a backup (D30, D44).
 - Check: `ci: e2e` (the restore scenario).
 
 ### OPS-18 Capacity is measured
-A load-test task records requests per second per replica at the latency objective. It runs before each release, and its result is part of the release notes.
+`just load-test` runs one replica of the image, with the reference deployment's CPU and memory limits for a replica, and finds the highest constant rate of requests it serves with no request failed and the 99th percentile within the latency objective. That rate is the replica's capacity. The task runs before each release, and its result is part of the release notes.
 - Why: capacity is a number, not a guess (D20).
 - Check: `review` (the release checklist in `docs/operations/release.md`).
+
+### OPS-20 Data is encrypted in transit and at rest
+Every connection that leaves the server the API runs on uses TLS, and verifies the certificate of the service it reaches. Clients reach the API over HTTPS only. A managed database is reached with `sslmode=verify-full`, and the backup bucket and a managed observability backend over HTTPS. Stored data is encrypted below the API: the deployment's volumes are on encrypted disks, a managed database and a bucket encrypt what they store, and backups are encrypted before they leave the server. The API itself encrypts only secrets (SEC-02).
+- Why: TLS and storage-level encryption protect personal data in transit and at rest, without application-level encryption of every column (D14).
+- Check: `ci: e2e` (the proxy answers HTTP with a redirect to HTTPS, and HTTPS with HTTP Strict Transport Security (HSTS)), plus `review` (what `docs/operations/deploy.md` requires of a server and its providers).
+
+### OPS-21 The connection budget fits
+An instance opens at most `DATABASE_MAX_CONNECTIONS` pooled connections, plus one of its own for readiness and the listener, and `serve` logs that number once it connects. A deploy refuses to start replicas when every replica it would run at once, at that number each, together with the connections of the one-shot subcommands and of the backups, would exceed the connections Postgres allows.
+- Why: replicas can't exhaust the database's connections, even while a deploy runs two sets of them (D20).
+- Check: `test` (PLATFORM-045), plus `ci: e2e` (the refusal).
 
 ## Local development
 
