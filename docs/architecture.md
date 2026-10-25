@@ -10,7 +10,7 @@ Decision IDs `D1` to `D36` refer to the decision records in [inventory/SYNTHESIS
 
 ```mermaid
 flowchart LR
-  client[Clients<br/>desktop app] --> caddy[Caddy<br/>TLS, load balancing,<br/>health checks]
+  client[Clients] --> caddy[Caddy<br/>TLS, load balancing,<br/>health checks]
   caddy --> api[API replicas<br/>1..N]
   api --> pg[(PostgreSQL 18)]
   api --> s3[(S3-compatible<br/>object storage)]
@@ -116,7 +116,7 @@ crates/app/
 | `auth` | `sessions`, `verification_codes`, `identities`, `provider_tokens`, `pending_email_changes` | Registration, login with credentials or OAuth, refresh, logout, sessions, password reset and change, email verification and change, identity linking, and re-authentication for sensitive actions. Account deletion is confirmed here, then carried out by `accounts`. One file per OAuth provider in `auth/providers/`. Implements `SessionVerifier`. |
 | `workspaces` | `workspaces`, `setup_runs` | Creating workspaces in each shape (below), updating, transferring and deleting them, the members endpoints (list, change role, remove, leave), and the workspace picture. |
 | `invitations` | `invitations` | Invite, list, resend, cancel, accept, decline, and expiry. |
-| `client_telemetry` | none | The telemetry proxy for the desktop client, enforcing consent on the server (D7). |
+| `client_telemetry` | none | The telemetry proxy for clients, enforcing consent on the server (D7). |
 | `system` | none | The capabilities endpoint (D9), and the schema endpoints, which list the permissions and the audit actions. The health probes belong to `platform` (§4). |
 | `platform` | `events`, `jobs`, `job_schedules`, `rate_limit_buckets`, `idempotency_records` | The mechanisms in §4. |
 

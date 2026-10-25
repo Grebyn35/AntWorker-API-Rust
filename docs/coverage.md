@@ -95,7 +95,7 @@ Each module in [architecture.md §5](architecture.md#5-modules) gets a spec in `
 Each of these gets a one-line architecture decision record (ADR) so the boundary is on record:
 
 - Web-client support (the seams are in D18).
-- The desktop client, including the Tauri auto-updater, which is a separate project.
+- Clients, and how they are distributed, such as a desktop app's auto-updater. Each client is a separate project that uses the API's contract.
 - Kubernetes, Amazon Elastic Container Service (ECS) or Fly manifests (D20 documents the requirements).
 - An admin console, billing, and multi-region deployment.
 - Localized server messages. Clients localize by error code and event type.

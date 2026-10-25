@@ -30,7 +30,7 @@ None.
 
 ## Design
 
-The handler authenticates with the caller's `Principal`, asks `platform::events` for a stream subscribed with the caller's `Memberships`, and returns it as the SSE response. Browsers can't send an `Authorization` header on an `EventSource`, so web clients need the cookie source from D18. The desktop client sends the header.
+The handler authenticates with the caller's `Principal`, asks `platform::events` for a stream subscribed with the caller's `Memberships`, and returns it as the SSE response. Browsers can't send an `Authorization` header on an `EventSource`, so web clients need the cookie source from D18. A client that sets its own request headers sends the Bearer header.
 
 ## Open design questions
 

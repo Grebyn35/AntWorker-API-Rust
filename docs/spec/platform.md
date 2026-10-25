@@ -146,8 +146,6 @@ The first migration grants `app` `SELECT`, `INSERT`, `UPDATE` and `DELETE` on ev
 
 `migrations/` holds one file per change, named `<timestamp>_<module>_<description>.sql` (DATA-09), and the `app` crate embeds them as `MIGRATIONS`. `migrate` takes an advisory lock on the database, compares every applied migration with its file before it applies anything, then applies each missing migration in its own transaction together with its record. It never applies a down migration, and it refuses a migration marked `-- no-transaction`, which would run outside a transaction, so a failure part way through it would leave a trace (PLATFORM-028).
 
-Queries are checked against the database while compiling (DATA-20), and `migrate` is part of the same binary. A migration is therefore applied with `just migrate` before the queries that use it are written.
-
 ### Connections
 
 `Database::connect` opens a pool of up to `DATABASE_MAX_CONNECTIONS` connections as `app` ([`.env.example`](../../.env.example) gives its default). An operation waits up to 5 seconds for a free connection. The startup checks run on the first connection: the role (PLATFORM-009), then the schema (PLATFORM-030). The role check covers objects the role owns in every database of the server.

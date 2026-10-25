@@ -70,7 +70,7 @@ The presented token is hashed with SHA-256, and the session is read by `refresh_
 
 ### Device IDs
 
-A device ID is an opaque string the client chooses, 1 to 64 characters from `[A-Za-z0-9_-]`. The desktop client generates one per installation.
+A device ID is an opaque string the client chooses, 1 to 64 characters from `[A-Za-z0-9_-]`, such as one it generates once per installation.
 
 ## Open design questions
 
