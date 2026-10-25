@@ -36,7 +36,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: just checks
 
-  # The image, built once for both platforms (OPS-14).
+  # The images, each built once for both platforms (OPS-14).
   image:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -62,11 +62,13 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: image
-          path: target/image
+          path: |
+            target/image
+            target/image-postgres
           retention-days: 1
           if-no-files-found: error
 
-  # The digest the image job built: scanned, then booted on each platform with the end-to-end
+  # The digests the image job built: scanned, then booted on each platform with the end-to-end
   # tests, arm64 through QEMU (OPS-14, OPS-15).
   verify:
     needs: image
@@ -87,13 +89,13 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: image
-          path: target/image
+          path: target
       - run: just image-scan
       - run: docker compose run --rm binfmt --install arm64
       - run: just e2e linux/amd64
       - run: just e2e linux/arm64
 
-  # The tested digest, published on main as sha-<commit>, and as edge while it is main's head.
+  # The tested digests, published on main as sha-<commit>, and as edge while it is main's head.
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [checks, verify]
@@ -115,7 +117,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: image
-          path: target/image
+          path: target
       - run: echo "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}

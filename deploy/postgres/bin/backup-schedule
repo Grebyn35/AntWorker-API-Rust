@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Takes the scheduled base backups (OPS-17), every day at BACKUP_HOUR o'clock UTC: a full backup
+# on Sundays, and a differential one, of what changed since the last full backup, on the other
+# days. Each backup that succeeds sets the time of the file `backup-completed` in the status
+# directory, which the collector reads for the alert on backups that stop (OBS-14). The write-ahead
+# log is archived continuously between backups, so a restore reaches any moment they cover.
+set -euo pipefail
+
+status=/var/lib/backup-status
+hour=${BACKUP_HOUR:?the hour of the daily backup, from 0 to 23}
+
+# A stop request ends the wait at once.
+trap 'exit 0' TERM INT
+
+while true; do
+    now=$(date -u +%s)
+    next=$(date -u -d "today $hour:00" +%s)
+    if [ "$next" -le "$now" ]; then
+        next=$(date -u -d "tomorrow $hour:00" +%s)
+    fi
+    sleep "$((next - now))" &
+    wait "$!"
+    if [ "$(date -u +%u)" = 7 ]; then kind="full"; else kind="diff"; fi
+    if pgbackrest --stanza=db backup --type="$kind"; then
+        touch "$status/backup-completed"
+    else
+        echo "the scheduled $kind backup failed; the next one runs tomorrow" >&2
+    fi
+done

@@ -31,6 +31,9 @@ version := replace_regex(read("crates/app/Cargo.toml"), '(?s)^.*?\nversion = "([
 # The images Docker's builder runs, pinned in compose.yaml with the other images the tasks run.
 buildkit_image := `docker compose config --images buildkit`
 sbom_generator_image := `docker compose config --images sbom-generator`
+# The images of the tools that verify a release, which deploy/verify-release.sh runs.
+crane_image := `docker compose config --images crane`
+cosign_image := `docker compose config --images cosign`
 # The builder the image builds in, one for each BuildKit image.
 image_builder := "buildkit-" + sha256(buildkit_image)
 # A directory that keeps BuildKit's cache between runs of `just image`, as CI's cache does, and
@@ -243,23 +246,31 @@ check-pins:
 check-shell:
     {{ xtask }} check-shell
 
-# Prints the name of the package that the image of `repository`, such as owner/name, is in the
-# registry, for the workflows.
-image-package repository:
-    @echo {{ lowercase(file_name(repository)) }}
+# Prints the names of the packages that the images of `repository`, such as owner/name, are in
+# the registry, separated by commas, for the workflows.
+image-packages repository:
+    @echo {{ lowercase(file_name(repository)) }},{{ lowercase(file_name(repository)) }}-postgres
 
-# Builds the image once for linux/amd64 and linux/arm64, with its software bill of materials
-# (SBOM) and provenance, into the OCI image layout in target/image (OPS-14, OPS-15). With
-# IMAGE_CACHE naming a directory, BuildKit reads its cache from there, and replaces it with the
-# cache of this build unless IMAGE_CACHE_WRITE is false. While the two platforms write the layer
-# they share, buildx can print "ref ... locked" errors: they are retries, and the exit status says
-# whether the build succeeded.
-image revision=`git rev-parse HEAD`: _image-builder && _image-cache
+# Builds each image once for linux/amd64 and linux/arm64, with its software bill of materials
+# (SBOM) and provenance, into an OCI image layout (OPS-14, OPS-15): the API's into target/image,
+# and the reference deployment's Postgres into target/image-postgres (D44). The Postgres image
+# carries an identifier of the files it is built from as `build.inputs`, so a deploy restarts
+# Postgres only for an image built from other files (OPS-16). With IMAGE_CACHE naming a directory,
+# BuildKit reads its cache for the API's image from there, and replaces it with the cache of this
+# build unless IMAGE_CACHE_WRITE is false. While the two platforms write the layer they share,
+# buildx can print "ref ... locked" errors: they are retries, and the exit status says whether the
+# build succeeded.
+image revision=`git rev-parse HEAD` postgres_inputs=`cargo run --locked --quiet --package xtask -- inputs deploy/postgres`: _image-builder && _image-cache
     docker buildx build --builder {{ image_builder }} --platform linux/amd64,linux/arm64 \
         --attest type=sbom,generator={{ sbom_generator_image }} --attest type=provenance,mode=max \
         --label org.opencontainers.image.version={{ version }} --label org.opencontainers.image.revision={{ revision }} \
         {{ image_cache_from }} {{ image_cache_to }} \
         --output type=oci,dest={{ image_dir }},tar=false .
+    docker buildx build --builder {{ image_builder }} --platform linux/amd64,linux/arm64 \
+        --attest type=sbom,generator={{ sbom_generator_image }} --attest type=provenance,mode=max \
+        --label org.opencontainers.image.version={{ version }} --label org.opencontainers.image.revision={{ revision }} \
+        --label build.inputs={{ postgres_inputs }} \
+        --output type=oci,dest={{ image_dir }}-postgres,tar=false deploy/postgres
 
 # Creates the builder, if this machine doesn't have it yet.
 [unix]
@@ -284,44 +295,49 @@ _image-cache:
     if ('{{ image_cache }}' -and (Test-Path '{{ image_cache }}-new')) { Remove-Item -Recurse -Force '{{ image_cache }}' -ErrorAction SilentlyContinue; Move-Item '{{ image_cache }}-new' '{{ image_cache }}' }
 
 # Fails on a vulnerability that has a fix and is rated high or critical, in each platform's image
-# in target/image (SEC-13). The scanner reads the operating system's packages and the crates the
-# binary records.
+# of each image in target (SEC-13). The scanner reads the operating system's packages and the
+# crates the binary records.
 image-scan:
     docker compose run --rm grype oci-dir:/image --platform linux/amd64 --only-fixed --fail-on high
     docker compose run --rm grype oci-dir:/image --platform linux/arm64 --only-fixed --fail-on high
+    docker compose run --rm grype oci-dir:/image-postgres --platform linux/amd64 --only-fixed --fail-on high
+    docker compose run --rm grype oci-dir:/image-postgres --platform linux/arm64 --only-fixed --fail-on high
 
-# Runs the end-to-end tests against the image in target/image, on the platform E2E_PLATFORM, which
-# is this machine's unless named (TEST-04). The tests run the image from the registry that Compose runs,
-# against the Postgres that `just services` starts. Another platform needs the system to run its
-# binaries, such as through QEMU.
+# Runs the end-to-end tests against the images in target, on the platform E2E_PLATFORM, which is
+# this machine's unless named (TEST-04). The tests run the images from the registry that Compose
+# runs, against the Postgres that `just services` starts. Another platform needs the system to run
+# its binaries, such as through QEMU.
 e2e $E2E_PLATFORM=native_platform: services
     docker compose up --detach --wait registry
     docker compose run --rm crane push --insecure /image registry:5000/{{ e2e_image }}:e2e
+    docker compose run --rm crane push --insecure /image-postgres registry:5000/{{ e2e_image }}-postgres:e2e
     cargo test --locked --package app --features e2e --test e2e
 
-# Pushes the image in target/image to the registry as sha-<commit>, under the name of
-# `repository`, such as owner/name, and moves `edge` to it while the commit is still the head of
-# main (OPS-14). CI runs it on main, once every check has passed, after a `docker login` to the
-# registry.
+# Pushes each image in target to the registry as sha-<commit>, under the name of `repository`,
+# such as owner/name, or that name with `-postgres` for the Postgres image, and moves `edge` to it
+# while the commit is still the head of main (OPS-14). CI runs it on main, once every check has
+# passed, after a `docker login` to the registry.
 [unix]
 publish repository commit:
     #!/usr/bin/env bash
     set -euo pipefail
     repository={{ image_registry }}/{{ lowercase(repository) }}
     crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
-    tested=$(grep -o '"digest":"sha256:[0-9a-f]*"' {{ image_dir }}/index.json | head -n 1 | cut -d '"' -f 4)
-    # The registry can refuse a manifest moments after the first one created a new package, so a
-    # failed push is tried again. Pushing again pushes only what is missing.
-    for attempt in 1 2 3 4 5; do
-        if crane push /image "$repository:sha-{{ commit }}"; then break; fi
-        if [ "$attempt" = 5 ]; then exit 1; fi
-        echo "the push failed; pushing again in 15 seconds" >&2
-        sleep 15
+    for suffix in "" -postgres; do
+        tested=$(grep -o '"digest":"sha256:[0-9a-f]*"' "{{ image_dir }}$suffix/index.json" | head -n 1 | cut -d '"' -f 4)
+        # The registry can refuse a manifest moments after the first one created a new package,
+        # so a failed push is tried again. Pushing again pushes only what is missing.
+        for attempt in 1 2 3 4 5; do
+            if crane push "/image$suffix" "$repository$suffix:sha-{{ commit }}"; then break; fi
+            if [ "$attempt" = 5 ]; then exit 1; fi
+            echo "the push failed; pushing again in 15 seconds" >&2
+            sleep 15
+        done
+        pushed=$(crane digest "$repository$suffix:sha-{{ commit }}")
+        if [ "$pushed" != "$tested" ]; then echo "the registry holds $pushed, not the tested $tested" >&2; exit 1; fi
     done
-    pushed=$(crane digest "$repository:sha-{{ commit }}")
-    if [ "$pushed" != "$tested" ]; then echo "the registry holds $pushed, not the tested $tested" >&2; exit 1; fi
     if [ "$(git ls-remote origin refs/heads/main | cut -f 1)" = "{{ commit }}" ]; then
-        crane tag "$repository:sha-{{ commit }}" edge
+        for suffix in "" -postgres; do crane tag "$repository$suffix:sha-{{ commit }}" edge; done
     else
         echo "{{ commit }} is no longer the head of main, so edge stays where it is"
     fi
@@ -332,12 +348,12 @@ publish repository commit:
 release version:
     {{ xtask }} release {{ version }}
 
-# Releases the app's version from the image this run on main published for `commit`, if a commit
-# since the latest release asks for it and no release has it yet (OPS-14): gives the image the
+# Releases the app's version from the images this run on main published for `commit`, if a commit
+# since the latest release asks for it and no release has it yet (OPS-14): gives each image the
 # version's tag, signs it, verifies the release, and only then tags the commit v<version>. The
-# request is the commit `just release` makes, whose subject is "Release <version>". `repository` is the GitHub repository, such as
-# owner/name, and `source` its address. CI runs it on main once every check has passed, after a
-# `docker login`, and each failure says what to do next.
+# request is the commit `just release` makes, whose subject is "Release <version>". `repository`
+# is the GitHub repository, such as owner/name, and `source` its address. CI runs it on main once
+# every check has passed, after a `docker login`, and each failure says what to do next.
 [unix]
 release-image repository commit source:
     #!/usr/bin/env bash
@@ -364,63 +380,52 @@ release-image repository commit source:
         exit 0
     fi
     if ! refused=$({{ xtask }} release-check "$version" 2>&1); then fail "$refused"; fi
-    digest=$(crane digest "$image:sha-{{ commit }}") \
-        || fail "This run's publish job pushed no image of {{ commit }}, so $version isn't released. Re-run this run's failed jobs."
-    crane tag "$image@$digest" "$version" \
-        || fail "The registry refused the tag $version, so $version isn't released. Re-run this job."
-    cosign sign --yes "$image@$digest" \
-        || fail "Signing failed, so $version isn't released. Re-run this job; if it fails again, Sigstore may be down: https://status.sigstore.dev."
-    just verify-release {{ repository }} "$version" "$digest" {{ source }} \
-        || fail "The release of $version doesn't verify, so it isn't released; the error above says why. Re-run this job."
-    { git tag "v$version" "{{ commit }}" && git push --quiet origin "v$version"; } \
-        || fail "The image $version is released, but GitHub refused the tag v$version. Re-run this job."
-    echo "Released $version: $image@$digest"
-
-# Fails unless the image of `repository`, such as owner/name, tagged `version` is `digest`, the
-# one main tested, signed by the run on main of the repository at `source`, with the SBOM and the
-# provenance of both platforms (OPS-14).
-[unix]
-verify-release repository version digest source:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    repository={{ image_registry }}/{{ lowercase(repository) }}
-    crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
-    # cosign keeps Sigstore's trust data in its home, which the runner's user can write only in /tmp.
-    cosign() { docker compose run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker cosign "$@"; }
-    tagged=$(crane digest "$repository:{{ version }}")
-    if [ "$tagged" != "{{ digest }}" ]; then echo "{{ version }} is $tagged, not the tested {{ digest }}" >&2; exit 1; fi
-    cosign verify --certificate-identity "{{ source }}/.github/workflows/ci.yml@refs/heads/main" \
-        --certificate-oidc-issuer https://token.actions.githubusercontent.com "$repository@{{ digest }}" > /dev/null
-    # Each kind of attestation, with the field that holds its document. A platform the index
-    # lacks gives an empty entry, whose field is empty.
-    for attestation in SBOM:SPDX Provenance:SLSA; do
-        kind=${attestation%%:*}
-        field=${attestation##*:}
-        for platform in linux/amd64 linux/arm64; do
-            found=$(docker buildx imagetools inspect "$repository@{{ digest }}" \
-                --format "{{{{ with index .$kind \"$platform\" }}{{{{ if .$field }}present{{{{ end }}{{{{ end }}")
-            if [ "$found" != present ]; then echo "{{ version }} has no $kind for $platform" >&2; exit 1; fi
-        done
+    released=""
+    for suffix in "" -postgres; do
+        digest=$(crane digest "$image$suffix:sha-{{ commit }}") \
+            || fail "This run's publish job pushed no image of {{ commit }} to $image$suffix, so $version isn't released. Re-run this run's failed jobs."
+        crane tag "$image$suffix@$digest" "$version" \
+            || fail "The registry refused the tag $version of $image$suffix, so $version isn't released. Re-run this job."
+        cosign sign --yes "$image$suffix@$digest" \
+            || fail "Signing failed, so $version isn't released. Re-run this job; if it fails again, Sigstore may be down: https://status.sigstore.dev."
+        released+="$image$suffix@$digest"$'\n'
     done
+    verified=$(just verify-release {{ repository }} "$version" {{ source }}) \
+        || fail "The release of $version doesn't verify, so it isn't released; the error above says why. Re-run this job."
+    if [ "$verified"$'\n' != "$released" ]; then fail "The release of $version names other images than the tested ones, so it isn't released: $verified. Re-run this job."; fi
+    { git tag "v$version" "{{ commit }}" && git push --quiet origin "v$version"; } \
+        || fail "The images of $version are released, but GitHub refused the tag v$version. Re-run this job."
+    echo "Released $version:"
+    echo "$released"
+
+# Fails unless each image of `repository`, such as owner/name, tagged `version` is signed by the
+# run on main of the repository at `source`, with the SBOM and the provenance of both platforms,
+# and prints each one's digest (OPS-14). It runs deploy/verify-release.sh, which the reference
+# deployment's deploy also runs before it pulls a release (OPS-16).
+[unix]
+verify-release repository version source:
+    CRANE="{{ crane_image }}" COSIGN="{{ cosign_image }}" deploy/verify-release.sh "{{ version }}" "{{ source }}" \
+        "{{ image_registry }}/{{ lowercase(repository) }}" "{{ image_registry }}/{{ lowercase(repository) }}-postgres"
 
 # Scans the published images of `repository`, such as owner/name, again: `edge`, the newest final
-# release and the newest prerelease, for vulnerabilities published since they were tested
-# (SEC-13). The scheduled workflow
-# runs it every week, after a `docker login`.
+# release and the newest prerelease of each image, for vulnerabilities published since they were
+# tested (SEC-13). The scheduled workflow runs it every week, after a `docker login`.
 [unix]
 image-rescan repository:
     #!/usr/bin/env bash
     set -euo pipefail
-    repository={{ image_registry }}/{{ lowercase(repository) }}
     # crane runs as the runner's user, who alone can read the registry login. Grype runs as its
     # image's root, which can read it too, and write the database to the volume Compose made.
     crane() { docker compose run --rm --user "$(id -u):$(id -g)" --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker crane "$@"; }
     grype() { docker compose run --rm --volume "$HOME/.docker:/docker:ro" --env DOCKER_CONFIG=/docker grype "$@"; }
-    tags=$(crane ls "$repository")
-    release=$(grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tags" | sort -V | tail -n 1 || true)
-    prerelease=$(grep -E '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' <<< "$tags" | sort -V | tail -n 1 || true)
-    for tag in edge $release $prerelease; do
-        for platform in linux/amd64 linux/arm64; do
-            grype "registry:$repository:$tag" --platform "$platform" --only-fixed --fail-on high
+    for suffix in "" -postgres; do
+        repository={{ image_registry }}/{{ lowercase(repository) }}$suffix
+        tags=$(crane ls "$repository")
+        release=$(grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tags" | sort -V | tail -n 1 || true)
+        prerelease=$(grep -E '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' <<< "$tags" | sort -V | tail -n 1 || true)
+        for tag in edge $release $prerelease; do
+            for platform in linux/amd64 linux/arm64; do
+                grype "registry:$repository:$tag" --platform "$platform" --only-fixed --fail-on high
+            done
         done
     done

@@ -67,17 +67,17 @@ jobs:
         with:
           tool: just@1.59.0
       - id: image
-        run: echo "package=$(just image-package "$REPOSITORY")" >> "$GITHUB_OUTPUT"
+        run: echo "packages=$(just image-packages "$REPOSITORY")" >> "$GITHUB_OUTPUT"
         env:
           REPOSITORY: ${{ github.repository }}
       - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
         with:
-          package: ${{ steps.image.outputs.package }}
+          package: ${{ steps.image.outputs.packages }}
           delete-tags: "*-rc.*"
           older-than: 90 days
       - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
         with:
-          package: ${{ steps.image.outputs.package }}
+          package: ${{ steps.image.outputs.packages }}
           delete-tags: sha-*
           delete-untagged: true
           delete-orphaned-images: true

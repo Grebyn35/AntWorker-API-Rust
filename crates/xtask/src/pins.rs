@@ -34,11 +34,14 @@ pub fn check(repo: &Repo) -> Outcome {
             ));
         }
     }
-    if let Some(file) = repo.file(COMPOSE) {
-        compose_pins(&file.text, &mut findings);
-    }
-    if let Some(file) = repo.file(DOCKERFILE) {
-        dockerfile_pins(&file.text, &mut findings);
+    for file in repo.files() {
+        let name = file.path.rsplit('/').next().unwrap_or_default();
+        if name == COMPOSE {
+            compose_pins(&file.path, &file.text, &mut findings);
+        }
+        if name == DOCKERFILE {
+            dockerfile_pins(&file.path, &file.text, &mut findings);
+        }
     }
     toolchain(repo, &mut findings);
     Outcome {
@@ -150,13 +153,14 @@ fn action_problem(action: &str) -> Option<String> {
     })
 }
 
-fn compose_pins(text: &str, findings: &mut Vec<Finding>) {
+/// Checks the images that the compose file at `path` names.
+fn compose_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
     for (number, line) in numbered(text) {
         if let Some(image) = value_of(line.trim_start(), "image:")
             && !has_digest(image)
         {
             findings.push(Finding::new(
-                COMPOSE,
+                path,
                 number,
                 format!("the image {image} is pinned by digest (OPS-13)"),
             ));
@@ -164,7 +168,9 @@ fn compose_pins(text: &str, findings: &mut Vec<Finding>) {
     }
 }
 
-fn dockerfile_pins(text: &str, findings: &mut Vec<Finding>) {
+/// Checks the frontend, the images, the downloads, the packages, the crates and the toolchain of
+/// the Dockerfile at `path`.
+fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
     let mut stages: Vec<String> = Vec::new();
     let mut syntax = false;
     for (number, line) in numbered(text) {
@@ -173,7 +179,7 @@ fn dockerfile_pins(text: &str, findings: &mut Vec<Finding>) {
             syntax = true;
             if !has_digest(frontend) {
                 findings.push(Finding::new(
-                    DOCKERFILE,
+                    path,
                     number,
                     format!("the frontend {frontend} is pinned by digest (OPS-13)"),
                 ));
@@ -190,7 +196,7 @@ fn dockerfile_pins(text: &str, findings: &mut Vec<Finding>) {
                 let image = rest.next().copied().unwrap_or_default();
                 if !has_digest(image) && !names_stage(image, &stages) {
                     findings.push(Finding::new(
-                        DOCKERFILE,
+                        path,
                         number,
                         format!("the image {image} is pinned by digest (OPS-13)"),
                     ));
@@ -211,7 +217,7 @@ fn dockerfile_pins(text: &str, findings: &mut Vec<Finding>) {
                         .any(|word| word.starts_with("--checksum=sha256:"))
                 {
                     findings.push(Finding::new(
-                        DOCKERFILE,
+                        path,
                         number,
                         "a download is pinned by its checksum, with --checksum=sha256: (OPS-13)",
                     ));
@@ -219,24 +225,34 @@ fn dockerfile_pins(text: &str, findings: &mut Vec<Finding>) {
             }
             _ => {}
         }
-        if let Some(problem) = cargo_install_problem(&words) {
-            findings.push(Finding::new(DOCKERFILE, number, problem));
-        }
-        if line.contains("cargo +") || words.windows(3).any(toolchain_named) {
-            findings.push(Finding::new(
-                DOCKERFILE,
-                number,
-                "the image builds with the toolchain rust-toolchain.toml pins (CODE-01)",
-            ));
+        for problem in command_problems(line, &words) {
+            findings.push(Finding::new(path, number, problem));
         }
     }
     if !syntax {
         findings.push(Finding::new(
-            DOCKERFILE,
+            path,
             1,
             "the first line pins the Dockerfile frontend, with `# syntax=` and a digest (OPS-13)",
         ));
     }
+}
+
+/// What is wrong with the commands of the Dockerfile line `line`, split into `words`: a crate
+/// or a package installed without its version, or a toolchain other than the pinned one.
+fn command_problems(line: &str, words: &[&str]) -> Vec<String> {
+    let mut problems: Vec<String> = cargo_install_problem(words).into_iter().collect();
+    for package in unpinned_packages(words) {
+        problems.push(format!(
+            "the package {package} is pinned by version, as {package}=<version> (OPS-13)"
+        ));
+    }
+    if line.contains("cargo +") || words.windows(3).any(toolchain_named) {
+        problems.push(
+            "the image builds with the toolchain rust-toolchain.toml pins (CODE-01)".to_owned(),
+        );
+    }
+    problems
 }
 
 /// Whether `image` names an earlier stage, such as `tools`, or one per platform, such as
@@ -250,6 +266,22 @@ fn names_stage(image: &str, stages: &[String]) -> bool {
                 .any(|stage| *stage == format!("{prefix}{arch}"))
         }),
     }
+}
+
+/// The packages that an `apt-get install` among `words` names without a version.
+fn unpinned_packages<'a>(words: &[&'a str]) -> Vec<&'a str> {
+    let Some(at) = words
+        .windows(2)
+        .position(|pair| pair == ["apt-get", "install"])
+    else {
+        return Vec::new();
+    };
+    words[at + 2..]
+        .iter()
+        .take_while(|word| !["&&", ";", "\\", "||"].contains(word))
+        .filter(|word| !word.starts_with('-') && !word.contains('='))
+        .copied()
+        .collect()
 }
 
 /// What is wrong with a `cargo install` among `words`, if anything.
@@ -424,6 +456,47 @@ mod tests {
             .iter()
             .map(ToString::to_string)
             .collect()
+    }
+
+    #[test]
+    fn ops_13_every_dockerfile_and_compose_file_is_checked() {
+        let dockerfile = findings_with(
+            "deploy/postgres/Dockerfile",
+            "# syntax=docker/dockerfile:1\nFROM postgres:18.6\n",
+        );
+        let compose = findings_with(
+            "deploy/compose.yaml",
+            "services:\n  caddy:\n    image: caddy:2.11.7\n",
+        );
+
+        assert_eq!(
+            dockerfile,
+            [
+                "deploy/postgres/Dockerfile:1: the frontend docker/dockerfile:1 is pinned by digest (OPS-13)",
+                "deploy/postgres/Dockerfile:2: the image postgres:18.6 is pinned by digest (OPS-13)",
+            ]
+        );
+        assert_eq!(
+            compose,
+            ["deploy/compose.yaml:3: the image caddy:2.11.7 is pinned by digest (OPS-13)"]
+        );
+    }
+
+    #[test]
+    fn ops_13_a_package_the_image_installs_is_pinned_by_version() {
+        let findings = findings_with(
+            "deploy/postgres/Dockerfile",
+            &format!(
+                "# syntax=docker/dockerfile:1@sha256:{DIGEST}\nFROM postgres:18.6@sha256:{DIGEST}\nRUN apt-get update && apt-get install --yes pgbackrest=2.59.3-1 curl && rm -rf /var/lib/apt/lists/*\n"
+            ),
+        );
+
+        assert_eq!(
+            findings,
+            [
+                "deploy/postgres/Dockerfile:3: the package curl is pinned by version, as curl=<version> (OPS-13)"
+            ]
+        );
     }
 
     #[test]

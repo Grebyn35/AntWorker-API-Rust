@@ -123,6 +123,7 @@ services:
     image: gcr.io/go-containerregistry/crane:v0.22.1@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1
     volumes:
       - ./target/image:/image:ro
+      - ./target/image-postgres:/image-postgres:ro
 
   grype:
     profiles: [tools]
@@ -131,6 +132,7 @@ services:
       GRYPE_DB_CACHE_DIR: /cache
     volumes:
       - ./target/image:/image:ro
+      - ./target/image-postgres:/image-postgres:ro
       - grype:/cache
 
   cosign:

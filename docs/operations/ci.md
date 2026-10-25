@@ -9,17 +9,17 @@ CI runs on GitHub Actions, in workflows that only orchestrate `just` tasks (OPS-
 | Job | Runs | Needs |
 |---|---|---|
 | `checks` | `just setup`, then `just checks`: every check of the code in the table below that doesn't need the image | |
-| `image` | `just image`: the image, built once for linux/amd64 and linux/arm64 with its software bill of materials (SBOM) and its provenance, into an image layout of the Open Container Initiative (OCI), which the later jobs download (OPS-14) | |
-| `verify` | `just image-scan`, then `just e2e` on linux/amd64, and on linux/arm64 through QEMU, against the digest that `image` built | `image` |
-| `publish` | On `main` only: `just publish`, which pushes that digest to the GitHub Container Registry as `sha-<commit>`, and moves `edge` to it while the commit is the head of `main` | `checks`, `verify` |
-| `release` | On `main` only: `just release-image`, which releases from that digest the version that `just release` asked for, if no release has it yet, as [release.md](release.md) describes | `publish` |
+| `image` | `just image`: the API's image and the reference deployment's Postgres, each built once for linux/amd64 and linux/arm64 with its software bill of materials (SBOM) and its provenance, into an image layout of the Open Container Initiative (OCI), which the later jobs download (OPS-14) | |
+| `verify` | `just image-scan`, then `just e2e` on linux/amd64, and on linux/arm64 through QEMU, against the digests that `image` built | `image` |
+| `publish` | On `main` only: `just publish`, which pushes those digests to the GitHub Container Registry as `sha-<commit>`, and moves `edge` to them while the commit is the head of `main` | `checks`, `verify` |
+| `release` | On `main` only: `just release-image`, which releases from those digests the version that `just release` asked for, if no release has it yet, as [release.md](release.md) describes | `publish` |
 
 A newer push to a pull request cancels the older run. On `main`, a run that has started finishes, and the registry takes one write at a time, so `edge` never moves to an older commit. While a run on `main` goes on, a newer push replaces a run that is still waiting, so a commit pushed in between gets no run, and no image, of its own; the newer run builds a commit that holds it. BuildKit's cache of the build tools and the compiled dependencies is kept between runs, keyed by the files that change them, and the build writes it back only when the key missed.
 
 `scheduled.yml` runs every day at 05:17 UTC, every Monday at 04:43 UTC, and on demand:
 - Every day, `just deny`, so an advisory published against a locked dependency fails CI without waiting for a push (SEC-13).
-- Every Monday, `just image-rescan`, which scans `edge`, the newest final release and the newest prerelease again (SEC-13).
-- Every Monday, the registry's upkeep: it deletes the tags older than [release.md](release.md#where-it-is-published) keeps them, then the images left with no tag, and the signatures of images that are gone. A pinned action does it, and keeps each platform's image of an index it keeps. If GitHub refuses the deletions, the package's settings grant the repository the Admin role under "Manage Actions access".
+- Every Monday, `just image-rescan`, which scans `edge`, the newest final release and the newest prerelease of each image again (SEC-13).
+- Every Monday, the registry's upkeep, in both images' packages: it deletes the tags older than [release.md](release.md#where-it-is-published) keeps them, then the images left with no tag, and the signatures of images that are gone. A pinned action does it, and keeps each platform's image of an index it keeps. If GitHub refuses the deletions, the package's settings grant the repository the Admin role under "Manage Actions access".
 
 `just setup` writes `.env` with generated passwords, and the tests start Postgres through Compose with them, as they do on a developer's machine (TEST-11). A job that only runs the tools Compose holds runs `just env` instead, which writes `.env` alone, because Compose reads it.
 
@@ -40,12 +40,12 @@ On a developer's machine, `just ci` runs what CI runs: `just checks`, `just imag
 | Metrics are named and labelled as OBS-11 says; the metric catalog matches the declarations; every metric a dashboard or alert reads is declared or listed, and every one is read; every panel title is a question; the dashboards are read-only, and one overview links to every other | `check-metrics` | OBS-11, OBS-12, OBS-13 |
 | The collector's tail sampling keeps the traces OBS-08 names, and the latency objective is the same in the sampling, the alerts and the latency dashboard | `check-telemetry-config` | OBS-08 |
 | Every alert has a severity, a runbook section and a test; promtool checks the rules and runs their tests | `alert-rules` | OBS-14 |
-| Actions pinned by commit SHA, runners by version, images by digest, downloads by checksum, and the crates the image's build installs by exact version; exact tool versions in the justfile, and the same `just` in the workflows; the toolchain only from `rust-toolchain.toml`; edition 2024 in every crate | `check-pins` | CODE-01, OPS-13 |
+| Actions pinned by commit SHA, runners by version, images by digest in every Dockerfile and compose file, downloads by checksum, and the crates and packages the images' builds install by exact version; exact tool versions in the justfile, and the same `just` in the workflows; the toolchain only from `rust-toolchain.toml`; edition 2024 in every crate | `check-pins` | CODE-01, OPS-13 |
 | shellcheck finds nothing in a recipe of the justfile that runs on Linux and macOS, or in a shell script under `deploy/` | `check-shell` | CODE-16 |
-| No vulnerability that has a fix and is rated high or critical, in either platform's image: in its operating system packages, and in the crates its binary records | `image-scan` | SEC-13, OPS-15 |
+| No vulnerability that has a fix and is rated high or critical, in either platform's image of either image: in its operating system packages, and in the crates and modules its binaries record | `image-scan` | SEC-13, OPS-15 |
 | The same scan, every week, of the images SEC-13 names | `image-rescan` | SEC-13 |
-| The end-to-end tests, against the image built from the commit | `e2e` | OPS-14, OPS-15, and the rules and behaviors they prove (TEST-04) |
-| A release's tag names the tested digest, which the run on `main` signed, with the SBOM and the provenance of both platforms | `verify-release` | OPS-14 |
+| The end-to-end tests, against the images built from the commit | `e2e` | OPS-14, OPS-15, and the rules and behaviors they prove (TEST-04) |
+| Each of a release's tags names the tested digest, which the run on `main` signed, with the SBOM and the provenance of both platforms | `verify-release` | OPS-14 |
 
 `check-test-map`, `check-docs`, `check-openapi`, `check-instrument`, `check-metrics`, `check-telemetry-config`, `check-pins` and `check-shell` are subcommands of the `xtask` crate (ARCH-01). `alert-rules` runs the `xtask` subcommand of the same name, then promtool, from the Prometheus image that `compose.yaml` pins, through Docker Compose. `check-shell` runs shellcheck from the image that `compose.yaml` pins, through Docker Compose. `just` lists only the recipes of the platform it runs on, so `check-shell` reads the justfile itself, and checks the same recipes on every platform: it writes each one as a script whose lines stand on the justfile's line numbers, so a finding names the justfile's line. `check-test-map` prints how many of each module's behaviors a test proves. A behavior that no test proves fails it once `docs/MIGRATION.md` is deleted, and is reported until then (DOC-10).
 
@@ -53,7 +53,7 @@ On a developer's machine, `just ci` runs what CI runs: `just checks`, `just imag
 
 `check-docs` doesn't cover two of the rules that name it: the names of other codebases (DOC-04), and accepted architecture decision records (ADRs), whose check waits for the first ADR (DOC-11). Review enforces both until then.
 
-`image-scan` and `image-rescan` run Grype, which reads the packages of the image's base, and the crates that cargo-auditable records in the binary. `e2e` pushes the image layout to the registry that Compose runs on 127.0.0.1:5001, and the tests run the image from there by the digest of its platform's image, against the Postgres that `just services` starts. They compile only with the `e2e` feature of the `app` crate, which `just e2e` and `just lint` turn on, so `just test` needs no image. `just e2e linux/arm64` runs the arm64 image on a machine that can run its binaries, as Docker Desktop can, and as CI's runner can once QEMU is installed. `publish`, `release-image` and `image-rescan` sign in to the registry with the runner's credentials, so they run only in CI. `verify-release` needs a checkout, `just env` and a sign-in to the registry, so anyone who can pull the image can run it, on Linux or macOS.
+`image-scan` and `image-rescan` run Grype, which reads the packages of each image's base, the crates that cargo-auditable records in the API's binary, and the modules that the Go binaries of the Postgres image record. `e2e` pushes both image layouts to the registry that Compose runs on 127.0.0.1:5001, and the tests run the images from there by the digest of their platform's image, against the Postgres that `just services` starts. They compile only with the `e2e` feature of the `app` crate, which `just e2e` and `just lint` turn on, so `just test` needs no image. `just e2e linux/arm64` runs the arm64 image on a machine that can run its binaries, as Docker Desktop can, and as CI's runner can once QEMU is installed. `publish`, `release-image` and `image-rescan` sign in to the registry with the runner's credentials, so they run only in CI. `verify-release` needs a checkout, `just env` and a sign-in to the registry, so anyone who can pull the images can run it, on Linux or macOS. It runs `deploy/verify-release.sh`, which a server can run without a checkout.
 
 Builds check queries against the query cache committed in `.sqlx/` (DATA-20), so a query missing from the cache fails `lint` and `test`. `just prepare` rewrites the cache from the migrated database.
 
@@ -61,12 +61,12 @@ A `ci:` check that a rule names but that isn't listed in the table above doesn't
 
 ## Dependency updates
 
-Each week, Dependabot opens pull requests for the pins it can read, as `.github/dependabot.yml` configures: the crates, the actions, the images in the Dockerfile and in `compose.yaml`, and the toolchain in `rust-toolchain.toml`. Each runs the whole pipeline, as every pull request does. `compose.yaml` holds the images the tasks run, such as Grype's and BuildKit's, so that these updates reach them.
+Each week, Dependabot opens pull requests for the pins it can read, as `.github/dependabot.yml` configures: the crates, the actions, the images in the Dockerfiles and in `compose.yaml`, and the toolchain in `rust-toolchain.toml`. Each runs the whole pipeline, as every pull request does. `compose.yaml` holds the images the tasks run, such as Grype's and BuildKit's, so that these updates reach them.
 
 These pins are updated by hand, and `check-pins` checks their form:
 - the versions of the tools in the justfile, and of `just` in the workflows;
 - the runner's version in the workflows, such as `ubuntu-24.04`;
-- in the Dockerfile, the frontend on its first line, the zig download with its checksums, and the versions of the crates it installs.
+- in the Dockerfiles, the frontend on their first line; in the API's, the zig download with its checksums and the versions of the crates it installs; in `deploy/postgres/Dockerfile`, the version of pgBackRest.
 
 ## Checks required for merging
 

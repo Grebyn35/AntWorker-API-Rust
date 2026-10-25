@@ -8,6 +8,7 @@ mod catalog;
 mod declarations;
 mod docs;
 mod formats;
+mod inputs;
 mod instrument;
 mod markdown;
 mod metrics;
@@ -94,6 +95,12 @@ enum Command {
         /// The version, such as 1.4.0, or 1.4.0-rc.1 for a prerelease.
         version: String,
     },
+    /// Prints an identifier of the files under `directory` as they stand in the working tree,
+    /// which an image built from them carries (OPS-16).
+    Inputs {
+        /// The directory, as a path from the repository root.
+        directory: String,
+    },
     /// Fails unless `version` can be a new release after the repository's release tags. CI runs
     /// it before it releases a version (OPS-14).
     #[command(name = "release-check")]
@@ -144,6 +151,7 @@ fn main() -> ExitCode {
     let command = match Cli::parse().command {
         Command::Release { version } => return release::run(&version),
         Command::ReleaseCheck { version } => return release::check(&version),
+        Command::Inputs { directory } => return inputs::run(&directory),
         command => command,
     };
     let repo = match repo::Repo::load() {
@@ -162,7 +170,9 @@ fn main() -> ExitCode {
         Command::AlertRules => alerts::check(&repo),
         Command::Pins => pins::check(&repo),
         Command::Shell => shell::check(&repo),
-        Command::Release { .. } | Command::ReleaseCheck { .. } => Outcome::default(),
+        Command::Release { .. } | Command::ReleaseCheck { .. } | Command::Inputs { .. } => {
+            Outcome::default()
+        }
     };
     print(&outcome)
 }

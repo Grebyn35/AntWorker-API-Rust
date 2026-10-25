@@ -1,5 +1,5 @@
 # Weekly pull requests that update the pins (OPS-13): the crates, the actions, the images in the
-# Dockerfile and in compose.yaml, and the toolchain. Each runs the whole pipeline.
+# Dockerfiles and in compose.yaml, and the toolchain. Each runs the whole pipeline.
 # docs/operations/ci.md lists the pins updated by hand.
 version: 2
 updates:
@@ -23,7 +23,8 @@ updates:
         update-types: [minor, patch]
 
   - package-ecosystem: docker
-    directory: /
+    # The API's image, and the reference deployment's Postgres.
+    directories: [/, /deploy/postgres]
     schedule:
       interval: weekly
 

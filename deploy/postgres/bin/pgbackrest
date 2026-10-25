@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Runs pgBackRest with the backup bucket's credentials and the backups' encryption passphrase.
+# It reads them from the secret files that Compose mounts, so they never stand in an environment
+# that `docker inspect` shows (SEC-01). It comes before pgBackRest itself in PATH, so every run
+# goes through it: the archiving of the write-ahead log, the backups and the restores.
+#
+# Postgres's archive_command runs `pgbackrest --stanza=db archive-push %p`, the form pgBackRest
+# checks for. For that command, this records when an archive last succeeded and when one last
+# failed, as the times of two files in the status directory, which the collector reads for the
+# alert on archiving that fails (OBS-14). Postgres keeps a segment, and retries it, until the
+# command exits 0.
+set -euo pipefail
+
+secrets=/run/secrets
+status=/var/lib/backup-status
+PGBACKREST_REPO1_S3_KEY=$(< "$secrets/backup_s3_key")
+PGBACKREST_REPO1_S3_KEY_SECRET=$(< "$secrets/backup_s3_key_secret")
+PGBACKREST_REPO1_CIPHER_PASS=$(< "$secrets/backup_cipher_pass")
+export PGBACKREST_REPO1_S3_KEY PGBACKREST_REPO1_S3_KEY_SECRET PGBACKREST_REPO1_CIPHER_PASS
+
+case " $* " in
+    *" archive-push "*)
+        if /usr/bin/pgbackrest "$@"; then
+            touch "$status/archived"
+        else
+            code=$?
+            touch "$status/archive-failed"
+            exit "$code"
+        fi
+        ;;
+    *) exec /usr/bin/pgbackrest "$@" ;;
+esac

@@ -320,6 +320,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | OpenAPI | `utoipa`, `utoipa-axum` | The document comes from the handlers' own annotations, and a route is registered with its documentation (API-14, API-17) |
 | Command line | `clap` | The binary's subcommands (ARCH-14) |
 | Container image | BuildKit, through `docker buildx`; zig, through cargo-zigbuild, which compiles both platforms' static binaries against musl on one machine; cargo-chef; cargo-auditable; distroless's static base (D43) | One build gives both platforms' images, the compiled dependencies stay cached, the scans and the software bill of materials (SBOM) see the binary's crates, and the base has no shell, package manager or C library (OPS-14, OPS-15) |
+| Backups | pgBackRest, in the reference deployment's image of the official Postgres | Continuous archiving of the write-ahead log, and point-in-time recovery from an S3-compatible bucket, encrypted, with retention (D44) |
 | Image scan | Grype | It reads both the base's packages and the crates the binary records (SEC-13) |
 | Shell linting | shellcheck | The standard linter for shell, run on the justfile's recipes and the deployment's scripts (CODE-16) |
 | Registry and signing | crane, and cosign with keyless signing | crane copies and tags an image without changing its digest, so promoting it never rewrites it (OPS-14) |
