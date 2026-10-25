@@ -119,6 +119,12 @@ services:
     profiles: [tools]
     image: chrislusf/seaweedfs:4.50@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
 
+  # k6, which `just load-test` runs to measure one replica's capacity (OPS-18). It joins the
+  # observability profile, so it reaches the collector to count the spans it accepted.
+  k6:
+    profiles: [tools, observability]
+    image: grafana/k6:2.3.0@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8
+
   # shellcheck, which `just check-shell` runs on the justfile's recipes and the deployment's
   # scripts (CODE-16).
   shellcheck:

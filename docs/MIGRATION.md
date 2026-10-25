@@ -114,7 +114,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 
 | Rule or behavior | Built code that doesn't follow it | Closed by |
 |---|---|---|
-| OPS-18 | A release runs no load test, and has no result to carry in its notes: the load-test task isn't built | 1.5, with the load test |
+| OPS-18 | A release's capacity, which `just load-test` measures, has no release notes to go in: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 | DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 
 ## Rule proposals

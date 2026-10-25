@@ -18,6 +18,17 @@ Each run of CI on `main` that passes publishes its commit: the commit's images g
 
 Release when `main` holds changes you want deployed. Release a fix as soon as it is on `main`. Features can wait, and go out together in one release.
 
+## Before you release
+
+Measure what one replica of the release serves, since a release that serves less needs more replicas (OPS-18). On your machine, with `main` checked out:
+
+```
+just image
+just load-test
+```
+
+`just load-test` runs one replica of the image on your machine's platform, with the reference deployment's default limits for a replica, `API_CPUS` and `API_MEMORY`, and sends it requests at constant rates, raising the rate until a step fails. Each step reports the replica's memory after it, which stays flat from one step to the next; a step whose replica stopped fails, and says whether its memory limit killed it. It ends with a line that starts `Capacity:`: the highest rate the replica served with no request failed and the 99th percentile within the latency objective of 0.5 seconds, and how many spans the collector accepted for its requests. The number depends on the machine, so compare a release with the one before it on the same machine. The line belongs in the release's notes.
+
 ## How to release
 
 On your machine, with `main` checked out, run:

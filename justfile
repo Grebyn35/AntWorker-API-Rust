@@ -313,6 +313,17 @@ e2e $E2E_PLATFORM=native_platform: services
     docker compose run --rm crane push --insecure /image-postgres registry:5000/{{ e2e_image }}-postgres:e2e
     cargo test --locked --package app --features e2e --test e2e
 
+# Measures one replica's capacity, for the release notes (OPS-18): runs the API's image in
+# target/image, on this machine's platform, with the reference deployment's limits on CPU and
+# memory for a replica, and sends it requests at rising constant rates through k6, from the image
+# that compose.yaml pins. It prints each step, then the highest rate served with none failed and
+# the 99th percentile within the latency objective. docs/operations/release.md says when to run it.
+load-test: services
+    docker compose --profile observability up --detach --wait collector prometheus loki tempo
+    docker compose up --detach --wait registry
+    docker compose run --rm crane push --insecure /image registry:5000/{{ e2e_image }}:e2e
+    {{ xtask }} load-test
+
 # Pushes each image in target to the registry as sha-<commit>, under the name of `repository`,
 # such as owner/name, or that name with `-postgres` for the Postgres image, and moves `edge` to it
 # while the commit is still the head of main (OPS-14). CI runs it on main, once every check has

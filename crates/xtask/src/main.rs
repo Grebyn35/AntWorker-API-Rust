@@ -12,6 +12,7 @@ mod docs;
 mod formats;
 mod inputs;
 mod instrument;
+mod load;
 mod markdown;
 mod metrics;
 mod openapi;
@@ -124,6 +125,10 @@ enum Command {
         /// The moment: a time with its offset from UTC, as Postgres writes it.
         moment: Option<String>,
     },
+    /// Measures one replica's capacity: the highest constant rate of requests it serves with
+    /// none failed and the 99th percentile within the latency objective (OPS-18).
+    #[command(name = "load-test")]
+    LoadTest,
     /// Prints an identifier of the files under `directory` as they stand in the working tree,
     /// which an image built from them carries (OPS-16).
     Inputs {
@@ -187,6 +192,7 @@ fn main() -> ExitCode {
             allow_restart,
         } => return deploy::deploy(&host, &version, allow_restart),
         Command::Backup { host } => return deploy::backup(&host),
+        Command::LoadTest => return load::run(),
         Command::Restore { host, moment } => return deploy::restore(&host, moment.as_deref()),
         command => command,
     };
@@ -211,7 +217,8 @@ fn main() -> ExitCode {
         | Command::Inputs { .. }
         | Command::Deploy { .. }
         | Command::Backup { .. }
-        | Command::Restore { .. } => Outcome::default(),
+        | Command::Restore { .. }
+        | Command::LoadTest => Outcome::default(),
     };
     print(&outcome)
 }
