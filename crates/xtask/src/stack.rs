@@ -17,6 +17,9 @@ pub const RULE_TESTS: &str = "deploy/observability/prometheus/rules.test.yaml";
 /// The collector's configuration (OBS-08).
 pub const COLLECTOR: &str = "deploy/observability/collector/config.yaml";
 
+/// The configuration the collector merges over `COLLECTOR` to send to a managed backend.
+pub const MANAGED: &str = "deploy/observability/collector/managed.yaml";
+
 /// The store a query reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Store {

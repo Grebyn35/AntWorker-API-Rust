@@ -1,6 +1,6 @@
 //! `check-telemetry-config`: the collector's tail sampling keeps every trace OBS-08 says it
-//! keeps, and the latency objective is the same in the sampling, the latency alerts' rules and
-//! the dashboard that lists the slow traces.
+//! keeps, with a managed backend as with the self-hosted stack, and the latency objective is the
+//! same in the sampling, the latency alerts' rules and the dashboard that lists the slow traces.
 
 use serde_json::Value;
 
@@ -18,6 +18,7 @@ const BUCKET: &str = "http_server_request_duration_seconds_bucket";
 /// Runs `check-telemetry-config`.
 pub fn check(repo: &Repo) -> Outcome {
     let mut findings = Vec::new();
+    overlay_keeps_sampling(repo, &mut findings);
     if let Some(objective) = sampling(repo, &mut findings) {
         alerts_share(repo, objective, &mut findings);
         dashboards_share(repo, objective, &mut findings);
@@ -25,6 +26,42 @@ pub fn check(repo: &Repo) -> Outcome {
     Outcome {
         report: Vec::new(),
         findings,
+    }
+}
+
+/// Checks that the managed backend's configuration, which the collector merges over its own,
+/// keeps its tail sampling: the merge replaces a list it sets, so the overlay sets no processors
+/// for the traces pipeline, and defines no tail sampling of its own.
+fn overlay_keeps_sampling(repo: &Repo, findings: &mut Vec<Finding>) {
+    if repo.file(stack::MANAGED).is_none() {
+        return;
+    }
+    let Some(overlay) = stack::yaml(repo, stack::MANAGED, findings) else {
+        return;
+    };
+    let source = repo
+        .file(stack::MANAGED)
+        .map_or("", |file| file.text.as_str());
+    if !overlay["service"]["pipelines"]["traces"]["processors"].is_null() {
+        findings.push(Finding::new(
+            stack::MANAGED,
+            text::line_of(source, "traces:"),
+            "the managed backend's configuration replaces the traces pipeline's processors, and \
+             with them the tail sampling of the collector's own (OBS-08)",
+        ));
+    }
+    let redefines = overlay["processors"]
+        .as_object()
+        .into_iter()
+        .flat_map(|processors| processors.keys())
+        .any(|name| name == "tail_sampling" || name.starts_with("tail_sampling/"));
+    if redefines {
+        findings.push(Finding::new(
+            stack::MANAGED,
+            text::line_of(source, "tail_sampling"),
+            "the managed backend's configuration defines tail sampling of its own; the \
+             collector's own applies to every backend (OBS-08)",
+        ));
     }
 }
 
@@ -278,6 +315,33 @@ mod tests {
             .into_iter()
             .map(|f| f.message)
             .collect()
+    }
+
+    #[test]
+    fn obs_08_the_managed_backend_s_configuration_keeps_the_collector_s_sampling() {
+        let keeps = "service:\n  pipelines:\n    traces:\n      exporters: [otlp_http/managed]\n";
+        let replaces = "service:\n  pipelines:\n    traces:\n      processors: [batch]\n";
+        let redefines = "processors:\n  tail_sampling:\n    policies: []\n";
+        let check_with = |overlay: &str| {
+            let repo = Repo::of(&[
+                (stack::COLLECTOR, collector(POLICIES).as_str()),
+                (stack::MANAGED, overlay),
+                (stack::RULES, RULES),
+                (
+                    "deploy/observability/grafana/dashboards/a.json",
+                    dashboard("{ duration > 500ms }").as_str(),
+                ),
+            ]);
+            check(&repo)
+                .findings
+                .into_iter()
+                .map(|f| f.message)
+                .collect::<Vec<_>>()
+        };
+
+        assert!(check_with(keeps).is_empty());
+        assert!(check_with(replaces)[0].contains("replaces the traces pipeline's processors"));
+        assert!(check_with(redefines)[0].contains("defines tail sampling of its own"));
     }
 
     #[test]

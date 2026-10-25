@@ -112,6 +112,7 @@ Each service the API depends on is bundled or a provider's, chosen by one settin
 | `DATABASE` | `bundled`, the default | Postgres and its backups, on the server ([backups.md](backups.md)) |
 | | `managed` | Nothing: the API connects to a provider's Postgres, whose provider backs it up with point-in-time recovery, which OPS-17 requires of it |
 | `TELEMETRY` | `self-hosted`, the default | The collector, Prometheus, Loki, Tempo, Alertmanager, and Grafana at `GRAFANA_ADDRESS` |
+| | `managed` | The collector alone, which sends every signal to a managed backend ([observability.md](observability.md#a-managed-backend)) |
 | | `off` | Nothing: the API's logs go only to its containers' output |
 
 Object storage for files joins the deployment with the `files` module, which offers the same choice.

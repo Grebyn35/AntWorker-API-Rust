@@ -110,3 +110,40 @@ async fn ops_16_a_deploy_installs_the_release_s_alert_rules_and_prometheus_reads
             .shell_ok("docker logs --tail 8 deployment-prometheus-1 2>&1")
     );
 }
+
+#[tokio::test]
+async fn obs_08_a_managed_backend_receives_the_trace_and_the_logs_of_a_4xx_response() {
+    let deployment = Deployment::managed(&[]).await;
+    let backend = deployment.server.start_otlp_backend();
+    let mut changes = vec![("TELEMETRY", "managed")];
+    changes.extend(
+        backend
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str())),
+    );
+    deployment.set(&changes);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+
+    let (status, headers) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/no-such-resource"),
+    );
+    let timing = headers["server-timing"].to_str().unwrap().to_owned();
+    let trace = timing.split('-').nth(1).expect("the trace ID").to_owned();
+    // The collector keeps the trace for its status, and decides after 15 seconds.
+    let received = deployment.server.shell(&format!(
+        "timeout 90 sh -c 'until grep resourceSpans /root/backend/out/telemetry.json 2> /dev/null | grep -q {trace} \
+         && grep resourceLogs /root/backend/out/telemetry.json | grep -q {trace}; do sleep 2; done'"
+    ));
+
+    assert_eq!(status, 404);
+    assert!(
+        received.status.success(),
+        "{}\nThe backend's log:\n{}",
+        lossy(&received),
+        deployment
+            .server
+            .shell_ok("docker logs --tail 10 backend 2>&1")
+    );
+}

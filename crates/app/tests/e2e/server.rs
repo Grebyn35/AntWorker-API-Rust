@@ -132,6 +132,63 @@ impl Server {
         self.container.address(port)
     }
 
+    /// Starts the stand-in for a managed observability backend on the server: a collector that
+    /// receives OTLP over HTTPS on the server's own address, port 4319, with a certificate from
+    /// an authority of the test's own, which the deployment trusts as
+    /// certs/managed-otlp-ca.crt, admits only the user `e2e` with the token the deployment holds,
+    /// and writes what it receives to /root/backend/out/telemetry.json. Returns the deployment's
+    /// settings for it.
+    pub fn start_otlp_backend(&self) -> Vec<(String, String)> {
+        // From the file development and the deployment share, where the collector depends on no
+        // other service whose image the listing would add.
+        let image = compose(&[
+            "--file",
+            "../../deploy/observability/compose.yaml",
+            "config",
+            "--images",
+            "collector",
+        ]);
+        let address = self
+            .container
+            .inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
+        self.write(
+            "/root/backend/config.yaml",
+            "extensions:\n  basicauth/server:\n    htpasswd:\n      inline: e2e:the-backend-token\n\
+             receivers:\n  otlp:\n    protocols:\n      http:\n        endpoint: 0.0.0.0:4318\n        \
+             tls:\n          cert_file: /backend/server.crt\n          key_file: /backend/server.key\n        \
+             auth:\n          authenticator: basicauth/server\n\
+             exporters:\n  file:\n    path: /backend/out/telemetry.json\n\
+             service:\n  extensions: [basicauth/server]\n  pipelines:\n    \
+             traces:\n      receivers: [otlp]\n      exporters: [file]\n    \
+             logs:\n      receivers: [otlp]\n      exporters: [file]\n",
+        );
+        self.write(
+            &format!("{DEPLOYMENT}/secrets/managed_otlp_token"),
+            "the-backend-token",
+        );
+        self.shell_ok(&format!(
+            "set -e
+            cd /root/backend
+            mkdir -p out && chmod 777 out
+            openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -days 1 -subj /CN=e2e-backend-authority 2> /dev/null
+            openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj /CN={address} 2> /dev/null
+            echo subjectAltName=IP:{address} > san
+            openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 1 -extfile san 2> /dev/null
+            chmod 644 ./*.crt ./*.key
+            mkdir -p {DEPLOYMENT}/certs
+            cp ca.crt {DEPLOYMENT}/certs/managed-otlp-ca.crt
+            docker run --detach --quiet --name backend --publish 4319:4318 --volume /root/backend:/backend {image} \
+                --config=/backend/config.yaml > /dev/null"
+        ));
+        [
+            ("MANAGED_OTLP_ENDPOINT", format!("https://{address}:4319")),
+            ("MANAGED_OTLP_USER", "e2e".to_owned()),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect()
+    }
+
     /// Starts the stand-in for the bundled database's backup bucket on the server: SeaweedFS,
     /// serving S3 over HTTPS on the server's own address, with a certificate for that address
     /// from an authority of the test's own, which the deployment trusts as certs/backup-ca.crt.

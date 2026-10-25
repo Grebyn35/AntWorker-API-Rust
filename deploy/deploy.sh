@@ -112,17 +112,24 @@ install_release() {
     done
 }
 
-# Makes each running service in $reconfigured read its configuration files again: Prometheus and
-# Alertmanager reload on SIGHUP, and the others restart. Grafana reads its dashboards' files every
-# 30 seconds on its own, and Caddy reloads below.
+# Makes each running service whose configuration in $reconfigured changed read its files again:
+# Prometheus and Alertmanager reload on SIGHUP, and the others restart. The collector's directory
+# serves the managed backend's collector too. Grafana reads its dashboards' files every 30 seconds
+# on its own, and Caddy reloads below.
 reread_configuration() {
-    for service in $reconfigured; do
-        if [ -z "$(running "$service")" ]; then continue; fi
-        say "$service's configuration changed; it reads it again"
-        case $service in
-            prometheus | alertmanager) compose kill --signal SIGHUP "$service" ;;
-            *) compose restart "$service" ;;
+    for configuration in $reconfigured; do
+        case $configuration in
+            collector) services="collector collector-managed" ;;
+            *) services=$configuration ;;
         esac
+        for service in $services; do
+            if [ -z "$(running "$service")" ]; then continue; fi
+            say "$service's configuration changed; it reads it again"
+            case $service in
+                prometheus | alertmanager) compose kill --signal SIGHUP "$service" ;;
+                *) compose restart "$service" ;;
+            esac
+        done
     done
 }
 
@@ -151,8 +158,16 @@ read_settings() {
             profiles="$profiles --profile telemetry --profile observability"
             if [ -z "$(setting GRAFANA_ADDRESS)" ]; then fail "GRAFANA_ADDRESS is required with TELEMETRY=self-hosted"; fi
             ;;
+        managed)
+            profiles="$profiles --profile managed-telemetry"
+            case $(setting MANAGED_OTLP_ENDPOINT) in
+                https://?*) ;;
+                *) fail "MANAGED_OTLP_ENDPOINT is the managed backend's https URL, with TELEMETRY=managed (OPS-20)" ;;
+            esac
+            if [ -z "$(setting MANAGED_OTLP_USER)" ]; then fail "MANAGED_OTLP_USER is required with TELEMETRY=managed"; fi
+            ;;
         off) ;;
-        *) fail "TELEMETRY is self-hosted or off, not '$telemetry'" ;;
+        *) fail "TELEMETRY is self-hosted, managed or off, not '$telemetry'" ;;
     esac
 }
 
@@ -196,9 +211,12 @@ write_secrets() {
             if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
         done
     fi
+    if [ "$telemetry" = managed ] && [ ! -s "$secrets/managed_otlp_token" ]; then
+        fail "$secrets/managed_otlp_token is missing (docs/operations/observability.md)"
+    fi
     # Compose checks every secret file it declares, so the ones this choice of services doesn't
     # use exist empty.
-    for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass grafana_admin_password; do
+    for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass grafana_admin_password managed_otlp_token; do
         if [ ! -f "$secrets/$name" ]; then : > "$secrets/$name"; fi
     done
 }
@@ -226,6 +244,7 @@ write_deploy_env() {
         echo "POSTGRES_IMAGE=$postgres_image"
         if [ "$telemetry" = off ]; then echo "API_TELEMETRY_ENDPOINT="; else echo "API_TELEMETRY_ENDPOINT=http://collector:4318"; fi
         if [ -f "$deployment/certs/backup-ca.crt" ]; then echo "BACKUP_CA_FILE=/etc/deployment-certs/backup-ca.crt"; fi
+        if [ -f "$deployment/certs/managed-otlp-ca.crt" ]; then echo "MANAGED_OTLP_CA_FILE=/etc/deployment-certs/managed-otlp-ca.crt"; fi
     } > "$1"
 }
 
@@ -351,6 +370,7 @@ apply() {
     shared=""
     if [ "$database" = bundled ]; then single="$single postgres" shared="$shared backup"; fi
     if [ "$telemetry" = self-hosted ]; then shared="$shared collector prometheus alertmanager loki tempo grafana"; fi
+    if [ "$telemetry" = managed ]; then shared="$shared collector-managed"; fi
     if [ "$allow_restart" = yes ]; then recreate=""; else recreate="--no-recreate"; fi
     # shellcheck disable=SC2086 # $recreate is an option or nothing, and $single and $shared hold one service per word.
     if ! compose up --detach --wait --quiet-pull $recreate $single || { [ -n "$shared" ] && ! compose up --detach --wait --quiet-pull $shared; }; then

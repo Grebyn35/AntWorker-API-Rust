@@ -1,0 +1,54 @@
+# The collector with a managed backend in place of the self-hosted stack (D42). The collector
+# merges this file over config.yaml, so it keeps the receivers and the processors, tail sampling
+# among them (OBS-08), and changes only where the telemetry goes: every signal to the backend's
+# OTLP endpoint, which MANAGED_OTLP_ENDPOINT names, signed in as MANAGED_OTLP_USER with the token
+# in the secret file managed_otlp_token. docs/operations/observability.md describes the path,
+# with Grafana Cloud as the worked example.
+
+extensions:
+  basicauth/managed:
+    client_auth:
+      username: ${env:MANAGED_OTLP_USER}
+      password: ${file:/run/secrets/managed_otlp_token}
+
+receivers:
+  # The collector's own metrics, which the self-hosted Prometheus scrapes, for the alerts on
+  # telemetry that is lost (OBS-14).
+  prometheus/collector:
+    config:
+      scrape_configs:
+        - job_name: collector
+          scrape_interval: 15s
+          static_configs:
+            - targets: [127.0.0.1:8888]
+
+processors:
+  # A backend keeps resource attributes apart from a series' labels, while the self-hosted
+  # Prometheus promotes these two, which the dashboards and the rules read.
+  transform/labels:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["deployment.environment.name"], resource.attributes["deployment.environment.name"]) where resource.attributes["deployment.environment.name"] != nil
+          - set(attributes["file.name"], resource.attributes["file.name"]) where resource.attributes["file.name"] != nil
+
+exporters:
+  otlp_http/managed:
+    endpoint: ${env:MANAGED_OTLP_ENDPOINT}
+    auth:
+      authenticator: basicauth/managed
+    # Empty, the operating system's certificate authorities (OPS-20).
+    tls:
+      ca_file: ${env:MANAGED_OTLP_CA_FILE}
+
+service:
+  extensions: [basicauth/managed]
+  pipelines:
+    traces:
+      exporters: [otlp_http/managed]
+    logs:
+      exporters: [otlp_http/managed]
+    metrics:
+      receivers: [otlp, filestats/backups, prometheus/collector]
+      processors: [memory_limiter, transform/labels, batch]
+      exporters: [otlp_http/managed]

@@ -214,8 +214,9 @@ metrics:
 check-metrics:
     {{ xtask }} check-metrics
 
-# Fails on a collector configuration whose tail sampling doesn't keep the traces OBS-08 names, or a
-# latency objective that differs between the sampling, the alerts and the latency dashboard.
+# Fails on a collector configuration whose tail sampling doesn't keep the traces OBS-08 names, a
+# managed backend's configuration that replaces that sampling, or a latency objective that differs
+# between the sampling, the alerts and the latency dashboard.
 check-telemetry-config:
     {{ xtask }} check-telemetry-config
 

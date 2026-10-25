@@ -2,8 +2,9 @@
 # Postgres with its backups (D44), and the telemetry path (D42). deploy.sh runs it on its server,
 # from the deployment's directory, with the settings in settings.env, which
 # settings.env.example lists, and the values it derives in state/deploy.env. Profiles choose the
-# optional services: `database` for the bundled Postgres, `telemetry` for the collector, and
-# `observability` for the self-hosted stack. docs/operations/deploy.md describes the deployment.
+# optional services: `database` for the bundled Postgres, `telemetry` for the collector,
+# `observability` for the self-hosted stack, and `managed-telemetry` for the collector that sends
+# to a managed backend instead. docs/operations/deploy.md describes the deployment.
 
 name: deployment
 
@@ -179,6 +180,28 @@ services:
     networks: [telemetry]
     restart: unless-stopped
 
+  # The collector with a managed backend in place of the self-hosted stack (D42): the same
+  # receivers and processors, with the backend's exporter (observability/collector/managed.yaml).
+  # It answers as `collector`, so the API's settings are the same.
+  collector-managed:
+    extends: { file: observability/compose.yaml, service: collector }
+    profiles: [managed-telemetry]
+    command: ["--config=/etc/collector/config.yaml", "--config=/etc/collector/managed.yaml"]
+    environment:
+      MANAGED_OTLP_ENDPOINT: ${MANAGED_OTLP_ENDPOINT:-}
+      MANAGED_OTLP_USER: ${MANAGED_OTLP_USER:-}
+      # The certificates the backend's certificate is checked against: the operating system's,
+      # or the authority in certs/managed-otlp-ca.crt, when deploy.sh finds it there.
+      MANAGED_OTLP_CA_FILE: ${MANAGED_OTLP_CA_FILE:-}
+    volumes:
+      - backup-status:/var/lib/backup-status:ro
+      - ./certs:/etc/deployment-certs:ro
+    secrets: [managed_otlp_token]
+    networks:
+      telemetry:
+        aliases: [collector]
+    restart: unless-stopped
+
   prometheus:
     extends: { file: observability/compose.yaml, service: prometheus }
     profiles: [observability]
@@ -265,3 +288,5 @@ secrets:
     file: ./secrets/backup_cipher_pass
   grafana_admin_password:
     file: ./secrets/grafana_admin_password
+  managed_otlp_token:
+    file: ./secrets/managed_otlp_token

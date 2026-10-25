@@ -40,6 +40,16 @@ flowchart LR
 
 Prometheus keeps metrics for 15 days, and Loki and Tempo keep logs and traces for 14 days.
 
+## A managed backend
+
+A deployment may send its telemetry to a managed backend that accepts the OpenTelemetry Protocol (OTLP), such as Grafana Cloud, instead of running Prometheus, Loki, Tempo, Grafana and Alertmanager itself (D42). With `TELEMETRY=managed`, the reference deployment runs only the collector, with [managed.yaml](../../deploy/observability/collector/managed.yaml) merged over its configuration: the same receivers and processors, tail sampling among them (OBS-08), and one exporter, to the backend. The API exports to the collector as before, so its settings don't change, and only the collector holds the backend's credentials.
+
+The deployment's settings name the backend's OTLP endpoint, which is HTTPS (OPS-20), and the user the collector signs in as: `MANAGED_OTLP_ENDPOINT` and `MANAGED_OTLP_USER`, which [deploy/settings.env.example](../../deploy/settings.env.example) describes. The token goes in the secret file `secrets/managed_otlp_token`. A backend whose certificate a private authority signed is trusted through that authority's certificate in `certs/managed-otlp-ca.crt`.
+
+The managed configuration adds what the self-hosted stack does elsewhere: the collector scrapes its own metrics, which Prometheus scrapes in the stack, for the alerts on telemetry that is lost, and it copies `deployment.environment.name` and the backup status files' `file.name` from each metric's resource into its labels, which the self-hosted Prometheus promotes.
+
+CI sends to a stand-in backend, a collector that admits only the deployment's credentials over TLS, and checks that the trace and the logs of a 4xx response arrive.
+
 ## Running it on your machine
 
 `just dev observe` starts the stack in Compose, next to Postgres, and runs the API with its telemetry exported to the collector. Each service answers on 127.0.0.1:
