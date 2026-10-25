@@ -124,11 +124,12 @@ Documents and comments describe only this codebase. The one exception is the mig
 - `docs/inventory/` describes the old codebase, quotes it, and numbers its entries with IDs of its own, so `check-docs` reads neither its IDs nor its markers (DOC-01, DOC-07, DOC-13).
 - `docs/MIGRATION.md`, the tracker, records the migration (DOC-16).
 - `CLAUDE.md` may point to the inventory, so a session can look up old behavior.
+- The `conformance-review` skill in `.claude/skills/` reads the inventory's `decision-trace.md`, so the review of a build-order part first settles the commitments the trace gives that part.
 - Until the ADRs are written, documents cite decisions by their IDs, such as D4, and `docs/architecture.md` and the tracker link to the decisions' records: the inventory's for D1 to D36, and the tracker's decisions for later ones.
 
 When the migration completes, the workspace is deleted, and these exceptions with it.
 - Why: a fork's developers never saw any other codebase, so references to one mean nothing to them.
-- Check: `ci: check-docs` (known names of other codebases), plus `review`.
+- Check: `ci: check-docs` (known names of other codebases, and a path into the inventory anywhere but the places above), plus `review`.
 
 ### DOC-16 The tracker holds status, not content
 While the migration runs, `docs/MIGRATION.md` records its progress, which DOC-01 otherwise forbids. It holds status and pointers. Every other fact lives in its home (DOC-14). Its sections, in this order:

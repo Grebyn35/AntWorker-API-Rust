@@ -92,7 +92,7 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 |---|---|
 | `fmt-check`, `test`, `deny` | built |
 | `check-test-map`, `check-docs` | built |
-| `check-docs`, for the names of other codebases (DOC-04) | 3 |
+| `check-docs`, for the names of other codebases and the paths into the inventory (DOC-04) | 3 |
 | `check-docs`, for accepted ADRs (DOC-11) | 6, with the first ADR |
 | `check-openapi`, `check-instrument` | built |
 | `check-metrics`, `check-telemetry-config`, `alert-rules` | built |
