@@ -4,9 +4,14 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 1.5 is built and reviewed: the conformance review stopped after four passes for no progress, and 9306556 fixed its last must-fix finding. Two runs end the step, and both wait on the owner. The first builds the import of the dashboards and the rules into a managed Grafana, and checks it against a Grafana Cloud account, which closes the known gap of OBS-13 and OBS-14. The second deploys 0.1.0-rc.2 to a trial server, takes a backup and restores it, writes the restore's time into [backups.md](operations/backups.md), and fixes what the run shows. Until they come, step 2.1's spec can start.
+**Next:** step 1.5's trial deploy ran 0.1.0-rc.4 on a real server: the deploys, `just status` and `just logs`, a backup, a restore to a moment, and the switch to Grafana Cloud as the managed backend all work, after fixes for four faults it found. Its findings are in the message of the commit "Hand off step 1.5's trial deploy". Three parts end the step:
+1. The import of the dashboards and the rules into a managed Grafana (OBS-13, OBS-14), checked against the owner's Grafana Cloud stack, which the trial server sends to.
+2. `just server-setup` and `just server-check` (OPS-22), from the trial's findings. Then the collector's deprecated receiver name `filestats`, a version in `just status` for images without the label, what a client gets while no replica runs, and whether a restore may start the replicas before its closing backup.
+3. A conformance review of everything since a28df7b.
 
-**Waiting on the owner:** a free Grafana Cloud account, with its tokens in a local file; a trial server with Docker, two subdomains that point at it, a backup bucket with its key pair, SSH access from the session's machine as the Host `trial`, a token that reads the packages, and the prerelease 0.1.0-rc.2 through `just release`. A prerelease is enough: a deploy takes any release, and a final release would fix the HTTP contract.
+The trace test `traces::obs_08_…` fails now and then on amd64; its output now says why, so read it at its next failure.
+
+**Waiting on the owner:** whether the trial server stays; which provider production runs on, since the trial's encrypts no disk (OPS-20).
 
 ## Build order
 
