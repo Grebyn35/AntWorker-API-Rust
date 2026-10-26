@@ -1,4 +1,4 @@
-//! The image (OPS-14, OPS-15).
+//! The images (OPS-14, OPS-15, OPS-20).
 
 use std::process::{Command, Output};
 
@@ -102,4 +102,29 @@ async fn ops_15_bootstrap_migrate_and_serve_run_from_one_image_as_a_non_root_use
     assert!(capabilities.starts_with("HTTP/1.1 200 "), "{capabilities}");
     assert_eq!(server.inspect("{{.Config.User}}"), "65532:65532");
     assert_eq!(server.inspect("{{.HostConfig.ReadonlyRootfs}}"), "true");
+}
+
+#[test]
+fn ops_20_the_postgres_image_holds_the_authorities_that_a_bucket_s_certificate_is_checked_against()
+{
+    let image = Pushed::postgres();
+    let compose = include_str!("../../../../deploy/compose.yaml");
+    let authorities = compose
+        .split("${BACKUP_CA_FILE:-")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .expect("the authorities BACKUP_CA_FILE names by default");
+
+    let output = Command::new("docker")
+        .args(["run", "--rm", "--platform", image.platform()])
+        .args(["--entrypoint", "grep", &image.on_host()])
+        .args(["--count", "BEGIN CERTIFICATE", authorities])
+        .output()
+        .expect("run docker");
+
+    let certificates: usize = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse()
+        .unwrap_or(0);
+    assert!(certificates > 100, "{authorities}: {}", lossy(&output));
 }
