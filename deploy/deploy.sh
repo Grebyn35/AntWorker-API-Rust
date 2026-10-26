@@ -478,6 +478,10 @@ apply() {
     echo "$target" > "$state/live"
     stop_unused_services
     say "deployed $api_image: $replicas $target replicas serve"
+    # A deployment may run without an integration, but not without knowing.
+    if [ "$telemetry" = self-hosted ] && ! grep -Eq '^[[:space:]]*[a-z]+_configs:' "$deployment/observability/alertmanager/alertmanager.yaml"; then
+        echo "deploy: warning: Alertmanager's receivers name no integration, so the alerts notify no one; docs/operations/observability.md#alerts says how to add one" >&2
+    fi
 }
 
 # Stops the services that an earlier DATABASE or TELEMETRY started and the settings don't

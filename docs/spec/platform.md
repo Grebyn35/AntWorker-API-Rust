@@ -130,6 +130,7 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 | PLATFORM-040 | Every request except the health probes records its duration in `http.server.request.duration`, with its method, its route if it matched one, its status, and the error code of a 5xx as `error.type`. A method that HTTP's specifications don't define is `_OTHER`, in the request's span and log line too. | OBS-11, OBS-15 | `platform_040_` |
 | PLATFORM-042 | Before the process exits, `main` writes out the spans, log records and metrics not yet exported, the counts of the exports that failed included. | OPS-06, OBS-10 | `platform_042_` |
 | PLATFORM-043 | `serve` records in `platform.database_reachable`, after every check, whether the instance's own database connection answered it, with the database's name as `db.namespace`. | OPS-05, D19 | `platform_043_` |
+| PLATFORM-046 | On Linux, `serve` records its process's resident memory, in bytes, in `process.memory.usage`, when it starts and every 15 seconds after. | OBS-14, D19 | `platform_046_` |
 
 ## Design
 
@@ -267,6 +268,7 @@ The metrics `platform` records:
 - `platform.panics`, by the panic hook (ERR-12)
 - `platform.errors_ignored`, by `errors::ignore` (ERR-11)
 - `platform.database_reachable`, 1 or 0, by the readiness check after every ping (PLATFORM-043)
+- `process.memory.usage`, the process's resident memory in bytes, every 15 seconds, from the kernel's report in `/proc/self/status`, so on Linux only (PLATFORM-046)
 - the exporters' counts, above
 
 ### Readiness and shutdown

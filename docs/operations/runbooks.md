@@ -94,3 +94,27 @@ If a deploy started the failures, roll it back first, then investigate.
 **Look first.** The Telemetry pipeline dashboard: "Can Prometheus reach every service of the stack?" names the service.
 
 **What to do.** Check the service's container, its logs and its disk, and restart it.
+
+## DiskFillingUp
+
+**What it means.** A disk of the server is more than 85% full and, at the rate of the last six hours, fills within a day. When the disk that holds the deployment's volumes fills, Postgres stops writing and the stack stops storing telemetry.
+
+**Look first.** The Server dashboard: "How full is each disk?" names the mount point and shows since when it fills. On the server, `docker system df --verbose` shows the size of each volume and image.
+
+**What to do.** Free space or grow the disk. Images that no container runs go with `docker image prune --all`. If Postgres's volume grows while [BackupArchivingFailing](#backuparchivingfailing) fires, Postgres is keeping the write-ahead log it can't archive: fix the archiving, and Postgres removes the segments it kept.
+
+## DiskFull
+
+**What it means.** A disk of the server is more than 95% full and, at the rate of the last hour, fills within four hours. Once it is full, nothing on the server can write to it.
+
+**Look first.** As for [DiskFillingUp](#diskfillingup).
+
+**What to do.** As for [DiskFillingUp](#diskfillingup), now.
+
+## MemoryRunningLow
+
+**What it means.** Less than a tenth of the server's memory has been available for 15 minutes. When memory runs out, the kernel kills a process, often a replica or Postgres.
+
+**Look first.** The Server dashboard: "How much of the server's memory is available?" shows since when it fell, and the API platform dashboard's "How much memory does each instance use?" whether a replica's grows. On the server, `docker stats --no-stream` shows each container's memory.
+
+**What to do.** A replica whose memory only grows points to a leak: deploy the release before it, and report it. Otherwise lower `API_REPLICAS` or `API_MEMORY`, or move to a server with more memory.

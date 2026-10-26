@@ -11,6 +11,26 @@ metrics:
     kind: gauge
     producer: Prometheus
     description: One series for each alert that is pending or firing, with its labels.
+  - name: system_filesystem_utilization_ratio
+    kind: gauge
+    producer: the collector's host_metrics receiver
+    description: The share of a filesystem of the host that is in use, by mountpoint and mode.
+  - name: system_filesystem_usage_bytes
+    kind: gauge
+    producer: the collector's host_metrics receiver
+    description: The bytes of a filesystem of the host, by mountpoint, mode and state, such as free.
+  - name: system_linux_memory_available_bytes
+    kind: gauge
+    producer: the collector's host_metrics receiver
+    description: The memory of the host that is available to processes without swapping.
+  - name: system_memory_limit_bytes
+    kind: gauge
+    producer: the collector's host_metrics receiver
+    description: All the memory of the host.
+  - name: system_cpu_time_seconds_total
+    kind: counter
+    producer: the collector's host_metrics receiver
+    description: The time the host's CPUs spent, by cpu and state, such as idle.
   - name: file_mtime_seconds
     kind: gauge
     producer: the collector's filestats receiver

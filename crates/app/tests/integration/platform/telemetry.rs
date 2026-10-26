@@ -218,6 +218,23 @@ async fn obs_15_the_health_probes_record_no_request_metric() {
     assert!(probes.is_empty(), "{probes:#?}");
 }
 
+// The kernel reports a process's memory in /proc on Linux only, where the image runs.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn platform_046_serve_records_its_resident_memory() {
+    let api = Api::new();
+    let clock = api.clock();
+
+    platform::telemetry::process::watch(clock.clone());
+    clock.sleeping(Duration::from_secs(15)).await;
+
+    let recorded = testing::recorded("process.memory.usage");
+    assert!(
+        recorded.iter().any(|point| point.value > 0.0),
+        "{recorded:?}"
+    );
+}
+
 #[tokio::test]
 async fn platform_043_the_database_gauge_follows_each_check() {
     let database = TestDatabase::migrated().await;

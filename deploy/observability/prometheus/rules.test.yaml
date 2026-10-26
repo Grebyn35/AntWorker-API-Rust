@@ -227,3 +227,73 @@ tests:
             exp_annotations:
               summary: The bundled database's newest base backup completed more than 26 hours ago, though one runs every day.
               runbook: docs/operations/runbooks.md#basebackuptooold
+
+  # A disk 86% full that loses a megabyte a minute, and one 97% full that doesn't change, such as a
+  # boot partition.
+  - interval: 1m
+    input_series:
+      - series: 'system_filesystem_utilization_ratio{mountpoint="/", mode="rw"}'
+        values: "0.86x120"
+      - series: 'system_filesystem_usage_bytes{mountpoint="/", mode="rw", state="free"}'
+        values: "1000000000-1000000x120"
+      - series: 'system_filesystem_utilization_ratio{mountpoint="/boot", mode="rw"}'
+        values: "0.97x120"
+      - series: 'system_filesystem_usage_bytes{mountpoint="/boot", mode="rw", state="free"}'
+        values: "30000000x120"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: DiskFillingUp
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: DiskFillingUp
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              mountpoint: /
+            exp_annotations:
+              summary: A disk of the server is more than 85% full, and at the rate of the last 6 hours fills within a day.
+              runbook: docs/operations/runbooks.md#diskfillingup
+      - eval_time: 45m
+        alertname: DiskFull
+        exp_alerts: []
+
+  # A disk 96% full that loses a megabyte a minute, with 100 megabytes left.
+  - interval: 1m
+    input_series:
+      - series: 'system_filesystem_utilization_ratio{mountpoint="/", mode="rw"}'
+        values: "0.96x30"
+      - series: 'system_filesystem_usage_bytes{mountpoint="/", mode="rw", state="free"}'
+        values: "100000000-1000000x30"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: DiskFull
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: DiskFull
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              mountpoint: /
+            exp_annotations:
+              summary: A disk of the server is more than 95% full, and at the rate of the last hour fills within 4 hours.
+              runbook: docs/operations/runbooks.md#diskfull
+
+  # A server with 8 gigabytes of memory, of which 500 megabytes stay available.
+  - interval: 1m
+    input_series:
+      - series: 'system_linux_memory_available_bytes'
+        values: "500000000x30"
+      - series: 'system_memory_limit_bytes'
+        values: "8000000000x30"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: MemoryRunningLow
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: MemoryRunningLow
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: Less than 10% of the server's memory has been available for 15 minutes.
+              runbook: docs/operations/runbooks.md#memoryrunninglow

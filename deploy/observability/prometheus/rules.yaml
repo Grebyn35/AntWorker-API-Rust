@@ -196,3 +196,38 @@ groups:
         annotations:
           summary: Prometheus can't reach a service of the observability stack.
           runbook: docs/operations/runbooks.md#observabilityservicedown
+
+      # The server's disks and memory (OBS-14), from the collector's host metrics. A disk alerts
+      # only while it fills, so one that stays nearly full, such as a small boot partition, doesn't.
+      - alert: DiskFillingUp
+        expr: |
+          max by (mountpoint) (system_filesystem_utilization_ratio{mode="rw"}) > 0.85
+          and on (mountpoint)
+          max by (mountpoint) (predict_linear(system_filesystem_usage_bytes{mode="rw", state="free"}[6h], 24 * 3600)) < 0
+        for: 30m
+        labels:
+          severity: ticket
+        annotations:
+          summary: A disk of the server is more than 85% full, and at the rate of the last 6 hours fills within a day.
+          runbook: docs/operations/runbooks.md#diskfillingup
+
+      - alert: DiskFull
+        expr: |
+          max by (mountpoint) (system_filesystem_utilization_ratio{mode="rw"}) > 0.95
+          and on (mountpoint)
+          max by (mountpoint) (predict_linear(system_filesystem_usage_bytes{mode="rw", state="free"}[1h], 4 * 3600)) < 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: A disk of the server is more than 95% full, and at the rate of the last hour fills within 4 hours.
+          runbook: docs/operations/runbooks.md#diskfull
+
+      - alert: MemoryRunningLow
+        expr: min(system_linux_memory_available_bytes / system_memory_limit_bytes) < 0.1
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: Less than 10% of the server's memory has been available for 15 minutes.
+          runbook: docs/operations/runbooks.md#memoryrunninglow

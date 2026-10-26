@@ -154,6 +154,46 @@
         "x": 0,
         "y": 8
       }
+    },
+    {
+      "type": "timeseries",
+      "title": "How much memory does each instance use?",
+      "description": "Each instance's resident memory, which a replica's memory limit, API_MEMORY, caps. Memory that only grows points to a leak (MemoryRunningLow's runbook).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "process_memory_usage_bytes",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 4,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      }
     }
   ]
 }

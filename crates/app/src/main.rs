@@ -154,6 +154,7 @@ async fn serve(config: ServerConfig) -> ExitCode {
     let clock: SharedClock = Arc::new(SystemClock);
     let readiness = Readiness::new();
     database.watch(readiness.clone(), clock.clone());
+    platform::telemetry::process::watch(clock.clone());
     let (listener, address) = match bind(config.listen_addr).await {
         Ok(bound) => bound,
         Err(error) => return failed("listen", &error),

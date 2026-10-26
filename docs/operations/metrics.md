@@ -15,6 +15,7 @@ Prometheus stores each metric under the name in its "In Prometheus" column: its 
 | `platform.database_reachable` | gauge | none | `db.namespace` | `platform_database_reachable` | `crates/platform/src/db/monitor.rs` | 1 while the instance's own database connection answered its last check, 0 otherwise, by the database's name. |
 | `platform.errors_ignored` | counter | `{error}` | `error.type` | `platform_errors_ignored_total` | `crates/platform/src/errors.rs` | Errors ignored on purpose, by the name of the failure (ERR-11). |
 | `platform.panics` | counter | `{panic}` | none | `platform_panics_total` | `crates/platform/src/telemetry/mod.rs` | Panics, wherever they happened (ERR-12). |
+| `process.memory.usage` | gauge | `By` | none | `process_memory_usage_bytes` | `crates/platform/src/telemetry/process.rs` | The physical memory the instance's process uses: its resident set. |
 
 ## Metrics of the rest of the stack
 
@@ -22,6 +23,11 @@ Prometheus stores each metric under the name in its "In Prometheus" column: its 
 |---|---|---|---|
 | `up` | gauge | Prometheus | 1 while Prometheus scrapes the target, 0 otherwise. |
 | `ALERTS` | gauge | Prometheus | One series for each alert that is pending or firing, with its labels. |
+| `system_filesystem_utilization_ratio` | gauge | the collector's host_metrics receiver | The share of a filesystem of the host that is in use, by mountpoint and mode. |
+| `system_filesystem_usage_bytes` | gauge | the collector's host_metrics receiver | The bytes of a filesystem of the host, by mountpoint, mode and state, such as free. |
+| `system_linux_memory_available_bytes` | gauge | the collector's host_metrics receiver | The memory of the host that is available to processes without swapping. |
+| `system_memory_limit_bytes` | gauge | the collector's host_metrics receiver | All the memory of the host. |
+| `system_cpu_time_seconds_total` | counter | the collector's host_metrics receiver | The time the host's CPUs spent, by cpu and state, such as idle. |
 | `file_mtime_seconds` | gauge | the collector's filestats receiver | When a backup status file was last changed, in seconds since the Unix epoch, by file_name. |
 | `otelcol_receiver_refused_spans` | counter | the collector | Spans the collector refused, such as at its memory limit. |
 | `otelcol_receiver_refused_log_records` | counter | the collector | Log records the collector refused. |

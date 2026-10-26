@@ -1,10 +1,11 @@
 //! The logging and tracing setup (OBS-01, OBS-02), the export of telemetry over OTLP
-//! (PLATFORM-039), the metric declarations (OBS-11), and the trace context of the current
-//! request.
+//! (PLATFORM-039), the metric declarations (OBS-11), the trace context of the current request,
+//! and the instance's own memory (PLATFORM-046).
 
 mod export;
 pub mod metrics;
 pub mod names;
+pub mod process;
 
 use std::{io, panic::PanicHookInfo};
 

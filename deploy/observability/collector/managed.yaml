@@ -50,6 +50,6 @@ service:
     logs:
       exporters: [otlp_http/managed]
     metrics:
-      receivers: [otlp, filestats/backups, prometheus/collector]
+      receivers: [otlp, filestats/backups, host_metrics, prometheus/collector]
       processors: [memory_limiter, transform/labels, batch]
       exporters: [otlp_http/managed]

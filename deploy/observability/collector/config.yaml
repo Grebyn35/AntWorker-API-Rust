@@ -18,6 +18,29 @@ receivers:
       file.size:
         enabled: false
 
+  # The host's CPU, memory and filesystems, read from its filesystem mounted at /hostfs: the
+  # server's, or in development the machine that runs Docker. The alerts on a server whose disk
+  # fills or whose memory runs low read them (OBS-14). The filesystems leave out those of the
+  # kernel and of containers, which hold nothing a disk fills with.
+  host_metrics:
+    root_path: /hostfs
+    collection_interval: 30s
+    scrapers:
+      cpu: {}
+      memory:
+        metrics:
+          system.memory.limit:
+            enabled: true
+          system.linux.memory.available:
+            enabled: true
+      filesystem:
+        exclude_fs_types:
+          fs_types: [autofs, binfmt_misc, bpf, cgroup, cgroup2, configfs, debugfs, devpts, devtmpfs, fusectl, hugetlbfs, iso9660, mqueue, nsfs, overlay, proc, pstore, rpc_pipefs, securityfs, squashfs, sysfs, tmpfs, tracefs]
+          match_type: strict
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+
 processors:
   # Refuses data before the collector runs out of memory, so an overload is counted as refused
   # instead of ending the process.
@@ -80,6 +103,6 @@ service:
       processors: [memory_limiter, batch]
       exporters: [otlp_http/loki]
     metrics:
-      receivers: [otlp, filestats/backups]
+      receivers: [otlp, filestats/backups, host_metrics]
       processors: [memory_limiter, batch]
       exporters: [otlp_http/prometheus]

@@ -73,7 +73,7 @@ async fn sec_18_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
 }
 
 #[tokio::test]
-async fn obs_14_the_backups_report_when_an_archive_and_a_base_backup_last_succeeded() {
+async fn obs_14_the_backups_and_the_server_s_memory_report_what_the_cause_alerts_read() {
     let deployment = Deployment::bundled(&[("TELEMETRY", "self-hosted")]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -95,6 +95,13 @@ async fn obs_14_the_backups_report_when_an_archive_and_a_base_backup_last_succee
         "{series}"
     );
     assert!(series.contains(r#""file_name":"archived""#), "{series}");
+    // The server's memory, which the collector reads every 30 seconds. A test server's disks are
+    // bind mounts of the machine's, which the scraper leaves out as views of filesystems it
+    // reports where they are mounted whole, as on a server; so the test reads memory only.
+    let memory = deployment.server.shell(
+        "timeout 120 sh -c 'until docker exec deployment-prometheus-1 wget -qO-          \"http://localhost:9090/api/v1/query?query=system_linux_memory_available_bytes\"          | grep -q system_linux_memory_available_bytes; do sleep 5; done'",
+    );
+    assert!(memory.status.success(), "{}", lossy(&memory));
 }
 
 #[tokio::test]
@@ -186,9 +193,10 @@ async fn obs_08_a_managed_backend_receives_the_trace_and_the_logs_of_a_4xx_respo
 }
 
 #[tokio::test]
-async fn obs_14_an_alert_reaches_the_integration_that_the_release_names_through_the_deployment_s_credential()
- {
+async fn obs_14_a_deploy_warns_until_the_release_names_an_integration_that_alerts_then_reach() {
     let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]).await;
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
     let receiver = deployment.server.start_alert_receiver();
     deployment.server.write(
         &format!("{DEPLOYMENT}/secrets/alertmanager/page_url"),
@@ -216,7 +224,17 @@ async fn obs_14_an_alert_reaches_the_integration_that_the_release_names_through_
         "timeout 240 sh -c 'until grep -q E2EPage /root/receiver/out/received.json 2> /dev/null; do sleep 5; done'",
     );
 
+    assert!(
+        lossy(&first).contains("the alerts notify no one"),
+        "{}",
+        lossy(&first)
+    );
     assert!(deployed.status.success(), "{}", lossy(&deployed));
+    assert!(
+        !lossy(&deployed).contains("the alerts notify no one"),
+        "{}",
+        lossy(&deployed)
+    );
     assert!(
         received.status.success(),
         "{}\nAlertmanager's log ends with:\n{}",

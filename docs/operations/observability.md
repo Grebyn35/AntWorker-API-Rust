@@ -15,6 +15,8 @@ Each dashboard panel's title is the question it answers (OBS-13). The overview l
 | Why did this request fail? | its trace ID, as in [Following a request](#following-a-request-from-its-trace-id) |
 | Is a dependency degrading? Postgres, for now | API platform: "Can each instance reach its database?" |
 | Is the telemetry pipeline itself losing data? | Telemetry pipeline |
+| Is the server running out of disk or memory? | Server |
+| Does an instance's memory only grow? | API platform: "How much memory does each instance use?" |
 
 ## How telemetry flows
 
@@ -29,7 +31,7 @@ flowchart LR
 ```
 
 - **The API** exports its spans, log records and metrics over the OpenTelemetry Protocol (OTLP), on HTTP, to the collector named by `OTEL_EXPORTER_OTLP_ENDPOINT`. Every signal carries the service's name, its version, the environment, and the instance's own `service.instance.id`, so instances running side by side stay apart. The [platform spec](../spec/platform.md#telemetry-export) says how the API exports.
-- **The collector** ([config](../../deploy/observability/collector/config.yaml)) refuses data before it runs out of memory, and passes each signal to its store. It also reads the times of the bundled database's backup status files, for the backups' alerts. Its tail sampling waits 15 seconds for a trace's spans, then keeps the trace if any policy keeps it (OBS-08):
+- **The collector** ([config](../../deploy/observability/collector/config.yaml)) refuses data before it runs out of memory, and passes each signal to its store. It also reads the times of the bundled database's backup status files, for the backups' alerts, and the host's CPU, memory and filesystems, from the host's filesystem mounted read-only, for the server's: a filesystem it reports is one mounted whole, not a bind mount of part of one. Its tail sampling waits 15 seconds for a trace's spans, then keeps the trace if any policy keeps it (OBS-08):
   - every trace with an error status, or a response of 400 or above
   - every trace slower than the [latency objective](#service-level-objectives)
   - 10% of the rest
@@ -90,7 +92,7 @@ The health probes don't count, since they aren't measured (OBS-15). The latency 
 
 Each objective has two alerts that fire on how fast the errors spend its budget (OBS-14). The fast alert pages when an hour's errors would spend 2% of a 30-day budget, or 6 hours' errors 5% of it. The slow alert opens a ticket when a day's errors would spend 10% of it, or 3 days' errors 10% of it at a steady rate. The other alerts name a cause: the database is unreachable, telemetry is being lost, or the bundled database's backups have stopped ([backups.md](backups.md#alerts)).
 
-Every alert has a severity, `page` or `ticket`, a section in [runbooks.md](runbooks.md), and a test in [rules.test.yaml](../../deploy/observability/prometheus/rules.test.yaml). Alertmanager routes each alert by its severity to the receiver of the same name, and the [receivers](../../deploy/observability/alertmanager/alertmanager.yaml) notify no one in the template. A fork adds its integrations, such as email or a chat webhook, to `page` and `ticket` in that file, in its repository, so every deploy installs them. Each credential comes from a file of the deployment's `secrets/alertmanager/`, which the deploy creates and keeps, and which Alertmanager sees as `/etc/alertmanager-secrets/`, through the integration's option for a file, such as `api_url_file` of `slack_configs`, `url_file` of `webhook_configs` or `auth_password_file` of `email_configs`. Write each file readable by every user, as the other secret files are, since `secrets/` itself admits only the deployment's owner. CI delivers an alert through such a webhook (OBS-14).
+Every alert has a severity, `page` or `ticket`, a section in [runbooks.md](runbooks.md), and a test in [rules.test.yaml](../../deploy/observability/prometheus/rules.test.yaml). Alertmanager routes each alert by its severity to the receiver of the same name, and the [receivers](../../deploy/observability/alertmanager/alertmanager.yaml) notify no one in the template. A deploy with the self-hosted stack warns while no receiver names an integration. A fork adds its integrations, such as email or a chat webhook, to `page` and `ticket` in that file, in its repository, so every deploy installs them. Each credential comes from a file of the deployment's `secrets/alertmanager/`, which the deploy creates and keeps, and which Alertmanager sees as `/etc/alertmanager-secrets/`, through the integration's option for a file, such as `api_url_file` of `slack_configs`, `url_file` of `webhook_configs` or `auth_password_file` of `email_configs`. Write each file readable by every user, as the other secret files are, since `secrets/` itself admits only the deployment's owner. CI delivers an alert through such a webhook (OBS-14).
 
 ## Adding a metric
 
