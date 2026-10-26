@@ -22,6 +22,20 @@ pub struct Server {
     container: Container,
 }
 
+impl Drop for Server {
+    /// Removes every container on the server through the server's own Docker, before the
+    /// server's container goes. Killing the server with the deployment inside would make the
+    /// kernel end every process of every container at once before the server's own process can
+    /// exit, which on a busy machine takes longer than Docker waits for a container to exit after
+    /// its kill, and the removal fails with "did not receive an exit event".
+    fn drop(&mut self) {
+        let _removed = Command::new("docker")
+            .args(["exec", self.container.id(), "sh", "-c"])
+            .arg("docker ps --all --quiet | xargs -r docker rm --force --volumes > /dev/null")
+            .output();
+    }
+}
+
 impl Server {
     /// Starts a server, waits until its Docker answers, and copies the repository's deployment
     /// files to it.

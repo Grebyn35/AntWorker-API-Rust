@@ -172,7 +172,7 @@ impl Drop for Container {
             )),
             shell(format!("docker ps --all --filter id={id}")),
             shell(
-                "sudo journalctl --unit docker --since '-3 min' --no-pager 2>&1 | tail -n 40"
+                "sudo -n journalctl --unit docker --since '-3 min' --no-pager 2>&1 | tail -n 40"
                     .to_owned()
             ),
         );
