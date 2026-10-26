@@ -23,7 +23,7 @@ The backups don't hold the deployment's settings and secrets, which the next sec
 | Moments a restore reaches | Any moment from `BACKUP_RETENTION_DAYS` days ago, or from the first deploy that ran the bundled database if that came later, to the last archived change |
 | Time a restore takes | The time to download the newest base backup before the moment, and to replay the log from it to the moment, which the daily base backup bounds to a day of changes. The database is unavailable meanwhile |
 
-The time a restore takes grows with the database and with its rate of change, so measure it on the server, as [Restoring onto a new server](#restoring-onto-a-new-server) does.
+The time a restore takes grows with the database and with its rate of change, so measure it on the server, as [Restoring onto a new server](#restoring-onto-a-new-server) does. For scale: on a server with 2 virtual CPUs and 4 gigabytes of memory, a restore to a moment of a new database of 30 megabytes, from a bucket at Backblaze B2, took 45 seconds, and the API was unavailable for 33 of them. Restoring the data took 6 seconds, the full backup that ends a restore 13, and stopping and starting the services the rest.
 
 ## The bucket
 
