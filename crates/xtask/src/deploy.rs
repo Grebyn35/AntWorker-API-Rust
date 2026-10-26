@@ -128,9 +128,7 @@ pub fn logs(host: &str, arguments: &[String]) -> ExitCode {
 /// Copies the files of deploy/ at the tag of `version` to the directory `release` on `host`,
 /// replacing what it held.
 fn send_files(root: &Path, host: &str, version: &str, release: &str) -> Result<(), String> {
-    let mut archive = Command::new("git")
-        .args(["archive", "--format=tar", &format!("v{version}:deploy")])
-        .current_dir(root)
+    let mut archive = archive(root, &format!("v{version}:deploy"))
         .stdout(Stdio::piped())
         .spawn()
         .map_err(|error| format!("can't run git archive: {error}"))?;
@@ -153,6 +151,18 @@ fn send_files(root: &Path, host: &str, version: &str, release: &str) -> Result<(
         return Err(format!("unpacking them on the server failed ({unpacked})"));
     }
     Ok(())
+}
+
+/// The command that writes the files of `tree` in `root` as a tar archive, as the repository
+/// holds them. The archive of a subtree, such as deploy/ at a tag, doesn't read the root's
+/// .gitattributes, so the developer's core.autocrlf would otherwise apply, which Git for
+/// Windows sets: it would end each line of the shell scripts with a carriage return.
+fn archive(root: &Path, tree: &str) -> Command {
+    let mut command = Command::new("git");
+    command
+        .args(["-c", "core.autocrlf=false", "archive", "--format=tar", tree])
+        .current_dir(root);
+    command
 }
 
 /// Runs `command` in the shell of `host` through SSH, with this process's input and output, and
@@ -242,6 +252,22 @@ mod tests {
                 "{requested}: {refused}"
             );
         }
+    }
+
+    #[test]
+    fn ops_16_the_files_a_deploy_sends_keep_the_line_endings_the_repository_holds() {
+        let output = archive(&root(), "HEAD:deploy")
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "core.autocrlf")
+            .env("GIT_CONFIG_VALUE_0", "true")
+            .output()
+            .expect("run git archive");
+
+        assert!(output.status.success(), "{output:?}");
+        assert!(
+            !output.stdout.windows(2).any(|pair| pair == b"\r\n"),
+            "a file of deploy/ arrives with Windows line endings"
+        );
     }
 
     #[test]
