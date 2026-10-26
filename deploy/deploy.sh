@@ -1,8 +1,9 @@
 #!/bin/sh
 # The reference deployment's tasks on its server (D45): deploys a release with no downtime
-# (OPS-16), and takes and restores the bundled database's backups (OPS-17). `just deploy`,
-# `just backup` and `just restore` run it over SSH from a developer's machine, from the files of
-# the release they name; docs/operations/deploy.md describes the deployment.
+# (OPS-16), takes and restores the bundled database's backups (OPS-17), and shows the
+# deployment's state and its services' logs (OPS-22). `just deploy`, `just backup`,
+# `just restore`, `just status` and `just logs` run it over SSH from a developer's machine;
+# docs/operations/deploy.md describes the deployment.
 #
 #   deploy.sh deploy <version> [--allow-restart]
 #       Verifies the release <version>, then deploys its images.
@@ -14,6 +15,13 @@
 #       Restores the bundled database, as it stood at <moment>, a time with its offset from UTC
 #       as Postgres writes it, or at the latest moment its backups hold, into a fresh data
 #       directory, and keeps the one it replaces beside it.
+#   deploy.sh status
+#       Shows which color serves, each of the deployment's containers with its state and its
+#       image's version, when the bundled database's backups last succeeded, and the server's
+#       free disk and memory. It changes nothing, so it runs beside any other task.
+#   deploy.sh logs [--follow] [<service>...]
+#       Shows the last 100 lines of each service's log, of every service without one, and with
+#       --follow, the lines that follow. `api` names both colors' replicas.
 #
 # A deploy restarts Postgres or Caddy, which each run once, only with --allow-restart, because
 # restarting either interrupts requests for a few seconds. DEPLOYMENT names the deployment's
@@ -578,6 +586,58 @@ restore() {
     say "restored the database${moment:+ as it stood at $moment}"
 }
 
+status() {
+    if [ -d "$state/lock" ]; then echo "a deploy, backup or restore is running"; fi
+    blue=$(running api-blue)
+    green=$(running api-green)
+    if [ -n "$blue" ] && [ -n "$green" ]; then
+        echo "serving: both colors, as while a deploy switches; the last deploy that finished left $(cat "$state/live" 2> /dev/null || echo neither) serving"
+    elif [ -n "$blue" ]; then
+        echo "serving: blue"
+    elif [ -n "$green" ]; then
+        echo "serving: green"
+    else
+        echo "serving: no replica runs"
+    fi
+    echo "containers:"
+    docker ps --all --filter "label=com.docker.compose.project=$project" \
+        --format '{{ .Names }}|{{ .Status }}|{{ .Label "org.opencontainers.image.version" }}' |
+        sed "s/^$project-//" | sort | awk -F '|' '{ printf "  %-26s %-34s %s\n", $1, $2, $3 }'
+    container=$(running backup)
+    if [ -n "$container" ]; then
+        echo "backups:"
+        # shellcheck disable=SC2016 # The container's shell expands its own variables.
+        docker exec "$container" sh -c '
+            for entry in "archived:log last archived" "archive-failed:archive last failed" "backup-completed:base backup last completed"; do
+                file=/var/lib/backup-status/${entry%%:*}
+                if [ -f "$file" ]; then when=$(date -u -r "$file" "+%Y-%m-%d %H:%M:%S UTC"); else when=never; fi
+                printf "  %-26s %s\n" "${entry#*:}" "$when"
+            done'
+    fi
+    echo "server:"
+    df -P -h "$(docker info --format '{{ .DockerRootDir }}')" |
+        awk 'NR == 2 { printf "  %-26s %s of %s used (%s), %s free\n", "disk", $3, $2, $5, $4 }'
+    awk '/^MemTotal:/ { total = $2 } /^MemAvailable:/ { available = $2 }
+        END { printf "  %-26s %.1f GiB available of %.1f GiB\n", "memory", available / 1048576, total / 1048576 }' /proc/meminfo
+}
+
+logs() {
+    follow=""
+    services=""
+    for argument in "$@"; do
+        case $argument in
+            --follow) follow=--follow ;;
+            -*) fail "unknown option $argument" ;;
+            api) services="$services api-blue api-green" ;;
+            *) services="$services $argument" ;;
+        esac
+    done
+    if [ ! -f "$state/deploy.env" ]; then fail "no deploy has run on this server, so no service has logs"; fi
+    read_settings
+    # shellcheck disable=SC2086 # $follow is an option or nothing, and $services holds one service per word.
+    compose logs --tail 100 $follow $services
+}
+
 allow_restart() {
     case ${1:-} in
         '') echo no ;;
@@ -601,5 +661,10 @@ case $command in
         ;;
     backup) backup ;;
     restore) restore "${2:-}" ;;
-    *) fail "usage: deploy.sh deploy|apply|backup|restore (see the comment at the top of deploy.sh)" ;;
+    status) status ;;
+    logs)
+        shift
+        logs "$@"
+        ;;
+    *) fail "usage: deploy.sh deploy|apply|backup|restore|status|logs (see the comment at the top of deploy.sh)" ;;
 esac

@@ -47,7 +47,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | Rate limiting: the IP, per-user and per-action limits, with the client IP taken from trusted proxies | D11 | 2.1 |
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | built |
 | The image and the delivery pipeline, with the release docs | D15, D21, D43 | built |
-| The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30, D44, D45, D47, D49, D50 | built |
+| The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30, D44, D45, D47, D49, D50, D51 | built |
 | Grafana on an HTTPS address of its own with sign-in, and the path to a managed observability backend through the collector, with Grafana Cloud as the worked example | D19, D42 | 1.5 |
 | The command that removes an optional part, which `check-removable` runs | D29, D39 | 2.3 |
 | `just seed` and the OpenAPI UI in development | D28 | 2.4 |
@@ -116,6 +116,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 |---|---|---|
 | OPS-18 | A release's capacity, which `just load-test` measures, has no release notes to go in: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 | OBS-13, OBS-14 | With `TELEMETRY=managed`, nothing imports the dashboards into the managed Grafana or loads the rules into its ruler | 1.5, with the run against a Grafana Cloud account |
+| OPS-22 | `just server-setup` and `just server-check` aren't built: a server is set up by hand, as [deploy.md](operations/deploy.md#setting-up-a-server) says | 1.5, from what the trial deploy shows |
 | DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 
 ## Rule proposals
@@ -219,3 +220,4 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D48 | The end-to-end tests' servers pull Docker Hub's images through a pull-through cache that Compose runs and `just e2e` fills for their platform beforehand, and can't reach Docker Hub themselves (TEST-07, [ci.md](operations/ci.md)) | accepted |
 | D49 | A deployment's alert integrations are its release's, in the fork's `alertmanager.yaml`, and their credentials the deployment's, in `secrets/alertmanager/`, which each integration reads through its option for a file ([observability.md](operations/observability.md#alerts)) | accepted |
 | D50 | A deploy that refuses or fails once it installed its release's files puts back the ones it replaced, so the deployment's directory holds the files of the last deploy that finished (OPS-16, [deploy.md](operations/deploy.md#the-files-on-the-server)) | accepted |
+| D51 | The reference deployment's settings and secrets stay on its server, and every task on the server, its setup included, runs from a developer's machine through `just` over SSH, rather than keeping the settings in the repository, where secrets can't go, or on one developer's machine (OPS-22) | accepted |

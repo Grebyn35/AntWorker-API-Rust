@@ -127,6 +127,11 @@ An instance opens at most `DATABASE_MAX_CONNECTIONS` pooled connections, plus on
 - Why: replicas can't exhaust the database's connections, even while a deploy runs two sets of them (D20).
 - Check: `test` (PLATFORM-045), plus `ci: e2e` (the refusal).
 
+### OPS-22 The server is operated from the developer's machine
+Every task on the reference deployment's server runs from a developer's machine, through `just` over Secure Shell (SSH), and none needs a shell on the server. The settings and the secrets stay on the server, in one place. `just server-setup` installs Docker, logs the server in to the registry, and writes the settings and the secrets the operator holds, asking for each one that the settings' choices need, and generates the backups' passphrase, which it shows once; no deploy writes them. `just server-check` checks what a deploy needs, and changes nothing. `just status` shows which color serves, each of the deployment's containers with its state and its image's version, when the backups last succeeded, and the server's free disk and memory, and changes nothing. `just logs` shows the services' last log lines, and follows them on request.
+- Why: one place to operate a deployment from, and a server set up and checked the same way every time, also by a developer who has never set one up (D51).
+- Check: `ci: e2e` (the status and the logs after a deploy, the setup of a new server, and what the check of a server finds).
+
 ## Local development
 
 ### OPS-19 Two commands from clone to running

@@ -1,14 +1,16 @@
-//! `deploy`, `backup` and `restore`, which `just deploy`, `just backup` and `just restore` run on
-//! a developer's machine: they run the reference deployment's deploy/deploy.sh on its server over
-//! SSH (OPS-16, OPS-17). A deploy takes a release by its version: it refuses a version that no
-//! release has, sends the server the deployment's files from the release's tag, and runs that
-//! release's deploy.sh, which verifies the release's images before it pulls them. The server
+//! `deploy`, `backup`, `restore`, `status` and `logs`, which the `just` recipes of the same names
+//! run on a developer's machine: they run the reference deployment's deploy/deploy.sh on its
+//! server over SSH (OPS-16, OPS-17, OPS-22). A deploy takes a release by its version: it refuses
+//! a version that no release has, sends the server the deployment's files from the release's tag,
+//! and runs that release's deploy.sh, which verifies the release's images before it pulls them.
+//! The other tasks run the deploy.sh of the release that the last deploy installed. The server
 //! needs no checkout of the repository. docs/operations/deploy.md describes the deployment.
 //!
 //! Which release a version names is a pure function, so tests cover it without a server; the
 //! tasks run git and ssh as the developer's own.
 
 use std::{
+    io::{self, IsTerminal},
     path::{Path, PathBuf},
     process::{Command, ExitCode, Stdio},
 };
@@ -102,6 +104,27 @@ pub fn restore(host: &str, moment: Option<&str>) -> ExitCode {
     on_server(host, &command)
 }
 
+/// Shows the state of the deployment that SSH reaches at `host`.
+pub fn status(host: &str) -> ExitCode {
+    on_server(
+        host,
+        &format!("DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh status"),
+    )
+}
+
+/// Shows the logs of the deployment's services that `arguments` name, or of all of them, and
+/// with `--follow` among them, the lines that follow.
+pub fn logs(host: &str, arguments: &[String]) -> ExitCode {
+    let mut command = format!("DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh logs");
+    for argument in arguments {
+        command.push(' ');
+        command.push_str(&quoted(argument));
+    }
+    // A terminal on the server, so that ending ssh ends the logs that follow there.
+    let follows = arguments.iter().any(|argument| argument == "--follow");
+    on_server_with(host, &command, follows && io::stdin().is_terminal())
+}
+
 /// Copies the files of deploy/ at the tag of `version` to the directory `release` on `host`,
 /// replacing what it held.
 fn send_files(root: &Path, host: &str, version: &str, release: &str) -> Result<(), String> {
@@ -135,7 +158,17 @@ fn send_files(root: &Path, host: &str, version: &str, release: &str) -> Result<(
 /// Runs `command` in the shell of `host` through SSH, with this process's input and output, and
 /// exits as it does.
 fn on_server(host: &str, command: &str) -> ExitCode {
-    match Command::new("ssh").arg(host).arg(command).status() {
+    on_server_with(host, command, false)
+}
+
+/// Runs `command` as [`on_server`] does, and with `terminal`, in a terminal on the server, whose
+/// processes end when ssh does.
+fn on_server_with(host: &str, command: &str, terminal: bool) -> ExitCode {
+    let mut ssh = Command::new("ssh");
+    if terminal {
+        ssh.arg("-t");
+    }
+    match ssh.arg(host).arg(command).status() {
         Ok(status) if status.success() => ExitCode::SUCCESS,
         Ok(_) => ExitCode::FAILURE,
         Err(error) => refuse(&format!("Can't run ssh: {error}")),

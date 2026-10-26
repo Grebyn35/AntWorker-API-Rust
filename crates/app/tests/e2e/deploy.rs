@@ -1,5 +1,6 @@
-//! Deploys of the reference deployment (OPS-16, OPS-20, OPS-21), on a server of the tests' own,
-//! with Compose's Postgres as a managed database, or the bundled one where a test says so.
+//! Deploys of the reference deployment (OPS-16, OPS-20, OPS-21), and its status and logs (OPS-22),
+//! on a server of the tests' own, with Compose's Postgres as a managed database, or the bundled
+//! one where a test says so.
 
 use crate::{
     deployment::{API_ADDRESS, Deployment, Traffic, assert_all_succeeded, get},
@@ -339,4 +340,65 @@ async fn ops_16_a_deploy_that_leaves_the_bundled_database_stops_it_and_its_backu
         deployment.url("https", 443, "/v1/capabilities"),
     );
     assert_eq!(served, 200);
+}
+
+#[tokio::test]
+async fn ops_22_status_shows_what_serves_and_the_backups_and_logs_show_the_services_output() {
+    let deployment = Deployment::bundled(&[]);
+    let applied = deployment.apply(&deployment.api, &[]).await;
+    assert!(applied.status.success(), "{}", lossy(&applied));
+
+    let status = deployment.server.deploy(&["status"]);
+    let logs = deployment.server.deploy(&["logs", "api", "caddy"]);
+    let refused = deployment.server.deploy(&["logs", "--since=1h"]);
+
+    assert!(status.status.success(), "{}", lossy(&status));
+    let status = lossy(&status);
+    assert!(status.contains("serving: blue"), "{status}");
+    let version = deployment.server.shell_ok(&format!(
+        "docker image inspect --format '{{{{ index .Config.Labels \"org.opencontainers.image.version\" }}}}' {}",
+        deployment.api
+    ));
+    assert!(!version.is_empty(), "the image's version");
+    for replica in ["api-blue-1", "api-blue-2"] {
+        assert!(
+            status.lines().any(|line| line.contains(replica)
+                && line.contains("(healthy)")
+                && line.trim_end().ends_with(&version)),
+            "{replica} healthy, of {version}: {status}"
+        );
+    }
+    let recorded = |what: &str| {
+        status
+            .lines()
+            .find_map(|line| line.trim().strip_prefix(what))
+            .unwrap_or_default()
+            .trim()
+            .to_owned()
+    };
+    let archived = recorded("log last archived");
+    let failed = recorded("archive last failed");
+    assert!(
+        recorded("base backup last completed").ends_with(" UTC"),
+        "{status}"
+    );
+    assert!(archived.ends_with(" UTC"), "{status}");
+    // Postgres archives before the first deploy creates the stanza, so an archive may have
+    // failed then; the times sort as they read.
+    assert!(failed == "never" || archived > failed, "{status}");
+    assert!(status.contains("memory"), "{status}");
+    assert!(logs.status.success(), "{}", lossy(&logs));
+    let logs = lossy(&logs);
+    for service in ["api-blue-1", "api-blue-2", "caddy-1"] {
+        assert!(
+            logs.lines().any(|line| line.starts_with(service)),
+            "{service}'s lines: {logs}"
+        );
+    }
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains("unknown option --since=1h"),
+        "{}",
+        lossy(&refused)
+    );
 }

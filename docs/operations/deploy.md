@@ -1,6 +1,6 @@
 # Deploys
 
-The reference deployment runs the API on one Linux server, in Docker Compose, with no downtime when a release replaces the last one. This document says what runs, what a server needs, how to set one up, how to deploy and roll back a release, and how to choose the services the API depends on. [backups.md](backups.md) describes the database's backups and restores, and [release.md](release.md) how a release is made.
+The reference deployment runs the API on one Linux server, in Docker Compose, with no downtime when a release replaces the last one. This document says what runs, what a server needs, how to set one up, how to deploy and roll back a release, how to check on a deployment, and how to choose the services the API depends on. [backups.md](backups.md) describes the database's backups and restores, and [release.md](release.md) how a release is made.
 
 ## What runs
 
@@ -93,6 +93,20 @@ Postgres and Caddy each run once, so restarting either interrupts requests for a
 ## Rolling back
 
 To go back to an earlier release, deploy it: `just deploy <host> 1.3.2`. Its replicas run against the schema the later release migrated, which expand and contract keeps compatible, and `serve` starts against a schema with later migrations than its own (PLATFORM-030).
+
+## Checking on a deployment
+
+```
+just status deploy@203.0.113.7
+```
+
+shows which color serves, each of the deployment's containers with its state, such as `Up 2 hours (healthy)`, and its image's version, when the backups last archived the write-ahead log and last completed a base backup, and the server's free disk and memory. It changes nothing, so it also runs while a deploy does.
+
+```
+just logs deploy@203.0.113.7 api
+```
+
+shows the last 100 lines of the logs of both colors' replicas. Name any of the deployment's services instead, such as `caddy`, `postgres` or `backup`, or none for all of them, and add `--follow` to go on showing the lines that follow, until Ctrl-C. With the self-hosted stack, Grafana also keeps the API's logs, to search ([observability.md](observability.md)).
 
 ## Scaling
 

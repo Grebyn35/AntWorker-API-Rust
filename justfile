@@ -385,6 +385,18 @@ backup host:
 restore host moment="":
     {{ xtask }} restore {{ host }} "{{ moment }}"
 
+# Shows the state of the reference deployment on `host` (OPS-22): which color serves, each of its
+# containers with its state and its image's version, when the backups last succeeded, and the
+# server's free disk and memory. It changes nothing. docs/operations/deploy.md describes it.
+status host:
+    {{ xtask }} status {{ host }}
+
+# Shows the last 100 lines of the logs of the reference deployment's `services` on `host`, `api`
+# for both colors' replicas, or of every service without one (OPS-22). `--follow` goes on showing
+# the lines that follow, until Ctrl-C.
+logs host *services:
+    {{ xtask }} logs {{ host }} {{ services }}
+
 # Releases the app's version from the images this run on main published for `commit`, if a commit
 # since the latest release asks for it and no release has it yet (OPS-14): gives each image the
 # version's tag, signs it, verifies the release, and only then tags the commit v<version>. The

@@ -124,6 +124,21 @@ enum Command {
         /// The moment: a time with its offset from UTC, as Postgres writes it.
         moment: Option<String>,
     },
+    /// Shows the state of the deployment at `host`: which color serves, its containers, its
+    /// backups, and the server's free disk and memory (OPS-22).
+    Status {
+        /// The server, as SSH names it.
+        host: String,
+    },
+    /// Shows the last lines of the logs of the deployment's services at `host` (OPS-22).
+    Logs {
+        /// The server, as SSH names it.
+        host: String,
+        /// The services, `api` for both colors' replicas, or none for all of them, and
+        /// `--follow` to go on showing the lines that follow.
+        #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
+        arguments: Vec<String>,
+    },
     /// Measures one replica's capacity: the highest constant rate of requests it serves with
     /// none failed and the 99th percentile within the latency objective (OPS-18).
     #[command(name = "load-test")]
@@ -200,6 +215,8 @@ fn main() -> ExitCode {
         Command::LoadTest => return load::run(),
         Command::Mirror { platform } => return mirror::run(&platform),
         Command::Restore { host, moment } => return deploy::restore(&host, moment.as_deref()),
+        Command::Status { host } => return deploy::status(&host),
+        Command::Logs { host, arguments } => return deploy::logs(&host, &arguments),
         command => command,
     };
     let repo = match repo::Repo::load() {
@@ -224,6 +241,8 @@ fn main() -> ExitCode {
         | Command::Deploy { .. }
         | Command::Backup { .. }
         | Command::Restore { .. }
+        | Command::Status { .. }
+        | Command::Logs { .. }
         | Command::LoadTest
         | Command::Mirror { .. } => Outcome::default(),
     };
