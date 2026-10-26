@@ -138,36 +138,43 @@ impl Container {
 }
 
 impl Drop for Container {
-    /// Removes the container and its anonymous volumes. A removal that fails is tried once more,
-    /// and a container that is gone by then counts as removed.
+    /// Removes the container and its anonymous volumes. A removal that fails fails the test with
+    /// what Docker said, and what it holds about the container and its daemon then.
     fn drop(&mut self) {
-        let remove = || {
-            Command::new("docker")
-                .args(["rm", "--force", "--volumes", &self.id])
-                .output()
-        };
+        let removed = Command::new("docker")
+            .args(["rm", "--force", "--volumes", &self.id])
+            .output();
         // A test that panicked reports its own failure, which a second panic would abort.
         if std::thread::panicking() {
-            let _removed = remove();
             return;
         }
-        let first = remove().expect("run docker rm");
-        if first.status.success() {
-            return;
-        }
-        let second = remove().expect("run docker rm");
-        let gone = !Command::new("docker")
-            .args(["inspect", "--format", "{{.Id}}", &self.id])
-            .output()
-            .expect("run docker inspect")
-            .status
-            .success();
+        let removed = removed.expect("run docker rm");
+        let shell = |command: String| {
+            Command::new("sh")
+                .args(["-c", &command])
+                .output()
+                .map_or_else(|error| error.to_string(), |output| lossy(&output))
+        };
+        let id = &self.id;
         assert!(
-            second.status.success() || gone,
-            "remove the container {}: {}{}",
-            self.id,
-            lossy(&first),
-            lossy(&second)
+            removed.status.success(),
+            "remove the container {id}: {}\n\
+             its state: {}\n\
+             its mounts: {}\n\
+             docker ps: {}\n\
+             the daemon's log: {}",
+            lossy(&removed),
+            shell(format!(
+                "docker inspect --format '{{{{json .State}}}}' {id}"
+            )),
+            shell(format!(
+                "docker inspect --format '{{{{json .Mounts}}}}' {id}"
+            )),
+            shell(format!("docker ps --all --filter id={id}")),
+            shell(
+                "sudo -n journalctl --unit docker --since '-3 min' --no-pager 2>&1 | tail -n 40"
+                    .to_owned()
+            ),
         );
     }
 }
