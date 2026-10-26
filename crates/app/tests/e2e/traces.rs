@@ -7,20 +7,24 @@ use std::process::Output;
 use serde_json::Value;
 
 use crate::{
-    docker::{compose, lossy, postgres_network},
+    docker::{Container, compose, docker, lossy, postgres_network},
     image::{Image, PORT, settings},
     support::{self, TestDatabase, http_request},
 };
 
 /// Waits until `url`, on Compose's network, answers with a body that holds `wanted`, and returns
-/// the body. The wait runs in a shell of the stack, from the image of Prometheus, since the test
-/// itself never sleeps (TEST-07); the stack takes seconds to store what it receives, and the
-/// collector waits 15 seconds before it decides to keep a trace.
+/// the body. The wait runs in a shell of the stack, since the test itself never sleeps (TEST-07);
+/// the stack takes seconds to store what it receives, and the collector waits 15 seconds before
+/// it decides to keep a trace.
 fn fetch_once_it_holds(url: &str, wanted: &str) -> Output {
-    let script = format!(
+    in_stack(&format!(
         "timeout 90 sh -c 'until wget -qO /tmp/body \"$0\" && grep -q \"$1\" /tmp/body; do sleep 1; done' \
          \"{url}\" \"{wanted}\" && cat /tmp/body"
-    );
+    ))
+}
+
+/// Runs `script` in a shell on Compose's network, from the image of Prometheus.
+fn in_stack(script: &str) -> Output {
     std::process::Command::new("docker")
         .args([
             "compose",
@@ -34,26 +38,65 @@ fn fetch_once_it_holds(url: &str, wanted: &str) -> Output {
             "sh",
             "prometheus",
             "-c",
-            &script,
+            script,
         ])
         .output()
         .expect("run docker compose")
 }
 
-/// The last lines that the stack's collector, Loki and Tempo logged, which say why a wait ended
-/// without what it waited for.
-fn stack_logs() -> String {
-    compose(&[
+/// What says why a wait ended without what it waited for: when each service of the stack was
+/// created and started, the collector's log, the last lines of Loki's and Tempo's, the API's
+/// exports that finished, with the error of each that failed, as Prometheus holds them, and the
+/// log of the API's instance.
+fn why_nothing_arrived(server: &Container) -> String {
+    let started = compose(&[
+        "--profile",
+        "observability",
+        "ps",
+        "--all",
+        "--quiet",
+        "collector",
+        "loki",
+        "tempo",
+        "prometheus",
+    ])
+    .lines()
+    .map(|id| {
+        docker(&[
+            "inspect",
+            "--format",
+            "{{.Name}} created {{.Created}}, started {{.State.StartedAt}}, restarted {{.RestartCount}} times",
+            id,
+        ])
+    })
+    .collect::<Vec<_>>()
+    .join("\n");
+    let collector = compose(&[
+        "--profile",
+        "observability",
+        "logs",
+        "--no-color",
+        "--timestamps",
+        "collector",
+    ]);
+    let stack = compose(&[
         "--profile",
         "observability",
         "logs",
         "--no-color",
         "--tail",
         "20",
-        "collector",
         "loki",
         "tempo",
-    ])
+    ]);
+    let exports = in_stack(
+        "wget -qO- 'http://prometheus:9090/api/v1/query?query=%7B__name__%3D~%22otel_sdk_exporter_(span%7Clog)_exported_total%22%7D'",
+    );
+    format!(
+        "{started}\n{collector}\n{stack}\nThe API's exports:\n{}\nThe API's instance:\n{}",
+        lossy(&exports),
+        server.logs()
+    )
 }
 
 #[tokio::test]
@@ -99,13 +142,18 @@ async fn obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace()
     let stored = fetch_once_it_holds(&format!("http://tempo:3200/api/traces/{trace}"), "404");
 
     assert!(response.starts_with("HTTP/1.1 404 "), "{response}");
-    assert!(logs.status.success(), "{}\n{}", lossy(&logs), stack_logs());
+    assert!(
+        logs.status.success(),
+        "{}\n{}",
+        lossy(&logs),
+        why_nothing_arrived(&server)
+    );
     assert!(lossy(&logs).contains(&trace), "{}", lossy(&logs));
     assert!(
         stored.status.success(),
         "{}\n{}",
         lossy(&stored),
-        stack_logs()
+        why_nothing_arrived(&server)
     );
     assert!(
         lossy(&stored).contains("http.response.status_code"),
