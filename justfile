@@ -385,6 +385,21 @@ backup host:
 restore host moment="":
     {{ xtask }} restore {{ host }} "{{ moment }}"
 
+# Sets up the server that SSH reaches at `host`, as root or a user that may run sudo without a
+# password, for the reference deployment (OPS-22): asks for the settings and the secrets that the
+# settings' choices need, then installs Docker on Debian and Ubuntu, prepares the user the
+# deployment runs as, logs it in to the registry, and writes what it asked. Run again, it changes
+# them. docs/operations/deploy.md describes it.
+server-setup host:
+    {{ xtask }} server-setup {{ host }}
+
+# Checks what a deploy of the release `version`, or of the latest release, to the reference
+# deployment on `host` needs, and changes nothing of the deployment (OPS-22): on the server, the
+# settings, the secrets, Docker, the release, the memory, the bucket and a managed backend; from
+# here, where its addresses point and whether its ports 80 and 443 answer.
+server-check host version="":
+    {{ xtask }} server-check {{ host }} {{ version }}
+
 # Shows the state of the reference deployment on `host` (OPS-22): which color serves, each of its
 # containers with its state and its image's version, when the backups last succeeded, and the
 # server's free disk and memory. It changes nothing. docs/operations/deploy.md describes it.

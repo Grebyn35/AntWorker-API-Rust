@@ -316,6 +316,11 @@ pub fn check(version: &str) -> ExitCode {
     }
 }
 
+/// The latest version that the repository's release tags name, or none before the first release.
+pub fn latest_release(root: &Path) -> Result<Option<Version>, String> {
+    Ok((Git { root }).releases()?.into_iter().max())
+}
+
 /// Writes `new` in place of `old` in each file that holds the app's version, changing none of
 /// them unless every one can be changed.
 fn write_version(root: &Path, old: Version, new: Version) -> Result<(), String> {

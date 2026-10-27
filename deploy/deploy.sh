@@ -24,6 +24,12 @@
 #   deploy.sh logs [--follow] [<service>...]
 #       Shows the last 100 lines of each service's log, of every service without one, and with
 #       --follow, the lines that follow. `api` names both colors' replicas.
+#   deploy.sh check <version>
+#   deploy.sh check-images <API image> <Postgres image>
+#       Checks what a deploy of the release <version>, or of the two images, each named by
+#       digest, needs, and changes nothing of the deployment, though it pulls the tools' images
+#       and the Postgres image, as a deploy does. Prints a line for each check, and fails if any
+#       fails.
 #
 # A deploy restarts Postgres or Caddy, which each run once, only with --allow-restart, because
 # restarting either interrupts requests for a few seconds. DEPLOYMENT names the deployment's
@@ -32,7 +38,11 @@
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
-deployment=$(cd "${DEPLOYMENT:?DEPLOYMENT names the deployment directory}" && pwd)
+if [ ! -d "${DEPLOYMENT:?DEPLOYMENT names the deployment directory}" ]; then
+    printf '%s\n' "deploy: $DEPLOYMENT doesn't exist; just server-setup writes it (docs/operations/deploy.md)" >&2
+    exit 1
+fi
+deployment=$(cd "$DEPLOYMENT" && pwd)
 state=$deployment/state
 project=deployment
 
@@ -318,10 +328,27 @@ write_secrets() {
     for name in database_url database_owner_url database_admin_url; do
         if [ ! -f "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
     done
-    # Replicas that a deploy to a managed database starts with the bundled database's URLs would use
-    # the bundled Postgres, which the deploy then stops.
-    if [ "$database" = managed ] && grep -q '@postgres:5432/api$' "$secrets/database_url"; then
-        fail "$secrets/database_url names the bundled database; write the managed database's URLs into database_admin_url, database_owner_url and database_url first (docs/operations/deploy.md)"
+    check_secrets
+    # Compose checks every secret file it declares, so the ones this choice of services doesn't
+    # use exist empty.
+    for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass grafana_admin_password managed_otlp_token; do
+        if [ ! -f "$secrets/$name" ]; then : > "$secrets/$name"; fi
+    done
+}
+
+# Fails unless secrets/ holds each secret that the operator holds for these settings, which
+# `just server-setup` writes.
+check_secrets() {
+    secrets=$deployment/secrets
+    if [ "$database" = managed ]; then
+        for name in database_url database_owner_url database_admin_url; do
+            if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
+        done
+        # Replicas that a deploy to a managed database starts with the bundled database's URLs
+        # would use the bundled Postgres, which the deploy then stops.
+        if grep -q '@postgres:5432/api$' "$secrets/database_url"; then
+            fail "$secrets/database_url names the bundled database; write the managed database's URLs into database_admin_url, database_owner_url and database_url first (docs/operations/deploy.md)"
+        fi
     fi
     if [ "$database" = bundled ]; then
         for name in backup_s3_key backup_s3_key_secret backup_cipher_pass; do
@@ -334,11 +361,6 @@ write_secrets() {
     if [ "$telemetry" = managed ] && [ -n "$(setting MANAGED_GRAFANA_URL)" ] && [ ! -s "$secrets/managed_grafana_token" ]; then
         fail "$secrets/managed_grafana_token is missing (docs/operations/observability.md#a-managed-backend)"
     fi
-    # Compose checks every secret file it declares, so the ones this choice of services doesn't
-    # use exist empty.
-    for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass grafana_admin_password managed_otlp_token; do
-        if [ ! -f "$secrets/$name" ]; then : > "$secrets/$name"; fi
-    done
 }
 
 # The color whose replicas serve: the one that runs, or, while both run because a deploy
@@ -712,6 +734,180 @@ logs() {
     compose logs --tail 100 $follow $services
 }
 
+# The lines that `check` writes: a check that passed, one that failed, which fails `check`, and
+# what it can't see.
+passed() { printf '%s\n' "check: ok    $*"; }
+failed() {
+    printf '%s\n' "check: FAIL  $*"
+    findings=$((findings + 1))
+}
+noted() { printf '%s\n' "check: note  $*"; }
+
+# Checks what a deploy needs (OPS-22): with one argument, of the release <version>, which it
+# verifies first, as a deploy does; with two, of the API's image and the Postgres image. It reads
+# the settings and the secrets as a deploy does, and refuses what a deploy would refuse.
+check() {
+    findings=0
+    docker_answers=no
+    if ! docker_version=$(docker version --format '{{ .Server.Version }}' 2> /dev/null); then
+        failed "Docker doesn't answer $(id -un): it doesn't run, or $(id -un) isn't in the docker group"
+    else
+        docker_answers=yes
+        compose_version=$(docker compose version --short 2> /dev/null || true)
+        buildx_version=$(docker buildx version 2> /dev/null | cut -d ' ' -f 2 || true)
+        major=${docker_version%%.*}
+        case $major in
+            '' | *[!0-9]*) major=0 ;;
+        esac
+        if [ "$major" -ge 29 ] && [ -n "$compose_version" ] && [ -n "$buildx_version" ]; then
+            passed "Docker $docker_version, with Compose $compose_version and Buildx $buildx_version"
+        else
+            failed "Docker $docker_version, with Compose ${compose_version:-missing} and Buildx ${buildx_version:-missing}; a deploy needs Docker 29 or later with both plugins"
+        fi
+    fi
+    settled=no
+    if problem=$( (read_settings && check_connections) 2>&1 > /dev/null); then
+        read_settings
+        settled=yes
+        passed "the settings in $deployment/settings.env, and the connections they open (OPS-21)"
+    else
+        failed "${problem#deploy: }"
+    fi
+    if [ "$settled" = yes ]; then
+        if problem=$( (check_secrets) 2>&1 > /dev/null); then
+            passed "the secrets that the operator holds, in $deployment/secrets"
+        else
+            failed "${problem#deploy: }"
+        fi
+        check_memory
+    fi
+    api_image="" postgres_image=""
+    if [ "$docker_answers" = yes ]; then
+        if [ "$#" -eq 1 ]; then check_release "$1"; else api_image=$1 postgres_image=$2; fi
+    fi
+    if [ -n "$api_image" ]; then
+        if pulled=$(docker pull --quiet "$api_image" 2>&1 && docker pull --quiet "$postgres_image" 2>&1); then
+            passed "the server pulls $api_image and $postgres_image"
+        else
+            failed "the server can't pull the release's images: $(printf '%s\n' "$pulled" | tail -n 1)"
+            postgres_image=""
+        fi
+    fi
+    if [ "$settled" = yes ] && [ "$database" = bundled ] && [ -n "$postgres_image" ]; then check_bucket; fi
+    if [ "$settled" = yes ] && [ "$telemetry" = managed ] && [ "$docker_answers" = yes ]; then check_backend; fi
+    noted "whether the disk is encrypted can't be seen from the server; confirm it with the provider (docs/operations/deploy.md#what-a-server-needs)"
+    if [ "$findings" -gt 0 ]; then fail "$findings of the checks failed"; fi
+    say "every check passed"
+}
+
+# Verifies the release $1, as a deploy does first, and sets $api_image and $postgres_image to its
+# images.
+check_release() {
+    repository=$(setting IMAGE_REPOSITORY)
+    source=$(setting SOURCE)
+    if [ -z "$repository" ] || [ -z "$source" ]; then
+        failed "the release $1 can't be verified without IMAGE_REPOSITORY and SOURCE"
+        return
+    fi
+    errors=$(mktemp)
+    if verified=$(CRANE=$(docker compose --file "$here/tools/compose.yaml" config --images crane) \
+        COSIGN=$(docker compose --file "$here/tools/compose.yaml" config --images cosign) \
+        sh "$here/verify-release.sh" "$1" "$source" "$repository" "$repository-postgres" 2> "$errors"); then
+        api_image=$(printf '%s\n' "$verified" | sed -n 1p)
+        postgres_image=$(printf '%s\n' "$verified" | sed -n 2p)
+        passed "the release $1 verifies: the registry login reads its images, which $source's CI signed"
+    else
+        failed "the release $1 doesn't verify, so a deploy of it would change nothing:"
+        sed 's/^/        /' "$errors"
+    fi
+    rm -f "$errors"
+}
+
+# Fails the check unless the server has the memory that the services the settings choose need:
+# about 2 gigabytes with the self-hosted stack, and 1 otherwise (docs/operations/deploy.md). A
+# server sold with that much reports a little less, the share its kernel keeps.
+check_memory() {
+    needed=1
+    if [ "$telemetry" = self-hosted ]; then needed=2; fi
+    kilobytes=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)
+    gigabytes=$(awk -v kilobytes="$kilobytes" 'BEGIN { printf "%.1f", kilobytes * 1024 / 1e9 }')
+    if awk -v kilobytes="$kilobytes" -v needed="$needed" 'BEGIN { exit !(kilobytes * 1024 >= needed * 0.9e9) }'; then
+        passed "memory: $gigabytes GB, for the $needed GB that TELEMETRY=$telemetry needs"
+    else
+        failed "memory: $gigabytes GB, less than the $needed GB that TELEMETRY=$telemetry needs (docs/operations/deploy.md#what-a-server-needs)"
+    fi
+}
+
+# Fails the check unless the release's pgBackRest reads the bucket, as the bundled Postgres would,
+# with the key pair, the passphrase and the authority it would use. `info` changes nothing.
+check_bucket() {
+    authority=/etc/ssl/certs/ca-certificates.crt
+    if [ -f "$deployment/certs/backup-ca.crt" ]; then authority=/etc/deployment-certs/backup-ca.crt; fi
+    secrets=$deployment/secrets
+    if answer=$(docker run --rm --user postgres --entrypoint pgbackrest \
+        --env PGBACKREST_REPO1_S3_ENDPOINT="$(setting BACKUP_S3_ENDPOINT)" \
+        --env PGBACKREST_REPO1_STORAGE_PORT="$(setting BACKUP_S3_PORT 443)" \
+        --env PGBACKREST_REPO1_S3_REGION="$(setting BACKUP_S3_REGION)" \
+        --env PGBACKREST_REPO1_S3_BUCKET="$(setting BACKUP_S3_BUCKET)" \
+        --env PGBACKREST_REPO1_S3_URI_STYLE="$(setting BACKUP_S3_URI_STYLE host)" \
+        --env PGBACKREST_REPO1_STORAGE_CA_FILE="$authority" \
+        --volume "$secrets/backup_s3_key:/run/secrets/backup_s3_key:ro" \
+        --volume "$secrets/backup_s3_key_secret:/run/secrets/backup_s3_key_secret:ro" \
+        --volume "$secrets/backup_cipher_pass:/run/secrets/backup_cipher_pass:ro" \
+        --volume "$deployment/certs:/etc/deployment-certs:ro" \
+        "$postgres_image" --stanza=db info 2>&1); then
+        found=$(printf '%s\n' "$answer" | sed -n 's/^ *status: //p' | head -n 1)
+    else
+        found=""
+    fi
+    # `info` exits 0 when it can't read the bucket too, and says why in the status.
+    bucket=$(setting BACKUP_S3_BUCKET)
+    case $found in
+        ok) passed "the bucket $bucket answers to its key pair, and holds backups that the passphrase decrypts" ;;
+        'error (missing stanza path)') passed "the bucket $bucket answers to its key pair, and holds no backups yet" ;;
+        'error (no valid backups)') passed "the bucket $bucket answers to its key pair, and holds no complete backup yet" ;;
+        *)
+            failed "pgBackRest can't read the bucket $bucket with its key pair and the passphrase, and says:"
+            printf '%s\n' "$answer" | sed 's/^/        /'
+            ;;
+    esac
+}
+
+# Fails the check unless the managed backend accepts an export of no telemetry, signed in as the
+# collector would be, and its Grafana, if the settings name one, answers to the import's token.
+check_backend() {
+    curl=$(docker compose --file "$here/tools/compose.yaml" config --images curl)
+    endpoint=$(setting MANAGED_OTLP_ENDPOINT)
+    otlp_user=$(setting MANAGED_OTLP_USER)
+    trust=""
+    if [ -f "$deployment/certs/managed-otlp-ca.crt" ]; then trust="--cacert /run/certs/managed-otlp-ca.crt"; fi
+    # shellcheck disable=SC2086 # $trust is an option and its value, or nothing.
+    if answer=$(docker run --rm --quiet --volume "$deployment/secrets/managed_otlp_token:/run/token:ro" \
+        --volume "$deployment/certs:/run/certs:ro" "$curl" --silent --show-error --fail-with-body $trust \
+        --variable token@/run/token --expand-user "$otlp_user:{{token:trim}}" \
+        --header 'Content-Type: application/json' --data '{}' "$endpoint/v1/metrics" 2>&1); then
+        passed "the managed backend at $endpoint accepts an export, signed in as $otlp_user"
+    else
+        failed "the managed backend at $endpoint refuses an export, signed in as $otlp_user: $answer"
+    fi
+    grafana=$(setting MANAGED_GRAFANA_URL)
+    if [ -z "$grafana" ]; then
+        noted "MANAGED_GRAFANA_URL is empty, so no deploy imports the dashboards and the alert rules (docs/operations/observability.md#a-managed-backend)"
+        return
+    fi
+    trust=""
+    if [ -f "$deployment/certs/managed-grafana-ca.crt" ]; then trust="--cacert /run/certs/managed-grafana-ca.crt"; fi
+    # shellcheck disable=SC2086 # $trust is an option and its value, or nothing.
+    if answer=$(docker run --rm --quiet --volume "$deployment/secrets/managed_grafana_token:/run/token:ro" \
+        --volume "$deployment/certs:/run/certs:ro" "$curl" --silent --show-error --fail-with-body $trust \
+        --variable token@/run/token --expand-header 'Authorization: Bearer {{token:trim}}' \
+        "$grafana/api/folders" 2>&1); then
+        passed "the managed Grafana at $grafana answers to the import's token"
+    else
+        failed "the managed Grafana at $grafana refuses the import's token: $answer"
+    fi
+}
+
 allow_restart() {
     case ${1:-} in
         '') echo no ;;
@@ -740,5 +936,13 @@ case $command in
         shift
         logs "$@"
         ;;
-    *) fail "usage: deploy.sh deploy|apply|backup|restore|status|logs (see the comment at the top of deploy.sh)" ;;
+    check)
+        if [ "$#" -ne 2 ]; then fail "usage: deploy.sh check <version>"; fi
+        check "$2"
+        ;;
+    check-images)
+        if [ "$#" -ne 3 ]; then fail "usage: deploy.sh check-images <API image> <Postgres image>"; fi
+        check "$2" "$3"
+        ;;
+    *) fail "usage: deploy.sh deploy|apply|backup|restore|status|logs|check|check-images (see the comment at the top of deploy.sh)" ;;
 esac

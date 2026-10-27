@@ -5,7 +5,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 ## Current work
 
 **Next:** two parts end step 1.5. The trial server, which stays, runs 0.1.0-rc.7 with its telemetry in the owner's Grafana Cloud stack, into which its deploy imports the dashboards and the alert rules; the trial's findings are in the messages of the commits "Hand off step 1.5's trial deploy" and "Write values with printf, which dash's echo doesn't write as they are". The owner allows wiping it, so it can stand in for a new server.
-1. `just server-setup` and `just server-check` (OPS-22), from the trial's findings, proven by setting up a new server and its first deploy. Then the collector's deprecated receiver name `filestats`, a version in `just status` for images without the label, what a client gets while no replica runs, and whether a restore may start the replicas before its closing backup.
+1. Prove `just server-setup` and `just server-check` (OPS-22) by setting up the trial server anew and deploying to it. Then the collector's deprecated receiver name `filestats`, a version in `just status` for images without the label, what a client gets while no replica runs, and whether a restore may start the replicas before its closing backup.
 2. A conformance review of everything since a28df7b.
 
 The trace test `traces::obs_08_…` fails now and then on amd64; its output now says why, so read it at its next failure.
@@ -119,7 +119,6 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 | Rule or behavior | Built code that doesn't follow it | Closed by |
 |---|---|---|
 | OPS-18 | A release's capacity, which `just load-test` measures, has no release notes to go in: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
-| OPS-22 | `just server-setup` and `just server-check` aren't built: a server is set up by hand, as [deploy.md](operations/deploy.md#setting-up-a-server) says | 1.5, from what the trial deploy shows |
 | DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 
 ## Rule proposals

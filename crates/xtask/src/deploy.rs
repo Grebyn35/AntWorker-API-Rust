@@ -40,7 +40,7 @@ pub fn release(requested: &str, tagged: impl Fn(&str) -> bool) -> Result<String,
 }
 
 /// `text` as one word of a POSIX shell's command, in single quotes.
-fn quoted(text: &str) -> String {
+pub fn quoted(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
@@ -157,7 +157,7 @@ fn send_files(root: &Path, host: &str, version: &str, release: &str) -> Result<(
 /// holds them. The archive of a subtree, such as deploy/ at a tag, doesn't read the root's
 /// .gitattributes, so the developer's core.autocrlf would otherwise apply, which Git for
 /// Windows sets: it would end each line of the shell scripts with a carriage return.
-fn archive(root: &Path, tree: &str) -> Command {
+pub fn archive(root: &Path, tree: &str) -> Command {
     let mut command = Command::new("git");
     command
         .args(["-c", "core.autocrlf=false", "archive", "--format=tar", tree])
@@ -198,12 +198,12 @@ fn run(root: &Path, program: &str, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-fn root() -> PathBuf {
+pub fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
 #[expect(clippy::print_stderr, reason = "the refusal is the task's output")]
-fn refuse(message: &str) -> ExitCode {
+pub fn refuse(message: &str) -> ExitCode {
     eprintln!("{message}");
     ExitCode::FAILURE
 }

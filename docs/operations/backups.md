@@ -72,15 +72,15 @@ docker run --rm --volume deployment_postgres:/data --entrypoint sh "$(sed -n 's/
 
 ### Restoring onto a new server
 
-After losing the server, set up a new one as [deploy.md](deploy.md#setting-up-a-server) says, with the same `settings.env` and the copies of `secrets/`, and deploy the release that ran. The deploy stops before its replicas start, because the new server's database, which Postgres has just created empty, isn't the one whose backups the bucket holds: pgBackRest refuses it. Then run `just restore` without a moment, and `just deploy` again. CI does the same, on a new server of its own set up from a lost one's settings, secrets and bucket, and checks that the first deploy stops before any replica starts, and that the deploy after the restore serves the lost server's data (OPS-17).
+After losing the server, set up a new one with `just server-setup`, as [deploy.md](deploy.md#setting-up-a-server) says, answering with the lost server's settings, its bucket's key pair, and its copies of `backup_cipher_pass` and `postgres_password`, which the restored database keeps, and deploy the release that ran. The deploy stops before its replicas start, because the new server's database, which Postgres has just created empty, isn't the one whose backups the bucket holds: pgBackRest refuses it. Then run `just restore` without a moment, and `just deploy` again. CI does the same, on a new server of its own set up from a lost one's settings, secrets and bucket, and checks that the first deploy stops before any replica starts, and that the deploy after the restore serves the lost server's data (OPS-17).
 
 ## What to keep off the server
 
 Keep a copy of these where the server's loss doesn't reach them, such as a password manager:
 
 - **`secrets/backup_cipher_pass`.** Without it, no backup can be read, by you or anyone else.
-- **The rest of `secrets/`**: the bucket's key pair, and the bundled database's passwords, which the restored database's roles keep.
-- **`settings.env`.**
+- **`secrets/postgres_password`**, the database's superuser password, which a restored database keeps. `bootstrap` sets the other roles' passwords from the URLs that the deploy writes.
+- **The bucket's key pair**, and **`settings.env`**, unless you can make them again.
 
 ## Alerts
 
@@ -91,4 +91,4 @@ Two alerts watch the backups, from the times that the `pgbackrest` wrapper and t
 
 ## A managed database
 
-With `DATABASE=managed`, the deployment runs no Postgres, and backs nothing up. The provider must provide point-in-time recovery, for as long as you need to reach back, which every major provider offers, such as Amazon Relational Database Service (RDS), Google Cloud SQL, Azure Database for PostgreSQL and Neon (OPS-17). It must also encrypt what it stores (OPS-20): where a provider makes that a choice, such as when an RDS instance is created, choose it. A provider restores into a new database, with a new address: write its URLs into `secrets/`, and deploy again.
+With `DATABASE=managed`, the deployment runs no Postgres, and backs nothing up. The provider must provide point-in-time recovery, for as long as you need to reach back, which every major provider offers, such as Amazon Relational Database Service (RDS), Google Cloud SQL, Azure Database for PostgreSQL and Neon (OPS-17). It must also encrypt what it stores (OPS-20): where a provider makes that a choice, such as when an RDS instance is created, choose it. A provider restores into a new database, with a new address: give its URLs to `just server-setup`, and deploy again.

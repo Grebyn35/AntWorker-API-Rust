@@ -77,7 +77,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **Look first.** `just logs <host> postgres` shows pgBackRest's error for each attempt, such as a key pair the bucket refuses, an endpoint that doesn't answer, or a certificate the deployment doesn't trust.
 
-**What to do.** Fix what the error names: the bucket's key pair in `secrets/`, the bucket's settings in `settings.env`, or the bucket itself. Postgres retries on its own, and the alert clears with the next archive that succeeds. Then take a base backup with `just backup`, so a restore needs no segment from before the failure.
+**What to do.** Fix what the error names: the bucket's key pair or its settings, with `just server-setup`, or the bucket itself; `just server-check` reads the bucket as Postgres does. Postgres retries on its own, and the alert clears with the next archive that succeeds. Then take a base backup with `just backup`, so a restore needs no segment from before the failure.
 
 ## BaseBackupTooOld
 

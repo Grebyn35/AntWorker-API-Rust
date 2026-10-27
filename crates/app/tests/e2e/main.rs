@@ -21,6 +21,8 @@ mod images;
 #[cfg(test)]
 mod server;
 #[cfg(test)]
+mod setup;
+#[cfg(test)]
 mod stack;
 #[cfg(test)]
 #[expect(

@@ -22,6 +22,7 @@ mod promql;
 mod release;
 mod repo;
 mod routes;
+mod server;
 mod shell;
 mod stack;
 mod telemetry_config;
@@ -130,6 +131,23 @@ enum Command {
         /// The server, as SSH names it.
         host: String,
     },
+    /// Sets up the server that SSH reaches at `host`, as root or a user that may run sudo without
+    /// a password: installs Docker, prepares the deployment's user, and writes the settings and
+    /// the secrets it asks for (OPS-22). Run again, it changes them.
+    #[command(name = "server-setup")]
+    ServerSetup {
+        /// The server, as SSH names it.
+        host: String,
+    },
+    /// Checks what a deploy of the release `version`, or of the latest release, to the
+    /// deployment at `host` needs, and changes nothing (OPS-22).
+    #[command(name = "server-check")]
+    ServerCheck {
+        /// The server, as SSH names it, as the user that runs the deployment.
+        host: String,
+        /// The release's version, such as 1.4.0.
+        version: Option<String>,
+    },
     /// Shows the last lines of the logs of the deployment's services at `host` (OPS-22).
     Logs {
         /// The server, as SSH names it.
@@ -217,6 +235,8 @@ fn main() -> ExitCode {
         Command::Restore { host, moment } => return deploy::restore(&host, moment.as_deref()),
         Command::Status { host } => return deploy::status(&host),
         Command::Logs { host, arguments } => return deploy::logs(&host, &arguments),
+        Command::ServerSetup { host } => return server::setup(&host),
+        Command::ServerCheck { host, version } => return server::check(&host, version.as_deref()),
         command => command,
     };
     let repo = match repo::Repo::load() {
@@ -243,6 +263,8 @@ fn main() -> ExitCode {
         | Command::Restore { .. }
         | Command::Status { .. }
         | Command::Logs { .. }
+        | Command::ServerSetup { .. }
+        | Command::ServerCheck { .. }
         | Command::LoadTest
         | Command::Mirror { .. } => Outcome::default(),
     };
