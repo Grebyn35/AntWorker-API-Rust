@@ -193,9 +193,7 @@ impl Server {
             "--images",
             "collector",
         ]);
-        let address = self
-            .container
-            .inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
+        let address = self.issue_certificate("/root/backend", "e2e-backend-authority");
         self.write(
             "/root/backend/config.yaml",
             "extensions:\n  basicauth/server:\n    htpasswd:\n      inline: e2e:the-backend-token\n\
@@ -215,11 +213,6 @@ impl Server {
             "set -e
             cd /root/backend
             mkdir -p out && chmod 777 out
-            openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -days 1 -subj /CN=e2e-backend-authority 2> /dev/null
-            openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj /CN={address} 2> /dev/null
-            echo subjectAltName=IP:{address} > san
-            openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 1 -extfile san 2> /dev/null
-            chmod 644 ./*.crt ./*.key
             mkdir -p {DEPLOYMENT}/certs
             cp ca.crt {DEPLOYMENT}/certs/managed-otlp-ca.crt
             docker run --detach --quiet --name backend --publish 4319:4318 --volume /root/backend:/backend {image} \
@@ -232,6 +225,110 @@ impl Server {
         .into_iter()
         .map(|(name, value)| (name.to_owned(), value))
         .collect()
+    }
+
+    /// Starts the stand-in for a managed backend's Grafana on the server: the Grafana that the
+    /// self-hosted stack runs, serving HTTPS on the server's own address, port 3443, with a
+    /// certificate from an authority of the test's own, which the deployment trusts as
+    /// certs/managed-grafana-ca.crt, and with data sources under Grafana Cloud's uids. Writes the
+    /// token of a service account with the Admin role, which the import signs in with, and
+    /// returns the deployment's setting for it.
+    pub fn start_managed_grafana(&self) -> Vec<(String, String)> {
+        let image = compose(&[
+            "--file",
+            "../../deploy/observability/compose.yaml",
+            "config",
+            "--images",
+            "grafana",
+        ]);
+        let address = self.issue_certificate("/root/grafana", "e2e-grafana-authority");
+        self.write(
+            "/root/grafana/datasources/datasources.yaml",
+            "apiVersion: 1\ndatasources:\n\
+             \x20 - {name: prom, uid: grafanacloud-prom, type: prometheus, url: http://127.0.0.1:9090, isDefault: true}\n\
+             \x20 - {name: logs, uid: grafanacloud-logs, type: loki, url: http://127.0.0.1:3100}\n\
+             \x20 - {name: traces, uid: grafanacloud-traces, type: tempo, url: http://127.0.0.1:3200}\n",
+        );
+        self.shell_ok(&format!(
+            "set -e
+            mkdir -p {DEPLOYMENT}/certs
+            cp /root/grafana/ca.crt {DEPLOYMENT}/certs/managed-grafana-ca.crt
+            docker run --detach --quiet --name grafana --publish 3443:3000 --volume /root/grafana:/grafana:ro \
+                --volume /root/grafana/datasources:/etc/grafana/provisioning/datasources:ro \
+                --env GF_SERVER_PROTOCOL=https --env GF_SERVER_CERT_FILE=/grafana/server.crt \
+                --env GF_SERVER_CERT_KEY=/grafana/server.key {image} > /dev/null"
+        ));
+        let account = self.managed_grafana(
+            "POST",
+            "/api/serviceaccounts",
+            r#"{"name": "import", "role": "Admin"}"#,
+        );
+        let account: serde_json::Value = serde_json::from_str(&account).expect("the account");
+        let token = self.managed_grafana(
+            "POST",
+            &format!("/api/serviceaccounts/{}/tokens", account["id"]),
+            r#"{"name": "import"}"#,
+        );
+        let token: serde_json::Value = serde_json::from_str(&token).expect("the token");
+        self.write(
+            &format!("{DEPLOYMENT}/secrets/managed_grafana_token"),
+            token["key"].as_str().expect("the token's key"),
+        );
+        vec![(
+            "MANAGED_GRAFANA_URL".to_owned(),
+            format!("https://{address}:3443"),
+        )]
+    }
+
+    /// Sends `method` for `path` to the stand-in managed Grafana as its administrator, with the
+    /// JSON `body` unless it is empty, once Grafana answers, and returns the answer's body.
+    /// Panics if Grafana refuses.
+    pub fn managed_grafana(&self, method: &str, path: &str, body: &str) -> String {
+        let curl = compose(&[
+            "--file",
+            "../../deploy/tools/compose.yaml",
+            "config",
+            "--images",
+            "curl",
+        ]);
+        let address = self
+            .container
+            .inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
+        self.write("/root/grafana/request.json", body);
+        let data = if body.is_empty() {
+            ""
+        } else {
+            "--data-binary @/request.json"
+        };
+        self.shell_ok(&format!(
+            "docker run --rm --quiet --volume /root/grafana/ca.crt:/ca.crt:ro \
+                --volume /root/grafana/request.json:/request.json:ro {curl} --silent --show-error \
+                --fail-with-body --retry 30 --retry-all-errors --retry-delay 2 --cacert /ca.crt \
+                --user admin:admin --header 'Content-Type: application/json' --request {method} {data} \
+                https://{address}:3443{path}"
+        ))
+    }
+
+    /// Makes an authority of the test's own named `authority`, as ca.crt in `directory` on the
+    /// server, and a certificate it signed for the server's own address, as server.crt and
+    /// server.key, each readable by every user, since the stand-ins run as users of their own.
+    /// The deployment's containers reach the server's address, while no name on Compose's
+    /// network resolves inside the server. Returns the address.
+    fn issue_certificate(&self, directory: &str, authority: &str) -> String {
+        let address = self
+            .container
+            .inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
+        self.shell_ok(&format!(
+            "set -e
+            mkdir -p {directory}
+            cd {directory}
+            openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -days 1 -subj /CN={authority} 2> /dev/null
+            openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj /CN={address} 2> /dev/null
+            echo subjectAltName=IP:{address} > san
+            openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 1 -extfile san 2> /dev/null
+            chmod 644 ./*.crt ./*.key"
+        ));
+        address
     }
 
     /// Starts the stand-in for an alert integration on the server: a collector that receives
@@ -266,14 +363,10 @@ impl Server {
     /// Starts the stand-in for the bundled database's backup bucket on the server: SeaweedFS,
     /// serving S3 over HTTPS on the server's own address, with a certificate for that address
     /// from an authority of the test's own, which the deployment trusts as certs/backup-ca.crt.
-    /// The deployment's containers reach the server's address, while no name on Compose's
-    /// network resolves inside the server. Writes the bucket's secrets, and returns its
-    /// settings.
+    /// Writes the bucket's secrets, and returns its settings.
     pub fn start_bucket(&self) -> Vec<(String, String)> {
         let image = compose(&["config", "--images", "bucket"]);
-        let address = self
-            .container
-            .inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
+        let address = self.issue_certificate("/root/bucket", "e2e-bucket-authority");
         self.write(
             "/root/bucket/s3.json",
             r#"{"identities":[{"name":"backup","credentials":[{"accessKey":"e2e","secretKey":"e2e-secret"}],"actions":["Admin","Read","Write","List","Tagging"]}]}"#,
@@ -281,16 +374,12 @@ impl Server {
         self.shell_ok(&format!(
             "set -e
             cd /root/bucket
-            openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -days 1 -subj /CN=e2e-bucket-authority 2> /dev/null
-            openssl req -newkey rsa:2048 -nodes -keyout s3.key -out s3.csr -subj /CN={address} 2> /dev/null
-            echo subjectAltName=IP:{address} > san
-            openssl x509 -req -in s3.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out s3.crt -days 1 -extfile san 2> /dev/null
             chmod 644 ./*
             mkdir -p {DEPLOYMENT}/certs
             cp ca.crt {DEPLOYMENT}/certs/backup-ca.crt
             docker run --detach --quiet --name bucket --publish 8334:8334 --volume /root/bucket:/bucket:ro {image} \
                 server -dir=/data -s3 -s3.port=8333 -s3.port.https=8334 \
-                -s3.cert.file=/bucket/s3.crt -s3.key.file=/bucket/s3.key -s3.config=/bucket/s3.json > /dev/null
+                -s3.cert.file=/bucket/server.crt -s3.key.file=/bucket/server.key -s3.config=/bucket/s3.json > /dev/null
             # SeaweedFS's master takes a few seconds to start, and the shell can't create the bucket
             # before it answers.
             timeout 120 sh -c 'until echo s3.bucket.create -name backups | docker exec --interactive bucket weed shell -master=localhost:9333 2> /dev/null | grep -q created; do sleep 1; done'"

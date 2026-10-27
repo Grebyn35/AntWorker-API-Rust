@@ -50,6 +50,16 @@ The deployment's settings name the backend's OTLP endpoint, which is HTTPS (OPS-
 
 The managed configuration adds what the self-hosted stack does elsewhere: the collector scrapes its own metrics, which Prometheus scrapes in the stack, for the alerts on telemetry that is lost, and it copies `deployment.environment.name` and the backup status files' `file.name` from each metric's resource into its labels, which the self-hosted Prometheus promotes.
 
+With Grafana Cloud, each deploy also imports the release's dashboards and alert rules into the stack's Grafana, once the release's replicas serve (OBS-13, OBS-14). `MANAGED_GRAFANA_URL` names that Grafana, such as `https://<stack>.grafana.net`, and the secret file `secrets/managed_grafana_token` holds the token of a service account with the Admin role, since Grafana refuses an Editor both a folder's permissions and the conversion of rules. A Grafana whose certificate a private authority signed is trusted through that authority's certificate in `certs/managed-grafana-ca.crt`. [deploy/import-grafana.sh](../../deploy/import-grafana.sh) runs the import, with curl and yq from the images that [deploy/tools/compose.yaml](../../deploy/tools/compose.yaml) pins:
+
+- The dashboards go into the folder `API`, which Viewers and Editors may only view, so only the import and the Grafana's administrators change them, and the next deploy puts back what an administrator changed. Each data source a dashboard names becomes the stack's own: `prometheus` becomes `grafanacloud-prom`, `loki` becomes `grafanacloud-logs`, and `tempo` becomes `grafanacloud-traces`. The import fails on a dashboard that names any other, or one the Grafana lacks.
+- The rules go into the folder's subfolder `Alerts`, through Grafana's conversion of Prometheus rules, as rules that Grafana evaluates against `grafanacloud-prom`, every minute, a minute behind so that late samples have arrived. A recording rule writes its series back there. Grafana marks the rules provisioned, and its interface changes no provisioned rule. They are Grafana's rules rather than the stack's Mimir ruler's, since Grafana Cloud gives a new stack no Alertmanager that a ruler's alerts would reach.
+- A dashboard or a rule group that an earlier import made, and that the release lacks, is deleted.
+
+Grafana's notification policies route the alerts, not `alertmanager.yaml`: Grafana imports an Alertmanager's configuration only through a preview that Grafana Cloud enables on request. In Grafana's Alerting, add a contact point for each severity, and policies that route `severity=page` and `severity=ticket` to them. Until a policy reaches a contact point, the alerts notify no one, and every deploy warns.
+
+A failed import only warns, and the Grafana keeps what it last imported, since a backend that is down mustn't keep a release from deploying; deploying the release again imports again. With a backend that has no Grafana, `MANAGED_GRAFANA_URL` stays empty, every deploy warns that nothing imports the dashboards and the alerts, and the backend's own tools must hold them.
+
 CI sends to a stand-in backend, a collector that admits only the deployment's credentials over TLS, and checks that the trace and the logs of a 4xx response arrive.
 
 ## Running it on your machine

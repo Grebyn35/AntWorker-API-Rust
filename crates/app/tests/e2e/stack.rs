@@ -244,3 +244,260 @@ async fn obs_14_a_deploy_warns_until_the_release_names_an_integration_that_alert
             .shell_ok("docker logs --tail 10 deployment-alertmanager-1 2>&1")
     );
 }
+
+#[tokio::test]
+async fn obs_13_a_deploy_imports_the_dashboards_into_a_folder_of_the_managed_grafana_that_editors_only_view()
+ {
+    let deployment = Deployment::managed(&[]).await;
+    let mut settings = vec![("TELEMETRY".to_owned(), "managed".to_owned())];
+    settings.extend(deployment.server.start_otlp_backend());
+    settings.extend(deployment.server.start_managed_grafana());
+    deployment.set(&pairs(&settings));
+    let released = release_dashboards(&deployment);
+    let token = format!("{DEPLOYMENT}/secrets/managed_grafana_token");
+    // A token that the Grafana refuses, then the right one, then a release without a dashboard.
+    deployment
+        .server
+        .shell_ok(&format!("cp {token} /root/token && echo refused > {token}"));
+    let refused = deployment.apply(&deployment.api, &[]).await;
+    deployment
+        .server
+        .shell_ok(&format!("cp /root/token {token}"));
+    let first = deployment.apply(&deployment.api, &[]).await;
+    deployment
+        .server
+        .shell_ok("rm /root/release/observability/grafana/dashboards/server.json");
+    let second = deployment.apply(&deployment.api, &[]).await;
+
+    let (imported, sources) = imported_dashboards(&deployment);
+    let roles = folder_roles(&deployment);
+    let kept: Vec<(String, String)> = released
+        .iter()
+        .filter(|uid| *uid != "server")
+        .map(|uid| (uid.clone(), "api".to_owned()))
+        .collect();
+
+    assert!(refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains("the import into the managed Grafana failed"),
+        "{}",
+        lossy(&refused)
+    );
+    assert!(first.status.success(), "{}", lossy(&first));
+    assert!(
+        lossy(&first).contains(&format!("imported {} dashboards", released.len())),
+        "{}",
+        lossy(&first)
+    );
+    assert!(second.status.success(), "{}", lossy(&second));
+    assert!(
+        lossy(&second).contains("deleting the dashboard server,"),
+        "{}",
+        lossy(&second)
+    );
+    assert_eq!(imported, kept);
+    assert!(
+        sources.iter().any(|uid| uid == "grafanacloud-prom")
+            && sources.iter().any(|uid| uid == "grafanacloud-traces"),
+        "{sources:?}"
+    );
+    assert!(
+        !sources
+            .iter()
+            .any(|uid| ["prometheus", "loki", "tempo"].contains(&uid.as_str())),
+        "{sources:?}"
+    );
+    assert!(
+        roles.contains(&("Editor".to_owned(), "View".to_owned()))
+            && roles.contains(&("Viewer".to_owned(), "View".to_owned())),
+        "{roles:?}"
+    );
+}
+
+#[tokio::test]
+async fn obs_14_a_deploy_imports_the_rules_into_the_managed_grafana_and_warns_until_a_policy_reaches_a_contact_point()
+ {
+    let deployment = Deployment::managed(&[]).await;
+    let mut settings = vec![("TELEMETRY".to_owned(), "managed".to_owned())];
+    settings.extend(deployment.server.start_otlp_backend());
+    deployment.set(&pairs(&settings));
+    let released = release_rule_groups(&deployment);
+    let without = deployment.apply(&deployment.api, &[]).await;
+    settings.extend(deployment.server.start_managed_grafana());
+    deployment.set(&pairs(&settings));
+    let first = deployment.apply(&deployment.api, &[]).await;
+    let loaded = rule_groups(&deployment);
+    // A contact point and a policy that reaches it, then a release without a rule group.
+    deployment.server.managed_grafana(
+        "POST",
+        "/api/v1/provisioning/contact-points",
+        r#"{"name": "page", "type": "webhook", "settings": {"url": "http://127.0.0.1:9/alerts"}}"#,
+    );
+    deployment.server.managed_grafana(
+        "PUT",
+        "/api/v1/provisioning/policies",
+        r#"{"receiver": "empty", "routes": [{"receiver": "page", "object_matchers": [["severity", "=", "page"]]}]}"#,
+    );
+    deployment.server.shell_ok(
+        "cd /root/release/observability/prometheus \
+         && awk '/^  - name: slo-latency$/ { skip = 1; next } /^  - name: / { skip = 0 } !skip' rules.yaml > /root/rules.yaml \
+         && cp /root/rules.yaml rules.yaml",
+    );
+    let second = deployment.apply(&deployment.api, &[]).await;
+    let reloaded = rule_groups(&deployment);
+    let kept: Vec<String> = released
+        .iter()
+        .filter(|group| *group != "slo-latency")
+        .cloned()
+        .collect();
+
+    assert!(without.status.success(), "{}", lossy(&without));
+    assert!(
+        lossy(&without).contains("MANAGED_GRAFANA_URL is empty, so no dashboard or alert rule"),
+        "{}",
+        lossy(&without)
+    );
+    assert!(first.status.success(), "{}", lossy(&first));
+    assert!(
+        lossy(&first).contains("send the alerts to no contact point"),
+        "{}",
+        lossy(&first)
+    );
+    assert_eq!(loaded, released);
+    assert!(second.status.success(), "{}", lossy(&second));
+    assert!(
+        !lossy(&second).contains("send the alerts to no contact point"),
+        "{}",
+        lossy(&second)
+    );
+    assert!(
+        lossy(&second).contains("deleting the rule group slo-latency,"),
+        "{}",
+        lossy(&second)
+    );
+    assert_eq!(reloaded, kept);
+}
+
+/// `settings` as `Deployment::set` takes them.
+fn pairs(settings: &[(String, String)]) -> Vec<(&str, &str)> {
+    settings
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect()
+}
+
+/// The stand-in managed Grafana's answer to `GET` for `path`, as JSON.
+fn managed_grafana_json(deployment: &Deployment, path: &str) -> serde_json::Value {
+    let answer = deployment.server.managed_grafana("GET", path, "");
+    let parsed = serde_json::from_str(&answer);
+    assert!(parsed.is_ok(), "{path}: {answer}");
+    parsed.unwrap_or_default()
+}
+
+/// Each dashboard in the stand-in managed Grafana, by its uid and its folder's, sorted, and the
+/// uid of every data source they name.
+fn imported_dashboards(deployment: &Deployment) -> (Vec<(String, String)>, Vec<String>) {
+    let listed = managed_grafana_json(
+        deployment,
+        "/apis/dashboard.grafana.app/v1/namespaces/default/dashboards",
+    );
+    let mut imported: Vec<(String, String)> = listed["items"]
+        .as_array()
+        .expect("the dashboards")
+        .iter()
+        .map(|item| {
+            let metadata = &item["metadata"];
+            let folder = &metadata["annotations"]["grafana.app/folder"];
+            (
+                metadata["name"].as_str().unwrap_or_default().to_owned(),
+                folder.as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect();
+    imported.sort();
+    let mut sources = Vec::new();
+    data_sources(&listed, &mut sources);
+    (imported, sources)
+}
+
+/// Adds to `uids` the uid of every data source that `value` names, at any depth.
+fn data_sources(value: &serde_json::Value, uids: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(object) => {
+            if let Some(uid) = object
+                .get("datasource")
+                .and_then(|source| source["uid"].as_str())
+            {
+                uids.push(uid.to_owned());
+            }
+            object.values().for_each(|child| data_sources(child, uids));
+        }
+        serde_json::Value::Array(items) => items.iter().for_each(|item| data_sources(item, uids)),
+        _ => {}
+    }
+}
+
+/// Each role's permission on the stand-in managed Grafana's folder `api`.
+fn folder_roles(deployment: &Deployment) -> Vec<(String, String)> {
+    managed_grafana_json(deployment, "/api/access-control/folders/api")
+        .as_array()
+        .expect("the folder's permissions")
+        .iter()
+        .filter_map(|permission| {
+            Some((
+                permission["builtInRole"].as_str()?.to_owned(),
+                permission["permission"].as_str()?.to_owned(),
+            ))
+        })
+        .collect()
+}
+
+/// The names of the rule groups that the stand-in managed Grafana holds, sorted. Panics on a
+/// rule that no import provisioned.
+fn rule_groups(deployment: &Deployment) -> Vec<String> {
+    let rules = managed_grafana_json(deployment, "/api/v1/provisioning/alert-rules");
+    let mut groups: Vec<String> = rules
+        .as_array()
+        .expect("the rules")
+        .iter()
+        .map(|rule| {
+            assert_eq!(rule["provenance"], "converted_prometheus", "{rule}");
+            rule["ruleGroup"].as_str().unwrap_or_default().to_owned()
+        })
+        .collect();
+    groups.sort();
+    groups.dedup();
+    groups
+}
+
+/// The uids of the dashboards of the release on the deployment's server, sorted.
+fn release_dashboards(deployment: &Deployment) -> Vec<String> {
+    let files = deployment
+        .server
+        .shell_ok("cat /root/release/observability/grafana/dashboards/*.json");
+    let mut uids: Vec<String> = serde_json::Deserializer::from_str(&files)
+        .into_iter::<serde_json::Value>()
+        .map(|board| {
+            board.expect("a dashboard")["uid"]
+                .as_str()
+                .expect("its uid")
+                .to_owned()
+        })
+        .collect();
+    uids.sort();
+    uids
+}
+
+/// The names of the rule groups of the release on the deployment's server, sorted.
+fn release_rule_groups(deployment: &Deployment) -> Vec<String> {
+    let rules = deployment
+        .server
+        .shell_ok("cat /root/release/observability/prometheus/rules.yaml");
+    let mut groups: Vec<String> = rules
+        .lines()
+        .filter_map(|line| line.strip_prefix("  - name: "))
+        .map(str::to_owned)
+        .collect();
+    groups.sort();
+    groups
+}

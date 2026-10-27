@@ -2,8 +2,8 @@
 //! that Compose runs as `mirror` with every image the tests' servers pull from Docker Hub, for the
 //! servers' platform, so no test reaches a registry outside (TEST-07). The servers pull those
 //! images through the cache, and the API's and the deployment's Postgres from Compose's registry.
-//! It reads the images from the reference deployment's Compose files, and the stand-in bucket's
-//! from compose.yaml.
+//! It reads the images from the reference deployment's Compose files, the tools' that a deploy runs
+//! from deploy/tools/compose.yaml, and the stand-in bucket's from compose.yaml.
 
 use std::{
     path::Path,
@@ -14,8 +14,13 @@ use crate::{repo::Repo, stack};
 
 /// The Compose files of the reference deployment, whose images a server pulls when it deploys.
 const DEPLOYMENT: [&str; 2] = ["deploy/compose.yaml", "deploy/observability/compose.yaml"];
-/// The services of compose.yaml that the tests run on a server.
-const ON_SERVER: [&str; 1] = ["bucket"];
+/// The services of other Compose files that the tests run on a server: the stand-in bucket, and
+/// the tools of a deploy's import into a managed Grafana. The tools that verify a release come
+/// from other registries, and a test's deploy doesn't verify one.
+const ON_SERVER: [(&str, &[&str]); 2] = [
+    ("compose.yaml", &["bucket"]),
+    ("deploy/tools/compose.yaml", &["curl", "yq"]),
+];
 
 /// Fills the cache with the images the servers pull, for `platform`, such as linux/amd64.
 pub fn run(platform: &str) -> ExitCode {
@@ -65,11 +70,14 @@ pub fn images(repo: &Repo) -> Result<Vec<String>, String> {
                 .map(str::to_owned),
         );
     }
-    if let Some(compose) = stack::yaml(repo, "compose.yaml", &mut findings) {
-        for service in ON_SERVER {
+    for (path, services) in ON_SERVER {
+        let Some(compose) = stack::yaml(repo, path, &mut findings) else {
+            continue;
+        };
+        for service in services {
             match compose["services"][service]["image"].as_str() {
                 Some(image) => named.push(image.to_owned()),
-                None => return Err(format!("compose.yaml has no image for {service}")),
+                None => return Err(format!("{path} has no image for {service}")),
             }
         }
     }
@@ -130,9 +138,20 @@ mod tests {
     const DIGEST: &str = "sha256:504a44d7d74bd2bc28a66afc4774912fc21223ca8a67734af1c54ab2f999b489";
 
     fn repo(deployment: &str, observability: &str, compose: &str) -> Repo {
+        let tools = format!(
+            "services:
+  cosign:
+    image: ghcr.io/sigstore/cosign/cosign:v3.1.4@{DIGEST}
+  curl:
+    image: curlimages/curl:8.23.0@{DIGEST}
+  yq:
+    image: mikefarah/yq:4.54.1@{DIGEST}
+"
+        );
         Repo::of(&[
             ("deploy/compose.yaml", deployment),
             ("deploy/observability/compose.yaml", observability),
+            ("deploy/tools/compose.yaml", &tools),
             ("compose.yaml", compose),
         ])
     }
@@ -160,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn test_07_the_servers_images_are_the_deployment_s_and_the_bucket_s() {
+    fn test_07_the_servers_images_are_the_deployment_s_the_import_s_and_the_bucket_s() {
         let repo = repo(
             &format!(
                 "services:\n  caddy:\n    image: caddy:2.11.7@{DIGEST}\n  api-blue:\n    image: ${{API_IMAGE_BLUE:?the image}}\n  cosign:\n    extends: {{ file: tools/compose.yaml, service: cosign }}\n"
@@ -176,7 +195,9 @@ mod tests {
             Ok(vec![
                 format!("library/caddy@{DIGEST}"),
                 format!("chrislusf/seaweedfs@{DIGEST}"),
+                format!("curlimages/curl@{DIGEST}"),
                 format!("grafana/grafana@{DIGEST}"),
+                format!("mikefarah/yq@{DIGEST}"),
             ])
         );
     }

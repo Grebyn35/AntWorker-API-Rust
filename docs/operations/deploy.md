@@ -42,11 +42,11 @@ The deployment's files live in `~/deployment` of the user SSH signs in as. On th
    ```
    mkdir -p ~/deployment/secrets && chmod 700 ~/deployment/secrets
    ```
-3. Write `~/deployment/settings.env` from [deploy/settings.env.example](../../deploy/settings.env.example), which lists every setting with its meaning: copy it from your checkout, since the server has no copy before the first deploy. Set at least `IMAGE_REPOSITORY`, `SOURCE`, `API_ADDRESS`, with the bundled database the bucket's `BACKUP_S3_ENDPOINT`, `BACKUP_S3_REGION` and `BACKUP_S3_BUCKET`, with the self-hosted stack `GRAFANA_ADDRESS`, and with a managed backend `MANAGED_OTLP_ENDPOINT` and `MANAGED_OTLP_USER`; a deploy refuses settings without them.
+3. Write `~/deployment/settings.env` from [deploy/settings.env.example](../../deploy/settings.env.example), which lists every setting with its meaning: copy it from your checkout, since the server has no copy before the first deploy. Set at least `IMAGE_REPOSITORY`, `SOURCE`, `API_ADDRESS`, with the bundled database the bucket's `BACKUP_S3_ENDPOINT`, `BACKUP_S3_REGION` and `BACKUP_S3_BUCKET`, with the self-hosted stack `GRAFANA_ADDRESS`, and with a managed backend `MANAGED_OTLP_ENDPOINT` and `MANAGED_OTLP_USER`; a deploy refuses settings without them. With a managed backend that has a Grafana, such as Grafana Cloud, also set `MANAGED_GRAFANA_URL`, or every deploy warns that nothing imports the dashboards and the alerts.
 4. Write the secrets the operator holds into `~/deployment/secrets/`, one value per file, with nothing else in it:
    - With the bundled database: `backup_s3_key` and `backup_s3_key_secret`, the bucket's key pair, and `backup_cipher_pass`, the passphrase that encrypts the backups, such as the output of `openssl rand -base64 48`. Keep a copy of the passphrase off the server: without it, no backup can be restored ([backups.md](backups.md#what-to-keep-off-the-server)).
    - With a managed database: `database_admin_url`, `database_owner_url` and `database_url`, as `.env.example` describes `DATABASE_ADMIN_URL`, `DATABASE_OWNER_URL` and `DATABASE_URL`, each with `sslmode=verify-full` (OPS-20).
-   - With a managed backend: `managed_otlp_token`, the token the collector signs in with ([observability.md](observability.md#a-managed-backend)).
+   - With a managed backend: `managed_otlp_token`, the token the collector signs in with, and with `MANAGED_GRAFANA_URL`, `managed_grafana_token`, the token of a service account of that Grafana with the Admin role, which imports the dashboards and the alert rules ([observability.md](observability.md#a-managed-backend)).
 
    The deploy writes the others the first time the services need them: the bundled database's passwords and the URLs made from them, and Grafana's administrator password. When `DATABASE` moves from `managed` to `bundled`, the deploy moves the managed database's URLs aside, to `<name>.before-bundled`, and writes the bundled one's. Compose mounts each secret file into the containers that read it, where any user of the container can read it, so write each file readable by every user, as `umask 022` does; the directory itself admits only its owner.
 5. With a bucket of the operator's own whose certificate a private authority signed, put that authority's certificate at `~/deployment/certs/backup-ca.crt`.
@@ -72,6 +72,7 @@ It refuses a version that no release has, and says to make one first ([release.m
 5. Runs `bootstrap` and `migrate` from the release's image. Migrations follow expand and contract, so the running replicas keep working against the new schema (DATA-10).
 6. Starts the idle color's replicas from the release's image, waits until Docker reports each one healthy, then until Caddy's health checks find each one ready.
 7. Stops the live color's replicas. Each one first answers its readiness probe with `draining`, keeps serving while Caddy stops sending it requests, then finishes the requests it holds (OPS-06).
+8. With a managed backend, imports the release's dashboards and alert rules into its Grafana, and only warns if that fails ([observability.md](observability.md#a-managed-backend)).
 
 A request in flight during a deploy is never refused: CI deploys the real images under continuous requests, and none fails (OPS-16).
 
@@ -128,7 +129,7 @@ Each service the API depends on is bundled or a provider's, chosen by one settin
 | `DATABASE` | `bundled` | Postgres and its backups, on the server ([backups.md](backups.md)) |
 | | `managed` | Nothing: the API connects to a provider's Postgres, which must back it up with point-in-time recovery, which restores the database as it stood at any moment it reaches, as OPS-17 requires, and encrypt what it stores, as OPS-20 does |
 | `TELEMETRY` | `self-hosted` | The collector, Prometheus, Loki, Tempo, Alertmanager, and Grafana at `GRAFANA_ADDRESS` |
-| | `managed` | The collector alone, which sends every signal to a managed backend ([observability.md](observability.md#a-managed-backend)) |
+| | `managed` | The collector alone, which sends every signal to a managed backend, into whose Grafana each deploy imports the dashboards and the alert rules ([observability.md](observability.md#a-managed-backend)) |
 | | `off` | Nothing: the API's logs go only to its containers' output |
 
 Object storage for files joins the deployment with the `files` module, which offers the same choice.
@@ -143,14 +144,16 @@ Caddy replaces each request's `X-Forwarded-For` with the address it came from, s
 
 With the self-hosted stack, Grafana answers at `https://<GRAFANA_ADDRESS>`. Sign in as `admin`, with the password in `~/deployment/secrets/grafana_admin_password`, which the first deploy with the self-hosted stack wrote; Grafana reads it only the first time it starts, so change it in Grafana afterwards. Add every other viewer as a user in Grafana: nobody views it anonymously, and nobody signs up (SEC-18). The dashboards are read-only, and change only through their files (OBS-13). Grafana shows the alerts that fire, but no alert notifies anyone until your fork's `alertmanager.yaml` names an integration, such as email or a chat webhook, and every deploy warns until then ([observability.md](observability.md#alerts)).
 
+With a managed backend, its Grafana shows the dashboards in the folder `API`, and its notification policies route the alerts ([observability.md](observability.md#a-managed-backend)).
+
 ## The files on the server
 
 | Path in `~/deployment` | Holds | Written by |
 |---|---|---|
 | `settings.env` | The deployment's settings | the operator |
 | `secrets/` | One secret per file | the operator, and the first deploy that needs each generated one |
-| `certs/backup-ca.crt`, `certs/managed-otlp-ca.crt` | The authority of a private bucket's certificate, and of a managed backend's, if any | the operator |
-| `compose.yaml`, `deploy.sh`, `verify-release.sh`, `settings.env.example`, `caddy/`, `observability/`, `tools/` | The deployment files of the release that the last finished deploy installed: a deploy that refuses or fails once it installed its own puts these back | each deploy |
+| `certs/backup-ca.crt`, `certs/managed-otlp-ca.crt`, `certs/managed-grafana-ca.crt` | The authority of a private bucket's certificate, and of a managed backend's and its Grafana's, if any | the operator |
+| `compose.yaml`, `deploy.sh`, `verify-release.sh`, `import-grafana.sh`, `settings.env.example`, `caddy/`, `observability/`, `tools/` | The deployment files of the release that the last finished deploy installed: a deploy that refuses or fails once it installed its own puts these back | each deploy |
 | `releases/<version>/` | Each deployed release's files, as `just deploy` copied them | `just deploy` |
 | `state/` | Which color serves, the images each color runs, Caddy's sites and replicas, and the files each service of the stack last read | each deploy |
 

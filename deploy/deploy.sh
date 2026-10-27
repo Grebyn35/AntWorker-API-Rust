@@ -1,9 +1,10 @@
 #!/bin/sh
 # The reference deployment's tasks on its server (D45): deploys a release with no downtime
-# (OPS-16), takes and restores the bundled database's backups (OPS-17), and shows the
-# deployment's state and its services' logs (OPS-22). `just deploy`, `just backup`,
-# `just restore`, `just status` and `just logs` run it over SSH from a developer's machine;
-# docs/operations/deploy.md describes the deployment.
+# (OPS-16), and with a managed backend, imports its dashboards and alert rules into the backend's
+# Grafana through import-grafana.sh (D42), takes and restores the bundled database's backups
+# (OPS-17), and shows the deployment's state and its services' logs (OPS-22). `just deploy`,
+# `just backup`, `just restore`, `just status` and `just logs` run it over SSH from a developer's
+# machine; docs/operations/deploy.md describes the deployment.
 #
 #   deploy.sh deploy <version> [--allow-restart]
 #       Verifies the release <version>, then deploys its images.
@@ -106,7 +107,7 @@ fingerprint() {
 
 # Copies a release's deployment files from the directory $1 into the directory $2.
 copy_release() {
-    for file in compose.yaml deploy.sh verify-release.sh settings.env.example; do
+    for file in compose.yaml deploy.sh verify-release.sh import-grafana.sh settings.env.example; do
         cp "$1/$file" "$2/$file"
     done
     for directory in caddy observability tools; do
@@ -219,6 +220,10 @@ read_settings() {
                 *) fail "MANAGED_OTLP_ENDPOINT is the managed backend's https URL, with TELEMETRY=managed (OPS-20)" ;;
             esac
             if [ -z "$(setting MANAGED_OTLP_USER)" ]; then fail "MANAGED_OTLP_USER is required with TELEMETRY=managed"; fi
+            case $(setting MANAGED_GRAFANA_URL) in
+                '' | https://?*) ;;
+                *) fail "MANAGED_GRAFANA_URL is the managed Grafana's https URL, or empty (OPS-20)" ;;
+            esac
             ;;
         off) ;;
         *) fail "TELEMETRY is self-hosted, managed or off, not '$telemetry'" ;;
@@ -284,6 +289,9 @@ write_secrets() {
     fi
     if [ "$telemetry" = managed ] && [ ! -s "$secrets/managed_otlp_token" ]; then
         fail "$secrets/managed_otlp_token is missing (docs/operations/observability.md)"
+    fi
+    if [ "$telemetry" = managed ] && [ -n "$(setting MANAGED_GRAFANA_URL)" ] && [ ! -s "$secrets/managed_grafana_token" ]; then
+        fail "$secrets/managed_grafana_token is missing (docs/operations/observability.md#a-managed-backend)"
     fi
     # Compose checks every secret file it declares, so the ones this choice of services doesn't
     # use exist empty.
@@ -486,9 +494,27 @@ apply() {
     echo "$target" > "$state/live"
     stop_unused_services
     say "deployed $api_image: $replicas $target replicas serve"
+    if [ "$telemetry" = managed ]; then import_into_managed_grafana; fi
     # A deployment may run without an integration, but not without knowing.
     if [ "$telemetry" = self-hosted ] && ! grep -Eq '^[[:space:]]*[a-z]+_configs:' "$deployment/observability/alertmanager/alertmanager.yaml"; then
         echo "deploy: warning: Alertmanager's receivers name no integration, so the alerts notify no one; docs/operations/observability.md#alerts says how to add one" >&2
+    fi
+}
+
+# Imports the release's dashboards and alert rules into the managed Grafana (OBS-13, OBS-14), once
+# the release's replicas serve, so a deploy that fails leaves the serving release's there. A failed
+# import only warns, since a managed backend that is down mustn't keep a release from deploying.
+import_into_managed_grafana() {
+    grafana_url=$(setting MANAGED_GRAFANA_URL)
+    if [ -z "$grafana_url" ]; then
+        echo "deploy: warning: MANAGED_GRAFANA_URL is empty, so no dashboard or alert rule reaches the managed backend, and no alert fires; docs/operations/observability.md#a-managed-backend says how to set it" >&2
+        return
+    fi
+    tools=$deployment/tools/compose.yaml
+    if ! DEPLOYMENT=$deployment MANAGED_GRAFANA_URL=$grafana_url \
+        CURL=$(docker compose --file "$tools" config --images curl) \
+        YQ=$(docker compose --file "$tools" config --images yq) sh "$deployment/import-grafana.sh"; then
+        echo "deploy: warning: the import into the managed Grafana failed, so it keeps the dashboards and alert rules of the release it last imported; the error is above, and deploying this release again imports them again" >&2
     fi
 }
 

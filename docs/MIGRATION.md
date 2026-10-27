@@ -4,8 +4,8 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 1.5's trial deploy ran 0.1.0-rc.4 on a real server: the deploys, `just status` and `just logs`, a backup, a restore to a moment, and the switch to Grafana Cloud as the managed backend all work, after fixes for four faults it found. Its findings are in the message of the commit "Hand off step 1.5's trial deploy". Three parts end the step:
-1. The import of the dashboards and the rules into a managed Grafana (OBS-13, OBS-14), checked against the owner's Grafana Cloud stack, which the trial server sends to.
+**Next:** step 1.5's trial deploy of 0.1.0-rc.4 works on a real server, after fixes for four faults it found; its findings are in the message of the commit "Hand off step 1.5's trial deploy". Three parts end the step:
+1. The import into a managed Grafana (OBS-13, OBS-14) is built and passes its end-to-end tests. Left: release 0.1.0-rc.5, which the owner approved, deploy it to the trial server, and check the import in the owner's Grafana Cloud stack.
 2. `just server-setup` and `just server-check` (OPS-22), from the trial's findings. Then the collector's deprecated receiver name `filestats`, a version in `just status` for images without the label, what a client gets while no replica runs, and whether a restore may start the replicas before its closing backup.
 3. A conformance review of everything since a28df7b.
 
@@ -55,7 +55,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | built |
 | The image and the delivery pipeline, with the release docs | D15, D21, D43 | built |
 | The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30, D44, D45, D47, D49, D50, D51 | built |
-| Grafana on an HTTPS address of its own with sign-in, and the path to a managed observability backend through the collector, with Grafana Cloud as the worked example | D19, D42 | 1.5 |
+| Grafana on an HTTPS address of its own with sign-in, and the path to a managed observability backend through the collector, with Grafana Cloud as the worked example | D19, D42 | built |
 | The command that removes an optional part, which `check-removable` runs | D29, D39 | 2.3 |
 | `just seed` and the OpenAPI UI in development | D28 | 2.4 |
 | The threat model | D26 | 3 |
@@ -122,7 +122,6 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 | Rule or behavior | Built code that doesn't follow it | Closed by |
 |---|---|---|
 | OPS-18 | A release's capacity, which `just load-test` measures, has no release notes to go in: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
-| OBS-13, OBS-14 | With `TELEMETRY=managed`, nothing imports the dashboards into the managed Grafana or loads the rules into its ruler | 1.5, with the run against a Grafana Cloud account |
 | OPS-22 | `just server-setup` and `just server-check` aren't built: a server is set up by hand, as [deploy.md](operations/deploy.md#setting-up-a-server) says | 1.5, from what the trial deploy shows |
 | DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 
