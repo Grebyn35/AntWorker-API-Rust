@@ -90,8 +90,12 @@ finish() {
 }
 
 # Makes the directory $2 hold exactly the files of the directory $1, writing each file in place,
-# so a container that mounts the directory or the file sees the new contents.
+# so a container that mounts the directory or the file sees the new contents. Without $1, $2 goes.
 sync_directory() {
+    if [ ! -d "$1" ]; then
+        rm -rf "$2"
+        return
+    fi
     mkdir -p "$2"
     (cd "$1" && find . -type d) | while IFS= read -r directory; do mkdir -p "$2/$directory"; done
     (cd "$1" && find . -type f) | while IFS= read -r file; do cp "$1/$file" "$2/$file"; done
@@ -105,10 +109,12 @@ fingerprint() {
     if [ -d "$1" ]; then (cd "$1" && find . -type f -exec cksum {} + | sort | cksum); fi
 }
 
-# Copies a release's deployment files from the directory $1 into the directory $2.
+# Makes the deployment files in the directory $2 those of the directory $1. A file or a directory
+# that $1 lacks goes from $2, such as one that a later release adds and a deploy of it that fails
+# takes away again (D50).
 copy_release() {
     for file in compose.yaml deploy.sh verify-release.sh import-grafana.sh settings.env.example; do
-        cp "$1/$file" "$2/$file"
+        if [ -f "$1/$file" ]; then cp "$1/$file" "$2/$file"; else rm -f "$2/$file"; fi
     done
     for directory in caddy observability tools; do
         sync_directory "$1/$directory" "$2/$directory"

@@ -5,7 +5,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 ## Current work
 
 **Next:** step 1.5's trial deploy of 0.1.0-rc.4 works on a real server, after fixes for four faults it found; its findings are in the message of the commit "Hand off step 1.5's trial deploy". Three parts end the step:
-1. The import into a managed Grafana (OBS-13, OBS-14) is built and passes its end-to-end tests. Left: release 0.1.0-rc.5, which the owner approved, deploy it to the trial server, and check the import in the owner's Grafana Cloud stack.
+1. The import into a managed Grafana (OBS-13, OBS-14) is built and passes its end-to-end tests. 0.1.0-rc.5 couldn't install over rc.4, which lacks its new file. Left: a release with that fix, deployed to the trial server, and the import checked in the owner's Grafana Cloud stack.
 2. `just server-setup` and `just server-check` (OPS-22), from the trial's findings. Then the collector's deprecated receiver name `filestats`, a version in `just status` for images without the label, what a client gets while no replica runs, and whether a restore may start the replicas before its closing backup.
 3. A conformance review of everything since a28df7b.
 

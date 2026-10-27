@@ -48,6 +48,11 @@ async fn ops_16_a_release_whose_replicas_never_become_ready_is_removed_while_the
     deployment
         .server
         .shell_ok("echo '# The unready release.' >> /root/release/compose.yaml");
+    // A live deployment that lacks a file and a directory of the release, as an earlier
+    // release's would.
+    deployment.server.shell_ok(&format!(
+        "rm {DEPLOYMENT}/import-grafana.sh && rm -r {DEPLOYMENT}/tools"
+    ));
 
     let traffic = Traffic::start(
         deployment.server.caddy_root(),
@@ -69,6 +74,10 @@ async fn ops_16_a_release_whose_replicas_never_become_ready_is_removed_while_the
         .server
         .shell_ok(&format!("cat {DEPLOYMENT}/compose.yaml"));
     assert!(!installed.contains("The unready release"), "{installed}");
+    let lacking = deployment.server.shell(&format!(
+        "test ! -e {DEPLOYMENT}/import-grafana.sh && test ! -e {DEPLOYMENT}/tools"
+    ));
+    assert!(lacking.status.success(), "{}", lossy(&refused));
 }
 
 #[tokio::test]
