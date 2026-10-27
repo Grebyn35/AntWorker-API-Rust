@@ -17,7 +17,7 @@ use tokio::sync::{Semaphore, SemaphorePermit};
 use crate::{
     docker::{compose, docker},
     images::Pushed,
-    server::{DEPLOYMENT, Server},
+    server::{DEPLOYMENT, RunningDeploy, Server},
     support::TestDatabase,
 };
 
@@ -180,12 +180,7 @@ impl Deployment {
     /// Deploys `api`, the API's image, and `postgres`, the deployment's Postgres image, with
     /// `options`, as `apply` does.
     pub async fn apply_images(&self, api: &str, postgres: &str, options: &[&str]) -> Output {
-        if self.runs_stack.load(Ordering::Relaxed) && self.stack.get().is_none() {
-            let permit = STACKS.acquire().await.expect("STACKS stays open");
-            self.stack
-                .set(permit)
-                .expect("one share for each deployment");
-        }
+        self.share_stacks().await;
         let mut args = vec!["apply", api, postgres];
         args.extend(options);
         match &self.database {
@@ -195,6 +190,32 @@ impl Deployment {
                     .await
             }
             None => self.server.deploy(&args),
+        }
+    }
+
+    /// Starts a deploy of `api`, the API's image, as `apply` does, and returns once it writes a
+    /// line that contains `line`, for the test to stop it there. The line comes after `bootstrap`,
+    /// which other tests may run once it is written.
+    pub async fn apply_until(&self, api: &str, line: &str) -> RunningDeploy {
+        self.share_stacks().await;
+        let args = ["apply", api, &self.postgres];
+        match &self.database {
+            Some(database) => {
+                database
+                    .with_roles_locked(async { self.server.deploy_until(&args, line) })
+                    .await
+            }
+            None => self.server.deploy_until(&args, line),
+        }
+    }
+
+    /// Waits for a share of `STACKS`, once the settings run the self-hosted stack.
+    async fn share_stacks(&self) {
+        if self.runs_stack.load(Ordering::Relaxed) && self.stack.get().is_none() {
+            let permit = STACKS.acquire().await.expect("STACKS stays open");
+            self.stack
+                .set(permit)
+                .expect("one share for each deployment");
         }
     }
 

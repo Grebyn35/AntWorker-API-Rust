@@ -66,12 +66,12 @@ The first argument is the server as SSH names it: `user@address`, or a `Host` of
 It refuses a version that no release has, and says to make one first ([release.md](release.md)). Otherwise it copies the deployment's files from the release's tag, `v1.4.0`, to `~/deployment/releases/1.4.0` on the server, never a checkout of the repository, and runs that release's `deploy.sh` there, which:
 
 1. Verifies the release's two images, as `just verify-release` does ([release.md](release.md#verifying-a-release)), and refuses a release that doesn't verify.
-2. Installs the release's files into `~/deployment`, beside the settings and the secrets. A deploy that refuses or fails from here on puts back the files it replaced; a service that already read the new ones keeps them until the next deploy makes it read its files.
+2. Installs the release's files into `~/deployment`, beside the settings and the secrets. A deploy that refuses or fails from here on, until step 7 ends, puts back the files it replaced; a service that already read the new ones keeps them until the next deploy makes it read its files. When a deploy can't put them back, because it was stopped by force, such as by a reboot, or the copy failed, which it reports, the next deploy, backup or restore puts them back before anything else.
 3. Checks the settings, and the connection budget below (OPS-21).
 4. Pulls the images by digest, and starts the services the replicas use: Caddy, the bundled Postgres and its backups, and the collector and the stack.
 5. Runs `bootstrap` and `migrate` from the release's image. Migrations follow expand and contract, so the running replicas keep working against the new schema (DATA-10).
 6. Starts the idle color's replicas from the release's image, waits until Docker reports each one healthy, then until Caddy's health checks find each one ready.
-7. Stops the live color's replicas. Each one first answers its readiness probe with `draining`, keeps serving while Caddy stops sending it requests, then finishes the requests it holds (OPS-06).
+7. Stops the live color's replicas. Each one first answers its readiness probe with `draining`, keeps serving while Caddy stops sending it requests, then finishes the requests it holds (OPS-06). The release's replicas now serve, so its files stay, even if what follows fails.
 8. With a managed backend, imports the release's dashboards and alert rules into its Grafana, and only warns if that fails ([observability.md](observability.md#a-managed-backend)).
 
 A request in flight during a deploy is never refused: CI deploys the real images under continuous requests, and none fails (OPS-16).
@@ -86,7 +86,7 @@ What a deploy refuses, and what to do:
 | The connections wouldn't fit | Lower `API_REPLICAS` or `DATABASE_MAX_CONNECTIONS`, or raise `POSTGRES_MAX_CONNECTIONS` (below) |
 | The release changes Postgres or Caddy | Deploy it again with `--allow-restart` when a few seconds of failed requests are acceptable (below) |
 | The new replicas don't become ready | Nothing to undo: the deploy removed them, and the live replicas never stopped. Its output ends with their last log lines |
-| Another deploy, backup or restore runs | Wait for it. A deploy stopped by force leaves `~/deployment/state/lock`; remove it if no other task runs |
+| Another deploy, backup or restore runs | Wait for it. Its lock goes when its processes end, however they end, so a task stopped by force leaves none |
 
 ### Restarting Postgres or Caddy
 
@@ -102,7 +102,7 @@ To go back to an earlier release, deploy it: `just deploy <host> 1.3.2`. Its rep
 just status deploy@203.0.113.7
 ```
 
-shows which color serves, each of the deployment's containers with its state, such as `Up 2 hours (healthy)`, and its image's version, when the backups last archived the write-ahead log and last completed a base backup, and the server's free disk and memory. It changes nothing, so it also runs while a deploy does.
+shows whether a deploy, backup or restore runs, or a deploy stopped before its replicas served, whose files the next task puts back, then which color serves, each of the deployment's containers with its state, such as `Up 2 hours (healthy)`, and its image's version, when the backups last archived the write-ahead log and last completed a base backup, and the server's free disk and memory. It changes nothing, so it also runs while a deploy does.
 
 ```
 just logs deploy@203.0.113.7 api
@@ -153,9 +153,9 @@ With a managed backend, its Grafana shows the dashboards in the folder `API`, an
 | `settings.env` | The deployment's settings | the operator |
 | `secrets/` | One secret per file | the operator, and the first deploy that needs each generated one |
 | `certs/backup-ca.crt`, `certs/managed-otlp-ca.crt`, `certs/managed-grafana-ca.crt` | The authority of a private bucket's certificate, and of a managed backend's and its Grafana's, if any | the operator |
-| `compose.yaml`, `deploy.sh`, `verify-release.sh`, `import-grafana.sh`, `settings.env.example`, `caddy/`, `observability/`, `tools/` | The deployment files of the release that the last finished deploy installed: a deploy that refuses or fails once it installed its own puts these back | each deploy |
+| `compose.yaml`, `deploy.sh`, `verify-release.sh`, `import-grafana.sh`, `settings.env.example`, `caddy/`, `observability/`, `tools/` | The deployment files of the last deploy whose replicas served, once one has: a deploy that refuses or fails before its own serve puts these back, as [Deploying a release](#deploying-a-release) says | each deploy |
 | `releases/<version>/` | Each deployed release's files, as `just deploy` copied them | `just deploy` |
-| `state/` | Which color serves, the images each color runs, Caddy's sites and replicas, and the files each service of the stack last read | each deploy |
+| `state/` | Which color serves, the images each color runs, Caddy's sites and replicas, the files each service of the stack last read, the files that a deploy replaced until its replicas serve, and the tasks' locks | each deploy, backup and restore |
 
 ## On another platform
 

@@ -5,10 +5,10 @@
 //! deployment's scripts in its shell, and publishes Caddy's ports on 127.0.0.1.
 
 use std::{
-    io::Write,
+    io::{BufRead, BufReader, Read, Write},
     net::SocketAddr,
     path::Path,
-    process::{Command, Output, Stdio},
+    process::{Child, ChildStdout, Command, Output, Stdio},
 };
 
 use crate::docker::{Container, compose, docker, lossy, postgres_network};
@@ -17,9 +17,42 @@ use crate::docker::{Container, compose, docker, lossy, postgres_network};
 const RELEASE: &str = "/root/release";
 /// The deployment's directory on the server.
 pub const DEPLOYMENT: &str = "/root/deployment";
+/// Where the server holds the ID of the process group of the deploy that `deploy_until` started.
+const DEPLOY_GROUP: &str = "/root/deploy-group";
 
 pub struct Server {
     container: Container,
+}
+
+/// A deploy that `Server::deploy_until` started and that still runs.
+pub struct RunningDeploy {
+    child: Child,
+    output: BufReader<ChildStdout>,
+    /// What it wrote so far, stdout and stderr together.
+    written: String,
+}
+
+impl RunningDeploy {
+    /// Sends `signal` to the deploy and every process it started, as Ctrl-C does with `INT` and a
+    /// crash with `KILL`, and returns what the deploy wrote once they have all ended.
+    pub fn stop(mut self, server: &Server, signal: &str) -> String {
+        server.shell_ok(&format!("kill -{signal} -$(cat {DEPLOY_GROUP})"));
+        self.output
+            .read_to_string(&mut self.written)
+            .expect("read deploy.sh's output");
+        self.child.wait().expect("wait for deploy.sh");
+        // The processes it started may end a moment after it. One that has ended stays listed, as
+        // a zombie (Z), until a parent waits for it.
+        server.shell_ok(&format!(
+            "group=$(cat {DEPLOY_GROUP}) && for attempt in $(seq 30); do \
+                 cat /proc/[0-9]*/stat 2> /dev/null \
+                     | awk -v group=\"$group\" '$5 == group && $3 != \"Z\" {{ found = 1 }} END {{ exit !found }}' \
+                     || exit 0; \
+                 sleep 1; \
+             done; exit 1"
+        ));
+        self.written
+    }
 }
 
 impl Drop for Server {
@@ -126,6 +159,44 @@ impl Server {
             .args(args)
             .output()
             .expect("run deploy.sh")
+    }
+
+    /// Starts the release's deploy.sh with `args`, as `deploy` does, and returns once it writes a
+    /// line that contains `line`, for the test to stop it there.
+    pub fn deploy_until(&self, args: &[&str], line: &str) -> RunningDeploy {
+        // The process that docker exec starts leads a process group of its own, which deploy.sh,
+        // in its place, and every process it starts belong to.
+        let mut child = Command::new("docker")
+            .args(["exec", "--env", &format!("DEPLOYMENT={DEPLOYMENT}")])
+            .args([self.container.id(), "sh", "-c"])
+            .arg(format!(
+                "echo $$ > {DEPLOY_GROUP} && exec sh {RELEASE}/deploy.sh \"$@\" 2>&1"
+            ))
+            .arg("sh")
+            .args(args)
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("run deploy.sh");
+        let mut output = BufReader::new(child.stdout.take().expect("its output"));
+        let mut written = String::new();
+        loop {
+            let start = written.len();
+            let read = output
+                .read_line(&mut written)
+                .expect("read deploy.sh's output");
+            assert!(
+                read > 0,
+                "deploy.sh ended before it wrote {line:?}: {written}"
+            );
+            if written[start..].contains(line) {
+                break;
+            }
+        }
+        RunningDeploy {
+            child,
+            output,
+            written,
+        }
     }
 
     /// The IDs of the running containers of the deployment's service `service`.

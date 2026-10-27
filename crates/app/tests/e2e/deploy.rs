@@ -152,12 +152,15 @@ async fn ops_20_the_proxy_answers_http_with_a_redirect_to_https_and_https_with_h
 #[tokio::test]
 async fn ops_16_a_deploy_refuses_to_run_while_another_deploy_backup_or_restore_runs() {
     let deployment = Deployment::managed(&[]).await;
-    // The lock of a task that runs.
-    deployment
-        .server
-        .shell_ok(&format!("mkdir -p {DEPLOYMENT}/state/lock"));
+    // A task that runs: a process that holds the locks a task holds.
+    deployment.server.shell_ok(&format!(
+        "mkdir -p {DEPLOYMENT}/state && cd {DEPLOYMENT}/state \
+         && exec 9>> lock 8>> running && flock -n 9 && flock 8 \
+         && {{ sleep 600 < /dev/null > /dev/null 2>&1 & }}"
+    ));
 
     let refused = deployment.apply(&deployment.api, &[]).await;
+    let status = deployment.server.deploy(&["status"]);
 
     assert!(!refused.status.success(), "{}", lossy(&refused));
     assert!(
@@ -166,9 +169,156 @@ async fn ops_16_a_deploy_refuses_to_run_while_another_deploy_backup_or_restore_r
         lossy(&refused)
     );
     assert!(deployment.server.running("caddy").is_empty());
+    assert!(
+        lossy(&status).contains("a deploy, backup or restore is running"),
+        "{}",
+        lossy(&status)
+    );
     deployment
         .server
-        .shell_ok(&format!("test -d {DEPLOYMENT}/state/lock"));
+        .shell_ok(&format!("! flock -n {DEPLOYMENT}/state/lock true"));
+}
+
+#[tokio::test]
+async fn ops_16_the_task_after_a_deploy_killed_before_its_replicas_serve_puts_back_its_files() {
+    let deployment = Deployment::managed(&[]).await;
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    let waiting = waiting_image(&deployment);
+    deployment
+        .server
+        .shell_ok("echo '# The killed release.' >> /root/release/tools/compose.yaml");
+
+    deployment
+        .apply_until(&waiting, "starting 2 green replicas")
+        .await
+        .stop(&deployment.server, "KILL");
+    let status = deployment.server.deploy(&["status"]);
+    let backup = deployment.server.deploy(&["backup"]);
+
+    assert!(
+        lossy(&status).contains("a deploy stopped before its replicas served"),
+        "{}",
+        lossy(&status)
+    );
+    // The killed deploy's lock went with its processes, so the backup took it, put the files
+    // back, and only then refused, since the database is managed.
+    assert!(
+        lossy(&backup)
+            .contains("didn't put back the deployment files it replaced; putting them back"),
+        "{}",
+        lossy(&backup)
+    );
+    assert!(
+        lossy(&backup).contains("the database is managed"),
+        "{}",
+        lossy(&backup)
+    );
+    let installed = deployment
+        .server
+        .shell_ok(&format!("cat {DEPLOYMENT}/tools/compose.yaml"));
+    assert!(!installed.contains("The killed release"), "{installed}");
+    deployment
+        .server
+        .shell_ok(&format!("test ! -e {DEPLOYMENT}/state/previous"));
+}
+
+#[tokio::test]
+async fn ops_16_a_put_back_that_fails_says_so_and_the_next_task_puts_the_files_back() {
+    let deployment = Deployment::managed(&[]).await;
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    let waiting = waiting_image(&deployment);
+    deployment
+        .server
+        .shell_ok("echo '# The interrupted release.' >> /root/release/tools/compose.yaml");
+    let running = deployment
+        .apply_until(&waiting, "starting 2 green replicas")
+        .await;
+    // Caddy's directory can't be written, so the put-back fails there, before it reaches tools/.
+    deployment
+        .server
+        .shell_ok(&format!("mount -t tmpfs -o ro tmpfs {DEPLOYMENT}/caddy"));
+
+    let interrupted = running.stop(&deployment.server, "INT");
+    let left = deployment
+        .server
+        .shell_ok(&format!("cat {DEPLOYMENT}/tools/compose.yaml"));
+    deployment
+        .server
+        .shell_ok(&format!("umount {DEPLOYMENT}/caddy"));
+    let backup = deployment.server.deploy(&["backup"]);
+
+    assert!(
+        interrupted.contains("putting back the deployment files that this deploy replaced"),
+        "{interrupted}"
+    );
+    assert!(
+        interrupted.contains("couldn't put back the deployment files"),
+        "{interrupted}"
+    );
+    assert!(left.contains("The interrupted release"), "{left}");
+    assert!(
+        lossy(&backup).contains("putting them back"),
+        "{}",
+        lossy(&backup)
+    );
+    let installed = deployment
+        .server
+        .shell_ok(&format!("cat {DEPLOYMENT}/tools/compose.yaml"));
+    assert!(
+        !installed.contains("The interrupted release"),
+        "{installed}"
+    );
+}
+
+#[tokio::test]
+async fn ops_16_a_deploy_that_ends_once_its_replicas_serve_keeps_its_files() {
+    let deployment = Deployment::managed(&[]).await;
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    // A container of a service that the settings don't choose, so the deploy stops it once its
+    // replicas serve. Its process ignores the signal to stop, so it takes a minute to stop.
+    deployment.server.shell_ok(
+        "docker run --detach --quiet --name deployment-collector-managed-1 \
+         --label com.docker.compose.project=deployment \
+         --label com.docker.compose.service=collector-managed \
+         --label com.docker.compose.container-number=1 --label com.docker.compose.oneoff=False \
+         --entrypoint sleep \"$(docker inspect --format '{{ .Config.Image }}' deployment-caddy-1)\" 600 \
+         > /dev/null",
+    );
+    deployment
+        .server
+        .shell_ok("echo '# The serving release.' >> /root/release/tools/compose.yaml");
+
+    let interrupted = deployment
+        .apply_until(&deployment.api, "stopping collector-managed")
+        .await
+        .stop(&deployment.server, "INT");
+
+    assert!(!interrupted.contains("putting back"), "{interrupted}");
+    assert_eq!(deployment.server.running("api-green").len(), 2);
+    assert!(deployment.server.running("api-blue").is_empty());
+    let installed = deployment
+        .server
+        .shell_ok(&format!("cat {DEPLOYMENT}/tools/compose.yaml"));
+    assert!(installed.contains("The serving release"), "{installed}");
+    deployment
+        .server
+        .shell_ok(&format!("test ! -e {DEPLOYMENT}/state/previous"));
+}
+
+/// The API's image, with a health check that always fails but counts no failure for ten minutes,
+/// so a deploy of it waits for its replicas meanwhile.
+fn waiting_image(deployment: &Deployment) -> String {
+    deployment.image_from(
+        &deployment.api,
+        "waiting",
+        &format!(
+            r#"HEALTHCHECK --interval=1s --start-period=10m CMD ["{}", "openapi", "/proc/unwritable"]"#,
+            deployment.api_binary()
+        ),
+    )
 }
 
 #[tokio::test]

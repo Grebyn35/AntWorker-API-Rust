@@ -17,7 +17,8 @@
 #       as Postgres writes it, or at the latest moment its backups hold, into a fresh data
 #       directory, and keeps the one it replaces beside it.
 #   deploy.sh status
-#       Shows which color serves, each of the deployment's containers with its state and its
+#       Shows whether a deploy, backup or restore runs, or a deploy stopped before its replicas
+#       served, which color serves, each of the deployment's containers with its state and its
 #       image's version, when the bundled database's backups last succeeded, and the server's
 #       free disk and memory. It changes nothing, so it runs beside any other task.
 #   deploy.sh logs [--follow] [<service>...]
@@ -68,25 +69,49 @@ running() {
         --filter "label=com.docker.compose.service=$1" --filter status=running | head -n 1
 }
 
+# One deploy, backup or restore at a time (OPS-16). A task takes the lock state/lock, and refuses
+# while another task holds it, then holds state/running, which `status` looks at: status takes that
+# one for an instant, which delays a task rather than refusing it. The kernel releases both once the
+# last of the task's processes ends, however it ends, so no lock outlives its task.
 lock() {
     mkdir -p "$state"
-    if ! mkdir "$state/lock" 2> /dev/null; then
-        fail "another deploy, backup or restore is running; if none is, remove $state/lock"
+    exec 9>> "$state/lock" 8>> "$state/running"
+    if ! flock -n 9; then fail "another deploy, backup or restore is running"; fi
+    flock 8
+    if [ -d "$state/previous" ]; then
+        say "an earlier deploy stopped before its replicas served, and didn't put back the deployment files it replaced; putting them back"
+        put_back
     fi
     trap finish EXIT
     trap 'exit 1' HUP INT TERM
 }
 
-# Runs as the script exits, once it holds the lock: a deploy that didn't finish puts back the
-# deployment files it replaced, which it kept in state/previous/, then the lock goes.
+# Runs as the script exits, once it holds the lock: a deploy that stops before its replicas serve
+# puts back the deployment files it replaced, which it kept in state/previous/.
 finish() {
     status=$?
     if [ "$status" -ne 0 ] && [ -d "$state/previous" ]; then
         say "putting back the deployment files that this deploy replaced"
+        put_back
+    fi
+}
+
+# Puts back the deployment files in state/previous/, which a deploy replaced and whose replicas
+# never served. If that fails, they stay there, for the next task to put back (D50).
+put_back() {
+    # In a subshell, which stops at the first command that fails, as the script does. Under a
+    # condition, such as `if`, it wouldn't: the shell ignores -e there.
+    set +e
+    (
+        set -e
         copy_release "$state/previous" "$deployment"
+    )
+    copied=$?
+    set -e
+    if [ "$copied" -ne 0 ]; then
+        fail "couldn't put back the deployment files, so $deployment holds some of them and some of the release that replaced them. They stay in $state/previous, and the next deploy, backup or restore puts them back, once the error above is solved"
     fi
     rm -rf "$state/previous"
-    rmdir "$state/lock"
 }
 
 # Makes the directory $2 hold exactly the files of the directory $1, writing each file in place,
@@ -113,8 +138,15 @@ fingerprint() {
 # that $1 lacks goes from $2, such as one that a later release adds and a deploy of it that fails
 # takes away again (D50).
 copy_release() {
+    # Each file is renamed into place, so a deploy.sh that runs, whose shell reads it as it goes,
+    # goes on reading the one it started with.
     for file in compose.yaml deploy.sh verify-release.sh import-grafana.sh settings.env.example; do
-        if [ -f "$1/$file" ]; then cp "$1/$file" "$2/$file"; else rm -f "$2/$file"; fi
+        if [ -f "$1/$file" ]; then
+            cp "$1/$file" "$2/$file.next"
+            mv "$2/$file.next" "$2/$file"
+        else
+            rm -f "$2/$file"
+        fi
     done
     for directory in caddy observability tools; do
         sync_directory "$1/$directory" "$2/$directory"
@@ -122,13 +154,16 @@ copy_release() {
 }
 
 # Installs this release's files into the deployment's directory, and keeps the ones they replace
-# in state/previous/ until the deploy finishes.
+# in state/previous/ until the release's replicas serve. Those are copied into
+# state/previous.next/, which takes the name once it holds them all, since putting back only some
+# of them would remove the others.
 install_release() {
     if [ "$here" = "$deployment" ]; then return; fi
-    rm -rf "$state/previous"
     if [ -f "$deployment/compose.yaml" ]; then
-        mkdir -p "$state/previous"
-        copy_release "$deployment" "$state/previous"
+        rm -rf "$state/previous.next"
+        mkdir -p "$state/previous.next"
+        copy_release "$deployment" "$state/previous.next"
+        mv "$state/previous.next" "$state/previous"
     fi
     copy_release "$here" "$deployment"
 }
@@ -497,6 +532,8 @@ apply() {
         compose stop "api-$live"
         compose rm --force "api-$live" > /dev/null
     fi
+    # The release's replicas serve, so its files stay, whatever follows.
+    rm -rf "$state/previous"
     printf '%s\n' "$target" > "$state/live"
     stop_unused_services
     say "deployed $api_image: $replicas $target replicas serve"
@@ -546,7 +583,8 @@ stop_unused_services() {
     # Postgres archives its last segment as it stops, which sets a status file, so the status
     # goes once it has stopped, from a container of the image it ran.
     if [ -n "$left" ]; then
-        docker run --rm --volume "${project}_backup-status:/var/lib/backup-status" --entrypoint sh "$left"             -c 'rm -f /var/lib/backup-status/*'
+        docker run --rm --volume "${project}_backup-status:/var/lib/backup-status" --entrypoint sh "$left" \
+            -c 'rm -f /var/lib/backup-status/*'
     fi
 }
 
@@ -619,7 +657,11 @@ restore() {
 }
 
 status() {
-    if [ -d "$state/lock" ]; then echo "a deploy, backup or restore is running"; fi
+    if [ -f "$state/running" ] && ! flock -n -s "$state/running" true; then
+        echo "a deploy, backup or restore is running"
+    elif [ -d "$state/previous" ]; then
+        echo "a deploy stopped before its replicas served; the next deploy, backup or restore puts back the deployment files it replaced"
+    fi
     blue=$(running api-blue)
     green=$(running api-green)
     if [ -n "$blue" ] && [ -n "$green" ]; then
