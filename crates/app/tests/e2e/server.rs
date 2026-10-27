@@ -329,6 +329,9 @@ impl Server {
                 --env GF_SERVER_PROTOCOL=https --env GF_SERVER_CERT_FILE=/grafana/server.crt \
                 --env GF_SERVER_CERT_KEY=/grafana/server.key {image} > /dev/null"
         ));
+        // Grafana's first start migrates its database, which takes more than a minute on a
+        // machine that runs the suite's other servers too.
+        self.managed_grafana_until_ready();
         let account = self.managed_grafana(
             "POST",
             "/api/serviceaccounts",
@@ -349,6 +352,26 @@ impl Server {
             "MANAGED_GRAFANA_URL".to_owned(),
             format!("https://{address}:3443"),
         )]
+    }
+
+    /// Waits until the stand-in managed Grafana answers its health check, for at most four
+    /// minutes.
+    fn managed_grafana_until_ready(&self) {
+        let curl = compose(&[
+            "--file",
+            "../../deploy/tools/compose.yaml",
+            "config",
+            "--images",
+            "curl",
+        ]);
+        let address = self
+            .container
+            .inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
+        self.shell_ok(&format!(
+            "docker run --rm --quiet --volume /root/grafana/ca.crt:/ca.crt:ro {curl} --silent \
+                --show-error --fail --retry 120 --retry-all-errors --retry-delay 2 --cacert /ca.crt \
+                --output /dev/null https://{address}:3443/api/health"
+        ));
     }
 
     /// Sends `method` for `path` to the stand-in managed Grafana as its administrator, with the

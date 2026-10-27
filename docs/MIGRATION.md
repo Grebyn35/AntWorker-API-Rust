@@ -4,13 +4,13 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** two parts end step 1.5. The trial server, which stays, runs 0.1.0-rc.7 with its telemetry in the owner's Grafana Cloud stack, into which its deploy imports the dashboards and the alert rules; the trial's findings are in the messages of the commits "Hand off step 1.5's trial deploy" and "Write values with printf, which dash's echo doesn't write as they are". The owner allows wiping it, so it can stand in for a new server.
-1. Prove `just server-setup` and `just server-check` (OPS-22) by setting up the trial server anew and deploying to it. Then the collector's deprecated receiver name `filestats`, a version in `just status` for images without the label, what a client gets while no replica runs, and whether a restore may start the replicas before its closing backup.
+**Next:** two parts end step 1.5. The trial server, which the owner allows wiping, was set up anew with `just server-setup` and `just server-check`, and runs 0.1.0-rc.7, restored from its bucket, with its telemetry in the owner's Grafana Cloud stack; the trial's findings are in the messages of the commits "Hand off step 1.5's trial deploy" and "Prove the server's setup on a new server, and act on what the trial showed".
+1. What a client gets while no replica runs, as during a restore: Caddy waits 5 seconds, then answers 503 with an empty body, which is no problem (API-07) and has no trace ID (D10). Waits on the owner.
 2. A conformance review of everything since a28df7b.
 
 The trace test `traces::obs_08_…` fails now and then on amd64; its output now says why, so read it at its next failure.
 
-**Waiting on the owner:** which provider production runs on, since the trial's encrypts no disk (OPS-20).
+**Waiting on the owner:** which provider production runs on, since the trial's encrypts no disk (OPS-20); and for part 1, whether Caddy's answer is the 503 problem with a trace ID that leads to Caddy's own trace and log line, or one whose trace ID leads nowhere, which narrows D10.
 
 ## Build order
 

@@ -11,7 +11,7 @@ receivers:
   # its backup schedule set: when an archive of the write-ahead log last succeeded and last
   # failed, and when a base backup last completed. The alerts on backups read them (OBS-14). In
   # development, and with a managed database, the directory holds no file.
-  filestats/backups:
+  file_stats/backups:
     include: /var/lib/backup-status/*
     collection_interval: 60s
     metrics:
@@ -108,6 +108,6 @@ service:
       processors: [memory_limiter, batch]
       exporters: [otlp_http/loki]
     metrics:
-      receivers: [otlp, filestats/backups, host_metrics]
+      receivers: [otlp, file_stats/backups, host_metrics]
       processors: [memory_limiter, batch]
       exporters: [otlp_http/prometheus]

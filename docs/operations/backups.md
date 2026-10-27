@@ -23,7 +23,7 @@ The backups don't hold the deployment's settings and secrets, which the next sec
 | Moments a restore reaches | Any moment from `BACKUP_RETENTION_DAYS` days ago, or from the first deploy that ran the bundled database if that came later, to the last archived change |
 | Time a restore takes | The time to download the newest base backup before the moment, and to replay the log from it to the moment, which the daily base backup bounds to a day of changes. The database is unavailable meanwhile |
 
-The time a restore takes grows with the database and with its rate of change, so measure it on the server, as [Restoring onto a new server](#restoring-onto-a-new-server) does. For scale: on a server with 2 virtual CPUs and 4 gigabytes of memory, a restore to a moment of a new database of 30 megabytes, from a bucket at Backblaze B2, took 45 seconds, and the API was unavailable for 33 of them. Restoring the data took 6 seconds, the full backup that ends a restore 13, and stopping and starting the services the rest.
+The time a restore takes grows with the database and with its rate of change, so measure it on the server, as [Restoring onto a new server](#restoring-onto-a-new-server) does. For scale: on a server with 2 virtual CPUs and 4 gigabytes of memory, a restore of the latest state of a new database of 30 megabytes, from a bucket at Backblaze B2, took 45 seconds, and the API was unavailable for about 16 of them: restoring the data took 6 seconds, and stopping and starting the services the rest. The full backup that ends a restore took 20 seconds, while the API served.
 
 ## The bucket
 
@@ -51,10 +51,11 @@ just restore deploy@203.0.113.7 "2026-10-25 10:41:31+00"
 
 restores the database as it stood at that moment, a time with its offset from UTC. Without a moment, `just restore deploy@203.0.113.7` restores the latest state the backups hold. A restore runs on the server, through the live release's `deploy.sh`:
 
-1. It stops the API's replicas and the `backup` service, then Postgres. The API is unavailable until the restore ends.
+1. It stops the API's replicas and the `backup` service, then Postgres. The API is unavailable until the replicas start again, in step 4.
 2. It moves the data directory aside, to `before-restore-<time>` in the volume `deployment_postgres`, and restores into a new, empty one. Postgres starts only after the restore succeeds; on an empty directory it would create an empty database.
 3. It starts Postgres, which replays the archived log up to the moment, then begins a new timeline, Postgres's name for a history of the database that branches off at a restore, so the log it archives from then on never mixes with the log it replaced.
-4. It takes a full backup of the restored database, runs `migrate` with the live release, and starts the live replicas again.
+4. It runs `migrate` with the live release, and starts the live replicas again.
+5. It takes a full backup of the restored database while the API serves, as the scheduled backups do, so a later restore starts from the restored database's timeline; Postgres archives what the replicas write meanwhile. If that backup fails, the restore says so, with the API serving: take one with `just backup`.
 
 CI restores to a moment between two writes, then checks that the first one is there, that the second isn't, and that the API serves through Caddy (OPS-17).
 

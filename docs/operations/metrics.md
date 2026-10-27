@@ -27,7 +27,7 @@ Prometheus stores each metric under the name in its "In Prometheus" column: its 
 | `system_linux_memory_available_bytes` | gauge | the collector's host_metrics receiver | The memory of the host that is available to processes without swapping. |
 | `system_memory_limit_bytes` | gauge | the collector's host_metrics receiver | All the memory of the host. |
 | `system_cpu_time_seconds_total` | counter | the collector's host_metrics receiver | The time the host's CPUs spent, by cpu and state, such as idle. |
-| `file_mtime_seconds` | gauge | the collector's filestats receiver | When a backup status file was last changed, in seconds since the Unix epoch, by file_name. |
+| `file_mtime_seconds` | gauge | the collector's file_stats receiver | When a backup status file was last changed, in seconds since the Unix epoch, by file_name. |
 | `otelcol_receiver_refused_spans_total` | counter | the collector | Spans the collector refused, such as at its memory limit. |
 | `otelcol_receiver_refused_log_records_total` | counter | the collector | Log records the collector refused. |
 | `otelcol_receiver_refused_metric_points_total` | counter | the collector | Metric data points the collector refused. |

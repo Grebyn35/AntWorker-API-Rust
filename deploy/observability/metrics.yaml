@@ -29,7 +29,7 @@ metrics:
     description: The time the host's CPUs spent, by cpu and state, such as idle.
   - name: file_mtime_seconds
     kind: gauge
-    producer: the collector's filestats receiver
+    producer: the collector's file_stats receiver
     description: When a backup status file was last changed, in seconds since the Unix epoch, by file_name.
   - name: otelcol_receiver_refused_spans_total
     kind: counter

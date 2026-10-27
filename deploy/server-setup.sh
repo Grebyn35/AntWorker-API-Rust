@@ -139,7 +139,7 @@ prepare_user() {
         done < /root/.ssh/authorized_keys
         chown "$user:$group" "$keys"
         chmod 0600 "$keys"
-        if [ "$added" -gt 0 ]; then say "gave $user root's $added authorized SSH keys"; fi
+        if [ "$added" -gt 0 ]; then say "gave $user the SSH keys that root's authorized_keys holds ($added new)"; fi
     fi
 }
 

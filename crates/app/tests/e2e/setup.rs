@@ -110,6 +110,14 @@ async fn ops_22_a_new_server_that_the_setup_prepares_passes_the_check_and_runs_a
         &format!("sh {RELEASE}/deploy.sh apply {api} {postgres}"),
     );
     let after = as_deploy(&server, &check);
+    // The server is lost, and a new one, which has no database yet, uses its bucket, which
+    // stands in for one off the server.
+    server.shell_ok(
+        "docker ps --all --quiet --filter label=com.docker.compose.project=deployment \
+         | xargs docker rm --force > /dev/null \
+         && docker volume rm deployment_postgres > /dev/null",
+    );
+    let replaced = as_deploy(&server, &check);
 
     assert!(again.status.success(), "{}", lossy(&again));
     assert!(!lossy(&again).contains("passphrase"), "{}", lossy(&again));
@@ -122,25 +130,42 @@ async fn ops_22_a_new_server_that_the_setup_prepares_passes_the_check_and_runs_a
         server.shell_ok(&format!("cat {DEPLOYMENT}/secrets/backup_cipher_pass")),
         passphrase
     );
-    assert!(before.status.success(), "{}", lossy(&before));
+    assert_checked(&before, "holds no backups yet");
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    assert_checked(&after, "holds backups that the passphrase decrypts");
+    assert!(
+        !lossy(&after).contains("no database yet"),
+        "{}",
+        lossy(&after)
+    );
+    assert_checked(&replaced, "holds backups that the passphrase decrypts");
+    assert!(
+        lossy(&replaced).contains(
+            "check: note  the bucket holds a database's backups, and this server has no database \
+             yet"
+        ),
+        "{}",
+        lossy(&replaced)
+    );
+}
+
+/// Asserts that the check that wrote `output` passed each of its checks, and found that the
+/// bucket `holds` what it says.
+fn assert_checked(output: &std::process::Output, holds: &str) {
+    assert!(output.status.success(), "{}", lossy(output));
+    let output = lossy(output);
     for line in [
         "check: ok    Docker",
         "check: ok    the settings",
         "check: ok    the secrets",
         "check: ok    memory",
         "check: ok    the server pulls",
-        "check: ok    the bucket backups answers to its key pair, and holds no backups yet",
+        &format!("check: ok    the bucket backups answers to its key pair, and {holds}"),
         "check: note  whether the disk is encrypted",
+        "deploy: every check on the server passed",
     ] {
-        assert!(lossy(&before).contains(line), "{line}: {}", lossy(&before));
+        assert!(output.contains(line), "{line}: {output}");
     }
-    assert!(deployed.status.success(), "{}", lossy(&deployed));
-    assert!(after.status.success(), "{}", lossy(&after));
-    assert!(
-        lossy(&after).contains("holds backups that the passphrase decrypts"),
-        "{}",
-        lossy(&after)
-    );
 }
 
 #[tokio::test]
@@ -173,7 +198,7 @@ async fn ops_22_the_check_finds_a_key_pair_the_bucket_refuses_and_a_missing_sett
         lossy(&refused_key)
     );
     assert!(
-        lossy(&refused_key).contains("1 of the checks failed"),
+        lossy(&refused_key).contains("1 of the checks on the server failed"),
         "{}",
         lossy(&refused_key)
     );

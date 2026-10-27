@@ -462,9 +462,10 @@ prepare_backups() {
     fi
 }
 
+# One list, so that under a condition too, which ignores -e, no failed backup counts as completed.
 full_backup() {
-    compose exec -T --user postgres postgres pgbackrest --stanza=db backup --type=full
-    compose exec -T --user postgres postgres touch /var/lib/backup-status/backup-completed
+    compose exec -T --user postgres postgres pgbackrest --stanza=db backup --type=full &&
+        compose exec -T --user postgres postgres touch /var/lib/backup-status/backup-completed
 }
 
 apply() {
@@ -668,13 +669,18 @@ restore() {
         if [ "$waited" -gt 600 ]; then fail "the restored database is still recovering after 10 minutes; its log says why: docker compose logs postgres"; fi
         sleep 1
     done
-    say "taking a full backup of the restored database"
-    full_backup
-    compose up --detach --wait --quiet-pull backup
     if [ -n "$live" ]; then
         API_IMAGE_NEW=$live_image compose --profile tasks run --rm --no-deps --quiet-pull migrate
         compose up --detach --wait --quiet-pull --no-deps --scale "api-$live=$replicas" "api-$live"
     fi
+    # Online, as the scheduled backups are, while the replicas serve, so a later restore starts
+    # from the restored database's timeline. Postgres archives what they write meanwhile.
+    say "taking a full backup of the restored database, while the API serves"
+    if ! full_backup; then
+        compose up --detach --wait --quiet-pull backup
+        fail "restored the database${moment:+ as it stood at $moment}, and the API serves, but the full backup after it failed, with the error above; take one with just backup, so a later restore starts from the restored database's timeline"
+    fi
+    compose up --detach --wait --quiet-pull backup
     say "restored the database${moment:+ as it stood at $moment}"
 }
 
@@ -696,9 +702,20 @@ status() {
         echo "serving: no replica runs"
     fi
     echo "containers:"
+    # An image without the version label, such as Prometheus's, has its version as the tag of the
+    # name the container runs it by, such as prom/prometheus:v3.6.0@sha256:...
     docker ps --all --filter "label=com.docker.compose.project=$project" \
-        --format '{{ .Names }}|{{ .Status }}|{{ .Label "org.opencontainers.image.version" }}' |
-        sed "s/^$project-//" | sort | awk -F '|' '{ printf "  %-26s %-34s %s\n", $1, $2, $3 }'
+        --format '{{ .Names }}|{{ .Status }}|{{ .Label "org.opencontainers.image.version" }}|{{ .Image }}' |
+        sed "s/^$project-//" | sort | awk -F '|' '{
+            version = $3
+            if (version == "") {
+                image = $4
+                sub(/@.*/, "", image)
+                sub(/.*\//, "", image)
+                if (index(image, ":") > 0) version = substr(image, index(image, ":") + 1)
+            }
+            printf "  %-26s %-34s %s\n", $1, $2, version
+        }'
     container=$(running backup)
     if [ -n "$container" ]; then
         echo "backups:"
@@ -796,8 +813,8 @@ check() {
     if [ "$settled" = yes ] && [ "$database" = bundled ] && [ -n "$postgres_image" ]; then check_bucket; fi
     if [ "$settled" = yes ] && [ "$telemetry" = managed ] && [ "$docker_answers" = yes ]; then check_backend; fi
     noted "whether the disk is encrypted can't be seen from the server; confirm it with the provider (docs/operations/deploy.md#what-a-server-needs)"
-    if [ "$findings" -gt 0 ]; then fail "$findings of the checks failed"; fi
-    say "every check passed"
+    if [ "$findings" -gt 0 ]; then fail "$findings of the checks on the server failed"; fi
+    say "every check on the server passed"
 }
 
 # Verifies the release $1, as a deploy does first, and sets $api_image and $postgres_image to its
@@ -869,8 +886,14 @@ check_bucket() {
         *)
             failed "pgBackRest can't read the bucket $bucket with its key pair and the passphrase, and says:"
             printf '%s\n' "$answer" | sed 's/^/        /'
+            return
             ;;
     esac
+    # A database's record in the bucket, on a server without the database's volume, as after the
+    # loss of a server, is one the first deploy's new database doesn't match.
+    if [ "$found" != 'error (missing stanza path)' ] && ! docker volume inspect "${project}_postgres" > /dev/null 2>&1; then
+        noted "the bucket holds a database's backups, and this server has no database yet, as after losing a server: the first deploy stops before its replicas start, then just restore restores them (docs/operations/backups.md#restoring-onto-a-new-server)"
+    fi
 }
 
 # Fails the check unless the managed backend accepts an export of no telemetry, signed in as the

@@ -503,7 +503,9 @@ async fn ops_16_a_deploy_that_leaves_the_bundled_database_stops_it_and_its_backu
 
 #[tokio::test]
 async fn ops_22_status_shows_what_serves_and_the_backups_and_logs_show_the_services_output() {
-    let deployment = Deployment::bundled(&[]);
+    // With the self-hosted stack, whose images, unlike the API's and Caddy's, carry no version
+    // label.
+    let deployment = Deployment::bundled(&[("TELEMETRY", "self-hosted")]);
     let applied = deployment.apply(&deployment.api, &[]).await;
     assert!(applied.status.success(), "{}", lossy(&applied));
 
@@ -525,6 +527,23 @@ async fn ops_22_status_shows_what_serves_and_the_backups_and_logs_show_the_servi
                 && line.contains("(healthy)")
                 && line.trim_end().ends_with(&version)),
             "{replica} healthy, of {version}: {status}"
+        );
+    }
+    let containers: Vec<&str> = status
+        .lines()
+        .skip_while(|line| *line != "containers:")
+        .skip(1)
+        .take_while(|line| line.starts_with("  "))
+        .collect();
+    assert!(
+        containers.iter().any(|line| line.contains("prometheus-1")),
+        "{status}"
+    );
+    for line in &containers {
+        let shown = line.split_whitespace().last().unwrap_or_default();
+        assert!(
+            shown.starts_with(|c: char| c == 'v' || c.is_ascii_digit()),
+            "a version for {line}: {status}"
         );
     }
     let recorded = |what: &str| {
