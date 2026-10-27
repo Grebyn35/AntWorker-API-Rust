@@ -11,7 +11,9 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 The trace test `traces::obs_08_…` fails now and then on amd64; its output now says why, so read it at its next failure.
 
-**Waiting on the owner:** whether the trial server stays; which provider production runs on, since the trial's encrypts no disk (OPS-20).
+The trial server stays, so the step's remaining parts are checked on it.
+
+**Waiting on the owner:** which provider production runs on, since the trial's encrypts no disk (OPS-20).
 
 ## Build order
 
