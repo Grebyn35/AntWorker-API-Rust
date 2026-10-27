@@ -4,9 +4,10 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** two parts end step 1.5. The trial server, which stays, runs 0.1.0-rc.7 with its telemetry in the owner's Grafana Cloud stack, into which its deploy imports the dashboards and the alert rules; the trial's findings are in the messages of the commits "Hand off step 1.5's trial deploy" and "Write values with printf, which dash's echo doesn't write as they are".
-1. `just server-setup` and `just server-check` (OPS-22), from the trial's findings. Then the collector's deprecated receiver name `filestats`, a version in `just status` for images without the label, what a client gets while no replica runs, and whether a restore may start the replicas before its closing backup.
-2. A conformance review of everything since a28df7b.
+**Next:** three parts end step 1.5. The trial server, which stays, runs 0.1.0-rc.7 with its telemetry in the owner's Grafana Cloud stack, into which its deploy imports the dashboards and the alert rules; the trial's findings are in the messages of the commits "Hand off step 1.5's trial deploy" and "Write values with printf, which dash's echo doesn't write as they are".
+1. A deploy lock that the kernel holds, through `flock`, so no killed deploy or failed put-back leaves `state/lock` to remove by hand, and a put-back that fails says so.
+2. `just server-setup` and `just server-check` (OPS-22), from the trial's findings, proven by setting up a new server and its first deploy. Then the collector's deprecated receiver name `filestats`, a version in `just status` for images without the label, what a client gets while no replica runs, and whether a restore may start the replicas before its closing backup.
+3. A conformance review of everything since a28df7b.
 
 The trace test `traces::obs_08_…` fails now and then on amd64; its output now says why, so read it at its next failure.
 
