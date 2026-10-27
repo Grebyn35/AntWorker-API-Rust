@@ -22,19 +22,18 @@ Prometheus stores each metric under the name in its "In Prometheus" column: its 
 | In Prometheus | Kind | Produced by | Description |
 |---|---|---|---|
 | `up` | gauge | Prometheus | 1 while Prometheus scrapes the target, 0 otherwise. |
-| `ALERTS` | gauge | Prometheus | One series for each alert that is pending or firing, with its labels. |
 | `system_filesystem_utilization_ratio` | gauge | the collector's host_metrics receiver | The share of a filesystem of the host that is in use, by mountpoint and mode. |
 | `system_filesystem_usage_bytes` | gauge | the collector's host_metrics receiver | The bytes of a filesystem of the host, by mountpoint, mode and state, such as free. |
 | `system_linux_memory_available_bytes` | gauge | the collector's host_metrics receiver | The memory of the host that is available to processes without swapping. |
 | `system_memory_limit_bytes` | gauge | the collector's host_metrics receiver | All the memory of the host. |
 | `system_cpu_time_seconds_total` | counter | the collector's host_metrics receiver | The time the host's CPUs spent, by cpu and state, such as idle. |
 | `file_mtime_seconds` | gauge | the collector's filestats receiver | When a backup status file was last changed, in seconds since the Unix epoch, by file_name. |
-| `otelcol_receiver_refused_spans` | counter | the collector | Spans the collector refused, such as at its memory limit. |
-| `otelcol_receiver_refused_log_records` | counter | the collector | Log records the collector refused. |
-| `otelcol_receiver_refused_metric_points` | counter | the collector | Metric data points the collector refused. |
-| `otelcol_exporter_send_failed_spans` | counter | the collector | Spans the collector failed to send to Tempo. |
-| `otelcol_exporter_send_failed_log_records` | counter | the collector | Log records the collector failed to send to Loki. |
-| `otelcol_exporter_send_failed_metric_points` | counter | the collector | Metric data points the collector failed to send to Prometheus. |
-| `otelcol_processor_tail_sampling_sampling_trace_dropped_too_early` | counter | the collector | Traces tail sampling dropped before deciding them, because it held too many. |
+| `otelcol_receiver_refused_spans_total` | counter | the collector | Spans the collector refused, such as at its memory limit. |
+| `otelcol_receiver_refused_log_records_total` | counter | the collector | Log records the collector refused. |
+| `otelcol_receiver_refused_metric_points_total` | counter | the collector | Metric data points the collector refused. |
+| `otelcol_exporter_send_failed_spans_total` | counter | the collector | Spans the collector failed to send to Tempo. |
+| `otelcol_exporter_send_failed_log_records_total` | counter | the collector | Log records the collector failed to send to Loki. |
+| `otelcol_exporter_send_failed_metric_points_total` | counter | the collector | Metric data points the collector failed to send to Prometheus. |
+| `otelcol_processor_tail_sampling_sampling_trace_dropped_too_early_total` | counter | the collector | Traces tail sampling dropped before deciding them, because it held too many. |
 | `otelcol_processor_tail_sampling_sampling_traces_on_memory` | gauge | the collector | The traces tail sampling holds while it waits to decide them. |
-| `otelcol_processor_tail_sampling_count_traces_sampled` | counter | the collector | Traces each sampling policy decided, by the policy and whether it kept them. |
+| `otelcol_processor_tail_sampling_count_traces_sampled_total` | counter | the collector | Traces each sampling policy decided, by the policy and whether it kept them. |

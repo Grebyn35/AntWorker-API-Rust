@@ -166,7 +166,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(otelcol_receiver_refused_spans[$__rate_interval]))",
+          "expr": "sum(rate(otelcol_receiver_refused_spans_total[$__rate_interval]))",
           "legendFormat": "spans"
         },
         {
@@ -175,7 +175,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(otelcol_receiver_refused_log_records[$__rate_interval]))",
+          "expr": "sum(rate(otelcol_receiver_refused_log_records_total[$__rate_interval]))",
           "legendFormat": "log records"
         },
         {
@@ -184,7 +184,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(otelcol_receiver_refused_metric_points[$__rate_interval]))",
+          "expr": "sum(rate(otelcol_receiver_refused_metric_points_total[$__rate_interval]))",
           "legendFormat": "metric points"
         }
       ],
@@ -224,7 +224,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(otelcol_exporter_send_failed_spans[$__rate_interval]))",
+          "expr": "sum(rate(otelcol_exporter_send_failed_spans_total[$__rate_interval]))",
           "legendFormat": "spans"
         },
         {
@@ -233,7 +233,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(otelcol_exporter_send_failed_log_records[$__rate_interval]))",
+          "expr": "sum(rate(otelcol_exporter_send_failed_log_records_total[$__rate_interval]))",
           "legendFormat": "log records"
         },
         {
@@ -242,7 +242,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(otelcol_exporter_send_failed_metric_points[$__rate_interval]))",
+          "expr": "sum(rate(otelcol_exporter_send_failed_metric_points_total[$__rate_interval]))",
           "legendFormat": "metric points"
         }
       ],
@@ -282,7 +282,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(otelcol_processor_tail_sampling_sampling_trace_dropped_too_early[$__rate_interval]))",
+          "expr": "sum(rate(otelcol_processor_tail_sampling_sampling_trace_dropped_too_early_total[$__rate_interval]))",
           "legendFormat": "dropped early"
         },
         {
@@ -331,7 +331,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (policy) (rate(otelcol_processor_tail_sampling_count_traces_sampled{sampled=\"true\"}[$__rate_interval]))",
+          "expr": "sum by (policy) (rate(otelcol_processor_tail_sampling_count_traces_sampled_total{sampled=\"true\"}[$__rate_interval]))",
           "legendFormat": "{{policy}}"
         }
       ],

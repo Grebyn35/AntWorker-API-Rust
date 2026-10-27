@@ -93,6 +93,11 @@ service:
               prometheus:
                 host: 0.0.0.0
                 port: 8888
+                # A counter's name ends in _total, as a managed backend names the counters it
+                # receives over OTLP, so the self-hosted stack and a managed one read the same
+                # names, and no other suffix names a unit.
+                without_type_suffix: false
+                without_units: true
   pipelines:
     traces:
       receivers: [otlp]

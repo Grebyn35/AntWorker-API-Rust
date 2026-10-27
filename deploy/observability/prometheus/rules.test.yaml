@@ -144,7 +144,7 @@ tests:
 
   - interval: 1m
     input_series:
-      - series: 'otelcol_exporter_send_failed_spans{job="collector", instance="collector:8888"}'
+      - series: 'otelcol_exporter_send_failed_spans_total{job="collector", instance="collector:8888"}'
         values: "0 0 10 10 10"
     alert_rule_test:
       - eval_time: 4m

@@ -7,10 +7,6 @@ metrics:
     kind: gauge
     producer: Prometheus
     description: 1 while Prometheus scrapes the target, 0 otherwise.
-  - name: ALERTS
-    kind: gauge
-    producer: Prometheus
-    description: One series for each alert that is pending or firing, with its labels.
   - name: system_filesystem_utilization_ratio
     kind: gauge
     producer: the collector's host_metrics receiver
@@ -35,31 +31,31 @@ metrics:
     kind: gauge
     producer: the collector's filestats receiver
     description: When a backup status file was last changed, in seconds since the Unix epoch, by file_name.
-  - name: otelcol_receiver_refused_spans
+  - name: otelcol_receiver_refused_spans_total
     kind: counter
     producer: the collector
     description: Spans the collector refused, such as at its memory limit.
-  - name: otelcol_receiver_refused_log_records
+  - name: otelcol_receiver_refused_log_records_total
     kind: counter
     producer: the collector
     description: Log records the collector refused.
-  - name: otelcol_receiver_refused_metric_points
+  - name: otelcol_receiver_refused_metric_points_total
     kind: counter
     producer: the collector
     description: Metric data points the collector refused.
-  - name: otelcol_exporter_send_failed_spans
+  - name: otelcol_exporter_send_failed_spans_total
     kind: counter
     producer: the collector
     description: Spans the collector failed to send to Tempo.
-  - name: otelcol_exporter_send_failed_log_records
+  - name: otelcol_exporter_send_failed_log_records_total
     kind: counter
     producer: the collector
     description: Log records the collector failed to send to Loki.
-  - name: otelcol_exporter_send_failed_metric_points
+  - name: otelcol_exporter_send_failed_metric_points_total
     kind: counter
     producer: the collector
     description: Metric data points the collector failed to send to Prometheus.
-  - name: otelcol_processor_tail_sampling_sampling_trace_dropped_too_early
+  - name: otelcol_processor_tail_sampling_sampling_trace_dropped_too_early_total
     kind: counter
     producer: the collector
     description: Traces tail sampling dropped before deciding them, because it held too many.
@@ -67,7 +63,7 @@ metrics:
     kind: gauge
     producer: the collector
     description: The traces tail sampling holds while it waits to decide them.
-  - name: otelcol_processor_tail_sampling_count_traces_sampled
+  - name: otelcol_processor_tail_sampling_count_traces_sampled_total
     kind: counter
     producer: the collector
     description: Traces each sampling policy decided, by the policy and whether it kept them.

@@ -68,6 +68,18 @@
       "asDropdown": false,
       "includeVars": false,
       "tooltip": ""
+    },
+    {
+      "title": "Firing alerts",
+      "type": "link",
+      "url": "/alerting/list?search=state:firing",
+      "keepTime": false,
+      "targetBlank": false,
+      "icon": "bolt",
+      "tags": [],
+      "asDropdown": false,
+      "includeVars": false,
+      "tooltip": ""
     }
   ],
   "panels": [
@@ -202,7 +214,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(sum(increase(otel_sdk_exporter_span_exported_total{error_type!=\"\"}[1h])) or vector(0)) + (sum(increase(otel_sdk_exporter_log_exported_total{error_type!=\"\"}[1h])) or vector(0)) + (sum(increase(otel_sdk_exporter_metric_data_point_exported_total{error_type!=\"\"}[1h])) or vector(0)) + (sum(increase(otelcol_receiver_refused_spans[1h])) or vector(0)) + (sum(increase(otelcol_receiver_refused_log_records[1h])) or vector(0)) + (sum(increase(otelcol_receiver_refused_metric_points[1h])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_spans[1h])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_log_records[1h])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_metric_points[1h])) or vector(0)) + (sum(increase(otelcol_processor_tail_sampling_sampling_trace_dropped_too_early[1h])) or vector(0))",
+          "expr": "(sum(increase(otel_sdk_exporter_span_exported_total{error_type!=\"\"}[1h])) or vector(0)) + (sum(increase(otel_sdk_exporter_log_exported_total{error_type!=\"\"}[1h])) or vector(0)) + (sum(increase(otel_sdk_exporter_metric_data_point_exported_total{error_type!=\"\"}[1h])) or vector(0)) + (sum(increase(otelcol_receiver_refused_spans_total[1h])) or vector(0)) + (sum(increase(otelcol_receiver_refused_log_records_total[1h])) or vector(0)) + (sum(increase(otelcol_receiver_refused_metric_points_total[1h])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_spans_total[1h])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_log_records_total[1h])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_metric_points_total[1h])) or vector(0)) + (sum(increase(otelcol_processor_tail_sampling_sampling_trace_dropped_too_early_total[1h])) or vector(0))",
           "legendFormat": ""
         }
       ],
@@ -239,42 +251,8 @@
       "id": 3,
       "gridPos": {
         "h": 8,
-        "w": 6,
+        "w": 12,
         "x": 12,
-        "y": 0
-      }
-    },
-    {
-      "type": "table",
-      "title": "Which alerts are firing?",
-      "description": "The alerts Prometheus is sending to Alertmanager, by severity.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "count by (alertname, severity) (ALERTS{alertstate=\"firing\"})",
-          "legendFormat": "",
-          "instant": true,
-          "format": "table"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {},
-      "id": 4,
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 18,
         "y": 0
       }
     },

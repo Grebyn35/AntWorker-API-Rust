@@ -73,7 +73,8 @@ async fn sec_18_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
 }
 
 #[tokio::test]
-async fn obs_14_the_backups_and_the_server_s_memory_report_what_the_cause_alerts_read() {
+async fn obs_14_the_backups_the_server_s_memory_and_the_collector_report_what_the_cause_alerts_read()
+ {
     let deployment = Deployment::bundled(&[("TELEMETRY", "self-hosted")]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -102,6 +103,12 @@ async fn obs_14_the_backups_and_the_server_s_memory_report_what_the_cause_alerts
         "timeout 120 sh -c 'until docker exec deployment-prometheus-1 wget -qO-          \"http://localhost:9090/api/v1/query?query=system_linux_memory_available_bytes\"          | grep -q system_linux_memory_available_bytes; do sleep 5; done'",
     );
     assert!(memory.status.success(), "{}", lossy(&memory));
+    // The collector's own counters, under the names the alert on lost telemetry reads, once the
+    // API's metrics have passed through it.
+    let collector = deployment.server.shell(
+        "timeout 120 sh -c 'until docker exec deployment-prometheus-1 wget -qO-          \"http://localhost:9090/api/v1/query?query=otelcol_receiver_refused_metric_points_total\"          | grep -q otelcol_receiver_refused_metric_points_total; do sleep 5; done'",
+    );
+    assert!(collector.status.success(), "{}", lossy(&collector));
 }
 
 #[tokio::test]

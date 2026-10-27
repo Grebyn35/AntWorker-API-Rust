@@ -153,13 +153,13 @@ groups:
 
       - alert: CollectorDroppingTelemetry
         expr: |
-          sum(increase(otelcol_receiver_refused_spans[10m])) > 0
-          or sum(increase(otelcol_receiver_refused_log_records[10m])) > 0
-          or sum(increase(otelcol_receiver_refused_metric_points[10m])) > 0
-          or sum(increase(otelcol_exporter_send_failed_spans[10m])) > 0
-          or sum(increase(otelcol_exporter_send_failed_log_records[10m])) > 0
-          or sum(increase(otelcol_exporter_send_failed_metric_points[10m])) > 0
-          or sum(increase(otelcol_processor_tail_sampling_sampling_trace_dropped_too_early[10m])) > 0
+          sum(increase(otelcol_receiver_refused_spans_total[10m])) > 0
+          or sum(increase(otelcol_receiver_refused_log_records_total[10m])) > 0
+          or sum(increase(otelcol_receiver_refused_metric_points_total[10m])) > 0
+          or sum(increase(otelcol_exporter_send_failed_spans_total[10m])) > 0
+          or sum(increase(otelcol_exporter_send_failed_log_records_total[10m])) > 0
+          or sum(increase(otelcol_exporter_send_failed_metric_points_total[10m])) > 0
+          or sum(increase(otelcol_processor_tail_sampling_sampling_trace_dropped_too_early_total[10m])) > 0
         labels:
           severity: ticket
         annotations:
