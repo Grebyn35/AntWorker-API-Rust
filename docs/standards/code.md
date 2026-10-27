@@ -47,8 +47,8 @@ Code in this workspace outside `platform::clock` doesn't read a clock (`Utc::now
 - Check: `clippy` (`disallowed_methods` bans the clock reads and waits of the dependencies; a dependency that brings a clock or a random number generator brings its bans with it).
 
 ### CODE-16 Shell passes shellcheck
-Every recipe of the justfile that runs on Linux and macOS, and every shell script under `deploy/`, passes shellcheck with no finding. A finding is disabled only by a directive on the line before the command it concerns, with a comment that states the reason.
-- Why: in shell, a quoting slip runs a different command than the one written, and a script that deploys or restores runs where a mistake costs the most (D21).
+Every recipe of the justfile that runs on Linux and macOS, and every shell script under `deploy/`, passes shellcheck with no finding. A finding is disabled only by a directive on the line before the command it concerns, with a comment that states the reason. A script under `deploy/` writes a value with `printf '%s\n'`, never with `echo`.
+- Why: in shell, a quoting slip runs a different command than the one written, and a script that deploys or restores runs where a mistake costs the most (D21). A server's `sh`, such as Ubuntu's dash, reads a backslash in `echo`'s arguments as an escape, and `\c` ends its output, while the tests' server, on Alpine, writes it as it is.
 - Check: `ci: check-shell`.
 
 ## Size

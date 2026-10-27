@@ -27,12 +27,12 @@ cosign() { docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --volume "
 
 for image in "$@"; do
     if ! digest=$(crane digest "$image:$version"); then
-        echo "$image has no image tagged $version" >&2
+        printf '%s\n' "$image has no image tagged $version" >&2
         exit 1
     fi
     if ! cosign verify --certificate-identity "$source/.github/workflows/ci.yml@refs/heads/main" \
         --certificate-oidc-issuer https://token.actions.githubusercontent.com "$image@$digest" > /dev/null; then
-        echo "$image:$version isn't signed by the run on main of $source" >&2
+        printf '%s\n' "$image:$version isn't signed by the run on main of $source" >&2
         exit 1
     fi
     # Each kind of attestation, with the field that holds its document. A platform the index
@@ -44,10 +44,10 @@ for image in "$@"; do
             found=$(docker buildx imagetools inspect "$image@$digest" \
                 --format "{{ with index .$kind \"$platform\" }}{{ if .$field }}present{{ end }}{{ end }}")
             if [ "$found" != present ]; then
-                echo "$image:$version has no $kind for $platform" >&2
+                printf '%s\n' "$image:$version has no $kind for $platform" >&2
                 exit 1
             fi
         done
     done
-    echo "$image@$digest"
+    printf '%s\n' "$image@$digest"
 done

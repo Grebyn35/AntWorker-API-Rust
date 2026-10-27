@@ -35,9 +35,9 @@ deployment=$(cd "${DEPLOYMENT:?DEPLOYMENT names the deployment directory}" && pw
 state=$deployment/state
 project=deployment
 
-say() { echo "deploy: $*"; }
+say() { printf '%s\n' "deploy: $*"; }
 fail() {
-    echo "deploy: $*" >&2
+    printf '%s\n' "deploy: $*" >&2
     exit 1
 }
 
@@ -142,9 +142,9 @@ stack_services="collector collector-managed prometheus alertmanager loki tempo g
 # own, and its provisioning only when it starts.
 configuration_of() {
     case $1 in
-        collector-managed) echo "$deployment/observability/collector" ;;
-        grafana) echo "$deployment/observability/grafana/provisioning" ;;
-        *) echo "$deployment/observability/$1" ;;
+        collector-managed) printf '%s\n' "$deployment/observability/collector" ;;
+        grafana) printf '%s\n' "$deployment/observability/grafana/provisioning" ;;
+        *) printf '%s\n' "$deployment/observability/$1" ;;
     esac
 }
 
@@ -157,7 +157,7 @@ stale_services() {
     for service in $stack_services; do
         if [ -z "$(running "$service")" ]; then continue; fi
         if [ "$(cat "$state/read/$service" 2> /dev/null)" != "$(fingerprint "$(configuration_of "$service")")" ]; then
-            echo "$service"
+            printf '%s\n' "$service"
         fi
     done
 }
@@ -323,10 +323,10 @@ live_color() {
 # Writes the values that Compose interpolates besides the settings, into $1.
 write_deploy_env() {
     {
-        echo "API_IMAGE_BLUE=$image_blue"
-        echo "API_IMAGE_GREEN=$image_green"
-        echo "API_IMAGE_NEW=$api_image"
-        echo "POSTGRES_IMAGE=$postgres_image"
+        printf '%s\n' "API_IMAGE_BLUE=$image_blue"
+        printf '%s\n' "API_IMAGE_GREEN=$image_green"
+        printf '%s\n' "API_IMAGE_NEW=$api_image"
+        printf '%s\n' "POSTGRES_IMAGE=$postgres_image"
         if [ "$telemetry" = off ]; then echo "API_TELEMETRY_ENDPOINT="; else echo "API_TELEMETRY_ENDPOINT=http://collector:4318"; fi
         if [ -f "$deployment/certs/backup-ca.crt" ]; then echo "BACKUP_CA_FILE=/etc/deployment-certs/backup-ca.crt"; fi
         if [ -f "$deployment/certs/managed-otlp-ca.crt" ]; then echo "MANAGED_OTLP_CA_FILE=/etc/deployment-certs/managed-otlp-ca.crt"; fi
@@ -349,7 +349,7 @@ write_caddy_state() {
             replica=$((replica + 1))
         done
     done
-    echo "$upstreams" > "$state/caddy/upstreams"
+    printf '%s\n' "$upstreams" > "$state/caddy/upstreams"
 }
 
 # The services that run once and would restart, because their configuration differs from the
@@ -363,7 +363,7 @@ changed_single_services() {
         if [ -z "$container" ]; then continue; fi
         current=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.config-hash" }}' "$container")
         expected=$(compose config --hash "$service" | cut -d ' ' -f 2)
-        if [ "$current" != "$expected" ]; then echo "$service"; fi
+        if [ "$current" != "$expected" ]; then printf '%s\n' "$service"; fi
     done
 }
 
@@ -373,7 +373,7 @@ caddy_finds_ready() {
     metrics=$(compose exec -T caddy wget -qO- http://127.0.0.1:2019/metrics) || return 1
     replica=1
     while [ "$replica" -le "$replicas" ]; do
-        if ! echo "$metrics" | grep -qx "caddy_reverse_proxy_upstreams_healthy{upstream=\"$project-api-$1-$replica:8080\"} 1"; then
+        if ! printf '%s\n' "$metrics" | grep -qx "caddy_reverse_proxy_upstreams_healthy{upstream=\"$project-api-$1-$replica:8080\"} 1"; then
             return 1
         fi
         replica=$((replica + 1))
@@ -456,7 +456,7 @@ apply() {
     changed=$(changed_single_services)
     if [ -n "$changed" ] && [ "$allow_restart" != yes ]; then
         cp "$state/deploy.env.previous" "$state/deploy.env"
-        fail "this release changes $(echo "$changed" | tr '\n' ' ')which runs once, so deploying it restarts it and interrupts requests for a few seconds. Deploy it again with --allow-restart when that's acceptable"
+        fail "this release changes $(printf '%s\n' "$changed" | tr '\n' ' ')which runs once, so deploying it restarts it and interrupts requests for a few seconds. Deploy it again with --allow-restart when that's acceptable"
     fi
     write_caddy_state
 
@@ -497,7 +497,7 @@ apply() {
         compose stop "api-$live"
         compose rm --force "api-$live" > /dev/null
     fi
-    echo "$target" > "$state/live"
+    printf '%s\n' "$target" > "$state/live"
     stop_unused_services
     say "deployed $api_image: $replicas $target replicas serve"
     if [ "$telemetry" = managed ]; then import_into_managed_grafana; fi
@@ -561,7 +561,7 @@ deploy_release() {
     if ! verified=$(CRANE=$crane COSIGN=$cosign sh "$here/verify-release.sh" "$version" "$source" "$repository" "$repository-postgres"); then
         fail "the release $version doesn't verify, so nothing changed; the error above says why"
     fi
-    apply "$(echo "$verified" | sed -n 1p)" "$(echo "$verified" | sed -n 2p)" "$2"
+    apply "$(printf '%s\n' "$verified" | sed -n 1p)" "$(printf '%s\n' "$verified" | sed -n 2p)" "$2"
 }
 
 backup() {
@@ -623,7 +623,7 @@ status() {
     blue=$(running api-blue)
     green=$(running api-green)
     if [ -n "$blue" ] && [ -n "$green" ]; then
-        echo "serving: both colors, as while a deploy switches; the last deploy that finished left $(cat "$state/live" 2> /dev/null || echo neither) serving"
+        printf '%s\n' "serving: both colors, as while a deploy switches; the last deploy that finished left $(cat "$state/live" 2> /dev/null || echo neither) serving"
     elif [ -n "$blue" ]; then
         echo "serving: blue"
     elif [ -n "$green" ]; then

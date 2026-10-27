@@ -24,6 +24,6 @@ while true; do
     if pgbackrest --stanza=db backup --type="$kind"; then
         touch "$status/backup-completed"
     else
-        echo "the scheduled $kind backup failed; the next one runs tomorrow" >&2
+        printf '%s\n' "the scheduled $kind backup failed; the next one runs tomorrow" >&2
     fi
 done

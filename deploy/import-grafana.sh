@@ -35,9 +35,9 @@ alerts=Alerts
 # lacks.
 label=app.kubernetes.io/managed-by=deploy
 
-say() { echo "deploy: $*"; }
+say() { printf '%s\n' "deploy: $*"; }
 fail() {
-    echo "deploy: $*" >&2
+    printf '%s\n' "deploy: $*" >&2
     exit 1
 }
 
@@ -58,7 +58,7 @@ grafana() {
         --silent --show-error --fail-with-body $trust \
         --variable token@/run/token --expand-header 'Authorization: Bearer {{token:trim}}' \
         --header 'Content-Type: application/json' --request "$method" $body "$@" "$url$path"); then
-        echo "$answer" >&2
+        printf '%s\n' "$answer" >&2
         fail "the managed Grafana refused $method $path"
     fi
     printf '%s\n' "$answer"
@@ -77,9 +77,9 @@ yq() {
 # Grafana Cloud keeps a stack's resources in the namespace stacks-<its instance's ID>, and
 # Grafana itself, those of its first organization in `default`; /bootdata says which.
 bootdata=$(grafana GET /bootdata)
-namespace=$(echo "$bootdata" | yq --input-format json --output-format yaml '.settings.namespace')
+namespace=$(printf '%s\n' "$bootdata" | yq --input-format json --output-format yaml '.settings.namespace')
 sources=$(grafana GET /api/datasources)
-PRESENT=$(echo "$sources" | yq --input-format json --output-format yaml '[.[].uid] | join(" ")')
+PRESENT=$(printf '%s\n' "$sources" | yq --input-format json --output-format yaml '[.[].uid] | join(" ")')
 MAPPED="{prometheus: $prometheus, loki: $loki, tempo: $tempo}"
 FOLDER=$folder LABEL=$label ALERTS=$alerts NAME=""
 export PRESENT MAPPED FOLDER LABEL ALERTS NAME
@@ -106,13 +106,13 @@ dashboards=$(yq --input-format json --output-format yaml --no-doc --unwrapScalar
     | .uid + " " + ({"apiVersion": "dashboard.grafana.app/v1", "kind": "Dashboard",
         "metadata": {"name": .uid, "labels": {$label[0]: $label[1]}, "annotations": {"grafana.app/folder": strenv(FOLDER)}},
         "spec": .} | to_json(0))' $files)
-echo "$dashboards" | while IFS= read -r line; do
+printf '%s\n' "$dashboards" | while IFS= read -r line; do
     printf '%s' "${line#* }" | grafana PUT "/apis/dashboard.grafana.app/v1/namespaces/$namespace/dashboards/${line%% *}" > /dev/null
 done
-imported=$(echo "$dashboards" | sed 's/ .*//')
+imported=$(printf '%s\n' "$dashboards" | sed 's/ .*//')
 listed=$(grafana GET "/apis/dashboard.grafana.app/v1/namespaces/$namespace/dashboards" --get --data-urlencode "labelSelector=$label")
-echo "$listed" | yq --input-format json --output-format yaml '.items[].metadata.name' | while IFS= read -r name; do
-    if ! echo "$imported" | grep -qx -- "$name"; then
+printf '%s\n' "$listed" | yq --input-format json --output-format yaml '.items[].metadata.name' | while IFS= read -r name; do
+    if ! printf '%s\n' "$imported" | grep -qx -- "$name"; then
         say "deleting the dashboard $name, which this release lacks"
         grafana DELETE "/apis/dashboard.grafana.app/v1/namespaces/$namespace/dashboards/$name" > /dev/null
     fi
@@ -128,9 +128,9 @@ names=$(yq '.groups[].name' /release/rules.yaml)
 loaded=$(grafana GET /api/convert/prometheus/config/v1/rules --header "X-Grafana-Alerting-Folder-UID: $folder" \
     --header 'Accept: application/json')
 # shellcheck disable=SC2016 # yq expands its own variables.
-echo "$loaded" | yq --input-format json --output-format yaml '.[strenv(ALERTS)] // [] | .[].name' |
+printf '%s\n' "$loaded" | yq --input-format json --output-format yaml '.[strenv(ALERTS)] // [] | .[].name' |
     while IFS= read -r name; do
-        if ! echo "$names" | grep -qx -- "$name"; then
+        if ! printf '%s\n' "$names" | grep -qx -- "$name"; then
             say "deleting the rule group $name, which this release lacks"
             NAME=$name
             grafana DELETE "$rules/$(yq --null-input 'strenv(NAME) | @uri')" \
@@ -149,4 +149,4 @@ reached=$(printf '%s\n%s\n' "$policies" "$points" | yq eval-all --input-format j
 if [ "$reached" != true ]; then
     echo "deploy: warning: the managed Grafana's notification policies send the alerts to no contact point, so they notify no one; docs/operations/observability.md#a-managed-backend says how to add one" >&2
 fi
-say "imported $(echo "$imported" | wc -l | tr -d ' ') dashboards and $(echo "$names" | wc -l | tr -d ' ') rule groups into the managed Grafana"
+say "imported $(printf '%s\n' "$imported" | wc -l | tr -d ' ') dashboards and $(printf '%s\n' "$names" | wc -l | tr -d ' ') rule groups into the managed Grafana"

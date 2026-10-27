@@ -1,6 +1,7 @@
 //! `check-shell`: shellcheck finds nothing in a recipe of the justfile that runs on Linux and
 //! macOS, or in a shell script under `deploy/`, and each directive that disables a finding stands
-//! on the line before the command it concerns, with a comment that states its reason (CODE-16).
+//! on the line before the command it concerns, with a comment that states its reason. A script
+//! under `deploy/` writes a value with printf, never echo (CODE-16).
 //!
 //! `just` lists only the recipes of the platform it runs on, so the check reads the justfile
 //! itself, and checks the same recipes on every platform. Each recipe becomes a script whose
@@ -46,7 +47,10 @@ pub fn check(repo: &Repo) -> Outcome {
     let scripts = scripts(repo);
     for path in &scripts {
         let text = repo.file(path).map_or("", |file| file.text.as_str());
-        for (line, message) in directive_problems(text) {
+        for (line, message) in directive_problems(text)
+            .into_iter()
+            .chain(echo_problems(text))
+        {
             findings.push(Finding::new(path, line, message));
         }
     }
@@ -289,6 +293,35 @@ fn directive_problems(script: &str) -> Vec<(usize, &'static str)> {
     problems
 }
 
+/// Each line of `script` whose `echo` writes a value, an argument with an expansion. A server's
+/// sh, such as Ubuntu's dash, reads a backslash in echo's arguments as an escape, and `\c` ends
+/// the output, while printf's `%s` writes the value as it is. Alpine's sh, the tests' server's,
+/// writes it as it is, so no test would find one.
+fn echo_problems(script: &str) -> Vec<(usize, &'static str)> {
+    let mut problems = Vec::new();
+    for (index, line) in script.lines().enumerate() {
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
+        let writes_value = line.match_indices("echo ").any(|(start, _)| {
+            let command = start == 0
+                || line[..start].ends_with(|c: char| c.is_whitespace() || "(;|&{".contains(c));
+            let arguments = &line[start..];
+            let end = arguments
+                .find(['|', ';', '>', '&'])
+                .unwrap_or(arguments.len());
+            command && arguments[..end].contains('$')
+        });
+        if writes_value {
+            problems.push((
+                index + 1,
+                "echo writes a value, whose backslashes a server's sh reads as escapes; write it with printf '%s\\n' (CODE-16)",
+            ));
+        }
+    }
+    problems
+}
+
 /// The shell scripts under `deploy/`: the files named `*.sh`, and those whose shebang names a
 /// shell.
 fn scripts(repo: &Repo) -> Vec<String> {
@@ -455,6 +488,24 @@ publish repository commit:
             interpolate("{{ if a == \"b\" { \"X=1 \" } else { \"\" } }}watchexec \"{{ c }}\""),
             "just_valuewatchexec \"just_value\""
         );
+    }
+
+    #[test]
+    fn code_16_a_deploy_script_writes_a_value_with_printf() {
+        let script = "#!/bin/sh\n\
+            # echo \"$commented\"\n\
+            echo \"$answer\" >&2\n\
+            names=$(echo \"$listed\" | sed 's/ .*//')\n\
+            echo 'deploy: nothing to do'\n\
+            printf '%s\\n' \"$answer\"\n\
+            left=$(cat \"$file\" || echo neither)\n";
+
+        let problems: Vec<usize> = echo_problems(script)
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect();
+
+        assert_eq!(problems, [3, 4]);
     }
 
     #[test]
