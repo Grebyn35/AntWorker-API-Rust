@@ -4,14 +4,11 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 1.5's trial deploy of 0.1.0-rc.4 works on a real server, after fixes for four faults it found; its findings are in the message of the commit "Hand off step 1.5's trial deploy". Three parts end the step:
-1. The import into a managed Grafana (OBS-13, OBS-14) is built. The trial server runs 0.1.0-rc.6, whose import failed under dash; with the fix, run by hand there, the owner's stack holds the dashboards and rules, all healthy. Left: a release with the fix, deployed, its import passing in the deploy.
-2. `just server-setup` and `just server-check` (OPS-22), from the trial's findings. Then the collector's deprecated receiver name `filestats`, a version in `just status` for images without the label, what a client gets while no replica runs, and whether a restore may start the replicas before its closing backup.
-3. A conformance review of everything since a28df7b.
+**Next:** two parts end step 1.5. The trial server, which stays, runs 0.1.0-rc.7 with its telemetry in the owner's Grafana Cloud stack, into which its deploy imports the dashboards and the alert rules; the trial's findings are in the messages of the commits "Hand off step 1.5's trial deploy" and "Write values with printf, which dash's echo doesn't write as they are".
+1. `just server-setup` and `just server-check` (OPS-22), from the trial's findings. Then the collector's deprecated receiver name `filestats`, a version in `just status` for images without the label, what a client gets while no replica runs, and whether a restore may start the replicas before its closing backup.
+2. A conformance review of everything since a28df7b.
 
 The trace test `traces::obs_08_…` fails now and then on amd64; its output now says why, so read it at its next failure.
-
-The trial server stays, so the step's remaining parts are checked on it.
 
 **Waiting on the owner:** which provider production runs on, since the trial's encrypts no disk (OPS-20).
 
@@ -224,6 +221,7 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D46 | The image's static binary allocates through mimalloc, since under musl's own allocator a replica's memory grew with every request it served ([architecture](architecture.md#10-technology)) | accepted |
 | D47 | The bundled database's backups are kept by time, `BACKUP_RETENTION_DAYS`, rather than by a count of full backups, so the full backups that `just backup` and a restore take never shorten how far a restore reaches ([backups.md](operations/backups.md)) | accepted |
 | D48 | The end-to-end tests' servers pull Docker Hub's images through a pull-through cache that Compose runs and `just e2e` fills for their platform beforehand, and can't reach Docker Hub themselves (TEST-07, [ci.md](operations/ci.md)) | accepted |
-| D49 | A deployment's alert integrations are its release's, in the fork's `alertmanager.yaml`, and their credentials the deployment's, in `secrets/alertmanager/`, which each integration reads through its option for a file ([observability.md](operations/observability.md#alerts)) | accepted |
+| D49 | With the self-hosted stack, a deployment's alert integrations are its release's, in the fork's `alertmanager.yaml`, and their credentials the deployment's, in `secrets/alertmanager/`, which each integration reads through its option for a file ([observability.md](operations/observability.md#alerts)) | accepted |
 | D50 | A deploy that refuses or fails once it installed its release's files puts back the ones it replaced, so the deployment's directory holds the files of the last deploy that finished (OPS-16, [deploy.md](operations/deploy.md#the-files-on-the-server)) | accepted |
 | D51 | The reference deployment's settings and secrets stay on its server, and every task on the server, its setup included, runs from a developer's machine through `just` over SSH, rather than keeping the settings in the repository, where secrets can't go, or on one developer's machine (OPS-22) | accepted |
+| D52 | With a managed backend, each deploy imports the release's dashboards and alert rules into the backend's Grafana once its replicas serve: the dashboards into a folder that only the import and the Grafana's administrators may change, the rules as Grafana's own through its conversion of Prometheus rules rather than into the backend's ruler, whose alerts reach no Alertmanager on Grafana Cloud. Grafana's notification policies route the alerts, and a failed import only warns (OBS-13, OBS-14, [observability.md](operations/observability.md#a-managed-backend)) | accepted |
