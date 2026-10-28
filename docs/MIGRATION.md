@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** two parts end step 1.5. The trial server, which the owner allows wiping, was set up anew with `just server-setup` and `just server-check`, and runs 0.1.0-rc.7, restored from its bucket, with its telemetry in the owner's Grafana Cloud stack; the trial's findings are in the messages of the commits "Hand off step 1.5's trial deploy" and "Prove the server's setup on a new server, and act on what the trial showed".
+**Next:** two parts end step 1.5. The trial server, which the owner allows wiping, was set up anew with `just server-setup` and `just server-check`, restored from its bucket, and runs 0.1.0-rc.8, with its telemetry in the owner's Grafana Cloud stack; the trial's findings are in the messages of the commits "Hand off step 1.5's trial deploy" and "Prove the server's setup on a new server, and act on what the trial showed".
 1. What a client gets while no replica runs, as during a restore: Caddy waits 5 seconds, then answers 503 with an empty body, which is no problem (API-07) and has no trace ID (D10). Waits on the owner.
 2. A conformance review of everything since a28df7b.
 
