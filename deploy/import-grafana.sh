@@ -74,15 +74,16 @@ yq() {
         "$YQ" "$@"
 }
 
-# A Grafana Cloud instance that slept answers 503 while it loads again, so the import waits up to
-# three minutes for Grafana's health check, through curl's retries of a 503 and its other
-# transient answers. Each failed answer's body would precede the next one's in curl's output, so
-# the requests that follow don't retry.
+# A Grafana Cloud instance that slept answers 503 while it loads again, so the import first waits
+# up to three minutes for another answer to a request with its token, through curl's retries of a
+# 503 and its other transient answers. Each failed answer's body would precede the next one's in
+# curl's output, so this request's output is discarded, and the requests that follow, which
+# report what Grafana answers, don't retry.
 # shellcheck disable=SC2086 # $trust is an option and its value, or nothing.
-if ! docker run --rm --quiet --volume "$deployment/certs:/run/certs:ro" "$CURL" --silent --show-error \
-    --fail --retry 8 --retry-max-time 180 --output /dev/null $trust "$url/api/health"; then
-    fail "the managed Grafana at $url doesn't answer"
-fi
+docker run --rm --quiet --volume "$token:/run/token:ro" --volume "$deployment/certs:/run/certs:ro" \
+    "$CURL" --silent --fail --retry 8 --retry-max-time 180 --output /dev/null $trust \
+    --variable token@/run/token --expand-header 'Authorization: Bearer {{token:trim}}' \
+    "$url/api/folders" > /dev/null 2>&1 || true
 
 # Grafana Cloud keeps a stack's resources in the namespace stacks-<its instance's ID>, and
 # Grafana itself, those of its first organization in `default`; /bootdata says which.

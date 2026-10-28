@@ -778,7 +778,8 @@ logs() {
 # Shows Caddy's lines of the requests it answered itself, which it writes to a file for the
 # collector (D53), each headed as Compose heads a service's line: the last 100, and with
 # --follow, the lines that follow, until this function's input ends. The shell in Caddy's
-# container then ends its tail, and waits for it, since Caddy reaps no process of its own.
+# container then ends its tail, and waits for it, since Caddy reaps no process of its own. The
+# shell's printf heads each line, since BusyBox's sed holds lines back while it writes to a pipe.
 requests() {
     # shellcheck disable=SC2016 # The shell in Caddy's container expands $line.
     lines='tail -n 100 '${follow:+-F}' /var/log/caddy/access.log 2> /dev/null | while IFS= read -r line; do printf "caddy requests | %s\n" "$line"; done'
@@ -955,14 +956,14 @@ check_backend() {
     fi
     trust=""
     if [ -f "$deployment/certs/managed-grafana-ca.crt" ]; then trust="--cacert /run/certs/managed-grafana-ca.crt"; fi
-    # A Grafana Cloud instance that slept answers 503 while it loads again, so the check waits for
-    # Grafana's health check, as the import does (import-grafana.sh).
+    # A Grafana Cloud instance that slept answers 503 while it loads again, so the check first waits
+    # for another answer, as the import does (import-grafana.sh), with the waiting request's output
+    # discarded, then asks again for the answer it reports.
     # shellcheck disable=SC2086 # $trust is an option and its value, or nothing.
-    if ! answer=$(docker run --rm --quiet --volume "$deployment/certs:/run/certs:ro" "$curl" --silent \
-        --show-error --fail --retry 8 --retry-max-time 180 --output /dev/null $trust "$grafana/api/health" 2>&1); then
-        failed "the managed Grafana at $grafana doesn't answer within three minutes: $(printf '%s\n' "$answer" | tail -n 1)"
-        return
-    fi
+    docker run --rm --quiet --volume "$deployment/secrets/managed_grafana_token:/run/token:ro" \
+        --volume "$deployment/certs:/run/certs:ro" "$curl" --silent --fail --retry 8 --retry-max-time 180 \
+        --output /dev/null $trust --variable token@/run/token \
+        --expand-header 'Authorization: Bearer {{token:trim}}' "$grafana/api/folders" > /dev/null 2>&1 || true
     # shellcheck disable=SC2086 # $trust is an option and its value, or nothing.
     if answer=$(docker run --rm --quiet --volume "$deployment/secrets/managed_grafana_token:/run/token:ro" \
         --volume "$deployment/certs:/run/certs:ro" "$curl" --silent --show-error --fail-with-body $trust \
@@ -970,7 +971,7 @@ check_backend() {
         "$grafana/api/folders" 2>&1); then
         passed "the managed Grafana at $grafana answers to the import's token"
     else
-        failed "the managed Grafana at $grafana refuses the import's token: $answer"
+        failed "the managed Grafana at $grafana doesn't accept the import's token: $answer"
     fi
 }
 
