@@ -14,7 +14,8 @@
 #       when the bundled database has none. Its input holds one item per line, each value in
 #       base64:
 #           settings <value>                    the deployment's settings.env
-#           secret <name> <value>               the secret file secrets/<name>
+#           secret <name> <value>               the secret file secrets/<name>, such as
+#                                               alertmanager/<file> for an alert integration's
 #           cert <name> <value>                 the certificate certs/<name>
 #           login <registry> <user> <token>     a login to the registry, with the token
 #
@@ -54,7 +55,10 @@ state() {
         printf 'settings %s\n' "$(base64 < "$deployment/settings.env" | tr -d '\n')"
     fi
     for file in "$deployment"/secrets/*; do
-        if [ -s "$file" ]; then printf 'secret %s\n' "${file##*/}"; fi
+        if [ -f "$file" ] && [ -s "$file" ]; then printf 'secret %s\n' "${file##*/}"; fi
+    done
+    for file in "$deployment"/secrets/alertmanager/*; do
+        if [ -s "$file" ]; then printf 'secret alertmanager/%s\n' "${file##*/}"; fi
     done
     for file in "$deployment"/certs/*; do
         if [ -s "$file" ]; then printf 'cert %s\n' "${file##*/}"; fi
@@ -184,6 +188,14 @@ write() {
             secret)
                 case $first in
                     database_admin_url | database_owner_url | database_url | postgres_password | backup_s3_key | backup_s3_key_secret | backup_cipher_pass | managed_otlp_token | managed_grafana_token) ;;
+                    # A credential of an alert integration, which alertmanager.yaml names (D49).
+                    alertmanager/*/* | alertmanager/.*) fail "no secret is named $first" ;;
+                    alertmanager/?*)
+                        case ${first#alertmanager/} in
+                            *[!A-Za-z0-9_.-]*) fail "no secret is named $first" ;;
+                        esac
+                        mkdir -p "$deployment/secrets/alertmanager"
+                        ;;
                     *) fail "no secret is named $first" ;;
                 esac
                 write_file "$deployment/secrets/$first" "$second"

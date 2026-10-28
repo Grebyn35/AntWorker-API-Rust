@@ -6,8 +6,6 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 **Next:** one part ends step 1.5: a conformance review of everything since a28df7b. The trial server, which the owner allows wiping, was set up anew with `just server-setup` and `just server-check`, and runs 0.1.0-rc.9, with its telemetry in the owner's Grafana Cloud stack; the trial's findings are in the messages of the commits "Hand off step 1.5's trial deploy", "Prove the server's setup on a new server, and act on what the trial showed" and "Prove the proxy's answer while no replica runs on the trial server".
 
-The trace test `traces::obs_08_…` fails now and then on amd64; its output now says why, so read it at its next failure.
-
 ## Build order
 
 The design is settled by building, not by further review of the documents. How the plan for unbuilt parts is kept, corrected and proven is in [CLAUDE.md](../CLAUDE.md), under "Docs for unbuilt parts are the plan".
@@ -115,6 +113,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 | Rule or behavior | Built code that doesn't follow it | Closed by |
 |---|---|---|
 | OPS-18 | A release's capacity, which `just load-test` measures, has no release notes to go in: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
+| TEST-07 | `traces::obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace` fails now and then on amd64 in CI, when nothing reaches Loki or Tempo; its output says why, from the stack's start times to the API's export errors | the fix of what its next failure shows |
 | DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 
 ## Rule proposals
@@ -133,6 +132,9 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 3ae7168 | A DATA rule for D39: data a module adds for its product has a `workspace_id`, and a check fails on a table keyed by a user ID that isn't listed as account data. | 2.2, with the first workspace tables and `check-tenancy` |
 | Conformance review of 3ae7168 | ARCH-07: whether password sign-in is an optional part, for a fork that signs in only through OAuth providers | 5, with the full `auth` module |
 | Conformance review of 3ae7168 | DATA-12 and the platform spec's unit of work: how an operator's subcommand, such as `seed` or the setup subcommand, opens its unit of work, and as which role | 2.4, with `seed` |
+| Conformance review of a28df7b..1d13d63 | OPS-22: a runbook's diagnostics (`docker system df`, `docker image prune`, `docker stats`), the removal of the data a restore set aside, and the first reading of Grafana's administrator password run on the server: `just` tasks do them, or OPS-22 names them as the commands an operator may run there over SSH | 1.5, by the owner, with this review |
+| Conformance review of a28df7b..1d13d63 | OPS-13: whether the packages `just server-setup` installs from apt, Docker's among them, are pinned, or are the distribution's current ones, as a server's other packages are, with Docker's repository trusted by its key's fingerprint | 1.5, by the owner, with this review |
+| Conformance review of a28df7b..1d13d63 | D10 and OPS-05: with `TELEMETRY=off`, the trace ID of the proxy's 503 leads to a line in Caddy's log file, which `just logs` doesn't show, since Caddy writes a site's lines through one logger | 1.5, by the owner, with this review |
 
 ## Conformance reviews
 

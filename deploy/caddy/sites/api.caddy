@@ -60,10 +60,13 @@
 
 	# No replica answered, such as while a restore runs: the API's 503 problem, whose trace ID
 	# leads to this request's span, marked as an error, and its log line (OPS-05, D10). Its code
-	# and title are platform::errors::RequestError::Unavailable's. A probe gets a bare 503, as
-	# the API answers probes (API-07).
+	# and title are platform::errors::RequestError::Unavailable's, and its headers those the API
+	# sets on every response (SEC-11) and on every response but the probes (API-16). A probe gets
+	# a bare 503, as the API answers probes (API-07).
 	handle_errors 502 503 504 {
 		header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		header X-Content-Type-Options nosniff
+		header Referrer-Policy no-referrer
 		header -Server
 		@probe path /health/*
 		handle @probe {
@@ -71,9 +74,12 @@
 		}
 		handle {
 			vars log_skip false
+			# The line names its service's version, Caddy's, which its image sets (OBS-02).
+			log_append service.version {env.CADDY_VERSION}
 			tracing {
 				span "no replica answered"
 			}
+			header Server-Timing "trace;desc=00-{http.vars.trace_id}-{http.vars.span_id}-01"
 			header Content-Type application/problem+json
 			header Retry-After 5
 			respond `{"type":"/problems/request.unavailable","title":"No replica can answer","status":503,"code":"request.unavailable","trace_id":"{http.vars.trace_id}"}` 503

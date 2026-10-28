@@ -42,7 +42,7 @@ On a developer's machine, `just ci` runs what CI runs: `just checks`, `just imag
 | The collector's tail sampling keeps the traces OBS-08 names, and the managed backend's configuration keeps that sampling; the latency objective is the same in the sampling, the alerts and the latency dashboard | `check-telemetry-config` | OBS-08 |
 | Every alert has a severity, a runbook section and a test; promtool checks the rules and runs their tests | `alert-rules` | OBS-14 |
 | Actions pinned by commit SHA, runners by version, images by digest in every Dockerfile and compose file, or by a variable the deploy sets to a digest, downloads by checksum, and the crates and packages the images' builds install by exact version; exact tool versions in the justfile, and the same `just` in the workflows; the toolchain only from `rust-toolchain.toml`; edition 2024 in every crate | `check-pins` | CODE-01, OPS-13 |
-| shellcheck finds nothing in a recipe of the justfile that runs on Linux and macOS, or in a shell script under `deploy/`, and each directive that disables a finding stands on the line before its command, after the script's first command, with its reason | `check-shell` | CODE-16 |
+| shellcheck finds nothing in a recipe of the justfile that runs on Linux and macOS, or in a shell script under `deploy/`, and each directive that disables a finding stands on the line before its command, after the script's first command, with its reason; and no `echo` of a script under `deploy/` writes an expansion | `check-shell` | CODE-16 |
 | No vulnerability that has a fix and is rated high or critical, in either platform's image of either image: in its operating system packages, and in the crates and modules its binaries record | `image-scan` | SEC-13, OPS-15 |
 | The same scan, every week, of the images SEC-13 names | `image-rescan` | SEC-13 |
 | The end-to-end tests, against the images built from the commit, the deploys and restores of the reference deployment among them | `e2e` | OPS-14 to OPS-17, OPS-20, OPS-21, SEC-18, and the rules and behaviors they prove (TEST-04) |
@@ -67,7 +67,7 @@ Each week, Dependabot opens pull requests for the pins it can read, as `.github/
 These pins are updated by hand, and `check-pins` checks their form:
 - the versions of the tools in the justfile, and of `just` in the workflows;
 - the runner's version in the workflows, such as `ubuntu-24.04`;
-- in the Dockerfiles, the frontend on their first line; in the API's, the zig download with its checksums and the versions of the crates it installs; in `deploy/postgres/Dockerfile`, the version of pgBackRest.
+- in the Dockerfiles, the frontend on their first line; in the API's, the zig download with its checksums and the versions of the crates it installs; in `deploy/postgres/Dockerfile`, the versions of pgBackRest and of the certificate authorities' package.
 
 ## Checks required for merging
 

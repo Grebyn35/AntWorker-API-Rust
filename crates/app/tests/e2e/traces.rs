@@ -1,6 +1,7 @@
 //! The trace-ID guarantee (D10, OBS-08), through the image and the observability stack that
 //! Compose runs: a trace ID that a response returns leads to the request's logs, and, for a
-//! request that ended in an error, to its trace.
+//! request that ended in an error, to its trace. And the image's `serve`, which records its own
+//! memory, as it exports it to the stack (PLATFORM-046).
 
 use std::process::Output;
 
@@ -160,4 +161,49 @@ async fn obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace()
         "{}",
         lossy(&stored)
     );
+}
+
+#[tokio::test]
+async fn platform_046_serve_exports_its_resident_memory() {
+    compose(&[
+        "--profile",
+        "observability",
+        "up",
+        "--detach",
+        "--wait",
+        "collector",
+        "loki",
+        "tempo",
+        "prometheus",
+    ]);
+    let image = Image::pushed();
+    let database = TestDatabase::empty().await;
+    let network = postgres_network();
+    let mut settings = settings(&database);
+    settings.push("OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318".to_owned());
+    let bootstrap = database
+        .with_roles_locked(async { image.run(&network, &settings, "bootstrap") })
+        .await;
+    assert!(bootstrap.status.success(), "{}", lossy(&bootstrap));
+    let migrate = image.run(&network, &settings, "migrate");
+    assert!(migrate.status.success(), "{}", lossy(&migrate));
+    let server = image.serve(&network, &settings);
+    assert_eq!(server.health(), "healthy", "{}", server.logs());
+
+    // The SDK exports the metrics every 15 seconds.
+    let series = fetch_once_it_holds(
+        &format!(
+            "http://prometheus:9090/api/v1/query?query=process_memory_usage_bytes%7Bjob%3D%22{}%22%7D",
+            support::service_name()
+        ),
+        "process_memory_usage_bytes",
+    );
+
+    assert!(
+        series.status.success(),
+        "{}\n{}",
+        lossy(&series),
+        why_nothing_arrived(&server)
+    );
+    assert!(lossy(&series).contains("\"value\""), "{}", lossy(&series));
 }

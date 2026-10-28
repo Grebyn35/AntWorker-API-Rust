@@ -98,4 +98,4 @@ Every alert has a severity (`page` or `ticket`), a runbook section in `docs/oper
 ### OBS-15 Health probes stay out of telemetry
 Liveness and readiness requests are excluded from request metrics, are not sampled into traces, and carry no trace ID (API-16). The reference deployment's proxy doesn't trace them either.
 - Why: probes would drown out the signal.
-- Check: `test`.
+- Check: `test`, plus `ci: e2e` (a probe through the proxy leaves no span).

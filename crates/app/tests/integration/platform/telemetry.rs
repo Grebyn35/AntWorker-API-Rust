@@ -221,14 +221,18 @@ async fn obs_15_the_health_probes_record_no_request_metric() {
 // The kernel reports a process's memory in /proc on Linux only, where the image runs.
 #[cfg(target_os = "linux")]
 #[tokio::test]
-async fn platform_046_serve_records_its_resident_memory() {
+async fn platform_046_the_resident_memory_is_recorded_at_once_and_every_15_seconds_after() {
     let api = Api::new();
     let clock = api.clock();
 
     platform::telemetry::process::watch(clock.clone());
     clock.sleeping(Duration::from_secs(15)).await;
-
     let recorded = testing::recorded("process.memory.usage");
+    // Advancing the clock completes the sleep, and ends it: the watcher waits 15 seconds again
+    // only once it has recorded again.
+    clock.advance(Duration::from_secs(15));
+    clock.sleeping(Duration::from_secs(15)).await;
+
     assert!(
         recorded.iter().any(|point| point.value > 0.0),
         "{recorded:?}"

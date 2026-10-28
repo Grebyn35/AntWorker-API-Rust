@@ -24,6 +24,8 @@ encode() { base64 < "$1" | tr -d '\n'; }
         printf 'e2e-token' > /root/setup/token
         printf 'secret backup_s3_key %s\n' "$(encode /root/setup/key)"
         printf 'secret backup_s3_key_secret %s\n' "$(encode /root/setup/key_secret)"
+        printf 'https://hooks.example.invalid/page' > /root/setup/page_url
+        printf 'secret alertmanager/page_url %s\n' "$(encode /root/setup/page_url)"
         printf 'cert backup-ca.crt %s\n' "$(encode /root/bucket/ca.crt)"
         printf 'login registry:5000 e2e %s\n' "$(encode /root/setup/token)"
     fi
@@ -71,6 +73,7 @@ fn assert_set_up(server: &Server, output: &std::process::Output, settings: &str)
         "added deploy to the docker group",
         "wrote /home/deploy/deployment/secrets/backup_s3_key_secret",
         "wrote /home/deploy/deployment/certs/backup-ca.crt",
+        "wrote /home/deploy/deployment/secrets/alertmanager/page_url",
         "logged in to registry:5000 as e2e",
         "generated the passphrase",
     ] {

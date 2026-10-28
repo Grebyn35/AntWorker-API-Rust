@@ -159,6 +159,10 @@ async fn ops_05_while_no_replica_runs_the_proxy_answers_at_once_with_the_api_s_5
         "max-age=31536000; includeSubDomains"
     );
     assert!(headers.get("server").is_none(), "{headers:?}");
+    for answer in [&headers, &probe_headers] {
+        assert_eq!(answer["x-content-type-options"], "nosniff");
+        assert_eq!(answer["referrer-policy"], "no-referrer");
+    }
     let problem: serde_json::Value = serde_json::from_str(&body).expect("a problem");
     let unavailable = RequestError::Unavailable;
     assert_eq!(problem["code"], unavailable.code());
@@ -173,12 +177,16 @@ async fn ops_05_while_no_replica_runs_the_proxy_answers_at_once_with_the_api_s_5
                 .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
         "{trace}"
     );
+    let timing = headers["server-timing"].to_str().expect("text");
+    assert!(
+        timing.starts_with(&format!("trace;desc=00-{trace}-")),
+        "{timing}"
+    );
     assert_eq!(probe, 503);
     assert!(probe_body.is_empty(), "{probe_body}");
-    assert!(
-        probe_headers.get("content-type").is_none(),
-        "{probe_headers:?}"
-    );
+    for absent in ["content-type", "server-timing"] {
+        assert!(probe_headers.get(absent).is_none(), "{probe_headers:?}");
+    }
 }
 
 #[tokio::test]
@@ -623,6 +631,12 @@ async fn ops_22_status_shows_what_serves_and_the_backups_and_logs_show_the_servi
     // failed then; the times sort as they read.
     assert!(failed == "never" || archived > failed, "{status}");
     assert!(status.contains("memory"), "{status}");
+    assert!(
+        status
+            .lines()
+            .any(|line| line.trim_start().starts_with("disk") && line.contains("free")),
+        "{status}"
+    );
     assert!(logs.status.success(), "{}", lossy(&logs));
     let logs = lossy(&logs);
     for service in ["api-blue-1", "api-blue-2", "caddy-1"] {

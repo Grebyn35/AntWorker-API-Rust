@@ -330,6 +330,25 @@ pub fn get_within(
     .expect("the request")
 }
 
+/// Sends `GET` to `url` with the trace context `traceparent`, through a client that trusts
+/// `root`, and returns the response's status and headers.
+pub fn get_traced(
+    root: String,
+    url: String,
+    traceparent: String,
+) -> (u16, reqwest::header::HeaderMap) {
+    thread::spawn(move || {
+        let response = client(&root)
+            .get(&url)
+            .header("traceparent", traceparent)
+            .send()
+            .expect("an answer");
+        (response.status().as_u16(), response.headers().clone())
+    })
+    .join()
+    .expect("the request")
+}
+
 /// Sends `POST` to `url` with the JSON body `body`, through a client that trusts `root`, and
 /// returns the response's status and body.
 pub fn post(root: String, url: String, body: String) -> (u16, String) {

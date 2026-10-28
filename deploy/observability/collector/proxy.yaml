@@ -11,8 +11,10 @@ extensions:
     directory: /var/lib/collector
 
 receivers:
-  # Each line becomes a log record of the service caddy, in the request's trace, with the names
-  # that platform::telemetry lists (OBS-05) and no field that holds personal data (OBS-04).
+  # Each line becomes a log record of the service caddy, at the version the line names, in the
+  # request's trace, with the names that platform::telemetry lists (OBS-05) and no field that
+  # holds personal data (OBS-04). With the API's, every line carries service.name,
+  # service.version and deployment.environment.name (OBS-02).
   file_log/proxy:
     include: [/var/log/caddy/access.log]
     start_at: beginning
@@ -33,6 +35,9 @@ receivers:
           parse_from: attributes.traceID
         span_id:
           parse_from: attributes.spanID
+      - type: move
+        from: attributes["service.version"]
+        to: resource["service.version"]
       - type: move
         from: attributes.request.method
         to: attributes["http.request.method"]
@@ -59,6 +64,13 @@ processors:
           - resource.attributes["service.name"] == "caddy"
         statements:
           - keep_keys(span.attributes, ["http.request.method", "http.response.status_code", "server.address", "server.port"])
+      # A span's resource names Caddy's version as webengine.version; service.version says it too,
+      # as on the API's spans and the proxy's log lines.
+      - context: resource
+        conditions:
+          - resource.attributes["service.name"] == "caddy"
+        statements:
+          - set(resource.attributes["service.version"], resource.attributes["webengine.version"])
     log_statements:
       - context: log
         conditions:
