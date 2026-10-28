@@ -19,6 +19,7 @@ const BUCKET: &str = "http_server_request_duration_seconds_bucket";
 pub fn check(repo: &Repo) -> Outcome {
     let mut findings = Vec::new();
     overlay_keeps_sampling(repo, &mut findings);
+    proxy_keeps_processors(repo, &mut findings);
     if let Some(objective) = sampling(repo, &mut findings) {
         alerts_share(repo, objective, &mut findings);
         dashboards_share(repo, objective, &mut findings);
@@ -61,6 +62,68 @@ fn overlay_keeps_sampling(repo: &Repo, findings: &mut Vec<Finding>) {
             text::line_of(source, "tail_sampling"),
             "the managed backend's configuration defines tail sampling of its own; the \
              collector's own applies to every backend (OBS-08)",
+        ));
+    }
+}
+
+/// Checks that the proxy's configuration, which every collector of a deployment merges over its
+/// own, keeps the collector's processors: the merge replaces a list it sets, so each pipeline's
+/// list of processors that it sets holds the collector's own, in their order, tail sampling among
+/// them (OBS-08), and it defines no tail sampling of its own.
+fn proxy_keeps_processors(repo: &Repo, findings: &mut Vec<Finding>) {
+    if repo.file(stack::PROXY).is_none() {
+        return;
+    }
+    let (Some(config), Some(proxy)) = (
+        stack::yaml(repo, stack::COLLECTOR, findings),
+        stack::yaml(repo, stack::PROXY, findings),
+    ) else {
+        return;
+    };
+    let source = repo
+        .file(stack::PROXY)
+        .map_or("", |file| file.text.as_str());
+    let names = |list: &Value| -> Vec<String> {
+        list.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    };
+    for pipeline in ["traces", "logs", "metrics"] {
+        let set = &proxy["service"]["pipelines"][pipeline]["processors"];
+        if set.is_null() {
+            continue;
+        }
+        let own = names(&config["service"]["pipelines"][pipeline]["processors"]);
+        let kept: Vec<String> = names(set)
+            .into_iter()
+            .filter(|name| own.contains(name))
+            .collect();
+        if kept != own {
+            findings.push(Finding::new(
+                stack::PROXY,
+                text::line_of(source, &format!("{pipeline}:")),
+                format!(
+                    "the proxy's configuration replaces the {pipeline} pipeline's processors \
+                     without the collector's own, {}, in their order (OBS-08)",
+                    own.join(", ")
+                ),
+            ));
+        }
+    }
+    let redefines = proxy["processors"]
+        .as_object()
+        .into_iter()
+        .flat_map(|processors| processors.keys())
+        .any(|name| name == "tail_sampling" || name.starts_with("tail_sampling/"));
+    if redefines {
+        findings.push(Finding::new(
+            stack::PROXY,
+            text::line_of(source, "tail_sampling"),
+            "the proxy's configuration defines tail sampling of its own; the collector's own \
+             applies to every trace (OBS-08)",
         ));
     }
 }
@@ -354,6 +417,34 @@ mod tests {
 
         assert!(check_with(keeps).is_empty());
         assert!(check_with(replaces)[0].contains("replaces the traces pipeline's processors"));
+        assert!(check_with(redefines)[0].contains("defines tail sampling of its own"));
+    }
+
+    #[test]
+    fn obs_08_the_proxy_s_configuration_keeps_the_collector_s_processors() {
+        let keeps = "service:\n  pipelines:\n    traces:\n      processors: [transform/proxy, tail_sampling]\n";
+        let drops =
+            "service:\n  pipelines:\n    traces:\n      processors: [transform/proxy, batch]\n";
+        let redefines = "processors:\n  tail_sampling/proxy:\n    policies: []\n";
+        let check_with = |proxy: &str| {
+            let repo = Repo::of(&[
+                (stack::COLLECTOR, collector(POLICIES).as_str()),
+                (stack::PROXY, proxy),
+                (stack::RULES, RULES),
+                (
+                    "deploy/observability/grafana/dashboards/a.json",
+                    dashboard("{ duration > 500ms }").as_str(),
+                ),
+            ]);
+            check(&repo)
+                .findings
+                .into_iter()
+                .map(|f| f.message)
+                .collect::<Vec<_>>()
+        };
+
+        assert!(check_with(keeps).is_empty(), "{:?}", check_with(keeps));
+        assert!(check_with(drops)[0].contains("without the collector's own, tail_sampling"));
         assert!(check_with(redefines)[0].contains("defines tail sampling of its own"));
     }
 

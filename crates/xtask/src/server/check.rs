@@ -10,13 +10,10 @@ use std::{
 };
 
 use super::{
-    DEPLOYMENT, on_server_output, send_checkout,
+    DEPLOYMENT, on_server_output, send_release,
     settings::{get, settings_of},
 };
-use crate::{
-    deploy::{quoted, refuse, root},
-    release,
-};
+use crate::deploy::{quoted, refuse, released, root};
 
 /// How long a connection to one of the server's ports may take before the check counts the port
 /// as unreachable.
@@ -114,24 +111,12 @@ fn server_name(host: &str) -> Result<String, String> {
 #[expect(clippy::print_stdout, reason = "the findings are the task's output")]
 pub fn check(host: &str, version: Option<&str>) -> ExitCode {
     let root = root();
-    let version = match version {
-        Some(version) => match version.parse::<release::Version>() {
-            Ok(version) => version,
-            Err(_) => return refuse(&format!("{version} isn't a version, X.Y.Z or X.Y.Z-rc.N.")),
-        },
-        None => match release::latest_release(&root) {
-            Ok(Some(version)) => version,
-            Ok(None) => {
-                return refuse(
-                    "No release exists yet, and the check checks what a deploy of a release \
-                     needs. `just release` makes one: docs/operations/release.md says how.",
-                );
-            }
-            Err(error) => return refuse(&error),
-        },
+    let version = match released(&root, version) {
+        Ok(version) => version,
+        Err(refused) => return refuse(&refused),
     };
     println!("Checking what a deploy of {version} to {host} needs.");
-    let directory = match send_checkout(&root, host) {
+    let directory = match send_release(&root, host, &version) {
         Ok(directory) => directory,
         Err(error) => return refuse(&format!("Can't copy deploy/ to {host}: {error}")),
     };
@@ -140,7 +125,7 @@ pub fn check(host: &str, version: Option<&str>) -> ExitCode {
         .arg(host)
         .arg(format!(
             "DEPLOYMENT={DEPLOYMENT} sh {directory}/deploy.sh check {}; status=$?; rm -rf {directory}; exit $status",
-            quoted(&version.to_string())
+            quoted(&version)
         ))
         .status();
     let mut failed = !matches!(on_server, Ok(status) if status.success());

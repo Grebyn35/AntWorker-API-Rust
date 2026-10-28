@@ -1,7 +1,14 @@
 //! The export of telemetry over OTLP (PLATFORM-039, PLATFORM-042, OBS-10), and the metrics the
 //! pipeline and the readiness check record (PLATFORM-040, PLATFORM-043, OBS-15).
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
 use http::{Method, StatusCode};
 use opentelemetry_proto::tonic::{
@@ -218,25 +225,35 @@ async fn obs_15_the_health_probes_record_no_request_metric() {
     assert!(probes.is_empty(), "{probes:#?}");
 }
 
-// The kernel reports a process's memory in /proc on Linux only, where the image runs.
-#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn platform_046_the_resident_memory_is_recorded_at_once_and_every_15_seconds_after() {
     let api = Api::new();
     let clock = api.clock();
+    // The kernel's report, which grows by a megabyte at each reading.
+    let readings = Arc::new(AtomicU64::new(0));
+    let counted = readings.clone();
+    testing::watch_memory(clock.clone(), move || {
+        let reading = counted.fetch_add(1, Ordering::SeqCst) + 1;
+        async move { Some(reading * 1_000_000) }
+    });
+    let memory = || {
+        testing::recorded("process.memory.usage")
+            .iter()
+            .map(|point| point.value)
+            .next_back()
+    };
 
-    platform::telemetry::process::watch(clock.clone());
     clock.sleeping(Duration::from_secs(15)).await;
-    let recorded = testing::recorded("process.memory.usage");
+    let first = memory();
     // Advancing the clock completes the sleep, and ends it: the watcher waits 15 seconds again
-    // only once it has recorded again.
+    // once it has recorded again.
     clock.advance(Duration::from_secs(15));
     clock.sleeping(Duration::from_secs(15)).await;
+    let second = memory();
 
-    assert!(
-        recorded.iter().any(|point| point.value > 0.0),
-        "{recorded:?}"
-    );
+    assert_eq!(first, Some(1_000_000.0));
+    assert_eq!(second, Some(2_000_000.0));
+    assert_eq!(readings.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]

@@ -81,8 +81,8 @@ fn managed_grafana(settings: &[(String, String)]) -> bool {
     managed_telemetry(settings) && !get(settings, "MANAGED_GRAFANA_URL").is_empty()
 }
 
-/// The secrets that the setup asks for, as docs/operations/deploy.md lists them: those the operator
-/// holds, and those a deploy generates, which the operator gives only to take over a lost server's.
+/// The secrets that the operator holds, as docs/operations/deploy.md lists them; the server
+/// generates those it can, for the operator to keep, unless the operator gives a lost server's.
 const SECRETS: &[File] = &[
     File {
         name: "database_admin_url",
@@ -127,9 +127,9 @@ const SECRETS: &[File] = &[
     },
     File {
         name: "postgres_password",
-        what: "The bundled database's superuser password. Enter leaves it to the first deploy, \
-               which generates it; type a lost server's to restore its backups, whose database \
-               keeps it (docs/operations/backups.md).",
+        what: "The bundled database's superuser password. Enter generates one on the server, \
+               the first time, which the setup shows once; type a lost server's to restore its \
+               backups, whose database keeps it (docs/operations/backups.md).",
         generated: true,
         needed: bundled,
     },

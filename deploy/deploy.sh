@@ -293,18 +293,20 @@ check_connections() {
 
 random() { od -An -N24 -tx1 /dev/urandom | tr -d ' \n'; }
 
-# Writes the secrets the deployment generates: the bundled Postgres's passwords and the URLs
-# made from them, and Grafana's administrator password. The files may be read by every user of a
-# container, as Compose mounts them, so the directory admits only the deployment's owner.
+# Writes the secrets the deployment generates, once those the operator holds are there: the
+# passwords of the bundled Postgres's other roles and the URLs made from them, and Grafana's
+# administrator password. The files may be read by every user of a container, as Compose mounts
+# them, so the directory admits only the deployment's owner.
 write_secrets() {
     secrets=$deployment/secrets
     umask 022
     mkdir -p "$secrets/alertmanager"
     chmod 700 "$secrets"
+    check_secrets
     # The bundled database's URLs, written the first time it runs, and again when they name
     # another database, such as the managed one before DATABASE=bundled, whose URLs move aside.
-    # The superuser keeps its password, which an existing data directory holds; bootstrap sets the
-    # other roles' passwords from their URLs.
+    # The superuser's password is the operator's, which `just server-setup` writes and an existing
+    # data directory keeps; bootstrap sets the other roles' passwords from their URLs.
     if [ "$database" = bundled ] && ! grep -q '@postgres:5432/api$' "$secrets/database_url" 2> /dev/null; then
         for name in database_url database_owner_url database_admin_url; do
             if [ -s "$secrets/$name" ]; then
@@ -312,7 +314,6 @@ write_secrets() {
                 say "moved $secrets/$name, which named another database, to $name.before-bundled"
             fi
         done
-        if [ ! -s "$secrets/postgres_password" ]; then random > "$secrets/postgres_password"; fi
         admin=$(cat "$secrets/postgres_password") owner=$(random) app=$(random)
         printf 'postgres://postgres:%s@postgres:5432/api' "$admin" > "$secrets/database_admin_url"
         printf 'postgres://owner:%s@postgres:5432/api' "$owner" > "$secrets/database_owner_url"
@@ -328,7 +329,6 @@ write_secrets() {
     for name in database_url database_owner_url database_admin_url; do
         if [ ! -f "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
     done
-    check_secrets
     # Compose checks every secret file it declares, so the ones this choice of services doesn't
     # use exist empty.
     for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass grafana_admin_password managed_otlp_token; do
@@ -351,7 +351,7 @@ check_secrets() {
         fi
     fi
     if [ "$database" = bundled ]; then
-        for name in backup_s3_key backup_s3_key_secret backup_cipher_pass; do
+        for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass; do
             if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
         done
     fi

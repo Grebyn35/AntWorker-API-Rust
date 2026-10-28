@@ -138,6 +138,8 @@ enum Command {
     ServerSetup {
         /// The server, as SSH names it.
         host: String,
+        /// The release whose files the setup follows, such as 1.4.0; the latest by default.
+        version: Option<String>,
     },
     /// Checks what a deploy of the release `version`, or of the latest release, to the
     /// deployment at `host` needs, and changes nothing (OPS-22).
@@ -235,7 +237,7 @@ fn main() -> ExitCode {
         Command::Restore { host, moment } => return deploy::restore(&host, moment.as_deref()),
         Command::Status { host } => return deploy::status(&host),
         Command::Logs { host, arguments } => return deploy::logs(&host, &arguments),
-        Command::ServerSetup { host } => return server::setup(&host),
+        Command::ServerSetup { host, version } => return server::setup(&host, version.as_deref()),
         Command::ServerCheck { host, version } => return server::check(&host, version.as_deref()),
         command => command,
     };

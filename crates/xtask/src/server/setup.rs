@@ -10,9 +10,9 @@ use std::{
 use super::{
     on_server_output,
     questions::{Prompt, Release, State, Terminal, ask, github_defaults},
-    read, send_checkout,
+    read, send_release,
 };
-use crate::deploy::{quoted, refuse, root};
+use crate::deploy::{quoted, refuse, released, root};
 
 /// The settings `IMAGE_REPOSITORY` and `SOURCE` for the repository that the checkout fetches from,
 /// on GitHub, or none.
@@ -33,10 +33,11 @@ fn defaults(root: &Path) -> Vec<(String, String)> {
     }
 }
 
-/// The file at `path` in the checkout's HEAD, which the files sent to the server come from too.
-fn at_head(root: &Path, path: &str) -> Option<String> {
+/// The file at `path` at the tag of the release `version`, which the files sent to the server
+/// come from too.
+fn in_release(root: &Path, version: &str, path: &str) -> Option<String> {
     Command::new("git")
-        .args(["show", &format!("HEAD:{path}")])
+        .args(["show", &format!("v{version}:{path}")])
         .current_dir(root)
         .output()
         .ok()
@@ -46,19 +47,27 @@ fn at_head(root: &Path, path: &str) -> Option<String> {
 
 /// Sets up the server that SSH reaches at `host`, as root or a user that may run sudo without a
 /// password, or changes its deployment's settings and secrets.
-pub fn setup(host: &str) -> ExitCode {
+pub fn setup(host: &str, version: Option<&str>) -> ExitCode {
     let root = root();
+    let version = match released(&root, version) {
+        Ok(version) => version,
+        Err(refused) => return refuse(&refused),
+    };
     let (Some(example), Some(alertmanager)) = (
-        at_head(&root, "deploy/settings.env.example"),
-        at_head(&root, "deploy/observability/alertmanager/alertmanager.yaml"),
+        in_release(&root, &version, "deploy/settings.env.example"),
+        in_release(
+            &root,
+            &version,
+            "deploy/observability/alertmanager/alertmanager.yaml",
+        ),
     ) else {
-        return refuse("Can't read the release's files at HEAD.");
+        return refuse(&format!("Can't read the files of the release {version}."));
     };
     let release = Release {
         settings: &example,
         alertmanager: &alertmanager,
     };
-    let state = send_checkout(&root, host)
+    let state = send_release(&root, host, &version)
         .and_then(|directory| {
             on_server_output(
                 host,
@@ -81,7 +90,7 @@ pub fn setup(host: &str) -> ExitCode {
         Ok(setup) => setup,
         Err(error) => return refuse(&error),
     };
-    let directory = match send_checkout(&root, host) {
+    let directory = match send_release(&root, host, &version) {
         Ok(directory) => directory,
         Err(error) => return refuse(&format!("Can't copy deploy/ to {host}: {error}")),
     };

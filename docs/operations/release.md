@@ -46,7 +46,7 @@ It checks that `main` can release that version, sets the version in `crates/app/
 | There are changes that aren't committed | Commit them, or set them aside with `git stash` |
 | Another branch than `main` is checked out | `git switch main` |
 | GitHub's `main` has commits that yours doesn't | `git pull` |
-| Your `main` has commits that GitHub's doesn't | `git push`, so that CI checks them first. Running `just release` at once after it is enough: the release's run checks the pushed commits too, so the push's own run, which waits behind or runs beside it, can be cancelled on the Actions page |
+| Your `main` has commits that GitHub's doesn't | `git push`, so that CI checks them first. Running `just release` at once after it is enough: the release's run checks the pushed commits too, so the push's own run, which the release's waits behind ([ci.md](ci.md#the-pipeline)), can be cancelled on the Actions page |
 | The version is released already, or comes before the latest release | Run it with one of the versions it suggests: the next patch, minor or major version |
 | Nothing has changed since the latest release | Nothing: the latest release is current |
 | `main` holds that version already, waiting for a run that passes | Fix what failed, and push the fix: its run releases the version |

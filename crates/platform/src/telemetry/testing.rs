@@ -101,6 +101,16 @@ pub struct Point {
     pub count: Option<u64>,
 }
 
+/// Records what `read` reports as the process's memory, now and every 15 seconds after on
+/// `clock`, as `process::watch` records the kernel's report, which a test can't choose (TEST-05).
+pub fn watch_memory<F, Report>(clock: crate::clock::SharedClock, read: F)
+where
+    F: Fn() -> Report + Send + 'static,
+    Report: Future<Output = Option<u64>> + Send + 'static,
+{
+    super::process::watch_reading(clock, read);
+}
+
 /// The data points of the metric `name`, as everything recorded in the process so far adds up
 /// to. Tests running alongside record too, so a test reads the points whose labels only it
 /// records. Empty if [`install`] hasn't run or nothing recorded the metric.

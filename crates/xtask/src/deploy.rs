@@ -15,7 +15,7 @@ use std::{
     process::{Command, ExitCode, Stdio},
 };
 
-use crate::release::Version;
+use crate::release::{Version, latest_release};
 
 /// The deployment's directory on the server, in the home of the user SSH signs in as.
 const DEPLOYMENT: &str = "$HOME/deployment";
@@ -44,17 +44,24 @@ pub fn quoted(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
-/// Deploys the release `version` to the deployment that SSH reaches at `host`.
-pub fn deploy(host: &str, version: &str, allow_restart: bool) -> ExitCode {
-    let root = root();
-    if let Err(error) = run(&root, "git", &["fetch", "--quiet", "--tags", "origin"]) {
-        return refuse(&format!(
-            "Can't fetch the release tags from GitHub: {error}"
-        ));
-    }
-    let tagged = |tag: &str| {
+/// The version of the release that `requested` names, or of the latest release, once the
+/// release tags are fetched from GitHub; or why no release can be taken.
+pub fn released(root: &Path, requested: Option<&str>) -> Result<String, String> {
+    run(root, "git", &["fetch", "--quiet", "--tags", "origin"])
+        .map_err(|error| format!("Can't fetch the release tags from GitHub: {error}"))?;
+    let Some(requested) = requested else {
+        return match latest_release(root)? {
+            Some(version) => Ok(version.to_string()),
+            None => Err(
+                "No release exists yet, and a task on a server takes a release. \
+                         `just release` makes one: docs/operations/release.md says how."
+                    .to_owned(),
+            ),
+        };
+    };
+    release(requested, |tag| {
         run(
-            &root,
+            root,
             "git",
             &[
                 "rev-parse",
@@ -64,8 +71,13 @@ pub fn deploy(host: &str, version: &str, allow_restart: bool) -> ExitCode {
             ],
         )
         .is_ok()
-    };
-    let version = match release(version, tagged) {
+    })
+}
+
+/// Deploys the release `version` to the deployment that SSH reaches at `host`.
+pub fn deploy(host: &str, version: &str, allow_restart: bool) -> ExitCode {
+    let root = root();
+    let version = match released(&root, Some(version)) {
         Ok(version) => version,
         Err(refused) => return refuse(&refused),
     };

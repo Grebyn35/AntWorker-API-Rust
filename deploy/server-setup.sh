@@ -1,6 +1,6 @@
 #!/bin/sh
 # Sets up a server for the reference deployment, and changes its settings and secrets (OPS-22).
-# `just server-setup` sends deploy/ from the developer's checkout to a temporary directory on the
+# `just server-setup` sends deploy/ of a release, at its tag, to a temporary directory on the
 # server, and runs this script there, as the user SSH signs in as: root, or a user that may run
 # sudo without a password. With root, the deployment runs as the user deploy, which the script
 # creates; with another user, as that user. Each run removes the script's directory as it ends.
@@ -10,8 +10,8 @@
 #       user the deployment runs as, its settings, and the secrets and certificates it holds.
 #   server-setup.sh apply
 #       Installs Docker, unless Docker 29 or later runs, creates the deployment's user, then, as
-#       that user, writes what its standard input holds, and generates the backups' passphrase
-#       when the bundled database has none. Its input holds one item per line, each value in
+#       that user, writes what its standard input holds, and generates the backups' passphrase and
+#       the bundled database's superuser password when it has none. Its input holds one item per line, each value in
 #       base64:
 #           settings <value>                    the deployment's settings.env
 #           secret <name> <value>               the secret file secrets/<name>, such as
@@ -216,13 +216,24 @@ write() {
             *) fail "no item is named $kind" ;;
         esac
     done
+    # The bundled database's secrets that no answer gave: the passphrase that encrypts the backups,
+    # and the superuser's password, which a restored database keeps.
     database=$(sed -n 's/^DATABASE=//p' "$deployment/settings.env" | tail -n 1)
-    if [ "${database:-bundled}" = bundled ] && [ ! -s "$deployment/secrets/backup_cipher_pass" ]; then
-        head -c 48 /dev/urandom | base64 | tr -d '\n' > "$deployment/secrets/backup_cipher_pass"
-        say "generated the passphrase that encrypts the backups, which no task shows again:"
-        printf '\n    %s\n\n' "$(cat "$deployment/secrets/backup_cipher_pass")"
-        say "keep a copy off the server, such as in a password manager: without it, no backup can be restored (docs/operations/backups.md)"
-    fi
+    if [ "${database:-bundled}" != bundled ]; then return; fi
+    generated=""
+    for name in backup_cipher_pass postgres_password; do
+        if [ ! -s "$deployment/secrets/$name" ]; then
+            head -c 48 /dev/urandom | base64 | tr -d '\n' > "$deployment/secrets/$name"
+            generated="$generated $name"
+        fi
+    done
+    if [ -z "$generated" ]; then return; fi
+    say "generated these secrets, which no task shows again:"
+    for name in $generated; do
+        printf '\n    %s: %s\n' "$name" "$(cat "$deployment/secrets/$name")"
+    done
+    printf '\n'
+    say "keep a copy of each off the server, such as in a password manager: without them, no backup can be restored (docs/operations/backups.md)"
 }
 
 case ${1:-} in

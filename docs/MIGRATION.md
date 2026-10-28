@@ -45,7 +45,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | Rate limiting: the IP, per-user and per-action limits, with the client IP taken from trusted proxies | D11 | 2.1 |
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | built |
 | The image and the delivery pipeline, with the release docs | D15, D21, D43 | built |
-| The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30, D44, D45, D47, D49, D50, D51 | built |
+| The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30, D44, D45, D47, D49, D50, D51, D52, D53 | built |
 | Grafana on an HTTPS address of its own with sign-in, and the path to a managed observability backend through the collector, with Grafana Cloud as the worked example | D19, D42 | built |
 | The command that removes an optional part, which `check-removable` runs | D29, D39 | 2.3 |
 | `just seed` and the OpenAPI UI in development | D28 | 2.4 |
@@ -133,7 +133,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 3ae7168 | ARCH-07: whether password sign-in is an optional part, for a fork that signs in only through OAuth providers | 5, with the full `auth` module |
 | Conformance review of 3ae7168 | DATA-12 and the platform spec's unit of work: how an operator's subcommand, such as `seed` or the setup subcommand, opens its unit of work, and as which role | 2.4, with `seed` |
 | Conformance review of a28df7b..1d13d63 | OPS-22: a runbook's diagnostics (`docker system df`, `docker image prune`, `docker stats`), the removal of the data a restore set aside, and the first reading of Grafana's administrator password run on the server: `just` tasks do them, or OPS-22 names them as the commands an operator may run there over SSH | 1.5, by the owner, with this review |
-| Conformance review of a28df7b..1d13d63 | OPS-13: whether the packages `just server-setup` installs from apt, Docker's among them, are pinned, or are the distribution's current ones, as a server's other packages are, with Docker's repository trusted by its key's fingerprint | 1.5, by the owner, with this review |
+| Conformance review of a28df7b..1d13d63 | OPS-13 and OPS-20: whether the packages `just server-setup` installs from apt, Docker's among them, are pinned, or are the distribution's current ones, as a server's other packages are, with Docker's repository trusted by its key's fingerprint; and whether the distribution's mirrors, often plain HTTP with signed indexes, count as a connection that OPS-20 asks TLS of | 1.5, by the owner, with this review |
 | Conformance review of a28df7b..1d13d63 | D10 and OPS-05: with `TELEMETRY=off`, the trace ID of the proxy's 503 leads to a line in Caddy's log file, which `just logs` doesn't show, since Caddy writes a site's lines through one logger | 1.5, by the owner, with this review |
 
 ## Conformance reviews

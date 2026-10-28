@@ -54,7 +54,7 @@ Every recipe of the justfile that runs on Linux and macOS, and every shell scrip
 ## Size
 
 ### CODE-07 Files stay under 500 lines
-A source file over 500 lines, tests excluded, is split into a directory with the same name (ARCH-03).
+A Rust source file over 500 lines, tests excluded, is split into a directory of modules with the same name (ARCH-03).
 - Why: a file a reader can hold in mind at once.
 - Check: `ci: check-layout`.
 

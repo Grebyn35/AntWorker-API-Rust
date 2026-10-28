@@ -386,12 +386,13 @@ restore host moment="":
     {{ xtask }} restore {{ host }} "{{ moment }}"
 
 # Sets up the server that SSH reaches at `host`, as root or a user that may run sudo without a
-# password, for the reference deployment (OPS-22): asks for the settings and the secrets that the
-# settings' choices need, then installs Docker on Debian and Ubuntu, prepares the user the
-# deployment runs as, logs it in to the registry, and writes what it asked. Run again, it changes
-# them. docs/operations/deploy.md describes it.
-server-setup host:
-    {{ xtask }} server-setup {{ host }}
+# password, for the reference deployment of the release `version`, or of the latest release
+# (OPS-22): asks for the settings and the secrets that the settings' choices need, then installs
+# Docker on Debian and Ubuntu, prepares the user the deployment runs as, logs it in to the
+# registry, and writes what it asked. Run again, it changes them. docs/operations/deploy.md
+# describes it.
+server-setup host version="":
+    {{ xtask }} server-setup {{ host }} {{ version }}
 
 # Checks what a deploy of the release `version`, or of the latest release, to the reference
 # deployment on `host` needs, and changes nothing of the deployment (OPS-22): on the server, the

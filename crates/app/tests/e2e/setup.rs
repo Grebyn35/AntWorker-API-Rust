@@ -75,16 +75,24 @@ fn assert_set_up(server: &Server, output: &std::process::Output, settings: &str)
         "wrote /home/deploy/deployment/certs/backup-ca.crt",
         "wrote /home/deploy/deployment/secrets/alertmanager/page_url",
         "logged in to registry:5000 as e2e",
-        "generated the passphrase",
+        "generated these secrets",
     ] {
         assert!(output.contains(line), "{line}: {output}");
     }
     let passphrase = server.shell_ok(&format!("cat {DEPLOYMENT}/secrets/backup_cipher_pass"));
-    assert_eq!(passphrase.len(), 64, "{passphrase}");
-    assert!(
-        output.lines().any(|line| line.trim() == passphrase),
-        "the passphrase, shown once: {output}"
-    );
+    let password = server.shell_ok(&format!("cat {DEPLOYMENT}/secrets/postgres_password"));
+    for (name, value) in [
+        ("backup_cipher_pass", &passphrase),
+        ("postgres_password", &password),
+    ] {
+        assert_eq!(value.len(), 64, "{value}");
+        assert!(
+            output
+                .lines()
+                .any(|line| line.trim() == format!("{name}: {value}")),
+            "{name}, shown once: {output}"
+        );
+    }
     assert_eq!(
         server.shell_ok(&format!("stat -c '%U %a' {DEPLOYMENT}/secrets")),
         "deploy 700"
@@ -123,7 +131,7 @@ async fn ops_22_a_new_server_that_the_setup_prepares_passes_the_check_and_runs_a
     let replaced = as_deploy(&server, &check);
 
     assert!(again.status.success(), "{}", lossy(&again));
-    assert!(!lossy(&again).contains("passphrase"), "{}", lossy(&again));
+    assert!(!lossy(&again).contains("generated"), "{}", lossy(&again));
     assert!(
         !lossy(&again).contains("created the user"),
         "{}",

@@ -20,6 +20,10 @@ pub const COLLECTOR: &str = "deploy/observability/collector/config.yaml";
 /// The configuration the collector merges over `COLLECTOR` to send to a managed backend.
 pub const MANAGED: &str = "deploy/observability/collector/managed.yaml";
 
+/// The configuration every collector of a deployment merges over `COLLECTOR`, before `MANAGED`,
+/// for the proxy's telemetry (D53).
+pub const PROXY: &str = "deploy/observability/collector/proxy.yaml";
+
 /// The store a query reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Store {

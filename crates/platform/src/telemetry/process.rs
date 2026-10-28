@@ -24,9 +24,19 @@ static MEMORY_USAGE: Gauge<0> = Gauge::new(
 /// Records the process's resident memory now and every interval after, for as long as the runtime
 /// runs.
 pub fn watch(clock: SharedClock) {
+    watch_reading(clock, resident);
+}
+
+/// Records what `read` reports, in bytes, now and every interval after: the kernel's report of the
+/// process, or, in tests, a fake of it, since tests choose no memory the kernel reports (TEST-05).
+pub(crate) fn watch_reading<F, Report>(clock: SharedClock, read: F)
+where
+    F: Fn() -> Report + Send + 'static,
+    Report: Future<Output = Option<u64>> + Send + 'static,
+{
     tokio::spawn(async move {
         loop {
-            if let Some(bytes) = resident().await {
+            if let Some(bytes) = read().await {
                 MEMORY_USAGE.set(bytes, []);
             }
             clock.sleep(INTERVAL).await;

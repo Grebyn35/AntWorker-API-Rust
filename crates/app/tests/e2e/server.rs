@@ -513,6 +513,11 @@ impl Server {
             &format!("{DEPLOYMENT}/secrets/backup_cipher_pass"),
             "the passphrase of the e2e tests' backups",
         );
+        // The bundled database's superuser password, which the setup writes with the bucket's.
+        self.write(
+            &format!("{DEPLOYMENT}/secrets/postgres_password"),
+            "the superuser's password of the e2e tests' database",
+        );
         [
             ("BACKUP_S3_ENDPOINT", address.as_str()),
             ("BACKUP_S3_PORT", "8334"),

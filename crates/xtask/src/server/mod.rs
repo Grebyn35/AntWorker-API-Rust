@@ -1,6 +1,7 @@
 //! `server-setup` and `server-check`, which the `just` recipes of the same names run on a
-//! developer's machine (OPS-22). Both send deploy/ from the checkout's HEAD to a temporary
-//! directory on the server over SSH. `server-setup` asks for the settings and the secrets that
+//! developer's machine (OPS-22). Both send deploy/ at the tag of a release, the latest unless one
+//! is named, to a temporary directory on the server over SSH, as a deploy of that release runs
+//! its files. `server-setup` asks for the settings and the secrets that
 //! the settings' choices need, then runs deploy/server-setup.sh, which installs Docker, prepares
 //! the deployment's user, and writes what was asked. `server-check` runs deploy.sh's check of a
 //! release on the server, then checks from here what only the outside sees: where each of the
@@ -31,10 +32,10 @@ use crate::deploy::archive;
 /// The deployment's directory on the server, in the home of the user SSH signs in as.
 const DEPLOYMENT: &str = "$HOME/deployment";
 
-/// Copies the files of deploy/ in the checkout's HEAD to a new temporary directory on `host`,
-/// and returns its path there.
-fn send_checkout(root: &Path, host: &str) -> Result<String, String> {
-    let mut archive = archive(root, "HEAD:deploy")
+/// Copies the files of deploy/ at the tag of the release `version` to a new temporary
+/// directory on `host`, as a deploy of the release runs them, and returns its path there.
+fn send_release(root: &Path, host: &str, version: &str) -> Result<String, String> {
+    let mut archive = archive(root, &format!("v{version}:deploy"))
         .stdout(Stdio::piped())
         .spawn()
         .map_err(|error| format!("can't run git archive: {error}"))?;

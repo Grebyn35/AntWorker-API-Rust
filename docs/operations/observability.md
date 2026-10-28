@@ -47,7 +47,7 @@ Prometheus keeps metrics for 15 days, and Loki and Tempo keep logs and traces fo
 
 ## A managed backend
 
-A deployment may send its telemetry to a managed backend that accepts the OpenTelemetry Protocol (OTLP), such as Grafana Cloud, instead of running Prometheus, Loki, Tempo, Grafana and Alertmanager itself (D42). With `TELEMETRY=managed`, the reference deployment runs only the collector, with [managed.yaml](../../deploy/observability/collector/managed.yaml) merged over its configuration: the same receivers and processors, tail sampling among them (OBS-08), with what the self-hosted stack does elsewhere, below, and one exporter, to the backend. The API exports to the collector as before, so its settings don't change, and only the collector holds the credentials the backend receives telemetry with, and the deploy's import alone the token of its Grafana.
+A deployment may send its telemetry to a managed backend that accepts the OpenTelemetry Protocol (OTLP), such as Grafana Cloud, instead of running Prometheus, Loki, Tempo, Grafana and Alertmanager itself (D42). With `TELEMETRY=managed`, the reference deployment runs only the collector, with [managed.yaml](../../deploy/observability/collector/managed.yaml) merged over its configuration: the same receivers and processors, tail sampling among them (OBS-08), with what the self-hosted stack does elsewhere, below, and one exporter, to the backend. The API exports to the collector as before, so its settings don't change, and the backend's tokens stay in the deployment's `secrets/`: the collector sends the telemetry with one, the deploy's import signs in to the backend's Grafana with the other, and `just server-check` tries both.
 
 The deployment's settings name the backend's OTLP endpoint, which is HTTPS (OPS-20), and the user the collector signs in as: `MANAGED_OTLP_ENDPOINT` and `MANAGED_OTLP_USER`, which [deploy/settings.env.example](../../deploy/settings.env.example) describes. The token goes in the secret file `secrets/managed_otlp_token`. A backend whose certificate a private authority signed is trusted through that authority's certificate in `certs/managed-otlp-ca.crt`.
 
@@ -84,7 +84,7 @@ Grafana opens without signing in, as a viewer who can explore. On a server, it a
 
 Every response except the health probes carries its trace context in `server-timing`, as `trace;desc=00-<trace ID>-<span ID>-01`, and every error body holds the trace ID as `trace_id` (API-16, API-07), the proxy's `request.unavailable` too (D53). A user who reports a failure can quote it. To follow it:
 
-1. In Grafana, open Explore, choose the Loki data source, and run `{service_name=~"antworker-api|caddy"} | trace_id="<trace ID>"`. Every log line of the request appears, with its fields: the API's, or, for a request that no replica answered, the proxy's.
+1. In Grafana, open Explore, choose the Loki data source, and run `{service_name=~".+"} | trace_id="<trace ID>"`. Every log line of the request appears, with its fields: the API's, or, for a request that no replica answered, the proxy's.
 2. Open a line, and choose "Open the trace" under its links. The trace opens beside the logs, with each span's duration and attributes.
 3. From a span, "Related logs" runs the query of the first step for the span's trace.
 
