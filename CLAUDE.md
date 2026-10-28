@@ -32,7 +32,7 @@ just dev             # the API with auto-reload; `just dev observe` adds the obs
 just ci              # every check CI runs, the image's included
 just checks          # the checks of the code, which need no image
 just image           # the image, for both platforms, into target/image
-just e2e             # the end-to-end tests, against the image in target/image
+just e2e             # the end-to-end tests, against the image in target/image; `just e2e linux/amd64 obs_13` runs those whose names hold obs_13
 just release 1.4.0   # releases main as 1.4.0, once CI passes (docs/operations/release.md)
 just check-test-map  # which spec behaviors tests prove
 just test            # the tests; they start Postgres through Compose
