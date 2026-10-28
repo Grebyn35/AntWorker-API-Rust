@@ -88,6 +88,8 @@ Every response except the health probes carries its trace context in `server-tim
 2. Open a line, and choose "Open the trace" under its links. The trace opens beside the logs, with each span's duration and attributes.
 3. From a span, "Related logs" runs the query of the first step for the span's trace.
 
+Without telemetry (`TELEMETRY=off`), the request's lines are only in the services' output on the server: `just logs <user>@<address> api caddy | grep <trace ID>` finds the API's, or, for a request that no replica answered, the proxy's ([deploy.md](deploy.md#checking-on-a-deployment)).
+
 A trace is kept when the request failed, answered 400 or above, or took longer than the latency objective, and a successful fast request's trace only sometimes. Its logs are never sampled.
 
 To find the slow requests of a time range instead, the API requests dashboard lists them under "Which requests took longer than the latency objective?", each opening its trace.

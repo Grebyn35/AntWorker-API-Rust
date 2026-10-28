@@ -182,6 +182,17 @@ async fn ops_05_while_no_replica_runs_the_proxy_answers_at_once_with_the_api_s_5
         timing.starts_with(&format!("trace;desc=00-{trace}-")),
         "{timing}"
     );
+    // Without telemetry, the trace ID leads to the proxy's line through `just logs`.
+    let logs = deployment.server.deploy(&["logs", "caddy"]);
+    assert!(logs.status.success(), "{}", lossy(&logs));
+    assert!(
+        lossy(&logs)
+            .lines()
+            .any(|line| line.starts_with("caddy requests | ")
+                && line.contains(&format!("\"traceID\":\"{trace}\""))),
+        "{}",
+        lossy(&logs)
+    );
     assert_eq!(probe, 503);
     assert!(probe_body.is_empty(), "{probe_body}");
     for absent in ["content-type", "server-timing"] {

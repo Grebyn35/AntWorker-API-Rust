@@ -124,7 +124,7 @@ shows whether a deploy, backup or restore runs, or a deploy stopped before its r
 just logs deploy@203.0.113.7 api
 ```
 
-shows the last 100 lines of the logs of both colors' replicas. Name any of the deployment's services instead, such as `caddy`, `postgres` or `backup`, or none for all of them, and add `--follow` to go on showing the lines that follow, until Ctrl-C. With the self-hosted stack, Grafana also keeps the API's logs, to search ([observability.md](observability.md)).
+shows the last 100 lines of the logs of both colors' replicas. Name any of the deployment's services instead, such as `caddy`, `postgres` or `backup`, or none for all of them, and add `--follow` to go on showing the lines that follow, until Ctrl-C. With `caddy`, or no service named, the last 100 of Caddy's lines of the requests it answered itself follow, such as its 503 while no replica runs, each headed `caddy requests`: Caddy writes them to a file, which the collector reads when the deployment has telemetry, and each holds the request's trace ID as `traceID`. With the self-hosted stack, Grafana also keeps the API's logs, to search ([observability.md](observability.md)).
 
 ## Scaling
 

@@ -23,7 +23,8 @@
 #       free disk and memory. It changes nothing, so it runs beside any other task.
 #   deploy.sh logs [--follow] [<service>...]
 #       Shows the last 100 lines of each service's log, of every service without one, and with
-#       --follow, the lines that follow. `api` names both colors' replicas.
+#       --follow, the lines that follow. `api` names both colors' replicas. With caddy, or every
+#       service, Caddy's lines of the requests it answered itself follow too (D53).
 #   deploy.sh check <version>
 #   deploy.sh check-images <API image> <Postgres image>
 #       Checks what a deploy of the release <version>, or of the two images, each named by
@@ -753,8 +754,36 @@ logs() {
     done
     if [ ! -f "$state/deploy.env" ]; then fail "no deploy has run on this server, so no service has logs"; fi
     read_settings
-    # shellcheck disable=SC2086 # $follow is an option or nothing, and $services holds one service per word.
-    compose logs --tail 100 $follow $services
+    case " $services " in
+        "  " | *" caddy "*) ;;
+        *)
+            # shellcheck disable=SC2086 # $follow is an option or nothing, and $services holds one service per word.
+            compose logs --tail 100 $follow $services
+            return
+            ;;
+    esac
+    if [ -z "$follow" ]; then
+        # shellcheck disable=SC2086 # $services holds one service per word.
+        compose logs --tail 100 $services
+        requests < /dev/null
+        return
+    fi
+    # The services' lines hold, as file 5, the pipe that Caddy's lines of the requests read, so
+    # these end once those do, however they end.
+    exec 4>&1
+    # shellcheck disable=SC2086 # $services holds one service per word.
+    compose logs --tail 100 --follow $services 5>&1 >&4 4>&- | requests
+}
+
+# Shows Caddy's lines of the requests it answered itself, which it writes to a file for the
+# collector (D53), each headed as Compose heads a service's line: the last 100, and with
+# --follow, the lines that follow, until this function's input ends. The shell in Caddy's
+# container then ends its tail, and waits for it, since Caddy reaps no process of its own.
+requests() {
+    # shellcheck disable=SC2016 # The shell in Caddy's container expands $line.
+    lines='tail -n 100 '${follow:+-F}' /var/log/caddy/access.log 2> /dev/null | while IFS= read -r line; do printf "caddy requests | %s\n" "$line"; done'
+    if [ -n "$follow" ]; then lines="$lines & cat > /dev/null; trap '' TERM; kill 0; wait"; fi
+    compose exec -T caddy sh -c "$lines" || say "Caddy doesn't run, so its lines of the requests it answered itself aren't shown"
 }
 
 # The lines that `check` writes: a check that passed, one that failed, which fails `check`, and

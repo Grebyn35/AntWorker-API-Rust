@@ -132,9 +132,6 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 3ae7168 | A DATA rule for D39: data a module adds for its product has a `workspace_id`, and a check fails on a table keyed by a user ID that isn't listed as account data. | 2.2, with the first workspace tables and `check-tenancy` |
 | Conformance review of 3ae7168 | ARCH-07: whether password sign-in is an optional part, for a fork that signs in only through OAuth providers | 5, with the full `auth` module |
 | Conformance review of 3ae7168 | DATA-12 and the platform spec's unit of work: how an operator's subcommand, such as `seed` or the setup subcommand, opens its unit of work, and as which role | 2.4, with `seed` |
-| Conformance review of a28df7b..1d13d63 | OPS-22: a runbook's diagnostics (`docker system df`, `docker image prune`, `docker stats`), the removal of the data a restore set aside, and the first reading of Grafana's administrator password run on the server: `just` tasks do them, or OPS-22 names them as the commands an operator may run there over SSH | 1.5, by the owner, with this review |
-| Conformance review of a28df7b..1d13d63 | OPS-13 and OPS-20: whether the packages `just server-setup` installs from apt, Docker's among them, are pinned, or are the distribution's current ones, as a server's other packages are, with Docker's repository trusted by its key's fingerprint; and whether the distribution's mirrors, often plain HTTP with signed indexes, count as a connection that OPS-20 asks TLS of | 1.5, by the owner, with this review |
-| Conformance review of a28df7b..1d13d63 | D10 and OPS-05: with `TELEMETRY=off`, the trace ID of the proxy's 503 leads to a line in Caddy's log file, which `just logs` doesn't show, since Caddy writes a site's lines through one logger | 1.5, by the owner, with this review |
 
 ## Conformance reviews
 
@@ -165,7 +162,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 87c8718..97f5cae: step 1.5, the reference deployment | 4 | 9 (5, 5, 1 shared) | 1 | 0 | `stopped: no progress`: 9306556 |
 | a28df7b..1d13d63: step 1.5 after its review: status and logs, the trial's fixes, the managed Grafana import, the deploy lock and the put-back, server-setup and server-check, and the proxy's answer while no replica runs | 1 | 17 (13, 7, 3 shared) | 8 | 0 | `next pass`: 3392e71 |
 | a28df7b..3392e71: step 1.5 after its review, as above | 2 | 7 (6, 1, 0 shared) | 2 | 0 | `next pass`: 4718850 |
-| a28df7b..4718850: step 1.5 after its review, as above | 3 | 4 (4, 1, 1 shared) | 1 | 1 | `stopped: no progress` |
+| a28df7b..4718850: step 1.5 after its review, as above | 3 | 4 (4, 1, 1 shared) | 1 | 1 | `stopped: no progress`: a040339 |
 
 ## Decisions
 
