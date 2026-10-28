@@ -163,7 +163,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 87c8718..3960dba: step 1.5, the reference deployment | 2 | 11 (9, 4, 2 shared) | 2 | 0 | `next pass`: 737c1be |
 | 87c8718..353e0e9: step 1.5, the reference deployment | 3 | 10 (8, 4, 2 shared) | 1 | 0 | `next pass`: 97f5cae |
 | 87c8718..97f5cae: step 1.5, the reference deployment | 4 | 9 (5, 5, 1 shared) | 1 | 0 | `stopped: no progress`: 9306556 |
-| a28df7b..1d13d63: step 1.5 after its review: status and logs, the trial's fixes, the managed Grafana import, the deploy lock and the put-back, server-setup and server-check, and the proxy's answer while no replica runs | 1 | 17 (13, 7, 3 shared) | 8 | 0 | `next pass` |
+| a28df7b..1d13d63: step 1.5 after its review: status and logs, the trial's fixes, the managed Grafana import, the deploy lock and the put-back, server-setup and server-check, and the proxy's answer while no replica runs | 1 | 17 (13, 7, 3 shared) | 8 | 0 | `next pass`: 3392e71 |
+| a28df7b..3392e71: step 1.5 after its review, as above | 2 | 7 (6, 1, 0 shared) | 2 | 0 | `next pass` |
 
 ## Decisions
 
