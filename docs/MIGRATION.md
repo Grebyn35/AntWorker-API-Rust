@@ -5,12 +5,12 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 ## Current work
 
 **Next:** two parts end step 1.5. The trial server, which the owner allows wiping, was set up anew with `just server-setup` and `just server-check`, restored from its bucket, and runs 0.1.0-rc.8, with its telemetry in the owner's Grafana Cloud stack; the trial's findings are in the messages of the commits "Hand off step 1.5's trial deploy" and "Prove the server's setup on a new server, and act on what the trial showed".
-1. What a client gets while no replica runs, as during a restore: Caddy waits 5 seconds, then answers 503 with an empty body, which is no problem (API-07) and has no trace ID (D10). Waits on the owner.
+1. Build D53: while no replica can answer, as during a restore, Caddy answers at once with the 503 problem `request.unavailable`, whose trace ID leads to Caddy's span and log line. The design, proven by experiment, is in the message of the commit "Record the owner's choice for what the proxy answers".
 2. A conformance review of everything since a28df7b.
 
 The trace test `traces::obs_08_…` fails now and then on amd64; its output now says why, so read it at its next failure.
 
-**Waiting on the owner:** which provider production runs on, since the trial's encrypts no disk (OPS-20); and for part 1, whether Caddy's answer is the 503 problem with a trace ID that leads to Caddy's own trace and log line, or one whose trace ID leads nowhere, which narrows D10.
+**Waiting on the owner:** which provider production runs on, since the trial's encrypts no disk (OPS-20).
 
 ## Build order
 
@@ -224,3 +224,4 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D50 | A deploy that refuses or fails once it installed its release's files, and before its replicas serve in place of the old ones, puts back the ones it replaced; those it couldn't put back, because a forced stop or a failed copy prevented it, the next deploy, backup or restore puts back first. Between tasks, once a deploy's replicas have served, the deployment's directory holds the files of the last deploy whose replicas served (OPS-16, [deploy.md](operations/deploy.md#the-files-on-the-server)) | accepted |
 | D51 | The reference deployment's settings and secrets stay on its server, and every task on the server, its setup included, runs from a developer's machine through `just` over SSH, rather than keeping the settings in the repository, where secrets can't go, or on one developer's machine (OPS-22) | accepted |
 | D52 | With a managed backend, each deploy imports the release's dashboards and alert rules into the backend's Grafana once its replicas serve: the dashboards into a folder that only the import and the Grafana's administrators may change, the rules as Grafana's own through its conversion of Prometheus rules rather than into the backend's ruler, whose alerts reach no Alertmanager on Grafana Cloud. Grafana's notification policies route the alerts, and a failed import only warns (OBS-13, OBS-14, [observability.md](operations/observability.md#a-managed-backend)) | accepted |
+| D53 | While no replica can answer, the reference deployment's proxy answers at once with the 503 problem `request.unavailable` and `Retry-After`, and D10 holds for it: the proxy traces each request but the health probes, and logs each request it answers itself, through the collector, with no personal data (API-07, OBS-04, OBS-06, OBS-15) | accepted |
