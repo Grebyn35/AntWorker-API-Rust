@@ -4,9 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** two parts end step 1.5. The trial server, which the owner allows wiping, was set up anew with `just server-setup` and `just server-check`, restored from its bucket, and runs 0.1.0-rc.8, with its telemetry in the owner's Grafana Cloud stack; the trial's findings are in the messages of the commits "Hand off step 1.5's trial deploy" and "Prove the server's setup on a new server, and act on what the trial showed".
-1. Prove D53, which is built, on the trial server: a release with it, deployed with `--allow-restart`, and a restore under requests, each answered with the 503 problem `request.unavailable` within a second, its trace and log line in the owner's Grafana Cloud stack.
-2. A conformance review of everything since a28df7b.
+**Next:** one part ends step 1.5: a conformance review of everything since a28df7b. The trial server, which the owner allows wiping, was set up anew with `just server-setup` and `just server-check`, and runs 0.1.0-rc.9, with its telemetry in the owner's Grafana Cloud stack; the trial's findings are in the messages of the commits "Hand off step 1.5's trial deploy", "Prove the server's setup on a new server, and act on what the trial showed" and "Prove the proxy's answer while no replica runs on the trial server".
 
 The trace test `traces::obs_08_…` fails now and then on amd64; its output now says why, so read it at its next failure.
 
