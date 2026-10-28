@@ -955,6 +955,14 @@ check_backend() {
     fi
     trust=""
     if [ -f "$deployment/certs/managed-grafana-ca.crt" ]; then trust="--cacert /run/certs/managed-grafana-ca.crt"; fi
+    # A Grafana Cloud instance that slept answers 503 while it loads again, so the check waits for
+    # Grafana's health check, as the import does (import-grafana.sh).
+    # shellcheck disable=SC2086 # $trust is an option and its value, or nothing.
+    if ! answer=$(docker run --rm --quiet --volume "$deployment/certs:/run/certs:ro" "$curl" --silent \
+        --show-error --fail --retry 8 --retry-max-time 180 --output /dev/null $trust "$grafana/api/health" 2>&1); then
+        failed "the managed Grafana at $grafana doesn't answer within three minutes: $(printf '%s\n' "$answer" | tail -n 1)"
+        return
+    fi
     # shellcheck disable=SC2086 # $trust is an option and its value, or nothing.
     if answer=$(docker run --rm --quiet --volume "$deployment/secrets/managed_grafana_token:/run/token:ro" \
         --volume "$deployment/certs:/run/certs:ro" "$curl" --silent --show-error --fail-with-body $trust \

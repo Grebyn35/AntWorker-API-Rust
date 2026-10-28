@@ -429,6 +429,69 @@ impl Server {
         ))
     }
 
+    /// Starts a front for the stand-in managed Grafana, on port 3445 of the server, with the
+    /// Grafana's certificate, which hands each request to the Grafana until
+    /// `managed_grafana_loads`. Returns the deployment's setting for it.
+    pub fn front_managed_grafana(&self) -> Vec<(String, String)> {
+        let caddy = include_str!("../../../../deploy/compose.yaml")
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("image: caddy:"))
+            .map(|image| format!("caddy:{image}"))
+            .expect("the deployment's Caddy image");
+        let address = self
+            .container
+            .inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
+        // A client that reaches an address sends no server name, which Caddy picks the
+        // certificate by.
+        let site = |answer: &str| {
+            format!(
+                "{{\n\tdefault_sni {address}\n}}\n\
+                 :3445 {{\n\ttls /grafana/server.crt /grafana/server.key\n\tlog\n\t{answer}\n}}\n"
+            )
+        };
+        self.write(
+            "/root/front/ready.caddy",
+            &site(&format!(
+                "reverse_proxy https://{address}:3443 {{\n\t\ttransport http {{\n\t\t\ttls_insecure_skip_verify\n\t\t}}\n\t}}"
+            )),
+        );
+        self.write(
+            "/root/front/loading.caddy",
+            &site(
+                r#"respond `{"code":"Loading","message":"Your instance is loading, and will be ready shortly."}` 503"#,
+            ),
+        );
+        self.write(
+            "/root/front/ready-after-503.sh",
+            "before=$(docker logs grafana-front 2>&1 | grep -c '\"status\":503')\n\
+             until [ \"$(docker logs grafana-front 2>&1 | grep -c '\"status\":503')\" -gt \"$before\" ]; do sleep 1; done\n\
+             sleep 5\n\
+             docker exec grafana-front caddy reload --config /front/ready.caddy --adapter caddyfile\n\
+             echo answered 503 >> /root/front/loaded\n",
+        );
+        self.shell_ok(&format!(
+            "docker run --detach --quiet --name grafana-front --publish 3445:3445 \
+                --volume /root/grafana:/grafana:ro --volume /root/front:/front:ro {caddy} \
+                caddy run --config /front/ready.caddy --adapter caddyfile > /dev/null"
+        ));
+        vec![(
+            "MANAGED_GRAFANA_URL".to_owned(),
+            format!("https://{address}:3445"),
+        )]
+    }
+
+    /// Makes the front of the stand-in managed Grafana answer as a Grafana Cloud instance that
+    /// slept does while it loads again, with a 503, until five seconds after it first answers so,
+    /// then hand each request to the Grafana again. Returns at once; /root/front/loaded holds a
+    /// line for each time the front answered 503 and then loaded.
+    pub fn managed_grafana_loads(&self) {
+        self.shell_ok(
+            "docker exec grafana-front caddy reload --config /front/loading.caddy \
+                --adapter caddyfile 2> /dev/null \
+             && (timeout 600 sh /root/front/ready-after-503.sh > /dev/null 2>&1 &)",
+        );
+    }
+
     /// Makes an authority of the test's own named `authority`, as ca.crt in `directory` on the
     /// server, and a certificate it signed for the server's own address, as server.crt and
     /// server.key, each readable by every user, since the stand-ins run as users of their own.

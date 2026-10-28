@@ -389,6 +389,42 @@ async fn obs_13_a_deploy_imports_the_dashboards_into_a_folder_of_the_managed_gra
 }
 
 #[tokio::test]
+async fn obs_13_the_check_and_a_deploy_wait_for_a_managed_grafana_that_is_still_loading() {
+    let deployment = Deployment::managed(&[]).await;
+    let mut settings = vec![("TELEMETRY".to_owned(), "managed".to_owned())];
+    settings.extend(deployment.server.start_otlp_backend());
+    settings.extend(deployment.server.start_managed_grafana());
+    settings.extend(deployment.server.front_managed_grafana());
+    deployment.set(&pairs(&settings));
+    let released = release_dashboards(&deployment);
+
+    deployment.server.managed_grafana_loads();
+    let checked =
+        deployment
+            .server
+            .deploy(&["check-images", &deployment.api, &deployment.postgres]);
+    deployment.server.managed_grafana_loads();
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+
+    assert!(
+        lossy(&checked).contains("check: ok    the managed Grafana at "),
+        "{}",
+        lossy(&checked)
+    );
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    assert!(
+        lossy(&deployed).contains(&format!("imported {} dashboards", released.len())),
+        "{}",
+        lossy(&deployed)
+    );
+    // Each waited through a 503.
+    assert_eq!(
+        deployment.server.shell_ok("cat /root/front/loaded"),
+        "answered 503\nanswered 503"
+    );
+}
+
+#[tokio::test]
 async fn obs_14_a_deploy_imports_the_rules_into_the_managed_grafana_and_warns_until_a_policy_reaches_a_contact_point()
  {
     let deployment = Deployment::managed(&[]).await;
