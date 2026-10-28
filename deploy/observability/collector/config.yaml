@@ -49,7 +49,7 @@ processors:
     limit_percentage: 80
     spike_limit_percentage: 25
   # A trace is decided once its spans have had time to arrive: longer than the request timeout
-  # of 10 seconds, plus the API's export delay of 1 second.
+  # of 10 seconds, plus the export delay of 1 second, the API's and the proxy's.
   tail_sampling:
     decision_wait: 15s
     num_traces: 50000

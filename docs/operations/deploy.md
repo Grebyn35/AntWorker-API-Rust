@@ -98,6 +98,7 @@ What a deploy refuses, and what to do:
 | No release has the version | Make the release with `just release` ([release.md](release.md)), then deploy it |
 | The release doesn't verify | Read the error: the registry login on the server, or a release whose images aren't signed by your repository's CI |
 | A setting is missing or invalid | Set it with `just server-setup`, which asks for it, as `deploy/settings.env.example` describes it |
+| A secret that the settings need is missing | Give it with `just server-setup`, which asks for each one |
 | The connections wouldn't fit | Lower `API_REPLICAS` or `DATABASE_MAX_CONNECTIONS`, or raise `POSTGRES_MAX_CONNECTIONS` (below) |
 | The release changes Postgres or Caddy | Deploy it again with `--allow-restart` when a few seconds of failed requests are acceptable (below) |
 | The new replicas don't become ready | Nothing to undo: the deploy removed them, and the live replicas never stopped. Its output ends with their last log lines |

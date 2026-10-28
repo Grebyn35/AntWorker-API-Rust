@@ -9,11 +9,15 @@ const DEPLOYMENT: &str = "/home/deploy/deployment";
 /// A copy of the release's files that the deployment's user can read, as `just deploy` sends
 /// them to its home.
 const RELEASE: &str = "/opt/release";
+/// A lost server's superuser password, which holds characters that end a URL's password unless
+/// they are percent-encoded.
+const LOST_PASSWORD: &str = "a lost server's / + @ ? # % : password";
 
 /// Runs the setup as `just server-setup` does: copies the release's files to a temporary
 /// directory, and runs its server-setup.sh there with the settings in /root/setup/settings.env,
-/// and with `secrets` as its argument, the bucket's key pair, its authority and the registry's
-/// login, in the form that server-setup.sh's comment describes.
+/// and with `secrets` as its argument, the bucket's key pair, its authority, the registry's
+/// login, and the superuser's password in /root/setup/postgres_password if there is one, in the
+/// form that server-setup.sh's comment describes.
 const SET_UP: &str = r#"set -e
 encode() { base64 < "$1" | tr -d '\n'; }
 {
@@ -28,6 +32,9 @@ encode() { base64 < "$1" | tr -d '\n'; }
         printf 'secret alertmanager/page_url %s\n' "$(encode /root/setup/page_url)"
         printf 'cert backup-ca.crt %s\n' "$(encode /root/bucket/ca.crt)"
         printf 'login registry:5000 e2e %s\n' "$(encode /root/setup/token)"
+        if [ -s /root/setup/postgres_password ]; then
+            printf 'secret postgres_password %s\n' "$(encode /root/setup/postgres_password)"
+        fi
     fi
 } > /root/setup/payload
 directory=$(mktemp -d)
@@ -63,8 +70,13 @@ fn new_server() -> (Server, String) {
 }
 
 /// Asserts what the first setup of a new server did, which wrote `output`, and that it wrote
-/// `settings`. Returns the passphrase it generated.
-fn assert_set_up(server: &Server, output: &std::process::Output, settings: &str) -> String {
+/// `settings`, and generated the secrets `generated` and no others. Returns the passphrase.
+fn assert_set_up(
+    server: &Server,
+    output: &std::process::Output,
+    settings: &str,
+    generated: &[&str],
+) -> String {
     assert!(output.status.success(), "{}", lossy(output));
     let output = lossy(output);
     for line in [
@@ -79,19 +91,20 @@ fn assert_set_up(server: &Server, output: &std::process::Output, settings: &str)
     ] {
         assert!(output.contains(line), "{line}: {output}");
     }
-    let passphrase = server.shell_ok(&format!("cat {DEPLOYMENT}/secrets/backup_cipher_pass"));
-    let password = server.shell_ok(&format!("cat {DEPLOYMENT}/secrets/postgres_password"));
-    for (name, value) in [
-        ("backup_cipher_pass", &passphrase),
-        ("postgres_password", &password),
-    ] {
-        assert_eq!(value.len(), 64, "{value}");
-        assert!(
-            output
-                .lines()
-                .any(|line| line.trim() == format!("{name}: {value}")),
-            "{name}, shown once: {output}"
-        );
+    for name in ["backup_cipher_pass", "postgres_password"] {
+        let value = server.shell_ok(&format!("cat {DEPLOYMENT}/secrets/{name}"));
+        let shown = output
+            .lines()
+            .any(|line| line.trim() == format!("{name}: {value}"));
+        if generated.contains(&name) {
+            assert!(
+                value.len() == 48 && value.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                "{name}: {value}"
+            );
+            assert!(shown, "{name}, shown once: {output}");
+        } else {
+            assert!(!shown, "{name}, which the setup was given: {output}");
+        }
     }
     assert_eq!(
         server.shell_ok(&format!("stat -c '%U %a' {DEPLOYMENT}/secrets")),
@@ -102,7 +115,7 @@ fn assert_set_up(server: &Server, output: &std::process::Output, settings: &str)
         settings.trim()
     );
     server.shell_ok("grep -q registry:5000 /home/deploy/.docker/config.json");
-    passphrase
+    server.shell_ok(&format!("cat {DEPLOYMENT}/secrets/backup_cipher_pass"))
 }
 
 #[tokio::test]
@@ -111,9 +124,10 @@ async fn ops_22_a_new_server_that_the_setup_prepares_passes_the_check_and_runs_a
     let api = Pushed::api().in_network();
     let postgres = Pushed::postgres().in_network();
     let check = format!("sh {RELEASE}/deploy.sh check-images {api} {postgres}");
+    server.write("/root/setup/postgres_password", LOST_PASSWORD);
 
     let first = server.shell("sh /root/setup/set-up.sh secrets");
-    let passphrase = assert_set_up(&server, &first, &settings);
+    let passphrase = assert_set_up(&server, &first, &settings, &["backup_cipher_pass"]);
     let again = server.shell("sh /root/setup/set-up.sh");
     let before = as_deploy(&server, &check);
     let deployed = as_deploy(
@@ -141,7 +155,12 @@ async fn ops_22_a_new_server_that_the_setup_prepares_passes_the_check_and_runs_a
         server.shell_ok(&format!("cat {DEPLOYMENT}/secrets/backup_cipher_pass")),
         passphrase
     );
+    assert_eq!(
+        server.shell_ok(&format!("cat {DEPLOYMENT}/secrets/postgres_password")),
+        LOST_PASSWORD
+    );
     assert_checked(&before, "holds no backups yet");
+    // The deploy's bootstrap signs in as the superuser with the lost server's password.
     assert!(deployed.status.success(), "{}", lossy(&deployed));
     assert_checked(&after, "holds backups that the passphrase decrypts");
     assert!(
@@ -181,10 +200,16 @@ fn assert_checked(output: &std::process::Output, holds: &str) {
 
 #[tokio::test]
 async fn ops_22_the_check_finds_a_key_pair_the_bucket_refuses_and_a_missing_setting() {
-    let (server, _) = new_server();
+    let (server, settings) = new_server();
     let api = Pushed::api().in_network();
     let postgres = Pushed::postgres().in_network();
-    server.shell_ok("sh /root/setup/set-up.sh secrets > /dev/null");
+    let set_up = server.shell("sh /root/setup/set-up.sh secrets");
+    assert_set_up(
+        &server,
+        &set_up,
+        &settings,
+        &["backup_cipher_pass", "postgres_password"],
+    );
     let check = || {
         as_deploy(
             &server,

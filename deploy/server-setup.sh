@@ -217,13 +217,14 @@ write() {
         esac
     done
     # The bundled database's secrets that no answer gave: the passphrase that encrypts the backups,
-    # and the superuser's password, which a restored database keeps.
+    # and the superuser's password, which a restored database keeps. Each is 24 random bytes in
+    # hex, which a URL holds as it is.
     database=$(sed -n 's/^DATABASE=//p' "$deployment/settings.env" | tail -n 1)
     if [ "${database:-bundled}" != bundled ]; then return; fi
     generated=""
     for name in backup_cipher_pass postgres_password; do
         if [ ! -s "$deployment/secrets/$name" ]; then
-            head -c 48 /dev/urandom | base64 | tr -d '\n' > "$deployment/secrets/$name"
+            od -An -N24 -tx1 /dev/urandom | tr -d ' \n' > "$deployment/secrets/$name"
             generated="$generated $name"
         fi
     done

@@ -314,7 +314,10 @@ write_secrets() {
                 say "moved $secrets/$name, which named another database, to $name.before-bundled"
             fi
         done
-        admin=$(cat "$secrets/postgres_password") owner=$(random) app=$(random)
+        # The superuser's password is percent-encoded byte by byte, since a lost server's may
+        # hold any character, and some, such as /, end a URL's password.
+        admin=$(printf '%s' "$(cat "$secrets/postgres_password")" | od -An -tx1 -v | tr -d ' \n' | sed 's/../%&/g')
+        owner=$(random) app=$(random)
         printf 'postgres://postgres:%s@postgres:5432/api' "$admin" > "$secrets/database_admin_url"
         printf 'postgres://owner:%s@postgres:5432/api' "$owner" > "$secrets/database_owner_url"
         printf 'postgres://app:%s@postgres:5432/api' "$app" > "$secrets/database_url"

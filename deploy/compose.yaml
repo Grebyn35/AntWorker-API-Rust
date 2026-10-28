@@ -62,12 +62,14 @@ services:
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       # The spans of the API's site go to the collector, whose name every telemetry path answers
       # to; without telemetry, Caddy exports nothing, and its problems still carry trace IDs
-      # (D53).
+      # (D53). Caddy exports its spans a second after they end, as the API does, for the
+      # collector's tail sampling.
       OTEL_SERVICE_NAME: caddy
       OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=production
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
       OTEL_TRACES_EXPORTER: ${PROXY_TRACES_EXPORTER:?the proxy's exporter, in state/deploy.env}
+      OTEL_BSP_SCHEDULE_DELAY: "1000"
     ports:
       - "80:80"
       - "443:443"
@@ -306,8 +308,9 @@ volumes:
   tempo:
   grafana:
 
-# The secret files, in secrets/ of the deployment's directory. deploy.sh writes those of the
-# bundled Postgres and Grafana; the operator writes the others (docs/operations/deploy.md).
+# The secret files, in secrets/ of the deployment's directory. deploy.sh writes the URLs of the
+# bundled Postgres and Grafana's password; `just server-setup` writes the others
+# (docs/operations/deploy.md).
 secrets:
   database_url:
     file: ./secrets/database_url
