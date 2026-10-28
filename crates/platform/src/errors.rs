@@ -185,6 +185,11 @@ pub enum RequestError {
     /// The instance is serving as many requests as it may (OPS-07).
     #[error("the instance is serving as many requests as it may")]
     Overloaded,
+    /// No replica of the API can answer, such as while the reference deployment restores its
+    /// database. The proxy in front of the replicas answers it, never the API itself (OPS-05,
+    /// D53), so clients find it in the same catalog as the API's own codes (ERR-13).
+    #[error("no replica of the API can answer")]
+    Unavailable,
     /// The handler panicked (ERR-12).
     #[error("the handler panicked")]
     Panicked,
@@ -199,6 +204,7 @@ impl ErrorCode for RequestError {
             Self::PayloadTooLarge => "request.payload_too_large",
             Self::TimedOut => "request.timed_out",
             Self::Overloaded => "request.overloaded",
+            Self::Unavailable => "request.unavailable",
             Self::Panicked => INTERNAL_CODE,
         }
     }
@@ -211,6 +217,7 @@ impl ErrorCode for RequestError {
             Self::PayloadTooLarge => "Body too large",
             Self::TimedOut => "Request timed out",
             Self::Overloaded => "Too many requests in progress",
+            Self::Unavailable => "No replica can answer",
             Self::Panicked => INTERNAL_TITLE,
         }
     }
@@ -221,7 +228,7 @@ impl ErrorCode for RequestError {
             Self::MethodNotAllowed => Category::MethodNotAllowed,
             Self::InvalidQuery(_) => Category::Validation,
             Self::PayloadTooLarge => Category::PayloadTooLarge,
-            Self::TimedOut | Self::Overloaded => Category::Unavailable,
+            Self::TimedOut | Self::Overloaded | Self::Unavailable => Category::Unavailable,
             Self::Panicked => Category::Internal,
         }
     }
@@ -240,7 +247,7 @@ impl ErrorCode for RequestError {
 impl RequestError {
     /// One value of every variant, so the OpenAPI document can list every code `platform`
     /// answers (ERR-13). A new variant is added here too.
-    pub fn every() -> [Self; 7] {
+    pub fn every() -> [Self; 8] {
         [
             Self::NotFound,
             Self::MethodNotAllowed,
@@ -248,6 +255,7 @@ impl RequestError {
             Self::PayloadTooLarge,
             Self::TimedOut,
             Self::Overloaded,
+            Self::Unavailable,
             Self::Panicked,
         ]
     }

@@ -211,7 +211,7 @@ sequenceDiagram
   H-->>C: response, or RFC 9457 problem with trace_id
 ```
 
-1. **Caddy** terminates TLS and forwards the request to a replica whose readiness check passes.
+1. **Caddy** terminates TLS, opens the request's trace, and forwards the request to a replica whose readiness check passes. While none passes, Caddy answers itself, with the 503 problem `request.unavailable` (OPS-05, D53).
 2. **Platform middleware**, outermost first. The security headers wrap every response (SEC-11). The health probes are answered inside them, before the rest of the stack (OPS-05):
    - the security headers
    - trace context: the request's server span, and the trace-ID response header (D10)

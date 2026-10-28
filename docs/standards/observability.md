@@ -27,9 +27,9 @@ Module code writes events only at `DEBUG`. Every `INFO`, `WARN` and `ERROR` even
 - Check: `ci: check-instrument` (the levels of events in `app`'s code outside `main.rs`), plus `review`.
 
 ### OBS-04 No personal data or secrets in telemetry
-Logs, spans and metric labels never contain personal data or secrets. The `EmailAddress` and `Secret` types redact themselves when formatted. Every `#[instrument]` uses `skip_all` and lists its fields explicitly.
+Logs, spans and metric labels never contain personal data or secrets. The `EmailAddress` and `Secret` types redact themselves when formatted. Every `#[instrument]` uses `skip_all` and lists its fields explicitly. The reference deployment's proxy writes no field of a log line that holds personal data, and the collector keeps only the attributes of its spans whose names `platform::telemetry` lists (D53).
 - Why: telemetry is copied widely and kept for a long time (D7).
-- Check: `compiler` (the redacting types), `ci: check-instrument` (every `#[instrument]` has `skip_all`), plus `review`.
+- Check: `compiler` (the redacting types), `ci: check-instrument` (every `#[instrument]` has `skip_all`), plus `ci: e2e` (the proxy's span and log line hold no client address or user agent), plus `review`.
 
 ### OBS-05 Telemetry names come from one list
 Every field name in logs and spans, and every metric label name, comes from the list in `platform::telemetry`, and code uses no other name. The list declares no field for personal data or secrets (OBS-04).
@@ -43,7 +43,7 @@ Every field name in logs and spans, and every metric label name, comes from the 
 ## Traces
 
 ### OBS-06 One server span per request, child spans for work
-Each request has one server span. Database transactions, outbound calls and job runs get child spans. Spans come only from `platform` and the binary's `main.rs`; module code opens none. CPU-heavy work runs through the `platform` helper that adds its span (CODE-05), so slow steps such as password hashing still show in traces.
+Each request has one server span in the API. Database transactions, outbound calls and job runs get child spans. Behind the reference deployment's proxy, the server span is a child of the proxy's span for the request, so a trace starts at the proxy (D53). Spans come only from `platform` and the binary's `main.rs`; module code opens none. CPU-heavy work runs through the `platform` helper that adds its span (CODE-05), so slow steps such as password hashing still show in traces.
 - Why: a trace shows where a request spent its time, and every span has the same shape wherever it comes from.
 - Check: `ci: check-instrument` (no spans in `app`'s code outside `main.rs`), plus `review`.
 
@@ -96,6 +96,6 @@ Every alert has a severity (`page` or `ticket`), a runbook section in `docs/oper
 - Check: `ci: alert-rules` (each rule has a test and a runbook anchor), plus `ci: e2e` (an alert reaches the integration a release names, and a managed Grafana imports the rules).
 
 ### OBS-15 Health probes stay out of telemetry
-Liveness and readiness requests are excluded from request metrics, are not sampled into traces, and carry no trace ID (API-16).
+Liveness and readiness requests are excluded from request metrics, are not sampled into traces, and carry no trace ID (API-16). The reference deployment's proxy doesn't trace them either.
 - Why: probes would drown out the signal.
 - Check: `test`.

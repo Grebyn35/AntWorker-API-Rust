@@ -39,6 +39,7 @@ fn place(error: &RequestError) -> Place {
         | RequestError::PayloadTooLarge
         | RequestError::TimedOut
         | RequestError::Overloaded
+        | RequestError::Unavailable
         | RequestError::Panicked => Place::RouteGroup,
     }
 }
@@ -140,7 +141,7 @@ fn query_names(operation: &Operation) -> HashSet<String> {
 
 /// The problems any route of a group can answer, one response per status. Each response lists
 /// its codes, so a code a route answers is in the document with its meaning (ERR-13). The 503
-/// carries `Retry-After`, which both of its codes send (OPS-07).
+/// carries `Retry-After`, which each of its codes sends (OPS-05, OPS-07).
 fn group_problems() -> BTreeMap<String, Response> {
     let every = RequestError::every();
     let mut by_status: BTreeMap<String, Vec<&dyn ErrorCode>> = BTreeMap::new();

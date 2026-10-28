@@ -385,6 +385,7 @@ write_deploy_env() {
         printf '%s\n' "API_IMAGE_NEW=$api_image"
         printf '%s\n' "POSTGRES_IMAGE=$postgres_image"
         if [ "$telemetry" = off ]; then echo "API_TELEMETRY_ENDPOINT="; else echo "API_TELEMETRY_ENDPOINT=http://collector:4318"; fi
+        if [ "$telemetry" = off ]; then echo "PROXY_TRACES_EXPORTER=none"; else echo "PROXY_TRACES_EXPORTER=otlp"; fi
         if [ -f "$deployment/certs/backup-ca.crt" ]; then echo "BACKUP_CA_FILE=/etc/deployment-certs/backup-ca.crt"; fi
         if [ -f "$deployment/certs/managed-otlp-ca.crt" ]; then echo "MANAGED_OTLP_CA_FILE=/etc/deployment-certs/managed-otlp-ca.crt"; fi
     } > "$1"
@@ -526,6 +527,8 @@ apply() {
     if [ "$telemetry" = self-hosted ]; then shared="$shared collector prometheus alertmanager loki tempo grafana"; fi
     if [ "$telemetry" = managed ]; then shared="$shared collector-managed"; fi
     if [ "$allow_restart" = yes ]; then recreate=""; else recreate="--no-recreate"; fi
+    # The collectors keep their state in volumes that only their user may write.
+    if [ "$telemetry" != off ]; then compose --profile tasks run --rm --no-deps --quiet-pull collector-state; fi
     # shellcheck disable=SC2086 # $recreate is an option or nothing, and $single and $shared hold one service per word.
     if ! compose up --detach --wait --quiet-pull $recreate $single || { [ -n "$shared" ] && ! compose up --detach --wait --quiet-pull $shared; }; then
         compose logs --tail 30 $single $shared >&2 || true

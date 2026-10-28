@@ -1,0 +1,76 @@
+# The reference deployment's proxy in the telemetry (D53): Caddy's spans arrive over OTLP with
+# the API's, and the log lines of the requests it answers itself come from the file it writes
+# (deploy/caddy/sites/api.caddy). deploy/compose.yaml merges this file into each of the
+# deployment's collectors, after config.yaml and before managed.yaml, whose lists replace these;
+# development's collector, which no Caddy runs beside, reads config.yaml alone.
+
+extensions:
+  # Where the collector keeps how far it read Caddy's log, so a restart neither repeats a line
+  # nor skips one.
+  file_storage/proxy:
+    directory: /var/lib/collector
+
+receivers:
+  # Each line becomes a log record of the service caddy, in the request's trace, with the names
+  # that platform::telemetry lists (OBS-05) and no field that holds personal data (OBS-04).
+  file_log/proxy:
+    include: [/var/log/caddy/access.log]
+    start_at: beginning
+    storage: file_storage/proxy
+    resource:
+      service.name: caddy
+      deployment.environment.name: production
+    operators:
+      - type: json_parser
+        timestamp:
+          parse_from: attributes.ts
+          layout_type: epoch
+          layout: s.ns
+        severity:
+          parse_from: attributes.level
+      - type: trace_parser
+        trace_id:
+          parse_from: attributes.traceID
+        span_id:
+          parse_from: attributes.spanID
+      - type: move
+        from: attributes.request.method
+        to: attributes["http.request.method"]
+      - type: move
+        from: attributes.status
+        to: attributes["http.response.status_code"]
+      - type: retain
+        fields:
+          - attributes["http.request.method"]
+          - attributes["http.response.status_code"]
+      - type: add
+        field: body
+        value: no replica answered
+
+processors:
+  # Caddy's spans hold the client's address, its user agent and the request's path, which the
+  # API's telemetry never holds (OBS-04): the proxy's keep only names that platform::telemetry
+  # lists (OBS-05). A log line's status arrives as a number of JSON, which the API's are not.
+  transform/proxy:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        conditions:
+          - resource.attributes["service.name"] == "caddy"
+        statements:
+          - keep_keys(span.attributes, ["http.request.method", "http.response.status_code", "server.address", "server.port"])
+    log_statements:
+      - context: log
+        conditions:
+          - resource.attributes["service.name"] == "caddy"
+        statements:
+          - set(log.attributes["http.response.status_code"], Int(log.attributes["http.response.status_code"]))
+
+service:
+  extensions: [file_storage/proxy]
+  pipelines:
+    traces:
+      processors: [memory_limiter, transform/proxy, tail_sampling, batch]
+    logs:
+      receivers: [otlp, file_log/proxy]
+      processors: [memory_limiter, transform/proxy, batch]

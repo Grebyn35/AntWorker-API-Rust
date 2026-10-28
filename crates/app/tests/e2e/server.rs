@@ -199,6 +199,27 @@ impl Server {
         }
     }
 
+    /// What a service of the deployment's telemetry answers to `url`, such as Tempo's or Loki's
+    /// API, once its answer holds `text`, asked from the deployment's telemetry network every two
+    /// seconds for at most three minutes: the collector decides on a trace 15 seconds after its
+    /// last span. Panics with the last answer if none holds `text`.
+    pub fn telemetry_once_it_holds(&self, url: &str, text: &str) -> String {
+        let curl = compose(&[
+            "--file",
+            "../../deploy/tools/compose.yaml",
+            "config",
+            "--images",
+            "curl",
+        ]);
+        self.shell_ok(&format!(
+            "for attempt in $(seq 90); do \
+                 answer=$(docker run --rm --quiet --network deployment_telemetry {curl} --silent '{url}') || true; \
+                 case $answer in *\"{text}\"*) printf '%s' \"$answer\"; exit 0 ;; esac; \
+                 sleep 2; \
+             done; printf '%s' \"$answer\"; exit 1"
+        ))
+    }
+
     /// The IDs of the running containers of the deployment's service `service`.
     pub fn running(&self, service: &str) -> Vec<String> {
         self.shell_ok(&format!(

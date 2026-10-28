@@ -2,8 +2,12 @@
 //! on a server of the tests' own, with Compose's Postgres as a managed database, or the bundled
 //! one where a test says so.
 
+use std::time::Duration;
+
+use platform::errors::{ErrorCode, RequestError};
+
 use crate::{
-    deployment::{API_ADDRESS, Deployment, Traffic, assert_all_succeeded, get},
+    deployment::{API_ADDRESS, Deployment, Traffic, assert_all_succeeded, get, get_within},
     docker::lossy,
     server::DEPLOYMENT,
 };
@@ -123,6 +127,58 @@ async fn ops_21_a_deploy_refuses_replicas_whose_connections_would_not_fit() {
     );
     assert!(deployment.server.running("caddy").is_empty());
     assert!(deployment.server.running("api-blue").is_empty());
+}
+
+#[tokio::test]
+async fn ops_05_while_no_replica_runs_the_proxy_answers_at_once_with_the_api_s_503_problem() {
+    let deployment = Deployment::managed(&[]).await;
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    let root = deployment.server.caddy_root();
+    deployment
+        .server
+        .shell_ok("docker stop deployment-api-blue-1 deployment-api-blue-2 > /dev/null");
+
+    // Within two seconds, or the client gives up.
+    let (status, headers, body) = get_within(
+        root.clone(),
+        deployment.url("https", 443, "/v1/capabilities"),
+        Duration::from_secs(2),
+    );
+    let (probe, probe_headers, probe_body) = get_within(
+        root,
+        deployment.url("https", 443, "/health/ready"),
+        Duration::from_secs(2),
+    );
+
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(headers["content-type"], "application/problem+json");
+    assert!(headers.contains_key("retry-after"), "{headers:?}");
+    assert_eq!(
+        headers["strict-transport-security"],
+        "max-age=31536000; includeSubDomains"
+    );
+    assert!(headers.get("server").is_none(), "{headers:?}");
+    let problem: serde_json::Value = serde_json::from_str(&body).expect("a problem");
+    let unavailable = RequestError::Unavailable;
+    assert_eq!(problem["code"], unavailable.code());
+    assert_eq!(problem["title"], unavailable.title());
+    assert_eq!(problem["type"], format!("/problems/{}", unavailable.code()));
+    assert_eq!(problem["status"], 503);
+    let trace = problem["trace_id"].as_str().expect("a trace ID");
+    assert!(
+        trace.len() == 32
+            && trace
+                .chars()
+                .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
+        "{trace}"
+    );
+    assert_eq!(probe, 503);
+    assert!(probe_body.is_empty(), "{probe_body}");
+    assert!(
+        probe_headers.get("content-type").is_none(),
+        "{probe_headers:?}"
+    );
 }
 
 #[tokio::test]
@@ -335,10 +391,12 @@ async fn ops_16_a_deploy_stops_the_services_that_the_settings_no_longer_choose()
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
     let collector = deployment.server.running("collector-managed");
-    // TELEMETRY back to off.
+    // TELEMETRY back to off, which Caddy reads, so it restarts.
     deployment.set(&[]);
 
-    let second = deployment.apply(&deployment.api, &[]).await;
+    let second = deployment
+        .apply(&deployment.api, &["--allow-restart"])
+        .await;
 
     assert_eq!(collector.len(), 1);
     assert!(second.status.success(), "{}", lossy(&second));

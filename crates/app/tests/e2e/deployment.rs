@@ -271,6 +271,11 @@ impl Deployment {
 /// for names under `localhost`, and follows no redirect. It runs a runtime of its own, so it is
 /// built and dropped on a thread of its own, outside the test's runtime.
 fn client(root: &str) -> reqwest::blocking::Client {
+    client_within(root, Duration::from_secs(10))
+}
+
+/// A client that trusts `root`, Caddy's authority, and gives up on an answer after `timeout`.
+fn client_within(root: &str, timeout: Duration) -> reqwest::blocking::Client {
     let mut roots = rustls::RootCertStore::empty();
     for certificate in CertificateDer::pem_slice_iter(root.as_bytes()) {
         roots
@@ -289,7 +294,7 @@ fn client(root: &str) -> reqwest::blocking::Client {
         .resolve(API_ADDRESS, ([127, 0, 0, 1], 0).into())
         .resolve(GRAFANA_ADDRESS, ([127, 0, 0, 1], 0).into())
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(10))
+        .timeout(timeout)
         .build()
         .expect("an HTTP client")
 }
@@ -300,6 +305,26 @@ pub fn get(root: String, url: String) -> (u16, reqwest::header::HeaderMap) {
     thread::spawn(move || {
         let response = client(&root).get(&url).send().expect("an answer");
         (response.status().as_u16(), response.headers().clone())
+    })
+    .join()
+    .expect("the request")
+}
+
+/// Sends `GET` to `url`, through a client that trusts `root` and waits at most `timeout` for
+/// the answer, and returns the response's status, headers and body.
+pub fn get_within(
+    root: String,
+    url: String,
+    timeout: Duration,
+) -> (u16, reqwest::header::HeaderMap, String) {
+    thread::spawn(move || {
+        let response = client_within(&root, timeout)
+            .get(&url)
+            .send()
+            .expect("an answer in time");
+        let status = response.status().as_u16();
+        let headers = response.headers().clone();
+        (status, headers, response.text().expect("the body"))
     })
     .join()
     .expect("the request")

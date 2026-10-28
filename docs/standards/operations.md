@@ -35,8 +35,10 @@ A route whose feature is turned off answers the 503 problem with code `request.f
 - `GET /health/ready` answers 200 only while the database is reachable, the listener is connected and the instance isn't draining.
 
 The probes are answered before the rate limit, load shedding and request timeout, and they carry no trace context (OBS-15). Their body is `{"status": "<status>"}`, never a problem response (API-07).
-- Why: the load balancer only routes to replicas that can serve (D9, D20).
-- Check: `test` (PLATFORM-019, PLATFORM-037), plus `review` (a probe never runs long enough to show that no timeout applies to it).
+
+While no replica is ready, such as during a restore, the reference deployment's proxy answers each request within a second with the 503 problem `request.unavailable` and `Retry-After`, whose trace ID leads to the proxy's span and log line of the request (D10, D53), and a probe with a bare 503.
+- Why: the load balancer only routes to replicas that can serve, and a client gets the API's answer even when none can (D9, D20, D53).
+- Check: `test` (PLATFORM-019, PLATFORM-037), plus `ci: e2e` (the proxy's answer while no replica runs), plus `review` (a probe never runs long enough to show that no timeout applies to it).
 
 ### OPS-06 Shutdown is bounded and graceful
 The instance installs its handlers for the shutdown signals before it connects to anything, and fails startup if it can't (OPS-03). On SIGTERM, the instance shuts down in this order:

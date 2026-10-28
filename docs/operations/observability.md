@@ -22,7 +22,9 @@ Each dashboard panel's title is the question it answers (OBS-13). The overview l
 
 ```mermaid
 flowchart LR
-  api[API instances] -- OTLP/HTTP --> collector[OpenTelemetry Collector]
+  caddy[Caddy] -- spans, OTLP/HTTP --> collector[OpenTelemetry Collector]
+  caddy -- its log file --> collector
+  api[API instances] -- OTLP/HTTP --> collector
   collector -- traces it keeps --> tempo[Tempo]
   collector -- log records --> loki[Loki]
   collector -- metrics --> prometheus[Prometheus]
@@ -31,12 +33,13 @@ flowchart LR
 ```
 
 - **The API** exports its spans, log records and metrics over the OpenTelemetry Protocol (OTLP), on HTTP, to the collector named by `OTEL_EXPORTER_OTLP_ENDPOINT`. Every signal carries the service's name, its version, the environment, and the instance's own `service.instance.id`, so instances running side by side stay apart. The [platform spec](../spec/platform.md#telemetry-export) says how the API exports.
+- **The proxy**, Caddy, in the reference deployment, exports a span for each request but the probes, to the same collector, and the API's server span is its child, so a trace starts at the proxy (OBS-06). It writes a line for each request it answers itself, while no replica can (D53), to a file the collector reads; the API writes the line of every other request. The collector keeps only those of the span's attributes whose names `platform::telemetry` lists, and the line's method and status, so neither holds a client's address or user agent (OBS-04, [proxy.yaml](../../deploy/observability/collector/proxy.yaml)).
 - **The collector** ([config](../../deploy/observability/collector/config.yaml)) refuses data before it runs out of memory, and passes each signal to its store. It also reads the times of the bundled database's backup status files, for the backups' alerts, and the host's CPU, memory and filesystems, from the host's filesystem mounted read-only, for the server's: a filesystem it reports is one mounted whole, not a bind mount of part of one. Its tail sampling waits 15 seconds for a trace's spans, then keeps the trace if any policy keeps it (OBS-08):
   - every trace with an error status, or a response of 400 or above
   - every trace slower than the [latency objective](#service-level-objectives)
   - 10% of the rest
 - **Prometheus** ([config](../../deploy/observability/prometheus/prometheus.yaml)) receives the metrics through its OTLP receiver, and scrapes the collector, Loki, Tempo and Alertmanager for their own. It evaluates the [rules](../../deploy/observability/prometheus/rules.yaml) and sends firing alerts to Alertmanager. [metrics.md](metrics.md) lists every metric under its name in Prometheus.
-- **Loki** ([config](../../deploy/observability/loki/config.yaml)) keeps every log record the API exports: logs are never sampled. The API's queue of records drops a record that arrives while it is full, as the [platform spec](../spec/platform.md#telemetry-export) says, and stdout drops no line while the API runs. A record's line is its message, such as `request completed`. The service's name, instance and environment are labels, such as `service_name`, and every other field, `trace_id` and `span_id` among them, is structured metadata that a query filters with `| trace_id="…"`.
+- **Loki** ([config](../../deploy/observability/loki/config.yaml)) keeps every log record the API exports, and the proxy's: logs are never sampled. The API's queue of records drops a record that arrives while it is full, as the [platform spec](../spec/platform.md#telemetry-export) says, and stdout drops no line while the API runs. A record's line is its message, such as `request completed`. The service's name, instance and environment are labels, such as `service_name`, and every other field, `trace_id` and `span_id` among them, is structured metadata that a query filters with `| trace_id="…"`.
 - **Tempo** ([config](../../deploy/observability/tempo/config.yaml)) keeps the traces the collector passes on, and answers searches in its query language, TraceQL.
 - **Grafana** reads all three, through the [data sources](../../deploy/observability/grafana/provisioning/datasources/datasources.yaml) it provisions. A log line links to its trace, and a span links to its trace's log lines.
 
@@ -79,9 +82,9 @@ Grafana opens without signing in, as a viewer who can explore. On a server, it a
 
 ## Following a request from its trace ID
 
-Every response except the health probes carries its trace context in `server-timing`, as `trace;desc=00-<trace ID>-<span ID>-01`, and every error body holds the trace ID as `trace_id` (API-16, API-07). A user who reports a failure can quote it. To follow it:
+Every response except the health probes carries its trace context in `server-timing`, as `trace;desc=00-<trace ID>-<span ID>-01`, and every error body holds the trace ID as `trace_id` (API-16, API-07), the proxy's `request.unavailable` too (D53). A user who reports a failure can quote it. To follow it:
 
-1. In Grafana, open Explore, choose the Loki data source, and run `{service_name="antworker-api"} | trace_id="<trace ID>"`. Every log line of the request appears, with its fields.
+1. In Grafana, open Explore, choose the Loki data source, and run `{service_name=~"antworker-api|caddy"} | trace_id="<trace ID>"`. Every log line of the request appears, with its fields: the API's, or, for a request that no replica answered, the proxy's.
 2. Open a line, and choose "Open the trace" under its links. The trace opens beside the logs, with each span's duration and attributes.
 3. From a span, "Related logs" runs the query of the first step for the span's trace.
 

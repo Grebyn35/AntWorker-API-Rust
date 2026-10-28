@@ -1,16 +1,52 @@
 # The API's address. Caddy sends each request to a replica that its own health checks find ready
 # (OPS-05), and tries another when a replica refuses the connection. A replica that isn't running
-# fails its check, so the replicas of the color that isn't live get no request (D45).
+# fails its check, so the replicas of the color that isn't live get no request (D45). While no
+# replica can answer, Caddy answers itself, with the API's problem (D53).
 {$API_ADDRESS} {
 	# HTTP Strict Transport Security: browsers reach the API over HTTPS only (SEC-11, OPS-20).
 	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	header -Server
 
+	# A span for each request but the health probes (OBS-15), which the API's server span is a
+	# child of (OBS-06), exported to the collector when the deployment has telemetry
+	# (deploy/compose.yaml). The collector keeps only its attributes that hold no personal data
+	# (OBS-04).
+	@traced not path /health/*
+	tracing @traced {
+		span proxy
+	}
+
+	# A line for each request that Caddy answers itself, which the collector reads: the API logs
+	# every request that a replica answers, once (OBS-03), so every other request skips the log.
+	# The line keeps no field that holds personal data (OBS-04).
+	log {
+		output file /var/log/caddy/access.log {
+			mode 0644
+			roll_size 10MiB
+			roll_keep 2
+		}
+		format filter {
+			wrap json
+			request>remote_ip delete
+			request>remote_port delete
+			request>client_ip delete
+			request>headers delete
+			request>uri delete
+			request>tls delete
+			resp_headers delete
+			user_id delete
+		}
+	}
+	log_skip
+
 	reverse_proxy {
 		# The replicas of both colors, which deploy.sh writes.
 		import /etc/caddy-state/upstreams
 		lb_policy round_robin
-		lb_try_duration 5s
+		# A replica that refuses the connection is tried no more for this request, and another
+		# is, twice at most; with no replica that its health checks find ready, the request fails
+		# within half a second.
+		lb_retries 2
 		lb_try_interval 250ms
 		# A replica that starts to drain answers 503 here, and Caddy stops sending it requests
 		# within the interval and the timeout, while the replica keeps serving for its shutdown
@@ -20,5 +56,27 @@
 		health_timeout 1s
 		health_passes 1
 		health_fails 1
+	}
+
+	# No replica answered, such as while a restore runs: the API's 503 problem, whose trace ID
+	# leads to this request's span, marked as an error, and its log line (OPS-05, D10). Its code
+	# and title are platform::errors::RequestError::Unavailable's. A probe gets a bare 503, as
+	# the API answers probes (API-07).
+	handle_errors 502 503 504 {
+		header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		header -Server
+		@probe path /health/*
+		handle @probe {
+			respond 503
+		}
+		handle {
+			vars log_skip false
+			tracing {
+				span "no replica answered"
+			}
+			header Content-Type application/problem+json
+			header Retry-After 5
+			respond `{"type":"/problems/request.unavailable","title":"No replica can answer","status":503,"code":"request.unavailable","trace_id":"{http.vars.trace_id}"}` 503
+		}
 	}
 }

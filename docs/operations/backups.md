@@ -51,7 +51,7 @@ just restore deploy@203.0.113.7 "2026-10-25 10:41:31+00"
 
 restores the database as it stood at that moment, a time with its offset from UTC. Without a moment, `just restore deploy@203.0.113.7` restores the latest state the backups hold. A restore runs on the server, through the live release's `deploy.sh`:
 
-1. It stops the API's replicas and the `backup` service, then Postgres. The API is unavailable until the replicas start again, in step 4.
+1. It stops the API's replicas and the `backup` service, then Postgres. Until the replicas start again, in step 4, Caddy answers each request with the 503 problem `request.unavailable` and `Retry-After` (OPS-05).
 2. It moves the data directory aside, to `before-restore-<time>` in the volume `deployment_postgres`, and restores into a new, empty one. Postgres starts only after the restore succeeds; on an empty directory it would create an empty database.
 3. It starts Postgres, which replays the archived log up to the moment, then begins a new timeline, Postgres's name for a history of the database that branches off at a restore, so the log it archives from then on never mixes with the log it replaced.
 4. It runs `migrate` with the live release, and starts the live replicas again.

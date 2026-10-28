@@ -99,7 +99,7 @@
             }
           },
           "503": {
-            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress.",
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
             "headers": {
               "retry-after": {
                 "schema": {
@@ -122,7 +122,8 @@
                           "type": "string",
                           "enum": [
                             "request.timed_out",
-                            "request.overloaded"
+                            "request.overloaded",
+                            "request.unavailable"
                           ]
                         }
                       }

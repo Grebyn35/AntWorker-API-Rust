@@ -1,11 +1,42 @@
 //! The reference deployment with its self-hosted observability stack (D42), on a server of the
 //! tests' own.
 
+use std::time::Duration;
+
 use crate::{
-    deployment::{Deployment, GRAFANA_ADDRESS, get, post},
+    deployment::{Deployment, GRAFANA_ADDRESS, get, get_within, post},
     docker::lossy,
     server::DEPLOYMENT,
+    support,
 };
+
+/// The attributes that would hold a client's personal data, which no span or log line of the
+/// proxy keeps (OBS-04).
+const PERSONAL: [&str; 4] = [
+    "client.address",
+    "network.peer.address",
+    "user_agent.original",
+    "url.path",
+];
+
+/// Stops the deployment's replicas, then asks the proxy for a resource, which no replica
+/// answers, and returns the trace ID of its 503 problem.
+fn trace_of_a_request_no_replica_answers(deployment: &Deployment) -> String {
+    deployment
+        .server
+        .shell_ok("docker stop deployment-api-blue-1 deployment-api-blue-2 > /dev/null");
+    let (status, _, body) = get_within(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/capabilities"),
+        Duration::from_secs(2),
+    );
+    assert_eq!(status, 503, "{body}");
+    let problem: serde_json::Value = serde_json::from_str(&body).expect("a problem");
+    problem["trace_id"]
+        .as_str()
+        .expect("its trace ID")
+        .to_owned()
+}
 
 #[tokio::test]
 async fn sec_18_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer_in() {
@@ -13,8 +44,11 @@ async fn sec_18_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     let deployment = Deployment::bundled(&[]);
     let without = deployment.apply(&deployment.api, &[]).await;
     assert!(without.status.success(), "{}", lossy(&without));
+    // TELEMETRY from off, which Caddy reads, so it restarts.
     deployment.set(&[("TELEMETRY", "self-hosted")]);
-    let deployed = deployment.apply(&deployment.api, &[]).await;
+    let deployed = deployment
+        .apply(&deployment.api, &["--allow-restart"])
+        .await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
     let root = deployment.server.caddy_root();
     let password = deployment
@@ -507,4 +541,74 @@ fn release_rule_groups(deployment: &Deployment) -> Vec<String> {
         .collect();
     groups.sort();
     groups
+}
+
+#[tokio::test]
+async fn obs_08_the_trace_id_of_the_proxy_s_503_leads_to_its_span_and_its_log_line() {
+    let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]).await;
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    // A replica answers 404, a status the collector keeps the trace of.
+    let (_, headers) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/no-such-resource"),
+    );
+    let timing = headers["server-timing"].to_str().unwrap().to_owned();
+    let answered = timing.split('-').nth(1).expect("the trace ID").to_owned();
+
+    let trace = trace_of_a_request_no_replica_answers(&deployment);
+    let spans = deployment.server.telemetry_once_it_holds(
+        &format!("http://tempo:3200/api/traces/{trace}"),
+        "no replica answered",
+    );
+    let lines = deployment.server.telemetry_once_it_holds(
+        &format!(
+            "http://loki:3100/loki/api/v1/query_range?query=%7Bservice_name%3D%22caddy%22%7D%20%7C%20trace_id%3D%22{trace}%22"
+        ),
+        "no replica answered",
+    );
+    let both = deployment.server.telemetry_once_it_holds(
+        &format!("http://tempo:3200/api/traces/{answered}"),
+        support::service_name(),
+    );
+
+    assert!(spans.contains("STATUS_CODE_ERROR"), "{spans}");
+    assert!(lines.contains(&trace), "{lines}");
+    for name in PERSONAL {
+        assert!(!spans.contains(name), "{name}: {spans}");
+        assert!(!lines.contains(name), "{name}: {lines}");
+    }
+    // The API's server span is a child of the proxy's (OBS-06).
+    assert!(both.contains("\"caddy\""), "{both}");
+}
+
+#[tokio::test]
+async fn obs_08_a_managed_backend_receives_the_proxy_s_span_and_log_line_of_its_503() {
+    let deployment = Deployment::managed(&[]).await;
+    let backend = deployment.server.start_otlp_backend();
+    let mut changes = vec![("TELEMETRY", "managed")];
+    changes.extend(
+        backend
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str())),
+    );
+    deployment.set(&changes);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+
+    let trace = trace_of_a_request_no_replica_answers(&deployment);
+    // The collector keeps the trace for its error, and decides after 15 seconds.
+    let received = deployment.server.shell(&format!(
+        "timeout 120 sh -c 'until grep resourceSpans /root/backend/out/telemetry.json 2> /dev/null | grep -q {trace} \
+         && grep resourceLogs /root/backend/out/telemetry.json | grep {trace} | grep -q \"no replica answered\"; do sleep 2; done'"
+    ));
+
+    assert!(
+        received.status.success(),
+        "{}\nThe backend's log:\n{}",
+        lossy(&received),
+        deployment
+            .server
+            .shell_ok("docker logs --tail 10 backend 2>&1")
+    );
 }

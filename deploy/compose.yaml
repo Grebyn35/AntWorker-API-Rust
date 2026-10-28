@@ -60,6 +60,14 @@ services:
       API_ADDRESS: ${API_ADDRESS:?the API's address, in settings.env}
       GRAFANA_ADDRESS: ${GRAFANA_ADDRESS:-}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      # The spans of the API's site go to the collector, whose name every telemetry path answers
+      # to; without telemetry, Caddy exports nothing, and its problems still carry trace IDs
+      # (D53).
+      OTEL_SERVICE_NAME: caddy
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=production
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+      OTEL_TRACES_EXPORTER: ${PROXY_TRACES_EXPORTER:?the proxy's exporter, in state/deploy.env}
     ports:
       - "80:80"
       - "443:443"
@@ -69,6 +77,8 @@ services:
       - ./state/caddy:/etc/caddy-state:ro
       - caddy-data:/data
       - caddy-config:/config
+      # The lines of the requests Caddy answers itself, which the collector reads.
+      - caddy-logs:/var/log/caddy
     read_only: true
     tmpfs: [/tmp]
     # Caddy needs only to bind the ports below 1024.
@@ -79,7 +89,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    networks: [edge]
+    networks: [edge, telemetry]
     restart: unless-stopped
 
   api-blue:
@@ -105,6 +115,19 @@ services:
       DATABASE_URL_FILE: /run/secrets/database_url
     secrets: [database_admin_url, database_owner_url, database_url]
     networks: [data, telemetry]
+
+  # Gives each collector's state, where it keeps how far it read Caddy's log, to the user the
+  # collector runs as. Docker creates a volume for root, and the collector's image holds no
+  # directory to start one from.
+  collector-state:
+    image: caddy:2.11.7@sha256:504a44d7d74bd2bc28a66afc4774912fc21223ca8a67734af1c54ab2f999b489
+    profiles: [tasks]
+    user: root
+    entrypoint: [chown, "10001:10001", /var/lib/collector, /var/lib/collector-managed]
+    volumes:
+      - collector-state:/var/lib/collector
+      - collector-managed-state:/var/lib/collector-managed
+    network_mode: none
 
   migrate:
     image: ${API_IMAGE_NEW:?the release's image, in state/deploy.env}
@@ -176,12 +199,16 @@ services:
     networks: [data]
     restart: unless-stopped
 
-  # The collector, which every telemetry path keeps (D42). It reads the backups' status files.
+  # The collector, which every telemetry path keeps (D42). It reads the backups' status files,
+  # and Caddy's log, with the proxy's configuration (observability/collector/proxy.yaml).
   collector:
     extends: { file: observability/compose.yaml, service: collector }
     profiles: [telemetry]
+    command: ["--config=/etc/collector/config.yaml", "--config=/etc/collector/proxy.yaml"]
     volumes:
       - backup-status:/var/lib/backup-status:ro
+      - caddy-logs:/var/log/caddy:ro
+      - collector-state:/var/lib/collector
     networks: [telemetry]
     restart: unless-stopped
 
@@ -191,7 +218,10 @@ services:
   collector-managed:
     extends: { file: observability/compose.yaml, service: collector }
     profiles: [managed-telemetry]
-    command: ["--config=/etc/collector/config.yaml", "--config=/etc/collector/managed.yaml"]
+    command:
+      - --config=/etc/collector/config.yaml
+      - --config=/etc/collector/proxy.yaml
+      - --config=/etc/collector/managed.yaml
     environment:
       MANAGED_OTLP_ENDPOINT: ${MANAGED_OTLP_ENDPOINT:-}
       MANAGED_OTLP_USER: ${MANAGED_OTLP_USER:-}
@@ -201,6 +231,10 @@ services:
     volumes:
       - backup-status:/var/lib/backup-status:ro
       - ./certs:/etc/deployment-certs:ro
+      - caddy-logs:/var/log/caddy:ro
+      # A state of its own, since both collectors run for a moment while a deploy moves from one
+      # to the other, and each locks its state.
+      - collector-managed-state:/var/lib/collector
     secrets: [managed_otlp_token]
     networks:
       telemetry:
@@ -260,6 +294,9 @@ networks:
 volumes:
   caddy-data:
   caddy-config:
+  caddy-logs:
+  collector-state:
+  collector-managed-state:
   postgres:
   postgres-socket:
   backup-status:
