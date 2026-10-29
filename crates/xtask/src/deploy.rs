@@ -15,7 +15,7 @@ use std::{
     process::{Command, ExitCode, Stdio},
 };
 
-use crate::release::{Version, latest_release};
+use crate::release::{Version, releases};
 
 /// The deployment's directory on the server, in the home of the user SSH signs in as.
 const DEPLOYMENT: &str = "$HOME/deployment";
@@ -49,17 +49,7 @@ pub fn quoted(text: &str) -> String {
 pub fn released(root: &Path, requested: Option<&str>) -> Result<String, String> {
     run(root, "git", &["fetch", "--quiet", "--tags", "origin"])
         .map_err(|error| format!("Can't fetch the release tags from GitHub: {error}"))?;
-    let Some(requested) = requested else {
-        return match latest_release(root)? {
-            Some(version) => Ok(version.to_string()),
-            None => Err(
-                "No release exists yet, and a task on a server takes a release. \
-                         `just release` makes one: docs/operations/release.md says how."
-                    .to_owned(),
-            ),
-        };
-    };
-    release(requested, |tag| {
+    chosen(requested, &releases(root)?, |tag| {
         run(
             root,
             "git",
@@ -72,6 +62,24 @@ pub fn released(root: &Path, requested: Option<&str>) -> Result<String, String> 
         )
         .is_ok()
     })
+}
+
+/// The release that a task on a server takes: the one `requested` names, as [`release`] decides
+/// it, given whether a tag exists, or else the latest of `releases`, a prerelease included; or
+/// why none can be taken.
+fn chosen(
+    requested: Option<&str>,
+    releases: &[Version],
+    tagged: impl Fn(&str) -> bool,
+) -> Result<String, String> {
+    match requested {
+        Some(requested) => release(requested, tagged),
+        None => releases.iter().max().map(ToString::to_string).ok_or_else(|| {
+            "No release exists yet, and a task on a server takes a release. `just release` makes \
+             one: docs/operations/release.md says how."
+                .to_owned()
+        }),
+    }
 }
 
 /// Deploys the release `requested`, or the latest release, to the deployment that SSH reaches at
@@ -273,6 +281,26 @@ mod tests {
                 "{requested}: {refused}"
             );
         }
+    }
+
+    #[test]
+    fn ops_16_a_deploy_takes_the_latest_release_unless_it_names_one() {
+        let releases: Vec<Version> = ["0.9.0", "1.0.0-rc.2", "1.0.0", "1.1.0-rc.1"]
+            .iter()
+            .filter_map(|version| version.parse().ok())
+            .collect();
+
+        let latest = chosen(None, &releases, |_| false);
+        let named = chosen(Some("0.9.0"), &releases, |tag| tag == "v0.9.0");
+        let none = chosen(None, &[], |_| false);
+
+        assert_eq!(latest.as_deref(), Ok("1.1.0-rc.1"));
+        assert_eq!(named.as_deref(), Ok("0.9.0"));
+        assert!(
+            none.as_ref()
+                .is_err_and(|refused| refused.contains("No release exists yet")),
+            "{none:?}"
+        );
     }
 
     #[test]

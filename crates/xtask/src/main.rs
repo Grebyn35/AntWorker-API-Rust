@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_16_a_deploy_takes_the_latest_release_unless_it_names_one() {
+    fn ops_16_a_deploy_s_version_is_optional_and_its_option_stays_an_option() {
         assert_eq!(deploy(&[]), Some((None, false)));
         assert_eq!(deploy(&["--allow-restart"]), Some((None, true)));
         assert_eq!(deploy(&["1.4.0"]), Some((Some("1.4.0".to_owned()), false)));

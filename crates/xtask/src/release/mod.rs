@@ -6,13 +6,14 @@
 //! The decisions are pure functions of what git reports, so tests cover them without a
 //! repository; [`run`] gathers that state, and makes the change.
 
+mod version;
+
 use std::{
-    cmp::Ordering,
-    fmt,
     path::{Path, PathBuf},
     process::{Command, ExitCode},
-    str::FromStr,
 };
+
+pub use version::Version;
 
 /// The manifest that holds the app's version.
 const MANIFEST: &str = "crates/app/Cargo.toml";
@@ -42,99 +43,6 @@ fn asks_for(subject: &str, version: Version) -> bool {
             .strip_prefix(" (#")
             .and_then(|rest| rest.strip_suffix(')'))
             .is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
-}
-
-/// A release's version: `X.Y.Z`, or `X.Y.Z-rc.N` for a prerelease, as a tag `vX.Y.Z` names it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Version {
-    major: u64,
-    minor: u64,
-    patch: u64,
-    /// The prerelease's number, for `-rc.N`.
-    rc: Option<u64>,
-}
-
-impl Version {
-    /// The next patch, minor and major versions after `self`. After a prerelease, the next patch
-    /// is the release the prerelease led to.
-    fn next(self) -> [Self; 3] {
-        let final_ = |major, minor, patch| Self {
-            major,
-            minor,
-            patch,
-            rc: None,
-        };
-        let patch = match self.rc {
-            Some(_) => final_(self.major, self.minor, self.patch),
-            None => final_(self.major, self.minor, self.patch + 1),
-        };
-        [
-            patch,
-            final_(self.major, self.minor + 1, 0),
-            final_(self.major + 1, 0, 0),
-        ]
-    }
-}
-
-impl FromStr for Version {
-    type Err = ();
-
-    /// Reads `X.Y.Z` or `X.Y.Z-rc.N`, with an optional leading `v`, and no leading zeros.
-    fn from_str(text: &str) -> Result<Self, ()> {
-        let text = text.strip_prefix('v').unwrap_or(text);
-        let (core, rc) = match text.split_once('-') {
-            Some((core, pre)) => (core, Some(number(pre.strip_prefix("rc.").ok_or(())?)?)),
-            None => (text, None),
-        };
-        let parts: Vec<&str> = core.split('.').collect();
-        let [major, minor, patch] = parts.as_slice() else {
-            return Err(());
-        };
-        Ok(Self {
-            major: number(major)?,
-            minor: number(minor)?,
-            patch: number(patch)?,
-            rc,
-        })
-    }
-}
-
-fn number(text: &str) -> Result<u64, ()> {
-    let leading_zero = text.len() > 1 && text.starts_with('0');
-    if text.is_empty() || leading_zero || !text.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(());
-    }
-    text.parse().map_err(|_| ())
-}
-
-impl Ord for Version {
-    /// Semantic versioning's order: a prerelease comes before the release it leads to.
-    fn cmp(&self, other: &Self) -> Ordering {
-        (self.major, self.minor, self.patch)
-            .cmp(&(other.major, other.minor, other.patch))
-            .then(match (self.rc, other.rc) {
-                (None, None) => Ordering::Equal,
-                (None, Some(_)) => Ordering::Greater,
-                (Some(_), None) => Ordering::Less,
-                (Some(a), Some(b)) => a.cmp(&b),
-            })
-    }
-}
-
-impl PartialOrd for Version {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl fmt::Display for Version {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)?;
-        match self.rc {
-            Some(rc) => write!(f, "-rc.{rc}"),
-            None => Ok(()),
-        }
-    }
 }
 
 /// What git reports about the repository, which decides whether a release may start.
@@ -217,17 +125,11 @@ pub fn version_refusal(releases: &[Version], requested: Version) -> Option<Strin
 /// release them.
 fn choices(latest: Version) -> String {
     let [patch, minor, major] = latest.next();
-    let (purpose, prerelease) = match latest.rc {
-        Some(rc) => {
-            let next = Version {
-                rc: Some(rc + 1),
-                ..latest
-            };
-            (
-                format!("as the release that {latest} leads to"),
-                format!(" Another prerelease of {patch} is {next}: `just release {next}`."),
-            )
-        }
+    let (purpose, prerelease) = match latest.next_prerelease() {
+        Some(next) => (
+            format!("as the release that {latest} leads to"),
+            format!(" Another prerelease of {patch} is {next}: `just release {next}`."),
+        ),
         None => ("for fixes".to_owned(), String::new()),
     };
     format!(
@@ -238,13 +140,15 @@ fn choices(latest: Version) -> String {
 }
 
 /// What `just release` shows without a version: the latest release, what has changed since, and
-/// the versions that can come next.
+/// the versions that can come next; or, while `main` asks for a version already, that version
+/// and the versions that can follow it.
 pub fn overview(state: &State) -> String {
     if state.pending {
         return format!(
             "{MAIN} asks for the release of {} already, which the first run on {MAIN} that \
-             passes makes.",
-            state.current
+             passes makes. After it: {}",
+            state.current,
+            choices(state.current)
         );
     }
     let Some(latest) = state.releases.iter().max().copied() else {
@@ -374,9 +278,9 @@ pub fn check(version: &str) -> ExitCode {
     }
 }
 
-/// The latest version that the repository's release tags name, or none before the first release.
-pub fn latest_release(root: &Path) -> Result<Option<Version>, String> {
-    Ok((Git { root }).releases()?.into_iter().max())
+/// The versions that the repository's release tags name, none before the first release.
+pub fn releases(root: &Path) -> Result<Vec<Version>, String> {
+    (Git { root }).releases()
 }
 
 /// Writes `new` in place of `old` in each file that holds the app's version, changing none of
@@ -710,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_without_a_version_the_task_says_when_no_release_can_come_yet() {
+    fn ops_14_without_a_version_the_task_shows_what_waits_and_when_nothing_changed() {
         let unchanged = State {
             commits_since_latest: Some(0),
             ..ready()
@@ -726,9 +630,17 @@ mod tests {
             ..ready()
         };
 
+        let shown = overview(&waiting);
+
         assert!(overview(&unchanged).starts_with("Nothing has changed since v1.1.0"));
-        assert!(overview(&waiting).contains("asks for the release of 1.2.0 already"));
         assert!(overview(&first).contains("`just release 0.1.0`"));
+        assert!(
+            shown.starts_with("main asks for the release of 1.2.0 already")
+                && shown.contains("`just release 1.2.1`")
+                && !shown.contains("`just release 1.2.0`"),
+            "{shown}"
+        );
+        assert_eq!(refusal(&waiting, v("1.2.1")), None);
     }
 
     #[test]

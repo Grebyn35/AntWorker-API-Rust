@@ -464,8 +464,7 @@ impl Server {
         self.write(
             "/root/front/ready-after-503.sh",
             "before=$(docker logs grafana-front 2>&1 | grep -c '\"status\":503')\n\
-             until [ \"$(docker logs grafana-front 2>&1 | grep -c '\"status\":503')\" -gt \"$before\" ]; do sleep 1; done\n\
-             sleep 5\n\
+             until [ \"$(docker logs grafana-front 2>&1 | grep -c '\"status\":503')\" -gt \"$((before + 1))\" ]; do sleep 1; done\n\
              docker exec grafana-front caddy reload --config /front/ready.caddy --adapter caddyfile\n\
              echo answered 503 >> /root/front/loaded\n",
         );
@@ -481,8 +480,8 @@ impl Server {
     }
 
     /// Makes the front of the stand-in managed Grafana answer as a Grafana Cloud instance that
-    /// slept does while it loads again, with a 503, until five seconds after it first answers so,
-    /// then hand each request to the Grafana again. Returns at once; /root/front/loaded holds a
+    /// slept does while it loads again, with a 503, until the client asks again after one, so
+    /// that it answers 503 twice, then hand each request to the Grafana again. Returns at once; /root/front/loaded holds a
     /// line for each time the front answered 503 and then loaded.
     pub fn managed_grafana_loads(&self) {
         self.shell_ok(

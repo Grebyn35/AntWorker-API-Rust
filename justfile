@@ -93,7 +93,8 @@ setup: && env
 # Writes .env from .env.example, with generated passwords, if .env doesn't exist yet. Compose
 # reads it too, so a CI job that runs only Compose's tools runs this instead of `just setup`.
 [unix]
-[private]
+[doc("Writes .env from .env.example, with generated passwords, unless it exists")]
+[group('develop')]
 env:
     test -f .env || sed \
         -e "s/__ADMIN_PASSWORD__/$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')/g" \
@@ -116,7 +117,8 @@ setup: && env
 # Writes .env from .env.example, with generated passwords, if .env doesn't exist yet. Compose
 # reads it too, so a CI job that runs only Compose's tools runs this instead of `just setup`.
 [windows]
-[private]
+[doc("Writes .env from .env.example, with generated passwords, unless it exists")]
+[group('develop')]
 env:
     if (-not (Test-Path .env)) { $text = Get-Content .env.example -Raw; foreach ($name in 'ADMIN', 'OWNER', 'APP') { $bytes = New-Object byte[] 16; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes); $text = $text.Replace("__$($name)_PASSWORD__", -join ($bytes | ForEach-Object { $_.ToString('x2') })) }; [IO.File]::WriteAllText((Join-Path $PWD '.env'), $text) }
 
@@ -537,7 +539,7 @@ release-image repository commit source:
     fi
     if latest=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "{{ commit }}" 2> /dev/null); then since="$latest..{{ commit }}"; else since="{{ commit }}"; fi
     # Captured first: grep stops reading at the first match, which would fail git log's write. The
-    # request matches as `asks_for` in crates/xtask/src/release.rs does: its subject alone, or with
+    # request matches as `asks_for` in crates/xtask/src/release/mod.rs does: its subject alone, or with
     # the number a squash merge appends.
     subjects=$(git log --format=%s "$since")
     if ! grep --quiet --extended-regexp --line-regexp "Release ${version//./\\.}( \(#[0-9]+\))?" <<< "$subjects"; then

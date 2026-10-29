@@ -397,7 +397,7 @@ fn waiting_image(deployment: &Deployment) -> String {
 }
 
 #[tokio::test]
-async fn ops_16_a_deploy_removes_what_nothing_uses_and_bounds_every_log() {
+async fn ops_16_a_deploy_removes_the_images_and_the_release_files_that_nothing_uses() {
     let deployment = Deployment::managed(&[]).await;
     // Three releases of one repository, as the API's are, and an image of another.
     let releases: Vec<String> = ["first", "second", "third"]
@@ -447,13 +447,33 @@ async fn ops_16_a_deploy_removes_what_nothing_uses_and_bounds_every_log() {
     deployment
         .server
         .shell_ok(&format!("test ! -e {DEPLOYMENT}/releases/0.0.1"));
-    let drivers = deployment.server.shell_ok(
+}
+
+#[tokio::test]
+async fn ops_16_every_container_of_a_deployment_keeps_a_capped_log() {
+    // The bundled database and the self-hosted stack, which run the most services.
+    let deployment = Deployment::bundled(&[("TELEMETRY", "self-hosted")]);
+
+    let applied = deployment.apply(&deployment.api, &[]).await;
+
+    assert!(applied.status.success(), "{}", lossy(&applied));
+    let logs = deployment.server.shell_ok(
         "docker ps --all --quiet --filter label=com.docker.compose.project=deployment \
-         | xargs docker inspect --format '{{.Name}} {{.HostConfig.LogConfig.Type}}'",
+         | xargs docker inspect --format \
+         '{{.Name}} {{.HostConfig.LogConfig.Type}} {{index .HostConfig.LogConfig.Config \"max-size\"}} {{index .HostConfig.LogConfig.Config \"max-file\"}}'",
     );
-    assert!(drivers.contains("caddy"), "{drivers}");
-    for line in drivers.lines() {
-        assert!(line.ends_with(" local"), "a bounded log: {drivers}");
+    for service in [
+        "caddy",
+        "api-blue",
+        "postgres",
+        "backup",
+        "collector",
+        "loki",
+    ] {
+        assert!(logs.contains(&format!("-{service}-")), "{service}: {logs}");
+    }
+    for line in logs.lines() {
+        assert!(line.ends_with(" local 20m 5"), "a capped log: {logs}");
     }
 }
 
