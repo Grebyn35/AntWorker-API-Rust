@@ -80,6 +80,66 @@ async fn ops_17_a_restore_recovers_the_database_as_it_stood_at_a_moment() {
 }
 
 #[tokio::test]
+async fn ops_17_a_restore_reaches_a_moment_that_an_earlier_restore_went_back_past() {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('early');",
+    );
+    let early = deployment.sql("SELECT now()");
+    deployment.sql("INSERT INTO restore_marker VALUES ('late')");
+    let late = deployment.sql("SELECT now()");
+    deployment.sql("INSERT INTO restore_marker VALUES ('last')");
+    archive_everything_committed(&deployment);
+    // Back too far: to `early`, past `late`, which the next restore reaches again.
+    let went_back = deployment.server.deploy(&["restore", &early]);
+    assert!(went_back.status.success(), "{}", lossy(&went_back));
+    assert_eq!(
+        deployment.sql("SELECT name FROM restore_marker ORDER BY name"),
+        "early"
+    );
+
+    let restored = deployment.server.deploy(&["restore", &late]);
+
+    assert!(restored.status.success(), "{}", lossy(&restored));
+    assert_eq!(
+        deployment.sql("SELECT name FROM restore_marker ORDER BY name"),
+        "early\nlate"
+    );
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_reaches_a_moment_after_an_earlier_restore() {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('early');",
+    );
+    let early = deployment.sql("SELECT now()");
+    deployment.sql("INSERT INTO restore_marker VALUES ('gone')");
+    archive_everything_committed(&deployment);
+    let went_back = deployment.server.deploy(&["restore", &early]);
+    assert!(went_back.status.success(), "{}", lossy(&went_back));
+    // Written after the restore, on the history it began.
+    deployment.sql("INSERT INTO restore_marker VALUES ('after')");
+    let after = deployment.sql("SELECT now()");
+    deployment.sql("INSERT INTO restore_marker VALUES ('last')");
+    archive_everything_committed(&deployment);
+
+    let restored = deployment.server.deploy(&["restore", &after]);
+
+    assert!(restored.status.success(), "{}", lossy(&restored));
+    assert_eq!(
+        deployment.sql("SELECT name FROM restore_marker ORDER BY name"),
+        "after\nearly"
+    );
+}
+
+#[tokio::test]
 async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucket_holds() {
     let lost = Deployment::bundled(&[]);
     let deployed = lost.apply(&lost.api, &[]).await;

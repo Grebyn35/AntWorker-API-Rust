@@ -53,19 +53,19 @@ restores the database as it stood at that moment, a time with its offset from UT
 
 1. It stops the API's replicas and the `backup` service, then Postgres. Until the replicas start again, in step 4, Caddy answers each request with the 503 problem `request.unavailable` and `Retry-After` (OPS-05).
 2. It moves the data directory aside, to `before-restore-<time>` in the volume `deployment_postgres`, and restores into a new, empty one. Postgres starts only after the restore succeeds; on an empty directory it would create an empty database.
-3. It starts Postgres, which replays the archived log up to the moment, then begins a new timeline, Postgres's name for a history of the database that branches off at a restore, so the log it archives from then on never mixes with the log it replaced.
+3. It starts Postgres, which replays the archived log up to the moment, along the timeline the database had at that moment, the one the latest backup before it is on, then begins a new timeline, Postgres's name for a history of the database that branches off at a restore, so the log it archives from then on never mixes with the log it replaced.
 4. It runs `migrate` with the live release, and starts the live replicas again.
 5. It takes a full backup of the restored database while the API serves, as the scheduled backups do, so a later restore starts from the restored database's timeline; Postgres archives what the replicas write meanwhile. If that backup fails, the restore says so, with the API serving: take one with `just backup`.
 
-CI restores to a moment between two writes, then checks that the first one is there, that the second isn't, and that the API serves through Caddy (OPS-17).
+CI restores to a moment between two writes, then checks that the first one is there, that the second isn't, and that the API serves through Caddy. It also restores to an early moment, then to a later one that the first restore went back past, and to a moment after an earlier restore, and finds what was written by then each time (OPS-17).
 
-The data that the restore replaced stays in the volume, so a restore can be undone, and `just status` lists it, with its size, until it's removed: no deploy removes it (D57). Once the restored database is right, remove it on the server, with the name the restore printed:
+A restore that went back too far is undone by another, to the moment you meant: the backups still reach every moment that the first restore went back past, such as one just before it stopped the API, which brings back what the database held then. The data that the restore replaced also stays in the volume, and `just status` lists it, with its size, until it's removed: no deploy removes it (D57). Once the restored database is right, remove it on the server, with the name the restore printed:
 
 ```
 docker run --rm --volume deployment_postgres:/data --entrypoint rm "$(sed -n 's/^POSTGRES_IMAGE=//p' ~/deployment/state/deploy.env)" -r /data/18/before-restore-20261025T104131Z
 ```
 
-A restore that fails once it moved the data directory aside leaves Postgres stopped, and the API with it; its output says why. Fix the cause, such as a moment that the backups don't reach, and run the restore again, which moves aside what it finds in turn. To go back to the data as it was instead, put the directory back, and deploy the live release again, which starts Postgres:
+A restore that fails once it moved the data directory aside leaves Postgres stopped, and the API with it; its output says why. Fix the cause, such as a moment that the backups don't reach, as one after the last change they hold is, and run the restore again, which moves aside what it finds in turn. Putting the data back by hand is for a restore that failed only: once a restore has succeeded, the backups follow the restored database, so undo it with another restore, as above. To go back to the data as it was before a restore that failed, put the directory back, and deploy the live release again, which starts Postgres:
 
 ```
 docker run --rm --volume deployment_postgres:/data --entrypoint sh "$(sed -n 's/^POSTGRES_IMAGE=//p' ~/deployment/state/deploy.env)" -c 'rm -rf /data/18/docker && mv /data/18/before-restore-20261025T104131Z /data/18/docker'

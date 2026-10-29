@@ -701,14 +701,17 @@ restore() {
     stamp=$(date -u +%Y%m%dT%H%M%SZ)
     say "restoring the database${moment:+ as it stood at $moment}; the data it replaces moves to /var/lib/postgresql/18/before-restore-$stamp"
     # As root, which owns the data directory's parent. Postgres starts only after a restore that
-    # succeeded: on an empty data directory, it would create an empty database.
+    # succeeded: on an empty data directory, it would create an empty database. A restore to a
+    # moment replays along the timeline of the latest backup before it, the history the database
+    # had then: Postgres's default, the latest timeline, branches off before a moment that an
+    # earlier restore went back past, so the replay couldn't reach it, and Postgres wouldn't start.
     # shellcheck disable=SC2016 # The script expands its arguments itself.
     compose run --rm --no-deps --quiet-pull --user root --entrypoint sh postgres -c '
         set -e
         mv /var/lib/postgresql/18/docker "/var/lib/postgresql/18/before-restore-$1"
         install -d -o postgres -g postgres -m 0700 /var/lib/postgresql/18/docker
         if [ -n "$2" ]; then
-            gosu postgres pgbackrest --stanza=db restore --type=time --target="$2" --target-action=promote
+            gosu postgres pgbackrest --stanza=db restore --type=time --target="$2" --target-timeline=current --target-action=promote
         else
             gosu postgres pgbackrest --stanza=db restore
         fi' sh "$stamp" "$moment"
