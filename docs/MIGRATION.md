@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build. Step 1 is built and reviewed, up to this handoff: the review of 57f140d..f75e989, which covered the wait for a loading managed Grafana, D57's bounded server, a release of unpushed commits in one run, a deploy of the latest release by default with the server's SSH `Host`, and the justfile's task list, stopped with no progress at pass 2, resolved in 21ecbdb. Step 2.1's review covers the commits after this handoff. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet, so each deploy warns that no alert notifies anyone. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging changed. Waiting on the owner: pushing `main`, and whether to release 0.1.0-rc.12 to the trial server.
+**Next:** step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build. Step 1 is built and reviewed through 903739d: the review of 57f140d..f75e989 (D57's bounded server, releases in one run, deploys of the latest release with the server's SSH `Host`, the justfile's task list) stopped with no progress at pass 2, resolved in 21ecbdb, and the review of b299bf2..004d477 (each restore planned along the timeline live at its moment, from a backup on it) stopped with no progress at pass 2, resolved in 903739d. Step 2.1's review covers the commits after 903739d. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging changed. Waiting on the owner: pushing `main`, and whether to release 0.1.0-rc.12 to the trial server.
 
 ## Build order
 
@@ -168,7 +168,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 57f140d..ed3dec5: the commits since step 1.5's review was decided: the wait for a managed Grafana that is still loading, the verify job's limit, a server that nothing a deploy leaves fills (D57), a release of unpushed commits in one run, a deploy of the latest release by default with the server's SSH `Host`, and the justfile's task list | 1 | 7 (6, 2, 1 shared) | 1 | 0 | `next pass`: f75e989 |
 | 57f140d..f75e989: the commits since step 1.5's review was decided, as above | 2 | 7 (3, 5, 1 shared) | 3 | 1 | `stopped: no progress`: 21ecbdb |
 | b299bf2..9a48aa8: a restore to a moment that an earlier restore went back past, and the task list's lines of `just e2e` and `just deploy` | 1 | 4 (3, 2, 1 shared) | 1 | 0 | `next pass`: 004d477 |
-| b299bf2..004d477: as above, with the plan of a restore to a moment | 2 | 3 (3, 1, 1 shared) | 1 | 0 | `stopped: no progress` |
+| b299bf2..004d477: as above, with the plan of a restore to a moment | 2 | 3 (3, 1, 1 shared) | 1 | 0 | `stopped: no progress`: 903739d |
 
 ## Decisions
 
