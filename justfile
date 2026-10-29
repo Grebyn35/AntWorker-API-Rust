@@ -386,7 +386,7 @@ image-scan:
 # run on this machine's platform, so no test reaches a registry outside (TEST-07). Names run only
 # the tests whose names hold one of them, such as `just e2e obs_13`. A name with a slash is
 # refused: it would be a platform, which matches no test, so the run would pass with none.
-[doc("Runs the end-to-end tests against the images; `just e2e obs_13` runs those named so")]
+[doc("Runs the end-to-end tests; `just e2e obs_13` runs only those whose names contain obs_13")]
 [group('image')]
 e2e *tests: services
     {{ if tests =~ '/' { error("just e2e takes test names; E2E_PLATFORM names the platform, such as E2E_PLATFORM=linux/arm64") } else { "" } }}docker compose up --detach --wait registry mirror
