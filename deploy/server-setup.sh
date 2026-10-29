@@ -163,7 +163,7 @@ apply() {
         # shellcheck disable=SC2024 # This script's user reads the payload, which only it may read.
         sudo -n -u "$user" sh "$here/server-setup.sh" write < "$payload"
     fi
-    say "the deployment runs as $user: the other tasks sign in as $user, such as just server-check $user@<address>"
+    say "the deployment runs as $user"
 }
 
 decode() { printf '%s' "$1" | base64 -d; }

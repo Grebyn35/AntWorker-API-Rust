@@ -369,14 +369,15 @@ publish repository commit:
 release version:
     {{ xtask }} release {{ version }}
 
-# Deploys the release `version` to the reference deployment on `host`, an SSH destination such as
-# deploy@203.0.113.7 or a Host of ~/.ssh/config (OPS-16): refuses a version that no release has,
-# copies the deployment's files from the release's tag to the server, and runs that release's
-# deploy/deploy.sh there, which verifies the release's images before it pulls them, and removes the
-# other releases' files and the images that nothing uses once its replicas serve. `--allow-restart`
-# lets it restart Postgres or Caddy. docs/operations/deploy.md describes a deploy.
-deploy host version *options:
-    {{ xtask }} deploy {{ host }} {{ version }} {{ options }}
+# Deploys a release to the reference deployment on `host`, an SSH destination such as a Host of
+# ~/.ssh/config, `production`, or deploy@203.0.113.7 (OPS-16): the latest release, or the one whose
+# version follows the host, such as `just deploy production 1.4.0`. It refuses a version that no
+# release has, copies the deployment's files from the release's tag to the server, and runs that
+# release's deploy/deploy.sh there, which verifies the release's images before it pulls them, and
+# removes the other releases' files and the images that nothing uses once its replicas serve.
+# `--allow-restart` lets it restart Postgres or Caddy. docs/operations/deploy.md describes a deploy.
+deploy host *arguments:
+    {{ xtask }} deploy {{ host }} {{ arguments }}
 
 # Takes a full base backup of the bundled database of the reference deployment on `host` (OPS-17).
 backup host:

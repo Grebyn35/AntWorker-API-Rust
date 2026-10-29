@@ -38,18 +38,18 @@ pgBackRest manages what the bucket holds, and deletes the backups that retention
 ## Taking a backup
 
 ```
-just backup deploy@203.0.113.7
+just backup production
 ```
 
-takes a full base backup at once, such as before a change that's hard to undo. It doesn't stop the API.
+takes a full base backup at once, such as before a change that's hard to undo. It doesn't stop the API. `production` is the server's `Host` in `~/.ssh/config`, as [deploy.md](deploy.md#setting-up-a-server) says, or its `user@address`.
 
 ## Restoring
 
 ```
-just restore deploy@203.0.113.7 "2026-10-25 10:41:31+00"
+just restore production "2026-10-25 10:41:31+00"
 ```
 
-restores the database as it stood at that moment, a time with its offset from UTC. Without a moment, `just restore deploy@203.0.113.7` restores the latest state the backups hold. A restore runs on the server, through the `deploy.sh` that the last deploy installed:
+restores the database as it stood at that moment, a time with its offset from UTC. Without a moment, `just restore production` restores the latest state the backups hold. A restore runs on the server, through the `deploy.sh` that the last deploy installed:
 
 1. It stops the API's replicas and the `backup` service, then Postgres. Until the replicas start again, in step 4, Caddy answers each request with the 503 problem `request.unavailable` and `Retry-After` (OPS-05).
 2. It moves the data directory aside, to `before-restore-<time>` in the volume `deployment_postgres`, and restores into a new, empty one. Postgres starts only after the restore succeeds; on an empty directory it would create an empty database.

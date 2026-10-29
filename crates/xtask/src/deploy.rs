@@ -74,13 +74,17 @@ pub fn released(root: &Path, requested: Option<&str>) -> Result<String, String> 
     })
 }
 
-/// Deploys the release `version` to the deployment that SSH reaches at `host`.
-pub fn deploy(host: &str, version: &str, allow_restart: bool) -> ExitCode {
+/// Deploys the release `requested`, or the latest release, to the deployment that SSH reaches at
+/// `host`.
+pub fn deploy(host: &str, requested: Option<&str>, allow_restart: bool) -> ExitCode {
     let root = root();
-    let version = match released(&root, Some(version)) {
+    let version = match released(&root, requested) {
         Ok(version) => version,
         Err(refused) => return refuse(&refused),
     };
+    if requested.is_none() {
+        note(&format!("Deploying {version}, the latest release."));
+    }
     let release = format!("{DEPLOYMENT}/releases/{version}");
     if let Err(error) = send_files(&root, host, &version, &release) {
         return refuse(&format!(
@@ -218,6 +222,11 @@ pub fn root() -> PathBuf {
 pub fn refuse(message: &str) -> ExitCode {
     eprintln!("{message}");
     ExitCode::FAILURE
+}
+
+#[expect(clippy::print_stdout, reason = "the note is the task's output")]
+fn note(message: &str) {
+    println!("{message}");
 }
 
 #[cfg(test)]

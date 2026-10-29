@@ -100,13 +100,13 @@ enum Command {
         /// The version, such as 1.4.0, or 1.4.0-rc.1 for a prerelease.
         version: String,
     },
-    /// Deploys the release `version` to the reference deployment that SSH reaches at `host`
-    /// (OPS-16).
+    /// Deploys the release `version`, or the latest release, to the reference deployment that SSH
+    /// reaches at `host` (OPS-16).
     Deploy {
         /// The server, as SSH names it: user@address, or a Host of ~/.ssh/config.
         host: String,
-        /// The release's version, such as 1.4.0.
-        version: String,
+        /// The release's version, such as 1.4.0; the latest by default.
+        version: Option<String>,
         /// Restarts Postgres or Caddy if the release changes them, which interrupts requests for
         /// a few seconds.
         #[arg(long)]
@@ -230,7 +230,7 @@ fn main() -> ExitCode {
             host,
             version,
             allow_restart,
-        } => return deploy::deploy(&host, &version, allow_restart),
+        } => return deploy::deploy(&host, version.as_deref(), allow_restart),
         Command::Backup { host } => return deploy::backup(&host),
         Command::LoadTest => return load::run(),
         Command::Mirror { platform } => return mirror::run(&platform),
@@ -311,4 +311,33 @@ fn print(outcome: &Outcome) -> ExitCode {
 fn unreadable(error: &io::Error) -> ExitCode {
     eprintln!("can't read the repository: {error}");
     ExitCode::FAILURE
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The version and the option of a deploy to `production` with `args`, if they make one.
+    fn deploy(args: &[&str]) -> Option<(Option<String>, bool)> {
+        let cli = Cli::try_parse_from([&["xtask", "deploy", "production"], args].concat()).ok()?;
+        match cli.command {
+            Command::Deploy {
+                version,
+                allow_restart,
+                ..
+            } => Some((version, allow_restart)),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn ops_16_a_deploy_takes_the_latest_release_unless_it_names_one() {
+        assert_eq!(deploy(&[]), Some((None, false)));
+        assert_eq!(deploy(&["--allow-restart"]), Some((None, true)));
+        assert_eq!(deploy(&["1.4.0"]), Some((Some("1.4.0".to_owned()), false)));
+        assert_eq!(
+            deploy(&["1.4.0", "--allow-restart"]),
+            Some((Some("1.4.0".to_owned()), true))
+        );
+    }
 }

@@ -55,15 +55,25 @@ The argument is the server as SSH names it, signed in as `root`, or as a user th
 Then, on the server, it:
 
 1. Installs Docker Engine and its Compose and Buildx plugins from Docker's apt repository, on Debian and Ubuntu, once it has checked the repository's key against the fingerprint that Docker's documentation gives. A server that runs Docker 29 or later keeps it. On another distribution, install Docker first, as Docker's documentation says.
-2. Signed in as `root`, creates the user `deploy`, which runs the deployment, and gives it root's authorized SSH keys; signed in as another user, that user runs it. The user joins the `docker` group. The other tasks sign in as that user, such as `just deploy deploy@203.0.113.7 1.4.0`.
+2. Signed in as `root`, creates the user `deploy`, which runs the deployment, and gives it root's authorized SSH keys; signed in as another user, that user runs it. The user joins the `docker` group. The other tasks sign in as that user.
 3. Logs that user in to the registry, and writes `~/deployment/settings.env`, the secrets in `~/deployment/secrets/` and the certificates in `~/deployment/certs/`.
+
+It ends with the lines to add to `~/.ssh/config` on your machine, which name the server, its address and the deployment's user:
+
+```
+Host production
+    HostName 203.0.113.7
+    User deploy
+```
+
+With them, every task names the server `production`, as the rest of this document does, and `ssh production` signs in. Choose any name, and add a `Host` for each server, such as `staging` beside `production`.
 
 Run it again to change a setting, a secret or the login: it asks again, starting from what the server holds, and keeps any setting the example doesn't list. The deploy writes the other secrets the first time the services need them: the bundled database's other passwords and the URLs made from them, and Grafana's administrator password. When `DATABASE` moves from `managed` to `bundled`, the deploy moves the managed database's URLs aside, to `<name>.before-bundled`, and writes the bundled one's. Compose mounts each secret file into the containers that read it, where any user of the container can read it, so each file is readable by every user, while the directory admits only the deployment's user.
 
 ### Checking a server
 
 ```
-just server-check deploy@203.0.113.7
+just server-check production
 ```
 
 checks what a deploy of the latest release, or of the release a second argument names, needs, and changes nothing of the deployment. It runs that release's files, as the deploy will. On the server, it reads the settings and the secrets as a deploy does, and refuses what a deploy would refuse, the connection budget included (OPS-21); checks that Docker 29 or later runs, with both plugins; verifies the release, as a deploy does first ([release.md](release.md#verifying-a-release)), and pulls its images; checks the server's memory against the services the settings choose; with the bundled database, reads the bucket through the release's pgBackRest, with the key pair, the passphrase and the authority a deploy would use; and with a managed backend, sends it an export of no telemetry, and asks its Grafana for its folders with the import's token. From your machine, it checks that each address the settings name resolves to the server, which Let's Encrypt needs before it issues the address's certificate, and that the server's ports 80 and 443 answer, or refuse, where a firewall that drops them would leave no answer at all. Each check prints `ok` or `FAIL` with what it found, and `note` with what it can't see, whether the provider encrypts the disk, and with what a deploy will then do: when the bucket holds a database's backups and the server has no database yet, as after losing a server, the first deploy stops before its replicas start, for `just restore` to restore them ([backups.md](backups.md#restoring-onto-a-new-server)). Then deploy a release, as below. The first deploy that runs the bundled database creates the backups' stanza in the bucket, pgBackRest's record of the database it backs up, and takes the first full backup.
@@ -73,10 +83,10 @@ checks what a deploy of the latest release, or of the release a second argument 
 On your machine, in your checkout of the repository, run:
 
 ```
-just deploy deploy@203.0.113.7 1.4.0
+just deploy production
 ```
 
-The first argument is the server as SSH names it: `user@address`, or a `Host` of `~/.ssh/config`. The second is the release's version. `just deploy` needs git and SSH, which Windows, macOS and Linux all ship, and no login to the registry: the server pulls the images.
+The argument is the server as SSH names it: a `Host` of `~/.ssh/config`, such as `production`, or `user@address`. The deploy takes the latest release, and says which; name another after the server, such as `just deploy production 1.4.0`. `just deploy` needs git and SSH, which Windows, macOS and Linux all ship, and no login to the registry: the server pulls the images.
 
 It refuses a version that no release has, and says to make one first ([release.md](release.md)). Otherwise it copies the deployment's files from the release's tag, `v1.4.0`, to `~/deployment/releases/1.4.0` on the server, never a checkout of the repository, and runs that release's `deploy.sh` there, which:
 
@@ -107,22 +117,22 @@ What a deploy refuses, and what to do:
 
 ### Restarting Postgres or Caddy
 
-Postgres and Caddy each run once, so restarting either interrupts requests for a few seconds. A deploy restarts them only when you allow it: when a release changes the Postgres image or Caddy's, or a setting they read, the deploy refuses and says which, and `just deploy <host> <version> --allow-restart` restarts them. Caddy reads `TELEMETRY`, which says whether it exports its spans, so a move of `TELEMETRY` to or from `off` restarts it. A release whose Postgres image is built from the same files as the running one leaves Postgres running, since such an image runs the same Postgres and pgBackRest, at the versions it pins ([release.md](release.md#the-images)). Changes to Caddy's sites or to the replicas it names reload Caddy, which drops no connection.
+Postgres and Caddy each run once, so restarting either interrupts requests for a few seconds. A deploy restarts them only when you allow it: when a release changes the Postgres image or Caddy's, or a setting they read, the deploy refuses and says which, and the same command with `--allow-restart`, such as `just deploy production 1.4.0 --allow-restart`, restarts them. Caddy reads `TELEMETRY`, which says whether it exports its spans, so a move of `TELEMETRY` to or from `off` restarts it. A release whose Postgres image is built from the same files as the running one leaves Postgres running, since such an image runs the same Postgres and pgBackRest, at the versions it pins ([release.md](release.md#the-images)). Changes to Caddy's sites or to the replicas it names reload Caddy, which drops no connection.
 
 ## Rolling back
 
-To go back to an earlier release, deploy it: `just deploy <host> 1.3.2`. Its replicas run against the schema the later release migrated, which expand and contract keeps compatible, and `serve` starts against a schema with later migrations than its own (PLATFORM-030).
+To go back to an earlier release, deploy it by its version: `just deploy production 1.3.2`. `just status production` shows the version that serves. Its replicas run against the schema the later release migrated, which expand and contract keeps compatible, and `serve` starts against a schema with later migrations than its own (PLATFORM-030).
 
 ## Checking on a deployment
 
 ```
-just status deploy@203.0.113.7
+just status production
 ```
 
 shows whether a deploy, backup or restore runs, or a deploy stopped before its replicas served, whose files the next task puts back, then which color serves, each of the deployment's containers with its state, such as `Up 2 hours (healthy)`, and its image's version, when the backups last archived the write-ahead log and last completed a base backup, the data that each restore moved aside, with its size, until you remove it ([backups.md](backups.md#restoring)), and the server's free disk and memory. It changes nothing, so it also runs while a deploy does.
 
 ```
-just logs deploy@203.0.113.7 api
+just logs production api
 ```
 
 shows the last 100 lines of the logs of both colors' replicas. Name any of the deployment's services instead, such as `caddy`, `postgres` or `backup`, or none for all of them, and add `--follow` to go on showing the lines that follow, until Ctrl-C. With `caddy`, or no service named, the last 100 of Caddy's lines of the requests it answered itself follow, such as its 503 while no replica runs, each headed `caddy requests`: Caddy writes them to a file, which the collector reads when the deployment has telemetry, and each holds the request's trace ID as `traceID`. Each container keeps the last 100 megabytes of its log, in five files of 20 megabytes, the older ones compressed. With the self-hosted stack, Grafana also keeps the API's logs, to search ([observability.md](observability.md)).
