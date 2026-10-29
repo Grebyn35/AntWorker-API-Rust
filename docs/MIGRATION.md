@@ -165,7 +165,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | a28df7b..4718850: step 1.5 after its review, as above | 3 | 4 (4, 1, 1 shared) | 1 | 1 | `stopped: no progress`: a040339 |
 | 57f140d..ed3dec5: the commits since step 1.5's review was decided: the wait for a managed Grafana that is still loading, the verify job's limit, a server that nothing a deploy leaves fills (D57), a release of unpushed commits in one run, a deploy of the latest release by default with the server's SSH `Host`, and the justfile's task list | 1 | 7 (6, 2, 1 shared) | 1 | 0 | `next pass`: f75e989 |
 | 57f140d..f75e989: the commits since step 1.5's review was decided, as above | 2 | 7 (3, 5, 1 shared) | 3 | 1 | `stopped: no progress`: 21ecbdb |
-| b299bf2..9a48aa8: a restore to a moment that an earlier restore went back past, and the task list's lines of `just e2e` and `just deploy` | 1 | 4 (3, 2, 1 shared) | 1 | 0 | `next pass` |
+| b299bf2..9a48aa8: a restore to a moment that an earlier restore went back past, and the task list's lines of `just e2e` and `just deploy` | 1 | 4 (3, 2, 1 shared) | 1 | 0 | `next pass`: 004d477 |
+| b299bf2..004d477: as above, with the plan of a restore to a moment | 2 | 3 (3, 1, 1 shared) | 1 | 0 | `stopped: no progress` |
 
 ## Decisions
 
