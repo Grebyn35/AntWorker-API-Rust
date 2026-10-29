@@ -144,7 +144,8 @@ pub struct State {
     pub changed: Vec<String>,
     /// The branch checked out.
     pub branch: String,
-    /// The commits on this `main` that GitHub's lacks.
+    /// The commits on this `main` that GitHub's lacks, which the release's push takes with it,
+    /// so that the release's run checks them.
     pub ahead: u32,
     /// The commits on GitHub's `main` that this one lacks.
     pub behind: u32,
@@ -179,12 +180,6 @@ pub fn refusal(state: &State, requested: Version) -> Option<String> {
         return Some(format!(
             "GitHub's {MAIN} has commits that this one doesn't. Get them with `git pull`, and run \
              this again."
-        ));
-    }
-    if state.ahead > 0 {
-        return Some(format!(
-            "This {MAIN} has commits that GitHub's doesn't. Push them with `git push`, so CI \
-             checks them, and run this again."
         ));
     }
     if let Some(refused) = version_refusal(&state.releases, requested) {
@@ -283,13 +278,18 @@ pub fn run(requested: &str) -> ExitCode {
     if let Err(error) = git.run(&["push", "--quiet", "origin", MAIN]) {
         return refuse(&format!(
             "GitHub refused the push to {MAIN}: {error}\nIf {MAIN} takes changes only through \
-             pull requests, push this commit to a branch with `git push origin \
+             pull requests, push {MAIN}'s new commits to a branch with `git push origin \
              {MAIN}:release-{requested}`, open a pull request from it, and merge it: its run \
              on {MAIN} releases {requested}. Then run `git reset --hard origin/{MAIN}`."
         ));
     }
+    let pushed = match state.ahead {
+        0 => format!("\"{message}\""),
+        1 => format!("your commit and \"{message}\""),
+        ahead => format!("your {ahead} commits and \"{message}\""),
+    };
     report(&format!(
-        "Pushed \"{message}\" to {MAIN}. The run on {MAIN} releases {requested} once this commit \
+        "Pushed {pushed} to {MAIN}. The run on {MAIN} releases {requested} once this commit \
          passes every check, in about 20 minutes: follow it on the repository's Actions page on \
          GitHub. docs/operations/release.md says what to do if it fails."
     ))
@@ -504,9 +504,9 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_a_release_starts_only_from_a_clean_main_in_step_with_github() {
+    fn ops_14_a_release_starts_only_from_a_clean_main_that_holds_github_s_commits() {
         type Change = fn(&mut State);
-        let cases: [(Change, &str); 4] = [
+        let cases: [(Change, &str); 3] = [
             (
                 |state| state.changed = vec!["justfile".to_owned()],
                 "git stash",
@@ -516,7 +516,6 @@ mod tests {
                 "git switch main",
             ),
             (|state| state.behind = 2, "git pull"),
-            (|state| state.ahead = 1, "git push"),
         ];
         for (change, next_step) in cases {
             let mut state = ready();
@@ -527,6 +526,16 @@ mod tests {
             assert!(refused.contains(next_step), "{refused}");
         }
         assert_eq!(refusal(&ready(), v("1.2.0")), None);
+    }
+
+    #[test]
+    fn ops_14_commits_that_github_lacks_go_out_with_the_release_in_one_run() {
+        let state = State {
+            ahead: 2,
+            ..ready()
+        };
+
+        assert_eq!(refusal(&state, v("1.2.0")), None);
     }
 
     #[test]

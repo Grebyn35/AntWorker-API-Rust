@@ -37,7 +37,7 @@ On your machine, with `main` checked out, run:
 just release 1.4.0
 ```
 
-It checks that `main` can release that version, sets the version in `crates/app/Cargo.toml`, the lock file and `openapi.json`, commits "Release 1.4.0", and pushes `main`. That commit is the request: CI releases a version only when a commit since the latest release asks for it, so a version set any other way, or the version that a repository made from the template starts with, releases nothing. CI then runs on that commit, as on every commit. When the run passes every check, its `release` job releases 1.4.0, about 20 minutes after the push. The repository's Actions page on GitHub shows the run, and the `release` job ends with "Released 1.4.0" and the images' digests.
+It checks that `main` can release that version, sets the version in `crates/app/Cargo.toml`, the lock file and `openapi.json`, commits "Release 1.4.0", and pushes `main`, with any commits of yours that GitHub's `main` doesn't have yet, so one run checks them all: there is no need to push first. That commit is the request: CI releases a version only when a commit since the latest release asks for it, so a version set any other way, or the version that a repository made from the template starts with, releases nothing. CI then runs on that commit, as on every commit. When the run passes every check, its `release` job releases 1.4.0, about 20 minutes after the push. The repository's Actions page on GitHub shows the run, and the `release` job ends with "Released 1.4.0" and the images' digests.
 
 `just release` refuses to start, and says what to do, when:
 
@@ -46,7 +46,6 @@ It checks that `main` can release that version, sets the version in `crates/app/
 | There are changes that aren't committed | Commit them, or set them aside with `git stash` |
 | Another branch than `main` is checked out | `git switch main` |
 | GitHub's `main` has commits that yours doesn't | `git pull` |
-| Your `main` has commits that GitHub's doesn't | `git push`, so that CI checks them first. Running `just release` at once after it is enough: the release's run checks the pushed commits too, so the push's own run, which the release's waits behind ([ci.md](ci.md#the-pipeline)), can be cancelled on the Actions page |
 | The version is released already, or comes before the latest release | Run it with one of the versions it suggests: the next patch, minor or major version |
 | Nothing has changed since the latest release | Nothing: the latest release is current |
 | `main` holds that version already, waiting for a run that passes | Fix what failed, and push the fix: its run releases the version |
