@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build. Step 1.5 is built and reviewed: its review since a28df7b stopped with no progress at pass 3, resolved in a040339, and the owner decided its three rule proposals (D54 to D56). Step 2.1's conformance review also covers the commits since 57f140d: the wait for a managed Grafana that is still loading, which the trial found after the review, `just e2e`'s test names, and the verify job's longer limit for arm64. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet, so each deploy warns that no alert notifies anyone; rc.11 waits for a loading Grafana on its health check, and the next release on the request with the token that the trial saw answer 503. Nothing waits on the owner.
+**Next:** step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build. Step 1 is built and reviewed, up to this handoff: the review of 57f140d..f75e989, which covered the wait for a loading managed Grafana, D57's bounded server, a release of unpushed commits in one run, a deploy of the latest release by default with the server's SSH `Host`, and the justfile's task list, stopped with no progress at pass 2, resolved in 21ecbdb. Step 2.1's review covers the commits after this handoff. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet, so each deploy warns that no alert notifies anyone. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging changed. Waiting on the owner: pushing `main`, and whether to release 0.1.0-rc.12 to the trial server.
 
 ## Build order
 
@@ -164,7 +164,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | a28df7b..3392e71: step 1.5 after its review, as above | 2 | 7 (6, 1, 0 shared) | 2 | 0 | `next pass`: 4718850 |
 | a28df7b..4718850: step 1.5 after its review, as above | 3 | 4 (4, 1, 1 shared) | 1 | 1 | `stopped: no progress`: a040339 |
 | 57f140d..ed3dec5: the commits since step 1.5's review was decided: the wait for a managed Grafana that is still loading, the verify job's limit, a server that nothing a deploy leaves fills (D57), a release of unpushed commits in one run, a deploy of the latest release by default with the server's SSH `Host`, and the justfile's task list | 1 | 7 (6, 2, 1 shared) | 1 | 0 | `next pass`: f75e989 |
-| 57f140d..f75e989: the commits since step 1.5's review was decided, as above | 2 | 7 (3, 5, 1 shared) | 3 | 1 | `stopped: no progress` |
+| 57f140d..f75e989: the commits since step 1.5's review was decided, as above | 2 | 7 (3, 5, 1 shared) | 3 | 1 | `stopped: no progress`: 21ecbdb |
 
 ## Decisions
 
