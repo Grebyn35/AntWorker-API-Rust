@@ -58,7 +58,7 @@ Then, on the server, it:
 2. Signed in as `root`, creates the user `deploy`, which runs the deployment, and gives it root's authorized SSH keys; signed in as another user, that user runs it. The user joins the `docker` group. The other tasks sign in as that user.
 3. Logs that user in to the registry, and writes `~/deployment/settings.env`, the secrets in `~/deployment/secrets/` and the certificates in `~/deployment/certs/`.
 
-It ends with the lines to add to `~/.ssh/config` on your machine, which name the server, its address and the deployment's user:
+It ends with the lines to add to `~/.ssh/config` on your machine, which name the server, its address and the deployment's user, unless the server you gave it is such a `Host` already:
 
 ```
 Host production

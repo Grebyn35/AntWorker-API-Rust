@@ -778,14 +778,21 @@ status() {
             done'
     fi
     # The data that each restore moved aside, which stays, so a restore can be undone, until the
-    # operator removes it as docs/operations/backups.md says.
-    container=$(running postgres)
-    if [ -n "$container" ]; then
-        aside=$(docker exec "$container" sh -c 'for directory in /var/lib/postgresql/*/before-restore-*; do if [ -d "$directory" ]; then du -sh "$directory"; fi; done') || aside=""
-        if [ -n "$aside" ]; then
-            echo "moved aside by a restore, until removed (docs/operations/backups.md):"
-            printf '%s\n' "$aside" | awk '{ name = $2; sub(/.*\//, "", name); printf "  %-34s %s\n", name, $1 }'
+    # operator removes it as docs/operations/backups.md says. It is read from the volume, whether
+    # Postgres runs or not, as after a restore that failed or once DATABASE left `bundled`,
+    # through Caddy's image, which every deploy runs, since the Postgres image may be gone.
+    aside=""
+    if [ -f "$state/deploy.env" ] && docker volume inspect "${project}_postgres" > /dev/null 2>&1; then
+        profiles=""
+        image=$(compose config --images caddy 2> /dev/null) || image=""
+        if [ -n "$image" ]; then
+            aside=$(docker run --rm --pull never --network none --volume "${project}_postgres:/data:ro" --entrypoint sh "$image" \
+                -c 'for directory in /data/*/before-restore-*; do if [ -d "$directory" ]; then du -sh "$directory"; fi; done') || aside=""
         fi
+    fi
+    if [ -n "$aside" ]; then
+        echo "moved aside by a restore, until removed (docs/operations/backups.md):"
+        printf '%s\n' "$aside" | awk '{ name = $2; sub(/.*\//, "", name); printf "  %-34s %s\n", name, $1 }'
     fi
     echo "server:"
     df -P -h "$(docker info --format '{{ .DockerRootDir }}')" |

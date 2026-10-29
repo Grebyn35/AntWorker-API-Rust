@@ -388,39 +388,59 @@ async fn obs_13_a_deploy_imports_the_dashboards_into_a_folder_of_the_managed_gra
     );
 }
 
-#[tokio::test]
-async fn obs_13_the_check_and_a_deploy_wait_for_a_managed_grafana_that_is_still_loading() {
+/// A deployment whose telemetry goes to a managed backend, whose Grafana answers through a front
+/// that can make it answer as a Grafana that is still loading.
+async fn behind_a_loading_grafana() -> Deployment {
     let deployment = Deployment::managed(&[]).await;
     let mut settings = vec![("TELEMETRY".to_owned(), "managed".to_owned())];
     settings.extend(deployment.server.start_otlp_backend());
     settings.extend(deployment.server.start_managed_grafana());
     settings.extend(deployment.server.front_managed_grafana());
     deployment.set(&pairs(&settings));
-    let released = release_dashboards(&deployment);
+    deployment
+}
 
+#[tokio::test]
+async fn obs_13_a_deploy_waits_for_a_managed_grafana_that_is_still_loading() {
+    let deployment = behind_a_loading_grafana().await;
+    let released = release_dashboards(&deployment);
     deployment.server.managed_grafana_loads();
-    let checked =
-        deployment
-            .server
-            .deploy(&["check-images", &deployment.api, &deployment.postgres]);
-    deployment.server.managed_grafana_loads();
+
     let deployed = deployment.apply(&deployment.api, &[]).await;
 
-    assert!(
-        lossy(&checked).contains("check: ok    the managed Grafana at "),
-        "{}",
-        lossy(&checked)
-    );
     assert!(deployed.status.success(), "{}", lossy(&deployed));
     assert!(
         lossy(&deployed).contains(&format!("imported {} dashboards", released.len())),
         "{}",
         lossy(&deployed)
     );
-    // Each waited through a 503.
+    // The import waited through a 503.
     assert_eq!(
         deployment.server.shell_ok("cat /root/front/loaded"),
-        "answered 503\nanswered 503"
+        "answered 503"
+    );
+}
+
+#[tokio::test]
+async fn ops_22_the_check_waits_for_a_managed_grafana_that_is_still_loading() {
+    let deployment = behind_a_loading_grafana().await;
+    release_dashboards(&deployment);
+    deployment.server.managed_grafana_loads();
+
+    let checked =
+        deployment
+            .server
+            .deploy(&["check-images", &deployment.api, &deployment.postgres]);
+
+    assert!(
+        lossy(&checked).contains("check: ok    the managed Grafana at "),
+        "{}",
+        lossy(&checked)
+    );
+    // The check waited through a 503.
+    assert_eq!(
+        deployment.server.shell_ok("cat /root/front/loaded"),
+        "answered 503"
     );
 }
 

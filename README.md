@@ -7,7 +7,7 @@ A Rust API for workspace-based products, built as a template to fork. It is buil
 Requires Rust (through rustup), [just](https://github.com/casey/just), Docker, [cargo-deny](https://github.com/EmbarkStudios/cargo-deny), and [watchexec](https://github.com/watchexec/watchexec) for `just dev`. `just setup` checks the versions the justfile pins.
 
 ```
-just              # lists every task, by group, each with what it does
+just              # lists the tasks, by group, each with what it does; those only CI runs are left out
 just setup        # checks the tools, and writes .env from .env.example, with generated passwords
 just dev          # starts Postgres, migrates, and runs the API, restarting it when the code changes
 just dev observe  # the same, with the observability stack (docs/operations/observability.md)

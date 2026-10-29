@@ -91,8 +91,8 @@ jobs:
   verify:
     needs: image
     runs-on: ubuntu-24.04
-    # arm64 through QEMU took 45 minutes for 0.1.0-rc.11's 38 end-to-end tests, while amd64 took
-    # 32, and each test that starts a Grafana adds minutes; a hang still ends here.
+    # Room for arm64's run through QEMU, which takes longer than amd64's on its own processor, and
+    # for the minutes each test that starts a Grafana adds; a hang still ends here.
     timeout-minutes: 75
     strategy:
       fail-fast: false

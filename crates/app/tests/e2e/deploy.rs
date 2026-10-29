@@ -715,6 +715,35 @@ async fn ops_22_status_shows_what_serves_and_the_backups_and_logs_show_the_servi
     );
 }
 
+#[tokio::test]
+async fn ops_22_status_shows_the_data_a_restore_moved_aside_while_postgres_doesn_t_run() {
+    // A managed database, as after DATABASE left `bundled`, with the volume the bundled one left,
+    // which holds what a restore moved aside; no Postgres runs.
+    let deployment = Deployment::managed(&[]).await;
+    let applied = deployment.apply(&deployment.api, &[]).await;
+    assert!(applied.status.success(), "{}", lossy(&applied));
+    deployment.server.shell_ok(
+        "docker volume create deployment_postgres > /dev/null \
+         && docker run --rm --volume deployment_postgres:/data --entrypoint mkdir \
+         \"$(docker inspect --format '{{ .Config.Image }}' deployment-caddy-1)\" \
+         -p /data/18/before-restore-20261029T120000Z",
+    );
+
+    let status = deployment.server.deploy(&["status"]);
+
+    assert!(status.status.success(), "{}", lossy(&status));
+    let status = lossy(&status);
+    assert!(deployment.server.running("postgres").is_empty());
+    assert!(
+        section(&status, "moved aside by a restore")
+            .iter()
+            .any(|line| line
+                .trim_start()
+                .starts_with("before-restore-20261029T120000Z ")),
+        "{status}"
+    );
+}
+
 /// The lines of the section of `status` under the line that starts with `heading`, each indented.
 fn section<'a>(status: &'a str, heading: &str) -> Vec<&'a str> {
     status

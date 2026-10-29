@@ -139,7 +139,6 @@ bootstrap: services
 migrate: bootstrap
     {{ api }} migrate
 
-# Runs the API with the settings in .env.
 [doc("Runs the API with the settings in .env")]
 [group('develop')]
 run: migrate
@@ -173,13 +172,11 @@ _dev-serve:
     {{ api }} migrate
     {{ api }} serve
 
-# Formats the code.
 [doc("Formats the code")]
 [group('develop')]
 fmt:
     cargo fmt --all
 
-# Fails if the code isn't formatted.
 [doc("Fails if the code isn't formatted")]
 [group('check')]
 fmt-check:
@@ -385,11 +382,12 @@ image-scan:
 # registry that Compose runs, against the Postgres that `just services` starts. Every other image
 # the tests pull is fetched first: this machine's, and, through the mirror, their servers', which
 # run on this machine's platform, so no test reaches a registry outside (TEST-07). Names run only
-# the tests whose names hold one of them, such as `just e2e obs_13`.
+# the tests whose names hold one of them, such as `just e2e obs_13`. A name with a slash is
+# refused: it would be a platform, which matches no test, so the run would pass with none.
 [doc("Runs the end-to-end tests against the images; `just e2e obs_13` runs those named so")]
 [group('image')]
 e2e *tests: services
-    docker compose up --detach --wait registry mirror
+    {{ if tests =~ '/' { error("just e2e takes test names; E2E_PLATFORM names the platform, such as E2E_PLATFORM=linux/arm64") } else { "" } }}docker compose up --detach --wait registry mirror
     docker compose run --rm crane push --insecure /image registry:5000/{{ e2e_image }}:e2e
     docker compose run --rm crane push --insecure /image-postgres registry:5000/{{ e2e_image }}-postgres:e2e
     docker compose pull --quiet server
