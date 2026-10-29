@@ -14,10 +14,15 @@
 #       deploy does once the release verifies.
 #   deploy.sh backup
 #       Takes a full base backup of the bundled database.
-#   deploy.sh restore [<moment>]
+#   deploy.sh restore [<moment> <backup> <timeline>]
 #       Restores the bundled database, as it stood at <moment>, a time with its offset from UTC
-#       as Postgres writes it, or at the latest moment its backups hold, into a fresh data
-#       directory, and keeps the one it replaces beside it.
+#       as Postgres writes it, from the backup <backup>, along the timeline <timeline>, which
+#       `just restore` plans from restore-inputs; or at the latest moment its backups hold. It
+#       restores into a fresh data directory, and keeps the one it replaces beside it.
+#   deploy.sh restore-inputs
+#       Prints what the backup bucket records of the bundled database's histories, for a restore
+#       to a moment to plan from: pgBackRest's info, the timelines' history files with when each
+#       reached the bucket, and each one's branches. It changes nothing.
 #   deploy.sh status
 #       Shows whether a deploy, backup or restore runs, or a deploy stopped before its replicas
 #       served, which color serves, each of the deployment's containers with its state and its
@@ -685,6 +690,11 @@ backup() {
 
 restore() {
     moment=$1
+    set=$2
+    timeline=$3
+    if [ -n "$moment" ] && { [ -z "$set" ] || [ -z "$timeline" ]; }; then
+        fail "a restore to a moment takes the backup and the timeline that just restore plans from restore-inputs"
+    fi
     lock
     read_settings
     if [ "$database" != bundled ]; then fail "the database is managed: restore it through its provider"; fi
@@ -702,19 +712,19 @@ restore() {
     say "restoring the database${moment:+ as it stood at $moment}; the data it replaces moves to /var/lib/postgresql/18/before-restore-$stamp"
     # As root, which owns the data directory's parent. Postgres starts only after a restore that
     # succeeded: on an empty data directory, it would create an empty database. A restore to a
-    # moment replays along the timeline of the latest backup before it, the history the database
-    # had then: Postgres's default, the latest timeline, branches off before a moment that an
-    # earlier restore went back past, so the replay couldn't reach it, and Postgres wouldn't start.
+    # moment starts from the backup, and replays along the timeline, that the plan names
+    # (crates/xtask/src/restore.rs): pgBackRest would pick a backup by time alone, and Postgres
+    # replay along the latest timeline, which together miss some moments.
     # shellcheck disable=SC2016 # The script expands its arguments itself.
     compose run --rm --no-deps --quiet-pull --user root --entrypoint sh postgres -c '
         set -e
         mv /var/lib/postgresql/18/docker "/var/lib/postgresql/18/before-restore-$1"
         install -d -o postgres -g postgres -m 0700 /var/lib/postgresql/18/docker
         if [ -n "$2" ]; then
-            gosu postgres pgbackrest --stanza=db restore --type=time --target="$2" --target-timeline=current --target-action=promote
+            gosu postgres pgbackrest --stanza=db restore --set="$3" --type=time --target="$2" --target-timeline="$4" --target-action=promote
         else
             gosu postgres pgbackrest --stanza=db restore
-        fi' sh "$stamp" "$moment"
+        fi' sh "$stamp" "$moment" "$set" "$timeline"
     compose up --detach --wait --quiet-pull postgres
     waited=0
     until [ "$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT pg_is_in_recovery()' 2> /dev/null)" = f ]; do
@@ -735,6 +745,26 @@ restore() {
     fi
     compose up --detach --wait --quiet-pull backup
     say "restored the database${moment:+ as it stood at $moment}"
+}
+
+# Prints what the backup bucket records of the bundled database's histories, for a restore to a
+# moment to plan from, one item per line: `backups` with pgBackRest's info in JSON, `histories`
+# with the timelines' history files that the bucket lists in JSON, each with the time it reached
+# the bucket, which is when its timeline began, and `branch` for each line of each history file,
+# with the file's name, the timeline it descends from and the position where it branched off.
+# It reads the bucket from Postgres's image, whether Postgres runs or not, as on a new server.
+restore_inputs() {
+    read_settings
+    if [ "$database" != bundled ]; then fail "the database is managed: restore it through its provider"; fi
+    # shellcheck disable=SC2016 # The script expands its own variables.
+    compose run --rm --no-deps --quiet-pull --user postgres --entrypoint sh postgres -c '
+        set -e
+        printf "backups %s\n" "$(pgbackrest --stanza=db info --output=json | tr -d "\n")"
+        printf "histories %s\n" "$(pgbackrest --stanza=db repo-ls --recurse --filter="\.history\$" --output=json archive/db | tr -d "\n")"
+        for name in $(pgbackrest --stanza=db repo-ls --recurse --filter="\.history\$" archive/db); do
+            pgbackrest --stanza=db repo-get "archive/db/$name" |
+                awk -v name="$name" "\$1 ~ /^[0-9]+\$/ { print \"branch\", name, \$1, \$2 }"
+        done'
 }
 
 status() {
@@ -780,8 +810,9 @@ status() {
                 printf "  %-26s %s\n" "${entry#*:}" "$when"
             done'
     fi
-    # The data that each restore moved aside, which stays, so a restore can be undone, until the
-    # operator removes it as docs/operations/backups.md says. It is read from the volume, whether
+    # The data that each restore moved aside, which stays, so a restore that failed can be put
+    # back, until the operator removes it as docs/operations/backups.md says; a restore that
+    # succeeded is undone by another. It is read from the volume, whether
     # Postgres runs or not, as after a restore that failed or once DATABASE left `bundled`,
     # through Caddy's image, which every deploy runs, since the Postgres image may be gone.
     aside=""
@@ -1060,7 +1091,8 @@ case $command in
         apply "$2" "$3" "$restart"
         ;;
     backup) backup ;;
-    restore) restore "${2:-}" ;;
+    restore) restore "${2:-}" "${3:-}" "${4:-}" ;;
+    restore-inputs) restore_inputs ;;
     status) status ;;
     logs)
         shift
@@ -1074,5 +1106,5 @@ case $command in
         if [ "$#" -ne 3 ]; then fail "usage: deploy.sh check-images <API image> <Postgres image>"; fi
         check "$2" "$3"
         ;;
-    *) fail "usage: deploy.sh deploy|apply|backup|restore|status|logs|check|check-images (see the comment at the top of deploy.sh)" ;;
+    *) fail "usage: deploy.sh deploy|apply|backup|restore|restore-inputs|status|logs|check|check-images (see the comment at the top of deploy.sh)" ;;
 esac

@@ -54,7 +54,7 @@ async fn ops_17_a_restore_recovers_the_database_as_it_stood_at_a_moment() {
     deployment.sql("INSERT INTO restore_marker VALUES ('after the moment')");
     archive_everything_committed(&deployment);
 
-    let restored = deployment.server.deploy(&["restore", &moment]);
+    let restored = deployment.restore(Some(&moment));
 
     assert!(restored.status.success(), "{}", lossy(&restored));
     assert_eq!(
@@ -94,14 +94,14 @@ async fn ops_17_a_restore_reaches_a_moment_that_an_earlier_restore_went_back_pas
     deployment.sql("INSERT INTO restore_marker VALUES ('last')");
     archive_everything_committed(&deployment);
     // Back too far: to `early`, past `late`, which the next restore reaches again.
-    let went_back = deployment.server.deploy(&["restore", &early]);
+    let went_back = deployment.restore(Some(&early));
     assert!(went_back.status.success(), "{}", lossy(&went_back));
     assert_eq!(
         deployment.sql("SELECT name FROM restore_marker ORDER BY name"),
         "early"
     );
 
-    let restored = deployment.server.deploy(&["restore", &late]);
+    let restored = deployment.restore(Some(&late));
 
     assert!(restored.status.success(), "{}", lossy(&restored));
     assert_eq!(
@@ -122,7 +122,7 @@ async fn ops_17_a_restore_reaches_a_moment_after_an_earlier_restore() {
     let early = deployment.sql("SELECT now()");
     deployment.sql("INSERT INTO restore_marker VALUES ('gone')");
     archive_everything_committed(&deployment);
-    let went_back = deployment.server.deploy(&["restore", &early]);
+    let went_back = deployment.restore(Some(&early));
     assert!(went_back.status.success(), "{}", lossy(&went_back));
     // Written after the restore, on the history it began.
     deployment.sql("INSERT INTO restore_marker VALUES ('after')");
@@ -130,7 +130,49 @@ async fn ops_17_a_restore_reaches_a_moment_after_an_earlier_restore() {
     deployment.sql("INSERT INTO restore_marker VALUES ('last')");
     archive_everything_committed(&deployment);
 
-    let restored = deployment.server.deploy(&["restore", &after]);
+    let restored = deployment.restore(Some(&after));
+
+    assert!(restored.status.success(), "{}", lossy(&restored));
+    assert_eq!(
+        deployment.sql("SELECT name FROM restore_marker ORDER BY name"),
+        "after\nearly"
+    );
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_reaches_a_moment_on_a_restored_history_before_its_first_backup() {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('early');",
+    );
+    let early = deployment.sql("SELECT now()");
+    deployment.sql("INSERT INTO restore_marker VALUES ('gone')");
+    // A backup on the history that the restore below abandons, after it branches off: the
+    // latest backup before the moment, which a restore must not start from.
+    let backed_up = deployment.server.deploy(&["backup"]);
+    assert!(backed_up.status.success(), "{}", lossy(&backed_up));
+    archive_everything_committed(&deployment);
+    let went_back = deployment.restore(Some(&early));
+    assert!(went_back.status.success(), "{}", lossy(&went_back));
+    // Without the restore's closing backup, the restored history has no backup, as while that
+    // backup runs.
+    let closing = backups(&deployment)
+        .last()
+        .and_then(|backup| backup["label"].as_str().map(str::to_owned))
+        .expect("the restore's closing backup");
+    deployment.server.shell_ok(&format!(
+        "docker exec --user postgres deployment-postgres-1 \
+         pgbackrest --stanza=db expire --set={closing}"
+    ));
+    deployment.sql("INSERT INTO restore_marker VALUES ('after')");
+    let after = deployment.sql("SELECT now()");
+    deployment.sql("INSERT INTO restore_marker VALUES ('last')");
+    archive_everything_committed(&deployment);
+
+    let restored = deployment.restore(Some(&after));
 
     assert!(restored.status.success(), "{}", lossy(&restored));
     assert_eq!(

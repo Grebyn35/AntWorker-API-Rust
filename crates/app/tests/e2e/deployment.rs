@@ -2,7 +2,9 @@
 //! Compose's Postgres, or bundled, with its backups in a stand-in bucket on the same server.
 
 use std::{
-    process::Output,
+    io::Write,
+    path::{Path, PathBuf},
+    process::{Command, Output, Stdio},
     sync::{
         Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
@@ -15,7 +17,7 @@ use rustls::pki_types::{CertificateDer, pem::PemObject};
 use tokio::sync::{Semaphore, SemaphorePermit};
 
 use crate::{
-    docker::{compose, docker},
+    docker::{compose, docker, lossy},
     images::Pushed,
     server::{DEPLOYMENT, RunningDeploy, Server},
     support::TestDatabase,
@@ -26,6 +28,18 @@ use crate::{
 pub const API_ADDRESS: &str = "api.localhost";
 /// Grafana's address in the tests, under `localhost` as the API's is.
 pub const GRAFANA_ADDRESS: &str = "grafana.localhost";
+
+/// The xtask binary, which `just e2e` builds before the tests run, in the target directory and
+/// profile the tests' own binary is in: target/<profile>/deps/e2e-<hash> beside
+/// target/<profile>/xtask.
+fn xtask() -> PathBuf {
+    std::env::current_exe()
+        .expect("the tests' binary")
+        .parent()
+        .and_then(Path::parent)
+        .expect("the target directory's profile")
+        .join(format!("xtask{}", std::env::consts::EXE_SUFFIX))
+}
 
 /// How many deployments of the suite run the self-hosted stack at once: one. Each server pulls
 /// the stack's images into a store of its own, of the size docs/operations/ci.md gives, so one
@@ -246,8 +260,38 @@ impl Deployment {
         self.server.shell_ok(&format!(
             "docker build --quiet --tag registry:5000/{name}:{tag} /root/{name}-{tag} > /dev/null \
              && docker push --quiet registry:5000/{name}:{tag} > /dev/null \
-             && docker image inspect --format '{{{{index .RepoDigests 0}}}}' registry:5000/{name}:{tag}"
+             && docker image inspect --format '{{{{index .RepoDigests 0}}}}' \
+                registry:5000/{name}:{tag}"
         ))
+    }
+
+    /// Restores the bundled database as `just restore` does: to `moment`, from the backup and
+    /// along the timeline that xtask's `restore-plan` plans from what the bucket records, or,
+    /// without a moment, to the latest state the backups hold.
+    pub fn restore(&self, moment: Option<&str>) -> Output {
+        let Some(moment) = moment else {
+            return self.server.deploy(&["restore"]);
+        };
+        let inputs = self.server.deploy(&["restore-inputs"]);
+        assert!(inputs.status.success(), "{}", lossy(&inputs));
+        let mut planner = Command::new(xtask())
+            .args(["restore-plan", moment])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("xtask, which `just e2e` builds before the tests run");
+        planner
+            .stdin
+            .take()
+            .expect("the planner's input")
+            .write_all(&inputs.stdout)
+            .expect("the bucket's records, for the planner");
+        let planned = planner.wait_with_output().expect("the plan");
+        assert!(planned.status.success(), "{}", lossy(&planned));
+        let plan = String::from_utf8_lossy(&planned.stdout).trim().to_owned();
+        let (set, timeline) = plan.split_once(' ').expect("a backup and a timeline");
+        self.server.deploy(&["restore", moment, set, timeline])
     }
 
     /// The first column of each row that `sql` returns from the bundled database, as its

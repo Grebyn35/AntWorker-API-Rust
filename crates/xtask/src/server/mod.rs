@@ -70,7 +70,7 @@ fn send_release(root: &Path, host: &str, version: &str) -> Result<String, String
 
 /// Runs `command` in the shell of `host`, and returns what it wrote on stdout; its stderr goes to
 /// this process's.
-fn on_server_output(host: &str, command: &str) -> Result<String, String> {
+pub fn on_server_output(host: &str, command: &str) -> Result<String, String> {
     let output = Command::new("ssh")
         .arg(host)
         .arg(command)

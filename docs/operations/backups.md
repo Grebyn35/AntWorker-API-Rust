@@ -49,17 +49,19 @@ takes a full base backup at once, such as before a change that's hard to undo. I
 just restore production "2026-10-25 10:41:31+00"
 ```
 
-restores the database as it stood at that moment, a time with its offset from UTC. Without a moment, `just restore production` restores the latest state the backups hold. A restore runs on the server, through the `deploy.sh` that the last deploy installed:
+restores the database as it stood at that moment, a time with its offset from UTC. Without a moment, `just restore production` restores the latest state the backups hold.
+
+Each restore begins a timeline, Postgres's name for a history of the database that branches off at a restore, so a database that was restored has had several histories, and a moment belongs to the timeline that was live then: the newest one that had begun. A restore to a moment first reads, on your machine, what the bucket records of them, and picks that timeline and the latest backup on its history that ended before the moment, and says which; a moment that no such backup reaches is refused before anything stops. The restore then runs on the server, through the `deploy.sh` that the last deploy installed:
 
 1. It stops the API's replicas and the `backup` service, then Postgres. Until the replicas start again, in step 4, Caddy answers each request with the 503 problem `request.unavailable` and `Retry-After` (OPS-05).
 2. It moves the data directory aside, to `before-restore-<time>` in the volume `deployment_postgres`, and restores into a new, empty one. Postgres starts only after the restore succeeds; on an empty directory it would create an empty database.
-3. It starts Postgres, which replays the archived log up to the moment, along the timeline the database had at that moment, the one the latest backup before it is on, then begins a new timeline, Postgres's name for a history of the database that branches off at a restore, so the log it archives from then on never mixes with the log it replaced.
+3. It starts Postgres, which replays the archived log from that backup up to the moment, along that timeline, then begins a new timeline, so the log it archives from then on never mixes with the log it replaced.
 4. It runs `migrate` with the live release, and starts the live replicas again.
 5. It takes a full backup of the restored database while the API serves, as the scheduled backups do, so a later restore starts from the restored database's timeline; Postgres archives what the replicas write meanwhile. If that backup fails, the restore says so, with the API serving: take one with `just backup`.
 
-CI restores to a moment between two writes, then checks that the first one is there, that the second isn't, and that the API serves through Caddy. It also restores to an early moment, then to a later one that the first restore went back past, and to a moment after an earlier restore, and finds what was written by then each time (OPS-17).
+CI runs each restore that OPS-17 names.
 
-A restore that went back too far is undone by another, to the moment you meant: the backups still reach every moment that the first restore went back past, such as one just before it stopped the API, which brings back what the database held then. The data that the restore replaced also stays in the volume, and `just status` lists it, with its size, until it's removed: no deploy removes it (D57). Once the restored database is right, remove it on the server, with the name the restore printed:
+A restore that went back too far is undone by another, to the moment you meant: the backups still reach every moment that the first restore went back past, up to the last change they hold from before it ran. The data that the restore replaced also stays in the volume, and `just status` lists it, with its size, until it's removed: no deploy removes it (D57). Once the restored database is right, remove it on the server, with the name the restore printed:
 
 ```
 docker run --rm --volume deployment_postgres:/data --entrypoint rm "$(sed -n 's/^POSTGRES_IMAGE=//p' ~/deployment/state/deploy.env)" -r /data/18/before-restore-20261025T104131Z
