@@ -1,7 +1,7 @@
 //! `release`, which `just release <version>` runs: it sets the app's version on `main`, commits it
 //! as the request to release it, and pushes it. The run on `main` that passes with that version
-//! releases it (OPS-14). `release-check`, which that run calls first, fails on a version that
-//! can't be released.
+//! releases it (OPS-14). Without a version, it shows the versions that can come next.
+//! `release-check`, which that run calls first, fails on a version that can't be released.
 //!
 //! The decisions are pure functions of what git reports, so tests cover them without a
 //! repository; [`run`] gathers that state, and makes the change.
@@ -210,12 +210,60 @@ pub fn version_refusal(releases: &[Version], requested: Version) -> Option<Strin
     } else {
         return None;
     };
+    Some(format!("{refused} {}", choices(*latest)))
+}
+
+/// The versions that can follow `latest`, each with what it is for, as the commands that
+/// release them.
+fn choices(latest: Version) -> String {
     let [patch, minor, major] = latest.next();
-    Some(format!(
-        "{refused} Release {patch} for fixes, {minor} for new features that keep everything \
-         working, or {major} for changes that make forks or clients change something: run \
-         `just release {patch}`, `just release {minor}` or `just release {major}`."
-    ))
+    let (purpose, prerelease) = match latest.rc {
+        Some(rc) => {
+            let next = Version {
+                rc: Some(rc + 1),
+                ..latest
+            };
+            (
+                format!("as the release that {latest} leads to"),
+                format!(" Another prerelease of {patch} is {next}: `just release {next}`."),
+            )
+        }
+        None => ("for fixes".to_owned(), String::new()),
+    };
+    format!(
+        "Release {patch} {purpose}, {minor} for new features that keep everything working, or \
+         {major} for changes that make forks or clients change something: run `just release \
+         {patch}`, `just release {minor}` or `just release {major}`.{prerelease}"
+    )
+}
+
+/// What `just release` shows without a version: the latest release, what has changed since, and
+/// the versions that can come next.
+pub fn overview(state: &State) -> String {
+    if state.pending {
+        return format!(
+            "{MAIN} asks for the release of {} already, which the first run on {MAIN} that \
+             passes makes.",
+            state.current
+        );
+    }
+    let Some(latest) = state.releases.iter().max().copied() else {
+        return "No release exists yet, so the first can be any version, such as `just release \
+                0.1.0`."
+            .to_owned();
+    };
+    match state.commits_since_latest {
+        Some(0) => format!("Nothing has changed since v{latest}, the latest release."),
+        Some(1) => format!(
+            "The latest release is {latest}, and {MAIN} has a commit since. {}",
+            choices(latest)
+        ),
+        commits => format!(
+            "The latest release is {latest}, and {MAIN} has {} commits since. {}",
+            commits.unwrap_or_default(),
+            choices(latest)
+        ),
+    }
 }
 
 /// Replaces the app's version `old` with `new` in the text of `path`, or says why it can't.
@@ -244,12 +292,19 @@ pub fn set_version(path: &str, text: &str, old: Version, new: Version) -> Result
 }
 
 /// Releases `requested`: checks that it can, sets the version, commits, and pushes `main`.
-pub fn run(requested: &str) -> ExitCode {
-    let Ok(requested) = requested.parse::<Version>() else {
-        return refuse(&format!(
-            "{requested} isn't a version. A version is X.Y.Z, such as 1.4.0, or X.Y.Z-rc.N for a \
-             prerelease, such as 1.4.0-rc.1."
-        ));
+/// Without a version, it shows what [`overview`] says, and changes nothing.
+pub fn run(requested: Option<&str>) -> ExitCode {
+    let requested = match requested {
+        None => None,
+        Some(text) => match text.parse::<Version>() {
+            Ok(version) => Some(version),
+            Err(()) => {
+                return refuse(&format!(
+                    "{text} isn't a version. A version is X.Y.Z, such as 1.4.0, or X.Y.Z-rc.N \
+                     for a prerelease, such as 1.4.0-rc.1."
+                ));
+            }
+        },
     };
     let root = root();
     let git = Git { root: &root };
@@ -259,6 +314,9 @@ pub fn run(requested: &str) -> ExitCode {
     let state = match git.state(&root) {
         Ok(state) => state,
         Err(error) => return refuse(&error),
+    };
+    let Some(requested) = requested else {
+        return report(&overview(&state));
     };
     if let Some(refused) = refusal(&state, requested) {
         return refuse(&refused);
@@ -626,6 +684,51 @@ mod tests {
         ] {
             assert!(!asks_for(other, version), "{other}");
         }
+    }
+
+    #[test]
+    fn ops_14_without_a_version_the_task_shows_the_versions_that_can_come_next() {
+        let after_a_release = overview(&ready());
+        let after_a_prerelease = overview(&State {
+            releases: vec![v("1.2.0-rc.3")],
+            commits_since_latest: Some(1),
+            ..ready()
+        });
+
+        assert!(
+            after_a_release.starts_with("The latest release is 1.1.0, and main has 3 commits")
+                && after_a_release.contains("`just release 1.1.1`")
+                && after_a_release.contains("`just release 1.2.0`")
+                && after_a_release.contains("`just release 2.0.0`"),
+            "{after_a_release}"
+        );
+        assert!(
+            after_a_prerelease.contains("`just release 1.2.0`")
+                && after_a_prerelease.contains("`just release 1.2.0-rc.4`"),
+            "{after_a_prerelease}"
+        );
+    }
+
+    #[test]
+    fn ops_14_without_a_version_the_task_says_when_no_release_can_come_yet() {
+        let unchanged = State {
+            commits_since_latest: Some(0),
+            ..ready()
+        };
+        let waiting = State {
+            current: v("1.2.0"),
+            pending: true,
+            ..ready()
+        };
+        let first = State {
+            releases: Vec::new(),
+            commits_since_latest: None,
+            ..ready()
+        };
+
+        assert!(overview(&unchanged).starts_with("Nothing has changed since v1.1.0"));
+        assert!(overview(&waiting).contains("asks for the release of 1.2.0 already"));
+        assert!(overview(&first).contains("`just release 0.1.0`"));
     }
 
     #[test]

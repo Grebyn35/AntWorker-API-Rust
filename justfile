@@ -41,21 +41,37 @@ image_builder := "buildkit-" + sha256(buildkit_image)
 image_cache := env("IMAGE_CACHE", "")
 image_cache_from := if image_cache == "" { "" } else { "--cache-from type=local,src=" + image_cache }
 image_cache_to := if image_cache == "" { "" } else if env("IMAGE_CACHE_WRITE", "true") == "true" { "--cache-to type=local,mode=max,dest=" + image_cache + "-new" } else { "" }
-# This machine's platform, on which `just e2e` runs the image unless told another.
+# The commit the image is built from, which its label names, and an identifier of the files the
+# Postgres image is built from, which its label `build.inputs` carries (OPS-16).
+image_revision := `git rev-parse HEAD`
+postgres_inputs := `cargo run --locked --quiet --package xtask -- inputs deploy/postgres`
+# This machine's platform, on which `just e2e` runs the images unless E2E_PLATFORM names another,
+# such as linux/arm64, which needs the system to run its binaries, such as through QEMU.
 native_platform := if arch() == "aarch64" { "linux/arm64" } else { "linux/amd64" }
+export E2E_PLATFORM := env("E2E_PLATFORM", native_platform)
 # The image's name in the registry the end-to-end tests run it from.
 e2e_image := "image"
 export E2E_IMAGE_NAME := e2e_image
 
+# Lists the tasks, by group: `just` with no task named runs it.
+[private]
+default:
+    @just --list
+
 # Runs every check CI runs: the checks of the code, then the build of the image and its checks,
 # on this machine's platform.
+[doc("Runs every check CI runs, the image's included")]
+[group('check')]
 ci: checks image image-scan e2e
 
 # Runs the checks of the code, the part of CI that needs no image.
+[doc("Runs the checks of the code, which need no image")]
+[group('check')]
 checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell
 
 # Lists the tools `just checks` needs besides just and the toolchain, as CI's install step takes
 # them.
+[private]
 ci-tools:
     @echo cargo-deny@{{ cargo_deny_version }}
 
@@ -63,6 +79,8 @@ ci-tools:
 # installs the toolchain that rust-toolchain.toml pins, and writes .env. watchexec and sqlx-cli
 # only get a warning, because only `dev` and `prepare` need them.
 [unix]
+[doc("Checks the tools and their pinned versions, and writes .env")]
+[group('develop')]
 setup: && env
     for tool in rustup git docker; do command -v "$tool" > /dev/null || { echo "just setup needs $tool" >&2; exit 1; }; done
     docker compose version > /dev/null || { echo "just setup needs Docker Compose" >&2; exit 1; }
@@ -75,6 +93,7 @@ setup: && env
 # Writes .env from .env.example, with generated passwords, if .env doesn't exist yet. Compose
 # reads it too, so a CI job that runs only Compose's tools runs this instead of `just setup`.
 [unix]
+[private]
 env:
     test -f .env || sed \
         -e "s/__ADMIN_PASSWORD__/$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')/g" \
@@ -86,6 +105,8 @@ env:
 # installs the toolchain that rust-toolchain.toml pins, and writes .env. watchexec and sqlx-cli
 # only get a warning, because only `dev` and `prepare` need them.
 [windows]
+[doc("Checks the tools and their pinned versions, and writes .env")]
+[group('develop')]
 setup: && env
     foreach ($tool in 'rustup', 'git', 'docker') { if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "just setup needs $tool" } }
     docker compose version | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'just setup needs Docker Compose' }
@@ -95,23 +116,32 @@ setup: && env
 # Writes .env from .env.example, with generated passwords, if .env doesn't exist yet. Compose
 # reads it too, so a CI job that runs only Compose's tools runs this instead of `just setup`.
 [windows]
+[private]
 env:
     if (-not (Test-Path .env)) { $text = Get-Content .env.example -Raw; foreach ($name in 'ADMIN', 'OWNER', 'APP') { $bytes = New-Object byte[] 16; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes); $text = $text.Replace("__$($name)_PASSWORD__", -join ($bytes | ForEach-Object { $_.ToString('x2') })) }; [IO.File]::WriteAllText((Join-Path $PWD '.env'), $text) }
 
 # Starts the services in compose.yaml, and waits until they are healthy.
+[doc("Starts the services in compose.yaml, such as Postgres")]
+[group('develop')]
 services:
     docker compose up --detach --wait
 
 # Creates the database roles and their grants (DATA-12).
+[doc("Creates the database roles and their grants")]
+[group('develop')]
 bootstrap: services
     {{ api }} bootstrap
 
 # Applies the migrations the database hasn't recorded. Run it after adding a migration, before
 # writing queries against it.
+[doc("Applies the migrations the database hasn't recorded")]
+[group('develop')]
 migrate: bootstrap
     {{ api }} migrate
 
 # Runs the API with the settings in .env.
+[doc("Runs the API with the settings in .env")]
+[group('develop')]
 run: migrate
     {{ api }} serve
 
@@ -120,6 +150,8 @@ run: migrate
 # changes. `just dev observe` also starts the observability stack and exports the API's
 # telemetry to it; docs/operations/observability.md lists where each service answers.
 [unix]
+[doc("Runs the API with auto-reload; `just dev observe` adds the observability stack")]
+[group('develop')]
 dev $mode="": bootstrap
     case "$mode" in "") ;; observe) docker compose --profile observability up --detach --wait ;; *) echo "just dev takes nothing, or observe" >&2; exit 1 ;; esac
     {{ if mode == "observe" { "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 " } else { "" } }}watchexec --restart --shell=none --watch crates --watch migrations --exts rs,sql,toml -- just _dev-serve
@@ -129,8 +161,10 @@ dev $mode="": bootstrap
 # changes. `just dev observe` also starts the observability stack and exports the API's
 # telemetry to it; docs/operations/observability.md lists where each service answers.
 # watchexec runs `just` without a shell: through its default shell on Windows, `just` receives
-# no recipe name and runs `ci`.
+# no recipe name and only lists the tasks.
 [windows]
+[doc("Runs the API with auto-reload; `just dev observe` adds the observability stack")]
+[group('develop')]
 dev mode="": bootstrap
     if ('{{ mode }}' -eq 'observe') { docker compose --profile observability up --detach --wait; if ($LASTEXITCODE -ne 0) { throw 'the observability stack did not start' }; $env:OTEL_EXPORTER_OTLP_ENDPOINT = 'http://127.0.0.1:4318' } elseif ('{{ mode }}' -ne '') { throw 'just dev takes nothing, or observe' }; watchexec --restart --shell=none --watch crates --watch migrations --exts rs,sql,toml -- just _dev-serve
 
@@ -140,25 +174,35 @@ _dev-serve:
     {{ api }} serve
 
 # Formats the code.
+[doc("Formats the code")]
+[group('develop')]
 fmt:
     cargo fmt --all
 
 # Fails if the code isn't formatted.
+[doc("Fails if the code isn't formatted")]
+[group('check')]
 fmt-check:
     cargo fmt --all -- --check
 
 # Runs clippy with warnings as errors (CODE-03), on every target with every feature, so the
 # end-to-end tests are linted too.
+[doc("Runs clippy, with warnings as errors")]
+[group('check')]
 lint:
     cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 # Runs every test. The integration tests use the services.
+[doc("Runs the tests, which start Postgres through Compose")]
+[group('develop')]
 test: services
     cargo test --workspace --locked
 
 # Rewrites the query cache in .sqlx/ from the migrated database. Run it after changing a query
 # (DATA-20). It needs the sqlx-cli of `sqlx_cli_version`: `cargo install sqlx-cli --version
 # <version> --no-default-features --features rustls,postgres --locked`.
+[doc("Rewrites the query cache in .sqlx/, after a query changes")]
+[group('generate')]
 prepare: services
     cargo sqlx prepare --workspace -- --all-targets --locked
 
@@ -167,6 +211,8 @@ prepare: services
 # and the image's (OPS-14), one at a time, as cargo-deny takes one target per run. A crate that
 # only other targets compile, such as one for WebAssembly, never reaches a build, so its license
 # doesn't matter (CODE-12).
+[doc("Checks the dependencies' advisories, bans, sources and licenses")]
+[group('check')]
 deny:
     cargo deny --locked check advisories bans sources
     cargo deny --locked --target x86_64-unknown-linux-gnu check licenses
@@ -180,16 +226,22 @@ deny:
 
 # Reports which spec behaviors tests prove, and fails on a test whose name doesn't start with a
 # behavior or rule ID that exists (TEST-01, DOC-10).
+[doc("Reports which spec behaviors tests prove")]
+[group('check')]
 check-test-map:
     {{ xtask }} check-test-map
 
 # Writes openapi.json, the OpenAPI document of every route (API-17). Run it after changing a
 # route; a test fails while the committed document differs from the one the code writes.
+[doc("Rewrites openapi.json, after a route changes")]
+[group('generate')]
 openapi:
     {{ api }} openapi openapi.json
 
 # Fails on a part of openapi.json that breaks the rules for the HTTP contract (API-01, API-05,
 # API-17, ERR-02, ERR-13).
+[doc("Fails on a part of openapi.json that breaks the HTTP contract's rules")]
+[group('check')]
 check-openapi:
     {{ xtask }} check-openapi
 
@@ -197,12 +249,16 @@ check-openapi:
 # that isn't constant, an #[instrument] without skip_all, an event at any level but DEBUG, or a
 # span, in app code other than main.rs, and an exception to a print lint outside the places
 # printing is allowed (CODE-03, OBS-01, OBS-03 to OBS-06).
+[doc("Fails on logs, spans and prints that break the telemetry rules")]
+[group('check')]
 check-instrument:
     {{ xtask }} check-instrument
 
 # Writes the metric catalog, docs/operations/metrics.md, from the metric declarations (OBS-12).
 # Run it after declaring or changing a metric; check-metrics fails while the committed catalog
 # differs.
+[doc("Rewrites the metric catalog, after a metric changes")]
+[group('generate')]
 metrics:
     {{ xtask }} metric-catalog
 
@@ -211,18 +267,24 @@ metrics:
 # deploy/observability/metrics.yaml, a metric nothing reads, a panel title that isn't a question,
 # a dashboard that Grafana's users can change, or dashboards no overview links to all of (OBS-11
 # to OBS-13).
+[doc("Fails on metrics, dashboards and alerts that break the metric rules")]
+[group('check')]
 check-metrics:
     {{ xtask }} check-metrics
 
 # Fails on a collector configuration whose tail sampling doesn't keep the traces OBS-08 names, a
 # managed backend's configuration that replaces that sampling, or a latency objective that differs
 # between the sampling, the alerts and the latency dashboard.
+[doc("Fails on a collector configuration that breaks the sampling rules")]
+[group('check')]
 check-telemetry-config:
     {{ xtask }} check-telemetry-config
 
 # Fails on an alert without a severity, a runbook section or a test, then runs promtool's checks
 # and tests of the rules, with the Prometheus image that deploy/observability/compose.yaml pins
 # (OBS-14).
+[doc("Checks the alert rules, and runs their tests")]
+[group('check')]
 alert-rules:
     {{ xtask }} alert-rules
     docker compose --profile observability run --rm --no-deps --volume ./deploy/observability/prometheus:/rules:ro --workdir /rules --entrypoint promtool prometheus check rules rules.yaml
@@ -233,23 +295,30 @@ alert-rules:
 # where a document first uses it, a spec, rule or tracker whose format breaks DOC-15 or DOC-16,
 # or a spec's Routes table that doesn't match openapi.json (DOC-01, DOC-07 to DOC-09, DOC-13 to
 # DOC-16).
+[doc("Fails on a document whose links, IDs or format break the rules")]
+[group('check')]
 check-docs:
     {{ xtask }} check-docs
 
 # Fails on an action, runner, image, download, crate install or tool version that isn't pinned, a
 # toolchain other than the one rust-toolchain.toml pins, or a crate whose edition isn't the
 # workspace's 2024 (CODE-01, OPS-13).
+[doc("Fails on a tool, image, action or download that isn't pinned")]
+[group('check')]
 check-pins:
     {{ xtask }} check-pins
 
 # Fails on a finding of shellcheck, run from the image compose.yaml pins, in a recipe of this
 # justfile that runs on Linux and macOS, or in a shell script under deploy/ (CODE-16). It reads
 # the recipes from this file, so it checks the same ones on every platform.
+[doc("Runs shellcheck on the recipes and the deployment's scripts")]
+[group('check')]
 check-shell:
     {{ xtask }} check-shell
 
 # Prints the names of the packages that the images of `repository`, such as owner/name, are in
 # the registry, separated by commas, for the workflows.
+[private]
 image-packages repository:
     @echo {{ lowercase(file_name(repository)) }},{{ lowercase(file_name(repository)) }}-postgres
 
@@ -262,15 +331,17 @@ image-packages repository:
 # build unless IMAGE_CACHE_WRITE is false. While the two platforms write the layer they share,
 # buildx can print "ref ... locked" errors: they are retries, and the exit status says whether the
 # build succeeded.
-image revision=`git rev-parse HEAD` postgres_inputs=`cargo run --locked --quiet --package xtask -- inputs deploy/postgres`: _image-builder && _image-cache
+[doc("Builds the API's and Postgres's images, for both platforms, into target/")]
+[group('image')]
+image: _image-builder && _image-cache
     docker buildx build --builder {{ image_builder }} --platform linux/amd64,linux/arm64 \
         --attest type=sbom,generator={{ sbom_generator_image }} --attest type=provenance,mode=max \
-        --label org.opencontainers.image.version={{ version }} --label org.opencontainers.image.revision={{ revision }} \
+        --label org.opencontainers.image.version={{ version }} --label org.opencontainers.image.revision={{ image_revision }} \
         {{ image_cache_from }} {{ image_cache_to }} \
         --output type=oci,dest={{ image_dir }},tar=false .
     docker buildx build --builder {{ image_builder }} --platform linux/amd64,linux/arm64 \
         --attest type=sbom,generator={{ sbom_generator_image }} --attest type=provenance,mode=max \
-        --label org.opencontainers.image.version={{ version }} --label org.opencontainers.image.revision={{ revision }} \
+        --label org.opencontainers.image.version={{ version }} --label org.opencontainers.image.revision={{ image_revision }} \
         --label build.inputs={{ postgres_inputs }} \
         --output type=oci,dest={{ image_dir }}-postgres,tar=false deploy/postgres
 
@@ -301,6 +372,8 @@ _image-cache:
 # Fails on a vulnerability that has a fix and is rated high or critical, in each platform's image
 # of each image in target (SEC-13). The scanner reads the operating system's packages and the
 # crates the binary records.
+[doc("Scans the images in target/ for vulnerabilities that have a fix")]
+[group('image')]
 image-scan:
     docker compose run --rm grype oci-dir:/image --platform linux/amd64 --only-fixed --fail-on high
     docker compose run --rm grype oci-dir:/image --platform linux/arm64 --only-fixed --fail-on high
@@ -308,13 +381,14 @@ image-scan:
     docker compose run --rm grype oci-dir:/image-postgres --platform linux/arm64 --only-fixed --fail-on high
 
 # Runs the end-to-end tests against the images in target, on the platform E2E_PLATFORM, which is
-# this machine's unless named (TEST-04). The tests run the images from the registry that Compose
-# runs, against the Postgres that `just services` starts. Another platform needs the system to run
-# its binaries, such as through QEMU. Every other image the tests pull is fetched first: this
-# machine's, and, through the mirror, their servers', which run on this machine's platform, so no
-# test reaches a registry outside (TEST-07). Names after the platform run only the tests whose
-# names hold one of them, such as `just e2e linux/amd64 obs_13`.
-e2e $E2E_PLATFORM=native_platform *tests: services
+# this machine's unless the environment names another (TEST-04). The tests run the images from the
+# registry that Compose runs, against the Postgres that `just services` starts. Every other image
+# the tests pull is fetched first: this machine's, and, through the mirror, their servers', which
+# run on this machine's platform, so no test reaches a registry outside (TEST-07). Names run only
+# the tests whose names hold one of them, such as `just e2e obs_13`.
+[doc("Runs the end-to-end tests against the images; `just e2e obs_13` runs those named so")]
+[group('image')]
+e2e *tests: services
     docker compose up --detach --wait registry mirror
     docker compose run --rm crane push --insecure /image registry:5000/{{ e2e_image }}:e2e
     docker compose run --rm crane push --insecure /image-postgres registry:5000/{{ e2e_image }}-postgres:e2e
@@ -328,6 +402,8 @@ e2e $E2E_PLATFORM=native_platform *tests: services
 # memory for a replica, and sends it requests at rising constant rates through k6, from the image
 # that compose.yaml pins. It prints each step, then the highest rate served with none failed and
 # the 99th percentile within the latency objective. docs/operations/release.md says when to run it.
+[doc("Measures one replica's capacity, for the release notes")]
+[group('image')]
 load-test: services
     docker compose --profile observability up --detach --wait collector prometheus loki tempo
     docker compose up --detach --wait registry
@@ -339,6 +415,7 @@ load-test: services
 # while the commit is still the head of main (OPS-14). CI runs it on main, once every check has
 # passed, after a `docker login` to the registry.
 [unix]
+[private]
 publish repository commit:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -364,9 +441,13 @@ publish repository commit:
     fi
 
 # Releases main as `version`, X.Y.Z, or X.Y.Z-rc.N for a prerelease (OPS-14): checks that main can
-# release it, sets the app's version to it, commits, and pushes main. The run on main that passes
-# with that version releases it. docs/operations/release.md describes a release.
-release version:
+# release it, sets the app's version to it, commits, and pushes main, with its commits that
+# GitHub's lacks. The run on main that passes with that version releases it. Without a version,
+# it shows the latest release, what has changed since, and the versions that can come next, and
+# changes nothing. docs/operations/release.md describes a release.
+[doc("Releases main as a version; without one, shows the next versions")]
+[group('release')]
+release version="":
     {{ xtask }} release {{ version }}
 
 # Deploys a release to the reference deployment on `host`, an SSH destination such as a Host of
@@ -376,10 +457,14 @@ release version:
 # release's deploy/deploy.sh there, which verifies the release's images before it pulls them, and
 # removes the other releases' files and the images that nothing uses once its replicas serve.
 # `--allow-restart` lets it restart Postgres or Caddy. docs/operations/deploy.md describes a deploy.
+[doc("Deploys the latest release, or the one named, to a server")]
+[group('server')]
 deploy host *arguments:
     {{ xtask }} deploy {{ host }} {{ arguments }}
 
 # Takes a full base backup of the bundled database of the reference deployment on `host` (OPS-17).
+[doc("Takes a full backup of a server's bundled database")]
+[group('server')]
 backup host:
     {{ xtask }} backup {{ host }}
 
@@ -387,6 +472,8 @@ backup host:
 # time with its offset from UTC as Postgres writes it, or at the latest moment its backups hold
 # (OPS-17).
 # docs/operations/backups.md describes a restore.
+[doc("Restores a server's bundled database, as it stood at a moment")]
+[group('server')]
 restore host moment="":
     {{ xtask }} restore {{ host }} "{{ moment }}"
 
@@ -396,6 +483,8 @@ restore host moment="":
 # Docker on Debian and Ubuntu, prepares the user the deployment runs as, logs it in to the
 # registry, and writes what it asked. Run again, it changes them. docs/operations/deploy.md
 # describes it.
+[doc("Sets up a server for the deployment, asking for its settings")]
+[group('server')]
 server-setup host version="":
     {{ xtask }} server-setup {{ host }} {{ version }}
 
@@ -403,6 +492,8 @@ server-setup host version="":
 # deployment on `host` needs, and changes nothing of the deployment (OPS-22): on the server, the
 # settings, the secrets, Docker, the release, the memory, the bucket and a managed backend; from
 # here, where its addresses point and whether its ports 80 and 443 answer.
+[doc("Checks what a deploy to a server needs, and changes nothing")]
+[group('server')]
 server-check host version="":
     {{ xtask }} server-check {{ host }} {{ version }}
 
@@ -410,12 +501,16 @@ server-check host version="":
 # containers with its state and its image's version, when the backups last succeeded, the data
 # that each restore moved aside, and the server's free disk and memory. It changes nothing.
 # docs/operations/deploy.md describes it.
+[doc("Shows what a server runs, its backups, and its free disk and memory")]
+[group('server')]
 status host:
     {{ xtask }} status {{ host }}
 
 # Shows the last 100 lines of the logs of the reference deployment's `services` on `host`, `api`
 # for both colors' replicas, or of every service without one (OPS-22). `--follow` goes on showing
 # the lines that follow, until Ctrl-C.
+[doc("Shows the last log lines of a server's services")]
+[group('server')]
 logs host *services:
     {{ xtask }} logs {{ host }} {{ services }}
 
@@ -426,6 +521,7 @@ logs host *services:
 # is the GitHub repository, such as owner/name, and `source` its address. CI runs it on main once
 # every check has passed, after a `docker login`, and each failure says what to do next.
 [unix]
+[private]
 release-image repository commit source:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -474,6 +570,8 @@ release-image repository commit source:
 # and prints each one's digest (OPS-14). It runs deploy/verify-release.sh, which the reference
 # deployment's deploy also runs before it pulls a release (OPS-16).
 [unix]
+[doc("Verifies a release's images, signatures, SBOMs and provenance")]
+[group('release')]
 verify-release repository version source:
     CRANE="{{ crane_image }}" COSIGN="{{ cosign_image }}" deploy/verify-release.sh "{{ version }}" "{{ source }}" \
         "{{ image_registry }}/{{ lowercase(repository) }}" "{{ image_registry }}/{{ lowercase(repository) }}-postgres"
@@ -482,6 +580,7 @@ verify-release repository version source:
 # release and the newest prerelease of each image, for vulnerabilities published since they were
 # tested (SEC-13). The scheduled workflow runs it every week, after a `docker login`.
 [unix]
+[private]
 image-rescan repository:
     #!/usr/bin/env bash
     set -euo pipefail

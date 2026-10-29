@@ -95,10 +95,12 @@ enum Command {
     Shell,
     /// Sets the app's version to `version` on `main`, commits it and pushes it, after it checks
     /// that `version` can be released from `main` as it is. The run on `main` that passes with
-    /// the version releases it (OPS-14).
+    /// the version releases it (OPS-14). Without a version, it shows the versions that can come
+    /// next, and changes nothing.
     Release {
-        /// The version, such as 1.4.0, or 1.4.0-rc.1 for a prerelease.
-        version: String,
+        /// The version, such as 1.4.0, or 1.4.0-rc.1 for a prerelease; without one, the task
+        /// shows the versions that can come next.
+        version: Option<String>,
     },
     /// Deploys the release `version`, or the latest release, to the reference deployment that SSH
     /// reaches at `host` (OPS-16).
@@ -223,7 +225,7 @@ pub struct Outcome {
 
 fn main() -> ExitCode {
     let command = match Cli::parse().command {
-        Command::Release { version } => return release::run(&version),
+        Command::Release { version } => return release::run(version.as_deref()),
         Command::ReleaseCheck { version } => return release::check(&version),
         Command::Inputs { directory } => return inputs::run(&directory),
         Command::Deploy {

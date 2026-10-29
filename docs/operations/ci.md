@@ -11,7 +11,7 @@ CI runs on GitHub Actions, in workflows that only orchestrate `just` tasks (OPS-
 | `checks` | `just setup`, then `just checks`: every check of the code in the table below that doesn't need the image | |
 | `image` | `just image`: the API's image and the reference deployment's Postgres, each built once for linux/amd64 and linux/arm64 with its software bill of materials (SBOM) and its provenance, into an image layout of the Open Container Initiative (OCI), which the later jobs download (OPS-14) | |
 | `scan` | `just image-scan`, against the digests that `image` built, on a runner of its own, so the scanner's database takes none of `verify`'s disk | `image` |
-| `verify` | `just e2e` against the digests that `image` built, as two jobs side by side: `verify (linux/amd64)`, and `verify (linux/arm64)` through QEMU. Each first deletes its runner's preinstalled toolchains that no task uses, for their disk | `image` |
+| `verify` | `just e2e` against the digests that `image` built, as two jobs side by side, each naming its platform in `E2E_PLATFORM`: `verify (linux/amd64)`, and `verify (linux/arm64)` through QEMU. Each first deletes its runner's preinstalled toolchains that no task uses, for their disk | `image` |
 | `publish` | On `main` only: `just publish`, which pushes those digests to the GitHub Container Registry as `sha-<commit>`, and moves `edge` to them while the commit is the head of `main` | `checks`, `scan`, `verify` |
 | `release` | On `main` only: `just release-image`, which releases from those digests the version that `just release` asked for, if no release has it yet, as [release.md](release.md) describes | `publish` |
 

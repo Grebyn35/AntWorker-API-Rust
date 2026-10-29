@@ -119,7 +119,9 @@ jobs:
           path: target
       - if: matrix.platform == 'linux/arm64'
         run: docker compose run --rm binfmt --install arm64
-      - run: just e2e ${{ matrix.platform }}
+      - run: just e2e
+        env:
+          E2E_PLATFORM: ${{ matrix.platform }}
 
   # The tested digests, published on main as sha-<commit>, and as edge while it is main's head.
   publish:
