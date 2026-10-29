@@ -59,7 +59,7 @@ restores the database as it stood at that moment, a time with its offset from UT
 
 CI restores to a moment between two writes, then checks that the first one is there, that the second isn't, and that the API serves through Caddy (OPS-17).
 
-The data that the restore replaced stays in the volume, so a restore can be undone. Once the restored database is right, remove it on the server, with the name the restore printed:
+The data that the restore replaced stays in the volume, so a restore can be undone, and `just status` lists it, with its size, until it's removed: no deploy removes it (D57). Once the restored database is right, remove it on the server, with the name the restore printed:
 
 ```
 docker run --rm --volume deployment_postgres:/data --entrypoint rm "$(sed -n 's/^POSTGRES_IMAGE=//p' ~/deployment/state/deploy.env)" -r /data/18/before-restore-20261025T104131Z

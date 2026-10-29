@@ -7,9 +7,11 @@
 # machine; docs/operations/deploy.md describes the deployment.
 #
 #   deploy.sh deploy <version> [--allow-restart]
-#       Verifies the release <version>, then deploys its images.
+#       Verifies the release <version>, then deploys its images. Once its replicas serve, it
+#       removes the other releases' files and the images that nothing uses.
 #   deploy.sh apply <API image> <Postgres image> [--allow-restart]
-#       Deploys the two images, each named by digest, such as ghcr.io/owner/name@sha256:...
+#       Deploys the two images, each named by digest, such as ghcr.io/owner/name@sha256:..., as
+#       deploy does once the release verifies.
 #   deploy.sh backup
 #       Takes a full base backup of the bundled database.
 #   deploy.sh restore [<moment>]
@@ -19,8 +21,9 @@
 #   deploy.sh status
 #       Shows whether a deploy, backup or restore runs, or a deploy stopped before its replicas
 #       served, which color serves, each of the deployment's containers with its state and its
-#       image's version, when the bundled database's backups last succeeded, and the server's
-#       free disk and memory. It changes nothing, so it runs beside any other task.
+#       image's version, when the bundled database's backups last succeeded, the data that each
+#       restore moved aside, and the server's free disk and memory. It changes nothing, so it
+#       runs beside any other task.
 #   deploy.sh logs [--follow] [<service>...]
 #       Shows the last 100 lines of each service's log, of every service without one, and with
 #       --follow, the lines that follow. `api` names both colors' replicas. With caddy, or every
@@ -566,6 +569,7 @@ apply() {
     rm -rf "$state/previous"
     printf '%s\n' "$target" > "$state/live"
     stop_unused_services
+    remove_unused
     say "deployed $api_image: $replicas $target replicas serve"
     if [ "$telemetry" = managed ]; then import_into_managed_grafana; fi
     # A deployment may run without an integration, but not without knowing.
@@ -616,6 +620,45 @@ stop_unused_services() {
         docker run --rm --volume "${project}_backup-status:/var/lib/backup-status" --entrypoint sh "$left" \
             -c 'rm -f /var/lib/backup-status/*'
     fi
+}
+
+# Removes what earlier deploys left and nothing uses, once a deploy's replicas serve, so the disk
+# doesn't fill with them (OPS-16): the files of every other release in releases/, where `just
+# deploy` copies a release's files, and the images of the deployment's repositories that no
+# container uses and that neither the services the settings choose nor the tools name. Those are
+# the images of the releases before the previous one, of the pins a release moved, of the
+# services the settings no longer choose, and the Postgres images that a deploy pulled and kept
+# the running one in place of. The previous release's API image stays, which deploy.env names for
+# the color that stopped, so a rollback to it pulls nothing. An image of another repository, such
+# as one the operator pulled, stays, and Docker removes no image that a container uses. Nothing
+# here fails the deploy, whose replicas already serve.
+remove_unused() {
+    for release in "$deployment"/releases/*; do
+        if [ -d "$release" ] && [ "$release" != "$here" ]; then rm -rf "$release"; fi
+    done
+    tools=$deployment/tools/compose.yaml
+    # A reference's repository: the reference without its digest, and without its tag, which
+    # follows the last colon after the last slash, as a registry's port doesn't.
+    repositories=$({ compose --profile '*' config --images && docker compose --file "$tools" config --images; } 2> /dev/null |
+        awk '{ sub(/@.*/, ""); n = split($0, part, "/"); if (index(part[n], ":") > 0) sub(/:[^:\/]*$/, ""); print }' | sort -u)
+    kept=$(
+        { compose config --images && docker compose --file "$tools" config --images; } 2> /dev/null |
+            while IFS= read -r image; do docker image inspect --format '{{ .Id }}' "$image" 2> /dev/null || true; done
+        docker ps --all --quiet | while IFS= read -r container; do docker inspect --format '{{ .Image }}' "$container" 2> /dev/null || true; done
+    )
+    unused=$(docker image ls --digests --no-trunc --format '{{ .ID }} {{ .Repository }} {{ .Tag }} {{ .Digest }}' |
+        while read -r id repository tag digest; do
+            if ! printf '%s\n' "$repositories" | grep -qxF "$repository" || printf '%s\n' "$kept" | grep -qxF "$id"; then continue; fi
+            if [ "$tag" != '<none>' ]; then printf '%s\n' "$repository:$tag"; fi
+            if [ "$digest" != '<none>' ]; then printf '%s\n' "$repository@$digest"; fi
+        done | sort -u)
+    if [ -z "$unused" ]; then return 0; fi
+    before=$(docker image ls --quiet --no-trunc | sort -u | wc -l)
+    # shellcheck disable=SC2086 # $unused holds one reference per word.
+    docker image rm $unused > /dev/null 2>&1 || true
+    removed=$((before - $(docker image ls --quiet --no-trunc | sort -u | wc -l)))
+    if [ "$removed" -eq 1 ]; then say "removed an image that nothing uses"; fi
+    if [ "$removed" -gt 1 ]; then say "removed $removed images that nothing uses"; fi
 }
 
 deploy_release() {
@@ -733,6 +776,16 @@ status() {
                 if [ -f "$file" ]; then when=$(date -u -r "$file" "+%Y-%m-%d %H:%M:%S UTC"); else when=never; fi
                 printf "  %-26s %s\n" "${entry#*:}" "$when"
             done'
+    fi
+    # The data that each restore moved aside, which stays, so a restore can be undone, until the
+    # operator removes it as docs/operations/backups.md says.
+    container=$(running postgres)
+    if [ -n "$container" ]; then
+        aside=$(docker exec "$container" sh -c 'for directory in /var/lib/postgresql/*/before-restore-*; do if [ -d "$directory" ]; then du -sh "$directory"; fi; done') || aside=""
+        if [ -n "$aside" ]; then
+            echo "moved aside by a restore, until removed (docs/operations/backups.md):"
+            printf '%s\n' "$aside" | awk '{ name = $2; sub(/.*\//, "", name); printf "  %-34s %s\n", name, $1 }'
+        fi
     fi
     echo "server:"
     df -P -h "$(docker info --format '{{ .DockerRootDir }}')" |

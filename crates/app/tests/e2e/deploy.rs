@@ -397,6 +397,67 @@ fn waiting_image(deployment: &Deployment) -> String {
 }
 
 #[tokio::test]
+async fn ops_16_a_deploy_removes_what_nothing_uses_and_bounds_every_log() {
+    let deployment = Deployment::managed(&[]).await;
+    // Three releases of one repository, as the API's are, and an image of another.
+    let releases: Vec<String> = ["first", "second", "third"]
+        .iter()
+        .map(|tag| {
+            deployment.image_tagged(
+                &deployment.api,
+                "release",
+                tag,
+                &format!("LABEL e2e.release={tag}"),
+            )
+        })
+        .collect();
+    let other = deployment.image_from(&deployment.api, "other", "LABEL e2e.other=true");
+    deployment.server.write(
+        &format!("{DEPLOYMENT}/releases/0.0.1/deploy.sh"),
+        "# An earlier release's files.\n",
+    );
+
+    let mut outputs = Vec::new();
+    for release in &releases {
+        outputs.push(deployment.apply(release, &[]).await);
+    }
+
+    for output in &outputs {
+        assert!(output.status.success(), "{}", lossy(output));
+    }
+    let third = lossy(&outputs[2]);
+    assert!(third.contains("that nothing uses"), "{third}");
+    let present = |image: &str| {
+        deployment
+            .server
+            .shell(&format!("docker image inspect {image} > /dev/null 2>&1"))
+            .status
+            .success()
+    };
+    assert!(
+        !present(&releases[0]),
+        "the release before the previous one"
+    );
+    assert!(
+        present(&releases[1]),
+        "the previous release, which deploy.env names for the color that stopped"
+    );
+    assert!(present(&releases[2]), "the live release");
+    assert!(present(&other), "an image of another repository");
+    deployment
+        .server
+        .shell_ok(&format!("test ! -e {DEPLOYMENT}/releases/0.0.1"));
+    let drivers = deployment.server.shell_ok(
+        "docker ps --all --quiet --filter label=com.docker.compose.project=deployment \
+         | xargs docker inspect --format '{{.Name}} {{.HostConfig.LogConfig.Type}}'",
+    );
+    assert!(drivers.contains("caddy"), "{drivers}");
+    for line in drivers.lines() {
+        assert!(line.ends_with(" local"), "a bounded log: {drivers}");
+    }
+}
+
+#[tokio::test]
 async fn ops_16_a_deploy_stops_the_services_that_the_settings_no_longer_choose() {
     let deployment = Deployment::managed(&[]).await;
     let backend = deployment.server.start_otlp_backend();
@@ -585,6 +646,10 @@ async fn ops_22_status_shows_what_serves_and_the_backups_and_logs_show_the_servi
     let deployment = Deployment::bundled(&[("TELEMETRY", "self-hosted")]);
     let applied = deployment.apply(&deployment.api, &[]).await;
     assert!(applied.status.success(), "{}", lossy(&applied));
+    // The data that a restore moves aside, where the restore moves it.
+    deployment.server.shell_ok(
+        "docker exec deployment-postgres-1 mkdir /var/lib/postgresql/18/before-restore-20261029T120000Z",
+    );
 
     let status = deployment.server.deploy(&["status"]);
     let logs = deployment.server.deploy(&["logs", "api", "caddy"]);
@@ -606,12 +671,7 @@ async fn ops_22_status_shows_what_serves_and_the_backups_and_logs_show_the_servi
             "{replica} healthy, of {version}: {status}"
         );
     }
-    let containers: Vec<&str> = status
-        .lines()
-        .skip_while(|line| *line != "containers:")
-        .skip(1)
-        .take_while(|line| line.starts_with("  "))
-        .collect();
+    let containers = section(&status, "containers:");
     assert!(
         containers.iter().any(|line| line.contains("prometheus-1")),
         "{status}"
@@ -623,24 +683,15 @@ async fn ops_22_status_shows_what_serves_and_the_backups_and_logs_show_the_servi
             "a version for {line}: {status}"
         );
     }
-    let recorded = |what: &str| {
-        status
-            .lines()
-            .find_map(|line| line.trim().strip_prefix(what))
-            .unwrap_or_default()
-            .trim()
-            .to_owned()
-    };
-    let archived = recorded("log last archived");
-    let failed = recorded("archive last failed");
+    assert_backups_recorded(&status);
     assert!(
-        recorded("base backup last completed").ends_with(" UTC"),
+        section(&status, "moved aside by a restore")
+            .iter()
+            .any(|line| line
+                .trim_start()
+                .starts_with("before-restore-20261029T120000Z ")),
         "{status}"
     );
-    assert!(archived.ends_with(" UTC"), "{status}");
-    // Postgres archives before the first deploy creates the stanza, so an archive may have
-    // failed then; the times sort as they read.
-    assert!(failed == "never" || archived > failed, "{status}");
     assert!(status.contains("memory"), "{status}");
     assert!(
         status
@@ -662,4 +713,37 @@ async fn ops_22_status_shows_what_serves_and_the_backups_and_logs_show_the_servi
         "{}",
         lossy(&refused)
     );
+}
+
+/// The lines of the section of `status` under the line that starts with `heading`, each indented.
+fn section<'a>(status: &'a str, heading: &str) -> Vec<&'a str> {
+    status
+        .lines()
+        .skip_while(|line| !line.starts_with(heading))
+        .skip(1)
+        .take_while(|line| line.starts_with("  "))
+        .collect()
+}
+
+/// Asserts that `status` shows when the backups last archived the log and completed a base
+/// backup, and that no archive failed after the last one that succeeded.
+fn assert_backups_recorded(status: &str) {
+    let recorded = |what: &str| {
+        status
+            .lines()
+            .find_map(|line| line.trim().strip_prefix(what))
+            .unwrap_or_default()
+            .trim()
+            .to_owned()
+    };
+    let archived = recorded("log last archived");
+    let failed = recorded("archive last failed");
+    assert!(
+        recorded("base backup last completed").ends_with(" UTC"),
+        "{status}"
+    );
+    assert!(archived.ends_with(" UTC"), "{status}");
+    // Postgres archives before the first deploy creates the stanza, so an archive may have
+    // failed then; the times sort as they read.
+    assert!(failed == "never" || archived > failed, "{status}");
 }

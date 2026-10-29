@@ -18,5 +18,10 @@ storage:
     wal:
       path: /var/tempo/wal
 
+# The traces' retention, 14 days, as Loki keeps the logs. The backend worker deletes older blocks.
+backend_worker:
+  compaction:
+    block_retention: 336h
+
 usage_report:
   reporting_enabled: false

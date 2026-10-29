@@ -3,6 +3,12 @@
 # deployment serves, and the API's replicas, into state/, which Caddy sees at /etc/caddy-state,
 # and reloads Caddy when they change. docs/operations/deploy.md describes the deployment.
 {
+	# Caddy's own log, which `just logs` shows, without the line its health checks write for each
+	# check that fails: the replicas of the color that isn't live fail every check, by design
+	# (sites/api.caddy), and a deploy reads which replicas are ready from Caddy's metrics.
+	log default {
+		exclude http.handlers.reverse_proxy.health_checker.active
+	}
 	servers {
 		# The addresses whose X-Forwarded-For Caddy keeps, such as a content delivery network in
 		# front of the server. From any other client, Caddy replaces the header with the

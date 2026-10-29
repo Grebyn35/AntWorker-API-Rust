@@ -8,8 +8,18 @@
 
 name: deployment
 
+# Every container's log, which `just logs` reads, in Docker's `local` driver: at most five files
+# of 20 MB each, the four older ones compressed, so no log grows without bound (OPS-16). Docker's
+# default driver never rotates its file.
+x-logging: &logging
+  driver: local
+  options:
+    max-size: 20m
+    max-file: "5"
+
 # An API replica. The two colors differ only in their image.
 x-api: &api
+  logging: *logging
   command: ["serve"]
   read_only: true
   cap_drop: [ALL]
@@ -56,6 +66,7 @@ x-backups: &backups
 services:
   caddy:
     image: caddy:2.11.7@sha256:504a44d7d74bd2bc28a66afc4774912fc21223ca8a67734af1c54ab2f999b489
+    logging: *logging
     environment:
       API_ADDRESS: ${API_ADDRESS:?the API's address, in settings.env}
       GRAFANA_ADDRESS: ${GRAFANA_ADDRESS:-}
@@ -86,8 +97,10 @@ services:
     # Caddy needs only to bind the ports below 1024.
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
+    # The admin API's metrics, whose requests Caddy logs only at the debug level, where every other
+    # request to the admin API adds a line to Caddy's log.
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:2019/config/"]
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:2019/metrics"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -105,6 +118,7 @@ services:
   # The one-shot subcommands that a deploy runs with the release's image, before its replicas.
   bootstrap:
     image: ${API_IMAGE_NEW:?the release's image, in state/deploy.env}
+    logging: *logging
     profiles: [tasks]
     command: ["bootstrap"]
     read_only: true
@@ -123,6 +137,7 @@ services:
   # directory to start one from.
   collector-state:
     image: caddy:2.11.7@sha256:504a44d7d74bd2bc28a66afc4774912fc21223ca8a67734af1c54ab2f999b489
+    logging: *logging
     profiles: [tasks]
     user: root
     entrypoint: [chown, "10001:10001", /var/lib/collector, /var/lib/collector-managed]
@@ -133,6 +148,7 @@ services:
 
   migrate:
     image: ${API_IMAGE_NEW:?the release's image, in state/deploy.env}
+    logging: *logging
     profiles: [tasks]
     command: ["migrate"]
     read_only: true
@@ -148,6 +164,7 @@ services:
   # the network `data` reaches it.
   postgres:
     image: ${POSTGRES_IMAGE:?the Postgres image, in state/deploy.env}
+    logging: *logging
     profiles: [database]
     command:
       - postgres
@@ -183,6 +200,7 @@ services:
   # The scheduled base backups, taken from Postgres's data directory and its socket.
   backup:
     image: ${POSTGRES_IMAGE:?the Postgres image, in state/deploy.env}
+    logging: *logging
     profiles: [database]
     user: postgres
     entrypoint: ["backup-schedule"]
@@ -205,6 +223,7 @@ services:
   # and Caddy's log, with the proxy's configuration (observability/collector/proxy.yaml).
   collector:
     extends: { file: observability/compose.yaml, service: collector }
+    logging: *logging
     profiles: [telemetry]
     command: ["--config=/etc/collector/config.yaml", "--config=/etc/collector/proxy.yaml"]
     volumes:
@@ -219,6 +238,7 @@ services:
   # It answers as `collector`, so the API's settings are the same.
   collector-managed:
     extends: { file: observability/compose.yaml, service: collector }
+    logging: *logging
     profiles: [managed-telemetry]
     command:
       - --config=/etc/collector/config.yaml
@@ -245,12 +265,14 @@ services:
 
   prometheus:
     extends: { file: observability/compose.yaml, service: prometheus }
+    logging: *logging
     profiles: [observability]
     networks: [telemetry]
     restart: unless-stopped
 
   alertmanager:
     extends: { file: observability/compose.yaml, service: alertmanager }
+    logging: *logging
     profiles: [observability]
     # The credentials of the integrations that alertmanager.yaml names, which the deployment keeps
     # in secrets/alertmanager/ (docs/operations/observability.md).
@@ -261,12 +283,14 @@ services:
 
   loki:
     extends: { file: observability/compose.yaml, service: loki }
+    logging: *logging
     profiles: [observability]
     networks: [telemetry]
     restart: unless-stopped
 
   tempo:
     extends: { file: observability/compose.yaml, service: tempo }
+    logging: *logging
     profiles: [observability]
     networks: [telemetry]
     restart: unless-stopped
@@ -274,6 +298,7 @@ services:
   # Grafana, at its own address behind Caddy, where every viewer signs in (D42).
   grafana:
     extends: { file: observability/compose.yaml, service: grafana }
+    logging: *logging
     profiles: [observability]
     environment:
       GF_SERVER_ROOT_URL: https://${GRAFANA_ADDRESS:-}/

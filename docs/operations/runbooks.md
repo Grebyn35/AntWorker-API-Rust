@@ -99,9 +99,9 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **What it means.** A disk of the server is more than 85% full and, at the rate of the last six hours, fills within a day. When the disk that holds the deployment's volumes fills, Postgres stops writing and the stack stops storing telemetry.
 
-**Look first.** The Server dashboard: "How full is each disk?" names the mount point and shows since when it fills. On the server, `docker system df --verbose` shows the size of each volume and image.
+**Look first.** The Server dashboard: "How full is each disk?" names the mount point and shows since when it fills. `just status <host>` lists the data that restores moved aside, with its size. On the server, `docker system df --verbose` shows the size of each volume and image.
 
-**What to do.** Free space or grow the disk. Images that no container runs go with `docker image prune --all`. If Postgres's volume grows while [BackupArchivingFailing](#backuparchivingfailing) fires, Postgres is keeping the write-ahead log it can't archive: fix the archiving, and Postgres removes the segments it kept.
+**What to do.** Free space or grow the disk. Each deploy removes the images and the release files that nothing uses, and each container's log is capped (D57), so what grows is data. Data that a restore moved aside goes as [backups.md](backups.md#restoring) says. Images of other repositories, which no deploy removes, go with `docker image prune --all`, which also removes the tools' images until the next deploy pulls them again. If Postgres's volume grows while [BackupArchivingFailing](#backuparchivingfailing) fires, Postgres is keeping the write-ahead log it can't archive: fix the archiving, and Postgres removes the segments it kept.
 
 ## DiskFull
 

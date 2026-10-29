@@ -45,7 +45,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | Rate limiting: the IP, per-user and per-action limits, with the client IP taken from trusted proxies | D11 | 2.1 |
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | built |
 | The image and the delivery pipeline, with the release docs | D15, D21, D43 | built |
-| The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30, D44, D45, D47, D49, D50, D51, D52, D53, D54, D55, D56 | built |
+| The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30, D44, D45, D47, D49, D50, D51, D52, D53, D54, D55, D56, D57 | built |
 | Grafana on an HTTPS address of its own with sign-in, and the path to a managed observability backend through the collector, with Grafana Cloud as the worked example | D19, D42 | built |
 | The command that removes an optional part, which `check-removable` runs | D29, D39 | 2.3 |
 | `just seed` and the OpenAPI UI in development | D28 | 2.4 |
@@ -226,3 +226,4 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D54 | Every task on the reference deployment's server runs through `just`, and the operations documents may also name commands for the operator to run there over SSH, which only read what no task shows, free disk space, or undo a restore that failed, rather than a `just` task for each (OPS-22) | accepted |
 | D55 | The packages that `just server-setup` installs from apt, Docker's among them, are the distribution's current ones, which apt verifies by their repositories' signatures over whatever transport the mirrors serve, rather than pinned versions reached over TLS only, so that the system's security updates reach them (OPS-13, OPS-20) | accepted |
 | D56 | Without telemetry, D10 holds for the proxy's 503 through `just logs`, which shows Caddy's lines of the requests it answered itself from the file that the collector reads (OPS-05, OPS-22) | accepted |
+| D57 | Nothing a deploy leaves on the reference deployment's server grows without bound: every container's log is capped and rotated, and a deploy whose replicas serve removes the other releases' files and the images of the deployment's repositories that nothing uses or names, keeping the previous release's API image for a rollback, rather than leaving their removal to the operator and an alert on a filling disk. The data a restore moves aside stays until the operator removes it, and `just status` shows it (OPS-16, OPS-22, [deploy.md](operations/deploy.md#the-files-on-the-server)) | accepted |

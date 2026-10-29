@@ -274,15 +274,17 @@ image revision=`git rev-parse HEAD` postgres_inputs=`cargo run --locked --quiet 
         --label build.inputs={{ postgres_inputs }} \
         --output type=oci,dest={{ image_dir }}-postgres,tar=false deploy/postgres
 
-# Creates the builder, if this machine doesn't have it yet.
+# Creates the builder, if this machine doesn't have it yet, and removes the builders of earlier
+# BuildKit images with their caches, which no build uses again.
 [unix]
 _image-builder:
-    docker buildx inspect {{ image_builder }} > /dev/null 2>&1 || docker buildx create --name {{ image_builder }} --driver docker-container --driver-opt image={{ buildkit_image }} > /dev/null
+    docker buildx inspect {{ image_builder }} > /dev/null 2>&1 || { docker buildx ls --format '{{{{.Name}}' | grep -xE 'buildkit-[0-9a-f]{64}' | while read -r builder; do docker buildx rm "$builder" > /dev/null; done; docker buildx create --name {{ image_builder }} --driver docker-container --driver-opt image={{ buildkit_image }} > /dev/null; }
 
-# Creates the builder, if this machine doesn't have it yet.
+# Creates the builder, if this machine doesn't have it yet, and removes the builders of earlier
+# BuildKit images with their caches, which no build uses again.
 [windows]
 _image-builder:
-    docker buildx inspect {{ image_builder }} *> $null; if ($LASTEXITCODE -ne 0) { docker buildx create --name {{ image_builder }} --driver docker-container --driver-opt image={{ buildkit_image }} | Out-Null }
+    docker buildx inspect {{ image_builder }} *> $null; if ($LASTEXITCODE -ne 0) { docker buildx ls --format '{{{{.Name}}' | Where-Object { $_ -match '^buildkit-[0-9a-f]{64}$' } | ForEach-Object { docker buildx rm $_ | Out-Null }; docker buildx create --name {{ image_builder }} --driver docker-container --driver-opt image={{ buildkit_image }} | Out-Null }
 
 # Replaces the cache in IMAGE_CACHE with the one the build wrote, if it wrote one, so the cache
 # holds only what the last build used.
@@ -370,7 +372,8 @@ release version:
 # Deploys the release `version` to the reference deployment on `host`, an SSH destination such as
 # deploy@203.0.113.7 or a Host of ~/.ssh/config (OPS-16): refuses a version that no release has,
 # copies the deployment's files from the release's tag to the server, and runs that release's
-# deploy/deploy.sh there, which verifies the release's images before it pulls them. `--allow-restart`
+# deploy/deploy.sh there, which verifies the release's images before it pulls them, and removes the
+# other releases' files and the images that nothing uses once its replicas serve. `--allow-restart`
 # lets it restart Postgres or Caddy. docs/operations/deploy.md describes a deploy.
 deploy host version *options:
     {{ xtask }} deploy {{ host }} {{ version }} {{ options }}
@@ -403,8 +406,9 @@ server-check host version="":
     {{ xtask }} server-check {{ host }} {{ version }}
 
 # Shows the state of the reference deployment on `host` (OPS-22): which color serves, each of its
-# containers with its state and its image's version, when the backups last succeeded, and the
-# server's free disk and memory. It changes nothing. docs/operations/deploy.md describes it.
+# containers with its state and its image's version, when the backups last succeeded, the data
+# that each restore moved aside, and the server's free disk and memory. It changes nothing.
+# docs/operations/deploy.md describes it.
 status host:
     {{ xtask }} status {{ host }}
 

@@ -232,14 +232,21 @@ impl Deployment {
     /// The image `base`, such as the API's under test, with the Dockerfile `instructions` added,
     /// built on the server and pushed to Compose's registry as `name`. Returns it by its digest.
     pub fn image_from(&self, base: &str, name: &str, instructions: &str) -> String {
+        self.image_tagged(base, name, "e2e", instructions)
+    }
+
+    /// The image `base` with the Dockerfile `instructions` added, as `image_from` builds it,
+    /// pushed as the tag `tag` of `name`, so images of one repository can differ, as releases of
+    /// the API do. Returns it by its digest.
+    pub fn image_tagged(&self, base: &str, name: &str, tag: &str, instructions: &str) -> String {
         self.server.write(
-            &format!("/root/{name}/Dockerfile"),
+            &format!("/root/{name}-{tag}/Dockerfile"),
             &format!("FROM {base}\n{instructions}\n"),
         );
         self.server.shell_ok(&format!(
-            "docker build --quiet --tag registry:5000/{name}:e2e /root/{name} > /dev/null \
-             && docker push --quiet registry:5000/{name}:e2e > /dev/null \
-             && docker image inspect --format '{{{{index .RepoDigests 0}}}}' registry:5000/{name}:e2e"
+            "docker build --quiet --tag registry:5000/{name}:{tag} /root/{name}-{tag} > /dev/null \
+             && docker push --quiet registry:5000/{name}:{tag} > /dev/null \
+             && docker image inspect --format '{{{{index .RepoDigests 0}}}}' registry:5000/{name}:{tag}"
         ))
     }
 
