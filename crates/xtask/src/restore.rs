@@ -1,11 +1,13 @@
-//! The plan of a restore of the reference deployment's bundled database to a moment (OPS-17):
-//! the backup it starts from, and the timeline it replays along. Each restore begins a timeline,
-//! a history of the database that branches off an earlier one, so the database has had several
-//! histories, and a moment belongs to the timeline that was live then: the newest one that had
-//! begun. pgBackRest picks a backup by time alone, and Postgres replays along one timeline, the
-//! latest unless told another, so neither default reaches every moment: the latest timeline
-//! misses a moment that an earlier restore went back past, and a backup's own timeline misses a
-//! moment on a restored timeline that no backup of it had ended before.
+//! The plan of a restore of the reference deployment's bundled database (OPS-17): the backup it
+//! starts from, and the timeline it replays along. Each restore begins a timeline, which branches
+//! off an earlier one, so a database that was restored has had several timelines, and a moment
+//! belongs to the timeline that was live then: the newest one that had begun. pgBackRest picks a
+//! backup by time alone, and Postgres replays along one timeline, the latest unless told another,
+//! so neither default reaches every moment: the latest timeline misses a moment that an earlier
+//! restore went back past, and a backup's own timeline misses a moment on a restored timeline
+//! that no backup of it had ended before. Nor does the newest backup always start the latest
+//! state: one taken on a timeline that a restore then abandoned, after its branch, starts no
+//! replay along the latest timeline.
 //!
 //! The plan is a pure function of what the backup bucket records, which deploy.sh's
 //! `restore-inputs` prints, so tests cover it without a bucket. `just restore` makes it on the
@@ -36,21 +38,21 @@ pub struct Timeline {
     id: u32,
     /// When it began: when its history file reached the bucket, in seconds since the epoch.
     began: i64,
-    /// Each timeline it descends from, with the position in the write-ahead log where its
-    /// history left that timeline.
+    /// Each timeline it descends from, with the position in the write-ahead log where it
+    /// branched off that timeline.
     branches: Vec<(u32, u64)>,
 }
 
-/// The backup a restore to a moment starts from, and the timeline it replays along.
+/// The backup a restore starts from, and the timeline it replays along.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Plan {
     pub set: String,
     pub timeline: u32,
 }
 
-/// The plan of a restore to `moment`, in seconds since the epoch: along the timeline that was
-/// live at that moment, from the latest backup on that timeline's history that ended before it.
-/// A backup on a timeline it descends from is on its history only if it ended before the branch.
+/// The plan of a restore to `moment`, in seconds since the epoch, or to the latest state at
+/// `i64::MAX`: along the timeline that was live at that moment, from the latest backup that
+/// ended before it on that timeline, or on a timeline it descends from, before the branch.
 pub fn plan(moment: i64, backups: &[Backup], timelines: &[Timeline]) -> Result<Plan, String> {
     let live = timelines
         .iter()
@@ -68,7 +70,7 @@ pub fn plan(moment: i64, backups: &[Backup], timelines: &[Timeline]) -> Result<P
             [].as_slice(),
         ),
     };
-    let on_history = |backup: &Backup| {
+    let on_timeline = |backup: &Backup| {
         backup.timeline == timeline
             || branches
                 .iter()
@@ -76,30 +78,37 @@ pub fn plan(moment: i64, backups: &[Backup], timelines: &[Timeline]) -> Result<P
     };
     backups
         .iter()
-        .filter(|backup| backup.stop < moment && on_history(backup))
+        .filter(|backup| backup.stop < moment && on_timeline(backup))
         .max_by_key(|backup| backup.stop)
         .map(|backup| Plan {
             set: backup.label.clone(),
             timeline,
         })
         .ok_or_else(|| {
-            "no backup on the history the database had then ended before it, so the backups \
-             don't reach it"
-                .to_owned()
+            format!(
+                "no backup ended before it on timeline {timeline}, live then, or on a timeline \
+                 it descends from before the branch, so the backups don't reach it"
+            )
         })
 }
 
-/// The plan of a restore to the moment `text` names, from `inputs`, which deploy.sh's
-/// `restore-inputs` printed; or why there is none.
-pub fn planned(text: &str, inputs: &str) -> Result<Plan, String> {
-    let at = moment(text).ok_or_else(|| {
-        format!(
-            "{text} isn't a moment. A moment is a date and a time with its offset from UTC, as \
-             Postgres writes one, such as 2026-10-25 10:41:31+00."
-        )
-    })?;
+/// The plan of a restore to the moment `text` names, or without one, to the latest state, from
+/// `inputs`, which deploy.sh's `restore-inputs` printed; or why there is none.
+pub fn planned(text: Option<&str>, inputs: &str) -> Result<Plan, String> {
+    let at = match text {
+        Some(text) => moment(text).ok_or_else(|| {
+            format!(
+                "{text} isn't a moment. A moment is a date and a time with its offset from UTC, \
+                 as Postgres writes one, such as 2026-10-25 10:41:31+00."
+            )
+        })?,
+        None => i64::MAX,
+    };
     let (backups, timelines) = read_inputs(inputs)?;
-    plan(at, &backups, &timelines).map_err(|reason| format!("Can't restore to {text}: {reason}."))
+    plan(at, &backups, &timelines).map_err(|reason| match text {
+        Some(text) => format!("Can't restore to {text}: {reason}."),
+        None => format!("Can't restore the latest state: {reason}."),
+    })
 }
 
 /// What `restore-inputs` printed: a line `backups` with pgBackRest's info in JSON, a line
@@ -117,13 +126,13 @@ fn read_inputs(inputs: &str) -> Result<(Vec<Backup>, Vec<Timeline>), String> {
             "branch" => {
                 let fields: Vec<&str> = rest.split_whitespace().collect();
                 let [name, id, at] = fields.as_slice() else {
-                    return Err(format!("the bucket's history reads oddly: {line}"));
+                    return Err(format!("a history file in the bucket reads oddly: {line}"));
                 };
                 let id = id
                     .parse()
-                    .map_err(|_| format!("the bucket's history reads oddly: {line}"))?;
-                let at =
-                    lsn(at).ok_or_else(|| format!("the bucket's history reads oddly: {line}"))?;
+                    .map_err(|_| format!("a history file in the bucket reads oddly: {line}"))?;
+                let at = lsn(at)
+                    .ok_or_else(|| format!("a history file in the bucket reads oddly: {line}"))?;
                 branches.push(((*name).to_owned(), id, at));
             }
             _ => {}
@@ -271,9 +280,9 @@ fn days(year: i64, month: i64, day: i64) -> i64 {
 }
 
 /// `restore-plan`, which the end-to-end tests run as `just restore` makes its plan: reads what
-/// `restore-inputs` printed from standard input, and prints the plan of a restore to `moment` as
-/// the backup and the timeline, separated by a space.
-pub fn run(moment: &str) -> ExitCode {
+/// `restore-inputs` printed from standard input, and prints the plan of a restore to `moment`,
+/// or to the latest state, as the backup and the timeline, separated by a space.
+pub fn run(moment: Option<&str>) -> ExitCode {
     let mut inputs = String::new();
     if let Err(error) = io::stdin().read_to_string(&mut inputs) {
         return crate::deploy::refuse(&format!("Can't read what the bucket records: {error}"));
@@ -303,9 +312,9 @@ mod tests {
         }
     }
 
-    /// A database restored once, at 1000, to a moment before 400, whose history left timeline 1
-    /// at position 40: a backup before the branch, one after it on the abandoned history, and
-    /// the restore's closing backup on timeline 2, which ended at 1100.
+    /// A database restored once, at 1000, to a moment before 400, whose timeline 2 branched off
+    /// timeline 1 at position 40: a backup before the branch, one after it on the timeline the
+    /// restore abandoned, and the restore's closing backup on timeline 2, which ended at 1100.
     fn restored_once() -> (Vec<Backup>, Vec<Timeline>) {
         (
             vec![
@@ -343,7 +352,7 @@ mod tests {
     fn ops_17_a_moment_that_a_restore_went_back_past_replays_its_own_timeline() {
         let (backups, timelines) = restored_once();
 
-        // Between the restore's target and the time it ran, on the history it abandoned.
+        // Between the restore's target and the time it ran, on the timeline it abandoned.
         let abandoned = plan(800, &backups, &timelines);
 
         assert_eq!(
@@ -360,7 +369,7 @@ mod tests {
         let (backups, timelines) = restored_once();
 
         // The restored timeline is live, and its closing backup hasn't ended: the backup from
-        // before the branch, not the later one on the history the restore abandoned.
+        // before the branch, not the later one on the timeline the restore abandoned.
         let during = plan(1050, &backups, &timelines);
 
         assert_eq!(
@@ -386,8 +395,29 @@ mod tests {
     }
 
     #[test]
+    fn ops_17_the_latest_state_starts_from_the_latest_backup_on_the_latest_timeline() {
+        let (mut backups, timelines) = restored_once();
+        let with_closing = plan(i64::MAX, &backups, &timelines);
+        // Without the restore's closing backup, as when it failed: the newest backup is the one
+        // on the timeline the restore abandoned, which no replay along timeline 2 starts from.
+        backups.retain(|backup| backup.label != "closing");
+
+        let without_closing = plan(i64::MAX, &backups, &timelines);
+
+        assert_eq!(with_closing.map(|plan| plan.set), Ok("closing".to_owned()));
+        assert_eq!(
+            without_closing,
+            Ok(Plan {
+                set: "before-branch".to_owned(),
+                timeline: 2
+            })
+        );
+    }
+
+    #[test]
     fn ops_17_the_bucket_s_records_are_read_as_pgbackrest_writes_them() {
-        // The trial deployment's records: one backup, and two of its five history files.
+        // Records as pgBackRest wrote them for a database restored four times: one backup, and
+        // two of its five history files.
         let inputs = concat!(
             r#"backups [{"backup":[{"label":"20261026-214504F","type":"full","timestamp":{"start":1793051104,"stop":1793051111},"lsn":{"start":"0/E000028","stop":"0/E000120"},"archive":{"start":"00000002000000000000000E","stop":"00000002000000000000000E"}}]}]"#,
             "\n",

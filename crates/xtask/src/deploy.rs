@@ -122,34 +122,39 @@ pub fn backup(host: &str) -> ExitCode {
 }
 
 /// Restores the database of the deployment that SSH reaches at `host`, as it stood at `moment`,
-/// or at the latest moment its backups hold. A restore to a moment first reads what the backup
-/// bucket records, and plans the backup it starts from and the timeline it replays along.
+/// or at the latest moment its backups hold. It first reads what the backup bucket records, and
+/// plans the backup the restore starts from and the timeline it replays along.
 pub fn restore(host: &str, moment: Option<&str>) -> ExitCode {
-    let mut command = format!("DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh restore");
-    if let Some(moment) = moment.filter(|moment| !moment.is_empty()) {
-        let inputs = match on_server_output(
-            host,
-            &format!("DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh restore-inputs"),
-        ) {
-            Ok(inputs) => inputs,
-            Err(error) => {
-                return refuse(&format!(
-                    "Can't read what the backup bucket records: {error}"
-                ));
-            }
-        };
-        let plan = match planned(moment, &inputs) {
-            Ok(plan) => plan,
-            Err(refused) => return refuse(&refused),
-        };
-        note(&format!(
-            "Restoring from the backup {}, along timeline {}, the database's history at {moment}.",
-            plan.set, plan.timeline
-        ));
-        for argument in [moment, &plan.set, &plan.timeline.to_string()] {
-            command.push(' ');
-            command.push_str(&quoted(argument));
+    let moment = moment.filter(|moment| !moment.is_empty());
+    let inputs = match on_server_output(
+        host,
+        &format!("DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh restore-inputs"),
+    ) {
+        Ok(inputs) => inputs,
+        Err(error) => {
+            return refuse(&format!(
+                "Can't read what the backup bucket records: {error}"
+            ));
         }
+    };
+    let plan = match planned(moment, &inputs) {
+        Ok(plan) => plan,
+        Err(refused) => return refuse(&refused),
+    };
+    note(&match moment {
+        Some(moment) => format!(
+            "Restoring from the backup {}, along timeline {}, the one live at {moment}.",
+            plan.set, plan.timeline
+        ),
+        None => format!(
+            "Restoring the latest state from the backup {}, along timeline {}.",
+            plan.set, plan.timeline
+        ),
+    });
+    let mut command = format!("DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh restore");
+    for argument in [moment.unwrap_or(""), &plan.set, &plan.timeline.to_string()] {
+        command.push(' ');
+        command.push_str(&quoted(argument));
     }
     on_server(host, &command)
 }

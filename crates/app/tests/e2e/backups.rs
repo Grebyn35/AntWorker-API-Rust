@@ -124,7 +124,54 @@ async fn ops_17_a_restore_reaches_a_moment_after_an_earlier_restore() {
     archive_everything_committed(&deployment);
     let went_back = deployment.restore(Some(&early));
     assert!(went_back.status.success(), "{}", lossy(&went_back));
-    // Written after the restore, on the history it began.
+    // Written after the restore, on the timeline it began.
+    deployment.sql("INSERT INTO restore_marker VALUES ('after')");
+    let after = deployment.sql("SELECT now()");
+    deployment.sql("INSERT INTO restore_marker VALUES ('last')");
+    archive_everything_committed(&deployment);
+
+    let restored = deployment.restore(Some(&after));
+
+    assert!(restored.status.success(), "{}", lossy(&restored));
+    assert_eq!(
+        deployment.sql("SELECT name FROM restore_marker ORDER BY name"),
+        "after\nearly"
+    );
+}
+
+/// A bundled deployment whose database a restore took back to the moment after it held "early",
+/// with no backup on the timeline that restore began, as while its closing backup runs, or
+/// after that backup failed: the newest backup is on the timeline the restore abandoned, after
+/// its branch, which a replay along the restored timeline can't start from.
+async fn restored_with_no_backup_on_its_timeline() -> Deployment {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('early');",
+    );
+    let early = deployment.sql("SELECT now()");
+    deployment.sql("INSERT INTO restore_marker VALUES ('gone')");
+    let backed_up = deployment.server.deploy(&["backup"]);
+    assert!(backed_up.status.success(), "{}", lossy(&backed_up));
+    archive_everything_committed(&deployment);
+    let went_back = deployment.restore(Some(&early));
+    assert!(went_back.status.success(), "{}", lossy(&went_back));
+    let closing = backups(&deployment)
+        .last()
+        .and_then(|backup| backup["label"].as_str().map(str::to_owned))
+        .expect("the restore's closing backup");
+    deployment.server.shell_ok(&format!(
+        "docker exec --user postgres deployment-postgres-1 \
+         pgbackrest --stanza=db expire --set={closing}"
+    ));
+    deployment
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_reaches_a_moment_on_a_restored_timeline_before_its_first_backup() {
+    let deployment = restored_with_no_backup_on_its_timeline().await;
     deployment.sql("INSERT INTO restore_marker VALUES ('after')");
     let after = deployment.sql("SELECT now()");
     deployment.sql("INSERT INTO restore_marker VALUES ('last')");
@@ -140,39 +187,12 @@ async fn ops_17_a_restore_reaches_a_moment_after_an_earlier_restore() {
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_reaches_a_moment_on_a_restored_history_before_its_first_backup() {
-    let deployment = Deployment::bundled(&[]);
-    let deployed = deployment.apply(&deployment.api, &[]).await;
-    assert!(deployed.status.success(), "{}", lossy(&deployed));
-    deployment.sql(
-        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
-         INSERT INTO restore_marker VALUES ('early');",
-    );
-    let early = deployment.sql("SELECT now()");
-    deployment.sql("INSERT INTO restore_marker VALUES ('gone')");
-    // A backup on the history that the restore below abandons, after it branches off: the
-    // latest backup before the moment, which a restore must not start from.
-    let backed_up = deployment.server.deploy(&["backup"]);
-    assert!(backed_up.status.success(), "{}", lossy(&backed_up));
-    archive_everything_committed(&deployment);
-    let went_back = deployment.restore(Some(&early));
-    assert!(went_back.status.success(), "{}", lossy(&went_back));
-    // Without the restore's closing backup, the restored history has no backup, as while that
-    // backup runs.
-    let closing = backups(&deployment)
-        .last()
-        .and_then(|backup| backup["label"].as_str().map(str::to_owned))
-        .expect("the restore's closing backup");
-    deployment.server.shell_ok(&format!(
-        "docker exec --user postgres deployment-postgres-1 \
-         pgbackrest --stanza=db expire --set={closing}"
-    ));
+async fn ops_17_a_restore_of_the_latest_state_starts_from_a_backup_on_the_latest_timeline() {
+    let deployment = restored_with_no_backup_on_its_timeline().await;
     deployment.sql("INSERT INTO restore_marker VALUES ('after')");
-    let after = deployment.sql("SELECT now()");
-    deployment.sql("INSERT INTO restore_marker VALUES ('last')");
     archive_everything_committed(&deployment);
 
-    let restored = deployment.restore(Some(&after));
+    let restored = deployment.restore(None);
 
     assert!(restored.status.success(), "{}", lossy(&restored));
     assert_eq!(
@@ -199,7 +219,7 @@ async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucke
 
     let refused = new.apply(&new.api, &[]).await;
     let refused_replicas = new.server.running("api-blue");
-    let restored = new.server.deploy(&["restore"]);
+    let restored = new.restore(None);
     let deployed = new.apply(&new.api, &[]).await;
 
     assert!(!refused.status.success(), "{}", lossy(&refused));
@@ -238,7 +258,7 @@ async fn ops_17_a_restore_after_a_failed_deploy_migrates_with_the_live_release()
     );
     let failed = deployment.apply(&broken, &[]).await;
 
-    let restored = deployment.server.deploy(&["restore"]);
+    let restored = deployment.restore(None);
 
     assert!(!failed.status.success(), "{}", lossy(&failed));
     assert!(restored.status.success(), "{}", lossy(&restored));

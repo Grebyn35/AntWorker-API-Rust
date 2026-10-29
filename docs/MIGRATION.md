@@ -132,6 +132,8 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 3ae7168 | A DATA rule for D39: data a module adds for its product has a `workspace_id`, and a check fails on a table keyed by a user ID that isn't listed as account data. | 2.2, with the first workspace tables and `check-tenancy` |
 | Conformance review of 3ae7168 | ARCH-07: whether password sign-in is an optional part, for a fork that signs in only through OAuth providers | 5, with the full `auth` module |
 | Conformance review of 3ae7168 | DATA-12 and the platform spec's unit of work: how an operator's subcommand, such as `seed` or the setup subcommand, opens its unit of work, and as which role | 2.4, with `seed` |
+| Conformance review of b299bf2..004d477 | OPS-17: whether the reach of `BACKUP_RETENTION_DAYS` holds on a restored timeline whose closing backup failed, when retention expires the backup from before its branch while a newer full backup on the timeline the restore abandoned stays, and backups.md's "never shorten the reach" with it | 3 |
+| Conformance review of b299bf2..004d477 | The standards README's Fixing: an ID for its requirement that a fix adds or proposes a check, or says why none can cover the defect, so that a review can cite it | 3 |
 
 ## Conformance reviews
 

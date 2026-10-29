@@ -14,15 +14,16 @@
 #       deploy does once the release verifies.
 #   deploy.sh backup
 #       Takes a full base backup of the bundled database.
-#   deploy.sh restore [<moment> <backup> <timeline>]
+#   deploy.sh restore <moment> <backup> <timeline>
 #       Restores the bundled database, as it stood at <moment>, a time with its offset from UTC
-#       as Postgres writes it, from the backup <backup>, along the timeline <timeline>, which
-#       `just restore` plans from restore-inputs; or at the latest moment its backups hold. It
-#       restores into a fresh data directory, and keeps the one it replaces beside it.
+#       as Postgres writes it, or, with <moment> empty, at the latest moment its backups hold,
+#       from the backup <backup>, along the timeline <timeline>, which `just restore` plans from
+#       restore-inputs. It restores into a fresh data directory, and keeps the one it replaces
+#       beside it.
 #   deploy.sh restore-inputs
-#       Prints what the backup bucket records of the bundled database's histories, for a restore
-#       to a moment to plan from: pgBackRest's info, the timelines' history files with when each
-#       reached the bucket, and each one's branches. It changes nothing.
+#       Prints what the backup bucket records of the bundled database's timelines, for a restore
+#       to plan from: pgBackRest's info, the timelines' history files with when each reached the
+#       bucket, and each one's branches. It changes nothing.
 #   deploy.sh status
 #       Shows whether a deploy, backup or restore runs, or a deploy stopped before its replicas
 #       served, which color serves, each of the deployment's containers with its state and its
@@ -692,8 +693,8 @@ restore() {
     moment=$1
     set=$2
     timeline=$3
-    if [ -n "$moment" ] && { [ -z "$set" ] || [ -z "$timeline" ]; }; then
-        fail "a restore to a moment takes the backup and the timeline that just restore plans from restore-inputs"
+    if [ -z "$set" ] || [ -z "$timeline" ]; then
+        fail "a restore takes the backup and the timeline that just restore plans from restore-inputs"
     fi
     lock
     read_settings
@@ -711,10 +712,12 @@ restore() {
     stamp=$(date -u +%Y%m%dT%H%M%SZ)
     say "restoring the database${moment:+ as it stood at $moment}; the data it replaces moves to /var/lib/postgresql/18/before-restore-$stamp"
     # As root, which owns the data directory's parent. Postgres starts only after a restore that
-    # succeeded: on an empty data directory, it would create an empty database. A restore to a
-    # moment starts from the backup, and replays along the timeline, that the plan names
+    # succeeded: on an empty data directory, it would create an empty database. A restore starts
+    # from the backup, and replays along the timeline, that the plan names
     # (crates/xtask/src/restore.rs): pgBackRest would pick a backup by time alone, and Postgres
-    # replay along the latest timeline, which together miss some moments.
+    # replay along the latest timeline, which together miss some moments, and the latest state
+    # when the newest backup is on a timeline that a restore abandoned. The latest state's plan
+    # names the latest timeline, which Postgres replays along without being told.
     # shellcheck disable=SC2016 # The script expands its arguments itself.
     compose run --rm --no-deps --quiet-pull --user root --entrypoint sh postgres -c '
         set -e
@@ -723,7 +726,7 @@ restore() {
         if [ -n "$2" ]; then
             gosu postgres pgbackrest --stanza=db restore --set="$3" --type=time --target="$2" --target-timeline="$4" --target-action=promote
         else
-            gosu postgres pgbackrest --stanza=db restore
+            gosu postgres pgbackrest --stanza=db restore --set="$3"
         fi' sh "$stamp" "$moment" "$set" "$timeline"
     compose up --detach --wait --quiet-pull postgres
     waited=0
@@ -747,8 +750,8 @@ restore() {
     say "restored the database${moment:+ as it stood at $moment}"
 }
 
-# Prints what the backup bucket records of the bundled database's histories, for a restore to a
-# moment to plan from, one item per line: `backups` with pgBackRest's info in JSON, `histories`
+# Prints what the backup bucket records of the bundled database's timelines, for a restore to
+# plan from, one item per line: `backups` with pgBackRest's info in JSON, `histories`
 # with the timelines' history files that the bucket lists in JSON, each with the time it reached
 # the bucket, which is when its timeline began, and `branch` for each line of each history file,
 # with the file's name, the timeline it descends from and the position where it branched off.

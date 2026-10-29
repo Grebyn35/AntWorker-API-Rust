@@ -128,13 +128,15 @@ enum Command {
         /// The moment: a time with its offset from UTC, as Postgres writes it.
         moment: Option<String>,
     },
-    /// Prints the backup and the timeline of a restore to `moment`, from what the backup bucket
-    /// records, which deploy.sh's `restore-inputs` printed to standard input, as `just restore`
-    /// plans one (OPS-17). The end-to-end tests run it, as they run deploy.sh without `just`.
+    /// Prints the backup and the timeline of a restore to `moment`, or to the latest state, from
+    /// what the backup bucket records, which deploy.sh's `restore-inputs` printed to standard
+    /// input, as `just restore` plans one (OPS-17). The end-to-end tests run it, as they run
+    /// deploy.sh without `just`.
     #[command(name = "restore-plan", hide = true)]
     RestorePlan {
-        /// The moment: a time with its offset from UTC, as Postgres writes it.
-        moment: String,
+        /// The moment: a time with its offset from UTC, as Postgres writes it; without one, the
+        /// latest state.
+        moment: Option<String>,
     },
     /// Shows the state of the deployment at `host`: which color serves, its containers, its
     /// backups, and the server's free disk and memory (OPS-22).
@@ -246,7 +248,7 @@ fn main() -> ExitCode {
         Command::LoadTest => return load::run(),
         Command::Mirror { platform } => return mirror::run(&platform),
         Command::Restore { host, moment } => return deploy::restore(&host, moment.as_deref()),
-        Command::RestorePlan { moment } => return restore::run(&moment),
+        Command::RestorePlan { moment } => return restore::run(moment.as_deref()),
         Command::Status { host } => return deploy::status(&host),
         Command::Logs { host, arguments } => return deploy::logs(&host, &arguments),
         Command::ServerSetup { host, version } => return server::setup(&host, version.as_deref()),
