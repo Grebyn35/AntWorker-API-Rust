@@ -11,7 +11,9 @@
 //!
 //! The plan is a pure function of what the backup bucket records, which deploy.sh's
 //! `restore-inputs` prints, so tests cover it without a bucket. `just restore` makes it on the
-//! developer's machine, and the end-to-end tests through `restore-plan`.
+//! developer's machine, and the end-to-end tests through `restore-plan`. A moment that the
+//! server's clock, which `restore-inputs` also prints, hasn't reached is refused: no commit
+//! follows it, and Postgres won't end a replay that no commit follows.
 
 use std::{
     io::{self, Read},
@@ -104,23 +106,40 @@ pub fn planned(text: Option<&str>, inputs: &str) -> Result<Plan, String> {
         })?,
         None => i64::MAX,
     };
-    let (backups, timelines) = read_inputs(inputs)?;
+    let (now, backups, timelines) = read_inputs(inputs)?;
+    if let Some(text) = text
+        && at > now
+    {
+        return Err(format!(
+            "Can't restore to {text}: the server's clock hasn't reached it. Without a moment, a \
+             restore takes the latest state."
+        ));
+    }
     plan(at, &backups, &timelines).map_err(|reason| match text {
         Some(text) => format!("Can't restore to {text}: {reason}."),
         None => format!("Can't restore the latest state: {reason}."),
     })
 }
 
-/// What `restore-inputs` printed: a line `backups` with pgBackRest's info in JSON, a line
-/// `histories` with the history files the bucket lists in JSON, and a line `branch` for each
-/// line of each history file: its name, the timeline it descends from, and the branch's position.
-fn read_inputs(inputs: &str) -> Result<(Vec<Backup>, Vec<Timeline>), String> {
+/// What `restore-inputs` printed: a line `now` with the server's clock, in seconds since the
+/// epoch, a line `backups` with pgBackRest's info in JSON, a line `histories` with the history
+/// files the bucket lists in JSON, and a line `branch` for each line of each history file: its
+/// name, the timeline it descends from, and the branch's position.
+fn read_inputs(inputs: &str) -> Result<(i64, Vec<Backup>, Vec<Timeline>), String> {
+    let mut now = None;
     let mut backups = Vec::new();
     let mut timelines: Vec<(String, Timeline)> = Vec::new();
     let mut branches: Vec<(String, u32, u64)> = Vec::new();
     for line in inputs.lines() {
         let (kind, rest) = line.split_once(' ').unwrap_or((line, ""));
         match kind {
+            "now" => {
+                now = Some(
+                    rest.trim()
+                        .parse()
+                        .map_err(|_| format!("the server's clock reads oddly: {line}"))?,
+                );
+            }
             "backups" => backups = read_backups(rest)?,
             "histories" => timelines = read_histories(rest)?,
             "branch" => {
@@ -144,6 +163,7 @@ fn read_inputs(inputs: &str) -> Result<(Vec<Backup>, Vec<Timeline>), String> {
         }
     }
     Ok((
+        now.ok_or_else(|| "restore-inputs printed no reading of the server's clock".to_owned())?,
         backups,
         timelines
             .into_iter()
@@ -419,6 +439,7 @@ mod tests {
         // Records as pgBackRest wrote them for a database restored four times: one backup, and
         // two of its five history files.
         let inputs = concat!(
+            "now 1793140900\n",
             r#"backups [{"backup":[{"label":"20261026-214504F","type":"full","timestamp":{"start":1793051104,"stop":1793051111},"lsn":{"start":"0/E000028","stop":"0/E000120"},"archive":{"start":"00000002000000000000000E","stop":"00000002000000000000000E"}}]}]"#,
             "\n",
             r#"histories {"18-1/00000002.history":{"type":"file","size":80,"time":1793051101},"18-1/00000003.history":{"type":"file","size":112,"time":1793140862}}"#,
@@ -428,8 +449,9 @@ mod tests {
             "branch 18-1/00000003.history 2 0/19000000\n",
         );
 
-        let (backups, timelines) = read_inputs(inputs).unwrap();
+        let (now, backups, timelines) = read_inputs(inputs).unwrap();
 
+        assert_eq!(now, 1_793_140_900);
         assert_eq!(
             backups,
             [backup("20261026-214504F", 1_793_051_111, 2, 0xE00_0120)]
@@ -439,6 +461,34 @@ mod tests {
             began: 1_793_140_862,
             branches: vec![(1, 0xD02_5D38), (2, 0x1900_0000)],
         }));
+    }
+
+    #[test]
+    fn ops_17_a_moment_that_the_server_s_clock_hasn_t_reached_is_refused() {
+        // A backup that ended a minute before the server's clock reading, and moments at that
+        // reading and a second after it.
+        let inputs = concat!(
+            "now 1793051171\n",
+            r#"backups [{"backup":[{"label":"20261026-214504F","type":"full","timestamp":{"start":1793051104,"stop":1793051111},"lsn":{"start":"0/E000028","stop":"0/E000120"},"archive":{"start":"00000001000000000000000E","stop":"00000001000000000000000E"}}]}]"#,
+            "\n",
+            "histories {}\n",
+        );
+
+        let reached = planned(Some("2026-10-26 21:46:11+00"), inputs);
+        let ahead = planned(Some("2026-10-26 21:46:12+00"), inputs);
+        let latest = planned(None, inputs);
+
+        assert_eq!(
+            reached.map(|plan| plan.set),
+            Ok("20261026-214504F".to_owned())
+        );
+        assert!(
+            ahead
+                .as_ref()
+                .is_err_and(|refused| refused.contains("the server's clock hasn't reached it")),
+            "{ahead:?}"
+        );
+        assert!(latest.is_ok(), "{latest:?}");
     }
 
     #[test]

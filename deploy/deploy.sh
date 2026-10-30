@@ -19,11 +19,11 @@
 #       as Postgres writes it, or, with <moment> empty, at the latest moment its backups hold,
 #       from the backup <backup>, along the timeline <timeline>, which `just restore` plans from
 #       restore-inputs. It restores into a fresh data directory, and keeps the one it replaces
-#       beside it.
+#       beside it. It prints the moment that a restore to undoes it.
 #   deploy.sh restore-inputs
-#       Prints what the backup bucket records of the bundled database's timelines, for a restore
-#       to plan from: pgBackRest's info, the timelines' history files with when each reached the
-#       bucket, and each one's branches. It changes nothing.
+#       Prints what a restore plans from: the server's clock, and what the backup bucket records
+#       of the bundled database's timelines: pgBackRest's info, the timelines' history files with
+#       when each reached the bucket, and each one's branches. It changes nothing.
 #   deploy.sh status
 #       Shows whether a deploy, backup or restore runs, or a deploy stopped before its replicas
 #       served, which color serves, each of the deployment's containers with its state and its
@@ -708,6 +708,23 @@ restore() {
     esac
     say "stopping the API and the backups"
     compose stop api-blue api-green backup
+    # A replay to a moment stops before the first commit after it, and Postgres won't end one
+    # that no commit follows, such as one to a moment after the last change. So, once the
+    # replicas stop, a transaction that changes nothing commits, given an ID by
+    # pg_current_xact_id(), without which it would write no commit: every moment before it has a
+    # commit after it, and a restore to the moment it began returns the database to how this
+    # restore found it. pgBackRest's check archives it, and fails on a database the bucket
+    # doesn't back up, such as the empty one Postgres creates on a new server. With Postgres
+    # stopped, as after a restore that failed, nothing commits.
+    undo=""
+    if began=$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT now() WHERE pg_current_xact_id() IS NOT NULL' 2> /dev/null); then
+        if compose exec -T --user postgres postgres pgbackrest --stanza=db check > /dev/null 2>&1; then
+            undo=$began
+            say "a restore to $undo undoes this one"
+        else
+            say "the bucket doesn't back up the database this restore replaces, or doesn't receive its log, so no restore returns to it"
+        fi
+    fi
     compose stop postgres
     stamp=$(date -u +%Y%m%dT%H%M%SZ)
     say "restoring the database${moment:+ as it stood at $moment}; the data it replaces moves to /var/lib/postgresql/18/before-restore-$stamp"
@@ -747,18 +764,21 @@ restore() {
         fail "restored the database${moment:+ as it stood at $moment}, and the API serves, but the full backup after it failed, with the error above; take one with just backup, so a later restore starts from the restored database's timeline"
     fi
     compose up --detach --wait --quiet-pull backup
-    say "restored the database${moment:+ as it stood at $moment}"
+    say "restored the database${moment:+ as it stood at $moment}${undo:+; a restore to $undo undoes it}"
 }
 
 # Prints what the backup bucket records of the bundled database's timelines, for a restore to
 # plan from, one item per line: `backups` with pgBackRest's info in JSON, `histories`
 # with the timelines' history files that the bucket lists in JSON, each with the time it reached
 # the bucket, which is when its timeline began, and `branch` for each line of each history file,
-# with the file's name, the timeline it descends from and the position where it branched off.
-# It reads the bucket from Postgres's image, whether Postgres runs or not, as on a new server.
+# with the file's name, the timeline it descends from and the position where it branched off;
+# and first, `now` with the server's clock, in seconds since the Unix epoch, the clock that
+# Postgres stamps each commit with. It reads the bucket from Postgres's image, whether Postgres
+# runs or not, as on a new server.
 restore_inputs() {
     read_settings
     if [ "$database" != bundled ]; then fail "the database is managed: restore it through its provider"; fi
+    printf 'now %s\n' "$(date +%s)"
     # shellcheck disable=SC2016 # The script expands its own variables.
     compose run --rm --no-deps --quiet-pull --user postgres --entrypoint sh postgres -c '
         set -e

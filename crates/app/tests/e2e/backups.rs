@@ -1,6 +1,8 @@
 //! The bundled database's backups and restores (OPS-17), on a server of the tests' own, with a
 //! stand-in bucket.
 
+use std::process::Output;
+
 use serde_json::Value;
 
 use crate::{
@@ -33,6 +35,20 @@ fn backups(deployment: &Deployment) -> Vec<Value> {
     ))
     .expect("pgBackRest's report");
     info[0]["backup"].as_array().expect("the backups").clone()
+}
+
+/// The moment that `restored`, a restore's output, names as the one a restore to undoes it.
+fn undoing(restored: &Output) -> String {
+    let output = lossy(restored);
+    let named = output.lines().find_map(|line| {
+        line.strip_prefix("deploy: a restore to ")?
+            .strip_suffix(" undoes this one")
+    });
+    assert!(
+        named.is_some(),
+        "the restore names no moment that undoes it: {output}"
+    );
+    named.expect("the moment").to_owned()
 }
 
 #[tokio::test]
@@ -76,6 +92,54 @@ async fn ops_17_a_restore_recovers_the_database_as_it_stood_at_a_moment() {
         kinds,
         ["full", "full", "diff", "full"],
         "the first deploy's, `backup`'s, the backup service's, and the restore's"
+    );
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_reaches_a_moment_after_the_last_change() {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('last');",
+    );
+    // Nothing commits after the moment, as on a deployment that nothing wrote to since.
+    let moment = deployment.sql("SELECT now()");
+    archive_everything_committed(&deployment);
+
+    let restored = deployment.restore(Some(&moment));
+
+    assert!(restored.status.success(), "{}", lossy(&restored));
+    assert_eq!(deployment.sql("SELECT name FROM restore_marker"), "last");
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_to_the_moment_an_earlier_restore_names_undoes_it() {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('early');",
+    );
+    let early = deployment.sql("SELECT now()");
+    // The last change before the restore, which no commit follows until the restore runs.
+    deployment.sql("INSERT INTO restore_marker VALUES ('last')");
+    archive_everything_committed(&deployment);
+    let went_back = deployment.restore(Some(&early));
+    assert!(went_back.status.success(), "{}", lossy(&went_back));
+    assert_eq!(
+        deployment.sql("SELECT name FROM restore_marker ORDER BY name"),
+        "early"
+    );
+
+    let undone = deployment.restore(Some(&undoing(&went_back)));
+
+    assert!(undone.status.success(), "{}", lossy(&undone));
+    assert_eq!(
+        deployment.sql("SELECT name FROM restore_marker ORDER BY name"),
+        "early\nlast"
     );
 }
 
@@ -230,6 +294,12 @@ async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucke
     );
     assert_eq!(refused_replicas.len(), 0);
     assert!(restored.status.success(), "{}", lossy(&restored));
+    // The empty database that the restore replaces is no one's that a restore could return to.
+    assert!(
+        !lossy(&restored).contains("undoes this one"),
+        "{}",
+        lossy(&restored)
+    );
     assert!(deployed.status.success(), "{}", lossy(&deployed));
     assert_eq!(
         new.sql("SELECT name FROM restore_marker"),

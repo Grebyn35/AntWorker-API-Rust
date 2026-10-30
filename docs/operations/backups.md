@@ -20,7 +20,7 @@ The backups don't hold the deployment's settings and secrets, which the next sec
 | Target | The reference deployment's |
 |---|---|
 | Data lost when the server is lost | At most the changes of the last minute, plus however long the last archive took to reach the bucket |
-| Moments a restore reaches | Any moment from `BACKUP_RETENTION_DAYS` days ago, or from the first deploy that ran the bundled database if that came later, to the last archived change |
+| Moments a restore reaches | Any moment from `BACKUP_RETENTION_DAYS` days ago, or from the first deploy that ran the bundled database if that came later, to the moment the restore begins, or after the server's loss, to the last change it archived, which the latest state reaches; but not one while an earlier restore ran |
 | Time a restore takes | The time to download the base backup it starts from, and to replay the log from it to the moment, which the daily base backup bounds to a day of changes. The database is unavailable meanwhile |
 
 The time a restore takes grows with the database and with its rate of change, so measure it on the server, as [Restoring onto a new server](#restoring-onto-a-new-server) does. For scale: on a server with 2 virtual CPUs and 4 gigabytes of memory, a restore of the latest state of a new database of 30 megabytes, from a bucket at Backblaze B2, took 45 seconds, and the API was unavailable for about 16 of them: restoring the data took 6 seconds, and stopping and starting the services the rest. The full backup that ends a restore took 20 seconds, while the API served.
@@ -51,9 +51,9 @@ just restore production "2026-10-25 10:41:31+00"
 
 restores the database as it stood at that moment, a time with its offset from UTC. Without a moment, `just restore production` restores the latest state the backups hold.
 
-Each restore begins a timeline, Postgres's name for a history of the database that branches off at a restore, so a database that was restored has had several timelines, and a moment belongs to the timeline that was live then: the newest one that had begun. A restore first reads, on your machine, what the bucket records of them, and picks the timeline live at its moment, or the latest one for the latest state, and the latest backup that ended before the moment on that timeline, or on a timeline it descends from, before it branched off, and says which; a moment that no such backup reaches is refused before anything stops. The restore then runs on the server, through the `deploy.sh` that the last deploy installed:
+Each restore begins a timeline, Postgres's name for a history of the database that branches off at a restore, so a database that was restored has had several timelines, and a moment belongs to the timeline that was live then: the newest one that had begun. A restore first reads, on your machine, what the bucket records of them, and picks the timeline live at its moment, or the latest one for the latest state, and the latest backup that ended before the moment on that timeline, or on a timeline it descends from, before it branched off, and says which; a moment that no such backup reaches, or that the server's clock hasn't reached, is refused before anything stops. The restore then runs on the server, through the `deploy.sh` that the last deploy installed:
 
-1. It stops the API's replicas and the `backup` service, then Postgres. Until the replicas start again, in step 4, Caddy answers each request with the 503 problem `request.unavailable` and `Retry-After` (OPS-05).
+1. It stops the API's replicas and the `backup` service, commits a transaction that changes nothing, which pgBackRest's check archives, and stops Postgres. A replay to a moment stops before the first commit after the moment, and Postgres won't end one that no commit follows, so that commit lets a restore reach every moment before it, one after the last change included. Until the replicas start again, in step 4, Caddy answers each request with the 503 problem `request.unavailable` and `Retry-After` (OPS-05).
 2. It moves the data directory aside, to `before-restore-<time>` in the volume `deployment_postgres`, and restores into a new, empty one. Postgres starts only after the restore succeeds; on an empty directory it would create an empty database.
 3. It starts Postgres, which replays the archived log from that backup up to the moment, along that timeline, then begins a new timeline, so the log it archives from then on never mixes with the log it replaced.
 4. It runs `migrate` with the live release, and starts the live replicas again.
@@ -61,13 +61,19 @@ Each restore begins a timeline, Postgres's name for a history of the database th
 
 CI runs each restore that OPS-17 names.
 
-A restore that went back too far is undone by another, to the moment you meant: the backups still reach every moment that the first restore went back past, up to the last change they hold from before it ran. The data that the restore replaced also stays in the volume, and `just status` lists it, with its size, until it's removed: no deploy removes it (D57). Once the restored database is right, remove it on the server, with the name the restore printed:
+A restore that went back too far, or shouldn't have run, is undone by another: the backups still reach every moment that it went back past, up to the moment its transaction of step 1 began, and a restore to that moment returns the database to how the restore found it. The restore names that moment, as soon as it knows it and when it ends:
+
+```
+deploy: a restore to 2026-10-25 10:41:31.913582+00 undoes this one
+```
+
+A moment while a restore ran, after the one it names, is one the backups don't reach, since nothing commits after its transaction until its own timeline begins; the moment it names reaches the database as it was then (D58). On a new server, the bucket doesn't back up the empty database that Postgres has just created, so the check fails, and the restore names no moment. The data that the restore replaced also stays in the volume, and `just status` lists it, with its size, until it's removed: no deploy removes it (D57). Once the restored database is right, remove it on the server, with the name the restore printed:
 
 ```
 docker run --rm --volume deployment_postgres:/data --entrypoint rm "$(sed -n 's/^POSTGRES_IMAGE=//p' ~/deployment/state/deploy.env)" -r /data/18/before-restore-20261025T104131Z
 ```
 
-A restore that fails once it moved the data directory aside leaves Postgres stopped, and the API with it; its output says why. Fix the cause, such as a moment that the backups don't reach, as one after the last change they hold is, and run the restore again, which moves aside what it finds in turn. Putting the data back by hand is for a restore that failed only: once a restore has succeeded, the backups follow the restored database, so undo it with another restore, as above. To go back to the data as it was before a restore that failed, put the directory back, and deploy the live release again, which starts Postgres:
+A restore that fails once it moved the data directory aside leaves Postgres stopped, and the API with it; its output says why. Fix the cause, such as a moment while an earlier restore ran, and run the restore again, which moves aside what it finds in turn. Putting the data back by hand is for a restore that failed only: once a restore has succeeded, the backups follow the restored database, so undo it with another restore, as above. To go back to the data as it was before a restore that failed, put the directory back, and deploy the live release again, which starts Postgres:
 
 ```
 docker run --rm --volume deployment_postgres:/data --entrypoint sh "$(sed -n 's/^POSTGRES_IMAGE=//p' ~/deployment/state/deploy.env)" -c 'rm -rf /data/18/docker && mv /data/18/before-restore-20261025T104131Z /data/18/docker'
