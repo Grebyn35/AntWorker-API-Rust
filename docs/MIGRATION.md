@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** pushing `main`, which the owner asked for once the review of D58's restore was resolved, as the commit after dbe1a87 resolves it; then step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build, whose review covers the commits after that resolution. Step 1 is built and reviewed through it, each review's result in [Conformance reviews](#conformance-reviews). The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging changed; the first restore there after it measures the check's wait, which backups.md's restore time leaves unmeasured. Waiting on the owner: whether a restore refuses, before anything stops, when pgBackRest's check fails on the bucket's own database; whether D58's row stands, which names moments that the owner's decision covered by its reason only; and whether to release 0.1.0-rc.12 to the trial server.
+**Next:** step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build, whose review covers the commits after 6106c8c. The spec settles the platform spec's open question on where the IP limit counts. Step 1 is built and reviewed through 6106c8c, each review's result in [Conformance reviews](#conformance-reviews). The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging changed; the first restore there after it measures the check's wait, which backups.md's restore time leaves unmeasured. Waiting on the owner: whether a restore refuses, before anything stops, when pgBackRest's check fails on the bucket's own database; whether D58's row stands, which names moments that the owner's decision covered by its reason only; and whether to release 0.1.0-rc.12 to the trial server.
 
 ## Build order
 
@@ -171,7 +171,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | b299bf2..9a48aa8: a restore to a moment that an earlier restore went back past, and the task list's lines of `just e2e` and `just deploy` | 1 | 4 (3, 2, 1 shared) | 1 | 0 | `next pass`: 004d477 |
 | b299bf2..004d477: as above, with the plan of a restore to a moment | 2 | 3 (3, 1, 1 shared) | 1 | 0 | `stopped: no progress`: 903739d |
 | 903739d..860374f: a restore that reaches every moment up to its own start, and names the moment that undoes it (D58) | 1 | 6 (6, 1, 1 shared) | 3 | 0 | `next pass`: f7f3c46 |
-| 903739d..f7f3c46: as above | 2 | 6 (5, 2, 1 shared) | 2 | 1 | `stopped: no progress` |
+| 903739d..f7f3c46: as above | 2 | 6 (5, 2, 1 shared) | 2 | 1 | `stopped: no progress`: 6106c8c |
 
 ## Decisions
 
