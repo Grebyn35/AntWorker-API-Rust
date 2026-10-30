@@ -716,8 +716,8 @@ restore() {
     # commit after it, and a restore to the moment it began returns the database to how this
     # restore found it. pgBackRest's check archives it, and fails on a database the bucket
     # doesn't back up, such as the empty one Postgres creates on a new server, and on one whose
-    # log doesn't reach the bucket within the check's timeout. With Postgres stopped, as after a
-    # restore that failed, nothing commits.
+    # log doesn't reach the bucket within the check's timeout. With Postgres not running, as after
+    # a restore whose database couldn't start, nothing commits.
     undo=""
     if began=$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT now() WHERE pg_current_xact_id() IS NOT NULL' 2> /dev/null); then
         if checked=$(compose exec -T --user postgres postgres pgbackrest --stanza=db check 2>&1); then
