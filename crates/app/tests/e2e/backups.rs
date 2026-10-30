@@ -28,6 +28,25 @@ fn archive_everything_committed(deployment: &Deployment) {
         .shell_ok("timeout 120 sh /root/archived.sh");
 }
 
+/// Stops Postgres's archiver, so what Postgres writes from then on doesn't reach the bucket, which
+/// stays readable, as when the archiving fails on its own. The archiver stays stopped until
+/// Postgres does.
+fn stop_archiving(deployment: &Deployment) {
+    deployment.server.write(
+        "/root/stop-archiver.sh",
+        "stopped=no\n\
+         for process in /proc/[0-9]*; do\n\
+         case $(tr '\\0' ' ' < \"$process/cmdline\" 2> /dev/null) in\n\
+         \"postgres: archiver\"*) kill -STOP \"${process#/proc/}\" && stopped=yes ;;\n\
+         esac\n\
+         done\n\
+         [ \"$stopped\" = yes ]\n",
+    );
+    deployment
+        .server
+        .shell_ok("docker exec -i deployment-postgres-1 sh < /root/stop-archiver.sh");
+}
+
 /// The full and differential backups the bucket holds.
 fn backups(deployment: &Deployment) -> Vec<Value> {
     let info: Value = serde_json::from_str(&deployment.server.shell_ok(
@@ -331,9 +350,53 @@ async fn ops_17_a_restore_on_a_new_server_names_no_moment_that_undoes_it() {
         lossy(&restored)
     );
     assert!(
-        lossy(&restored).contains("pgBackRest's check failed"),
+        lossy(&restored).contains("the bucket backs up another database"),
         "{}",
         lossy(&restored)
+    );
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_refuses_while_the_log_doesn_t_reach_the_bucket_unless_allowed() {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('archived');",
+    );
+    archive_everything_committed(&deployment);
+    stop_archiving(&deployment);
+    deployment.sql("INSERT INTO restore_marker VALUES ('unarchived')");
+
+    let refused = deployment.restore(None);
+    let replicas = deployment.server.running("api-blue");
+    let (status, _) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/capabilities"),
+    );
+    let kept = deployment.sql("SELECT name FROM restore_marker ORDER BY name");
+    // Postgres stops only once its stopped archiver is killed, at the end of the stop's grace.
+    let restored = deployment.restore_with(None, &["--allow-unarchived"]);
+
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains("add --allow-unarchived"),
+        "{}",
+        lossy(&refused)
+    );
+    assert_eq!(replicas.len(), 2);
+    assert_eq!(status, 200);
+    assert_eq!(kept, "archived\nunarchived");
+    assert!(restored.status.success(), "{}", lossy(&restored));
+    assert!(
+        !lossy(&restored).contains("undoes this one"),
+        "{}",
+        lossy(&restored)
+    );
+    assert_eq!(
+        deployment.sql("SELECT name FROM restore_marker"),
+        "archived"
     );
 }
 

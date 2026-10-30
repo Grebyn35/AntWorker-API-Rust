@@ -269,6 +269,11 @@ impl Deployment {
     /// latest state the backups hold, from the backup and along the timeline that xtask's
     /// `restore-plan` plans from what the bucket records.
     pub fn restore(&self, moment: Option<&str>) -> Output {
+        self.restore_with(moment, &[])
+    }
+
+    /// Restores as `restore` does, with deploy.sh's `options`.
+    pub fn restore_with(&self, moment: Option<&str>, options: &[&str]) -> Output {
         let inputs = self.server.deploy(&["restore-inputs"]);
         assert!(inputs.status.success(), "{}", lossy(&inputs));
         let mut planner = Command::new(xtask())
@@ -289,8 +294,13 @@ impl Deployment {
         assert!(planned.status.success(), "{}", lossy(&planned));
         let plan = String::from_utf8_lossy(&planned.stdout).trim().to_owned();
         let (set, timeline) = plan.split_once(' ').expect("a backup and a timeline");
-        self.server
-            .deploy(&["restore", moment.unwrap_or(""), set, timeline])
+        self.server.deploy(
+            &[
+                &["restore", moment.unwrap_or(""), set, timeline][..],
+                options,
+            ]
+            .concat(),
+        )
     }
 
     /// The first column of each row that `sql` returns from the bundled database, as its

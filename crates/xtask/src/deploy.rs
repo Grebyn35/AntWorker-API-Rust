@@ -123,8 +123,9 @@ pub fn backup(host: &str) -> ExitCode {
 
 /// Restores the database of the deployment that SSH reaches at `host`, as it stood at `moment`,
 /// or at the latest moment its backups hold. It first reads what the backup bucket records, and
-/// plans the backup the restore starts from and the timeline it replays along.
-pub fn restore(host: &str, moment: Option<&str>) -> ExitCode {
+/// plans the backup the restore starts from and the timeline it replays along. With
+/// `allow_unarchived`, it restores although the database's log doesn't reach the bucket.
+pub fn restore(host: &str, moment: Option<&str>, allow_unarchived: bool) -> ExitCode {
     let moment = moment.filter(|moment| !moment.is_empty());
     let inputs = match on_server_output(
         host,
@@ -155,6 +156,9 @@ pub fn restore(host: &str, moment: Option<&str>) -> ExitCode {
     for argument in [moment.unwrap_or(""), &plan.set, &plan.timeline.to_string()] {
         command.push(' ');
         command.push_str(&quoted(argument));
+    }
+    if allow_unarchived {
+        command.push_str(" --allow-unarchived");
     }
     on_server(host, &command)
 }

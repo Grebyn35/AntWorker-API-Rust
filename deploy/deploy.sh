@@ -14,13 +14,15 @@
 #       deploy does once the release verifies.
 #   deploy.sh backup
 #       Takes a full base backup of the bundled database.
-#   deploy.sh restore <moment> <backup> <timeline>
+#   deploy.sh restore <moment> <backup> <timeline> [--allow-unarchived]
 #       Restores the bundled database, as it stood at <moment>, a time with its offset from UTC
 #       as Postgres writes it, or, with <moment> empty, at the latest moment its backups hold,
 #       from the backup <backup>, along the timeline <timeline>, which `just restore` plans from
 #       restore-inputs. It restores into a fresh data directory, and keeps the one it replaces
 #       beside it. When it finds Postgres running the database the bucket backs up, with its log
-#       reaching the bucket, it prints the moment that a restore to undoes it.
+#       reaching the bucket, it prints the moment that a restore to undoes it; when that log
+#       doesn't reach the bucket, it refuses before anything stops, unless --allow-unarchived
+#       lets it go on.
 #   deploy.sh restore-inputs
 #       Prints what a restore plans from: the server's clock, and what the backup bucket records
 #       of the bundled database's timelines: pgBackRest's info, the timelines' history files with
@@ -694,6 +696,7 @@ restore() {
     moment=$1
     set=$2
     timeline=$3
+    unarchived=$4
     if [ -z "$set" ] || [ -z "$timeline" ]; then
         fail "a restore takes the backup and the timeline that just restore plans from restore-inputs"
     fi
@@ -707,6 +710,34 @@ restore() {
         blue) live_image=$(sed -n 's/^API_IMAGE_BLUE=//p' "$state/deploy.env") ;;
         green) live_image=$(sed -n 's/^API_IMAGE_GREEN=//p' "$state/deploy.env") ;;
     esac
+    # Before anything stops, pgBackRest's check ends the log's segment, and waits until it reaches
+    # the bucket. Its error 28 is a database the bucket doesn't back up, such as the empty one
+    # Postgres creates on a new server, where the restore goes on. On the database the bucket
+    # backs up, any other error, such as a log that doesn't reach the bucket within the check's
+    # timeout, refuses the restore, unless --allow-unarchived lets it go on: the changes that the
+    # bucket lacks would stay only in the data that moves aside, while the API serves the
+    # restored database, and no restore would return to the database this one replaces. With
+    # Postgres not running, as after a restore whose database couldn't start, there's nothing to
+    # check.
+    archived=no
+    if compose exec -T --user postgres postgres pg_isready --quiet > /dev/null 2>&1; then
+        status=0
+        checked=$(compose exec -T --user postgres postgres pgbackrest --stanza=db check 2>&1) || status=$?
+        case $status in
+            0) archived=yes ;;
+            28)
+                printf '%s\n' "$checked"
+                say "the bucket backs up another database, as on a new server, so no restore returns to the database this one replaces"
+                ;;
+            *)
+                printf '%s\n' "$checked"
+                if [ "$unarchived" != yes ]; then
+                    fail "pgBackRest's check failed, with the error above, so the bucket may lack the database's latest changes, which a restore would leave only in the data it moves aside, and no restore could undo it. Fix what the error names, and restore again; or, to restore anyway, add --allow-unarchived"
+                fi
+                say "pgBackRest's check failed, with the error above; restoring anyway, as --allow-unarchived asks, so what the bucket lacks of the database stays only in the data that moves aside"
+                ;;
+        esac
+    fi
     say "stopping the API and the backups"
     compose stop api-blue api-green backup
     # A replay to a moment stops before the first commit after it, and Postgres won't end one
@@ -714,18 +745,15 @@ restore() {
     # replicas stop, a transaction that changes nothing commits, given an ID by
     # pg_current_xact_id(), without which it would write no commit: every moment before it has a
     # commit after it, and a restore to the moment it began returns the database to how this
-    # restore found it. pgBackRest's check archives it, and fails on a database the bucket
-    # doesn't back up, such as the empty one Postgres creates on a new server, and on one whose
-    # log doesn't reach the bucket within the check's timeout. With Postgres not running, as after
-    # a restore whose database couldn't start, nothing commits.
+    # restore found it. A second check archives it.
     undo=""
-    if began=$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT now() WHERE pg_current_xact_id() IS NOT NULL' 2> /dev/null); then
+    if [ "$archived" = yes ] && began=$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT now() WHERE pg_current_xact_id() IS NOT NULL' 2> /dev/null); then
         if checked=$(compose exec -T --user postgres postgres pgbackrest --stanza=db check 2>&1); then
             undo=$began
             say "a restore to $undo undoes this one"
         else
             printf '%s\n' "$checked"
-            say "pgBackRest's check failed, with the error above: the bucket backs up another database, as on a new server, or doesn't receive this one's log; so no restore returns to the database this one replaces, and what the bucket lacks of it stays only in the data that moves aside"
+            say "pgBackRest's check failed, with the error above, though the one before the replicas stopped passed; so no restore returns to the database this one replaces, and what the bucket lacks of it stays only in the data that moves aside"
         fi
     fi
     compose stop postgres
@@ -1095,11 +1123,12 @@ check_backend() {
     fi
 }
 
-allow_restart() {
-    case ${1:-} in
+# Prints yes when $2, a command's last argument, is the option $1, and no when it's empty.
+allowed() {
+    case ${2:-} in
         '') echo no ;;
-        --allow-restart) echo yes ;;
-        *) fail "unknown option $1" ;;
+        "$1") echo yes ;;
+        *) fail "unknown option $2" ;;
     esac
 }
 
@@ -1107,17 +1136,20 @@ command=${1:-}
 case $command in
     deploy)
         if [ "$#" -lt 2 ]; then fail "usage: deploy.sh deploy <version> [--allow-restart]"; fi
-        # An assignment, so that the script stops when allow_restart refuses.
-        restart=$(allow_restart "${3:-}")
+        # An assignment, so that the script stops when allowed refuses.
+        restart=$(allowed --allow-restart "${3:-}")
         deploy_release "$2" "$restart"
         ;;
     apply)
         if [ "$#" -lt 3 ]; then fail "usage: deploy.sh apply <API image> <Postgres image> [--allow-restart]"; fi
-        restart=$(allow_restart "${4:-}")
+        restart=$(allowed --allow-restart "${4:-}")
         apply "$2" "$3" "$restart"
         ;;
     backup) backup ;;
-    restore) restore "${2:-}" "${3:-}" "${4:-}" ;;
+    restore)
+        unarchived=$(allowed --allow-unarchived "${5:-}")
+        restore "${2:-}" "${3:-}" "${4:-}" "$unarchived"
+        ;;
     restore-inputs) restore_inputs ;;
     status) status ;;
     logs)

@@ -127,6 +127,10 @@ enum Command {
         host: String,
         /// The moment: a time with its offset from UTC, as Postgres writes it.
         moment: Option<String>,
+        /// Restores although the database's log doesn't reach the bucket, which leaves the
+        /// changes that the bucket lacks only in the data that the restore moves aside.
+        #[arg(long)]
+        allow_unarchived: bool,
     },
     /// Prints the backup and the timeline of a restore to `moment`, or to the latest state, from
     /// what the backup bucket records, which deploy.sh's `restore-inputs` printed to standard
@@ -247,7 +251,11 @@ fn main() -> ExitCode {
         Command::Backup { host } => return deploy::backup(&host),
         Command::LoadTest => return load::run(),
         Command::Mirror { platform } => return mirror::run(&platform),
-        Command::Restore { host, moment } => return deploy::restore(&host, moment.as_deref()),
+        Command::Restore {
+            host,
+            moment,
+            allow_unarchived,
+        } => return deploy::restore(&host, moment.as_deref(), allow_unarchived),
         Command::RestorePlan { moment } => return restore::run(moment.as_deref()),
         Command::Status { host } => return deploy::status(&host),
         Command::Logs { host, arguments } => return deploy::logs(&host, &arguments),
@@ -353,6 +361,32 @@ mod tests {
         assert_eq!(
             deploy(&["1.4.0", "--allow-restart"]),
             Some((Some("1.4.0".to_owned()), true))
+        );
+    }
+
+    /// The moment and the option of a restore on `production` with `args`, as the justfile
+    /// passes them: the moment, empty without one, then the options.
+    fn restore(args: &[&str]) -> Option<(Option<String>, bool)> {
+        let cli = Cli::try_parse_from([&["xtask", "restore", "production"], args].concat()).ok()?;
+        match cli.command {
+            Command::Restore {
+                moment,
+                allow_unarchived,
+                ..
+            } => Some((moment, allow_unarchived)),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn ops_17_a_restore_s_moment_is_optional_and_its_option_stays_an_option() {
+        let moment = "2026-10-25 10:41:31+00";
+        assert_eq!(restore(&[""]), Some((Some(String::new()), false)));
+        assert_eq!(restore(&["--allow-unarchived"]), Some((None, true)));
+        assert_eq!(restore(&[moment]), Some((Some(moment.to_owned()), false)));
+        assert_eq!(
+            restore(&[moment, "--allow-unarchived"]),
+            Some((Some(moment.to_owned()), true))
         );
     }
 }

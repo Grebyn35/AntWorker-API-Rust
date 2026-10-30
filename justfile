@@ -470,12 +470,13 @@ backup host:
 
 # Restores the bundled database of the reference deployment on `host`, as it stood at `moment`, a
 # time with its offset from UTC as Postgres writes it, or at the latest moment its backups hold
-# (OPS-17).
+# (OPS-17). `--allow-unarchived` lets it restore although the database's log doesn't reach the
+# bucket, as `just restore production --allow-unarchived`.
 # docs/operations/backups.md describes a restore.
 [doc("Restores a server's bundled database, as it stood at a moment")]
 [group('server')]
-restore host moment="":
-    {{ xtask }} restore {{ host }} "{{ moment }}"
+restore host moment="" *options:
+    {{ xtask }} restore {{ host }} "{{ moment }}" {{ options }}
 
 # Sets up the server that SSH reaches at `host`, as root or a user that may run sudo without a
 # password, for the reference deployment of the release `version`, or of the latest release
