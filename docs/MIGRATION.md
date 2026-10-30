@@ -169,6 +169,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 57f140d..f75e989: the commits since step 1.5's review was decided, as above | 2 | 7 (3, 5, 1 shared) | 3 | 1 | `stopped: no progress`: 21ecbdb |
 | b299bf2..9a48aa8: a restore to a moment that an earlier restore went back past, and the task list's lines of `just e2e` and `just deploy` | 1 | 4 (3, 2, 1 shared) | 1 | 0 | `next pass`: 004d477 |
 | b299bf2..004d477: as above, with the plan of a restore to a moment | 2 | 3 (3, 1, 1 shared) | 1 | 0 | `stopped: no progress`: 903739d |
+| 903739d..860374f: a restore that reaches every moment up to its own start, and names the moment that undoes it (D58) | 1 | 6 (6, 1, 1 shared) | 3 | 0 | `next pass` |
 
 ## Decisions
 
