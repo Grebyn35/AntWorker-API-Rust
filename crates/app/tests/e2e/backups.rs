@@ -265,8 +265,10 @@ async fn ops_17_a_restore_of_the_latest_state_starts_from_a_backup_on_the_latest
     );
 }
 
-#[tokio::test]
-async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucket_holds() {
+/// A bundled deployment that held "on the lost server" when its server was lost, and a new
+/// server set up from its settings, secrets and bucket, which nothing has deployed to yet. The
+/// lost deployment's bucket, which stands in for one off the server, lives as long as it does.
+async fn lost_and_new_server() -> (Deployment, Deployment) {
     let lost = Deployment::bundled(&[]);
     let deployed = lost.apply(&lost.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -276,10 +278,16 @@ async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucke
     );
     archive_everything_committed(&lost);
     let new = lost.on_a_new_server();
-    // The server is lost, while its bucket, which stands in for one off the server, stays.
+    // The server is lost, while its bucket stays.
     lost.server.shell_ok(
         "docker ps --quiet --filter label=com.docker.compose.project=deployment | xargs docker rm --force",
     );
+    (lost, new)
+}
+
+#[tokio::test]
+async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucket_holds() {
+    let (_lost, new) = lost_and_new_server().await;
 
     let refused = new.apply(&new.api, &[]).await;
     let refused_replicas = new.server.running("api-blue");
@@ -294,12 +302,6 @@ async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucke
     );
     assert_eq!(refused_replicas.len(), 0);
     assert!(restored.status.success(), "{}", lossy(&restored));
-    // The empty database that the restore replaces is no one's that a restore could return to.
-    assert!(
-        !lossy(&restored).contains("undoes this one"),
-        "{}",
-        lossy(&restored)
-    );
     assert!(deployed.status.success(), "{}", lossy(&deployed));
     assert_eq!(
         new.sql("SELECT name FROM restore_marker"),
@@ -310,6 +312,29 @@ async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucke
         new.url("https", 443, "/v1/capabilities"),
     );
     assert_eq!(status, 200);
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_on_a_new_server_names_no_moment_that_undoes_it() {
+    let (_lost, new) = lost_and_new_server().await;
+    // The first deploy stops before any replica starts, with Postgres running the empty database
+    // it has just created, which the bucket doesn't back up.
+    let refused = new.apply(&new.api, &[]).await;
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+
+    let restored = new.restore(None);
+
+    assert!(restored.status.success(), "{}", lossy(&restored));
+    assert!(
+        !lossy(&restored).contains("undoes this one"),
+        "{}",
+        lossy(&restored)
+    );
+    assert!(
+        lossy(&restored).contains("pgBackRest's check failed"),
+        "{}",
+        lossy(&restored)
+    );
 }
 
 #[tokio::test]

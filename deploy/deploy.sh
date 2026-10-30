@@ -19,7 +19,8 @@
 #       as Postgres writes it, or, with <moment> empty, at the latest moment its backups hold,
 #       from the backup <backup>, along the timeline <timeline>, which `just restore` plans from
 #       restore-inputs. It restores into a fresh data directory, and keeps the one it replaces
-#       beside it. It prints the moment that a restore to undoes it.
+#       beside it. When it finds Postgres running the database the bucket backs up, with its log
+#       reaching the bucket, it prints the moment that a restore to undoes it.
 #   deploy.sh restore-inputs
 #       Prints what a restore plans from: the server's clock, and what the backup bucket records
 #       of the bundled database's timelines: pgBackRest's info, the timelines' history files with
@@ -714,15 +715,17 @@ restore() {
     # pg_current_xact_id(), without which it would write no commit: every moment before it has a
     # commit after it, and a restore to the moment it began returns the database to how this
     # restore found it. pgBackRest's check archives it, and fails on a database the bucket
-    # doesn't back up, such as the empty one Postgres creates on a new server. With Postgres
-    # stopped, as after a restore that failed, nothing commits.
+    # doesn't back up, such as the empty one Postgres creates on a new server, and on one whose
+    # log doesn't reach the bucket within the check's timeout. With Postgres stopped, as after a
+    # restore that failed, nothing commits.
     undo=""
     if began=$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT now() WHERE pg_current_xact_id() IS NOT NULL' 2> /dev/null); then
-        if compose exec -T --user postgres postgres pgbackrest --stanza=db check > /dev/null 2>&1; then
+        if checked=$(compose exec -T --user postgres postgres pgbackrest --stanza=db check 2>&1); then
             undo=$began
             say "a restore to $undo undoes this one"
         else
-            say "the bucket doesn't back up the database this restore replaces, or doesn't receive its log, so no restore returns to it"
+            printf '%s\n' "$checked"
+            say "pgBackRest's check failed, with the error above: the bucket backs up another database, as on a new server, or doesn't receive this one's log; so no restore returns to the database this one replaces, and what the bucket lacks of it stays only in the data that moves aside"
         fi
     fi
     compose stop postgres
@@ -761,7 +764,7 @@ restore() {
     say "taking a full backup of the restored database, while the API serves"
     if ! full_backup; then
         compose up --detach --wait --quiet-pull backup
-        fail "restored the database${moment:+ as it stood at $moment}, and the API serves, but the full backup after it failed, with the error above; take one with just backup, so a later restore starts from the restored database's timeline"
+        fail "restored the database${moment:+ as it stood at $moment}${undo:+, which a restore to $undo undoes}, and the API serves, but the full backup after it failed, with the error above; take one with just backup, so a later restore starts from the restored database's timeline"
     fi
     compose up --detach --wait --quiet-pull backup
     say "restored the database${moment:+ as it stood at $moment}${undo:+; a restore to $undo undoes it}"
