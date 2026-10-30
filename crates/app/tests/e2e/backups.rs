@@ -371,6 +371,7 @@ async fn ops_17_a_restore_refuses_while_the_log_doesn_t_reach_the_bucket_unless_
 
     let refused = deployment.restore(None);
     let replicas = deployment.server.running("api-blue");
+    let backup = deployment.server.running("backup");
     let (status, _) = get(
         deployment.server.caddy_root(),
         deployment.url("https", 443, "/v1/capabilities"),
@@ -386,6 +387,7 @@ async fn ops_17_a_restore_refuses_while_the_log_doesn_t_reach_the_bucket_unless_
         lossy(&refused)
     );
     assert_eq!(replicas.len(), 2);
+    assert_eq!(backup.len(), 1);
     assert_eq!(status, 200);
     assert_eq!(kept, "archived\nunarchived");
     assert!(restored.status.success(), "{}", lossy(&restored));
@@ -398,6 +400,36 @@ async fn ops_17_a_restore_refuses_while_the_log_doesn_t_reach_the_bucket_unless_
         deployment.sql("SELECT name FROM restore_marker"),
         "archived"
     );
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_whose_log_stops_reaching_the_bucket_once_the_replicas_stop_serves_again_and_refuses()
+ {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('kept');",
+    );
+    // The restore writes the line once its first check has passed, before the replicas stop and
+    // its second check begins.
+    let running = deployment.restore_until("stopping the API and the backups");
+    stop_archiving(&deployment);
+
+    let (succeeded, written) = running.finish();
+
+    assert!(!succeeded, "{written}");
+    assert!(written.contains("started them again"), "{written}");
+    assert!(!written.contains("restoring the database"), "{written}");
+    assert_eq!(deployment.server.running("api-blue").len(), 2);
+    assert_eq!(deployment.server.running("backup").len(), 1);
+    let (status, _) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/capabilities"),
+    );
+    assert_eq!(status, 200);
+    assert_eq!(deployment.sql("SELECT name FROM restore_marker"), "kept");
 }
 
 #[tokio::test]

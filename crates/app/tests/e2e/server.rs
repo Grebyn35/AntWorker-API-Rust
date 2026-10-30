@@ -33,6 +33,15 @@ pub struct RunningDeploy {
 }
 
 impl RunningDeploy {
+    /// Waits until the deploy ends, and returns whether it succeeded, with what it wrote.
+    pub fn finish(mut self) -> (bool, String) {
+        self.output
+            .read_to_string(&mut self.written)
+            .expect("read deploy.sh's output");
+        let ended = self.child.wait().expect("wait for deploy.sh");
+        (ended.success(), self.written)
+    }
+
     /// Sends `signal` to the deploy and every process it started, as Ctrl-C does with `INT` and a
     /// crash with `KILL`, and returns what the deploy wrote once they have all ended.
     pub fn stop(mut self, server: &Server, signal: &str) -> String {
