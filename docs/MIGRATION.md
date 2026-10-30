@@ -172,7 +172,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | b299bf2..004d477: as above, with the plan of a restore to a moment | 2 | 3 (3, 1, 1 shared) | 1 | 0 | `stopped: no progress`: 903739d |
 | 903739d..860374f: a restore that reaches every moment up to its own start, and names the moment that undoes it (D58) | 1 | 6 (6, 1, 1 shared) | 3 | 0 | `next pass`: f7f3c46 |
 | 903739d..f7f3c46: as above | 2 | 6 (5, 2, 1 shared) | 2 | 1 | `stopped: no progress`: 6106c8c |
-| c5aecac..ba2c653: a restore that refuses while the database's log doesn't reach the bucket (D59) | 1 | 5 (4, 1, 0 shared) | 1 | 0 | `next pass` |
+| c5aecac..ba2c653: a restore that refuses while the database's log doesn't reach the bucket (D59) | 1 | 5 (4, 1, 0 shared) | 1 | 0 | `next pass`: a92d7a8 |
+| c5aecac..a92d7a8: as above | 2 | 4 (3, 1, 0 shared) | 2 | 1 | `stopped: no progress` |
 
 ## Decisions
 
