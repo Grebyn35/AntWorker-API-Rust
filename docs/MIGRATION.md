@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** the conformance review of the commits after 30c65a1: a restore that reaches a moment that no commit in the bucket follows on its timeline (D60). Then step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build, whose review covers the commits after D60's review. The spec settles the platform spec's open question on where the IP limit counts. Step 1 is built and reviewed through ef662a6, each review's result in [Conformance reviews](#conformance-reviews); the commits after a92d7a8 passed `just ci` on a developer's machine, and GitHub's CI runs it once they're pushed. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build, whose review covers the commits after d2d1ca4. The spec settles the platform spec's open question on where the IP limit counts. Step 1 is built and reviewed through d2d1ca4, each review's result in [Conformance reviews](#conformance-reviews); the commits after a92d7a8 passed `just ci` on a developer's machine, and GitHub's CI runs it once they're pushed. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
 
 ## Build order
 
@@ -177,8 +177,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 903739d..f7f3c46: as above | 2 | 6 (5, 2, 1 shared) | 2 | 1 | `stopped: no progress`: 6106c8c |
 | c5aecac..ba2c653: a restore that refuses while the database's log doesn't reach the bucket (D59) | 1 | 5 (4, 1, 0 shared) | 1 | 0 | `next pass`: a92d7a8 |
 | c5aecac..a92d7a8: as above | 2 | 4 (3, 1, 0 shared) | 2 | 1 | `stopped: no progress`: ef662a6 |
-| 30c65a1..c7a6431: a restore that reaches a moment that no commit in the bucket follows on its timeline (D60) | 1 | 4 (3, 1, 0 shared) | 2 | 0 | `next pass`: f0c9c2f |
-| 30c65a1..f0c9c2f: as above | 2 | 4 (4, 1, 1 shared) | 2 | 0 | `stopped: no progress` |
+| 30c65a1..c7a6431: a restore that reaches a moment that no commit or rollback in the bucket follows on its timeline (D60) | 1 | 4 (3, 1, 0 shared) | 2 | 0 | `next pass`: f0c9c2f |
+| 30c65a1..f0c9c2f: as above | 2 | 4 (4, 1, 1 shared) | 2 | 0 | `stopped: no progress`: d2d1ca4 |
 
 ## Decisions
 
