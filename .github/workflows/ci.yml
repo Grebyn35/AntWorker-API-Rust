@@ -87,10 +87,12 @@ jobs:
       - run: just image-scan
 
   # The digests the image job built, booted on each platform with the end-to-end tests (OPS-14,
-  # OPS-15), each on a runner of that platform.
+  # OPS-15), each on a runner of that platform. Each platform's tests are split between two jobs
+  # that run side by side, as docs/operations/ci.md says: the backups' tests, and the others, which
+  # `--skip` excludes by the same pattern, so each test runs in exactly one.
   verify:
     needs: image
-    name: verify (${{ matrix.platform }})
+    name: verify (${{ matrix.platform }}, ${{ matrix.part }})
     runs-on: ${{ matrix.runner }}
     # Room for the suite on two processors, as a private repository's runners have, and for the
     # minutes each test that starts a Grafana adds; a hang still ends here.
@@ -101,8 +103,20 @@ jobs:
         include:
           - platform: linux/amd64
             runner: ubuntu-24.04
+            part: backups
+            tests: "backups::"
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+            part: others
+            tests: "--skip backups::"
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
+            part: backups
+            tests: "backups::"
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            part: others
+            tests: "--skip backups::"
     steps:
       # The runner's preinstalled toolchains that no task uses, deleted for the disk that the
       # end-to-end tests' servers need (docs/operations/ci.md).
@@ -122,7 +136,7 @@ jobs:
         with:
           name: image
           path: target
-      - run: just e2e
+      - run: just e2e ${{ matrix.tests }}
         env:
           E2E_PLATFORM: ${{ matrix.platform }}
 
