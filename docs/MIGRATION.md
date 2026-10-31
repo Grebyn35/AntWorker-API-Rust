@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** the review of the commits after a912c96, once GitHub's CI passes them: they take fixed waits out of the end-to-end suite, run Postgres's programs without Debian's Perl wrapper, find Postgres's archiver on arm64 too, and let a restore go on while a one-off of Postgres runs or Postgres replays. Then step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build, whose review covers the commits after that review. The spec settles the platform spec's open question on where the IP limit counts. Step 1 is built and reviewed through d2d1ca4, each review's result in [Conformance reviews](#conformance-reviews), and GitHub's CI passed 0f77fc1. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build, whose review covers the commits after this handoff. The spec settles the platform spec's open question on where the IP limit counts. Step 1 is built and reviewed through a44f517, each review's result in [Conformance reviews](#conformance-reviews). The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
 
 ## Build order
 
@@ -180,7 +180,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 30c65a1..c7a6431: a restore that reaches a moment that no commit or rollback in the bucket follows on its timeline (D60) | 1 | 4 (3, 1, 0 shared) | 2 | 0 | `next pass`: f0c9c2f |
 | 30c65a1..f0c9c2f: as above | 2 | 4 (4, 1, 1 shared) | 2 | 0 | `stopped: no progress`: d2d1ca4 |
 | a912c96..cfe2dcd: the end-to-end suite's fixed waits, Postgres's archiver on arm64, its health check and the programs its image runs, and a restore while a one-off of Postgres runs or Postgres replays | 1 | 3 (3, 0, 0 shared) | 2 | 0 | `next pass`: 6587c89 |
-| a912c96..6587c89: as above | 2 | 1 (1, 0, 0 shared) | 0 | 0 | `clean` |
+| a912c96..6587c89: as above | 2 | 1 (1, 0, 0 shared) | 0 | 0 | `clean`: a44f517 |
 
 ## Decisions
 
