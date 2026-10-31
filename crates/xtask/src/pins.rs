@@ -81,8 +81,13 @@ fn justfile(repo: &Repo, findings: &mut Vec<Finding>) -> Option<String> {
 }
 
 fn workflow_pins(path: &str, text: &str, just_version: Option<&str>, findings: &mut Vec<Finding>) {
-    for (number, line) in numbered(text) {
-        let line = line.trim_start().trim_start_matches("- ");
+    let mut job = Job::default();
+    for (number, raw) in numbered(text) {
+        if is_job_start(raw) {
+            findings.extend(job.finding(path));
+            job = Job::default();
+        }
+        let line = raw.trim_start().trim_start_matches("- ");
         if let Some(action) = value_of(line, "uses:") {
             if let Some(problem) = action_problem(action) {
                 findings.push(Finding::new(path, number, problem));
@@ -92,7 +97,12 @@ fn workflow_pins(path: &str, text: &str, just_version: Option<&str>, findings: &
         {
             // A job that runs on a runner for each value of its matrix names it from the matrix,
             // whose `runner:` values are checked as labels.
-            if runner != "${{ matrix.runner }}" && !is_versioned_runner(runner) {
+            if runner == MATRIX_RUNNER {
+                job.matrix_runner = Some(number);
+            } else if line.starts_with("runner:") {
+                job.runners = true;
+            }
+            if runner != MATRIX_RUNNER && !is_versioned_runner(runner) {
                 findings.push(Finding::new(
                     path,
                     number,
@@ -129,6 +139,38 @@ fn workflow_pins(path: &str, text: &str, just_version: Option<&str>, findings: &
             ));
         }
     }
+    findings.extend(job.finding(path));
+}
+
+/// The `runs-on:` of a job that runs on a runner for each value of its matrix.
+const MATRIX_RUNNER: &str = "${{ matrix.runner }}";
+
+/// What `check-pins` reads of the workflow's job it is in: the line of its `runs-on:` that names
+/// its matrix's runner, if it has one, and whether its matrix names a `runner:`.
+#[derive(Default)]
+struct Job {
+    matrix_runner: Option<usize>,
+    runners: bool,
+}
+
+impl Job {
+    /// The finding of a job that runs on its matrix's runner, while its matrix names none.
+    fn finding(&self, path: &str) -> Option<Finding> {
+        let number = self.matrix_runner.filter(|_| !self.runners)?;
+        Some(Finding::new(
+            path,
+            number,
+            "the job's matrix names each runner as `runner:`, a versioned label (OPS-13)",
+        ))
+    }
+}
+
+/// Whether `line` starts a job, or another key of a workflow's top-level sections, which holds
+/// no job's `runs-on:`: a key indented by two spaces, with no value on its line.
+fn is_job_start(line: &str) -> bool {
+    line.strip_prefix("  ").is_some_and(|key| {
+        !key.starts_with([' ', '#']) && key.trim_end().ends_with(':') && !key.contains(": ")
+    })
 }
 
 /// What is wrong with the action a step uses, if anything.
@@ -603,14 +645,26 @@ mod tests {
             )
         };
 
-        assert_eq!(
-            findings_with(".github/workflows/ci.yml", &workflow("ubuntu-24.04-arm")),
-            Vec::<String>::new()
+        let versioned = findings_with(".github/workflows/ci.yml", &workflow("ubuntu-24.04-arm"));
+        let unversioned = findings_with(".github/workflows/ci.yml", &workflow("ubuntu-latest"));
+
+        assert_eq!(versioned, Vec::<String>::new());
+        assert_eq!(unversioned.len(), 1, "{unversioned:?}");
+        assert!(
+            unversioned[0].contains("ubuntu-latest is a versioned label"),
+            "{unversioned:?}"
         );
-        let findings = findings_with(".github/workflows/ci.yml", &workflow("ubuntu-latest"));
+    }
+
+    #[test]
+    fn ops_13_a_job_that_runs_on_its_matrix_s_runner_names_one_in_its_matrix() {
+        let workflow = "jobs:\n  named:\n    runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        include:\n          - runner: ubuntu-24.04\n  unnamed:\n    runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        platform: [linux/amd64]\n";
+
+        let findings = findings_with(".github/workflows/ci.yml", workflow);
+
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(
-            findings[0].contains("ubuntu-latest is a versioned label"),
+            findings[0].contains(":9: the job's matrix names each runner"),
             "{findings:?}"
         );
     }
