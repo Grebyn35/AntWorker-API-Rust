@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build, whose review covers the commits after this handoff. The spec settles the platform spec's open question on where the IP limit counts. Step 1 is built and reviewed through a44f517, each review's result in [Conformance reviews](#conformance-reviews). The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build, whose review covers the commits after this handoff. The spec settles the platform spec's open question on where the IP limit counts. Step 1 is built and reviewed through c3fb265, each review's result in [Conformance reviews](#conformance-reviews). The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
 
 ## Build order
 
@@ -139,6 +139,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 903739d..860374f | ARCH-14: a check lists each call of a database client, such as `psql`, in `deploy/`, and fails on one that the rule doesn't name, so the rule's list stays complete | 3 |
 | Conformance review of c5aecac..a92d7a8 | TEST-07: whether a test may act inside a window that the code under test holds open, such as the replicas' shutdown delay (PLATFORM-038) that a restore waits out before its transaction, rather than only at a state the test asks for | 3 |
 | The restore's fix after 97c76dc | CODE-16: `check-shell` fails on a function of a script under `deploy/` that assigns a variable the script's top level sets, since every variable of `sh` is global, and the assignment changes what the rest of the script reads | 3 |
+| Conformance review of 97c76dc..c3fb265 | TEST-07: whether a test's wait on the output of a command it runs, such as `StartedDeploy::pass` and `Server::deploy_until` reading deploy.sh's output, needs a timeout of its own, or the command's own bounded waits bound it | 3 |
 
 ## Conformance reviews
 
@@ -182,6 +183,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 30c65a1..f0c9c2f: as above | 2 | 4 (4, 1, 1 shared) | 2 | 0 | `stopped: no progress`: d2d1ca4 |
 | a912c96..cfe2dcd: the end-to-end suite's fixed waits, Postgres's archiver on arm64, its health check and the programs its image runs, and a restore while a one-off of Postgres runs or Postgres replays | 1 | 3 (3, 0, 0 shared) | 2 | 0 | `next pass`: 6587c89 |
 | a912c96..6587c89: as above | 2 | 1 (1, 0, 0 shared) | 0 | 0 | `clean`: a44f517 |
+| 97c76dc..c3fb265: a restore that tells a replay ending short of its moment from a start that fails, and the tests' lock on the roles held only until a deploy starts its replicas | 1 | 0 (0, 0, 0 shared) | 0 | 0 | `clean` |
 
 ## Decisions
 
