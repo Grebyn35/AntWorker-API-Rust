@@ -191,13 +191,14 @@ services:
       - ./certs:/etc/deployment-certs:ro
     healthcheck:
       # Over TCP: while the image initializes a new database, it runs a server that listens only
-      # on its socket, then stops it and starts the real one. Unlike Caddy, Postgres isn't checked
-      # every second while it starts: where its image runs through QEMU, as CI's arm64 run does,
-      # each check takes about a second of a processor, which the start itself needs.
+      # on its socket, then stops it and starts the real one. While it starts, Postgres is checked
+      # every second, so a wait for it ends a second after it answers.
       test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=postgres", "--dbname=api"]
       interval: 5s
       timeout: 5s
       retries: 30
+      start_period: 30s
+      start_interval: 1s
     stop_grace_period: 60s
     networks: [data]
     restart: unless-stopped
