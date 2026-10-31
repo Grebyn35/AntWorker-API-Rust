@@ -696,8 +696,10 @@ backup() {
 # Starts Postgres on the data directory that a restore wrote, and waits until it has replayed the
 # log and left recovery. It returns 1 when Postgres ended the replay without reaching the moment
 # it replays to, as its log since this start says, and fails the restore when Postgres doesn't
-# become healthy, as Compose's wait would, or still recovers after 10 minutes. Its caller tests it
-# as a condition, where the shell ignores -e, so it checks each command itself.
+# become healthy, as Compose's wait would, or when its replay hasn't advanced for 10 minutes: a
+# replay of a day of changes may take longer than that, and only its end tells whether it reaches
+# the moment. Its caller tests it as a condition, where the shell ignores -e, so it checks each
+# command itself.
 recovered() {
     compose up --detach --quiet-pull postgres || fail "couldn't start Postgres on the restored data, with the error above"
     # The start's time in nanoseconds, after the last line that an earlier run of the container
@@ -706,18 +708,32 @@ recovered() {
         fail "couldn't find when Postgres started, with the error above"
     fi
     waited=0
+    replayed=""
     until [ "$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT pg_is_in_recovery()' 2> /dev/null)" = f ]; do
-        if docker logs --since "$started" "$container" 2>&1 | grep -q 'recovery ended before configured recovery target was reached'; then
-            return 1
+        if ! logged=$(docker logs --since "$started" "$container" 2>&1); then
+            printf '%s\n' "$logged" >&2
+            fail "couldn't read Postgres's log, with the error above"
         fi
-        if [ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" = unhealthy ]; then
+        case $logged in
+            *'recovery ended before configured recovery target was reached'*) return 1 ;;
+        esac
+        if ! health=$(docker inspect --format '{{.State.Health.Status}}' "$container"); then
+            fail "couldn't find whether Postgres is healthy, with the error above"
+        fi
+        if [ "$health" = unhealthy ]; then
             compose logs --tail 30 postgres >&2 || true
             fail "Postgres doesn't start on the restored data; the end of its log, above, says why"
+        fi
+        # How far the replay has come, once Postgres accepts connections during it.
+        position=$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT pg_last_wal_replay_lsn()' 2> /dev/null) || position=""
+        if [ "$position" != "$replayed" ]; then
+            replayed=$position
+            waited=0
         fi
         waited=$((waited + 1))
         if [ "$waited" -gt 600 ]; then
             compose logs --tail 30 postgres >&2 || true
-            fail "the restored database is still recovering after 10 minutes, as the end of its log, above, shows"
+            fail "the replay of the restored database hasn't advanced for 10 minutes, as the end of its log, above, shows"
         fi
         sleep 1
     done
@@ -770,13 +786,13 @@ restore() {
     fi
     say "stopping the API and the backups"
     compose stop api-blue api-green backup
-    # A replay to a moment stops before the first commit after it, and Postgres ends one that no
-    # commit follows, such as one to a moment after the last change, with an error, which only a
-    # second replay, below, gets past. So, once the replicas stop, and when the check passed, a
-    # transaction that changes nothing commits, given an ID by pg_current_xact_id(), without
-    # which it would write no commit: a restore to any moment before it replays the log once, and
-    # one to the moment it began returns the database to how this restore found it. A second
-    # check archives it. If the transaction or that check fails,
+    # A replay to a moment stops before the first commit or rollback after it, and Postgres ends
+    # one that neither follows, such as one to a moment after the last change, with an error,
+    # which only a second replay, below, gets past. So, once the replicas stop, and when the
+    # check passed, a transaction that changes nothing commits, given an ID by
+    # pg_current_xact_id(), without which it would write no commit: a restore to any moment
+    # before it replays the log once, and one to the moment it began returns the database to how
+    # this restore found it. A second check archives it. If the transaction or that check fails,
     # the bucket may lack what the replicas wrote since the first check, which refuses the
     # restore as the first check would have: Postgres still runs the database the restore found,
     # so the replicas and the backups start again first.
@@ -824,13 +840,13 @@ restore() {
         fi' sh "$stamp" "$moment" "$set" "$timeline"
     if ! recovered; then
         # Postgres ended the replay where the log that the bucket holds along the timeline ends,
-        # without reaching the moment: no commit that the bucket holds follows the moment there,
-        # as for one while an earlier restore ran, after the moment it named and before its
-        # timeline began, or one after a lost server's last archived change. The database stood
-        # at the moment as at the timeline's last commit, as far as the bucket holds it, which a
-        # replay along the timeline to its end reaches, from the same backup. --delta keeps each
-        # file that still matches the backup, and restores the others.
-        say "no commit that the bucket holds follows $moment on timeline $timeline, so the restore replays the timeline to its end, which is how the database stood then"
+        # without reaching the moment: no commit or rollback that the bucket holds follows the
+        # moment there, as for one while an earlier restore ran, after the moment it named and
+        # before its timeline began, or one after a lost server's last archived change. The
+        # database stood at the moment as at the timeline's end, as far as the bucket holds it,
+        # which a replay along the timeline to its end reaches, from the same backup. --delta
+        # keeps each file that still matches the backup, and restores the others.
+        say "no commit or rollback that the bucket holds follows $moment on timeline $timeline, so the restore replays the timeline to its end, which is how the database stood then"
         compose stop postgres
         compose run --rm --no-deps --quiet-pull --user postgres --entrypoint pgbackrest postgres \
             --stanza=db restore --delta --set="$set" --type=default --target-timeline="$timeline"
@@ -838,8 +854,15 @@ restore() {
             compose logs --tail 30 postgres >&2 || true
             fail "Postgres couldn't replay timeline $timeline to its end; the end of its log, above, says why"
         fi
-        last=$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT pg_last_xact_replay_timestamp()') || last=""
-        say "the restored database ends with the last commit on timeline $timeline that the bucket holds${last:+, at $last}"
+        # The time of the last commit that the replay found, or none when it found none after the
+        # backup it started from.
+        if ! last=$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT pg_last_xact_replay_timestamp()'); then
+            say "the restored database ends where timeline $timeline ends in the bucket"
+        elif [ -n "$last" ]; then
+            say "the restored database ends where timeline $timeline ends in the bucket, with its last commit at $last"
+        else
+            say "the restored database ends where timeline $timeline ends in the bucket, which holds no commit on it after the backup $set that the restore started from"
+        fi
     fi
     if [ -n "$live" ]; then
         API_IMAGE_NEW=$live_image compose --profile tasks run --rm --no-deps --quiet-pull migrate

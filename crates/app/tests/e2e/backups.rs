@@ -201,8 +201,8 @@ async fn ops_17_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
     assert!(went_back.status.success(), "{}", lossy(&went_back));
     // A second after the moment that restore named: once its transaction had committed, and
     // before its timeline began, which waited for its second check, Postgres's stop and the
-    // restore of the backup. No commit that the bucket holds follows it on the timeline that
-    // restore abandoned.
+    // restore of the backup. No commit or rollback that the bucket holds follows it on the
+    // timeline that restore abandoned.
     let during = deployment.sql(&format!(
         "SELECT '{}'::timestamptz + interval '1 second'",
         undoing(&went_back)
@@ -217,7 +217,7 @@ async fn ops_17_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
         "{written}"
     );
     assert!(
-        written.contains("ends with the last commit on timeline 1 that the bucket holds, at "),
+        written.contains("ends where timeline 1 ends in the bucket, with its last commit at "),
         "{written}"
     );
     assert_eq!(
@@ -350,9 +350,11 @@ async fn ops_17_a_restore_of_the_latest_state_starts_from_a_backup_on_the_latest
 }
 
 /// A bundled deployment that held "on the lost server" when its server was lost, and a new
-/// server set up from its settings, secrets and bucket, which nothing has deployed to yet. The
-/// lost deployment's bucket, which stands in for one off the server, lives as long as it does.
-async fn lost_and_new_server() -> (Deployment, Deployment) {
+/// server set up from its settings, secrets and bucket, which nothing has deployed to yet. With
+/// `backed_up`, `backup` took a full backup after that change, which no commit the bucket holds
+/// then follows. The lost deployment's bucket, which stands in for one off the server, lives as
+/// long as it does.
+async fn lost_and_new_server(backed_up: bool) -> (Deployment, Deployment) {
     let lost = Deployment::bundled(&[]);
     let deployed = lost.apply(&lost.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -361,6 +363,22 @@ async fn lost_and_new_server() -> (Deployment, Deployment) {
          INSERT INTO restore_marker VALUES ('on the lost server');",
     );
     archive_everything_committed(&lost);
+    if backed_up {
+        // Autovacuum's ANALYZE commits on a schedule of its own, which could put a commit during
+        // or after the backup: it stops, and the workers already running end, first.
+        lost.sql("ALTER SYSTEM SET autovacuum = off");
+        lost.sql("SELECT pg_reload_conf()");
+        lost.server.write(
+            "/root/autovacuum-ended.sh",
+            "until [ \"$(docker exec deployment-postgres-1 psql --username=postgres --dbname=api -qAt \
+             -c \"SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'autovacuum worker'\")\" = 0 ]; \
+             do sleep 1; done\n",
+        );
+        lost.server
+            .shell_ok("timeout 120 sh /root/autovacuum-ended.sh");
+        let backed = lost.server.deploy(&["backup"]);
+        assert!(backed.status.success(), "{}", lossy(&backed));
+    }
     let new = lost.on_a_new_server();
     // The server is lost, while its bucket stays.
     lost.server.shell_ok(
@@ -371,7 +389,7 @@ async fn lost_and_new_server() -> (Deployment, Deployment) {
 
 #[tokio::test]
 async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucket_holds() {
-    let (_lost, new) = lost_and_new_server().await;
+    let (_lost, new) = lost_and_new_server(false).await;
 
     let refused = new.apply(&new.api, &[]).await;
     let refused_replicas = new.server.running("api-blue");
@@ -406,12 +424,14 @@ async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucke
 #[tokio::test]
 async fn ops_17_a_restore_on_a_new_server_reaches_a_moment_after_the_last_archived_change_and_names_no_moment_that_undoes_it()
  {
-    let (_lost, new) = lost_and_new_server().await;
+    // With a backup after the lost server's last change, so the replay from it finds no commit.
+    let (_lost, new) = lost_and_new_server(true).await;
     // The first deploy stops before any replica starts, with Postgres running the empty database
     // it has just created, which the bucket doesn't back up.
     let refused = new.apply(&new.api, &[]).await;
     assert!(!refused.status.success(), "{}", lossy(&refused));
-    // After the lost server's last archived change, which no commit the bucket holds follows.
+    // After the lost server's last archived change, which no commit or rollback the bucket holds
+    // follows.
     let moment = new.sql("SELECT now()");
 
     let restored = new.restore(Some(&moment));
@@ -425,6 +445,10 @@ async fn ops_17_a_restore_on_a_new_server_reaches_a_moment_after_the_last_archiv
     );
     assert!(
         written.contains("replays the timeline to its end"),
+        "{written}"
+    );
+    assert!(
+        written.contains("which holds no commit on it after the backup"),
         "{written}"
     );
     assert_eq!(
