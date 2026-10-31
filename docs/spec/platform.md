@@ -144,7 +144,7 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 
 The first migration grants `app` `SELECT`, `INSERT`, `UPDATE` and `DELETE` on every table `owner` creates, revokes `EXECUTE` on new functions from `PUBLIC`, and lets `app` read the migrations table. Roles belong to the whole Postgres server, so every database on a server shares them, test databases included.
 
-Two `bootstrap` runs at once can't both be relied on: they update the same roles, and one can fail with "tuple concurrently updated", since nothing serializes them: `bootstrap` takes no lock, and an advisory lock would serialize only the runs on one database, while roles belong to the whole server. The reference deployment runs `bootstrap` once per deploy, and one deploy at a time (OPS-16), so its runs never overlap; the test support serializes the tests' runs.
+Two `bootstrap` runs at once can't both be relied on: they update the same roles, and one can fail with "tuple concurrently updated", since nothing serializes them: `bootstrap` takes no lock, and an advisory lock would serialize only the runs on one database, while roles belong to the whole server. The reference deployment runs `bootstrap` once per deploy, and one deploy at a time (OPS-16), so its runs never overlap. The tests' runs on one server take turns at a lock of the test support, and each managed deployment of the end-to-end tests has a server of its own ([ci.md](../operations/ci.md)). A deployment shares its server with no other, as [deploy.md](../operations/deploy.md#choosing-the-services) requires.
 
 ### Migrations
 

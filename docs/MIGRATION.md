@@ -138,8 +138,9 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of b299bf2..004d477 | The standards README's Fixing: an ID for its requirement that a fix adds or proposes a check, or says why none can cover the defect, so that a review can cite it | 3 |
 | Conformance review of 903739d..860374f | ARCH-14: a check lists each call of a database client, such as `psql`, in `deploy/`, and fails on one that the rule doesn't name, so the rule's list stays complete | 3 |
 | Conformance review of c5aecac..a92d7a8 | TEST-07: whether a test may act inside a window that the code under test holds open, such as the replicas' shutdown delay (PLATFORM-038) that a restore waits out before its transaction, rather than only at a state the test asks for | 3 |
+| Removing the end-to-end tests' roles lock | DATA-12, DATA-13: whether `bootstrap` names the roles after the users of `DATABASE_OWNER_URL` and `DATABASE_URL`, so that deployments, such as a staging and a production one, can share a Postgres server, which [deploy.md](operations/deploy.md#choosing-the-services) forbids. PLATFORM-009 would then check the role that `DATABASE_URL` names rather than `app`, and the first migration's grants would reach that role. | 3 |
 | The restore's fix after 97c76dc | CODE-16: `check-shell` fails on a function of a script under `deploy/` that assigns a variable the script's top level sets, since every variable of `sh` is global, and the assignment changes what the rest of the script reads | 3 |
-| Conformance review of 97c76dc..c3fb265 | TEST-07: whether a test's wait on the output of a command it runs, such as `StartedDeploy::pass` and `Server::deploy_until` reading deploy.sh's output, needs a timeout of its own, or the command's own bounded waits bound it | 3 |
+| Conformance review of 97c76dc..c3fb265 | TEST-07: whether a test's wait on the output of a command it runs, such as `Server::deploy_until` reading deploy.sh's output, needs a timeout of its own, or the command's own bounded waits bound it | 3 |
 
 ## Conformance reviews
 

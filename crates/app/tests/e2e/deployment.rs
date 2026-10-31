@@ -1,5 +1,6 @@
-//! A reference deployment on a server of the tests' own (TEST-04), whose database is managed,
-//! Compose's Postgres, or bundled, with its backups in a stand-in bucket on the same server.
+//! A reference deployment on a server of the tests' own (TEST-04), whose database is managed, on
+//! a Postgres server of its own beside the tests' server, or bundled, with its backups in a
+//! stand-in bucket on the same server.
 
 use std::{
     io::Write,
@@ -14,13 +15,13 @@ use std::{
 };
 
 use rustls::pki_types::{CertificateDer, pem::PemObject};
+use serde_json::Value;
 use tokio::sync::{Semaphore, SemaphorePermit};
 
 use crate::{
-    docker::{compose, docker, lossy},
+    docker::{Container, compose, lossy, postgres_network},
     images::Pushed,
     server::{DEPLOYMENT, RunningDeploy, Server},
-    support::TestDatabase,
 };
 
 /// The API's address in the tests: a name under `localhost`, for which Caddy signs the
@@ -53,8 +54,9 @@ pub struct Deployment {
     pub api: String,
     /// The deployment's Postgres image under test, as the server pulls it.
     pub postgres: String,
-    /// The managed database, or none for the bundled one.
-    database: Option<TestDatabase>,
+    /// The managed database's server, or none for the bundled database. Declared after `server`,
+    /// so it goes once the replicas that connect to it have.
+    database: Option<Container>,
     /// The settings of its kind of deployment, which `changes` of `set` add to or replace.
     base: Vec<(String, String)>,
     /// Whether the settings that `set` last wrote run the self-hosted stack.
@@ -65,13 +67,12 @@ pub struct Deployment {
 }
 
 impl Deployment {
-    /// A deployment whose managed database is a new test database, with the tests' settings and
-    /// `changes`.
-    pub async fn managed(changes: &[(&str, &str)]) -> Self {
-        let database = TestDatabase::empty().await;
+    /// A deployment whose managed database is on a new Postgres server, with the tests' settings
+    /// and `changes`.
+    pub fn managed(changes: &[(&str, &str)]) -> Self {
+        let database = database_server();
+        let host = database.inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
         let deployment = Self::new(Some(database), &[("DATABASE", "managed")], changes);
-        let host = postgres_address();
-        let database = deployment.database.as_ref().expect("the managed database");
         for (secret, setting) in [
             ("database_admin_url", "DATABASE_ADMIN_URL"),
             ("database_owner_url", "DATABASE_OWNER_URL"),
@@ -80,7 +81,6 @@ impl Deployment {
             let mut url = url::Url::parse(&std::env::var(setting).expect(setting)).expect(setting);
             url.set_host(Some(&host)).expect("a host");
             url.set_port(Some(5432)).expect("a port");
-            url.set_path(database.name());
             deployment
                 .server
                 .write(&format!("{DEPLOYMENT}/secrets/{secret}"), url.as_str());
@@ -122,17 +122,13 @@ impl Deployment {
         deployment
     }
 
-    fn new(
-        database: Option<TestDatabase>,
-        kind: &[(&str, &str)],
-        changes: &[(&str, &str)],
-    ) -> Self {
+    fn new(database: Option<Container>, kind: &[(&str, &str)], changes: &[(&str, &str)]) -> Self {
         Self::on(Server::start(), database, kind, changes)
     }
 
     fn on(
         server: Server,
-        database: Option<TestDatabase>,
+        database: Option<Container>,
         kind: &[(&str, &str)],
         changes: &[(&str, &str)],
     ) -> Self {
@@ -183,12 +179,8 @@ impl Deployment {
             .write(&format!("{DEPLOYMENT}/settings.env"), &text);
     }
 
-    /// Deploys `api`, the API's image, with `options`. With a managed database, no other test
-    /// runs `bootstrap` while the deploy does, since it changes the roles every test database
-    /// shares (the platform spec's Database roles): the deploy holds the lock on them until it
-    /// starts its replicas, after `bootstrap` and `migrate`, or until it ends before. A deploy
-    /// that runs the self-hosted stack first waits for a share of `STACKS`, before it takes that
-    /// lock.
+    /// Deploys `api`, the API's image, with `options`. A deploy that runs the self-hosted stack
+    /// first waits for a share of `STACKS`.
     pub async fn apply(&self, api: &str, options: &[&str]) -> Output {
         self.apply_images(api, &self.postgres, options).await
     }
@@ -199,33 +191,15 @@ impl Deployment {
         self.share_stacks().await;
         let mut args = vec!["apply", api, postgres];
         args.extend(options);
-        match &self.database {
-            Some(database) => database
-                .with_roles_locked(async {
-                    let mut deploy = self.server.start_deploy(&args);
-                    deploy.pass(starts_replicas);
-                    deploy
-                })
-                .await
-                .output(),
-            None => self.server.deploy(&args),
-        }
+        self.server.deploy(&args)
     }
 
     /// Starts a deploy of `api`, the API's image, as `apply` does, and returns once it writes a
-    /// line that contains `line`, for the test to stop it there. The line comes after `bootstrap`,
-    /// which other tests may run once it is written.
+    /// line that contains `line`, for the test to stop it there.
     pub async fn apply_until(&self, api: &str, line: &str) -> RunningDeploy {
         self.share_stacks().await;
-        let args = ["apply", api, &self.postgres];
-        match &self.database {
-            Some(database) => {
-                database
-                    .with_roles_locked(async { self.server.deploy_until(&args, line) })
-                    .await
-            }
-            None => self.server.deploy_until(&args, line),
-        }
+        self.server
+            .deploy_until(&["apply", api, &self.postgres], line)
     }
 
     /// Waits for a share of `STACKS`, once the settings run the self-hosted stack.
@@ -349,12 +323,6 @@ impl Deployment {
     }
 }
 
-/// Whether `line` is the one a deploy writes as it starts the release's replicas, such as
-/// `deploy: starting 2 green replicas`, after `bootstrap` and `migrate`.
-fn starts_replicas(line: &str) -> bool {
-    line.starts_with("deploy: starting ") && line.ends_with(" replicas")
-}
-
 /// A client of the API, through Caddy, that trusts `root`, the authority of Caddy's certificates
 /// for names under `localhost`, and follows no redirect. It runs a runtime of its own, so it is
 /// built and dropped on a thread of its own, outside the test's runtime.
@@ -454,16 +422,52 @@ pub fn post(root: String, url: String, body: String) -> (u16, String) {
     .expect("the request")
 }
 
-/// The address of Compose's Postgres on its network, which the deployment's containers reach
-/// through the server.
-fn postgres_address() -> String {
-    let container = compose(&["ps", "--quiet", "postgres"]);
-    docker(&[
-        "inspect",
-        "--format",
-        "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-        &container,
-    ])
+/// Starts the server of a managed database, another server of Compose's Postgres, as
+/// docs/operations/ci.md says: from its image, with its command, environment and health check, on
+/// its network, and with its data in a volume of its own, which goes with it.
+fn database_server() -> Container {
+    let config: Value = serde_json::from_str(&compose(&["config", "--format", "json", "postgres"]))
+        .expect("Compose's configuration");
+    let service = &config["services"]["postgres"];
+    let text = |value: &Value| value.as_str().expect("a string").to_owned();
+    let health = &service["healthcheck"];
+    let test: Vec<String> = health["test"]
+        .as_array()
+        .expect("Postgres's health check")
+        .iter()
+        .map(text)
+        .collect();
+    let (form, check) = test.split_first().expect("a health check");
+    assert_eq!(form, "CMD", "a health check that names its program");
+    let mut args = vec!["--network".to_owned(), postgres_network()];
+    for (name, value) in service["environment"]
+        .as_object()
+        .expect("Postgres's environment")
+    {
+        args.extend(["--env".to_owned(), format!("{name}={}", text(value))]);
+    }
+    args.extend([
+        "--health-cmd".to_owned(),
+        check.join(" "),
+        "--health-interval".to_owned(),
+        text(&health["interval"]),
+        "--health-timeout".to_owned(),
+        text(&health["timeout"]),
+        "--health-retries".to_owned(),
+        health["retries"].to_string(),
+        text(&service["image"]),
+    ]);
+    args.extend(
+        service["command"]
+            .as_array()
+            .expect("Postgres's command")
+            .iter()
+            .map(text),
+    );
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let container = Container::start(&args);
+    assert_eq!(container.health(), "healthy", "{}", container.logs());
+    container
 }
 
 /// Requests sent to the API one after another, from a thread of their own, until stopped.

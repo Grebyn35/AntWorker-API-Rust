@@ -28,7 +28,7 @@ const PERSONAL: [&str; 9] = [
 /// A deployment whose telemetry goes to a stand-in for a managed backend, which writes what it
 /// receives to /root/backend/out/telemetry.json.
 async fn with_a_managed_backend() -> Deployment {
-    let deployment = Deployment::managed(&[]).await;
+    let deployment = Deployment::managed(&[]);
     let backend = deployment.server.start_otlp_backend();
     let mut changes = vec![("TELEMETRY", "managed")];
     changes.extend(
@@ -180,7 +180,7 @@ async fn obs_14_the_backups_the_server_s_memory_and_the_collector_report_what_th
 
 #[tokio::test]
 async fn ops_16_a_deploy_installs_the_release_s_alert_rules_and_prometheus_reads_them() {
-    let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]).await;
+    let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
     // The services that the first deploy starts read its files as they start.
@@ -231,7 +231,7 @@ async fn ops_16_a_deploy_installs_the_release_s_alert_rules_and_prometheus_reads
 
 #[tokio::test]
 async fn obs_08_a_managed_backend_receives_the_trace_and_the_logs_of_a_4xx_response() {
-    let deployment = Deployment::managed(&[]).await;
+    let deployment = Deployment::managed(&[]);
     let backend = deployment.server.start_otlp_backend();
     let mut changes = vec![("TELEMETRY", "managed")];
     changes.extend(
@@ -268,7 +268,7 @@ async fn obs_08_a_managed_backend_receives_the_trace_and_the_logs_of_a_4xx_respo
 
 #[tokio::test]
 async fn obs_14_a_deploy_warns_until_the_release_names_an_integration_that_alerts_then_reach() {
-    let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]).await;
+    let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
     let receiver = deployment.server.start_alert_receiver();
@@ -322,7 +322,7 @@ async fn obs_14_a_deploy_warns_until_the_release_names_an_integration_that_alert
 #[tokio::test]
 async fn obs_13_a_deploy_imports_the_dashboards_into_a_folder_of_the_managed_grafana_that_editors_only_view()
  {
-    let deployment = Deployment::managed(&[]).await;
+    let deployment = Deployment::managed(&[]);
     let mut settings = vec![("TELEMETRY".to_owned(), "managed".to_owned())];
     settings.extend(deployment.server.start_otlp_backend());
     settings.extend(deployment.server.start_managed_grafana());
@@ -391,7 +391,7 @@ async fn obs_13_a_deploy_imports_the_dashboards_into_a_folder_of_the_managed_gra
 /// A deployment whose telemetry goes to a managed backend, whose Grafana answers through a front
 /// that can make it answer as a Grafana that is still loading.
 async fn behind_a_loading_grafana() -> Deployment {
-    let deployment = Deployment::managed(&[]).await;
+    let deployment = Deployment::managed(&[]);
     let mut settings = vec![("TELEMETRY".to_owned(), "managed".to_owned())];
     settings.extend(deployment.server.start_otlp_backend());
     settings.extend(deployment.server.start_managed_grafana());
@@ -447,7 +447,7 @@ async fn ops_22_the_check_waits_for_a_managed_grafana_that_is_still_loading() {
 #[tokio::test]
 async fn obs_14_a_deploy_imports_the_rules_into_the_managed_grafana_and_warns_until_a_policy_reaches_a_contact_point()
  {
-    let deployment = Deployment::managed(&[]).await;
+    let deployment = Deployment::managed(&[]);
     let mut settings = vec![("TELEMETRY".to_owned(), "managed".to_owned())];
     settings.extend(deployment.server.start_otlp_backend());
     deployment.set(&pairs(&settings));
@@ -634,7 +634,7 @@ fn release_rule_groups(deployment: &Deployment) -> Vec<String> {
 
 #[tokio::test]
 async fn obs_08_the_trace_id_of_the_proxy_s_503_leads_to_its_span_and_its_log_line() {
-    let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]).await;
+    let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
     // A replica answers 404, a status the collector keeps the trace of.

@@ -9,7 +9,6 @@ use std::{
     net::SocketAddr,
     path::Path,
     process::{Child, ChildStdout, Command, Output, Stdio},
-    thread::{self, JoinHandle},
 };
 
 use crate::docker::{Container, compose, docker, lossy, postgres_network};
@@ -62,47 +61,6 @@ impl RunningDeploy {
              done; exit 1"
         ));
         self.written
-    }
-}
-
-/// A deploy that `Server::start_deploy` started.
-pub struct StartedDeploy {
-    child: Child,
-    stdout: BufReader<ChildStdout>,
-    /// What it wrote on stdout so far.
-    written: Vec<u8>,
-    /// What it writes on stderr, read to its end beside it.
-    errors: JoinHandle<Vec<u8>>,
-}
-
-impl StartedDeploy {
-    /// Returns once the deploy writes a line on stdout that `wanted` accepts, or once it ends
-    /// without one.
-    pub fn pass(&mut self, wanted: impl Fn(&str) -> bool) {
-        loop {
-            let start = self.written.len();
-            let read = self
-                .stdout
-                .read_until(b'\n', &mut self.written)
-                .expect("read deploy.sh's output");
-            if read == 0 || wanted(String::from_utf8_lossy(&self.written[start..]).trim_end()) {
-                return;
-            }
-        }
-    }
-
-    /// Waits until the deploy ends, and returns its status and what it wrote.
-    pub fn output(mut self) -> Output {
-        self.stdout
-            .read_to_end(&mut self.written)
-            .expect("read deploy.sh's output");
-        let status = self.child.wait().expect("wait for deploy.sh");
-        let stderr = self.errors.join().expect("deploy.sh's errors");
-        Output {
-            status,
-            stdout: self.written,
-            stderr,
-        }
     }
 }
 
@@ -206,34 +164,12 @@ impl Server {
 
     /// Runs the release's deploy.sh with `args`, as `just deploy` does.
     pub fn deploy(&self, args: &[&str]) -> Output {
-        self.start_deploy(args).output()
-    }
-
-    /// Starts the release's deploy.sh with `args`, as `deploy` does.
-    pub fn start_deploy(&self, args: &[&str]) -> StartedDeploy {
-        let mut child = Command::new("docker")
+        Command::new("docker")
             .args(["exec", "--env", &format!("DEPLOYMENT={DEPLOYMENT}")])
             .args([self.container.id(), "sh", &format!("{RELEASE}/deploy.sh")])
             .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("run deploy.sh");
-        let mut stderr = child.stderr.take().expect("its errors");
-        let errors = thread::spawn(move || {
-            let mut errors = Vec::new();
-            stderr
-                .read_to_end(&mut errors)
-                .expect("read deploy.sh's errors");
-            errors
-        });
-        StartedDeploy {
-            stdout: BufReader::new(child.stdout.take().expect("its output")),
-            child,
-            written: Vec::new(),
-            errors,
-        }
+            .output()
+            .expect("run deploy.sh")
     }
 
     /// Starts the release's deploy.sh with `args`, as `deploy` does, and returns once it writes a

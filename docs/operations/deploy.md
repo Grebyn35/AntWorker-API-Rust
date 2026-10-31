@@ -154,7 +154,7 @@ Each service the API depends on is bundled or a provider's, chosen by one settin
 | Setting | Values | What runs |
 |---|---|---|
 | `DATABASE` | `bundled` | Postgres and its backups, on the server ([backups.md](backups.md)) |
-| | `managed` | Nothing: the API connects to a provider's Postgres, which must back it up with point-in-time recovery, which restores the database as it stood at any moment it reaches, as OPS-17 requires, and encrypt what it stores, as OPS-20 does |
+| | `managed` | Nothing: the API connects to a provider's Postgres server, which must back it up with point-in-time recovery, which restores the database as it stood at any moment it reaches, as OPS-17 requires, encrypt what it stores, as OPS-20 does, and hold no other deployment's database, such as a staging one's: the roles `owner` and `app` belong to the whole server, so another deployment's `bootstrap` would set their passwords to its own, and its URLs would reach this deployment's tables |
 | `TELEMETRY` | `self-hosted` | The collector, Prometheus, Loki, Tempo, Alertmanager, and Grafana at `GRAFANA_ADDRESS` |
 | | `managed` | The collector alone, which sends every signal to a managed backend, into whose Grafana each deploy imports the dashboards and the alert rules ([observability.md](observability.md#a-managed-backend)) |
 | | `off` | Nothing: the API's logs go only to its containers' output |
