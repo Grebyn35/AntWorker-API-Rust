@@ -28,23 +28,46 @@ fn archive_everything_committed(deployment: &Deployment) {
         .shell_ok("timeout 120 sh /root/archived.sh");
 }
 
-/// Stops Postgres's archiver, so what Postgres writes from then on doesn't reach the bucket, which
-/// stays readable, as when the archiving fails on its own. The archiver stays stopped until
-/// Postgres does.
-fn stop_archiving(deployment: &Deployment) {
+/// Sends `signal` to Postgres's archiver: `STOP`, so what Postgres writes from then on doesn't
+/// reach the bucket, which stays readable, as when the archiving fails on its own, until `CONT`
+/// or until Postgres stops.
+fn signal_archiver(deployment: &Deployment, signal: &str) {
     deployment.server.write(
-        "/root/stop-archiver.sh",
-        "stopped=no\n\
-         for process in /proc/[0-9]*; do\n\
-         case $(tr '\\0' ' ' < \"$process/cmdline\" 2> /dev/null) in\n\
-         \"postgres: archiver\"*) kill -STOP \"${process#/proc/}\" && stopped=yes ;;\n\
-         esac\n\
-         done\n\
-         [ \"$stopped\" = yes ]\n",
+        "/root/signal-archiver.sh",
+        &format!(
+            "signaled=no\n\
+             for process in /proc/[0-9]*; do\n\
+             case $(tr '\\0' ' ' < \"$process/cmdline\" 2> /dev/null) in\n\
+             \"postgres: archiver\"*) kill -{signal} \"${{process#/proc/}}\" && signaled=yes ;;\n\
+             esac\n\
+             done\n\
+             [ \"$signaled\" = yes ]\n"
+        ),
     );
     deployment
         .server
-        .shell_ok("docker exec -i deployment-postgres-1 sh < /root/stop-archiver.sh");
+        .shell_ok("docker exec -i deployment-postgres-1 sh < /root/signal-archiver.sh");
+}
+
+/// Makes Postgres reject, or accept again, the connections through its socket, which the
+/// restore's own statements use, while the replicas connect over the network. It returns once
+/// Postgres does.
+fn local_connections(deployment: &Deployment, accepted: bool) {
+    let (change, until) = if accepted {
+        ("1d", "until")
+    } else {
+        ("1i local all all reject", "while")
+    };
+    deployment.server.write(
+        "/root/local-connections.sh",
+        &format!(
+            "sed -i '{change}' \"$PGDATA/pg_hba.conf\" && pg_ctl reload --silent\n\
+             {until} psql -qAt -c 'SELECT 1' > /dev/null 2>&1; do sleep 0.1; done\n"
+        ),
+    );
+    deployment.server.shell_ok(
+        "docker exec -i --user postgres deployment-postgres-1 sh < /root/local-connections.sh",
+    );
 }
 
 /// The full and differential backups the bucket holds.
@@ -366,7 +389,7 @@ async fn ops_17_a_restore_refuses_while_the_log_doesn_t_reach_the_bucket_unless_
          INSERT INTO restore_marker VALUES ('archived');",
     );
     archive_everything_committed(&deployment);
-    stop_archiving(&deployment);
+    signal_archiver(&deployment, "STOP");
     deployment.sql("INSERT INTO restore_marker VALUES ('unarchived')");
 
     let refused = deployment.restore(None);
@@ -386,6 +409,11 @@ async fn ops_17_a_restore_refuses_while_the_log_doesn_t_reach_the_bucket_unless_
         "{}",
         lossy(&refused)
     );
+    assert!(
+        !lossy(&refused).contains("stopping the API and the backups"),
+        "{}",
+        lossy(&refused)
+    );
     assert_eq!(replicas.len(), 2);
     assert_eq!(backup.len(), 1);
     assert_eq!(status, 200);
@@ -402,25 +430,19 @@ async fn ops_17_a_restore_refuses_while_the_log_doesn_t_reach_the_bucket_unless_
     );
 }
 
-#[tokio::test]
-async fn ops_17_a_restore_whose_log_stops_reaching_the_bucket_once_the_replicas_stop_serves_again_and_refuses()
- {
-    let deployment = Deployment::bundled(&[]);
-    let deployed = deployment.apply(&deployment.api, &[]).await;
-    assert!(deployed.status.success(), "{}", lossy(&deployed));
-    deployment.sql(
-        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
-         INSERT INTO restore_marker VALUES ('kept');",
-    );
-    // The restore writes the line once its first check has passed, before the replicas stop and
-    // its second check begins.
-    let running = deployment.restore_until("stopping the API and the backups");
-    stop_archiving(&deployment);
+/// The line a restore writes once its first check has passed, before the replicas stop and its
+/// transaction commits.
+const STOPPING: &str = "stopping the API and the backups";
 
-    let (succeeded, written) = running.finish();
-
+/// Checks that `written`, what a restore that failed wrote, says it refused once the replicas had
+/// stopped, and that the deployment serves the database as the restore found it.
+fn served_again_and_refused(deployment: &Deployment, succeeded: bool, written: &str) {
     assert!(!succeeded, "{written}");
-    assert!(written.contains("started them again"), "{written}");
+    assert!(written.contains("add --allow-unarchived"), "{written}");
+    assert!(
+        written.contains("started the API and the backups again"),
+        "{written}"
+    );
     assert!(!written.contains("restoring the database"), "{written}");
     assert_eq!(deployment.server.running("api-blue").len(), 2);
     assert_eq!(deployment.server.running("backup").len(), 1);
@@ -430,6 +452,52 @@ async fn ops_17_a_restore_whose_log_stops_reaching_the_bucket_once_the_replicas_
     );
     assert_eq!(status, 200);
     assert_eq!(deployment.sql("SELECT name FROM restore_marker"), "kept");
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_whose_log_stops_reaching_the_bucket_once_the_replicas_stop_serves_again_and_refuses_unless_allowed()
+ {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('kept');",
+    );
+
+    let running = deployment.restore_until(&[], STOPPING);
+    signal_archiver(&deployment, "STOP");
+    let (refused, refusal) = running.finish();
+    served_again_and_refused(&deployment, refused, &refusal);
+    signal_archiver(&deployment, "CONT");
+    // Postgres stops only once its stopped archiver is killed, at the end of the stop's grace.
+    let running = deployment.restore_until(&["--allow-unarchived"], STOPPING);
+    signal_archiver(&deployment, "STOP");
+    let (restored, restoring) = running.finish();
+
+    assert!(restored, "{restoring}");
+    assert!(restoring.contains("restoring anyway"), "{restoring}");
+    assert!(!restoring.contains("undoes this one"), "{restoring}");
+    assert_eq!(deployment.sql("SELECT name FROM restore_marker"), "kept");
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_whose_transaction_fails_once_the_replicas_stop_serves_again_and_refuses()
+{
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('kept');",
+    );
+
+    let running = deployment.restore_until(&[], STOPPING);
+    local_connections(&deployment, false);
+    let (refused, refusal) = running.finish();
+    local_connections(&deployment, true);
+
+    served_again_and_refused(&deployment, refused, &refusal);
 }
 
 #[tokio::test]

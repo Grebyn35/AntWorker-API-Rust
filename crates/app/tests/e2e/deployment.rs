@@ -284,12 +284,14 @@ impl Deployment {
         )
     }
 
-    /// Starts a restore of the latest state, as `restore` does, and returns once it writes a line
-    /// that contains `line`.
-    pub fn restore_until(&self, line: &str) -> RunningDeploy {
+    /// Starts a restore of the latest state, as `restore_with` does with `options`, and returns
+    /// once it writes a line that contains `line`.
+    pub fn restore_until(&self, options: &[&str], line: &str) -> RunningDeploy {
         let (set, timeline) = self.restore_plan(None);
-        self.server
-            .deploy_until(&["restore", "", &set, &timeline], line)
+        self.server.deploy_until(
+            &[&["restore", "", &set, &timeline][..], options].concat(),
+            line,
+        )
     }
 
     /// The backup and the timeline of a restore to `moment`, or to the latest state, that xtask's

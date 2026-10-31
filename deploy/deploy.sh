@@ -21,9 +21,9 @@
 #       restore-inputs. It restores into a fresh data directory, and keeps the one it replaces
 #       beside it. When it finds Postgres running the database the bucket backs up, with its log
 #       reaching the bucket, it prints the moment that a restore to undoes it; when that log
-#       doesn't reach the bucket, it refuses before anything stops, or, when the log stops
-#       reaching it once the replicas have stopped, starts them again and refuses, unless
-#       --allow-unarchived lets it go on.
+#       doesn't reach the bucket, it refuses before anything stops, or, when its transaction or
+#       the check that archives it fails once the replicas have stopped, starts them again and
+#       refuses, unless --allow-unarchived lets it go on.
 #   deploy.sh restore-inputs
 #       Prints what a restore plans from: the server's clock, and what the backup bucket records
 #       of the bundled database's timelines: pgBackRest's info, the timelines' history files with
@@ -745,25 +745,30 @@ restore() {
     # replicas stop, and when the check passed, a transaction that changes nothing commits, given
     # an ID by pg_current_xact_id(), without which it would write no commit: every moment before
     # it has a commit after it, and a restore to the moment it began returns the database to how
-    # this restore found it. A second check archives it. If that check fails, the log stopped
-    # reaching the bucket since the first, which refuses the restore as the first would have:
-    # Postgres still runs the database the restore found, so the replicas and the backups start
-    # again first.
+    # this restore found it. A second check archives it. If the transaction or that check fails,
+    # the bucket may lack what the replicas wrote since the first check, which refuses the
+    # restore as the first check would have: Postgres still runs the database the restore found,
+    # so the replicas and the backups start again first.
     undo=""
-    if [ "$archived" = yes ] && began=$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT now() WHERE pg_current_xact_id() IS NOT NULL' 2> /dev/null); then
-        if checked=$(compose exec -T --user postgres postgres pgbackrest --stanza=db check 2>&1); then
+    if [ "$archived" = yes ]; then
+        checked=""
+        if began=$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT now() WHERE pg_current_xact_id() IS NOT NULL' 2>&1) &&
+            checked=$(compose exec -T --user postgres postgres pgbackrest --stanza=db check 2>&1); then
             undo=$began
             say "a restore to $undo undoes this one"
         else
-            printf '%s\n' "$checked"
+            printf '%s\n' "${checked:-$began}"
+            failed="the restore's transaction, or pgBackRest's check that archives it, failed, with the error above, once the replicas had stopped"
             if [ "$unarchived" != yes ]; then
+                say "$failed: $refusal"
+                say "starting the API and the backups again, with the database as the restore found it"
                 if [ -n "$live" ]; then
                     compose up --detach --wait --quiet-pull --no-deps --scale "api-$live=$replicas" "api-$live"
                 fi
                 compose up --detach --wait --quiet-pull backup
-                fail "pgBackRest's check failed, with the error above, once the replicas had stopped, so the restore started them again, with the database as it found it: $refusal"
+                fail "refused the restore, and started the API and the backups again"
             fi
-            say "pgBackRest's check failed, with the error above, once the replicas had stopped; restoring anyway, as --allow-unarchived asks, so what the bucket lacks of the database stays only in the data that moves aside"
+            say "$failed; restoring anyway, as --allow-unarchived asks, so what the bucket lacks of the database stays only in the data that moves aside"
         fi
     fi
     compose stop postgres
