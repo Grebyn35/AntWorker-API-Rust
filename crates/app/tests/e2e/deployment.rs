@@ -422,9 +422,10 @@ pub fn post(root: String, url: String, body: String) -> (u16, String) {
     .expect("the request")
 }
 
-/// Starts the server of a managed database, another server of Compose's Postgres, as
-/// docs/operations/ci.md says: from its image, with its command, environment and health check, on
-/// its network, and with its data in a volume of its own, which goes with it.
+/// Starts the server of a managed database: another server of Compose's Postgres, for the reason
+/// docs/operations/ci.md gives. It runs the service's image with its command and environment, and
+/// its health check's test, interval, timeout and retries, joins its network, and keeps its data
+/// in a volume of its own, which goes with it.
 fn database_server() -> Container {
     let config: Value = serde_json::from_str(&compose(&["config", "--format", "json", "postgres"]))
         .expect("Compose's configuration");

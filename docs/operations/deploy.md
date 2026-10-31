@@ -154,7 +154,7 @@ Each service the API depends on is bundled or a provider's, chosen by one settin
 | Setting | Values | What runs |
 |---|---|---|
 | `DATABASE` | `bundled` | Postgres and its backups, on the server ([backups.md](backups.md)) |
-| | `managed` | Nothing: the API connects to a provider's Postgres server, which must back it up with point-in-time recovery, which restores the database as it stood at any moment it reaches, as OPS-17 requires, encrypt what it stores, as OPS-20 does, and hold no other deployment's database, such as a staging one's: the roles `owner` and `app` belong to the whole server, so another deployment's `bootstrap` would set their passwords to its own, and its URLs would reach this deployment's tables |
+| | `managed` | Nothing: the API connects to a provider's Postgres server, which must back it up with point-in-time recovery, which restores the database as it stood at any moment it reaches, as OPS-17 requires, encrypt what it stores, as OPS-20 does, and hold no other deployment's database, such as a staging one's, since deployments on one server share its roles ([platform spec](../spec/platform.md#database-roles)) |
 | `TELEMETRY` | `self-hosted` | The collector, Prometheus, Loki, Tempo, Alertmanager, and Grafana at `GRAFANA_ADDRESS` |
 | | `managed` | The collector alone, which sends every signal to a managed backend, into whose Grafana each deploy imports the dashboards and the alert rules ([observability.md](observability.md#a-managed-backend)) |
 | | `off` | Nothing: the API's logs go only to its containers' output |
@@ -188,7 +188,7 @@ With a managed backend, its Grafana shows the dashboards in the folder `API`, an
 
 The image and its settings don't depend on this deployment, so a fork can run the API on Kubernetes, Amazon's Elastic Container Service or any platform that runs containers. That platform must provide:
 
-- one Postgres that every replica shares, with point-in-time recovery (OPS-17);
+- one Postgres that every replica shares, with point-in-time recovery (OPS-17), on a server that holds no other deployment's database, since deployments on one server share its roles ([platform spec](../spec/platform.md#database-roles));
 - object storage, once the `files` module stores files;
 - routing that sends requests only to replicas whose `/health/ready` answers 200, and stops within `SHUTDOWN_DELAY_SECONDS` of a replica answering `draining`;
 - a grace period after the shutdown signal longer than `SHUTDOWN_DELAY_SECONDS` plus `SHUTDOWN_DRAIN_SECONDS` plus the time that writing out telemetry may take, which the platform spec's [Telemetry export](../spec/platform.md#telemetry-export) bounds;
