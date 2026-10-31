@@ -8,6 +8,7 @@ use serde_json::Value;
 use crate::{
     deployment::{Deployment, get},
     docker::lossy,
+    server::DEPLOYMENT,
 };
 
 /// Waits until Postgres has archived the segment of the write-ahead log that holds everything
@@ -573,6 +574,66 @@ async fn ops_17_a_restore_whose_transaction_fails_once_the_replicas_stop_serves_
     local_connections(&deployment, true);
 
     served_again_and_refused(&deployment, refused, &refusal);
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_finds_its_postgres_while_a_one_off_of_the_service_runs() {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('kept');",
+    );
+    // A container of the Postgres service that `compose run` starts, as restore-inputs does while
+    // another restore plans, without the lock. The restore's stop of Postgres leaves it running.
+    deployment.server.shell_ok(&format!(
+        "cd {DEPLOYMENT} && docker compose --project-name deployment --project-directory . \
+         --file compose.yaml --env-file settings.env --env-file state/deploy.env --profile database \
+         run --detach --rm --no-deps --entrypoint sleep postgres 600 > /dev/null"
+    ));
+
+    let restored = deployment.restore(None);
+
+    assert!(restored.status.success(), "{}", lossy(&restored));
+    assert_eq!(deployment.sql("SELECT name FROM restore_marker"), "kept");
+    let (status, _) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/capabilities"),
+    );
+    assert_eq!(status, 200);
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_that_finds_postgres_replaying_the_log_restores_without_a_check() {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('archived');",
+    );
+    archive_everything_committed(&deployment);
+    // Postgres in recovery, as a restore that failed during its replay leaves it: a standby that
+    // nothing feeds, which stays in recovery and accepts connections.
+    deployment.server.shell_ok(
+        "docker exec --user postgres deployment-postgres-1 sh -c 'touch \"$PGDATA/standby.signal\"' \
+         && docker restart deployment-postgres-1 > /dev/null \
+         && timeout 120 sh -c 'until [ \"$(docker exec deployment-postgres-1 psql --username=postgres \
+            --dbname=api -qAt -c \"SELECT pg_is_in_recovery()\" 2> /dev/null)\" = t ]; do sleep 1; done'",
+    );
+
+    let restored = deployment.restore(None);
+
+    let written = lossy(&restored);
+    assert!(restored.status.success(), "{written}");
+    assert!(!written.contains("pgBackRest's check failed"), "{written}");
+    assert!(!written.contains("undoes this one"), "{written}");
+    assert_eq!(
+        deployment.sql("SELECT name FROM restore_marker"),
+        "archived"
+    );
+    assert_eq!(deployment.sql("SELECT pg_is_in_recovery()"), "f");
 }
 
 #[tokio::test]

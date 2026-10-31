@@ -87,10 +87,20 @@ compose() {
         --env-file "$state/deploy.env" $profiles "$@"
 }
 
-# The ID of the running container of the deployment's service $1, if one runs.
+# The ID of the deployment's container of the service $1, running or not, if it has one. A
+# container that `compose run` starts from the service is a one-off, which this never names: one
+# may run at any moment, as restore-inputs runs one without the lock.
+service_container() {
+    docker ps --all --quiet --filter "label=com.docker.compose.project=$project" \
+        --filter "label=com.docker.compose.service=$1" --filter label=com.docker.compose.oneoff=False | head -n 1
+}
+
+# The ID of the running container of the deployment's service $1, if one runs: never a one-off,
+# as for service_container.
 running() {
     docker ps --quiet --filter "label=com.docker.compose.project=$project" \
-        --filter "label=com.docker.compose.service=$1" --filter status=running | head -n 1
+        --filter "label=com.docker.compose.service=$1" --filter label=com.docker.compose.oneoff=False \
+        --filter status=running | head -n 1
 }
 
 # One deploy, backup or restore at a time (OPS-16). A task takes the lock state/lock, and refuses
@@ -704,7 +714,7 @@ recovered() {
     compose up --detach --quiet-pull postgres || fail "couldn't start Postgres on the restored data, with the error above"
     # The start's time in nanoseconds, after the last line that an earlier run of the container
     # wrote, which a clock read in whole seconds might not be.
-    if ! container=$(compose ps --all --quiet postgres) || ! started=$(docker inspect --format '{{.State.StartedAt}}' "$container"); then
+    if ! container=$(service_container postgres) || ! started=$(docker inspect --format '{{.State.StartedAt}}' "$container"); then
         fail "couldn't find when Postgres started, with the error above"
     fi
     waited=0
@@ -764,11 +774,13 @@ restore() {
     # timeout, refuses the restore, unless --allow-unarchived lets it go on: the changes that the
     # bucket lacks would stay only in the data that moves aside, while the API serves the
     # restored database, and no restore would return to the database this one replaces. With
-    # Postgres not running, as after a restore whose database couldn't start, there's nothing to
-    # check.
+    # Postgres not running, as after a restore whose database couldn't start, or still replaying
+    # the log, as after a restore that failed during its replay, there's nothing to check: a
+    # database in recovery takes no writes, and holds only what the bucket gave it.
     refusal="the bucket may lack the database's latest changes, which a restore would leave only in the data it moves aside, and no restore could undo it. Fix what the error names, and restore again; or, to restore anyway, add --allow-unarchived"
     archived=no
-    if compose exec -T --user postgres postgres pg_isready --quiet > /dev/null 2>&1; then
+    if compose exec -T --user postgres postgres pg_isready --quiet > /dev/null 2>&1 &&
+        [ "$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT pg_is_in_recovery()' 2> /dev/null)" != t ]; then
         status=0
         checked=$(compose exec -T --user postgres postgres pgbackrest --stanza=db check 2>&1) || status=$?
         case $status in
