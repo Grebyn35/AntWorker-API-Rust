@@ -30,18 +30,15 @@ fn archive_everything_committed(deployment: &Deployment) {
 
 /// Sends `signal` to Postgres's archiver: `STOP`, so what Postgres writes from then on doesn't
 /// reach the bucket, which stays readable, as when the archiving fails on its own, until `CONT`
-/// or until Postgres stops.
+/// or until Postgres stops. Postgres reports the archiver's process ID, which its title in /proc
+/// doesn't give where the image runs through QEMU: there, every process shows QEMU's command line.
 fn signal_archiver(deployment: &Deployment, signal: &str) {
     deployment.server.write(
         "/root/signal-archiver.sh",
         &format!(
-            "signaled=no\n\
-             for process in /proc/[0-9]*; do\n\
-             case $(tr '\\0' ' ' < \"$process/cmdline\" 2> /dev/null) in\n\
-             \"postgres: archiver\"*) kill -{signal} \"${{process#/proc/}}\" && signaled=yes ;;\n\
-             esac\n\
-             done\n\
-             [ \"$signaled\" = yes ]\n"
+            "archiver=$(psql --username=postgres --dbname=api -qAt \
+             -c \"SELECT pid FROM pg_stat_activity WHERE backend_type = 'archiver'\")\n\
+             [ -n \"$archiver\" ] && kill -{signal} \"$archiver\"\n"
         ),
     );
     deployment
