@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** the conformance review of the commits after c5aecac, which build D59, then step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build. The spec settles the platform spec's open question on where the IP limit counts. Step 1 is built and reviewed through 6106c8c, each review's result in [Conformance reviews](#conformance-reviews). The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build, whose review covers the commits after ef662a6. The spec settles the platform spec's open question on where the IP limit counts. Step 1 is built and reviewed through ef662a6, each review's result in [Conformance reviews](#conformance-reviews); the commits after a92d7a8 passed `just checks` and the restore's end-to-end tests, and GitHub's CI runs the full suite once they're pushed. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
 
 ## Build order
 
@@ -174,7 +174,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 903739d..860374f: a restore that reaches every moment up to its own start, and names the moment that undoes it (D58) | 1 | 6 (6, 1, 1 shared) | 3 | 0 | `next pass`: f7f3c46 |
 | 903739d..f7f3c46: as above | 2 | 6 (5, 2, 1 shared) | 2 | 1 | `stopped: no progress`: 6106c8c |
 | c5aecac..ba2c653: a restore that refuses while the database's log doesn't reach the bucket (D59) | 1 | 5 (4, 1, 0 shared) | 1 | 0 | `next pass`: a92d7a8 |
-| c5aecac..a92d7a8: as above | 2 | 4 (3, 1, 0 shared) | 2 | 1 | `stopped: no progress` |
+| c5aecac..a92d7a8: as above | 2 | 4 (3, 1, 0 shared) | 2 | 1 | `stopped: no progress`: ef662a6 |
 
 ## Decisions
 
