@@ -711,10 +711,14 @@ recovered() {
             return 1
         fi
         if [ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" = unhealthy ]; then
-            fail "Postgres doesn't start on the restored data; its log says why: docker compose logs postgres"
+            compose logs --tail 30 postgres >&2 || true
+            fail "Postgres doesn't start on the restored data; the end of its log, above, says why"
         fi
         waited=$((waited + 1))
-        if [ "$waited" -gt 600 ]; then fail "the restored database is still recovering after 10 minutes; its log says why: docker compose logs postgres"; fi
+        if [ "$waited" -gt 600 ]; then
+            compose logs --tail 30 postgres >&2 || true
+            fail "the restored database is still recovering after 10 minutes, as the end of its log, above, shows"
+        fi
         sleep 1
     done
 }
@@ -820,19 +824,22 @@ restore() {
         fi' sh "$stamp" "$moment" "$set" "$timeline"
     if ! recovered; then
         # Postgres ended the replay where the log that the bucket holds along the timeline ends,
-        # without reaching the moment: no change that the bucket holds follows the moment there,
-        # as for one while an earlier restore ran, after the moment it named, or one after a lost
-        # server's last archived change. The database stood at the moment as at the timeline's
-        # last change, as far as the bucket holds it, which a replay along the timeline to its
-        # end reaches, from the same backup. --delta keeps each file that still matches the
-        # backup, and restores the others.
-        say "no change that the bucket holds follows $moment on timeline $timeline, so the restore replays the timeline to its last change, which is how the database stood then"
+        # without reaching the moment: no commit that the bucket holds follows the moment there,
+        # as for one while an earlier restore ran, after the moment it named and before its
+        # timeline began, or one after a lost server's last archived change. The database stood
+        # at the moment as at the timeline's last commit, as far as the bucket holds it, which a
+        # replay along the timeline to its end reaches, from the same backup. --delta keeps each
+        # file that still matches the backup, and restores the others.
+        say "no commit that the bucket holds follows $moment on timeline $timeline, so the restore replays the timeline to its end, which is how the database stood then"
         compose stop postgres
         compose run --rm --no-deps --quiet-pull --user postgres --entrypoint pgbackrest postgres \
             --stanza=db restore --delta --set="$set" --type=default --target-timeline="$timeline"
-        recovered || fail "Postgres couldn't replay timeline $timeline to its end; its log says why: docker compose logs postgres"
+        if ! recovered; then
+            compose logs --tail 30 postgres >&2 || true
+            fail "Postgres couldn't replay timeline $timeline to its end; the end of its log, above, says why"
+        fi
         last=$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT pg_last_xact_replay_timestamp()') || last=""
-        say "the restored database ends with the last change on timeline $timeline that the bucket holds${last:+, at $last}"
+        say "the restored database ends with the last commit on timeline $timeline that the bucket holds${last:+, at $last}"
     fi
     if [ -n "$live" ]; then
         API_IMAGE_NEW=$live_image compose --profile tasks run --rm --no-deps --quiet-pull migrate

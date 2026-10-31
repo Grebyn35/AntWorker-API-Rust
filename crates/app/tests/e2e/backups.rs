@@ -201,7 +201,7 @@ async fn ops_17_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
     assert!(went_back.status.success(), "{}", lossy(&went_back));
     // A second after the moment that restore named: once its transaction had committed, and
     // before its timeline began, which waited for its second check, Postgres's stop and the
-    // restore of the backup. No change that the bucket holds follows it on the timeline that
+    // restore of the backup. No commit that the bucket holds follows it on the timeline that
     // restore abandoned.
     let during = deployment.sql(&format!(
         "SELECT '{}'::timestamptz + interval '1 second'",
@@ -213,11 +213,11 @@ async fn ops_17_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
     let written = lossy(&restored);
     assert!(restored.status.success(), "{written}");
     assert!(
-        written.contains("replays the timeline to its last change"),
+        written.contains("replays the timeline to its end"),
         "{written}"
     );
     assert!(
-        written.contains("ends with the last change on timeline 1 that the bucket holds, at "),
+        written.contains("ends with the last commit on timeline 1 that the bucket holds, at "),
         "{written}"
     );
     assert_eq!(
@@ -386,6 +386,11 @@ async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucke
     );
     assert_eq!(refused_replicas.len(), 0);
     assert!(restored.status.success(), "{}", lossy(&restored));
+    assert!(
+        !lossy(&restored).contains("undoes this one"),
+        "{}",
+        lossy(&restored)
+    );
     assert!(deployed.status.success(), "{}", lossy(&deployed));
     assert_eq!(
         new.sql("SELECT name FROM restore_marker"),
@@ -399,25 +404,32 @@ async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucke
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_on_a_new_server_names_no_moment_that_undoes_it() {
+async fn ops_17_a_restore_on_a_new_server_reaches_a_moment_after_the_last_archived_change_and_names_no_moment_that_undoes_it()
+ {
     let (_lost, new) = lost_and_new_server().await;
     // The first deploy stops before any replica starts, with Postgres running the empty database
     // it has just created, which the bucket doesn't back up.
     let refused = new.apply(&new.api, &[]).await;
     assert!(!refused.status.success(), "{}", lossy(&refused));
+    // After the lost server's last archived change, which no commit the bucket holds follows.
+    let moment = new.sql("SELECT now()");
 
-    let restored = new.restore(None);
+    let restored = new.restore(Some(&moment));
 
-    assert!(restored.status.success(), "{}", lossy(&restored));
+    let written = lossy(&restored);
+    assert!(restored.status.success(), "{written}");
+    assert!(!written.contains("undoes this one"), "{written}");
     assert!(
-        !lossy(&restored).contains("undoes this one"),
-        "{}",
-        lossy(&restored)
+        written.contains("the bucket backs up another database"),
+        "{written}"
     );
     assert!(
-        lossy(&restored).contains("the bucket backs up another database"),
-        "{}",
-        lossy(&restored)
+        written.contains("replays the timeline to its end"),
+        "{written}"
+    );
+    assert_eq!(
+        new.sql("SELECT name FROM restore_marker"),
+        "on the lost server"
     );
 }
 
