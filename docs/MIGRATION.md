@@ -179,6 +179,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | c5aecac..a92d7a8: as above | 2 | 4 (3, 1, 0 shared) | 2 | 1 | `stopped: no progress`: ef662a6 |
 | 30c65a1..c7a6431: a restore that reaches a moment that no commit or rollback in the bucket follows on its timeline (D60) | 1 | 4 (3, 1, 0 shared) | 2 | 0 | `next pass`: f0c9c2f |
 | 30c65a1..f0c9c2f: as above | 2 | 4 (4, 1, 1 shared) | 2 | 0 | `stopped: no progress`: d2d1ca4 |
+| a912c96..cfe2dcd: the end-to-end suite's fixed waits, Postgres's archiver on arm64, its health check and the programs its image runs, and a restore while a one-off of Postgres runs or Postgres replays | 1 | 3 (3, 0, 0 shared) | 2 | 0 | `next pass` |
 
 ## Decisions
 
