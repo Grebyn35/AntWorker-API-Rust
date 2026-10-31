@@ -87,8 +87,12 @@ fn workflow_pins(path: &str, text: &str, just_version: Option<&str>, findings: &
             if let Some(problem) = action_problem(action) {
                 findings.push(Finding::new(path, number, problem));
             }
-        } else if let Some(runner) = value_of(line, "runs-on:") {
-            if !is_versioned_runner(runner) {
+        } else if let Some(runner) =
+            value_of(line, "runs-on:").or_else(|| value_of(line, "runner:"))
+        {
+            // A job that runs on a runner for each value of its matrix names it from the matrix,
+            // whose `runner:` values are checked as labels.
+            if runner != "${{ matrix.runner }}" && !is_versioned_runner(runner) {
                 findings.push(Finding::new(
                     path,
                     number,
@@ -589,6 +593,26 @@ mod tests {
             assert_eq!(findings.len(), 1, "{runner}: {findings:?}");
             assert!(findings[0].contains("versioned label"), "{findings:?}");
         }
+    }
+
+    #[test]
+    fn ops_13_a_runner_that_a_matrix_names_is_a_versioned_label() {
+        let workflow = |arm: &str| {
+            format!(
+                "jobs:\n  a:\n    runs-on: ${{{{ matrix.runner }}}}\n    strategy:\n      matrix:\n        include:\n          - platform: linux/amd64\n            runner: ubuntu-24.04\n          - platform: linux/arm64\n            runner: {arm}\n"
+            )
+        };
+
+        assert_eq!(
+            findings_with(".github/workflows/ci.yml", &workflow("ubuntu-24.04-arm")),
+            Vec::<String>::new()
+        );
+        let findings = findings_with(".github/workflows/ci.yml", &workflow("ubuntu-latest"));
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(
+            findings[0].contains("ubuntu-latest is a versioned label"),
+            "{findings:?}"
+        );
     }
 
     #[test]

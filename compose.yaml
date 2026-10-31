@@ -145,8 +145,8 @@ services:
     profiles: [tools]
     image: koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
 
-  # Installs QEMU, through which a Linux machine runs another platform's binaries, such as CI's
-  # runner for the arm64 image.
+  # Installs QEMU, through which a Linux machine runs another platform's binaries, such as the
+  # arm64 image's end-to-end tests on an amd64 machine.
   binfmt:
     profiles: [tools]
     image: tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0

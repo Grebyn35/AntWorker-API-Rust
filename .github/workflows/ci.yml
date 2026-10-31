@@ -86,18 +86,23 @@ jobs:
           path: target
       - run: just image-scan
 
-  # The digests the image job built, booted on each platform with the end-to-end tests, arm64
-  # through QEMU (OPS-14, OPS-15), each platform on a runner of its own.
+  # The digests the image job built, booted on each platform with the end-to-end tests (OPS-14,
+  # OPS-15), each on a runner of that platform.
   verify:
     needs: image
-    runs-on: ubuntu-24.04
-    # Room for arm64's run through QEMU, which takes longer than amd64's on its own processor, and
-    # for the minutes each test that starts a Grafana adds; a hang still ends here.
+    name: verify (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    # Room for the suite on two processors, as a private repository's runners have, and for the
+    # minutes each test that starts a Grafana adds; a hang still ends here.
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
-        platform: [linux/amd64, linux/arm64]
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       # The runner's preinstalled toolchains that no task uses, deleted for the disk that the
       # end-to-end tests' servers need (docs/operations/ci.md).
@@ -117,8 +122,6 @@ jobs:
         with:
           name: image
           path: target
-      - if: matrix.platform == 'linux/arm64'
-        run: docker compose run --rm binfmt --install arm64
       - run: just e2e
         env:
           E2E_PLATFORM: ${{ matrix.platform }}
