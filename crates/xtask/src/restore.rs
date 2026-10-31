@@ -12,8 +12,8 @@
 //! The plan is a pure function of what the backup bucket records, which deploy.sh's
 //! `restore-inputs` prints, so tests cover it without a bucket. `just restore` makes it on the
 //! developer's machine, and the end-to-end tests through `restore-plan`. A moment that the
-//! server's clock, which `restore-inputs` also prints, hasn't reached is refused: no commit
-//! follows it, and Postgres won't end a replay that no commit follows.
+//! server's clock, which `restore-inputs` also prints, hasn't reached is refused: the database
+//! hasn't stood at it yet, as when the moment's offset from UTC is wrong.
 
 use std::{
     io::{self, Read},

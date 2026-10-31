@@ -186,6 +186,48 @@ async fn ops_17_a_restore_to_the_moment_an_earlier_restore_names_undoes_it() {
 }
 
 #[tokio::test]
+async fn ops_17_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('early');",
+    );
+    let early = deployment.sql("SELECT now()");
+    deployment.sql("INSERT INTO restore_marker VALUES ('last')");
+    archive_everything_committed(&deployment);
+    let went_back = deployment.restore(Some(&early));
+    assert!(went_back.status.success(), "{}", lossy(&went_back));
+    // A second after the moment that restore named: once its transaction had committed, and
+    // before its timeline began, which waited for its second check, Postgres's stop and the
+    // restore of the backup. No change that the bucket holds follows it on the timeline that
+    // restore abandoned.
+    let during = deployment.sql(&format!(
+        "SELECT '{}'::timestamptz + interval '1 second'",
+        undoing(&went_back)
+    ));
+
+    let restored = deployment.restore(Some(&during));
+
+    let written = lossy(&restored);
+    assert!(restored.status.success(), "{written}");
+    assert!(
+        written.contains("replays the timeline to its last change"),
+        "{written}"
+    );
+    assert!(
+        written.contains("ends with the last change on timeline 1 that the bucket holds, at "),
+        "{written}"
+    );
+    assert_eq!(
+        deployment.sql("SELECT name FROM restore_marker ORDER BY name"),
+        "early\nlast"
+    );
+    assert_eq!(deployment.server.running("api-blue").len(), 2);
+}
+
+#[tokio::test]
 async fn ops_17_a_restore_reaches_a_moment_that_an_earlier_restore_went_back_past() {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
