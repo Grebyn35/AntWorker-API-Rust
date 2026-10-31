@@ -98,12 +98,15 @@ services:
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
     # The admin API's metrics, whose requests Caddy logs only at the debug level, where every other
-    # request to the admin API adds a line to Caddy's log.
+    # request to the admin API adds a line to Caddy's log. While it starts, Caddy is checked every
+    # second, so a wait for it ends a second after it answers.
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:2019/metrics"]
       interval: 5s
       timeout: 3s
       retries: 10
+      start_period: 10s
+      start_interval: 1s
     networks: [edge, telemetry]
     restart: unless-stopped
 
@@ -188,11 +191,14 @@ services:
       - ./certs:/etc/deployment-certs:ro
     healthcheck:
       # Over TCP: while the image initializes a new database, it runs a server that listens only
-      # on its socket, then stops it and starts the real one.
+      # on its socket, then stops it and starts the real one. While it starts, Postgres is checked
+      # every second, so a wait for it ends a second after it accepts connections.
       test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=postgres", "--dbname=api"]
       interval: 5s
       timeout: 5s
       retries: 30
+      start_period: 30s
+      start_interval: 1s
     stop_grace_period: 60s
     networks: [data]
     restart: unless-stopped

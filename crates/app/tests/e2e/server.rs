@@ -88,9 +88,6 @@ impl Server {
             "--privileged",
             "--network",
             &network,
-            // Docker listens only on its socket, with no certificates to make.
-            "--env",
-            "DOCKER_TLS_CERTDIR=",
             "--publish",
             "127.0.0.1::80",
             "--publish",
@@ -110,6 +107,11 @@ impl Server {
             "--add-host",
             "registry-1.docker.io:127.0.0.1",
             &image,
+            // Docker listens only on its socket. Named with its own arguments, dockerd gets no
+            // listener from the image's entrypoint, which otherwise adds a TCP one without TLS,
+            // for which dockerd delays its start by 15 seconds.
+            "dockerd",
+            "--host=unix:///var/run/docker.sock",
             "--insecure-registry=registry:5000",
             "--registry-mirror=http://mirror:5000",
         ]);
@@ -361,11 +363,12 @@ impl Server {
             cp /root/grafana/ca.crt {DEPLOYMENT}/certs/managed-grafana-ca.crt
             docker run --detach --quiet --name grafana --publish 3443:3000 --volume /root/grafana:/grafana:ro \
                 --volume /root/grafana/datasources:/etc/grafana/provisioning/datasources:ro \
+                --tmpfs /var/lib/grafana:uid=472,gid=0,mode=0775 \
                 --env GF_SERVER_PROTOCOL=https --env GF_SERVER_CERT_FILE=/grafana/server.crt \
                 --env GF_SERVER_CERT_KEY=/grafana/server.key {image} > /dev/null"
         ));
-        // Grafana's first start migrates its database, which takes more than a minute on a
-        // machine that runs the suite's other servers too.
+        // Grafana's first start migrates its database, whose every step waits for the disk; the
+        // stand-in keeps it in memory, since nothing it holds outlives the test.
         self.managed_grafana_until_ready();
         let account = self.managed_grafana(
             "POST",
@@ -571,9 +574,10 @@ impl Server {
             docker run --detach --quiet --name bucket --publish 8334:8334 --volume /root/bucket:/bucket:ro {image} \
                 server -dir=/data -s3 -s3.port=8333 -s3.port.https=8334 \
                 -s3.cert.file=/bucket/server.crt -s3.key.file=/bucket/server.key -s3.config=/bucket/s3.json > /dev/null
-            # SeaweedFS's master takes a few seconds to start, and the shell can't create the bucket
-            # before it answers.
-            timeout 120 sh -c 'until echo s3.bucket.create -name backups | docker exec --interactive bucket weed shell -master=localhost:9333 2> /dev/null | grep -q created; do sleep 1; done'"
+            # SeaweedFS takes a few seconds to start, and the shell can't create the bucket before
+            # it answers. Named the filer, the shell reaches it at once, rather than waiting for the
+            # master to list it.
+            timeout 120 sh -c 'until echo s3.bucket.create -name backups | docker exec --interactive bucket weed shell -master=localhost:9333 -filer=localhost:8888 2> /dev/null | grep -q created; do sleep 1; done'"
         ));
         self.write(&format!("{DEPLOYMENT}/secrets/backup_s3_key"), "e2e");
         self.write(

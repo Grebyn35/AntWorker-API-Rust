@@ -55,18 +55,24 @@ services:
     environment:
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # SQLite's write-ahead log, with which Grafana's database waits less on the disk, most of all
+      # in the first start, which migrates it one step at a time.
+      GF_DATABASE_WAL: "true"
     volumes:
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana:/var/lib/grafana
     # Healthy once Grafana answers, which takes it some seconds after it starts, so that waiting
-    # for the stack waits for it.
+    # for the stack waits for it. While it starts, Grafana is checked every second, so the wait ends
+    # a second after it answers.
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:3000/api/health"]
       interval: 5s
       timeout: 3s
       retries: 60
+      start_period: 60s
+      start_interval: 1s
 
 volumes:
   prometheus:
