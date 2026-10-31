@@ -184,9 +184,11 @@ impl Deployment {
     }
 
     /// Deploys `api`, the API's image, with `options`. With a managed database, no other test
-    /// runs `bootstrap` meanwhile, since the deploy runs it on the roles every test database
-    /// shares (the platform spec's Database roles). A deploy that runs the self-hosted stack
-    /// first waits for a share of `STACKS`, before it takes that lock.
+    /// runs `bootstrap` while the deploy does, since it changes the roles every test database
+    /// shares (the platform spec's Database roles): the deploy holds the lock on them until it
+    /// starts its replicas, after `bootstrap` and `migrate`, or until it ends before. A deploy
+    /// that runs the self-hosted stack first waits for a share of `STACKS`, before it takes that
+    /// lock.
     pub async fn apply(&self, api: &str, options: &[&str]) -> Output {
         self.apply_images(api, &self.postgres, options).await
     }
@@ -198,11 +200,14 @@ impl Deployment {
         let mut args = vec!["apply", api, postgres];
         args.extend(options);
         match &self.database {
-            Some(database) => {
-                database
-                    .with_roles_locked(async { self.server.deploy(&args) })
-                    .await
-            }
+            Some(database) => database
+                .with_roles_locked(async {
+                    let mut deploy = self.server.start_deploy(&args);
+                    deploy.pass(starts_replicas);
+                    deploy
+                })
+                .await
+                .output(),
             None => self.server.deploy(&args),
         }
     }
@@ -342,6 +347,12 @@ impl Deployment {
         let published = self.server.address(port).port();
         format!("{scheme}://{site}:{published}{path}")
     }
+}
+
+/// Whether `line` is the one a deploy writes as it starts the release's replicas, such as
+/// `deploy: starting 2 green replicas`, after `bootstrap` and `migrate`.
+fn starts_replicas(line: &str) -> bool {
+    line.starts_with("deploy: starting ") && line.ends_with(" replicas")
 }
 
 /// A client of the API, through Caddy, that trusts `root`, the authority of Caddy's certificates
