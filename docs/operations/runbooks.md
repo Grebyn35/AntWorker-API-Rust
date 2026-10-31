@@ -73,7 +73,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 ## BackupArchivingFailing
 
-**What it means.** The bundled Postgres failed to archive a segment of its write-ahead log to the backup bucket, and no archive has succeeded since. Postgres keeps each segment until it is archived, so its disk fills, and the latest moment a restore can reach stops advancing: losing the server now loses everything since the last archive that succeeded (OPS-17). A restore refuses meanwhile, as [Restoring](backups.md#restoring) says.
+**What it means.** The bundled Postgres failed to archive a segment of its write-ahead log to the backup bucket, and no archive has succeeded since. Postgres keeps each segment until it is archived, so its disk fills, and the latest moment a restore can reach stops advancing: losing the server now loses everything since the last archive that succeeded (OPS-17). Meanwhile a restore refuses, unless it finds Postgres not running or still replaying the log, as [Restoring](backups.md#restoring) says.
 
 **Look first.** `just logs <host> postgres` shows pgBackRest's error for each attempt, such as a key pair the bucket refuses, an endpoint that doesn't answer, or a certificate the deployment doesn't trust.
 
