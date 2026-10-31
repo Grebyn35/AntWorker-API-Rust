@@ -23,7 +23,8 @@
 #       reaching the bucket, it prints the moment that a restore to undoes it; when that log
 #       doesn't reach the bucket, it refuses before anything stops, or, when its transaction or
 #       the check that archives it fails once the replicas have stopped, starts them again and
-#       refuses, unless --allow-unarchived lets it go on.
+#       refuses, unless --allow-unarchived lets it go on. Postgres still replaying the log, as
+#       after a restore that failed during its replay, isn't checked.
 #   deploy.sh restore-inputs
 #       Prints what a restore plans from: the server's clock, and what the backup bucket records
 #       of the bundled database's timelines: pgBackRest's info, the timelines' history files with

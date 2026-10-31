@@ -587,15 +587,22 @@ async fn ops_17_a_restore_finds_its_postgres_while_a_one_off_of_the_service_runs
     );
     // A container of the Postgres service that `compose run` starts, as restore-inputs does while
     // another restore plans, without the lock. The restore's stop of Postgres leaves it running.
-    deployment.server.shell_ok(&format!(
+    let one_off = deployment.server.shell_ok(&format!(
         "cd {DEPLOYMENT} && docker compose --project-name deployment --project-directory . \
          --file compose.yaml --env-file settings.env --env-file state/deploy.env --profile database \
-         run --detach --rm --no-deps --entrypoint sleep postgres 600 > /dev/null"
+         run --detach --rm --no-deps --entrypoint sleep postgres 600"
     ));
 
     let restored = deployment.restore(None);
 
     assert!(restored.status.success(), "{}", lossy(&restored));
+    // Still running once the restore ends, so it ran while the restore looked Postgres up.
+    assert_eq!(
+        deployment.server.shell_ok(&format!(
+            "docker inspect --format '{{{{.State.Running}}}}' {one_off}"
+        )),
+        "true"
+    );
     assert_eq!(deployment.sql("SELECT name FROM restore_marker"), "kept");
     let (status, _) = get(
         deployment.server.caddy_root(),
