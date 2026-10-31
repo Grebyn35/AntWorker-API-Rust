@@ -19,3 +19,8 @@ COPY --chmod=0755 bin/ /usr/local/bin/
 # The status directory, a volume that the backups share with the collector, belongs to the user
 # that Postgres and pgBackRest run as.
 RUN install --directory --owner=postgres --group=postgres /var/lib/backup-status
+# Postgres's own programs come first on the PATH, before their names in /usr/bin, which run
+# Debian's pg_wrapper: a Perl script that picks among the installed versions of Postgres, of which
+# the image has one. Where the image runs through QEMU, as CI's arm64 run does, Perl's start makes
+# each psql, and each health check's pg_isready, take about a second of a processor, not a tenth.
+ENV PATH=/usr/lib/postgresql/$PG_MAJOR/bin:$PATH
