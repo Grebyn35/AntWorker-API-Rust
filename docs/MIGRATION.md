@@ -138,6 +138,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of b299bf2..004d477 | The standards README's Fixing: an ID for its requirement that a fix adds or proposes a check, or says why none can cover the defect, so that a review can cite it | 3 |
 | Conformance review of 903739d..860374f | ARCH-14: a check lists each call of a database client, such as `psql`, in `deploy/`, and fails on one that the rule doesn't name, so the rule's list stays complete | 3 |
 | Conformance review of c5aecac..a92d7a8 | TEST-07: whether a test may act inside a window that the code under test holds open, such as the replicas' shutdown delay (PLATFORM-038) that a restore waits out before its transaction, rather than only at a state the test asks for | 3 |
+| The restore's fix after 97c76dc | CODE-16: `check-shell` fails on a function of a script under `deploy/` that assigns a variable the script's top level sets, since every variable of `sh` is global, and the assignment changes what the rest of the script reads | 3 |
 
 ## Conformance reviews
 

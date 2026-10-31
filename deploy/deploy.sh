@@ -721,6 +721,14 @@ recovered() {
     waited=0
     replayed=""
     until [ "$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT pg_is_in_recovery()' 2> /dev/null)" = f ]; do
+        # Docker's state before the log: once Docker reports that a run of the container ended,
+        # its log holds every line the run wrote, such as the one that ends a replay that falls
+        # short of its moment. Docker reports the container unhealthy as soon as a run ends,
+        # whatever its checks found, so only checks that fail as many times as the health check
+        # allows, while Postgres runs, say that it fails them.
+        if ! run_state=$(docker inspect --format '{{.State.Status}} {{if and (eq .State.Health.Status "unhealthy") (ge .State.Health.FailingStreak .Config.Healthcheck.Retries)}}failing{{else}}checked{{end}}' "$container"); then
+            fail "couldn't find whether Postgres runs, with the error above"
+        fi
         if ! logged=$(docker logs --since "$started" "$container" 2>&1); then
             printf '%s\n' "$logged" >&2
             fail "couldn't read Postgres's log, with the error above"
@@ -728,13 +736,12 @@ recovered() {
         case $logged in
             *'recovery ended before configured recovery target was reached'*) return 1 ;;
         esac
-        if ! health=$(docker inspect --format '{{.State.Health.Status}}' "$container"); then
-            fail "couldn't find whether Postgres is healthy, with the error above"
-        fi
-        if [ "$health" = unhealthy ]; then
-            compose logs --tail 30 postgres >&2 || true
-            fail "Postgres doesn't start on the restored data; the end of its log, above, says why"
-        fi
+        case $run_state in
+            'restarting '* | 'exited '* | 'dead '* | *' failing')
+                compose logs --tail 30 postgres >&2 || true
+                fail "Postgres doesn't start on the restored data; the end of its log, above, says why"
+                ;;
+        esac
         # How far the replay has come, once Postgres accepts connections during it.
         position=$(compose exec -T --user postgres postgres psql -qAt -c 'SELECT pg_last_wal_replay_lsn()' 2> /dev/null) || position=""
         if [ "$position" != "$replayed" ]; then
