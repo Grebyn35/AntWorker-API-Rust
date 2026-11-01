@@ -8,11 +8,11 @@
 
 | Table | Holds |
 |---|---|
-| `workspace_memberships` | One row per member of a workspace: `workspace_id`, `user_id`, `role`, `created_at`, `updated_at`, `version`. The primary key is `(workspace_id, user_id)`. |
+| `workspace_memberships` | One row per member of a workspace: `id`, `workspace_id`, `user_id`, `role`, `created_at`, when the member joined, `updated_at` and `version`. `(workspace_id, user_id)` is unique. A member's role can change, so the table has an `id` rather than a composite key (DATA-02), which breaks a tie between memberships that share a joining time in a list's order (API-06). |
 
 ## Interface
 
-- The permission types used with `Authorized<P>`, one type per permission in the matrix below.
+- The permission types used with `Authorized<P>`, one type per permission of the matrix below that a route requires.
 - `AccessPolicy`, implemented for `platform::authz`: `authorize`, and from step 2.4 on `memberships`, which returns the caller's `Memberships`.
 - `add_owner(uow, workspace_id, user_id)`: makes the creator the owner of a new workspace. Called only by `workspaces`.
 - `add_member(uow, workspace_id, user_id, role)`: adds a member. Called only by `invitations`, after accepting.
@@ -21,7 +21,7 @@
 - `members(uow, &Authorized<MembersRead>, &MemberFilter, &Page)`: a page of the workspace's memberships, newest first, kept to a role and to a set of users when the filter names them.
 - `member_ids(uow, &Authorized<MembersRead>)`: the user IDs of every member of the workspace, which a search of the members hands `accounts` (Design: Searching members).
 - `joined(uow, &Principal, Option<&[WorkspaceId]>, &Page)`: a page of the caller's own memberships, the latest joined first, kept to the given workspaces when a search named them, for listing the caller's workspaces.
-- `memberships(uow, &Principal)`: every membership of the caller (ACCESS-005), which `AccessPolicy::memberships` gives `platform` once its hub needs them, in step 2.4.
+- `workspace_ids(uow, &Principal)`: the ID of every workspace the caller belongs to (ACCESS-005), which a search of the caller's workspaces hands `workspaces`. `AccessPolicy::memberships`, with the caller's role in each, arrives with the hub that needs it, in step 2.4.
 - `Role::outranks(role)`: compares two roles (SEC-08).
 
 ## Behaviors
@@ -32,7 +32,7 @@
 | ACCESS-002 | A role grants exactly the permissions the matrix gives it, and nothing else. | D2 | `access_002_` |
 | ACCESS-003 | A caller who isn't a member of the workspace in the path gets 404 `request.not_found`. A member without the route's permission gets 403 `request.permission_denied`. Both refusals are reported to the `SecurityEventSink`. A workspace ID that isn't a UUID names no workspace, and answers 404 `request.not_found` unrecorded. | API-14, SEC-07, DATA-27 | `access_003_` |
 | ACCESS-004 | A member acts only on members whose role ranks below their own, and assigns only roles below their own. A refusal goes through `authz::refuse`, and answers 403 `request.permission_denied`. | SEC-08, DATA-27, PLATFORM-025 | `access_004_` |
-| ACCESS-005 | `memberships` returns every workspace the caller belongs to, with their role in each and when they joined, and nothing else. | D3, SEC-17 | `access_005_` |
+| ACCESS-005 | `workspace_ids` returns the ID of every workspace the caller belongs to, and nothing else. | D3, DATA-22 | `access_005_` |
 
 ## Design
 
@@ -63,7 +63,7 @@ A partial unique index on `workspace_memberships (workspace_id) WHERE role = 'ow
 
 ### Searching members
 
-The members' names and emails belong to `accounts`, and their memberships to `access`, so no one query joins them (ARCH-06). A search takes three: `member_ids` reads the workspace's members, `accounts::matching` keeps those whose name or email contains the search, and `members` pages the memberships of the users it kept. Each query filters by tenant itself: the first two by the workspace from the proof, and the second by IDs that came from it (DATA-22). A list without a search skips the first two.
+The members' names and emails belong to `accounts`, and their memberships to `access`, so no one query joins them (ARCH-06). A search takes three: `member_ids` reads the workspace's members, `accounts::matching` keeps those whose name or email contains the search, and `members` pages the memberships of the users it kept. Each query filters by tenant itself: the first and the third by the workspace from the proof, and the second by IDs that came from the first (DATA-22). A list without a search skips the first two.
 
 ## Open design questions
 

@@ -100,13 +100,13 @@ pub(super) async fn members(
     let users: Option<Vec<uuid::Uuid>> =
         users.map(|users| users.iter().map(|user| user.uuid()).collect());
     let rows = sqlx::query!(
-        r#"SELECT workspace_id, user_id, role::text AS "role!", created_at
+        r#"SELECT id, workspace_id, user_id, role::text AS "role!", created_at
         FROM workspace_memberships
         WHERE workspace_id = $1
             AND ($2::text IS NULL OR role = $2::text::workspace_role)
             AND ($3::uuid[] IS NULL OR user_id = ANY($3))
-            AND ($4::timestamptz IS NULL OR (created_at, user_id) < ($4, $5))
-        ORDER BY created_at DESC, user_id DESC
+            AND ($4::timestamptz IS NULL OR (created_at, id) < ($4, $5))
+        ORDER BY created_at DESC, id DESC
         LIMIT $6"#,
         workspace.uuid(),
         role.map(Role::name),
@@ -118,7 +118,15 @@ pub(super) async fn members(
     .fetch_all(uow.executor())
     .await?;
     rows.into_iter()
-        .map(|row| membership(row.workspace_id, row.user_id, &row.role, row.created_at))
+        .map(|row| {
+            membership(
+                row.id,
+                row.workspace_id,
+                row.user_id,
+                &row.role,
+                row.created_at,
+            )
+        })
         .collect()
 }
 
@@ -147,12 +155,12 @@ pub(super) async fn joined(
     let workspaces: Option<Vec<uuid::Uuid>> =
         workspaces.map(|workspaces| workspaces.iter().map(|id| id.uuid()).collect());
     let rows = sqlx::query!(
-        r#"SELECT workspace_id, user_id, role::text AS "role!", created_at
+        r#"SELECT id, workspace_id, user_id, role::text AS "role!", created_at
         FROM workspace_memberships
         WHERE user_id = $1
             AND ($2::uuid[] IS NULL OR workspace_id = ANY($2))
-            AND ($3::timestamptz IS NULL OR (created_at, workspace_id) < ($3, $4))
-        ORDER BY created_at DESC, workspace_id DESC
+            AND ($3::timestamptz IS NULL OR (created_at, id) < ($3, $4))
+        ORDER BY created_at DESC, id DESC
         LIMIT $5"#,
         user.uuid(),
         workspaces.as_deref(),
@@ -163,36 +171,41 @@ pub(super) async fn joined(
     .fetch_all(uow.executor())
     .await?;
     rows.into_iter()
-        .map(|row| membership(row.workspace_id, row.user_id, &row.role, row.created_at))
+        .map(|row| {
+            membership(
+                row.id,
+                row.workspace_id,
+                row.user_id,
+                &row.role,
+                row.created_at,
+            )
+        })
         .collect()
 }
 
-/// Every membership of `user`, the latest joined first.
-pub(super) async fn memberships(
+/// The IDs of every workspace `user` belongs to.
+pub(super) async fn workspace_ids(
     uow: &mut UnitOfWork,
     user: UserId,
-) -> Result<Vec<Membership>, Internal> {
-    let rows = sqlx::query!(
-        r#"SELECT workspace_id, user_id, role::text AS "role!", created_at
-        FROM workspace_memberships
-        WHERE user_id = $1
-        ORDER BY created_at DESC, workspace_id DESC"#,
+) -> Result<Vec<WorkspaceId>, Internal> {
+    let ids = sqlx::query_scalar!(
+        "SELECT workspace_id FROM workspace_memberships WHERE user_id = $1",
         user.uuid(),
     )
     .fetch_all(uow.executor())
     .await?;
-    rows.into_iter()
-        .map(|row| membership(row.workspace_id, row.user_id, &row.role, row.created_at))
-        .collect()
+    Ok(ids.into_iter().map(WorkspaceId::from_uuid).collect())
 }
 
 fn membership(
+    id: uuid::Uuid,
     workspace: uuid::Uuid,
     user: uuid::Uuid,
     role: &str,
     joined_at: time::OffsetDateTime,
 ) -> Result<Membership, Internal> {
     Ok(Membership {
+        id,
         workspace_id: WorkspaceId::from_uuid(workspace),
         user_id: UserId::from_uuid(user),
         role: Role::from_name(role)?,

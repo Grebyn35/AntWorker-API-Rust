@@ -91,11 +91,7 @@ pub(crate) async fn list(
     let only = match search {
         None => None,
         Some(search) => {
-            let all: Vec<_> = access::memberships(&mut uow, principal)
-                .await?
-                .into_iter()
-                .map(|membership| membership.workspace_id)
-                .collect();
+            let all = access::workspace_ids(&mut uow, principal).await?;
             Some(repo::matching(&mut uow, &all, search).await?)
         }
     };

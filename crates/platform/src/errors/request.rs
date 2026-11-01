@@ -4,7 +4,8 @@
 
 use super::{Category, ErrorCode, FieldError, INTERNAL_CODE, INTERNAL_TITLE, Internal};
 
-/// The errors `platform` answers before any module runs, in the namespace `request` (ERR-02).
+/// The errors `platform` answers itself, in the namespace `request` (ERR-02): before any module
+/// runs, or in a mechanism a module calls, such as authorization and idempotency keys.
 #[derive(Debug, thiserror::Error)]
 pub enum RequestError {
     /// No route has the path.

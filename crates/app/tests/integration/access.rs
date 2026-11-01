@@ -74,6 +74,16 @@ async fn access_003_a_non_member_gets_404_and_a_member_without_the_permission_40
     }
     assert_eq!(member_removes.status, 403);
     assert_eq!(member_removes.json()["code"], "request.permission_denied");
+    // Each refusal is reported: the stranger's, the member's, and the one of a workspace that
+    // doesn't exist.
+    let reported = api
+        .database()
+        .owner_reads(
+            "SELECT action || ' ' || resource_type FROM audit_entries \
+             WHERE action = 'access.denied' ORDER BY created_at, id",
+        )
+        .await;
+    assert_eq!(reported, ["access.denied workspace"; 3]);
 }
 
 #[tokio::test]

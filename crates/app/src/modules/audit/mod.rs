@@ -1,6 +1,5 @@
 //! Who did what ([spec](../../../../../docs/spec/audit.md)).
 
-// Every module declares its audit actions in its `audit.rs` (ARCH-03), this one too.
 #[expect(
     clippy::module_inception,
     reason = "each module's audit actions live in its audit.rs (ARCH-03), audit's own among them"

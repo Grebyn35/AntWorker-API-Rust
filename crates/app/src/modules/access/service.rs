@@ -100,7 +100,7 @@ pub(crate) async fn members(
         page,
     )
     .await?;
-    Ok(page.list(rows, |member| key(member.joined_at, member.user_id.uuid())))
+    Ok(page.list(rows, |member| key(member.joined_at, member.id)))
 }
 
 /// The user IDs of every member of the caller's workspace, which a search of the members hands
@@ -121,16 +121,13 @@ pub(crate) async fn joined(
     page: &Page,
 ) -> Result<List<Membership>, AccessError> {
     let rows = repo::joined(uow, principal.user_id(), workspaces, page).await?;
-    Ok(page.list(rows, |member| {
-        key(member.joined_at, member.workspace_id.uuid())
-    }))
+    Ok(page.list(rows, |member| key(member.joined_at, member.id)))
 }
 
-/// Every workspace the caller belongs to, with their role in each and when they joined, and
-/// nothing else (ACCESS-005).
-pub(crate) async fn memberships(
+/// The ID of every workspace the caller belongs to, and nothing else (ACCESS-005).
+pub(crate) async fn workspace_ids(
     uow: &mut UnitOfWork,
     principal: &Principal,
-) -> Result<Vec<Membership>, AccessError> {
-    Ok(repo::memberships(uow, principal.user_id()).await?)
+) -> Result<Vec<WorkspaceId>, AccessError> {
+    Ok(repo::workspace_ids(uow, principal.user_id()).await?)
 }

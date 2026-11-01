@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** pass 2 of the review of step 2.2, bd2d1fd..HEAD, whose pass 1 [Conformance reviews](#conformance-reviews) records. Step 2.1 is built and reviewed through 290c430: its review stopped at pass 2 under its no-progress condition, with each must-fix finding resolved, as [Conformance reviews](#conformance-reviews) records. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 2.3: the spec of jobs, `mail` and `invitations`, then their test-first build, whose review covers the commits after this handoff. Step 2.2 is built and reviewed: its review stopped at pass 2 under its no-progress condition, with each must-fix finding resolved, as [Conformance reviews](#conformance-reviews) records. Step 2.1 is built and reviewed through 290c430: its review stopped at pass 2 under its no-progress condition, with each must-fix finding resolved, as [Conformance reviews](#conformance-reviews) records. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
 
 ## Build order
 
@@ -70,12 +70,12 @@ Each module goes through these stages, in order:
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
 | `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits |
-| `accounts` | USER | first slice | first slice | first slice | first slice | first slice but ACCOUNTS-005 and ACCOUNTS-006 |
+| `accounts` | USER | first slice | first slice | first slice | first slice | first slice |
 | `auth` | AUTH | first slice | first slice | first slice | first slice | first slice |
-| `access` | WS | first slice | first slice | first slice | first slice | |
-| `workspaces` | WS | first slice | first slice | first slice | first slice | |
+| `access` | WS | first slice | first slice | first slice | first slice | first slice |
+| `workspaces` | WS | first slice | first slice | first slice | first slice | first slice |
 | `invitations` | WS, MAIL | first slice | first slice | | | |
-| `audit` | AUDIT | first slice | first slice | the writer, the security event sink | the writer, the security event sink | the writer |
+| `audit` | AUDIT | first slice | first slice | the writer, the security event sink | the writer, the security event sink | the writer, the security event sink |
 | `realtime` | RT | first slice | first slice | | | |
 | `mail` | MAIL | first slice | first slice | | | |
 | `files` | FILE | | | | | |
@@ -143,6 +143,9 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of bd2d1fd..5330bf9 | API-17: whether a header of a domain type, such as `Idempotency-Key`'s 1 to 255 characters, carries its limits in the document | 3 |
 | Conformance review of bd2d1fd..5330bf9 | ARCH-11: whether a refusal's own short transaction, which the `SecurityEventSink` opens after the refused operation rolled back, is named as the one exception to "never opens a second transaction for the same operation" | 3 |
 | Conformance review of bd2d1fd..5330bf9 | API-20: `check-openapi` fails a list whose items have a name or an email and that doesn't document `search`, so review doesn't carry it | 3 |
+| Conformance review of bd2d1fd..ec21099 | DATA-22: its exemption for batch reads of display data by IDs from a query filtered by tenant names a match over that data too, such as `accounts::matching` and `workspaces::matching`, which return the IDs a search keeps | 3 |
+| Conformance review of bd2d1fd..ec21099 | API-10: whether a route's query type converts into the service's input through `TryFrom`, as a body's request type does, rather than the handler reading `Page`, `Search` and a filter one by one | 3 |
+| Conformance review of bd2d1fd..ec21099 | TEST-10: a check that an integration test inserts no rows into a table that a support builder arranges | 3 |
 | The owner's decision on second factors (D63) | Whether a second factor can be required beyond superadmins: of every user, by a setting of the deployment, or of a workspace's members, by its owner, as Slack and GitHub let an organization require it of its members | 5, with the full `auth` module |
 
 ## Conformance reviews

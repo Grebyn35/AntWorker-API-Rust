@@ -66,6 +66,9 @@ impl Role {
 /// One member of one workspace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Membership {
+    /// The membership's ID, which breaks a tie between memberships that share a joining time in
+    /// a list's order (API-06).
+    pub(crate) id: uuid::Uuid,
     /// The workspace.
     pub(crate) workspace_id: WorkspaceId,
     /// The member.

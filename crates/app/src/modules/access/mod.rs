@@ -10,5 +10,5 @@ pub(crate) use error::AccessError;
 pub(crate) use model::{MemberFilter, Membership, Role};
 pub(crate) use permissions::{MembersRead, MembersRemove, matrix};
 pub(crate) use service::{
-    Policy, Removal, add_owner, joined, member_ids, members, memberships, remove,
+    Policy, Removal, add_owner, joined, member_ids, members, remove, workspace_ids,
 };

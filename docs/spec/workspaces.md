@@ -62,7 +62,7 @@ The server stores no active or default workspace for a user (D3). Each request n
 
 ### Listing the caller's workspaces
 
-`access::joined` pages the caller's memberships, filtered by their user ID, through the index on their user and joining time, and `names` gives the page's workspace names (DATA-22, DATA-23). A search first takes the IDs of every workspace the caller belongs to, from `access::memberships` (ACCESS-005), and `matching` keeps those whose name contains it, so `joined` pages only those, as the platform spec's "Lists" says.
+`access::joined` pages the caller's memberships, filtered by their user ID, through the index on their user and joining time, and `names` gives the page's workspace names (DATA-22, DATA-23). A search first takes the IDs of every workspace the caller belongs to, from `access::workspace_ids` (ACCESS-005), and `matching` keeps those whose name contains it, so `joined` pages only those, as the platform spec's "Lists" says.
 
 ### Listing members
 

@@ -186,10 +186,19 @@ async fn platform_059_paging_returns_each_row_once_across_a_shared_joining_time(
         }
     }
 
-    // Among rows that share a joining time, the higher ID comes first.
+    // Among memberships that share a joining time, the higher membership ID comes first.
+    let by_membership = db
+        .owner_reads(&format!(
+            "SELECT workspace_id::text FROM workspace_memberships \
+             WHERE user_id = '{}' ORDER BY id DESC",
+            ada.user_id
+        ))
+        .await;
+    assert_eq!(seen, by_membership);
+    let mut once = seen.clone();
+    once.sort();
     arranged.sort();
-    arranged.reverse();
-    assert_eq!(seen, arranged);
+    assert_eq!(once, arranged);
 }
 
 #[tokio::test]
@@ -273,8 +282,6 @@ async fn access_005_a_search_reaches_every_workspace_the_caller_belongs_to_and_n
         expected.push(workspaces::arrange(db, name, &[(&ada.user_id, "member")]).await);
     }
     workspaces::arrange(db, "Team four", &[(&grace.user_id, "owner")]).await;
-    db.owner_executes("UPDATE workspace_memberships SET created_at = '2026-11-01T10:00:00Z'")
-        .await;
 
     let body = api
         .get("/v1/workspaces?search=team")
@@ -287,11 +294,6 @@ async fn access_005_a_search_reaches_every_workspace_the_caller_belongs_to_and_n
     ids.sort();
     expected.sort();
     assert_eq!(ids, expected);
-    assert_eq!(field(&body, "role"), ["member"; 3]);
-    assert_eq!(
-        field(&body, "joined_at"),
-        ["2026-11-01T10:00:00.000000Z"; 3]
-    );
 }
 
 #[tokio::test]
@@ -512,15 +514,7 @@ async fn workspaces_006_a_caller_can_t_remove_themselves_or_a_rank_at_or_above_t
 async fn platform_059_a_page_holds_50_items_without_a_limit() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    api.database()
-        .owner_executes(&format!(
-            "WITH created AS (INSERT INTO workspaces (name) \
-             SELECT 'W' || n FROM generate_series(1, 51) AS n RETURNING id) \
-             INSERT INTO workspace_memberships (workspace_id, user_id, role) \
-             SELECT id, '{}', 'member' FROM created",
-            ada.user_id
-        ))
-        .await;
+    workspaces::member_of_many(api.database(), &ada.user_id, 51, "member").await;
 
     let body = api
         .get("/v1/workspaces")
@@ -551,11 +545,19 @@ async fn workspaces_004_paging_returns_each_member_once_across_a_shared_joining_
     let path = format!("/v1/workspaces/{workspace}/members?limit=2");
     let pages = pages(&api, &ada, &path, "user_id").await;
 
-    // Among members who share a joining time, the higher ID comes first.
-    arranged.sort();
-    arranged.reverse();
+    // Among members who share a joining time, the higher membership ID comes first.
+    let by_membership = db
+        .owner_reads(&format!(
+            "SELECT user_id::text FROM workspace_memberships \
+             WHERE workspace_id = '{workspace}' ORDER BY id DESC"
+        ))
+        .await;
     assert_eq!(pages.iter().map(Vec::len).collect::<Vec<_>>(), [2, 2, 1]);
-    assert_eq!(pages.concat(), arranged);
+    assert_eq!(pages.concat(), by_membership);
+    let mut once = pages.concat();
+    once.sort();
+    arranged.sort();
+    assert_eq!(once, arranged);
 }
 
 #[tokio::test]

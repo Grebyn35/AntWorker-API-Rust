@@ -110,6 +110,15 @@ fn standard_columns(catalog: &Value, table: &Value, bookkeeping: &[String]) -> V
         None if key.len() < 2 => {
             problem("it has no id, and isn't a join table with a composite primary key".to_owned());
         }
+        // A pure join table's composite key stands in for its id; a table whose rows are edited,
+        // such as one with a role, isn't one.
+        None if strings(table, "app").contains(&"UPDATE") => {
+            problem(
+                "it has no id, and its rows are edited, since app may update them, so it isn't a \
+                 pure join table"
+                    .to_owned(),
+            );
+        }
         None => {}
     }
     let created = column(table, "created_at");
@@ -504,6 +513,16 @@ mod tests {
                 "{expected} in {found:#?}"
             );
         }
+    }
+
+    #[test]
+    fn data_02_a_join_table_whose_rows_are_edited_has_an_id() {
+        let mut catalog = catalog();
+        catalog["tables"][1]["app"] = json!(["DELETE", "INSERT", "SELECT", "UPDATE"]);
+        let found = messages(&catalog);
+        let expected = "user_roles: it has no id, and its rows are edited, since app may update \
+                        them, so it isn't a pure join table (DATA-02)";
+        assert!(found.iter().any(|m| m == expected), "{found:#?}");
     }
 
     #[test]

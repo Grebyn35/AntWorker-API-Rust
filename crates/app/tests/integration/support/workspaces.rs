@@ -20,6 +20,18 @@ pub async fn arrange(db: &TestDatabase, name: &str, members: &[(&str, &str)]) ->
     id
 }
 
+/// Creates `count` workspaces, named `W1` and on, with `user` a member of each at `role`, in one
+/// statement.
+pub async fn member_of_many(db: &TestDatabase, user: &str, count: u32, role: &str) {
+    db.owner_executes(&format!(
+        "WITH created AS (INSERT INTO workspaces (name) \
+         SELECT 'W' || n FROM generate_series(1, {count}) AS n RETURNING id) \
+         INSERT INTO workspace_memberships (workspace_id, user_id, role) \
+         SELECT id, '{user}', '{role}' FROM created"
+    ))
+    .await;
+}
+
 /// Adds `user` to `workspace` at `role`.
 pub async fn join(db: &TestDatabase, workspace: &str, user: &str, role: &str) {
     db.owner_executes(&format!(
