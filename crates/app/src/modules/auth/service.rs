@@ -96,7 +96,7 @@ impl Auth {
         audit_log::record(
             &mut uow,
             principal.audit_scope(),
-            Entry::new(audit::USER_REGISTERED, "user", user_id.uuid()),
+            Entry::new(audit::USER_REGISTERED, audit::USER, user_id.uuid()),
         )
         .await?;
         uow.commit().await?;
@@ -150,7 +150,7 @@ impl Auth {
             audit_log::record(
                 &mut uow,
                 AuditScope::attempt(user_id),
-                Entry::new(audit::SIGN_IN_FAILED, "user", user_id.uuid()),
+                Entry::new(audit::SIGN_IN_FAILED, audit::USER, user_id.uuid()),
             )
             .await?;
             uow.commit().await?;
@@ -165,7 +165,7 @@ impl Auth {
             audit_log::record(
                 &mut uow,
                 principal.audit_scope(),
-                Entry::new(audit::PASSWORD_REHASHED, "identity", identity.id),
+                Entry::new(audit::PASSWORD_REHASHED, audit::IDENTITY, identity.id),
             )
             .await?;
         }
@@ -193,14 +193,14 @@ impl Auth {
             audit_log::record(
                 uow,
                 principal.audit_scope(),
-                Entry::new(audit::SESSION_ENDED, "session", old.uuid()),
+                Entry::new(audit::SESSION_ENDED, audit::SESSION, old.uuid()),
             )
             .await?;
         }
         audit_log::record(
             uow,
             principal.audit_scope(),
-            Entry::new(audit::SESSION_CREATED, "session", session.id.uuid()),
+            Entry::new(audit::SESSION_CREATED, audit::SESSION, session.id.uuid()),
         )
         .await?;
         Ok((principal, session, tokens))
@@ -221,7 +221,11 @@ impl Auth {
                 audit_log::record(
                     &mut uow,
                     AuditScope::attempt(reused.user_id),
-                    Entry::new(audit::SESSION_REUSE_DETECTED, "session", reused.id.uuid()),
+                    Entry::new(
+                        audit::SESSION_REUSE_DETECTED,
+                        audit::SESSION,
+                        reused.id.uuid(),
+                    ),
                 )
                 .await?;
                 uow.commit().await?;
@@ -250,7 +254,7 @@ impl Auth {
         audit_log::record(
             &mut uow,
             principal.audit_scope(),
-            Entry::new(audit::SESSION_REFRESHED, "session", found.id.uuid()),
+            Entry::new(audit::SESSION_REFRESHED, audit::SESSION, found.id.uuid()),
         )
         .await?;
         uow.commit().await?;
@@ -281,7 +285,7 @@ impl Auth {
         audit_log::record(
             &mut uow,
             principal.audit_scope(),
-            Entry::new(audit::SESSION_ENDED, "session", session_id.uuid()),
+            Entry::new(audit::SESSION_ENDED, audit::SESSION, session_id.uuid()),
         )
         .await?;
         uow.commit().await?;

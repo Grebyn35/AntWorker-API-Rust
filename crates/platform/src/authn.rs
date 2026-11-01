@@ -58,7 +58,7 @@ impl Principal {
     }
 }
 
-/// The log an audit entry belongs to. A workspace's log joins with the workspaces, in step 2.2.
+/// The log an audit entry belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Log {
     /// A user's own log.

@@ -240,20 +240,21 @@ async fn refresh(
     State(auth): State<Arc<Auth>>,
     client: Client,
     cookies: Cookies,
+    headers: HeaderMap,
     Json(request): Json<RefreshRequest>,
 ) -> Result<Response, Problem<AuthError>> {
-    let (token, delivery) = match request.refresh_token {
-        Some(token) => (token, TokenDelivery::Body),
+    let token = match request.refresh_token {
+        Some(token) => token,
         None => match cookies
             .credential(REFRESH_COOKIE)
             .map_err(AuthError::from)?
         {
-            Some(token) => (token.to_owned(), TokenDelivery::Cookie),
+            Some(token) => token.to_owned(),
             None => return Err(AuthError::InvalidRefreshToken.into()),
         },
     };
     let (session, tokens) = auth.refresh(&client, &token).await?;
-    let (cookies, body) = deliver(session, &tokens, delivery)?;
+    let (cookies, body) = deliver(session, &tokens, delivery(&headers))?;
     let mut response = (StatusCode::OK, axum::Json(body)).into_response();
     for cookie in cookies {
         response.headers_mut().append(header::SET_COOKIE, cookie);
@@ -302,7 +303,7 @@ async fn sign_out(
 }
 
 /// How the request's client takes its tokens: a request with an `Origin` comes from a browser,
-/// which only ever gets cookies (SEC-19, AUTH-015).
+/// which only ever gets cookies, wherever its refresh token came from (SEC-19, AUTH-015).
 fn delivery(headers: &HeaderMap) -> TokenDelivery {
     if headers.contains_key(header::ORIGIN) {
         TokenDelivery::Cookie

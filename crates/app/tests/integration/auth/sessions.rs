@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use crate::support::{
     Api,
-    users::{self, PASSWORD, WEB, browser_sign_in, browsers_api, cookie},
+    users::{self, PASSWORD, WEB, browser_sign_in, browsers_api, cookie, expires},
 };
 
 #[tokio::test]
@@ -31,7 +31,7 @@ async fn auth_009_an_expired_access_token_answers_its_own_401() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     api.database()
-        .owner_executes("UPDATE sessions SET access_expires_at = now() - interval '1 second'")
+        .owner_executes("UPDATE sessions SET access_token_expires_at = now() - interval '1 second'")
         .await;
 
     let response = api.get("/v1/users/me").bearer(&ada.access).send().await;
@@ -92,7 +92,7 @@ async fn auth_010_a_refresh_slides_the_refresh_expiry() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
-    db.owner_executes("UPDATE sessions SET refresh_expires_at = now() + interval '1 minute'")
+    db.owner_executes("UPDATE sessions SET refresh_token_expires_at = now() + interval '1 minute'")
         .await;
 
     let response = api
@@ -106,7 +106,7 @@ async fn auth_010_a_refresh_slides_the_refresh_expiry() {
     assert_eq!(response.status, 200);
     assert_eq!(
         db.owner_reads(
-            "SELECT (refresh_expires_at > now() + interval '29 days')::text FROM sessions"
+            "SELECT (refresh_token_expires_at > now() + interval '29 days')::text FROM sessions"
         )
         .await,
         ["true"]
@@ -142,7 +142,7 @@ async fn auth_010_a_refresh_never_slides_the_expiry_past_the_absolute_lifetime()
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     api.database()
-        .owner_executes("UPDATE sessions SET absolute_expires_at = now() + interval '1 hour'")
+        .owner_executes("UPDATE sessions SET expires_at = now() + interval '1 hour'")
         .await;
 
     let response = api
@@ -159,7 +159,7 @@ async fn auth_010_a_refresh_never_slides_the_expiry_past_the_absolute_lifetime()
 
 #[tokio::test]
 async fn auth_011_an_expired_refresh_token_or_session_answers_401_and_rotates_nothing() {
-    for expired in ["refresh_expires_at", "absolute_expires_at"] {
+    for expired in ["refresh_token_expires_at", "expires_at"] {
         let api = Api::new().await;
         let ada = users::register(&api, "ada@example.com").await;
         let db = api.database();
@@ -316,6 +316,61 @@ async fn auth_015_a_browser_takes_its_tokens_as_cookies_it_can_t_read() {
         assert!(cookie.contains("; Expires="), "{cookie}");
         assert!(!cookie.contains("Domain"), "{cookie}");
     }
+}
+
+#[tokio::test]
+async fn auth_015_a_browser_s_registration_takes_cookies_that_expire_with_their_tokens() {
+    let api = browsers_api().await;
+
+    let response = api
+        .post("/v1/users", &users::registration("ada@example.com"))
+        .header("origin", WEB)
+        .send()
+        .await;
+
+    assert_eq!(response.status, 201);
+    let session = response.json();
+    assert!(session.get("access_token").is_none());
+    assert!(session.get("refresh_token").is_none());
+    // Postgres writes each expiry as HTTP writes a date, to the second.
+    let stored = api
+        .database()
+        .owner_reads(
+            "SELECT to_char(access_token_expires_at AT TIME ZONE 'UTC', \
+             'Dy, DD Mon YYYY HH24:MI:SS \"GMT\"') || '|' || \
+             to_char(refresh_token_expires_at AT TIME ZONE 'UTC', \
+             'Dy, DD Mon YYYY HH24:MI:SS \"GMT\"') FROM sessions",
+        )
+        .await;
+    assert_eq!(
+        stored,
+        [format!(
+            "{}|{}",
+            expires(&response, "access_token"),
+            expires(&response, "refresh_token")
+        )]
+    );
+}
+
+#[tokio::test]
+async fn auth_015_a_browser_s_refresh_takes_cookies_even_with_its_token_in_the_body() {
+    let api = browsers_api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let response = api
+        .post(
+            "/v1/sessions/refresh",
+            &json!({ "refresh_token": ada.refresh }),
+        )
+        .header("origin", WEB)
+        .send()
+        .await;
+
+    assert_eq!(response.status, 200);
+    let body = response.json();
+    assert!(body.get("access_token").is_none());
+    assert!(body.get("refresh_token").is_none());
+    assert_ne!(cookie(&response, "refresh_token"), ada.refresh);
 }
 
 #[tokio::test]

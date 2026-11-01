@@ -109,8 +109,7 @@ macro_rules! id_type {
 }
 
 id_type!(
-    /// A user's ID, one of the two tenancy keys `platform` knows (architecture §4); a workspace's
-    /// joins it with the workspaces, in step 2.2.
+    /// A user's ID, a tenancy key that `platform` knows (architecture §4).
     UserId
 );
 id_type!(

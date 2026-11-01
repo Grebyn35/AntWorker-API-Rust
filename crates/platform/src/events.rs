@@ -1,6 +1,5 @@
 //! Access-change signals: the notice, at commit, that a user lost access, so the real-time hub
-//! closes or re-filters their streams (D35, SEC-06). The event log and the hub that listens for
-//! the signals arrive with step 2.4.
+//! closes or re-filters their streams (D35, SEC-06).
 
 use serde::Serialize;
 

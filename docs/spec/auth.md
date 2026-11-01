@@ -8,8 +8,8 @@
 
 | Table | Holds |
 |---|---|
-| `identities` | A user's sign-in methods. For a password: `user_id`, `method = 'password'`, and `password_hash` in the string format of the Password Hashing Competition (PHC). `(user_id, method)` is unique. |
-| `sessions` | `id`, `user_id`, `device_id` (optional), `access_token_hash`, `refresh_token_hash`, `previous_refresh_token_hash`, `created_at`, `access_expires_at`, `refresh_expires_at`, `absolute_expires_at`. Each hash is a SHA-256 of a token and has a unique index. `(user_id, device_id)` is unique where `device_id` is set. |
+| `identities` | A user's sign-in methods. `id`, `user_id`, `method`, `created_at`, `updated_at` and `version`. For a password: `method = 'password'`, and `password_hash` in the string format of the Password Hashing Competition (PHC). `(user_id, method)` is unique. |
+| `sessions` | `id`, `user_id`, `device_id` (optional), `access_token_hash`, `refresh_token_hash`, `previous_refresh_token_hash`, `created_at`, `updated_at`, `version`, `access_token_expires_at`, `refresh_token_expires_at`, `expires_at`. Each hash is a SHA-256 of a token and has a unique index. `(user_id, device_id)` is unique where `device_id` is set. |
 
 ## Interface
 
@@ -23,7 +23,7 @@
 |---|---|---|
 | `POST /v1/users` | public | AUTH-001 to AUTH-003, AUTH-007, AUTH-008, AUTH-015, AUTH-017 |
 | `POST /v1/sessions` | public | AUTH-004 to AUTH-008, AUTH-015, AUTH-017 |
-| `POST /v1/sessions/refresh` | public, with the refresh token as the credential | AUTH-010 to AUTH-012 |
+| `POST /v1/sessions/refresh` | public, with the refresh token as the credential | AUTH-010 to AUTH-012, AUTH-015 |
 | `GET /v1/users/me/sessions/current` | user | AUTH-016 |
 | `DELETE /v1/users/me/sessions/current` | user | AUTH-013 |
 
@@ -42,12 +42,12 @@ No route takes an `Idempotency-Key` (API-12).
 | AUTH-007 | A session holds two independent 256-bit random tokens, returned once and stored only as SHA-256 hashes. An access token lasts 1 hour, and a refresh token 30 days. No session outlives its absolute lifetime of 90 days. All three durations are settings. | SEC-03, SEC-06, D5 | `auth_007_` |
 | AUTH-008 | When a sign-in carries a device ID that already has a session for this user, the old session ends through the full sign-out path (AUTH-013) in the same unit of work. The sign-ins of one user take turns, so concurrent ones on one device leave it one session. Without a device ID, each sign-in creates a new session. | D5, D18, DATA-25 | `auth_008_` |
 | AUTH-009 | A protected request is authenticated by its access token: from the Bearer header, or, without an `Authorization` header, from the access cookie (AUTH-015). A missing or unknown token answers 401 `request.unauthenticated`. An expired one answers 401 `request.access_token_expired`, so the client knows to refresh. | SEC-03, D18, D61 | `auth_009_` |
-| AUTH-010 | Refreshing with the current refresh token, from the body or else from the refresh cookie, issues a new pair, delivered the way the old token came, and answers 200 with the session. The old pair stops working, and the old refresh hash is kept as the previous one. The refresh expiry slides, but never past the absolute lifetime. The audit entry is `session.refreshed`. | SEC-06, D5, DATA-27 | `auth_010_` |
+| AUTH-010 | Refreshing with the current refresh token, from the body or else from the refresh cookie, issues a new pair, delivered as AUTH-015 says, and answers 200 with the session. The old pair stops working, and the old refresh hash is kept as the previous one. The refresh expiry slides, but never past the absolute lifetime. The audit entry is `session.refreshed`. | SEC-06, D5, DATA-27 | `auth_010_` |
 | AUTH-011 | An expired refresh token, or a session past its absolute lifetime, answers 401 `auth.session_expired` and rotates nothing. | SEC-06 | `auth_011_` |
 | AUTH-012 | Presenting the previous refresh token ends the session: it is deleted, an access-change signal is sent, and `session.reuse_detected` is recorded. The response is 401 `auth.invalid_refresh_token`, the same as for an unknown or missing refresh token. | SEC-06, DATA-27 | `auth_012_` |
 | AUTH-013 | Signing out deletes the current session, sends an access-change signal that closes its streams, records `session.ended`, clears the session's cookies, and answers 204. | SEC-06, DATA-27, D35 | `auth_013_` |
 | AUTH-014 | Passwords are hashed with Argon2id, at the minimum that the Open Worldwide Application Security Project (OWASP) recommends: 19 MiB of memory, 2 iterations and 1 degree of parallelism, in PHC format, off the async runtime. A successful sign-in rehashes a password stored with other parameters, and records `password.rehashed`. | SEC-04, CODE-05, DATA-27 | `auth_014_` |
-| AUTH-015 | A registration or sign-in from a browser, a request that carries `Origin`, leaves the tokens out of the body and sets them as cookies: the access token in `__Host-access_token`, and the refresh token in `__Host-refresh_token`. Each is `Secure`, `HttpOnly` and `SameSite=Strict`, with `Path=/` and no `Domain`, and expires with its token. | SEC-19, D61 | `auth_015_` |
+| AUTH-015 | A registration, sign-in or refresh from a browser, a request that carries `Origin`, leaves the tokens out of the body and sets them as cookies: the access token in `__Host-access_token`, and the refresh token in `__Host-refresh_token`. Each is `Secure`, `HttpOnly` and `SameSite=Strict`, with `Path=/` and no `Domain`, and expires with its token. | SEC-19, D61 | `auth_015_` |
 | AUTH-016 | `GET /v1/users/me/sessions/current` answers with the session that authenticated the request: its ID, its user's ID, its device ID, its creation time and its three expiry times, and no token. | API-02, DATA-22 | `auth_016_` |
 | AUTH-017 | A device ID is a string the client chooses, of 1 to 64 letters, digits, underscores and hyphens, rather than a UUID the API issues (API-11). Any other answers 400 with `invalid_device_id` at `/device_id`. | API-10, API-11 | `auth_017_` |
 
@@ -78,7 +78,7 @@ Every authenticated request reads its session by its access token's hash, with n
 
 ### Token delivery
 
-One function delivers a session's tokens for registration, sign-in and refresh (D18), in the body or as cookies. A request that carries `Origin` comes from a browser, since only a browser sends it (PLATFORM-053), and gets cookies, since a token in the body would be readable by any script on its page, while a cookie that is `HttpOnly` isn't. Any other client gets the tokens in the body, and a refresh delivers the new pair the way the old token came (AUTH-010). `__Host-` makes a browser refuse the cookie unless it is `Secure`, has `Path=/` and names no `Domain`, so only the API's own host can set it, and the browser sends it to that host alone. The refresh cookie therefore goes with every request to the API too, as the access cookie does, rather than only to the refresh route: requirement 3.3.3 of the Application Security Verification Standard (ASVS) asks for `__Host-` on every cookie that no other host shares, and `Path` can't narrow such a cookie. Only the refresh route reads it, and neither the API nor its proxy logs a cookie. Signing out sets both cookies again, empty and expired, which removes them from the browser.
+One function delivers a session's tokens for registration, sign-in and refresh (D18), in the body or as cookies. A request that carries `Origin` comes from a browser, since only a browser sends it (PLATFORM-053), and gets cookies, since a token in the body would be readable by any script on its page, while a cookie that is `HttpOnly` isn't. Any other client gets the tokens in the body. A refresh decides the same way, wherever its old token came from, so a browser never reads a token, even one it sends in the body. `__Host-` makes a browser refuse the cookie unless it is `Secure`, has `Path=/` and names no `Domain`, so only the API's own host can set it, and the browser sends it to that host alone. The refresh cookie therefore goes with every request to the API too, as the access cookie does, rather than only to the refresh route: requirement 3.3.3 of the Application Security Verification Standard (ASVS) asks for `__Host-` on every cookie that no other host shares, and `Path` can't narrow such a cookie. Only the refresh route reads it, and neither the API nor its proxy logs a cookie. Signing out sets both cookies again, empty and expired, which removes them from the browser.
 
 A browser sends a cookie that is `SameSite=Strict` only with requests from the cookie's own site, so a web client is served from the same site as the API, such as `app.example.com` beside `api.example.com`, and its origin is listed in `CORS_ALLOWED_ORIGINS` (PLATFORM-052).
 

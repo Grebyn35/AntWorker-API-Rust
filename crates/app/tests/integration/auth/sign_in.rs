@@ -212,9 +212,9 @@ async fn auth_007_a_session_holds_two_random_tokens_stored_only_as_hashes() {
     let lifetimes = api
         .database()
         .owner_reads(
-            "SELECT round(extract(epoch FROM access_expires_at - created_at))::text || ' ' || \
-             round(extract(epoch FROM refresh_expires_at - created_at))::text || ' ' || \
-             round(extract(epoch FROM absolute_expires_at - created_at))::text FROM sessions",
+            "SELECT round(extract(epoch FROM access_token_expires_at - created_at))::text || ' ' || \
+             round(extract(epoch FROM refresh_token_expires_at - created_at))::text || ' ' || \
+             round(extract(epoch FROM expires_at - created_at))::text FROM sessions",
         )
         .await;
     assert_eq!(lifetimes, ["3600 2592000 7776000"]);
@@ -232,9 +232,9 @@ async fn auth_007_the_three_lifetimes_are_settings() {
     let lifetimes = api
         .database()
         .owner_reads(
-            "SELECT round(extract(epoch FROM access_expires_at - created_at))::text || ' ' || \
-             round(extract(epoch FROM refresh_expires_at - created_at))::text || ' ' || \
-             round(extract(epoch FROM absolute_expires_at - created_at))::text FROM sessions",
+            "SELECT round(extract(epoch FROM access_token_expires_at - created_at))::text || ' ' || \
+             round(extract(epoch FROM refresh_token_expires_at - created_at))::text || ' ' || \
+             round(extract(epoch FROM expires_at - created_at))::text FROM sessions",
         )
         .await;
     assert_eq!(lifetimes, ["120 7200 86400"]);

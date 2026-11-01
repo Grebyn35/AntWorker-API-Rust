@@ -14,7 +14,7 @@
 
 - `record(uow, scope, Entry)`: writes one entry in the given unit of work. The scope names the log and the actor, and comes only from a proof: `Principal::audit_scope`, the user's own log with the user as the actor, or that of `Authorized<P>`, the workspace's log with the member as the actor. `AuditScope::attempt(user_id)` names the log of an account that an unauthenticated request acted on, such as a failed sign-in, with no actor.
 - `SecurityEventSink`, implemented for `platform::authz`.
-- Each module declares its actions in its own `audit.rs` (ARCH-03), named `<resource>.<past-tense verb>`, such as `member.removed`.
+- `Action` and `Resource`, the types of an entry's action and of the kind of resource it happened to. Each module declares its actions, named `<resource>.<past-tense verb>`, such as `member.removed`, and its kinds of resource, such as `member`, as constants in its own `audit.rs` (ARCH-03): clippy bans their constructors everywhere else.
 
 ## Behaviors
 

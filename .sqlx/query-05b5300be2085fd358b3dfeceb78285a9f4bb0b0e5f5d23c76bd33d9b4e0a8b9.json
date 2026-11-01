@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, user_id, access_expires_at <= now() AS \"expired!\"\n        FROM sessions WHERE access_token_hash = $1",
+  "query": "SELECT id, user_id,\n            refresh_token_expires_at <= now() OR expires_at <= now() AS \"expired!\"\n        FROM sessions WHERE refresh_token_hash = $1",
   "describe": {
     "columns": [
       {
@@ -43,5 +43,5 @@
       null
     ]
   },
-  "hash": "b72899deb8d3de2c8202d9bcf21657ab8ad91035f03c79907ea3e39ca01c3e49"
+  "hash": "05b5300be2085fd358b3dfeceb78285a9f4bb0b0e5f5d23c76bd33d9b4e0a8b9"
 }

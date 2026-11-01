@@ -31,9 +31,9 @@ macro_rules! session {
             user_id: UserId::from_uuid(row.user_id),
             device_id: row.device_id.map(DeviceId::from_stored),
             created_at: Timestamp::from_database(row.created_at),
-            access_token_expires_at: Timestamp::from_database(row.access_expires_at),
-            refresh_token_expires_at: Timestamp::from_database(row.refresh_expires_at),
-            expires_at: Timestamp::from_database(row.absolute_expires_at),
+            access_token_expires_at: Timestamp::from_database(row.access_token_expires_at),
+            refresh_token_expires_at: Timestamp::from_database(row.refresh_token_expires_at),
+            expires_at: Timestamp::from_database(row.expires_at),
         }
     }};
 }
@@ -106,16 +106,16 @@ pub(super) async fn insert_session(
 ) -> Result<Session, Internal> {
     let row = sqlx::query!(
         "INSERT INTO sessions (
-            user_id, device_id, access_token_hash, refresh_token_hash, access_expires_at,
-            refresh_expires_at, absolute_expires_at
+            user_id, device_id, access_token_hash, refresh_token_hash, access_token_expires_at,
+            refresh_token_expires_at, expires_at
         ) VALUES (
             $1, $2, $3, $4,
             now() + make_interval(secs => least($5::float8, $7::float8)),
             now() + make_interval(secs => least($6::float8, $7::float8)),
             now() + make_interval(secs => $7::float8)
         )
-        RETURNING id, user_id, device_id, created_at, access_expires_at, refresh_expires_at,
-            absolute_expires_at",
+        RETURNING id, user_id, device_id, created_at, access_token_expires_at, refresh_token_expires_at,
+            expires_at",
         user_id.uuid(),
         device_id.map(DeviceId::as_str),
         access,
@@ -166,7 +166,7 @@ pub(super) async fn by_access_token(
     hash: &[u8],
 ) -> Result<Option<Found>, Internal> {
     let row = sqlx::query!(
-        r#"SELECT id, user_id, access_expires_at <= now() AS "expired!"
+        r#"SELECT id, user_id, access_token_expires_at <= now() AS "expired!"
         FROM sessions WHERE access_token_hash = $1"#,
         hash,
     )
@@ -187,7 +187,7 @@ pub(super) async fn by_refresh_token(
 ) -> Result<Option<Found>, Internal> {
     let row = sqlx::query!(
         r#"SELECT id, user_id,
-            refresh_expires_at <= now() OR absolute_expires_at <= now() AS "expired!"
+            refresh_token_expires_at <= now() OR expires_at <= now() AS "expired!"
         FROM sessions WHERE refresh_token_hash = $1"#,
         hash,
     )
@@ -235,11 +235,11 @@ pub(super) async fn rotate(
             access_token_hash = $4,
             refresh_token_hash = $5,
             previous_refresh_token_hash = $3,
-            access_expires_at = least(now() + make_interval(secs => $6::float8), absolute_expires_at),
-            refresh_expires_at = least(now() + make_interval(secs => $7::float8), absolute_expires_at)
+            access_token_expires_at = least(now() + make_interval(secs => $6::float8), expires_at),
+            refresh_token_expires_at = least(now() + make_interval(secs => $7::float8), expires_at)
         WHERE id = $2 AND user_id = $1 AND refresh_token_hash = $3
-        RETURNING id, user_id, device_id, created_at, access_expires_at, refresh_expires_at,
-            absolute_expires_at",
+        RETURNING id, user_id, device_id, created_at, access_token_expires_at, refresh_token_expires_at,
+            expires_at",
         found.user_id.uuid(),
         found.id.uuid(),
         presented,
@@ -260,8 +260,8 @@ pub(super) async fn session(
     session_id: SessionId,
 ) -> Result<Option<Session>, Internal> {
     let row = sqlx::query!(
-        "SELECT id, user_id, device_id, created_at, access_expires_at, refresh_expires_at,
-            absolute_expires_at
+        "SELECT id, user_id, device_id, created_at, access_token_expires_at, refresh_token_expires_at,
+            expires_at
         FROM sessions WHERE id = $2 AND user_id = $1",
         user_id.uuid(),
         session_id.uuid(),

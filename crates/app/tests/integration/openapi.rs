@@ -50,6 +50,49 @@ fn err_13_every_code_the_pipeline_answers_is_in_the_committed_document() {
 }
 
 #[tokio::test]
+async fn api_14_every_user_route_refuses_a_caller_without_a_credential() {
+    let api = Api::new().await;
+    let paths = api.document()["paths"].as_object().unwrap().clone();
+    let mut called = 0;
+
+    for (template, item) in &paths {
+        // An ID that parses, so the request reaches authentication.
+        let path: String = template
+            .split('/')
+            .map(|part| {
+                if part.starts_with('{') {
+                    "01900000-0000-7000-8000-000000000000"
+                } else {
+                    part
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("/");
+        for (method, operation) in item.as_object().unwrap() {
+            if operation["x-access"] != "user" {
+                continue;
+            }
+            let method = Method::from_bytes(method.to_ascii_uppercase().as_bytes()).unwrap();
+            let response = api
+                .request(method.clone(), &path)
+                .header("content-type", "application/json")
+                .body("{}")
+                .send()
+                .await;
+
+            assert_eq!(
+                response.status,
+                StatusCode::UNAUTHORIZED,
+                "{method} {template}"
+            );
+            assert_eq!(response.json()["code"], "request.unauthenticated");
+            called += 1;
+        }
+    }
+    assert!(called >= 3, "only {called} user routes");
+}
+
+#[tokio::test]
 async fn api_17_every_path_serves_exactly_the_methods_its_documentation_lists() {
     let api = Api::new().await;
     let methods = [

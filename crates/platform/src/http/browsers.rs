@@ -145,10 +145,22 @@ pub(super) async fn cross_site(
 
 /// The request's cookies. A session cookie authenticates a request that changes something only
 /// when the request comes from a listed origin (PLATFORM-053).
-#[derive(Debug)]
 pub struct Cookies {
     pairs: Vec<(String, String)>,
     may_authenticate: bool,
+}
+
+/// Prints the cookies' names only: their values hold session tokens (OBS-04).
+impl std::fmt::Debug for Cookies {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Cookies")
+            .field(
+                "names",
+                &self.pairs.iter().map(|(name, _)| name).collect::<Vec<_>>(),
+            )
+            .field("may_authenticate", &self.may_authenticate)
+            .finish()
+    }
 }
 
 impl Cookies {

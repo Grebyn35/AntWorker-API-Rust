@@ -107,7 +107,7 @@ Every route except the health probes (OPS-05) is registered through one of three
 
 A caller who isn't a member of the workspace gets 404. A member without permission `P` gets 403.
 - Why: no route can forget authentication or authorization, and non-members learn nothing (D2, D3).
-- Check: `clippy` (`disallowed_methods` bans the routing methods of axum and utoipa-axum outside `platform::http`), plus `test` (TEST-09).
+- Check: `clippy` (`disallowed_methods` bans the routing methods of axum and utoipa-axum outside `platform::http`), plus `test`: a generated test calls every `user` route without a credential and expects 401, and TEST-09 covers the `workspace` routes.
 
 ### API-15 Rate limits are visible
 Rate-limited responses carry the `RateLimit` and `RateLimit-Policy` headers of the IETF's draft-ietf-httpapi-ratelimit-headers-11, which isn't an RFC yet. Each holds one item, for the bucket that decided the response, named by the bucket's kind: `RateLimit-Policy: "ip";q=600;w=60` gives its quota and window in seconds, and `RateLimit: "ip";r=598;t=41` the requests left and the seconds until the window ends. A 429 also carries `Retry-After`.

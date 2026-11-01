@@ -51,9 +51,11 @@ pub(super) async fn client(
 /// The client IP of a request from `peer` (PLATFORM-047). Behind trusted proxies, it is the
 /// rightmost address of `X-Forwarded-For` that isn't one of them: every proxy appends the address
 /// it received the request from, so only the entries on the right were written by proxies the
-/// API trusts.
+/// API trusts. An IPv4 address mapped into IPv6, as a listener on `[::]` sees an IPv4 peer, is
+/// taken as its IPv4 address, which the IPv4 ranges of `TRUSTED_PROXIES` contain.
 fn client_ip(peer: IpAddr, headers: &HeaderMap, trusted: &[IpNet]) -> IpAddr {
     let is_trusted = |address: &IpAddr| trusted.iter().any(|range| range.contains(address));
+    let peer = peer.to_canonical();
     if !is_trusted(&peer) {
         return peer;
     }
@@ -65,7 +67,8 @@ fn client_ip(peer: IpAddr, headers: &HeaderMap, trusted: &[IpNet]) -> IpAddr {
         .flat_map(|value| value.split(','))
         .collect::<Vec<_>>();
     for entry in forwarded.into_iter().rev() {
-        let Ok(address) = IpAddr::from_str(entry.trim()) else {
+        let Ok(address) = IpAddr::from_str(entry.trim()).map(|address| address.to_canonical())
+        else {
             return client;
         };
         if !is_trusted(&address) {
@@ -145,5 +148,25 @@ mod tests {
             "192.0.2.10"
         );
         assert_eq!(client_ip(peer, &HeaderMap::new(), &trusted), peer);
+    }
+
+    #[test]
+    fn platform_047_an_ipv4_address_mapped_into_ipv6_is_taken_as_its_ipv4_address() {
+        let trusted = ranges(&["172.18.0.0/16"]);
+        let mapped: IpAddr = "::ffff:172.18.0.5".parse().unwrap();
+
+        assert_eq!(
+            client_ip(mapped, &headers("::ffff:203.0.113.1"), &trusted).to_string(),
+            "203.0.113.1"
+        );
+        assert_eq!(
+            client_ip(
+                "::ffff:198.51.100.9".parse().unwrap(),
+                &HeaderMap::new(),
+                &trusted
+            )
+            .to_string(),
+            "198.51.100.9"
+        );
     }
 }

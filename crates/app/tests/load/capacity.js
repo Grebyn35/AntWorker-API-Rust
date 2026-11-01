@@ -10,7 +10,7 @@
 // served: a span the API's queue dropped would never reach the collector.
 
 import http from "k6/http";
-import { sleep } from "k6";
+import { fail, sleep } from "k6";
 import { Counter } from "k6/metrics";
 
 const target = __ENV.TARGET;
@@ -53,7 +53,8 @@ function acceptedSpans() {
   return total;
 }
 
-// A user's access token, from a registration of an address that no other step used.
+// A user's access token, from the session that registering an address no other step used
+// answers (AUTH-001). Without one, the step fails at once, rather than measuring 401s.
 function accessToken() {
   const body = {
     email: `load-${Date.now()}-${rate}@example.com`,
@@ -64,7 +65,11 @@ function accessToken() {
     headers: { "Content-Type": "application/json" },
     tags: { name: "setup" },
   });
-  return response.json("session.access_token");
+  const token = response.json("access_token");
+  if (typeof token !== "string") {
+    fail(`registering the load test's user answered ${response.status} without an access token`);
+  }
+  return token;
 }
 
 export function setup() {

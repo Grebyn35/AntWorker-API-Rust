@@ -54,7 +54,7 @@ The whole sequence fits inside the container's grace period, with margin.
 - Check: `ci: e2e` (the deploy scenario), `test` (the sequence through `platform::lifecycle::serve`), plus `review` (the handlers are installed before anything connects, because no test can make installing them fail).
 
 ### OPS-07 Overload sheds load
-Every request that a route serves, except the health probes, has a timeout. Each route group has a default, and a module spec may override it. A request that no route serves gets its 404 or 405 problem at once. A concurrency limit rejects excess requests with the 503 problem and `Retry-After`. The health probes are exempt from it.
+Every request that a route serves, except the health probes, has a timeout. Each route group has a default, and a module spec may override it. A request that no route serves has no route group's timeout: it gets its 404 or 405 problem once the IP limit has counted it (PLATFORM-048, D64), a wait that the pool's and the database's own timeouts bound. A concurrency limit rejects excess requests with the 503 problem and `Retry-After`. The health probes are exempt from it.
 - Why: an overloaded instance degrades predictably, instead of queuing until it falls over (D20).
 - Check: `test`.
 

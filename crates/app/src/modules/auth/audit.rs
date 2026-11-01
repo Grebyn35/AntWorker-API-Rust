@@ -1,16 +1,30 @@
-//! The audit actions `auth` records (ARCH-03).
+//! The audit actions `auth` records, and the kinds of resource they happen to (ARCH-03, the
+//! audit spec).
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a module declares its audit actions and resources here (the audit spec)"
+)]
+
+use crate::modules::audit::{Action, Resource};
 
 /// A user registered (AUTH-001).
-pub(super) const USER_REGISTERED: &str = "user.registered";
+pub(super) const USER_REGISTERED: Action = Action::new("user.registered");
 /// A session began, by signing in (AUTH-004).
-pub(super) const SESSION_CREATED: &str = "session.created";
+pub(super) const SESSION_CREATED: Action = Action::new("session.created");
 /// A sign-in to an existing account gave the wrong password (AUTH-005).
-pub(super) const SIGN_IN_FAILED: &str = "sign_in.failed";
+pub(super) const SIGN_IN_FAILED: Action = Action::new("sign_in.failed");
 /// A password stored with older parameters was hashed again at sign-in (AUTH-014).
-pub(super) const PASSWORD_REHASHED: &str = "password.rehashed";
+pub(super) const PASSWORD_REHASHED: Action = Action::new("password.rehashed");
 /// A session's tokens were rotated (AUTH-010).
-pub(super) const SESSION_REFRESHED: &str = "session.refreshed";
+pub(super) const SESSION_REFRESHED: Action = Action::new("session.refreshed");
 /// A rotated refresh token was presented again, which ended its session (AUTH-012).
-pub(super) const SESSION_REUSE_DETECTED: &str = "session.reuse_detected";
+pub(super) const SESSION_REUSE_DETECTED: Action = Action::new("session.reuse_detected");
 /// A session ended, by signing out or by a sign-in on its device (AUTH-008, AUTH-013).
-pub(super) const SESSION_ENDED: &str = "session.ended";
+pub(super) const SESSION_ENDED: Action = Action::new("session.ended");
+
+/// A user's account.
+pub(super) const USER: Resource = Resource::new("user");
+/// A user's way of signing in, such as their password.
+pub(super) const IDENTITY: Resource = Resource::new("identity");
+/// A signed-in device or client.
+pub(super) const SESSION: Resource = Resource::new("session");

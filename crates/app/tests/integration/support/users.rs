@@ -82,19 +82,35 @@ pub async fn browser_sign_in(api: &Api) -> Response {
     .await
 }
 
-/// The value of the cookie `__Host-<name>` that `response` sets.
-pub fn cookie(response: &Response, name: &str) -> String {
+/// The cookie `__Host-<name>` that `response` sets, whole.
+fn set_cookie<'a>(response: &'a Response, name: &str) -> &'a str {
     let prefix = format!("__Host-{name}=");
     let set = response
         .headers("set-cookie")
         .into_iter()
         .find(|cookie| cookie.starts_with(&prefix));
     assert!(set.is_some(), "no {name} cookie");
-    set.unwrap()[prefix.len()..]
+    set.unwrap()
+}
+
+/// The value of the cookie `__Host-<name>` that `response` sets.
+pub fn cookie(response: &Response, name: &str) -> String {
+    let set = set_cookie(response, name);
+    set[set.find('=').unwrap() + 1..]
         .split(';')
         .next()
         .unwrap()
         .to_owned()
+}
+
+/// The `Expires` of the cookie `__Host-<name>` that `response` sets.
+pub fn expires(response: &Response, name: &str) -> String {
+    let set = set_cookie(response, name);
+    let expires = set
+        .split("; ")
+        .find_map(|attribute| attribute.strip_prefix("Expires="));
+    assert!(expires.is_some(), "{set}");
+    expires.unwrap().to_owned()
 }
 
 /// A `Cookie` header that sends back every cookie `response` sets.
