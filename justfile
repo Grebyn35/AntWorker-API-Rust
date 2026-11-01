@@ -383,13 +383,15 @@ image-scan:
 # this machine's unless the environment names another (TEST-04). The tests run the images from the
 # registry that Compose runs, against the Postgres that `just services` starts. Every other image
 # the tests pull is fetched first: this machine's, and, through the mirror, their servers', which
-# run on this machine's platform, so no test reaches a registry outside (TEST-07). Names run only
-# the tests whose names hold one of them, such as `just e2e obs_13`. A name with a slash is
-# refused: it would be a platform, which matches no test, so the run would pass with none.
+# run on this machine's platform, so no test reaches a registry outside (TEST-07). The arguments go
+# to the test harness: names run only the tests whose names hold one of them, such as
+# `just e2e obs_13`, and `--skip` leaves out those whose names hold the name after it, as CI's
+# jobs do. A name with a slash is refused: it would be a platform, which matches no test, so the
+# run would pass with none.
 [doc("Runs the end-to-end tests; `just e2e obs_13` runs only those whose names contain obs_13")]
 [group('image')]
 e2e *tests: services
-    {{ if tests =~ '/' { error("just e2e takes test names; E2E_PLATFORM names the platform, such as E2E_PLATFORM=linux/arm64") } else { "" } }}docker compose up --detach --wait registry mirror
+    {{ if tests =~ '/' { error("just e2e takes test names and the test harness's options; E2E_PLATFORM names the platform, such as E2E_PLATFORM=linux/arm64") } else { "" } }}docker compose up --detach --wait registry mirror
     docker compose run --rm crane push --insecure /image registry:5000/{{ e2e_image }}:e2e
     docker compose run --rm crane push --insecure /image-postgres registry:5000/{{ e2e_image }}-postgres:e2e
     docker compose pull --quiet server

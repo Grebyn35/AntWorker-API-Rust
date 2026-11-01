@@ -88,14 +88,15 @@ jobs:
 
   # The digests the image job built, booted on each platform with the end-to-end tests (OPS-14,
   # OPS-15), each on a runner of that platform. Each platform's tests are split between two jobs
-  # that run side by side, as docs/operations/ci.md says: the backups' tests, and the others, which
-  # `--skip` excludes by the same pattern, so each test runs in exactly one.
+  # that run side by side, as docs/operations/ci.md says: one runs the tests whose names hold
+  # `backups::`, and the other, with `--skip backups::`, every other test, so each test runs in
+  # exactly one job of its platform.
   verify:
     needs: image
     name: verify (${{ matrix.platform }}, ${{ matrix.part }})
     runs-on: ${{ matrix.runner }}
-    # Room for the suite on two processors, as a private repository's runners have, and for the
-    # minutes each test that starts a Grafana adds; a hang still ends here.
+    # Room for either half of the suite on two processors, as a private repository's runners have,
+    # and for the minutes each test that starts a Grafana adds; a hang still ends here.
     timeout-minutes: 75
     strategy:
       fail-fast: false
