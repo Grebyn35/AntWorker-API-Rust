@@ -17,6 +17,7 @@ mod check;
 mod questions;
 mod settings;
 mod setup;
+mod terminal;
 
 use std::{
     io,

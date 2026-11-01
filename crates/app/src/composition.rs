@@ -22,7 +22,7 @@ use utoipa::openapi::OpenApi;
 use crate::modules::{
     access, accounts, audit, auth,
     invitations::{self, Invitations},
-    mail::{self, Mail},
+    mail::Mail,
     system, workspaces,
 };
 
@@ -33,12 +33,14 @@ pub static MIGRATIONS: Migrator = sqlx::migrate!("../../migrations");
 /// The settings of the modules, which `serve` reads before its async runtime starts (OPS-01).
 pub struct Config {
     auth: auth::Settings,
-    mail: mail::Settings,
     invitations: invitations::Settings,
 }
 
 /// The name of the per-email sign-in limit's bucket (AUTH-006).
 const SIGN_IN_BUCKET: &str = "sign_in";
+
+/// The name of the per-member limit's bucket on inviting (INVITATIONS-009).
+const INVITATION_BUCKET: &str = "invitation";
 
 impl Config {
     /// The modules' settings from `settings`.
@@ -69,9 +71,13 @@ impl Config {
                     window: settings.duration("SIGN_IN_WINDOW_SECONDS", 900, 1..=day)?,
                 },
             },
-            mail: mail::Settings::read(settings)?,
             invitations: invitations::Settings {
                 expiry_days: settings.number("INVITATION_EXPIRY_DAYS", 7, 1..=90)?,
+                limit: Bucket {
+                    name: INVITATION_BUCKET,
+                    limit: settings.number("INVITATION_LIMIT", 100, 1..=100_000)?,
+                    window: settings.duration("INVITATION_WINDOW_SECONDS", 3_600, 1..=day)?,
+                },
             },
         })
     }
@@ -86,21 +92,24 @@ pub struct Services {
     /// What authorizes workspace routes: the policy `access` implements, and the sink of
     /// refusals `audit` implements (ARCH-13).
     pub authorizer: Authorizer,
+    /// Every job's handler, which `serve` runs beside the server (D13).
+    pub jobs: Jobs,
 }
 
-/// Builds every service once, on `database`, mounts every module's routes, and registers every
-/// module's jobs in `jobs` (D13).
+/// Builds every service once, on `database`, with `server`'s settings for `platform`'s and the
+/// modules' own in `config`, mounts every module's routes, and registers every job.
 pub async fn compose(
     database: &Database,
+    server: &ServerConfig,
     config: Config,
     clock: SharedClock,
-    jobs: &mut Jobs,
 ) -> Result<Services, Internal> {
+    let mut jobs = Jobs::new(database, server.job_dead_letter_retention);
     let auth = Arc::new(auth::Auth::new(database.clone(), config.auth).await?);
-    let mail = Mail::new(config.mail, clock)?;
-    mail.register(jobs).map_err(Internal::new)?;
+    let mail = Mail::new(server.mail.clone(), clock)?;
+    mail.register(&mut jobs).map_err(Internal::new)?;
     let invitations = Invitations::new(database.clone(), mail.clone(), config.invitations);
-    invitations.register(jobs).map_err(Internal::new)?;
+    invitations.register(&mut jobs).map_err(Internal::new)?;
     let features = system::Features {
         email: mail.is_on(),
     };
@@ -118,6 +127,7 @@ pub async fn compose(
             policy: Arc::new(access::Policy),
             sink: Arc::new(audit::Sink::new(database.clone())),
         },
+        jobs,
     })
 }
 

@@ -89,7 +89,7 @@ Dashboards are the files in `deploy/observability/grafana/`, and read-only in Gr
 ### OBS-14 Alerts fire on symptoms and have runbooks
 Alerts are of two kinds:
 - Burn-rate alerts against the service-level objectives for availability and latency.
-- Cause alerts for a dependency that is down, dead-lettered jobs, event delivery lag, telemetry that is dropped, that stops arriving, or that a service of the stack can't receive because it is down, backups whose archiving of the write-ahead log fails or whose newest base backup is older than their schedule allows, and a server whose disk fills or whose memory runs low.
+- Cause alerts for a dependency that is down, dead-lettered jobs, jobs that wait long past their time, periodic jobs that keep failing, event delivery lag, telemetry that is dropped, that stops arriving, or that a service of the stack can't receive because it is down, backups whose archiving of the write-ahead log fails or whose newest base backup is older than their schedule allows, and a server whose disk fills or whose memory runs low.
 
 Every alert has a severity (`page` or `ticket`), a runbook section in `docs/operations/runbooks.md` and a `promtool` test. The rules are the file `deploy/observability/prometheus/rules.yaml`, which the self-hosted Prometheus reads and a managed Grafana imports as rules of its own.
 - Why: an alert means action, and the action is written down (D19). A backup that fails silently is found only when it is needed (D30).

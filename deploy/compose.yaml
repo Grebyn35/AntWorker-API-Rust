@@ -58,6 +58,8 @@ x-api: &api
     SMTP_PASSWORD_FILE: /run/secrets/smtp_password
     EMAIL_FROM: ${EMAIL_FROM:-}
     INVITATION_EXPIRY_DAYS: ${INVITATION_EXPIRY_DAYS:-7}
+    INVITATION_LIMIT: ${INVITATION_LIMIT:-100}
+    INVITATION_WINDOW_SECONDS: ${INVITATION_WINDOW_SECONDS:-3600}
     JOB_DEAD_LETTER_RETENTION_DAYS: ${JOB_DEAD_LETTER_RETENTION_DAYS:-14}
   secrets: [database_url, hmac_key, smtp_password]
   # The shutdown delay and the drain take at most 15 seconds, and writing out telemetry the time

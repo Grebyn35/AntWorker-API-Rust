@@ -89,7 +89,7 @@ If a deploy started the failures, roll it back first, then investigate.
 ssh <host> "docker exec deployment-postgres-1 psql --username=postgres --dbname=api --command=\"SELECT id, kind, attempts, dead_at, failure FROM jobs WHERE state = 'dead' ORDER BY dead_at DESC\""
 ```
 
-With a managed database, run the same query in the provider's console.
+With a managed database, run the same query in the provider's console. Add `payload` to the columns only when the failure doesn't say enough: it holds what the job needed, such as an email's recipient.
 
 **What to do.** Fix what the failure names, such as the mail server's settings or credentials with `just server-setup`, or the sender's domain at the provider. A dead letter's remedy is the operation that caused it, such as inviting again, which sends a new email. The sweep deletes dead letters after `JOB_DEAD_LETTER_RETENTION_DAYS`, and the alert clears an hour after the last one.
 
@@ -97,7 +97,7 @@ With a managed database, run the same query in the provider's console.
 
 **What it means.** A periodic job, such as one of the hourly sweeps, failed at least twice within 3 hours. Each failed run waits for its next interval, so what it deletes stays meanwhile; nothing a request reads changes ([platform spec](../spec/platform.md#jobs)).
 
-**Look first.** The API's `ERROR` line "periodic job failed, and runs again at its next interval" names the job and the failure.
+**Look first.** The API's `WARN` line "periodic job failed, and runs again at its next interval" names the job and the failure.
 
 **What to do.** A failure of the database clears with it: follow [DatabaseUnreachable](#databaseunreachable). A run that passes its 5 minutes' time limit deletes in batches, so the next run continues where it stopped. The alert clears 3 hours after the last failure.
 

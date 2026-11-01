@@ -32,7 +32,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::support::{self, TestDatabase, mailbox};
+use crate::support::{self, Api, Options, TestDatabase, mailbox};
 
 /// How long a shutdown lets runs go on, in these tests.
 const GRACE: Duration = Duration::from_secs(5);
@@ -529,12 +529,15 @@ async fn platform_064_the_sweeps_delete_what_nothing_reads_any_more() {
     )
     .await;
 
-    for sweep in [
-        "platform.expire_rate_limit_buckets",
-        "platform.expire_idempotency_records",
-        "platform.expire_dead_letters",
-    ] {
-        jobs.run_periodic(sweep).await.unwrap();
+    // Each sweep runs twice, as a job may (OPS-09): the second deletes nothing more.
+    for _ in 0..2 {
+        for sweep in [
+            "platform.expire_rate_limit_buckets",
+            "platform.expire_idempotency_records",
+            "platform.expire_dead_letters",
+        ] {
+            jobs.run_periodic(sweep).await.unwrap();
+        }
     }
 
     let buckets = db
@@ -547,6 +550,92 @@ async fn platform_064_the_sweeps_delete_what_nothing_reads_any_more() {
         .owner_reads("SELECT payload->>'label' FROM jobs ORDER BY created_at, id")
         .await;
     assert_eq!(left, ["kept", "waiting"]);
+}
+
+#[tokio::test]
+async fn platform_013_a_dead_letter_keeps_its_payload_for_the_retention_serve_reads() {
+    for (retention, kept) in [(None, vec!["13 days"]), (Some(1), vec![])] {
+        let mut options = Options::default();
+        if let Some(days) = retention {
+            options = options.set("JOB_DEAD_LETTER_RETENTION_DAYS", days);
+        }
+        let api = Api::with(options).await;
+        let db = api.database();
+        for age in ["13 days", "15 days"] {
+            db.owner_executes(&format!(
+                "INSERT INTO jobs (kind, payload, state, dead_at) \
+                 VALUES ('tests.probe', '{{\"label\": \"{age}\"}}', 'dead', now() - interval '{age}')"
+            ))
+            .await;
+        }
+
+        api.run_periodic("platform.expire_dead_letters").await;
+
+        let left = db.owner_reads("SELECT payload->>'label' FROM jobs").await;
+        assert_eq!(left, kept, "with a retention of {retention:?} days");
+    }
+}
+
+#[tokio::test]
+async fn platform_013_the_retention_takes_1_to_365_days() {
+    for days in [0, 366] {
+        let refused = crate::support::api::refusal(
+            &Options::default().set("JOB_DEAD_LETTER_RETENTION_DAYS", days),
+        );
+
+        assert_eq!(
+            refused,
+            "JOB_DEAD_LETTER_RETENTION_DAYS must be a whole number from 1 to 365"
+        );
+    }
+}
+
+#[tokio::test]
+async fn platform_062_a_job_whose_last_attempt_s_replica_stopped_moves_to_the_dead_letter_state() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let (steering, _starts) = Steering::new(&[]);
+    // A job at its last attempt, whose replica stopped during it: its lease ran out.
+    db.owner_executes(&format!(
+        "INSERT INTO jobs (kind, payload, attempts, claim_id, lease_expires_at) \
+         VALUES ('tests.probe', '{{\"label\": \"lost\"}}', {}, gen_random_uuid(), \
+         now() - interval '1 second')",
+        Probe::MOST_ATTEMPTS
+    ))
+    .await;
+
+    let clock: SharedClock = Arc::new(TestClock::default());
+    registry(&database, &steering)
+        .run_pending(&database, &clock)
+        .await;
+
+    assert!(steering.contexts.lock().unwrap().is_empty());
+    let jobs = db
+        .owner_reads("SELECT state::text || ' ' || attempts || ' ' || failure FROM jobs")
+        .await;
+    assert_eq!(
+        jobs,
+        ["dead 4 the replica of its last attempt stopped during it"]
+    );
+}
+
+#[tokio::test]
+async fn platform_063_a_run_in_flight_goes_on_after_the_signal_until_it_ends() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let (steering, mut starts) = Steering::new(&[Act::Wait]);
+    enqueue(&database, JobScope::none(), &probe("in flight")).await;
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(registry(&database, &steering), &database, &clock);
+    starts.recv().await.unwrap();
+
+    stop.send_replace(true);
+    clock.sleeping(GRACE).await;
+    steering.release.add_permits(1);
+    running.await.unwrap();
+
+    let left = db.owner_reads("SELECT count(*)::text FROM jobs").await;
+    assert_eq!(left, ["0"]);
 }
 
 /// A job that only the test of the runs' metric enqueues.

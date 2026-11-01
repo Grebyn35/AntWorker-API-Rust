@@ -15,7 +15,7 @@
 - The permission types used with `Authorized<P>`, one type per permission of the matrix below that a route requires.
 - `AccessPolicy`, implemented for `platform::authz`: `authorize`, and from step 2.4 on `memberships`, which returns the caller's `Memberships`.
 - `add_owner(uow, workspace_id, user_id)`: makes the creator the owner of a new workspace. Called only by `workspaces`.
-- `add_member(uow, workspace_id, user_id, role)`: adds a member. Called only by `invitations`, after accepting.
+- `add_member(uow, workspace_id, user_id, role)`: adds a member, or reports that the user is one already, which changes nothing. Called only by `invitations`, after accepting.
 - `is_member(uow, workspace_id, user_id)`: whether the user belongs to the workspace.
 - `remove(uow, &Authorized<MembersRemove>, user_id)`: removes a member, subject to rank.
 - `members(uow, &Authorized<MembersRead>, &MemberFilter, &Page)`: a page of the workspace's memberships, newest first, kept to a role and to a set of users when the filter names them.

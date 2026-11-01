@@ -1,7 +1,6 @@
-//! Inviting, an invitee's own invitations, and accepting (the invitations spec), and the
-//! registration of the expiry sweep.
+//! Inviting, an invitee's own invitations, and accepting (the invitations spec).
 
-use std::{collections::HashMap, time::Duration};
+use std::collections::HashMap;
 
 use platform::{
     authn::Principal,
@@ -9,7 +8,6 @@ use platform::{
     db::{Database, UnitOfWork},
     errors::Internal,
     idempotency::{Claimed, IdempotencyKey},
-    jobs::{Duplicate, Jobs},
     lists::{List, Page, Search, key},
     types::{Client, UserId},
 };
@@ -18,7 +16,7 @@ use serde_json::json;
 use super::{
     audit,
     error::InvitationsError,
-    events as published, expiry,
+    events as published,
     model::{Accepted, Invited, NewInvitation, ReceivedInvitation, Settings},
     repo,
 };
@@ -30,14 +28,8 @@ use crate::modules::{
     workspaces,
 };
 
-/// How often the expiry sweep runs (INVITATIONS-007).
-const SWEEP_INTERVAL: Duration = Duration::from_secs(3_600);
-
-/// How long one run of the sweep may take.
-const SWEEP_TIME_LIMIT: Duration = Duration::from_secs(300);
-
-/// What the routes of `invitations` share: the database, the emails, and how long an invitation
-/// lasts.
+/// What the routes of `invitations` share: the database, the emails, how long an invitation
+/// lasts, and how many a member may send.
 #[derive(Clone)]
 pub(crate) struct Invitations {
     pub(super) database: Database,
@@ -53,20 +45,6 @@ impl Invitations {
             mail,
             settings,
         }
-    }
-
-    /// Registers the expiry sweep (INVITATIONS-007).
-    pub(crate) fn register(&self, jobs: &mut Jobs) -> Result<(), Duplicate> {
-        let database = self.database.clone();
-        jobs.periodic(
-            "invitations.expire",
-            SWEEP_INTERVAL,
-            SWEEP_TIME_LIMIT,
-            move |context| {
-                let database = database.clone();
-                async move { expiry::expire(&database, &context).await }
-            },
-        )
     }
 }
 

@@ -13,6 +13,8 @@ hmac.workspace = true
 http-body-util.workspace = true
 ipnet.workspace = true
 json-subscriber.workspace = true
+# The SMTP transport of the `mail` area.
+lettre.workspace = true
 opentelemetry.workspace = true
 opentelemetry-appender-tracing.workspace = true
 opentelemetry-otlp.workspace = true

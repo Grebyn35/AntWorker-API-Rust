@@ -66,7 +66,7 @@ Replicas share nothing except Postgres and object storage. A request can be serv
 ## Background jobs
 
 ### OPS-09 Jobs are declared once and are idempotent
-Each job is declared in its module's `jobs.rs`, or in `platform::jobs` for platform jobs such as the dispatcher, and is registered in the job registry. It states its owner, its schedule or trigger, and the tables it touches. Running a job handler twice has the same effect as running it once.
+Each job is declared in its module's `jobs.rs`, or in `platform::jobs` for platform jobs such as its sweeps, and is registered in the job registry. It states its owner, its schedule or trigger, and the tables it touches. Running a job handler twice has the same effect as running it once, but for an effect outside the API that a run can't take back, such as an email's delivery: the job's spec states what a second run causes, and how its receiver recognizes the repeat.
 - Why: jobs are delivered at least once (D1, D13).
 - Check: `test` (each job's test runs its handler twice).
 

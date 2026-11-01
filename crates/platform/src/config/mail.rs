@@ -1,77 +1,34 @@
-//! The email settings (MAIL-006, the mail spec's Settings).
+//! The email settings (MAIL-006), which `serve` reads with the rest of its settings.
 
 use std::{ffi::OsString, io, path::Path};
 
 use lettre::message::Mailbox;
-use platform::{
-    config::{ConfigError, Settings as Source},
+
+use super::{ConfigError, Problem, Settings};
+use crate::{
+    mail::{MailConfig, Security, Smtp},
     types::Secret,
 };
 
-/// Whether the deployment sends email, and through which server.
-pub(crate) enum Settings {
-    /// No email is sent (MAIL-004).
-    Off,
-    /// Email is sent through this server.
-    Smtp(Smtp),
-}
-
-/// The mail server, and the sender.
-pub(crate) struct Smtp {
-    /// Its host name or IP address.
-    pub(super) host: String,
-    /// Its port.
-    pub(super) port: u16,
-    /// How the connection is encrypted.
-    pub(super) security: Security,
-    /// The user name and password, if the server asks for them.
-    pub(super) credentials: Option<(String, Secret<String>)>,
-    /// The sender of every email (MAIL-007).
-    pub(super) from: Mailbox,
-}
-
-/// How the connection to the mail server is encrypted.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Security {
-    /// The connection starts with TLS.
-    Tls,
-    /// The connection upgrades to TLS before anything else is sent, and is refused when the
-    /// server can't.
-    StartTls,
-    /// No encryption, for a mail catcher on a private network.
-    None,
-}
-
-impl Security {
-    /// The port the setting `SMTP_PORT` defaults to.
-    fn default_port(self) -> u32 {
-        match self {
-            Self::Tls => 465,
-            Self::StartTls => 587,
-            Self::None => 25,
-        }
-    }
-}
-
-impl Settings {
-    /// The email settings from `settings`. With `EMAIL=off`, no other email setting is read.
-    pub(crate) fn read<E, F>(settings: &Source<E, F>) -> Result<Self, ConfigError>
-    where
-        E: Fn(&str) -> Option<OsString>,
-        F: Fn(&Path) -> io::Result<String>,
-    {
-        let on = settings.with("EMAIL", "smtp or off", |value| match value {
+impl<E, F> Settings<E, F>
+where
+    E: Fn(&str) -> Option<OsString>,
+    F: Fn(&Path) -> io::Result<String>,
+{
+    /// The email settings. With `EMAIL=off`, no other email setting is read.
+    pub(super) fn mail(&self) -> Result<MailConfig, ConfigError> {
+        let on = self.with("EMAIL", "smtp or off", |value| match value {
             "smtp" => Some(true),
             "off" => Some(false),
             _ => None,
         })?;
         if !on {
-            return Ok(Self::Off);
+            return Ok(MailConfig::Off);
         }
-        let host = settings.with("SMTP_HOST", "a host name or an IP address", |value| {
+        let host = self.with("SMTP_HOST", "a host name or an IP address", |value| {
             url::Host::parse(value).ok().map(|_| value.to_owned())
         })?;
-        let security = settings
+        let security = self
             .optional_with(
                 "SMTP_SECURITY",
                 "tls, starttls or none",
@@ -83,43 +40,33 @@ impl Settings {
                 },
             )?
             .unwrap_or(Security::StartTls);
-        let port = settings.number("SMTP_PORT", security.default_port(), 1..=65_535)?;
+        let port = self.number("SMTP_PORT", security.default_port(), 1..=65_535)?;
         let port = u16::try_from(port)
-            .map_err(|_| ConfigError::invalid("SMTP_PORT", "a port from 1 to 65535"))?;
+            .map_err(|_| ConfigError::new("SMTP_PORT", Problem::OutOfRange(1, 65_535)))?;
         let username =
-            settings.optional_with("SMTP_USERNAME", "text", |value| Some(value.to_owned()))?;
-        let password = settings.optional_with("SMTP_PASSWORD", "text", |value| {
+            self.optional_with("SMTP_USERNAME", "text", |value| Some(value.to_owned()))?;
+        let password = self.optional_with("SMTP_PASSWORD", "text", |value| {
             Some(Secret::new(value.to_owned()))
         })?;
         let credentials = match (username, password) {
             (Some(username), Some(password)) => Some((username, password)),
             (None, None) => None,
-            (Some(_), None) => {
-                return Err(ConfigError::invalid(
-                    "SMTP_PASSWORD",
-                    "set when SMTP_USERNAME is",
-                ));
-            }
-            (None, Some(_)) => {
-                return Err(ConfigError::invalid(
-                    "SMTP_USERNAME",
-                    "set when SMTP_PASSWORD is",
-                ));
-            }
+            (Some(_), None) => return Err(invalid("SMTP_PASSWORD", "set when SMTP_USERNAME is")),
+            (None, Some(_)) => return Err(invalid("SMTP_USERNAME", "set when SMTP_PASSWORD is")),
         };
         if credentials.is_some() && security == Security::None {
-            return Err(ConfigError::invalid(
+            return Err(invalid(
                 "SMTP_SECURITY",
                 "tls or starttls while SMTP_USERNAME is set, so no password crosses the network \
                  unencrypted",
             ));
         }
-        let from = settings.with(
+        let from = self.with(
             "EMAIL_FROM",
             "a name and an address, such as AntWorker <noreply@example.com>",
             |value| value.parse::<Mailbox>().ok(),
         )?;
-        Ok(Self::Smtp(Smtp {
+        Ok(MailConfig::Smtp(Smtp {
             host,
             port,
             security,
@@ -129,6 +76,11 @@ impl Settings {
     }
 }
 
+/// The setting `setting` must be `expected`, as another setting decides.
+fn invalid(setting: &str, expected: &'static str) -> ConfigError {
+    ConfigError::new(setting, Problem::Invalid(expected))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -136,16 +88,16 @@ mod tests {
     use super::*;
 
     /// The email settings read from `values`, or the message of their refusal.
-    fn read(values: &[(&str, &str)]) -> Result<Settings, String> {
+    fn read(values: &[(&str, &str)]) -> Result<MailConfig, String> {
         let env: HashMap<String, String> = values
             .iter()
             .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
             .collect();
-        let settings = Source::new(
+        let settings = Settings::new(
             |name: &str| env.get(name).map(OsString::from),
             |_: &Path| Err(io::Error::other("no files")),
         );
-        Settings::read(&settings).map_err(|error| error.to_string())
+        settings.mail().map_err(|error| error.to_string())
     }
 
     const SMTP: [(&str, &str); 3] = [
@@ -167,7 +119,7 @@ mod tests {
             read(&[("EMAIL", "sendmail")]).err().unwrap(),
             "EMAIL must be smtp or off"
         );
-        assert!(matches!(read(&[("EMAIL", "off")]), Ok(Settings::Off)));
+        assert!(matches!(read(&[("EMAIL", "off")]), Ok(MailConfig::Off)));
     }
 
     #[test]
@@ -178,7 +130,7 @@ mod tests {
             ("SMTP_PASSWORD", "x"),
         ]);
 
-        assert!(matches!(settings, Ok(Settings::Off)));
+        assert!(matches!(settings, Ok(MailConfig::Off)));
     }
 
     #[test]
@@ -229,7 +181,7 @@ mod tests {
     #[test]
     fn mail_006_the_port_follows_the_security_unless_set() {
         let port = |more: &[(&'static str, &'static str)]| match read(&smtp(more)) {
-            Ok(Settings::Smtp(smtp)) => (smtp.security, smtp.port),
+            Ok(MailConfig::Smtp(smtp)) => (smtp.security, smtp.port),
             _ => unreachable!("the settings are valid"),
         };
 

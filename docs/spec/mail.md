@@ -10,8 +10,8 @@ Nothing. Jobs live in `platform`'s `jobs` table.
 
 ## Interface
 
-- `Mail`, built once from the email settings, with `send(uow, scope, Message)`, which enqueues the message as a job in the unit of work, or does nothing with email off, and `is_on`, which the capabilities endpoint reads. `Message` is an enum with one variant per kind of email, each carrying its recipient and exactly the values its template needs.
-- The job `mail.send`, which `Mail` registers with the job registry.
+- `Mail`, built once from the email settings, in `service.rs`, with `send(uow, scope, Message)`, which enqueues the message as a job in the unit of work, or does nothing with email off, and `is_on`, which the capabilities endpoint reads. `Message` is an enum with one variant per kind of email, each carrying its recipient and exactly the values its template needs.
+- The job `mail.send`, declared in `jobs.rs` (OPS-09), which `Mail` registers with the job registry. It sends through `platform`'s mail transport ([platform spec](platform.md#mail)).
 
 ## Behaviors
 
@@ -44,11 +44,9 @@ A setting for timeouts, connection pooling or retries would be one nobody plausi
 
 `send` renders nothing: it enqueues a `mail.send` job whose payload holds the recipient, the template's values and a `Message-ID` of a new random UUID at `EMAIL_FROM`'s domain, never a secret, under the scope of the unit of work's proof. The job's time limit is 60 seconds, and its 12 attempts space their retries over about 2 to 3.5 hours (platform spec, Jobs), so a mail server down for a few hours delays an email rather than losing it. The handler renders the message, sends it, and needs no database access.
 
-A job runs at least once, so an email may arrive twice: when a replica stops after the server accepted the email and before the job's success was written. No protocol makes a send exactly once; the fixed `Message-ID` lets a receiving system recognize the second copy (MAIL-007).
+A job runs at least once, so an email may arrive twice: when a replica stops after the server accepted the email and before the job's success was written, its second run sends a copy. No protocol makes a send exactly once; the copy carries the same `Message-ID`, by which a receiving system recognizes it (MAIL-007, OPS-09).
 
-The transport is `lettre`'s SMTP transport on Tokio, one per process, with a pool of connections. Its TLS is `rustls` with its `ring` provider (SEC-14), and it verifies the server's certificate against the system's certificates, as a verified database connection does (D38).
-
-A failure's message never holds the server's reply text, which may quote the recipient's address: the transport's error is converted, where it is caught, into the reply's code, or the kind of the failure, such as a refused connection or a timeout, so neither the logs nor the dead letter hold more than the payload already does (OBS-04, ERR-04). A reply from 500 to 599 is permanent (MAIL-001); any other failure is retried.
+It sends through `platform`'s SMTP transport, whose failures hold the server's reply code or the failure's kind only ([platform spec](platform.md#mail)). A reply from 500 to 599 is permanent (MAIL-001); any other failure is retried.
 
 ### Templates
 

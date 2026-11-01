@@ -16,7 +16,6 @@ use platform::{
         TelemetryConfig,
     },
     db::Database,
-    jobs::Jobs,
     lifecycle::{self, Readiness, Shutdown, ShutdownSignals},
     telemetry::{Service, names},
 };
@@ -169,8 +168,7 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         { names::SERVER_PORT } = address.port(),
         "listening"
     );
-    let mut jobs = Jobs::new(&database, config.job_dead_letter_retention);
-    let services = match app::compose(&database, modules, clock.clone(), &mut jobs).await {
+    let services = match app::compose(&database, &config, modules, clock.clone()).await {
         Ok(services) => services,
         Err(error) => return failed("services", &error),
     };
@@ -191,7 +189,10 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
     // stops them too.
     let (stop_jobs, stopping) = watch::channel(false);
     let grace = shutdown.delay.saturating_add(shutdown.drain);
-    let jobs = tokio::spawn(jobs.run(database.clone(), clock.clone(), stopping, grace));
+    let jobs = services
+        .jobs
+        .run(database.clone(), clock.clone(), stopping, grace);
+    let jobs = tokio::spawn(jobs);
     let signal = async move {
         signals.received().await;
         stop_jobs.send_replace(true);

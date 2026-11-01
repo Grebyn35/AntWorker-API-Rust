@@ -36,7 +36,7 @@ The schema declares keys, uniqueness, foreign keys and `NOT NULL`. Closed sets a
 - Check: `review`.
 
 ### DATA-05 Foreign keys are declared and indexed
-Every reference is a declared foreign key with an explicit `ON DELETE`: `CASCADE` for children the parent owns, `RESTRICT` otherwise. The one exception is an audit entry's `resource_id`, which may name a row of any table, and outlives it (DATA-27). Every foreign-key column has an index.
+Every reference is a declared foreign key with an explicit `ON DELETE`: `CASCADE` for children the parent owns, `RESTRICT` otherwise. Two kinds of reference are exceptions, and outlive the rows they name: an audit entry's `resource_id`, which may name a row of any table (DATA-27), and a job's `user_id` and `workspace_id`, which record whom it runs for (DATA-28). Every foreign-key column has an index.
 - Why: deletes behave as the schema says, and cascades stay fast.
 - Check: `ci: check-schema`.
 
@@ -51,7 +51,7 @@ Migrations define no stored procedures and no `SECURITY DEFINER` functions. The 
 - Check: `ci: check-migrations` (`CREATE FUNCTION` only for allowlisted names).
 
 ### DATA-08 The database generates IDs
-Inserts take their IDs from the column default, using `RETURNING`. Application code creates no IDs.
+Inserts take their rows' IDs from the column default, using `RETURNING`. Application code creates no row's ID; a value that names no row, such as an email's `Message-ID`, isn't one.
 - Why: one source of IDs (D24).
 - Check: `clippy` (`Uuid::new_v4` and `Uuid::now_v7` are in `disallowed_methods`).
 
@@ -109,7 +109,7 @@ A repository function takes `&mut UnitOfWork`, never a pool or connection. Pools
 - Check: `clippy` (`disallowed_types` bans sqlx's pools and pool options, its pooled and plain connections, its transactions and its listener, with their Postgres aliases; `disallowed_methods` bans opening a connection, and opening a transaction from one; `platform::db` and the test support allow them through `#[expect]`), plus `review` (where an `#[expect]` allows them).
 
 ### DATA-22 Every query filters by tenant itself
-Tenancy is enforced by the application, and every query on user or workspace data carries its own filter (D3, D4). Data a module adds for its product lives in a workspace, in a table with a `workspace_id` (D39); a table without one holds account data, keyed by a user, such as `sessions`, or platform data, such as `jobs`, or is `workspaces` itself, and `check-tenancy` lists which.
+Tenancy is enforced by the application, and every query on user or workspace data carries its own filter (D3, D4). Data a module adds for its product lives in a workspace, in a table with a `workspace_id` (D39); a table without one holds account data, keyed by a user, such as `sessions`, or is `workspaces` itself. `platform`'s bookkeeping, such as `jobs`, is platform data whatever its columns: a job's `workspace_id` and `user_id` record whom it runs for, which its handler filters by, while the queue selects jobs by their state. `check-tenancy` lists the tables of each kind.
 - Workspace data is filtered by the workspace ID from the proof the operation runs under: `Authorized<P>`, or the `JobContext` of a job enqueued for a workspace. A repository function takes that ID as a parameter.
 - User data is filtered by the acting user's ID.
 - A lookup by a presented token's hash, or of a user by an email address, goes through a unique index: before sign-in, by the token or the sign-in email; when inviting, by the invitee's email; and in the setup subcommand, by its owner's email.
@@ -119,7 +119,7 @@ A row ID alone never addresses tenant data. Two kinds of read are exempt:
 - batch reads of display data, such as names, by IDs that came from a query filtered by tenant in the calling module, for example a workspace's member list
 - scheduled jobs that span tenants, which select rows by their own criteria, such as expiry
 - Why: there is no row-level security, so the application's filters are the only guard between tenants, and they are checked by machine and by test (D4).
-- Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column filters on it, or on its `user_id` where it has one, unless it belongs to a listed cross-tenant job, and every table without one is listed), `test` (TEST-09 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
+- Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, such as an invitation's email, unless it belongs to a listed cross-tenant job, and every other table is listed), `test` (TEST-09 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
 
 ### DATA-23 Lists use keyset pagination on an index
 A list query filters by the cursor's sort key, with the ID as tiebreaker, and never uses `OFFSET`. An index matches its tenant filter and its order. A `search` (API-20) narrows the rows that index reaches, without an index of its own until a load test asks for one.
@@ -160,6 +160,6 @@ Platform bookkeeping (rate-limit buckets, idempotency records, job state) and sc
 ### DATA-28 Personal data is covered by a contract
 Every column that references a user or holds personal data (glossary) is covered by a registered personal data contract (D31). A column that holds personal data carries the column comment `personal_data`, set with `COMMENT ON COLUMN` in its migration.
 
-`platform` registers a contract for its own tables. Erasing a user deletes their idempotency records and the events scoped to them. Jobs hold no foreign keys to user data: a pending job still runs, and its handler does nothing when its subject has been deleted. A finished job keeps no payload (OPS-10). Rate-limit buckets hold only keyed hashes and expire on their own. Export leaves these tables out, because the modules that own the data export it.
+`platform` registers a contract for its own tables. Erasing a user deletes their idempotency records and the events scoped to them. Jobs hold no foreign keys to user data: erasing a user, or deleting a workspace, deletes the jobs enqueued for them, so no job runs for a subject that is gone. A finished job keeps no payload (OPS-10). Rate-limit buckets hold only keyed hashes and expire on their own. Export leaves these tables out, because the modules that own the data export it.
 - Why: export and erasure can't miss a table, including the platform's own.
 - Check: `ci: check-personal-data` (every foreign key to `users`, and every column commented `personal_data`, against the registered contracts).

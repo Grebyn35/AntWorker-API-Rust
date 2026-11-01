@@ -6,21 +6,11 @@ use serde_json::{Value, json};
 use crate::support::{
     Api, Options,
     api::Response,
+    invitations::invite,
     mailbox,
     users::{self, SignedIn},
     workspaces,
 };
-
-/// Invites `email` to `workspace` at `role`, as `user`.
-async fn invite(api: &Api, user: &SignedIn, workspace: &str, email: &str, role: &str) -> Response {
-    api.post(
-        &format!("/v1/workspaces/{workspace}/invitations"),
-        &json!({ "email": email, "role": role }),
-    )
-    .bearer(&user.access)
-    .send()
-    .await
-}
 
 /// The caller's invitations, at `query`.
 async fn received(api: &Api, user: &SignedIn, query: &str) -> Value {
@@ -126,10 +116,11 @@ async fn invitations_001_the_role_must_rank_below_the_inviters() {
     let workspace = acme(&api, &ada, &[(&bob, "admin")]).await;
 
     let admin_as_admin = invite(&api, &bob, &workspace, "carol@example.com", "admin").await;
+    let admin_as_owner = invite(&api, &bob, &workspace, "carol@example.com", "owner").await;
     let owner_as_owner = invite(&api, &ada, &workspace, "carol@example.com", "owner").await;
     let admin_as_member = invite(&api, &bob, &workspace, "carol@example.com", "member").await;
 
-    for refused in [&admin_as_admin, &owner_as_owner] {
+    for refused in [&admin_as_admin, &admin_as_owner, &owner_as_owner] {
         assert_eq!(refused.status, 403);
         assert_eq!(refused.json()["code"], "request.permission_denied");
     }
@@ -140,7 +131,7 @@ async fn invitations_001_the_role_must_rank_below_the_inviters() {
     let refusals = db
         .owner_reads("SELECT count(*)::text FROM audit_entries WHERE action = 'access.denied'")
         .await;
-    assert_eq!(refusals, ["2"]);
+    assert_eq!(refusals, ["3"]);
 }
 
 #[tokio::test]
@@ -227,15 +218,23 @@ async fn invitations_003_inviting_again_refreshes_the_invitation_in_place() {
     assert_eq!(refreshed, [format!("true member {}", bob.user_id)]);
     let entries = db
         .owner_reads(
-            "SELECT action || ' ' || actor_user_id FROM audit_entries \
-             WHERE action LIKE 'invitation.%' ORDER BY created_at, id",
+            "SELECT action || ' ' || scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
+             || resource_type || ' ' || resource_id || ' ' \
+             || coalesce(target_user_id::text, '-') || ' ' || details::text \
+             FROM audit_entries WHERE action LIKE 'invitation.%' ORDER BY created_at, id",
         )
         .await;
     assert_eq!(
         entries,
         [
-            format!("invitation.created {}", ada.user_id),
-            format!("invitation.updated {}", bob.user_id),
+            format!(
+                "invitation.created workspace {workspace} {} invitation {id} - {{\"role\": \"admin\"}}",
+                ada.user_id
+            ),
+            format!(
+                "invitation.updated workspace {workspace} {} invitation {id} - {{\"role\": \"member\"}}",
+                bob.user_id
+            ),
         ]
     );
     let jobs = db.owner_reads("SELECT count(*)::text FROM jobs").await;
@@ -321,13 +320,17 @@ async fn invitations_005_accepting_adds_the_caller_and_deletes_the_invitation() 
     assert_eq!(left, ["0"]);
     let entries = db
         .owner_reads(
-            "SELECT scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' || resource_id \
-             FROM audit_entries WHERE action = 'invitation.accepted'",
+            "SELECT scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' || resource_type \
+             || ' ' || resource_id || ' ' || coalesce(target_user_id::text, '-') || ' ' \
+             || details::text FROM audit_entries WHERE action = 'invitation.accepted'",
         )
         .await;
     assert_eq!(
         entries,
-        [format!("workspace {workspace} {} {id}", carol.user_id)]
+        [format!(
+            "workspace {workspace} {} invitation {id} - {{}}",
+            carol.user_id
+        )]
     );
     let events = db
         .owner_reads(
@@ -503,4 +506,138 @@ async fn platform_012_a_job_runs_for_its_scope_after_its_member_loses_their_role
 
     assert_eq!(runs, 1);
     assert_eq!(mailbox::to(&invitee).await.len(), 1);
+}
+
+#[tokio::test]
+async fn invitations_001_an_invitation_lasts_1_to_90_days() {
+    for days in [0, 91] {
+        let refused =
+            crate::support::api::refusal(&Options::default().set("INVITATION_EXPIRY_DAYS", days));
+
+        assert_eq!(
+            refused,
+            "INVITATION_EXPIRY_DAYS must be a whole number from 1 to 90"
+        );
+    }
+}
+
+#[tokio::test]
+async fn invitations_004_a_page_boundary_between_invitations_created_at_once_loses_none() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let carol = users::register(&api, "carol@example.com").await;
+    let db = api.database();
+    for name in ["Acme", "Globex", "Initech"] {
+        let workspace = workspaces::arrange(db, name, &[(&ada.user_id, "owner")]).await;
+        invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+    }
+    db.owner_executes("UPDATE invitations SET created_at = '2026-11-01T12:00:00Z'")
+        .await;
+
+    let mut seen = Vec::new();
+    let mut query = "?limit=1".to_owned();
+    loop {
+        let page = received(&api, &carol, &query).await;
+        for item in page["items"].as_array().unwrap() {
+            seen.push(item["workspace_name"].as_str().unwrap().to_owned());
+        }
+        match page["next_cursor"].as_str() {
+            Some(cursor) => query = format!("?limit=1&cursor={cursor}"),
+            None => break,
+        }
+    }
+
+    seen.sort();
+    assert_eq!(seen, ["Acme", "Globex", "Initech"]);
+}
+
+#[tokio::test]
+async fn invitations_004_a_search_pages_through_its_matches() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let carol = users::register(&api, "carol@example.com").await;
+    let db = api.database();
+    for name in ["Alpha One", "Beta", "Alpha Two"] {
+        let workspace = workspaces::arrange(db, name, &[(&ada.user_id, "owner")]).await;
+        invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+    }
+
+    let first = received(&api, &carol, "?search=alpha&limit=1").await;
+    let cursor = first["next_cursor"].as_str().unwrap();
+    let second = received(
+        &api,
+        &carol,
+        &format!("?search=alpha&limit=1&cursor={cursor}"),
+    )
+    .await;
+
+    assert_eq!(first["items"][0]["workspace_name"], "Alpha Two");
+    assert_eq!(second["items"][0]["workspace_name"], "Alpha One");
+    assert_eq!(second["items"].as_array().unwrap().len(), 1);
+    assert_eq!(second["next_cursor"], Value::Null);
+}
+
+#[tokio::test]
+async fn invitations_007_a_second_run_of_the_sweep_changes_nothing_more() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let workspace = acme(&api, &ada, &[]).await;
+    invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+    invite(&api, &ada, &workspace, "dave@example.com", "member").await;
+    db.owner_executes(
+        "UPDATE invitations SET expires_at = now() - interval '1 second' \
+         WHERE email = 'carol@example.com'",
+    )
+    .await;
+    api.run_periodic("invitations.expire").await;
+    let once = db.owner_reads("SELECT email FROM invitations").await;
+
+    api.run_periodic("invitations.expire").await;
+
+    assert_eq!(db.owner_reads("SELECT email FROM invitations").await, once);
+    assert_eq!(once, ["dave@example.com"]);
+}
+
+#[tokio::test]
+async fn invitations_009_beyond_its_limit_a_member_s_invitation_answers_429() {
+    let api = Api::with(Options::default().set("INVITATION_LIMIT", 2)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let workspace = acme(&api, &ada, &[(&bob, "member")]).await;
+
+    // A request that answers otherwise still counts.
+    let member = invite(&api, &ada, &workspace, "bob@example.com", "member").await;
+    let second = invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+    let third = invite(&api, &ada, &workspace, "dave@example.com", "member").await;
+
+    assert_eq!(member.status, 409);
+    assert_eq!(second.status, 201);
+    assert_eq!(third.status, 429);
+    assert_eq!(third.json()["code"], "request.rate_limited");
+    let invited = api
+        .database()
+        .owner_reads("SELECT email FROM invitations")
+        .await;
+    assert_eq!(invited, ["carol@example.com"]);
+}
+
+#[tokio::test]
+async fn invitations_009_the_limit_and_its_window_are_checked() {
+    for (setting, value, refused) in [
+        (
+            "INVITATION_LIMIT",
+            0,
+            "INVITATION_LIMIT must be a whole number from 1 to 100000",
+        ),
+        (
+            "INVITATION_WINDOW_SECONDS",
+            86_401,
+            "INVITATION_WINDOW_SECONDS must be a whole number from 1 to 86400",
+        ),
+    ] {
+        let refusal = crate::support::api::refusal(&Options::default().set(setting, value));
+
+        assert_eq!(refusal, refused);
+    }
 }

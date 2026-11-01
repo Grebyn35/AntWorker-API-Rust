@@ -11,6 +11,7 @@ use platform::{
     errors::{Internal, Problem, RequestError},
     http::{FieldErrors, Idempotent, Query, Routes},
     lists::{Limit, List, Page, Search},
+    rate_limit::RateLimits,
     types::{Client, EmailAddress, WorkspaceId},
 };
 use serde::Deserialize;
@@ -81,10 +82,18 @@ impl TryFrom<InviteRequest> for NewInvitation {
 )]
 async fn invite(
     State(invitations): State<Invitations>,
+    limits: RateLimits,
     authorize: Authorize<InvitationsCreate>,
     request: Idempotent<InviteRequest>,
 ) -> Result<Response, Problem<InvitationsError>> {
     let input = NewInvitation::try_from(request.body).map_err(InvitationsError::from)?;
+    // Counted before the unit of work opens, so a request refused afterwards still counts
+    // (INVITATIONS-009, PLATFORM-026).
+    let inviter = authorize.principal().user_id().uuid();
+    limits
+        .check(invitations.settings.limit, inviter.as_bytes())
+        .await
+        .map_err(InvitationsError::from)?;
     let (uow, authorized) = authorize.open().await.map_err(InvitationsError::from)?;
     let invited =
         service::invite(uow, &authorized, request.key.as_ref(), input, &invitations).await?;

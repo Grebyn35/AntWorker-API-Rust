@@ -133,7 +133,7 @@ async fn run(job: Periodic, schedule: ClaimedSchedule, database: Database, clock
     let outcome = match result {
         Ok(()) => Outcome::Succeeded,
         Err(error) => {
-            tracing::error!(
+            tracing::warn!(
                 { names::JOB_KIND } = job.name,
                 { names::EXCEPTION_MESSAGE } = errors::chain(&error),
                 "periodic job failed, and runs again at its next interval"

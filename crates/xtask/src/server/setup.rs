@@ -9,8 +9,9 @@ use std::{
 
 use super::{
     on_server_output,
-    questions::{Prompt, Release, State, Terminal, ask, github_defaults},
+    questions::{Prompt, Release, State, ask, github_defaults},
     read, send_release,
+    terminal::Terminal,
 };
 use crate::deploy::{quoted, refuse, released, root};
 

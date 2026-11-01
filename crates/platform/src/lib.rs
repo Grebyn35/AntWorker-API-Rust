@@ -17,6 +17,7 @@ pub mod idempotency;
 pub mod jobs;
 pub mod lifecycle;
 pub mod lists;
+pub mod mail;
 pub mod random;
 pub mod rate_limit;
 pub mod telemetry;

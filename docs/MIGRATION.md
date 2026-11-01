@@ -146,6 +146,10 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of bd2d1fd..ec21099 | API-10: whether a route's query type converts into the service's input through `TryFrom`, as a body's request type does, rather than the handler reading `Page`, `Search` and a filter one by one | 3 |
 | Conformance review of bd2d1fd..ec21099 | TEST-10: a check that an integration test inserts no rows into a table that a support builder arranges | 3 |
 | The owner's decision on second factors (D63) | Whether a second factor can be required beyond superadmins: of every user, by a setting of the deployment, or of a workspace's members, by its owner, as Slack and GitHub let an organization require it of its members | 5, with the full `auth` module |
+| Conformance review of d678a43..4eedca6 | SEC-12: a check that a route whose operation enqueues an email counts a per-action bucket first, such as `check-layers` failing a service that calls `Mail::send` under a route that takes no `RateLimits` | 3 |
+| Conformance review of d678a43..4eedca6 | OPS-09: `check-layout` fails an `impl Job`, or a call of `Jobs::queued` or `Jobs::periodic`, outside a module's `jobs.rs` and `platform::jobs` | 3 |
+| Conformance review of d678a43..4eedca6 | DATA-04: `check-schema` fails a `CHECK` constraint that reads one column only, which states a rule on a value | 3 |
+| Conformance review of d678a43..4eedca6 | API-10: whether a job's payload carries the domain types of its values, such as a `mail::Invitation`'s inviter and workspace names, held as `String`, since `mail` can't name another module's types (ARCH-05) | 3 |
 
 ## Conformance reviews
 

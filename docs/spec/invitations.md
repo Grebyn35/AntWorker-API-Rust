@@ -18,7 +18,7 @@ None.
 
 | Method and path | Access | Behaviors |
 |---|---|---|
-| `POST /v1/workspaces/{workspace_id}/invitations` | `workspace::<InvitationsCreate>` | INVITATIONS-001 to INVITATIONS-003, INVITATIONS-008 |
+| `POST /v1/workspaces/{workspace_id}/invitations` | `workspace::<InvitationsCreate>` | INVITATIONS-001 to INVITATIONS-003, INVITATIONS-008, INVITATIONS-009 |
 | `GET /v1/users/me/invitations` | user | INVITATIONS-004 |
 | `POST /v1/users/me/invitations/{invitation_id}/accept` | user | INVITATIONS-005, INVITATIONS-006 |
 
@@ -36,6 +36,7 @@ None.
 | INVITATIONS-006 | Accepting an expired invitation answers 422 `invitations.expired`. Accepting while already a member answers 409 `invitations.already_member` and changes nothing. An invitation not addressed to the caller answers 404 `invitations.not_found`. | D16, D34, DATA-22 | `invitations_006_` |
 | INVITATIONS-007 | The periodic job `invitations.expire` deletes expired invitations every hour, across all workspaces. | OPS-11, DATA-22 | `invitations_007_` |
 | INVITATIONS-008 | When the invited email belongs to an account, the new or refreshed invitation also publishes the user event `invitation.received` to that user. | D34, SEC-17 | `invitations_008_` |
+| INVITATIONS-009 | Each member may invite `INVITATION_LIMIT` times (1 to 100,000, default 100) per `INVITATION_WINDOW_SECONDS` (1 to 86,400, default 3,600), which bounds the emails a member's invitations send. Beyond that, inviting answers 429 `request.rate_limited` before anything is written. Every request to invite is counted, whatever it answers. | SEC-12, API-15, PLATFORM-026 | `invitations_009_` |
 
 ## Design
 
@@ -45,10 +46,11 @@ An invitation is addressed to an email, not to a user. It reaches whichever acco
 
 ### Inviting
 
-1. The unit of work is the one `Authorized<InvitationsCreate>` opened.
-2. `accounts::find_by_email` looks up the invitee's account. If there is one, `access::is_member` decides INVITATIONS-002.
-3. The invitation is inserted or refreshed by `(workspace_id, email)`, expiring `INVITATION_EXPIRY_DAYS` after `now()`.
-4. The audit entry is recorded, and `Mail::send` enqueues the invitation email under the proof's scope, the workspace and the inviter, with the inviter's name from `accounts::profiles`, the workspace's from `workspaces::names`, and the setting's days. If the invitee has an account, `invitation.received` is published to them (INVITATIONS-008). Then the unit of work commits.
+1. The caller's bucket of INVITATIONS-009 counts the request in its own short transaction, before the unit of work opens (PLATFORM-026). Its key is a hash-based message authentication code (HMAC) of the caller's user ID (PLATFORM-051).
+2. The unit of work is the one `Authorized<InvitationsCreate>` opened.
+3. `accounts::find_by_email` looks up the invitee's account. If there is one, `access::is_member` decides INVITATIONS-002.
+4. The invitation is inserted or refreshed by `(workspace_id, email)`, expiring `INVITATION_EXPIRY_DAYS` after `now()`.
+5. The audit entry is recorded, and `Mail::send` enqueues the invitation email under the proof's scope, the workspace and the inviter, with the inviter's name from `accounts::profiles`, the workspace's from `workspaces::names`, and the setting's days. If the invitee has an account, `invitation.received` is published to them (INVITATIONS-008). Then the unit of work commits.
 
 The created invitation's `Location` is `/v1/workspaces/{workspace_id}/invitations/{id}`, the route that reads one invitation, which arrives with the full module.
 
@@ -59,8 +61,8 @@ The query filters on the caller's email, from `accounts::profile`, and on `expir
 ### Accepting
 
 1. The unit of work opens from the caller's `Principal`.
-2. It reads the invitation by ID and the caller's email (DATA-22), and checks the expiry in SQL.
-3. `access::is_member` refuses an existing member. Otherwise `access::add_member` adds the caller.
+2. It reads the invitation by ID and the caller's email (DATA-22), `FOR UPDATE`, so two acceptances of it take turns (DATA-25), and checks the expiry in SQL.
+3. `access::add_member` adds the caller, or reports that they are a member already, which refuses the acceptance and changes nothing.
 4. It deletes the invitation, records the audit entry, publishes the events, and commits.
 
 ### Expiry sweep

@@ -1,12 +1,11 @@
 //! The emails the API sends, from background jobs ([spec](../../../../../docs/spec/mail.md)).
+//! The transport they go through is `platform`'s `mail` area.
 
 mod error;
-mod message;
+mod jobs;
+mod model;
 mod service;
-mod settings;
-mod transport;
 
 pub(crate) use error::MailError;
-pub(crate) use message::{Invitation, Message};
+pub(crate) use model::{Invitation, Message};
 pub(crate) use service::Mail;
-pub(crate) use settings::Settings;

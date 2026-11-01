@@ -11,13 +11,18 @@ use std::{
     time::Duration,
 };
 
+mod error;
+mod mail;
 mod web;
+
+pub use error::ConfigError;
+use error::Problem;
 
 use ipnet::IpNet;
 
 pub use web::Origin;
 
-use crate::{db::DatabaseUrl, hashing::HmacKey, telemetry::OtlpEndpoint};
+use crate::{db::DatabaseUrl, hashing::HmacKey, mail::MailConfig, telemetry::OtlpEndpoint};
 
 /// Where the API runs. Every deployment sets it explicitly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,6 +111,8 @@ pub struct ServerConfig {
     /// How long a dead-lettered job keeps its payload before the sweep deletes it
     /// (PLATFORM-013).
     pub job_dead_letter_retention: Duration,
+    /// Whether email is sent, and through which server (MAIL-006).
+    pub mail: MailConfig,
 }
 
 /// The limits on the requests of one client IP, and of one user (PLATFORM-048).
@@ -142,52 +149,6 @@ pub struct BootstrapConfig {
     pub owner: DatabaseUrl,
     /// The role `app`'s connection, whose password `bootstrap` sets.
     pub app: DatabaseUrl,
-}
-
-/// A setting that is missing or invalid.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-#[error("{setting} {problem}")]
-pub struct ConfigError {
-    setting: String,
-    problem: Problem,
-}
-
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-enum Problem {
-    #[error("is required")]
-    Missing,
-    #[error("must be {0}")]
-    Invalid(&'static str),
-    #[error("must be a whole number from {0} to {1}")]
-    OutOfRange(u32, u32),
-    #[error("names a file that can't be read")]
-    UnreadableFile,
-    #[error("must be valid Unicode")]
-    NotUnicode,
-    #[error("must be unset: connections take their settings only from the database URLs")]
-    MustBeUnset,
-    #[error("must be unset: telemetry takes its settings only from OTEL_EXPORTER_OTLP_ENDPOINT")]
-    TelemetryMustBeUnset,
-}
-
-impl ConfigError {
-    fn new(setting: &str, problem: Problem) -> Self {
-        Self {
-            setting: setting.to_owned(),
-            problem,
-        }
-    }
-
-    /// The setting `setting` must be `expected`, such as when another setting decides what it
-    /// may hold.
-    pub fn invalid(setting: &str, expected: &'static str) -> Self {
-        Self::new(setting, Problem::Invalid(expected))
-    }
-
-    /// The setting `setting` is required, such as by another setting's value.
-    pub fn missing(setting: &str) -> Self {
-        Self::new(setting, Problem::Missing)
-    }
 }
 
 const LISTEN_ADDR_EXPECTED: &str = "a socket address such as 0.0.0.0:8080";
@@ -325,6 +286,7 @@ where
             job_dead_letter_retention: Duration::from_secs(
                 u64::from(self.number("JOB_DEAD_LETTER_RETENTION_DAYS", 14, 1..=365)?) * 86_400,
             ),
+            mail: self.mail()?,
         })
     }
 
@@ -372,7 +334,7 @@ where
     }
 
     /// The required setting `name`, as `parse` reads it.
-    pub fn with<T>(
+    fn with<T>(
         &self,
         name: &str,
         expected: &'static str,
@@ -383,7 +345,7 @@ where
     }
 
     /// The setting `name`, as `parse` reads it, or `None` when it is unset.
-    pub fn optional_with<T>(
+    fn optional_with<T>(
         &self,
         name: &str,
         expected: &'static str,
@@ -514,11 +476,12 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    const SERVER: [(&str, &str); 4] = [
+    const SERVER: [(&str, &str); 5] = [
         ("ENVIRONMENT", "test"),
         ("LISTEN_ADDR", "0.0.0.0:8080"),
         ("DATABASE_URL", "postgres://app:secret@localhost:5432/api"),
         ("HMAC_KEY", "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="),
+        ("EMAIL", "off"),
     ];
 
     fn settings(

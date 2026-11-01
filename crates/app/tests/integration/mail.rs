@@ -3,7 +3,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use platform::{clock::TestClock, lifecycle::Readiness};
-use serde_json::json;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpListener,
@@ -11,7 +10,8 @@ use tokio::{
 
 use crate::support::{
     Api, Options,
-    api::{Response, application},
+    api::application,
+    invitations::invite,
     mailbox,
     users::{self, SignedIn},
     workspaces,
@@ -23,17 +23,6 @@ async fn acme(options: Options) -> (Api, SignedIn, String) {
     let ada = users::register(&api, "ada@example.com").await;
     let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
     (api, ada, workspace)
-}
-
-/// Invites `email` to `workspace` as a member, as `user`.
-async fn invite(api: &Api, user: &SignedIn, workspace: &str, email: &str) -> Response {
-    api.post(
-        &format!("/v1/workspaces/{workspace}/invitations"),
-        &json!({ "email": email, "role": "member" }),
-    )
-    .bearer(&user.access)
-    .send()
-    .await
 }
 
 /// One column of the jobs table, as text.
@@ -82,7 +71,7 @@ async fn mail_001_a_request_only_enqueues_its_email_and_a_job_sends_it() {
     let (api, ada, workspace) = acme(Options::default()).await;
     let invitee = mailbox::address("invitee");
 
-    let response = invite(&api, &ada, &workspace, &invitee).await;
+    let response = invite(&api, &ada, &workspace, &invitee, "member").await;
 
     assert_eq!(response.status, 201);
     assert!(mailbox::to(&invitee).await.is_empty());
@@ -102,7 +91,7 @@ async fn mail_001_a_failed_send_is_retried_with_backoff_then_dead_lettered() {
         .unwrap();
     let options = Options::default().set("SMTP_PORT", closed.port());
     let (api, ada, workspace) = acme(options).await;
-    invite(&api, &ada, &workspace, "bob@example.com").await;
+    invite(&api, &ada, &workspace, "bob@example.com", "member").await;
 
     api.run_jobs().await;
 
@@ -133,7 +122,7 @@ async fn mail_001_a_permanent_rejection_dead_letters_at_once_without_the_servers
     let server = refusing_server().await;
     let options = Options::default().set("SMTP_PORT", server.port());
     let (api, ada, workspace) = acme(options).await;
-    invite(&api, &ada, &workspace, "bob@example.com").await;
+    invite(&api, &ada, &workspace, "bob@example.com", "member").await;
 
     api.run_jobs().await;
 
@@ -145,7 +134,7 @@ async fn mail_001_a_permanent_rejection_dead_letters_at_once_without_the_servers
 async fn mail_002_the_invitation_email_reaches_the_invitee_with_both_parts() {
     let (api, ada, workspace) = acme(Options::default()).await;
     let invitee = mailbox::address("invitee");
-    invite(&api, &ada, &workspace, &invitee).await;
+    invite(&api, &ada, &workspace, &invitee, "member").await;
 
     api.run_jobs().await;
 
@@ -169,7 +158,7 @@ async fn mail_002_the_invitation_email_reaches_the_invitee_with_both_parts() {
 async fn mail_004_with_email_off_nothing_is_enqueued_and_the_invitation_is_created() {
     let (api, ada, workspace) = acme(Options::default().set("EMAIL", "off")).await;
 
-    let response = invite(&api, &ada, &workspace, "bob@example.com").await;
+    let response = invite(&api, &ada, &workspace, "bob@example.com", "member").await;
     let capabilities = api.get("/v1/capabilities").send().await;
 
     assert_eq!(response.status, 201);
@@ -186,7 +175,7 @@ async fn mail_004_with_email_off_nothing_is_enqueued_and_the_invitation_is_creat
 async fn mail_004_a_replica_with_email_off_drops_a_job_enqueued_while_email_was_on() {
     let (api, ada, workspace) = acme(Options::default()).await;
     let invitee = mailbox::address("invitee");
-    invite(&api, &ada, &workspace, &invitee).await;
+    invite(&api, &ada, &workspace, &invitee, "member").await;
     let database = api.database().app().await;
     let clock = Arc::new(TestClock::default());
     let (_, _, off) = application(
@@ -225,7 +214,7 @@ async fn mail_005_in_development_every_email_reaches_the_mail_catcher_on_the_mac
     assert!(compose.contains("\"127.0.0.1:1025:1025\""));
     let (api, ada, workspace) = acme(Options::default()).await;
     let invitee = mailbox::address("invitee");
-    invite(&api, &ada, &workspace, &invitee).await;
+    invite(&api, &ada, &workspace, &invitee, "member").await;
 
     api.run_jobs().await;
 
@@ -241,7 +230,7 @@ async fn mail_007_every_email_comes_from_email_from_with_the_message_id_fixed_wh
         .unwrap();
     let (api, ada, workspace) = acme(Options::default()).await;
     let invitee = mailbox::address("invitee");
-    invite(&api, &ada, &workspace, &invitee).await;
+    invite(&api, &ada, &workspace, &invitee, "member").await;
     let enqueued = jobs(&api, "payload->>'message_id'").await.remove(0);
     // A first attempt that fails, as one whose success went unrecorded would, keeps the job.
     let (_, _, failing) = application(
@@ -267,4 +256,29 @@ async fn mail_007_every_email_comes_from_email_from_with_the_message_id_fixed_wh
     assert_eq!(emails[0].from_name, "AntWorker");
     assert!(enqueued.ends_with("@example.com>"), "{enqueued}");
     assert_eq!(format!("<{}>", emails[0].message_id), enqueued);
+}
+
+#[tokio::test]
+async fn mail_007_a_second_run_of_a_mail_job_sends_a_copy_with_the_same_message_id() {
+    let (api, ada, workspace) = acme(Options::default()).await;
+    let invitee = mailbox::address("invitee");
+    invite(&api, &ada, &workspace, &invitee, "member").await;
+    // The same job once more, as when a replica stopped after its send and before its success
+    // was written.
+    api.database()
+        .owner_executes(
+            "INSERT INTO jobs (kind, payload, user_id, workspace_id) \
+             SELECT kind, payload, user_id, workspace_id FROM jobs",
+        )
+        .await;
+    let enqueued = jobs(&api, "payload->>'message_id'").await.remove(0);
+
+    let runs = api.run_jobs().await;
+
+    assert_eq!(runs, 2);
+    let emails = mailbox::to(&invitee).await;
+    assert_eq!(emails.len(), 2);
+    for email in emails {
+        assert_eq!(format!("<{}>", email.message_id), enqueued);
+    }
 }

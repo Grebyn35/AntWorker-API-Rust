@@ -9,7 +9,7 @@ use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
 use http_body_util::BodyExt;
 use platform::{
     clock::{SharedClock, TestClock},
-    config::{ServerConfig, Settings},
+    config::{ConfigError, ServerConfig, Settings},
     db::Database,
     http::Routes,
     jobs::Jobs,
@@ -89,15 +89,21 @@ fn environment(options: &Options) -> HashMap<String, String> {
 
 /// The configuration `serve` would read from `options`.
 pub fn configuration(options: &Options) -> (ServerConfig, app::Config) {
+    read(options).unwrap()
+}
+
+/// Why `serve` would refuse the settings of `options`, which it must refuse.
+pub fn refusal(options: &Options) -> String {
+    read(options).err().expect("a refusal").to_string()
+}
+
+fn read(options: &Options) -> Result<(ServerConfig, app::Config), ConfigError> {
     let env = environment(options);
     let settings = Settings::new(
         |name: &str| env.get(name).map(OsString::from),
         |_: &std::path::Path| Err(io::Error::other("the tests read no files")),
     );
-    (
-        settings.server().unwrap(),
-        app::Config::read(&settings).unwrap(),
-    )
+    Ok((settings.server()?, app::Config::read(&settings)?))
 }
 
 /// The API's application as `serve` builds it on `database`, with `options`, its document, and
@@ -109,11 +115,11 @@ pub async fn application(
     readiness: Readiness,
 ) -> (Router, Value, Jobs) {
     let (config, modules) = configuration(&options);
-    let mut jobs = Jobs::new(database, config.job_dead_letter_retention);
-    let services = app::compose(database, modules, clock.clone(), &mut jobs)
+    let services = app::compose(database, &config, modules, clock.clone())
         .await
         .unwrap();
     let pipeline = app::pipeline(&config, database, &services, clock, readiness);
+    let jobs = services.jobs;
     let mut document = app::openapi(SERVICE);
     let routes = match options.routes {
         Some(extra) => {

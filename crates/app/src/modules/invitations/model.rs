@@ -1,6 +1,9 @@
 //! The invitation's domain types (D25), and what its routes answer.
 
-use platform::types::{EmailAddress, Timestamp, UserId, WorkspaceId};
+use platform::{
+    rate_limit::Bucket,
+    types::{EmailAddress, Timestamp, UserId, WorkspaceId},
+};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -90,9 +93,13 @@ pub(super) struct Found {
     pub(super) expired: bool,
 }
 
-/// How long an invitation lasts (INVITATIONS-001).
+/// How long an invitation lasts, and how many a member may send (INVITATIONS-001,
+/// INVITATIONS-009).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Settings {
     /// Its days, from 1 to 90.
     pub(crate) expiry_days: u32,
+    /// The per-member limit on inviting, which bounds the emails a member's invitations send
+    /// (SEC-12).
+    pub(crate) limit: Bucket,
 }

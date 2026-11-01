@@ -41,7 +41,7 @@
 
 ### Email verification
 
-`email_verified` starts as `false`, and nothing reads it in this slice. What it decides, once the full `auth` module arrives, is in the [auth spec](auth.md#email-verification).
+`email_verified` starts as `false`, and nothing enforces it in this slice, though ACCOUNTS-001 returns it. What it decides, once the full `auth` module arrives, is in the [auth spec](auth.md#email-verification).
 
 ### Export and erasure
 

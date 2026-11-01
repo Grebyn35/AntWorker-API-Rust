@@ -1,6 +1,9 @@
 //! What `invitations` reports (ERR-01).
 
-use platform::errors::{Category, ErrorCode, FieldError, Internal, PlatformError, RequestError};
+use platform::{
+    errors::{Category, ErrorCode, FieldError, Internal, PlatformError, RequestError},
+    rate_limit::LimitError,
+};
 
 use crate::modules::{
     access::AccessError, accounts::AccountsError, audit::AuditError, mail::MailError,
@@ -19,6 +22,10 @@ pub(crate) enum InvitationsError {
     /// No invitation with the ID is addressed to the caller (INVITATIONS-006).
     #[error("no invitation with the ID is addressed to the caller")]
     NotFound,
+    /// The member's limit on inviting refused the request, or couldn't count it
+    /// (INVITATIONS-009).
+    #[error(transparent)]
+    Limit(#[from] LimitError),
     /// `platform` refused the request, such as by authorization, its idempotency key or its
     /// input, or couldn't check it.
     #[error(transparent)]
@@ -83,6 +90,7 @@ impl ErrorCode for InvitationsError {
             Self::AlreadyMember => "invitations.already_member",
             Self::Expired => "invitations.expired",
             Self::NotFound => "invitations.not_found",
+            Self::Limit(error) => error.code(),
             Self::Platform(error) => error.code(),
             Self::Internal(error) => error.code(),
         }
@@ -93,6 +101,7 @@ impl ErrorCode for InvitationsError {
             Self::AlreadyMember => "Already a member",
             Self::Expired => "Invitation expired",
             Self::NotFound => "Invitation not found",
+            Self::Limit(error) => error.title(),
             Self::Platform(error) => error.title(),
             Self::Internal(error) => error.title(),
         }
@@ -103,6 +112,7 @@ impl ErrorCode for InvitationsError {
             Self::AlreadyMember => Category::Conflict,
             Self::Expired => Category::BusinessRule,
             Self::NotFound => Category::NotFound,
+            Self::Limit(error) => error.category(),
             Self::Platform(error) => error.category(),
             Self::Internal(error) => error.category(),
         }

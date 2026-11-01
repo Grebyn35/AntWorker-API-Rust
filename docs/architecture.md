@@ -79,7 +79,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `errors` | Error categories, the `ErrorCode` trait, and the single conversion to an HTTP response. | D17 |
 | `telemetry` | The logging and tracing setup, the export of spans, logs and metrics over the OpenTelemetry Protocol (OTLP), the list of telemetry names, and the metric declarations. | D10, D19 |
 | `storage` | An object storage client. | D1, D14 |
-| `mail` | The SMTP transport and the template engine. The templates themselves live in `app`. | D1, D9 |
+| `mail` | The SMTP transport, which the email settings configure, with a client span for each send. The emails, their templates and the job that sends them live in `app`'s `mail` module. | D1, D9 |
 | `outbound` | The only HTTP clients: one for URLs from configuration, and one for URLs supplied by third parties, with protection against server-side request forgery (SSRF) (SEC-09). | D26 |
 | `types` | Shared domain types: `Secret`, `EmailAddress`, the ID types. | D7, D25 |
 | `clock`, `random` | The injectable clock and the operating system's secure random source (CODE-06). | D23, D26 |
@@ -268,7 +268,7 @@ Nothing runs after the response except background work driven by committed rows.
   - Hard deletes, with cascades declared in the schema.
 - **Side-effect tables.** A unit of work writes to the module's own tables, `audit_entries` (owned by `audit`), and `events` and `jobs` (owned by `platform`). After the commit:
   - Events reach every authorized stream, and a stream that reconnects replays what it missed.
-  - Jobs run at least once, with retry and backoff, and land in a dead-letter state after the last attempt. Every job handler is idempotent.
+  - Jobs run at least once, with retry and backoff, and land in a dead-letter state after the last attempt. Every job handler is idempotent, but for an effect outside the API that a run can't take back, such as an email, whose spec states what a repeat causes (OPS-09).
 - **Migrations** are forward-only and follow expand and contract, so the previous release keeps working during a rolling deploy (D15). They live in one ordered directory, and each file's description names its owning module.
 
 ## 8. Cross-cutting mechanisms

@@ -47,7 +47,7 @@ const TENANTS: [&str; 1] = ["workspaces"];
 
 /// The files of scheduled jobs that span tenants, which select rows by their own criteria, such
 /// as expiry (DATA-22).
-const CROSS_TENANT: [&str; 1] = ["crates/app/src/modules/invitations/expiry.rs"];
+const CROSS_TENANT: [&str; 1] = ["crates/app/src/modules/invitations/jobs.rs"];
 
 /// The `sqlx` macros that take SQL text (DATA-20).
 const MACROS: [&str; 6] = [
