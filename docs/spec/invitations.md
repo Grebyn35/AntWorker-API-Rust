@@ -39,6 +39,10 @@ None.
 
 ## Design
 
+### Who an invitation reaches
+
+An invitation is addressed to an email, not to a user. It reaches whichever account holds the address when the invitee lists or accepts, whether or not one did when they were invited. With email on, the full `auth` module serves an account only once it has proven its address, so only the address's owner sees its invitations; with email off, an address is what its account claims ([auth spec](auth.md#email-verification), D67).
+
 ### Inviting
 
 1. The unit of work is the one `Authorized<InvitationsCreate>` opened.
@@ -63,6 +67,4 @@ The job `invitations.expire` deletes rows whose `expires_at` has passed. It span
 
 ## Open design questions
 
-| Question | Settled by |
-|---|---|
-| Whether listing and accepting the caller's invitations (INVITATIONS-004, INVITATIONS-005) requires a verified email, so nobody who registers an invitee's address before them can see or accept the invitation | the spec of the full `auth` module, with the gate that enforces verification |
+None.

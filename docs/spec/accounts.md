@@ -41,7 +41,7 @@
 
 ### Email verification
 
-`email_verified` starts as `false` and isn't enforced anywhere in this slice. The verification flow, and the gate that enforces it, come with the full `auth` module.
+`email_verified` starts as `false`, and nothing reads it in this slice. What it decides, once the full `auth` module arrives, is in the [auth spec](auth.md#email-verification).
 
 ### Export and erasure
 

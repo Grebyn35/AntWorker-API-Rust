@@ -36,7 +36,7 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Area | Covered by |
 |---|---|
 | Architecture and threat model | D22, D26 |
-| Authentication | D18, D26, D61, D63, the `auth` spec |
+| Authentication | D18, D26, D61, D63, D67, the `auth` spec |
 | Session management | D5, D18, D61 |
 | Access control | D2, D3, D4, D62 |
 | Validation, sanitization and encoding | D25, D8 |
