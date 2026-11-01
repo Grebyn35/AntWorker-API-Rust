@@ -69,15 +69,15 @@ Each module goes through these stages, in order:
 
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
-| `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits |
+| `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs, mail | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs, mail | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs, mail |
 | `accounts` | USER | first slice | first slice | first slice | first slice | first slice |
 | `auth` | AUTH | first slice | first slice | first slice | first slice | first slice |
 | `access` | WS | first slice | first slice | first slice | first slice | first slice |
 | `workspaces` | WS | first slice | first slice | first slice | first slice | first slice |
-| `invitations` | WS, MAIL | first slice | first slice | first slice | first slice | |
+| `invitations` | WS, MAIL | first slice | first slice | first slice | first slice | first slice |
 | `audit` | AUDIT | first slice | first slice | the writer, the security event sink | the writer, the security event sink | the writer, the security event sink |
 | `realtime` | RT | first slice | first slice | | | |
-| `mail` | MAIL | first slice | first slice | first slice | first slice | |
+| `mail` | MAIL | first slice | first slice | first slice | first slice | first slice |
 | `files` | FILE | | | | | |
 | `client_telemetry` | OBS | | | | | |
 | `superadmins` | none: a new part (D62) | | | | | |
@@ -119,6 +119,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 | API-04 | A created workspace's `Location`, `/v1/workspaces/{id}`, names a resource that no route serves yet: reading one workspace arrives with the full module | 5, with the full `workspaces` module |
 | API-04 | A created invitation's `Location`, `/v1/workspaces/{workspace_id}/invitations/{id}`, names a resource that no route serves yet: reading one invitation arrives with the full module | 5, with the full `invitations` module |
 | OPS-22 | When both colors of replicas run and no deploy recorded which serves, deploy.sh tells the operator to stop one with `docker compose` on the server, a change to the services that no task makes | 3 |
+| TEST-05 | `platform_065_a_runs_span_links_to_the_trace_that_enqueued_it` runs an invitation email, the only email before step 5, so removing `invitations` would break a test of `platform` | 2.3, with `check-removable` |
 
 ## Rule proposals
 
@@ -150,6 +151,10 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of d678a43..4eedca6 | OPS-09: `check-layout` fails an `impl Job`, or a call of `Jobs::queued` or `Jobs::periodic`, outside a module's `jobs.rs` and `platform::jobs` | 3 |
 | Conformance review of d678a43..4eedca6 | DATA-04: `check-schema` fails a `CHECK` constraint that reads one column only, which states a rule on a value | 3 |
 | Conformance review of d678a43..4eedca6 | API-10: whether a job's payload carries the domain types of its values, such as a `mail::Invitation`'s inviter and workspace names, held as `String`, since `mail` can't name another module's types (ARCH-05) | 3 |
+| Conformance review of d678a43..364d2e9 | ARCH-08: `check-layers` fails a call of `RateLimits::check` in a module's `routes.rs`, since the service counts a per-action limit (platform spec, Unit of work) | 3 |
+| Conformance review of d678a43..364d2e9 | DOC-01: `check-docs` fails a comment or a document that names a module's `.rs` file that doesn't exist | 3 |
+| Conformance review of d678a43..364d2e9 | OPS-20: whether `serve` refuses `SMTP_SECURITY=none` for a mail server off the API's server, which `deploy/settings.env.example` allows only for a relay on the server's private network | 3 |
+| Conformance review of d678a43..364d2e9 | CODE-14: whether its unused public items include those that only tests call, such as `Principal::job_scope`, `JobContext`'s `id`, `attempt` and `scope`, and `JobScope::user` and `workspace`, which the platform spec names | 3 |
 
 ## Conformance reviews
 

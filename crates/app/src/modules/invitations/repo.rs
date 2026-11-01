@@ -1,4 +1,4 @@
-//! The SQL of `invitations` (ARCH-10), but the expiry sweep's, which `expiry.rs` holds. A
+//! The SQL of `invitations` (ARCH-10), but the expiry sweep's, which `jobs.rs` holds. A
 //! workspace's invitations are filtered by the workspace from the proof, and an invitee's by the
 //! caller's address (DATA-22).
 

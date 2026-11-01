@@ -87,16 +87,14 @@ async fn invite(
     request: Idempotent<InviteRequest>,
 ) -> Result<Response, Problem<InvitationsError>> {
     let input = NewInvitation::try_from(request.body).map_err(InvitationsError::from)?;
-    // Counted before the unit of work opens, so a request refused afterwards still counts
-    // (INVITATIONS-009, PLATFORM-026).
-    let inviter = authorize.principal().user_id().uuid();
-    limits
-        .check(invitations.settings.limit, inviter.as_bytes())
-        .await
-        .map_err(InvitationsError::from)?;
-    let (uow, authorized) = authorize.open().await.map_err(InvitationsError::from)?;
-    let invited =
-        service::invite(uow, &authorized, request.key.as_ref(), input, &invitations).await?;
+    let invited = service::invite(
+        &limits,
+        authorize,
+        request.key.as_ref(),
+        input,
+        &invitations,
+    )
+    .await?;
     let invitation = invited.invitation;
     if !invited.created {
         return Ok(axum::Json(invitation).into_response());

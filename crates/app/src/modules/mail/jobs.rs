@@ -30,8 +30,7 @@ pub(super) struct Delivery {
 
 impl Job for Delivery {
     const KIND: &'static str = "mail.send";
-    /// Spaces the retries over about 2 to 3.5 hours, so a mail server down for a few hours
-    /// delays an email rather than losing it (MAIL-001).
+    /// The mail spec's Sending says why 12 (MAIL-001).
     const MOST_ATTEMPTS: u32 = 12;
     const TIME_LIMIT: Duration = Duration::from_secs(60);
 }

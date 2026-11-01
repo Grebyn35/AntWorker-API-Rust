@@ -29,14 +29,7 @@ Nothing. Jobs live in `platform`'s `jobs` table.
 
 ### Settings
 
-| Setting | Meaning |
-|---|---|
-| `EMAIL` | `smtp` sends email through the server the settings below name; `off` sends none (MAIL-004). Required, with no default, so no deployment is without email by accident: a forgotten setting fails startup rather than leaving every password reset unanswered. |
-| `SMTP_HOST` | The mail server's host name. Required with `smtp`. |
-| `SMTP_SECURITY` | `tls`, a connection that starts with TLS; `starttls`, which upgrades to TLS before anything else is sent, and refuses a server that can't; or `none`, with no encryption, for a mail catcher on a private network. Default `starttls`. |
-| `SMTP_PORT` | Default 465 with `tls`, 587 with `starttls`, and 25 with `none`. |
-| `SMTP_USERNAME` and `SMTP_PASSWORD` | The credentials, both or neither; the password is a secret, read through `SMTP_PASSWORD_FILE` in a deployment (SEC-01). |
-| `EMAIL_FROM` | The sender, as a name and an address, such as `AntWorker <noreply@example.com>`. Required with `smtp`. |
+`.env.example` gives each email setting's type, default and meaning (DOC-14), and MAIL-006 how `serve` checks them. `EMAIL` has no default, so no deployment is without email by accident: a forgotten setting fails startup rather than leaving every password reset unanswered. In a deployment, `SMTP_PASSWORD` is read through `SMTP_PASSWORD_FILE`, as every secret is (SEC-01).
 
 A setting for timeouts, connection pooling or retries would be one nobody plausibly needs to change (D9), so those are constants: a connection or a reply times out after 10 seconds, and a send after 30.
 

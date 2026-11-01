@@ -7,7 +7,8 @@
 -- job dead-lettered at dead_at keeps its payload until the sweep deletes it (OPS-10).
 --
 -- user_id and workspace_id are the scope the job runs for (PLATFORM-012). They hold no foreign
--- keys: a job whose subject is deleted still runs, and its handler finds nothing (DATA-28).
+-- keys (DATA-05): erasing a user, or deleting a workspace, deletes the jobs enqueued for them
+-- (DATA-28).
 CREATE TYPE job_state AS ENUM ('waiting', 'dead');
 
 CREATE TABLE jobs (

@@ -163,12 +163,12 @@ async fn platform_011_a_job_exists_only_if_its_unit_of_work_commits() {
     let database = db.app().await;
     let mut rolled_back = database.begin(&support::client()).await.unwrap();
     rolled_back
-        .enqueue(JobScope::none(), &probe("rolled back"))
+        .enqueue(JobScope::for_tests(), &probe("rolled back"))
         .await
         .unwrap();
 
     drop(rolled_back);
-    enqueue(&database, JobScope::none(), &probe("committed")).await;
+    enqueue(&database, JobScope::for_tests(), &probe("committed")).await;
 
     let jobs = db
         .owner_reads(
@@ -210,7 +210,7 @@ async fn platform_013_a_failing_job_retries_with_backoff_then_moves_to_the_dead_
     let (steering, _starts) = Steering::new(&[Act::Fail, Act::Fail, Act::Fail]);
     let jobs = registry(&database, &steering);
     let clock: SharedClock = Arc::new(TestClock::default());
-    enqueue(&database, JobScope::none(), &probe("flaky")).await;
+    enqueue(&database, JobScope::for_tests(), &probe("flaky")).await;
     let state = "SELECT state::text || ' ' || attempts || ' ' || coalesce(failure, '-') || ' ' \
                  || (claim_id IS NULL)::text || ' ' || coalesce(payload->>'label', '-') FROM jobs";
 
@@ -253,7 +253,7 @@ async fn platform_013_a_permanent_failure_moves_the_job_to_the_dead_letter_state
     let database = db.app().await;
     let (steering, _starts) = Steering::new(&[Act::FailForGood]);
     let jobs = registry(&database, &steering);
-    enqueue(&database, JobScope::none(), &probe("doomed")).await;
+    enqueue(&database, JobScope::for_tests(), &probe("doomed")).await;
 
     let clock: SharedClock = Arc::new(TestClock::default());
     jobs.run_pending(&database, &clock).await;
@@ -270,7 +270,7 @@ async fn platform_013_a_succeeded_job_keeps_no_row() {
     let database = db.app().await;
     let (steering, _starts) = Steering::new(&[Act::Succeed]);
     let jobs = registry(&database, &steering);
-    enqueue(&database, JobScope::none(), &probe("done")).await;
+    enqueue(&database, JobScope::for_tests(), &probe("done")).await;
 
     let clock: SharedClock = Arc::new(TestClock::default());
     let runs = jobs.run_pending(&database, &clock).await;
@@ -371,7 +371,7 @@ async fn platform_061_a_replica_runs_at_most_4_jobs_at_once_and_claims_only_kind
     let database = db.app().await;
     let (steering, mut starts) = Steering::new(&[Act::Wait; 5]);
     for label in ["1", "2", "3", "4", "5"] {
-        enqueue(&database, JobScope::none(), &probe(label)).await;
+        enqueue(&database, JobScope::for_tests(), &probe(label)).await;
     }
     db.owner_executes("INSERT INTO jobs (kind, payload) VALUES ('tests.unknown', '{}')")
         .await;
@@ -391,7 +391,7 @@ async fn platform_061_a_replica_runs_at_most_4_jobs_at_once_and_claims_only_kind
     // A job committed while the replica is idle runs at its next poll.
     steering.release.add_permits(4);
     clock.sleeping(POLL).await;
-    enqueue(&database, JobScope::none(), &probe("later")).await;
+    enqueue(&database, JobScope::for_tests(), &probe("later")).await;
     clock.advance(POLL);
     let later = starts.recv().await.unwrap();
     stop.send_replace(true);
@@ -412,7 +412,7 @@ async fn platform_062_a_run_that_passes_its_time_limit_is_cancelled_and_fails() 
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let (steering, _starts) = Steering::new(&[]);
-    enqueue(&database, JobScope::none(), &Hanging).await;
+    enqueue(&database, JobScope::for_tests(), &Hanging).await;
     let clock = Arc::new(TestClock::default());
     let (stop, running) = start(registry(&database, &steering), &database, &clock);
 
@@ -440,7 +440,7 @@ async fn platform_062_a_job_whose_lease_ran_out_runs_again_and_the_stale_run_cha
     let database = db.app().await;
     let (stale, mut stale_starts) = Steering::new(&[Act::Wait]);
     let (fresh, _fresh_starts) = Steering::new(&[Act::Fail]);
-    enqueue(&database, JobScope::none(), &probe("contested")).await;
+    enqueue(&database, JobScope::for_tests(), &probe("contested")).await;
     let clock = Arc::new(TestClock::default());
     let (stop, running) = start(registry(&database, &stale), &database, &clock);
     stale_starts.recv().await.unwrap();
@@ -468,13 +468,13 @@ async fn platform_063_at_shutdown_nothing_more_is_claimed_and_runs_still_going_a
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let (steering, mut starts) = Steering::new(&[Act::Wait]);
-    enqueue(&database, JobScope::none(), &probe("in flight")).await;
+    enqueue(&database, JobScope::for_tests(), &probe("in flight")).await;
     let clock = Arc::new(TestClock::default());
     let (stop, running) = start(registry(&database, &steering), &database, &clock);
     starts.recv().await.unwrap();
 
     stop.send_replace(true);
-    enqueue(&database, JobScope::none(), &probe("too late")).await;
+    enqueue(&database, JobScope::for_tests(), &probe("too late")).await;
     clock.sleeping(GRACE).await;
     clock.advance(GRACE);
     running.await.unwrap();
@@ -624,7 +624,7 @@ async fn platform_063_a_run_in_flight_goes_on_after_the_signal_until_it_ends() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let (steering, mut starts) = Steering::new(&[Act::Wait]);
-    enqueue(&database, JobScope::none(), &probe("in flight")).await;
+    enqueue(&database, JobScope::for_tests(), &probe("in flight")).await;
     let clock = Arc::new(TestClock::default());
     let (stop, running) = start(registry(&database, &steering), &database, &clock);
     starts.recv().await.unwrap();
@@ -657,7 +657,7 @@ async fn platform_065_each_run_is_counted_by_its_kind_and_outcome() {
     let database = db.app().await;
     let mut jobs = Jobs::new(&database, Duration::from_secs(86_400));
     jobs.queued(|_, Counted| async { Ok(()) }).unwrap();
-    enqueue(&database, JobScope::none(), &Counted).await;
+    enqueue(&database, JobScope::for_tests(), &Counted).await;
 
     let clock: SharedClock = Arc::new(TestClock::default());
     jobs.run_pending(&database, &clock).await;

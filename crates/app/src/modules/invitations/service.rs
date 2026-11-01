@@ -4,11 +4,12 @@ use std::collections::HashMap;
 
 use platform::{
     authn::Principal,
-    authz::{self, Authorized},
+    authz::{self, Authorize, Authorized},
     db::{Database, UnitOfWork},
     errors::Internal,
     idempotency::{Claimed, IdempotencyKey},
     lists::{List, Page, Search, key},
+    rate_limit::RateLimits,
     types::{Client, UserId},
 };
 use serde_json::json;
@@ -48,17 +49,25 @@ impl Invitations {
     }
 }
 
-/// Invites `input.email` to the caller's workspace, in the unit of work it was authorized in,
-/// which claims `key` first, so a retry with the same key and request answers the same
-/// invitation (INVITATIONS-001 to INVITATIONS-003, INVITATIONS-008, PLATFORM-018).
+/// Invites `input.email` to the caller's workspace, once the caller's bucket has counted the
+/// request (INVITATIONS-009), in the unit of work `authorize` opens, which claims `key` first, so
+/// a retry with the same key and request answers the same invitation (INVITATIONS-001 to
+/// INVITATIONS-003, INVITATIONS-008, PLATFORM-018).
 pub(crate) async fn invite(
-    mut uow: UnitOfWork,
-    authorized: &Authorized<InvitationsCreate>,
+    limits: &RateLimits,
+    authorize: Authorize<InvitationsCreate>,
     key: Option<&IdempotencyKey>,
     input: NewInvitation,
     invitations: &Invitations,
 ) -> Result<Invited, InvitationsError> {
-    let inviter = authorized.principal().user_id();
+    let inviter = authorize.principal().user_id();
+    // Counted before the unit of work opens, so a request refused afterwards still counts
+    // (PLATFORM-026).
+    limits
+        .check(invitations.settings.limit, inviter.uuid().as_bytes())
+        .await?;
+    let (mut uow, authorized) = authorize.open().await?;
+    let authorized = &authorized;
     if let Claimed::Replay(invited) = uow.claim(inviter, key).await? {
         return Ok(invited);
     }

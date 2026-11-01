@@ -74,7 +74,8 @@ pub trait Job: Serialize + DeserializeOwned + Send + 'static {
 }
 
 /// The user or workspace a job runs for, whose data its handler's queries filter by
-/// (PLATFORM-012). Only a proof builds one that names a user or a workspace.
+/// (PLATFORM-012). Only a proof builds one, but for the scope of no one, which only `platform`'s
+/// scheduler builds, and the tests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct JobScope {
     user: Option<UserId>,
@@ -83,11 +84,18 @@ pub struct JobScope {
 
 impl JobScope {
     /// The scope of a job that runs for no one, such as scheduled maintenance's.
-    pub fn none() -> Self {
+    pub(crate) fn none() -> Self {
         Self {
             user: None,
             workspace: None,
         }
+    }
+
+    /// The scope of no one, for the tests of the job queue, which enqueue jobs that no proof
+    /// scopes.
+    #[cfg(feature = "test-support")]
+    pub fn for_tests() -> Self {
+        Self::none()
     }
 
     /// The scope that a proof gives, which only the proofs of `platform` build.

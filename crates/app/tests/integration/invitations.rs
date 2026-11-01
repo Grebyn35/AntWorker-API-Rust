@@ -601,25 +601,59 @@ async fn invitations_007_a_second_run_of_the_sweep_changes_nothing_more() {
 
 #[tokio::test]
 async fn invitations_009_beyond_its_limit_a_member_s_invitation_answers_429() {
-    let api = Api::with(Options::default().set("INVITATION_LIMIT", 2)).await;
+    let options = Options::default()
+        .set("INVITATION_LIMIT", 3)
+        .set("INVITATION_WINDOW_SECONDS", 60);
+    let api = Api::with(options).await;
     let ada = users::register(&api, "ada@example.com").await;
     let bob = users::register(&api, "bob@example.com").await;
     let workspace = acme(&api, &ada, &[(&bob, "member")]).await;
 
-    // A request that answers otherwise still counts.
+    // A request refused for its fields isn't counted; one that answers otherwise is.
+    let invalid = api
+        .post_raw(
+            &format!("/v1/workspaces/{workspace}/invitations"),
+            &json!({ "email": "carol@example.com", "role": "boss" }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
     let member = invite(&api, &ada, &workspace, "bob@example.com", "member").await;
-    let second = invite(&api, &ada, &workspace, "carol@example.com", "member").await;
-    let third = invite(&api, &ada, &workspace, "dave@example.com", "member").await;
+    let owner = invite(&api, &ada, &workspace, "carol@example.com", "owner").await;
+    let fourth = invite(&api, &ada, &workspace, "dave@example.com", "member").await;
+    let fifth = invite(&api, &ada, &workspace, "erin@example.com", "member").await;
 
+    assert_eq!(invalid.status, 400);
     assert_eq!(member.status, 409);
-    assert_eq!(second.status, 201);
-    assert_eq!(third.status, 429);
-    assert_eq!(third.json()["code"], "request.rate_limited");
+    assert_eq!(owner.status, 403);
+    assert_eq!(fourth.status, 201);
+    assert_eq!(fifth.status, 429);
+    assert_eq!(fifth.json()["code"], "request.rate_limited");
+    assert!(
+        fifth
+            .header("ratelimit-policy")
+            .starts_with("\"invitation\";q=3;w=60")
+    );
     let invited = api
         .database()
         .owner_reads("SELECT email FROM invitations")
         .await;
-    assert_eq!(invited, ["carol@example.com"]);
+    assert_eq!(invited, ["dave@example.com"]);
+}
+
+#[tokio::test]
+async fn invitations_009_by_default_a_member_may_invite_100_times_an_hour() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+
+    let invited = invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+
+    assert_eq!(invited.status, 201);
+    assert_eq!(
+        invited.header("ratelimit-policy"),
+        "\"invitation\";q=100;w=3600"
+    );
 }
 
 #[tokio::test]
@@ -629,6 +663,16 @@ async fn invitations_009_the_limit_and_its_window_are_checked() {
             "INVITATION_LIMIT",
             0,
             "INVITATION_LIMIT must be a whole number from 1 to 100000",
+        ),
+        (
+            "INVITATION_LIMIT",
+            100_001,
+            "INVITATION_LIMIT must be a whole number from 1 to 100000",
+        ),
+        (
+            "INVITATION_WINDOW_SECONDS",
+            0,
+            "INVITATION_WINDOW_SECONDS must be a whole number from 1 to 86400",
         ),
         (
             "INVITATION_WINDOW_SECONDS",
