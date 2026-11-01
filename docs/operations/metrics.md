@@ -8,6 +8,7 @@ Prometheus stores each metric under the name in its "In Prometheus" column: its 
 
 | Metric | Kind | Unit | Labels | In Prometheus | Declared in | Description |
 |---|---|---|---|---|---|---|
+| `auth.sign_ins` | counter | `{attempt}` | `auth.outcome` | `auth_sign_ins_total` | `crates/app/src/modules/auth/metrics.rs` | Sign-in attempts, by how each ended: succeeded, invalid_credentials or rate_limited (AUTH-004 to AUTH-006). |
 | `http.server.request.duration` | histogram | `s` | `http.request.method`, `http.route`, `http.response.status_code`, `error.type` | `http_server_request_duration_seconds_bucket`, `http_server_request_duration_seconds_sum`, `http_server_request_duration_seconds_count` | `crates/platform/src/http/stack.rs` | How long each request took, from the request log's start to its response, health probes aside. |
 | `otel.sdk.exporter.log.exported` | counter | `{log_record}` | `error.type` | `otel_sdk_exporter_log_exported_total` | `crates/platform/src/telemetry/export.rs` | The log records whose export finished, with error.type when it failed. |
 | `otel.sdk.exporter.metric_data_point.exported` | counter | `{data_point}` | `error.type` | `otel_sdk_exporter_metric_data_point_exported_total` | `crates/platform/src/telemetry/export.rs` | The metric data points whose export finished, with error.type when it failed. |
@@ -15,6 +16,7 @@ Prometheus stores each metric under the name in its "In Prometheus" column: its 
 | `platform.database_reachable` | gauge | none | `db.namespace` | `platform_database_reachable` | `crates/platform/src/db/monitor.rs` | 1 while the instance's own database connection answered its last check, 0 otherwise, by the database's name. |
 | `platform.errors_ignored` | counter | `{error}` | `error.type` | `platform_errors_ignored_total` | `crates/platform/src/errors.rs` | Errors ignored on purpose, by the name of the failure (ERR-11). |
 | `platform.panics` | counter | `{panic}` | none | `platform_panics_total` | `crates/platform/src/telemetry/mod.rs` | Panics, wherever they happened (ERR-12). |
+| `platform.rate_limit_refusals` | counter | `{request}` | `rate_limit.bucket` | `platform_rate_limit_refusals_total` | `crates/platform/src/rate_limit.rs` | Requests that a rate limit refused, by the kind of the bucket that refused them      (PLATFORM-048). |
 | `process.memory.usage` | gauge | `By` | none | `process_memory_usage_bytes` | `crates/platform/src/telemetry/process.rs` | The physical memory the instance's process uses: its resident set. |
 
 ## Metrics of the rest of the stack

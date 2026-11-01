@@ -297,3 +297,36 @@ tests:
             exp_annotations:
               summary: Less than 10% of the server's memory has been available for 15 minutes.
               runbook: docs/operations/runbooks.md#memoryrunninglow
+
+  # 90 requests a minute answered, and from minute 10 on, 10 more refused with 429 each minute:
+  # the refused share of the last 15 minutes passes 5% after minute 17, and the alert fires 15
+  # minutes later. Then, in a second series, 2 refused a minute out of 100 never fire it.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="api", http_response_status_code="200"}'
+        values: "0+90x50"
+      - series: 'http_server_request_duration_seconds_count{job="api", http_response_status_code="429"}'
+        values: "0x10 10+10x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RequestsRateLimited
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: RequestsRateLimited
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job: api
+            exp_annotations:
+              summary: Rate limits have refused more than 5% of the API's requests for 15 minutes.
+              runbook: docs/operations/runbooks.md#requestsratelimited
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="api", http_response_status_code="200"}'
+        values: "0+98x40"
+      - series: 'http_server_request_duration_seconds_count{job="api", http_response_status_code="429"}'
+        values: "0+2x40"
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: RequestsRateLimited
+        exp_alerts: []

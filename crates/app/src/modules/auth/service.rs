@@ -11,13 +11,14 @@ use platform::{
     events::{self, AccessChange},
     hashing::sha256,
     random,
-    rate_limit::{Bucket, RateLimits},
+    rate_limit::{Bucket, LimitError, RateLimits},
     types::{Client, EmailAddress, Secret},
 };
 
 use super::{
     audit,
     error::AuthError,
+    metrics,
     model::{DeviceId, Lifetimes, Password, Session, Tokens},
     repo,
 };
@@ -106,8 +107,29 @@ impl Auth {
         })
     }
 
-    /// Signs in with an email and a password (AUTH-004 to AUTH-008).
+    /// Signs in with an email and a password (AUTH-004 to AUTH-008), and counts how the attempt
+    /// ended in `auth.sign_ins`.
     pub(crate) async fn sign_in(
+        &self,
+        limits: &RateLimits,
+        client: &Client,
+        input: SignIn,
+    ) -> Result<SignedIn, AuthError> {
+        let result = self.attempt(limits, client, input).await;
+        match &result {
+            Ok(_) => metrics::sign_in(metrics::SignIn::Succeeded),
+            Err(AuthError::InvalidCredentials) => {
+                metrics::sign_in(metrics::SignIn::InvalidCredentials);
+            }
+            Err(AuthError::Limit(LimitError::RateLimited)) => {
+                metrics::sign_in(metrics::SignIn::RateLimited);
+            }
+            Err(_) => {}
+        }
+        result
+    }
+
+    async fn attempt(
         &self,
         limits: &RateLimits,
         client: &Client,

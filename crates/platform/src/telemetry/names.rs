@@ -68,8 +68,16 @@ pub const OTEL_KIND: &str = "otel.kind";
 /// it.
 pub const OTEL_STATUS_CODE: &str = convention("otel.status_code", otel::OTEL_STATUS_CODE);
 
+/// The caller a `Principal` proved, on the request's span (OBS-09). A user ID is pseudonymous, so
+/// telemetry may carry it (OBS-04).
+pub const USER_ID: &str = convention("user.id", otel::USER_ID);
+
 /// How long a request took, in seconds.
 pub const REQUEST_DURATION: &str = "request.duration";
+/// The kind of a rate limit's bucket, such as `ip` or `sign_in` (PLATFORM-050).
+pub const RATE_LIMIT_BUCKET: &str = "rate_limit.bucket";
+/// How a sign-in ended, such as `succeeded` or `invalid_credentials` (AUTH-004, AUTH-005).
+pub const AUTH_OUTCOME: &str = "auth.outcome";
 /// The part of startup that failed, such as `database` or `listen` (OPS-03).
 pub const STARTUP_AREA: &str = "startup.area";
 /// The migration versions `migrate` applied.

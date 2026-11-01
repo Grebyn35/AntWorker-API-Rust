@@ -2,6 +2,7 @@
 
 mod audit;
 mod error;
+mod metrics;
 mod model;
 mod repo;
 mod routes;

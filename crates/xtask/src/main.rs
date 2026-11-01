@@ -179,7 +179,12 @@ enum Command {
     /// Measures one replica's capacity: the highest constant rate of requests it serves with
     /// none failed and the 99th percentile within the latency objective (OPS-18).
     #[command(name = "load-test")]
-    LoadTest,
+    LoadTest {
+        /// The route: `capabilities`, `GET /v1/capabilities`, which a release's notes give, or
+        /// `me`, `GET /v1/users/me` with a signed-in user's access token.
+        #[arg(default_value = "capabilities")]
+        route: String,
+    },
     /// Fills the cache of Docker Hub that Compose runs with the images the end-to-end tests'
     /// servers pull, for `platform`, such as linux/amd64 (TEST-07).
     Mirror {
@@ -249,7 +254,7 @@ fn main() -> ExitCode {
             allow_restart,
         } => return deploy::deploy(&host, version.as_deref(), allow_restart),
         Command::Backup { host } => return deploy::backup(&host),
-        Command::LoadTest => return load::run(),
+        Command::LoadTest { route } => return load::run(&route),
         Command::Mirror { platform } => return mirror::run(&platform),
         Command::Restore {
             host,
@@ -290,7 +295,7 @@ fn main() -> ExitCode {
         | Command::Logs { .. }
         | Command::ServerSetup { .. }
         | Command::ServerCheck { .. }
-        | Command::LoadTest
+        | Command::LoadTest { .. }
         | Command::Mirror { .. } => Outcome::default(),
     };
     print(&outcome)

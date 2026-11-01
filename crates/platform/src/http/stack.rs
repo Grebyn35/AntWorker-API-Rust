@@ -162,6 +162,7 @@ async fn trace(request: Request, next: Next) -> Response {
         { names::HTTP_ROUTE } = route,
         { names::HTTP_RESPONSE_STATUS_CODE } = Empty,
         { names::ERROR_TYPE } = Empty,
+        { names::USER_ID } = Empty,
     );
     // An inbound context that isn't valid leaves the span the root of a new trace. Setting the
     // parent fails only if the span isn't one the tracer follows, and then the request goes on

@@ -100,8 +100,8 @@ fn why_nothing_arrived(server: &Container) -> String {
     )
 }
 
-#[tokio::test]
-async fn obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace() {
+/// A replica of the image, exporting to the stack that Compose runs, on `database`.
+async fn serve_with_the_stack(database: &TestDatabase) -> Container {
     compose(&[
         "--profile",
         "observability",
@@ -114,9 +114,8 @@ async fn obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace()
         "prometheus",
     ]);
     let image = Image::pushed();
-    let database = TestDatabase::empty().await;
     let network = postgres_network();
-    let mut settings = settings(&database);
+    let mut settings = settings(database);
     settings.push("OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318".to_owned());
     let bootstrap = database
         .with_roles_locked(async { image.run(&network, &settings, "bootstrap") })
@@ -126,41 +125,81 @@ async fn obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace()
     assert!(migrate.status.success(), "{}", lossy(&migrate));
     let server = image.serve(&network, &settings);
     assert_eq!(server.health(), "healthy", "{}", server.logs());
+    server
+}
 
-    let response = http_request(server.address(PORT), "GET", "/v1/no-such-resource", &[])
+/// Sends `path` to `server`, and asserts that the response's trace ID leads to the request's
+/// logs, which hold `logged`, and to its trace in Tempo, with `status`.
+async fn assert_traced(server: &Container, path: &str, status: &str, logged: &str) {
+    let response = http_request(server.address(PORT), "GET", path, &[])
         .await
         .expect("an answer");
-    let body: Value = serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap_or_default())
-        .expect("a problem");
+    let body: Value = serde_json::from_str(
+        response
+            .split(
+                "
+
+",
+            )
+            .nth(1)
+            .unwrap_or_default(),
+    )
+    .expect("a problem");
     let trace = body["trace_id"].as_str().expect("the trace ID").to_owned();
     let logs = fetch_once_it_holds(
         &format!(
             "http://loki:3100/loki/api/v1/query_range?query=%7Bservice_name%3D%22{}%22%7D%20%7C%20trace_id%3D%22{trace}%22",
             support::service_name()
         ),
-        "request completed",
+        logged,
     );
-    let stored = fetch_once_it_holds(&format!("http://tempo:3200/api/traces/{trace}"), "404");
+    let stored = fetch_once_it_holds(&format!("http://tempo:3200/api/traces/{trace}"), status);
 
-    assert!(response.starts_with("HTTP/1.1 404 "), "{response}");
+    assert!(
+        response.starts_with(&format!("HTTP/1.1 {status} ")),
+        "{response}"
+    );
     assert!(
         logs.status.success(),
-        "{}\n{}",
+        "{}
+{}",
         lossy(&logs),
-        why_nothing_arrived(&server)
+        why_nothing_arrived(server)
     );
     assert!(lossy(&logs).contains(&trace), "{}", lossy(&logs));
     assert!(
         stored.status.success(),
-        "{}\n{}",
+        "{}
+{}",
         lossy(&stored),
-        why_nothing_arrived(&server)
+        why_nothing_arrived(server)
     );
     assert!(
         lossy(&stored).contains("http.response.status_code"),
         "{}",
         lossy(&stored)
     );
+}
+
+#[tokio::test]
+async fn obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace() {
+    let database = TestDatabase::empty().await;
+    let server = serve_with_the_stack(&database).await;
+
+    assert_traced(&server, "/v1/no-such-resource", "404", "request completed").await;
+}
+
+#[tokio::test]
+async fn obs_08_the_trace_id_of_a_5xx_response_leads_to_its_logs_and_its_trace() {
+    let database = TestDatabase::empty().await;
+    let server = serve_with_the_stack(&database).await;
+    // Every request but the health probes counts in its IP's bucket, so once app can't write the
+    // buckets, a request fails with the internal error, while the replica stays healthy.
+    database
+        .admin_executes("REVOKE INSERT, UPDATE ON rate_limit_buckets FROM app")
+        .await;
+
+    assert_traced(&server, "/v1/capabilities", "500", "request failed").await;
 }
 
 #[tokio::test]

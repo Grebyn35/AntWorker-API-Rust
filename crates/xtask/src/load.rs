@@ -89,7 +89,10 @@ pub fn next_rate(steps: &[Step]) -> Option<u64> {
 }
 
 /// Runs the load test against the API's image under test, which `just load-test` pushed.
-pub fn run() -> ExitCode {
+pub fn run(route: &str) -> ExitCode {
+    let Some(path) = path_of(route) else {
+        return fail(&format!("no route is named {route}: capabilities or me"));
+    };
     let root = root();
     let image = match image(&root) {
         Ok(image) => image,
@@ -107,36 +110,10 @@ pub fn run() -> ExitCode {
         Ok(objective_ms) => objective_ms,
         Err(error) => return fail(&format!("can't read the latency objective: {error}")),
     };
-    let network = match docker(
-        &root,
-        &[
-            "inspect",
-            "--format",
-            "{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{end}}",
-            &compose_id(&root, "postgres"),
-        ],
-    ) {
-        Ok(network) => network,
-        Err(error) => {
-            return fail(&format!(
-                "Postgres isn't running; run `just services`: {error}"
-            ));
-        }
-    };
-    let settings = match settings() {
-        Ok(settings) => settings,
+    let (network, settings) = match prepare(&root, image) {
+        Ok(prepared) => prepared,
         Err(error) => return fail(&error),
     };
-    for task in ["bootstrap", "migrate"] {
-        let mut args = vec!["run", "--rm", "--network", &network];
-        for setting in &settings {
-            args.extend(["--env", setting]);
-        }
-        args.extend([image, task]);
-        if let Err(error) = docker(&root, &args) {
-            return fail(&format!("{task} failed: {error}"));
-        }
-    }
     let listen = format!("LISTEN_ADDR=0.0.0.0:{PORT}");
     let mut args = vec![
         "run",
@@ -161,7 +138,13 @@ pub fn run() -> ExitCode {
         Ok(id) => id,
         Err(error) => return fail(&format!("the replica didn't start: {error}")),
     };
-    let outcome = measure(&root, &replica, (&cpus, &memory), objective_ms);
+    let outcome = measure(
+        &root,
+        &replica,
+        (route, path),
+        (&cpus, &memory),
+        objective_ms,
+    );
     let removed = docker(&root, &["rm", "--force", &replica]);
     if let Err(error) = removed {
         report(&format!("couldn't remove the replica {replica}: {error}"));
@@ -169,11 +152,46 @@ pub fn run() -> ExitCode {
     outcome
 }
 
-/// Measures the replica `replica`, which runs with the limits `(cpus, memory)`, against the
-/// latency objective `objective_ms`.
+/// Prepares Compose's Postgres for a replica of `image`, with its `bootstrap` and `migrate`, and
+/// returns the network it is on and the replica's settings.
+fn prepare(root: &Path, image: &str) -> Result<(String, Vec<String>), String> {
+    let network = docker(
+        root,
+        &[
+            "inspect",
+            "--format",
+            "{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{end}}",
+            &compose_id(root, "postgres"),
+        ],
+    )
+    .map_err(|error| format!("Postgres isn't running; run `just services`: {error}"))?;
+    let settings = settings()?;
+    for task in ["bootstrap", "migrate"] {
+        let mut args = vec!["run", "--rm", "--network", &network];
+        for setting in &settings {
+            args.extend(["--env", setting]);
+        }
+        args.extend([image, task]);
+        docker(root, &args).map_err(|error| format!("{task} failed: {error}"))?;
+    }
+    Ok((network, settings))
+}
+
+/// The path of the route the load test can measure, by its name.
+fn path_of(route: &str) -> Option<&'static str> {
+    match route {
+        "capabilities" => Some("GET /v1/capabilities"),
+        "me" => Some("GET /v1/users/me"),
+        _ => None,
+    }
+}
+
+/// Measures the replica `replica`, which runs with the limits `(cpus, memory)`, on the route
+/// `(route, path)`, against the latency objective `objective_ms`.
 fn measure(
     root: &Path,
     replica: &str,
+    (route, path): (&str, &str),
     (cpus, memory): (&str, &str),
     objective_ms: f64,
 ) -> ExitCode {
@@ -194,7 +212,7 @@ fn measure(
     };
     let mut steps: Vec<Step> = Vec::new();
     while let Some(rate) = next_rate(&steps) {
-        let step = match step(root, &address, rate, objective_ms) {
+        let step = match step(root, &address, route, rate, objective_ms) {
             Ok(step) => step,
             Err(error) => return fail(&error),
         };
@@ -239,15 +257,21 @@ fn measure(
         return fail("the replica served no rate the search tried");
     };
     report(&format!(
-        "Capacity: {} requests a second to GET /v1/capabilities on one replica with {cpus} CPU and {memory} of memory, with the 99th percentile within {} ms and none failed. The collector accepted {} spans for its {} requests.",
+        "Capacity: {} requests a second to {path} on one replica with {cpus} CPU and {memory} of memory, with the 99th percentile within {} ms and none failed. The collector accepted {} spans for its {} requests.",
         capacity.rate, capacity.objective_ms, capacity.spans, capacity.requests
     ));
     ExitCode::SUCCESS
 }
 
-/// Runs one step at `rate` against the replica at `address`, which passes within the latency
-/// objective `objective_ms`.
-fn step(root: &Path, address: &str, rate: u64, objective_ms: f64) -> Result<Step, String> {
+/// Runs one step at `rate` on `route` of the replica at `address`, which passes within the
+/// latency objective `objective_ms`.
+fn step(
+    root: &Path,
+    address: &str,
+    route: &str,
+    rate: u64,
+    objective_ms: f64,
+) -> Result<Step, String> {
     let output = docker(
         root,
         &[
@@ -262,6 +286,8 @@ fn step(root: &Path, address: &str, rate: u64, objective_ms: f64) -> Result<Step
             &format!("TARGET=http://{address}:{PORT}"),
             "--env",
             &format!("RATE={rate}"),
+            "--env",
+            &format!("ROUTE={route}"),
             "--env",
             "COLLECTOR=http://collector:8888",
             "k6",
@@ -364,14 +390,16 @@ fn limits(root: &Path) -> Result<(String, String), String> {
 }
 
 /// The replica's settings: the database's and the HMAC key of .env, with Compose's Postgres as
-/// `postgres`, and an IP limit that the load, which comes from one address, never reaches, so the
-/// test measures the replica rather than the limit, while every request still counts in it.
+/// `postgres`, and IP and user limits that the load, from one address and one user, never
+/// reaches, so the test measures the replica rather than the limits, while every request still
+/// counts in them.
 fn settings() -> Result<Vec<String>, String> {
     let key = std::env::var("HMAC_KEY").map_err(|_| "HMAC_KEY is unset; run `just setup`")?;
     let mut settings = vec![
         "ENVIRONMENT=production".to_owned(),
         format!("HMAC_KEY={key}"),
         "RATE_LIMIT_IP_REQUESTS=1000000".to_owned(),
+        "RATE_LIMIT_USER_REQUESTS=1000000".to_owned(),
     ];
     for name in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
         let value =

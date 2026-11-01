@@ -1,0 +1,79 @@
+{
+  "uid": "api-sign-in",
+  "title": "Sign-in",
+  "description": "How sign-in attempts end, which a credential-stuffing attack changes (the auth spec).",
+  "tags": [
+    "api"
+  ],
+  "editable": false,
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "API overview",
+      "type": "link",
+      "url": "/d/api-overview",
+      "keepTime": true,
+      "targetBlank": false,
+      "icon": "dashboard",
+      "tags": [],
+      "asDropdown": false,
+      "includeVars": false,
+      "tooltip": ""
+    }
+  ],
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "How do sign-in attempts end?",
+      "description": "Sign-in attempts in the last 5 minutes, by how each ended: succeeded, invalid_credentials, or rate_limited by the email's limit (AUTH-004 to AUTH-006). A rise in invalid_credentials across many emails is the shape of credential stuffing.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (auth_outcome) (increase(auth_sign_ins_total[5m]))",
+          "legendFormat": "{{auth_outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 1,
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    }
+  ]
+}

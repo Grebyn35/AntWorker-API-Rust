@@ -120,6 +120,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 | TEST-07 | `traces::obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace` fails now and then on amd64 in CI, when nothing reaches Loki or Tempo; its output says why, from the stack's start times to the API's export errors | the fix of what its next failure shows |
 | DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 | OPS-17 | Postgres treats a segment of the log that its restore command can't fetch as the end of the archive, so a restore whose replay can't fetch one, as when the bucket stops answering, ends the replay there: a restore of the latest state, or the second replay of one to a moment, then serves the database as of that segment, naming its last commit, rather than refusing | 3 |
+| DATA-28 | The rows of `rate_limit_buckets` whose windows ended stay until the periodic sweep deletes them, and no sweep runs before jobs exist: they hold only keyed hashes, and a check that finds one starts a new window, so they change no decision ([platform spec](spec/platform.md#rate-limits)) | 2.3, with jobs |
 | OPS-22 | When both colors of replicas run and no deploy recorded which serves, deploy.sh tells the operator to stop one with `docker compose` on the server, a change to the services that no task makes | 3 |
 
 ## Rule proposals

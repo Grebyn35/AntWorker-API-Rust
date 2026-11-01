@@ -306,6 +306,7 @@ The metrics `platform` records:
 - `http.server.request.duration`, by the request log, for every request it logs, with the boundaries the conventions advise (PLATFORM-040). It leaves out `url.scheme`, which the conventions require: the API receives every request over plain HTTP, behind the proxy that ends TLS, so the label would hold one value.
 - `platform.panics`, by the panic hook (ERR-12)
 - `platform.errors_ignored`, by `errors::ignore` (ERR-11)
+- `platform.rate_limit_refusals`, by the rate limiter, for each request it refuses, by the kind of the bucket (PLATFORM-048)
 - `platform.database_reachable`, 1 or 0, by the readiness check after every ping (PLATFORM-043)
 - `process.memory.usage`, the process's resident memory in bytes, every 15 seconds, from the kernel's report in `/proc/self/status`, so on Linux only (PLATFORM-046)
 - the exporters' counts, above
@@ -327,12 +328,12 @@ The metrics `platform` records:
 The list in `platform::telemetry` holds one constant per name (OBS-05). A name that a semantic convention defines is declared as `convention("http.route", otel::HTTP_ROUTE)`, a `const fn` that fails compilation when the two names differ. The conventions' constants come from `opentelemetry-semantic-conventions` 0.33.1, which publishes semantic conventions 1.42.0, with its `semconv_experimental` feature for names still in development. A deprecated constant fails clippy.
 
 The names so far:
-- From the conventions: `service.name`, `service.version`, `service.instance.id`, `deployment.environment.name`, `http.request.method`, `http.route`, `http.response.status_code`, `error.type`, `exception.message`, `code.file.path`, `code.line.number`, `server.address`, `server.port` and `db.namespace`.
+- From the conventions: `service.name`, `service.version`, `service.instance.id`, `deployment.environment.name`, `http.request.method`, `http.route`, `http.response.status_code`, `error.type`, `exception.message`, `code.file.path`, `code.line.number`, `server.address`, `server.port`, `db.namespace` and `user.id`, which the request's span carries once `Principal` has verified its caller (OBS-09).
 - Trace context: `trace_id` and `span_id`, the top-level fields of JSON logs (OBS-05). The conventions' crate has no constant for them, so the list declares them without `convention`.
 - The bridge's fields: `otel.name`, `otel.kind` and `otel.status_code`, which `tracing-opentelemetry` reads to name a span and set its kind and status, and which no JSON log line carries. `otel.status_code` comes from the conventions; the other two are the bridge's own (OBS-05).
-- Own: `request.duration`, in seconds, `startup.area`, `migration.versions` and `database.connections`.
+- Own: `request.duration`, in seconds, `startup.area`, `migration.versions`, `database.connections`, `rate_limit.bucket` and `auth.outcome`.
 
-A name joins the list with the first code that writes it, such as `user.id` and `workspace.id` with authentication (build order 2.1).
+A name joins the list with the first code that writes it, such as `workspace.id` with authorization (build order 2.2).
 
 `check-instrument` reads the list's names, then every `tracing` event and span macro, every `#[instrument(fields(…))]` and every `.record("…")`, including calls nested inside other macros. It fails on:
 - a name the list doesn't hold, or a `{ CONST }` name that isn't one of the list's constants

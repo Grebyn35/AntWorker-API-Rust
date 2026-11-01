@@ -80,6 +80,18 @@
       "asDropdown": false,
       "includeVars": false,
       "tooltip": ""
+    },
+    {
+      "title": "Sign-in",
+      "type": "link",
+      "url": "/d/api-sign-in",
+      "keepTime": true,
+      "targetBlank": false,
+      "icon": "dashboard",
+      "tags": [],
+      "asDropdown": false,
+      "includeVars": false,
+      "tooltip": ""
     }
   ],
   "panels": [

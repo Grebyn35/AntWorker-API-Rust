@@ -3,7 +3,9 @@
 // prints the step's outcome as one JSON line, which the task reads.
 //
 // TARGET is the replica's address, RATE the requests a second, DURATION how long the step lasts,
-// and COLLECTOR the address of the collector's own metrics. Before and after the step, the script
+// ROUTE the route the step sends, `capabilities` or `me`, and COLLECTOR the address of the
+// collector's own metrics. For `me`, the setup registers a user, and every request carries its
+// access token. Before and after the step, the script
 // reads how many spans the collector has accepted, so the task can compare them with the requests
 // served: a span the API's queue dropped would never reach the collector.
 
@@ -13,6 +15,7 @@ import { Counter } from "k6/metrics";
 
 const target = __ENV.TARGET;
 const rate = Number(__ENV.RATE);
+const route = __ENV.ROUTE || "capabilities";
 const collector = __ENV.COLLECTOR;
 
 export const options = {
@@ -50,12 +53,31 @@ function acceptedSpans() {
   return total;
 }
 
-export function setup() {
-  return { before: acceptedSpans() };
+// A user's access token, from a registration of an address that no other step used.
+function accessToken() {
+  const body = {
+    email: `load-${Date.now()}-${rate}@example.com`,
+    password: "plum-tractor-41-quiet",
+    name: "Load Test",
+  };
+  const response = http.post(`${target}/v1/users`, JSON.stringify(body), {
+    headers: { "Content-Type": "application/json" },
+    tags: { name: "setup" },
+  });
+  return response.json("session.access_token");
 }
 
-export default function () {
-  http.get(`${target}/v1/capabilities`);
+export function setup() {
+  const token = route === "me" ? accessToken() : null;
+  return { before: acceptedSpans(), token };
+}
+
+export default function (data) {
+  if (route === "me") {
+    http.get(`${target}/v1/users/me`, { headers: { Authorization: `Bearer ${data.token}` } });
+  } else {
+    http.get(`${target}/v1/capabilities`);
+  }
 }
 
 export function teardown(data) {

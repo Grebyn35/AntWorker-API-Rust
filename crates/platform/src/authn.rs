@@ -14,6 +14,7 @@ use crate::{
     errors::{Internal, Problem, RequestError},
     http::Cookies,
     rate_limit::{Bucket, LimitError, RateLimits},
+    telemetry::names,
     types::{Client, SessionId, UserId, WorkspaceId},
 };
 
@@ -148,6 +149,8 @@ impl<S: Send + Sync> FromRequestParts<S> for Principal {
                 Unverified::Expired => rejection(RequestError::AccessTokenExpired),
                 Unverified::Failed(error) => Problem(error).into_response(),
             })?;
+        // The request's span carries the caller the session proved (OBS-09).
+        tracing::Span::current().record(names::USER_ID, principal.user_id.to_string());
         let limits = RateLimits::from_request_parts(parts, state).await?;
         let user = principal.user_id.uuid();
         limits

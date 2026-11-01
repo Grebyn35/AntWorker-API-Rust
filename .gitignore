@@ -1,2 +1,4 @@
 /target
 .env
+# The git worktrees of Claude Code's agents, each a checkout of its own.
+.claude/worktrees/

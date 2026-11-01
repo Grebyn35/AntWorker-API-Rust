@@ -194,6 +194,46 @@
         "x": 0,
         "y": 16
       }
+    },
+    {
+      "type": "timeseries",
+      "title": "Which rate limits refuse requests?",
+      "description": "Requests refused with 429 in the last 5 minutes, by the kind of the bucket that refused them: ip, user, or a per-action limit such as sign_in (PLATFORM-048).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (rate_limit_bucket) (increase(platform_rate_limit_refusals_total[5m]))",
+          "legendFormat": "{{rate_limit_bucket}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 5,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      }
     }
   ]
 }

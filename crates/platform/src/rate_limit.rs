@@ -10,7 +10,15 @@ use crate::{
     db::Database,
     errors::{Category, ErrorCode, Internal},
     hashing::HmacKey,
+    telemetry::{metrics::Counter, names},
 };
+
+static REFUSALS: Counter<1> = Counter::new(
+    "platform.rate_limit_refusals",
+    "{request}",
+    "Requests that a rate limit refused, by the kind of the bucket that refused them      (PLATFORM-048).",
+    [names::RATE_LIMIT_BUCKET],
+);
 
 /// A kind of bucket: its name, which the rate-limit headers carry, and how many requests it
 /// allows in each window.
@@ -61,15 +69,20 @@ impl RateLimiter {
     }
 
     /// Counts one request in the bucket of `bucket`'s kind for `value`, such as a client IP's,
-    /// in one statement that commits at once (PLATFORM-026, PLATFORM-049).
+    /// in one statement that commits at once (PLATFORM-026, PLATFORM-049). A request it refuses
+    /// is counted in `platform.rate_limit_refusals`, by the bucket's kind.
     pub async fn count(&self, bucket: Bucket, value: &[u8]) -> Result<Count, Internal> {
         let key = self.key.hash(bucket.name, value);
         let (count, resets_in) = self.database.count(&key, bucket.window).await?;
-        Ok(Count {
+        let count = Count {
             bucket,
             count,
             resets_in,
-        })
+        };
+        if count.refused() {
+            REFUSALS.add(1, [bucket.name.into()]);
+        }
+        Ok(count)
     }
 }
 
