@@ -4,7 +4,7 @@
 use std::{any::Any, sync::Arc, time::Duration};
 
 use axum::{
-    Router,
+    Extension, Router,
     body::Body,
     error_handling::HandleErrorLayer,
     extract::{MatchedPath, Request, State},
@@ -25,8 +25,14 @@ use tower_http::{catch_panic::CatchPanicLayer, set_header::SetResponseHeaderLaye
 use tracing::{Instrument, Span, field::Empty};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use super::docs::QueryNames;
+use super::{
+    browsers::{Origins, cors, cross_site},
+    client::{TrustedProxies, client},
+    docs::QueryNames,
+    limits::{IpLimit, ip_limit},
+};
 use crate::{
+    authn::Authenticator,
     clock::SharedClock,
     errors::{self, ErrorReport, Internal, Problem, RequestError},
     telemetry::{
@@ -85,17 +91,36 @@ pub(super) fn security_headers(router: Router) -> Router {
     )
 }
 
-/// The stack every request below the security headers passes, health probes aside: trace
-/// context, the request log, panic catching, and the concurrency limit.
-pub(super) fn request(router: Router, clock: SharedClock, max_concurrent: usize) -> Router {
+/// What the stack below the security headers takes from the pipeline.
+pub(super) struct Stack {
+    pub(super) clock: SharedClock,
+    pub(super) max_concurrent: usize,
+    pub(super) trusted_proxies: TrustedProxies,
+    pub(super) origins: Origins,
+    pub(super) ip_limit: Arc<IpLimit>,
+    pub(super) authenticator: Authenticator,
+}
+
+/// The stack every request below the security headers passes, health probes aside, in the order
+/// of architecture §6: trace context, the request log, panic catching, the client, CORS, the
+/// concurrency limit, the IP limit and the cross-site check.
+pub(super) fn request(router: Router, stack: Stack) -> Router {
     router.layer(
         ServiceBuilder::new()
             .layer(middleware::from_fn(trace))
-            .layer(middleware::from_fn_with_state(clock, log))
+            .layer(middleware::from_fn_with_state(stack.clock, log))
             .layer(CatchPanicLayer::custom(panicked))
+            .layer(middleware::from_fn_with_state(
+                stack.trusted_proxies,
+                client,
+            ))
+            .layer(middleware::from_fn_with_state(stack.origins.clone(), cors))
             .layer(HandleErrorLayer::new(overloaded))
             .layer(LoadShedLayer::new())
-            .layer(GlobalConcurrencyLimitLayer::new(max_concurrent)),
+            .layer(GlobalConcurrencyLimitLayer::new(stack.max_concurrent))
+            .layer(middleware::from_fn_with_state(stack.ip_limit, ip_limit))
+            .layer(middleware::from_fn_with_state(stack.origins, cross_site))
+            .layer(Extension(stack.authenticator)),
     )
 }
 

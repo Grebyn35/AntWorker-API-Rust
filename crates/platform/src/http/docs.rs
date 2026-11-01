@@ -26,8 +26,14 @@ const PROBLEM_MEDIA_TYPE: &str = "application/problem+json";
 
 /// Where the document lists a code that `platform` answers.
 enum Place {
-    /// On every operation of a route group: the route's own pipeline answers it.
-    RouteGroup,
+    /// On every operation: the route's own pipeline answers it.
+    Every,
+    /// On every operation whose method isn't safe: the cross-site check answers it (PLATFORM-053).
+    Unsafe,
+    /// On every operation that authenticates its caller (AUTH-009).
+    Authenticated,
+    /// On every operation that takes a body (PLATFORM-054, PLATFORM-056).
+    Body,
     /// Among the components' responses: the router answers it when no operation matches.
     Fallback,
 }
@@ -35,21 +41,36 @@ enum Place {
 fn place(error: &RequestError) -> Place {
     match error {
         RequestError::NotFound | RequestError::MethodNotAllowed => Place::Fallback,
+        RequestError::OriginNotAllowed => Place::Unsafe,
+        RequestError::Unauthenticated | RequestError::AccessTokenExpired => Place::Authenticated,
+        RequestError::InvalidBody(_) | RequestError::InvalidFields(_) => Place::Body,
         RequestError::InvalidQuery(_)
         | RequestError::PayloadTooLarge
+        | RequestError::RateLimited
         | RequestError::TimedOut
         | RequestError::Overloaded
         | RequestError::Unavailable
-        | RequestError::Panicked => Place::RouteGroup,
+        | RequestError::Panicked => Place::Every,
     }
 }
 
-/// Documents each operation's access level as the extension `x-access`, and the problems the
-/// pipeline can answer on any route of the group. A route that documents its own response for
-/// one of those statuses keeps it, and lists the group's codes in it itself (ERR-13). Returns
-/// the query parameters that each method accepts, `HEAD` taking those of the `GET` that serves
-/// it.
-pub(super) fn document(paths: &mut Paths, access: Access) -> QueryNames {
+/// Whether the problems of `place` apply to `operation`, served with `method` at `access`.
+fn applies(place: &Place, method: &Method, access: Access, operation: &Operation) -> bool {
+    match place {
+        Place::Every => true,
+        Place::Unsafe => !method.is_safe(),
+        Place::Authenticated => !matches!(access, Access::Public),
+        Place::Body => operation.request_body.is_some(),
+        Place::Fallback => false,
+    }
+}
+
+/// Documents each operation's access level as the extension `x-access`, the problems the
+/// pipeline can answer on it, and the rate-limit headers of every response the limiter passes
+/// back through (PLATFORM-050). A route that documents its own response for one of those
+/// statuses keeps it, and lists the pipeline's codes in it itself (ERR-13). Returns the query
+/// parameters that each method accepts, `HEAD` taking those of the `GET` that serves it.
+pub(super) fn document(paths: &mut Paths, access: Access, errors: &[&dyn ErrorCode]) -> QueryNames {
     let mut queries = QueryNames::new();
     for item in paths.paths.values_mut() {
         for (method, operation) in operations(item) {
@@ -58,13 +79,14 @@ pub(super) fn document(paths: &mut Paths, access: Access) -> QueryNames {
                     .into_iter()
                     .collect(),
             );
-            for (status, response) in group_problems() {
+            for (status, response) in problems(&method, access, operation, errors) {
                 operation
                     .responses
                     .responses
                     .entry(status)
                     .or_insert(RefOr::T(response));
             }
+            rate_limit_headers(operation);
             let names = query_names(operation);
             if method == Method::GET {
                 queries.insert(Method::HEAD, names.clone());
@@ -75,9 +97,36 @@ pub(super) fn document(paths: &mut Paths, access: Access) -> QueryNames {
     queries
 }
 
-/// The schema of every problem, as `Problem` in the document's components.
-pub(super) fn problem_schema() -> (String, RefOr<Schema>) {
-    (ProblemBody::name().into_owned(), ProblemBody::schema())
+/// Adds the rate-limit headers to each of `operation`'s responses but the 5xx: a request that
+/// load shedding refuses never reaches the limiter, and a panic never passes back through it
+/// (PLATFORM-050).
+fn rate_limit_headers(operation: &mut Operation) {
+    for (status, response) in &mut operation.responses.responses {
+        if status.starts_with('5') {
+            continue;
+        }
+        if let RefOr::T(response) = response {
+            response.headers.insert(
+                "ratelimit".to_owned(),
+                header(
+                    "The requests left in the bucket closest to its limit, and the seconds until                      its window ends.",
+                )
+                .into(),
+            );
+            response.headers.insert(
+                "ratelimit-policy".to_owned(),
+                header("That bucket's quota, and its window in seconds.").into(),
+            );
+        }
+    }
+}
+
+/// The schema of every problem, as `Problem` in the document's components, with the schemas it
+/// refers to, such as `FieldError`.
+pub(super) fn problem_schemas() -> Vec<(String, RefOr<Schema>)> {
+    let mut schemas = vec![(ProblemBody::name().into_owned(), ProblemBody::schema())];
+    ProblemBody::schemas(&mut schemas);
+    schemas
 }
 
 /// Adds to `document`'s components the problems the router answers when no operation matches a
@@ -85,8 +134,9 @@ pub(super) fn problem_schema() -> (String, RefOr<Schema>) {
 /// method its path doesn't serve.
 pub(super) fn fallbacks(document: &mut OpenApi) {
     let components = document.components.get_or_insert_with(Components::new);
-    let (name, schema) = problem_schema();
-    components.schemas.entry(name).or_insert(schema);
+    for (name, schema) in problem_schemas() {
+        components.schemas.entry(name).or_insert(schema);
+    }
     for error in RequestError::every() {
         if !matches!(place(&error), Place::Fallback) {
             continue;
@@ -139,16 +189,21 @@ fn query_names(operation: &Operation) -> HashSet<String> {
         .collect()
 }
 
-/// The problems any route of a group can answer, one response per status. Each response lists
-/// its codes, so a code a route answers is in the document with its meaning (ERR-13). The 503
-/// carries `Retry-After`, which each of its codes sends (OPS-05, OPS-07).
-fn group_problems() -> BTreeMap<String, Response> {
+/// The problems the pipeline can answer on `operation`, and those of `errors`, which its module
+/// answers, by status, each status with the headers its problems carry.
+fn problems(
+    method: &Method,
+    access: Access,
+    operation: &Operation,
+    errors: &[&dyn ErrorCode],
+) -> BTreeMap<String, Response> {
     let every = RequestError::every();
-    let mut by_status: BTreeMap<String, Vec<&dyn ErrorCode>> = BTreeMap::new();
-    for error in every
+    let pipeline = every
         .iter()
-        .filter(|error| matches!(place(error), Place::RouteGroup))
-    {
+        .filter(|error| applies(&place(error), method, access, operation))
+        .map(|error| error as &dyn ErrorCode);
+    let mut by_status: BTreeMap<String, Vec<&dyn ErrorCode>> = BTreeMap::new();
+    for error in pipeline.chain(errors.iter().copied()) {
         by_status
             .entry(error.category().status().as_u16().to_string())
             .or_default()
@@ -158,7 +213,7 @@ fn group_problems() -> BTreeMap<String, Response> {
         .into_iter()
         .map(|(status, errors)| {
             let mut response = problem_response(&errors);
-            if status == "503" {
+            if status == "503" || status == "429" {
                 response.headers.insert(
                     "retry-after".to_owned(),
                     header("How many seconds to wait before trying again.").into(),
@@ -169,7 +224,6 @@ fn group_problems() -> BTreeMap<String, Response> {
         .collect()
 }
 
-/// A problem response whose `code` is one of `errors`' codes.
 fn problem_response(errors: &[&dyn ErrorCode]) -> Response {
     let codes: Vec<&str> = errors.iter().map(|error| error.code()).collect();
     let description = errors

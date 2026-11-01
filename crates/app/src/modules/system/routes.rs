@@ -20,7 +20,7 @@ pub(crate) struct Features {}
 
 /// The module's routes.
 pub(crate) fn routes() -> Routes {
-    Routes::new().public(routes!(capabilities))
+    Routes::new().public(routes!(capabilities), &[])
 }
 
 /// Lists the features a deployment can turn off, and whether each one is on.

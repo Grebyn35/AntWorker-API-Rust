@@ -16,7 +16,6 @@ use platform::{
         TelemetryConfig,
     },
     db::Database,
-    http::Pipeline,
     lifecycle::{self, Readiness, Shutdown, ShutdownSignals},
     telemetry::{Service, names},
 };
@@ -65,7 +64,12 @@ fn main() -> ExitCode {
     match command {
         Command::Bootstrap => start(settings.telemetry(), settings.bootstrap(), bootstrap),
         Command::Migrate => start(settings.telemetry(), settings.migrate(), migrate),
-        Command::Serve => start(settings.telemetry(), settings.server(), serve),
+        Command::Serve => {
+            let config = settings
+                .server()
+                .and_then(|server| Ok((server, app::Config::read(&settings)?)));
+            start(settings.telemetry(), config, serve)
+        }
         Command::Health => health(settings.health()),
         Command::Openapi { path } => openapi(&path),
     }
@@ -132,7 +136,7 @@ async fn migrate(config: MigrateConfig) -> ExitCode {
 
 /// Installs the shutdown signals' handlers before it connects to anything (OPS-06), then serves
 /// until a signal arrives.
-async fn serve(config: ServerConfig) -> ExitCode {
+async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
     let signals = match ShutdownSignals::install() {
         Ok(signals) => signals,
         Err(error) => return failed("signals", &error),
@@ -164,15 +168,18 @@ async fn serve(config: ServerConfig) -> ExitCode {
         { names::SERVER_PORT } = address.port(),
         "listening"
     );
-    let app = platform::http::app(
-        app::routes(),
-        Pipeline {
-            clock: clock.clone(),
-            max_concurrent_requests: usize::try_from(config.max_concurrent_requests)
-                .unwrap_or(usize::MAX),
-            readiness: readiness.clone(),
-        },
+    let services = match app::compose(&database, modules).await {
+        Ok(services) => services,
+        Err(error) => return failed("services", &error),
+    };
+    let pipeline = app::pipeline(
+        &config,
+        &database,
+        &services,
+        clock.clone(),
+        readiness.clone(),
     );
+    let app = platform::http::app(services.routes, pipeline);
     let shutdown = Shutdown {
         delay: config.shutdown_delay,
         drain: config.shutdown_drain,
@@ -224,7 +231,7 @@ fn health(config: Result<HealthConfig, ConfigError>) -> ExitCode {
 
 /// Writes the OpenAPI document. It runs no async runtime and writes no logs.
 fn openapi(path: &Path) -> ExitCode {
-    let document = match app::routes().openapi(SERVICE).to_pretty_json() {
+    let document = match app::openapi(SERVICE).to_pretty_json() {
         Ok(document) => document,
         Err(error) => return failed_before_logging(None, "openapi", &error),
     };

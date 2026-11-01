@@ -70,6 +70,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `jobs` | A durable job queue with retry, backoff and dead letters, plus a scheduler that runs each periodic job once per interval across the fleet. A job records the user or workspace it was enqueued for, and its handler filters by them. | D1, D13 |
 | `listener` | One `LISTEN` connection per instance, routing notifications to subscribers such as the real-time hub and the job dispatcher. | D20 |
 | `events` | The event log and the real-time hub. A unit of work publishes events. The hub loads each new event once and delivers it to the streams allowed to receive it (SEC-17). It also replays missed events, closes or re-filters streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). | D1, D5, D20 |
+| `rate_limit` | The buckets that count requests in windows, in the database every replica shares: the IP and user limits that the request pipeline applies, and the per-action limits a module checks, such as sign-in's. | D11 |
 | `http` | The route builders and the OpenAPI document they produce, the middleware stack with trace context, timeouts, load shedding, cross-origin resource sharing (CORS) and the protection against cross-site request forgery (CSRF), extractors (JSON, path, query, pagination), idempotency and rate limiting. | D8, D10, D11, D12, D20, D61 |
 | `authn` | Reads credentials through a credential source, a closed enum with two variants: the Bearer header, for clients that set their own headers, such as the desktop client, and an `HttpOnly` cookie, for browsers. It verifies them through the `SessionVerifier` that `auth` implements, producing a `Principal`. | D18, D61 |
 | `authz` | The `Authorized<P>` proof and the `Memberships` type, generic over the `Permission` trait. Producing `Authorized<P>` opens the request's unit of work and asks the `AccessPolicy` that `access` implements inside it. Refusals are reported to the `SecurityEventSink` that `audit` implements. | D2, D3, D6 |
@@ -80,6 +81,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `outbound` | The only HTTP clients: one for URLs from configuration, and one for URLs supplied by third parties, with protection against server-side request forgery (SSRF) (SEC-09). | D26 |
 | `types` | Shared domain types: `Secret`, `EmailAddress`, the ID types. | D7, D25 |
 | `clock`, `random` | The injectable clock and the operating system's secure random source (CODE-06). | D23, D26 |
+| `hashing` | The hashes that stand in for secrets in the database: SHA-256 of a token, and a hash-based message authentication code (HMAC) with SHA-256, under `HMAC_KEY`, of a value short or common enough to guess, such as an email (SEC-03). | D26, D32 |
 | `blocking` | Runs CPU-heavy work, such as hashing a password, on a blocking thread and inside a span of its own (CODE-05, OBS-06). | D10 |
 | `personal_data` | The export and erasure contract that modules implement. | D31 |
 | `lifecycle` | Liveness, readiness and bounded graceful shutdown. | D9, D20 |
@@ -202,7 +204,7 @@ sequenceDiagram
   participant S as Module service
   participant DB as PostgreSQL
   C->>P: request
-  P->>P: security headers, trace context, request log,<br/>panics, load shedding, CORS, IP rate limit
+  P->>P: security headers, trace context, request log,<br/>panics, CORS, load shedding, IP rate limit, cross-site check
   P->>H: routed request
   H->>H: timeout, body limit, query check, Principal (authn),<br/>user rate limit, idempotency, parse to domain types
   H->>DB: BEGIN, and on workspace routes authorize (authz)
@@ -220,9 +222,10 @@ sequenceDiagram
    - trace context: the request's server span, and the trace-ID response header (D10)
    - the request log: one line when the request completes, and the error line of a 5xx (OBS-03, ERR-10)
    - panic catching (ERR-12)
+   - CORS for the listed web origins (D61)
    - concurrency limit with load shedding (D20)
-   - CORS for the listed web origins, and the cross-site check (D61)
    - pre-authentication IP rate limit (D11)
+   - the cross-site check (D61)
 3. **The route** prepares the request, in this order:
    - Its route group's timeout and body size limit apply (OPS-07, API-08).
    - Query parameters that the route's documentation doesn't list are refused (API-09).

@@ -19,7 +19,7 @@ use platform::telemetry::testing::{
     collector::{Collector, Received, attribute, text},
 };
 
-use crate::support::{Api, TestDatabase, fixtures, service_name};
+use crate::support::{Api, Options, TestDatabase, fixtures, service_name};
 
 /// How often the instance checks its own database connection.
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
@@ -83,7 +83,7 @@ fn hex(bytes: &[u8]) -> String {
 
 #[tokio::test]
 async fn platform_040_a_request_records_its_method_route_and_status() {
-    let api = Api::new();
+    let api = Api::new().await;
     let labels = [
         ("http.request.method", "GET"),
         ("http.route", "/v1/capabilities"),
@@ -99,7 +99,7 @@ async fn platform_040_a_request_records_its_method_route_and_status() {
 
 #[tokio::test]
 async fn platform_040_a_5xx_records_its_error_code_as_its_error_type() {
-    let api = Api::with(fixtures::routes(Arc::default()), 100);
+    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
     let labels = [
         ("http.request.method", "GET"),
         ("http.route", "/v1/broken"),
@@ -116,7 +116,7 @@ async fn platform_040_a_5xx_records_its_error_code_as_its_error_type() {
 
 #[tokio::test]
 async fn platform_040_a_method_http_doesn_t_define_is_other() {
-    let api = Api::new();
+    let api = Api::new().await;
     let other = |points: &[Point]| -> u64 {
         points
             .iter()
@@ -149,7 +149,7 @@ async fn platform_040_a_method_http_doesn_t_define_is_other() {
 
 #[tokio::test]
 async fn platform_040_a_request_no_route_matched_records_no_route() {
-    let api = Api::new();
+    let api = Api::new().await;
     // Exactly these labels: no `http.route`, and no `error.type` on a 4xx.
     let labels = [
         ("http.request.method", "GET"),
@@ -166,7 +166,10 @@ async fn platform_040_a_request_no_route_matched_records_no_route() {
 #[tokio::test]
 async fn platform_040_a_request_records_how_long_it_took() {
     let gate = Arc::new(fixtures::Gate::default());
-    let api = Api::with(fixtures::routes(gate.clone()), 100);
+    let api = Api::with(
+        Options::routes(fixtures::routes(gate.clone())).set("MAX_CONCURRENT_REQUESTS", 100),
+    )
+    .await;
     let clock = api.clock();
     let labels = [
         ("http.request.method", "GET"),
@@ -191,7 +194,7 @@ async fn platform_040_a_request_records_how_long_it_took() {
 
 #[tokio::test]
 async fn platform_040_patch_is_a_method_http_defines() {
-    let api = Api::new();
+    let api = Api::new().await;
     let labels = [
         ("http.request.method", "PATCH"),
         ("http.route", "/v1/capabilities"),
@@ -207,7 +210,7 @@ async fn platform_040_patch_is_a_method_http_defines() {
 
 #[tokio::test]
 async fn obs_15_the_health_probes_record_no_request_metric() {
-    let api = Api::new();
+    let api = Api::new().await;
 
     for path in ["/health/live", "/health/ready"] {
         assert_eq!(api.get(path).send().await.status, StatusCode::OK);
@@ -227,7 +230,7 @@ async fn obs_15_the_health_probes_record_no_request_metric() {
 
 #[tokio::test]
 async fn platform_046_the_resident_memory_is_recorded_at_once_and_every_15_seconds_after() {
-    let api = Api::new();
+    let api = Api::new().await;
     let clock = api.clock();
     // The kernel's report, which grows by a megabyte at each reading.
     let readings = Arc::new(AtomicU64::new(0));
@@ -259,7 +262,7 @@ async fn platform_046_the_resident_memory_is_recorded_at_once_and_every_15_secon
 #[tokio::test]
 async fn platform_043_the_database_gauge_follows_each_check() {
     let database = TestDatabase::migrated().await;
-    let api = Api::new();
+    let api = Api::new().await;
     let clock = api.clock();
     let reachable = || {
         testing::recorded("platform.database_reachable")

@@ -51,10 +51,7 @@ pub fn check(repo: &Repo) -> Outcome {
                 groups.push((
                     format!("{} {path}", method.to_ascii_uppercase()),
                     quoted(path),
-                    operation["x-access"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_owned(),
+                    group(method, operation),
                     request_codes(operation),
                 ));
             }
@@ -245,8 +242,23 @@ fn request_codes(operation: &Value) -> BTreeSet<String> {
         .collect()
 }
 
-/// ERR-13: an operation lists every `request.` code that another operation of its access level
-/// lists, since the pipeline answers each of them on any route of the group.
+/// The operations whose pipeline answers the same `request.` codes: those of one access level,
+/// split by whether their method is safe, since the cross-site check refuses only a request that
+/// changes something, and whether they take a body, whose problems only they answer.
+fn group(method: &str, operation: &Value) -> String {
+    let access = operation["x-access"].as_str().unwrap_or_default();
+    let kind = if operation.get("requestBody").is_some() {
+        "body-taking "
+    } else if ["get", "head", "options", "trace"].contains(&method) {
+        ""
+    } else {
+        "changing "
+    };
+    format!("{kind}{access}")
+}
+
+/// ERR-13: an operation lists every `request.` code that another operation of its group lists,
+/// since the pipeline answers each of them on any route of the group.
 fn group_codes(operations: &[(String, String, String, BTreeSet<String>)]) -> Vec<Problem> {
     let mut by_access: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     for (_, _, access, codes) in operations {
@@ -479,6 +491,32 @@ mod tests {
             [
                 "GET /v1/things doesn't list request.overloaded, which another public route answers (ERR-13)"
             ]
+        );
+    }
+
+    #[test]
+    fn err_13_a_route_that_takes_a_body_is_grouped_with_those_that_do() {
+        let mut body = operation();
+        body["requestBody"] = json!({ "content": {} });
+        body["responses"]["400"] = json!({
+            "description": "`request.invalid_body`: Invalid body.",
+            "content": { "application/problem+json": { "schema": { "allOf": [
+                { "$ref": "#/components/schemas/Problem" },
+                { "properties": { "code": { "enum": ["request.invalid_body"] } } },
+            ] } } },
+        });
+        let mut without = operation();
+        without["requestBody"] = json!({ "content": {} });
+        let mut document = document("/v1/things", operation(), json!({}));
+        document["paths"]["/v1/things"]["post"] = body;
+        document["paths"]["/v1/others"] = json!({ "post": without });
+        let messages = findings(&document);
+        assert_eq!(
+            messages,
+            [
+                "POST /v1/others doesn't list request.invalid_body, which another body-taking public route answers (ERR-13)"
+            ],
+            "the GET, which takes no body, needn't list it"
         );
     }
 

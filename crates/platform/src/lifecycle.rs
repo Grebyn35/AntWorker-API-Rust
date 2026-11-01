@@ -276,6 +276,8 @@ pub async fn serve(
 ) -> io::Result<()> {
     let stop = Arc::new(Notify::new());
     let stopped = stop.clone();
+    // Each request carries its connection's peer, from which its client IP comes (PLATFORM-047).
+    let app = app.into_make_service_with_connect_info::<SocketAddr>();
     let server =
         axum::serve(listener, app).with_graceful_shutdown(async move { stopped.notified().await });
     let mut server = tokio::spawn(server.into_future());

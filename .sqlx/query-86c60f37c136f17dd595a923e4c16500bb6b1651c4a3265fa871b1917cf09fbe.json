@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO rate_limit_buckets AS bucket (key_hash, count, window_started_at)\n            VALUES ($1, 1, now())\n            ON CONFLICT (key_hash) DO UPDATE SET\n                count = CASE\n                    WHEN bucket.window_started_at + make_interval(secs => $2) <= now() THEN 1\n                    ELSE LEAST(bucket.count, 2147483646) + 1\n                END,\n                window_started_at = CASE\n                    WHEN bucket.window_started_at + make_interval(secs => $2) <= now() THEN now()\n                    ELSE bucket.window_started_at\n                END\n            RETURNING\n                count,\n                extract(epoch FROM window_started_at + make_interval(secs => $2) - now())::float8\n                    AS \"resets_in!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "rate_limit_buckets",
+            "name": "count"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "resets_in!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "86c60f37c136f17dd595a923e4c16500bb6b1651c4a3265fa871b1917cf09fbe"
+}

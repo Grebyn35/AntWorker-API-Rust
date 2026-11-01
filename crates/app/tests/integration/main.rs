@@ -5,6 +5,12 @@
 //! `unwrap` and `expect` (CODE-03).
 
 #[cfg(test)]
+mod accounts;
+#[cfg(test)]
+mod audit;
+#[cfg(test)]
+mod auth;
+#[cfg(test)]
 mod openapi;
 #[cfg(test)]
 mod platform;

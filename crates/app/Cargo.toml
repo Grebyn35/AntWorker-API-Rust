@@ -21,14 +21,21 @@ e2e = []
 
 [dependencies]
 platform.workspace = true
+argon2.workspace = true
 axum.workspace = true
 clap.workspace = true
+ipnet.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sqlx.workspace = true
+thiserror.workspace = true
+time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+unicode-normalization.workspace = true
 utoipa.workspace = true
 utoipa-axum.workspace = true
+uuid.workspace = true
 
 # The allocator of the image's static binary, for the reason architecture.md gives in §10.
 [target.'cfg(target_env = "musl")'.dependencies]

@@ -8,7 +8,7 @@
 
 | Table | Holds |
 |---|---|
-| `audit_entries` | `id`; `scope`, `user` or `workspace`; `user_id`, the user whose log holds an entry of the user scope; `workspace_id`, the workspace whose log holds one of the workspace scope; `actor_user_id`, `target_user_id`, `action`, `resource_type`, `resource_id`; `values`, IDs and non-personal fields only; `client_ip`, `user_agent`, `trace_id` and `created_at`. |
+| `audit_entries` | `id`; `scope`, `user` or `workspace`; `user_id`, the user whose log holds an entry of the user scope; `workspace_id`, the workspace whose log holds one of the workspace scope; `actor_user_id`, `target_user_id`, `action`, `resource_type`, `resource_id`; `details`, IDs and non-personal fields only; `client_ip`, `user_agent`, `trace_id` and `created_at`. |
 
 ## Interface
 
@@ -22,7 +22,7 @@
 |---|---|---|---|
 | AUDIT-001 | An entry commits or rolls back together with the change it records. | DATA-27, D1 | `audit_001_` |
 | AUDIT-002 | An entry's actor and scope come from the unit of work's proof, never from the caller's input. | D6, DATA-22 | `audit_002_` |
-| AUDIT-003 | An entry records the client IP, the user agent and the trace ID of its request. Its `values` hold only IDs and non-personal fields. | SEC-16, OBS-07 | `audit_003_` |
+| AUDIT-003 | An entry records the client IP, the user agent and the trace ID of its request. Its `details` hold only IDs and non-personal fields. | SEC-16, OBS-07 | `audit_003_` |
 | AUDIT-004 | A refused workspace request records `access.denied`, with the route's permission, in the workspace's log. | D6, ACCESS-003 | `audit_004_` |
 | AUDIT-005 | No request can change or delete an entry: `app` holds only `INSERT` and `SELECT` on `audit_entries`. | D6, DATA-19 | `audit_005_` |
 
@@ -30,9 +30,9 @@
 
 ### Recording an entry
 
-`record` inserts one row through the unit of work's executor, so the entry commits with the change (AUDIT-001). The client IP and the user agent come from the unit of work, which a route opens with its request's (platform spec, "Unit of work"); a job's unit of work holds neither, and records them as null. The trace ID is that of the span the entry is recorded in (OBS-07). An `Entry` holds the action, the resource's type and ID, the target user if any, and `values`, a JSON object a module builds from IDs and non-personal fields (SEC-16).
+`record` inserts one row through the unit of work's executor, so the entry commits with the change (AUDIT-001). The client IP and the user agent come from the unit of work, which a route opens with its request's (platform spec, "Unit of work"); a job's unit of work holds neither, and records them as null. The trace ID is that of the span the entry is recorded in (OBS-07). An `Entry` holds the action, the resource's type and ID, the target user if any, and `details`, a JSON object a module builds from IDs and non-personal fields (SEC-16).
 
-`AuditScope` is a `platform` type whose fields are private: only the proofs build one with an actor, so no module can record an entry as someone the request didn't prove it is (AUDIT-002). An entry of the user scope sets `user_id` and leaves `workspace_id` null; one of the workspace scope does the reverse, which the check `audit_entries_scope_check` enforces.
+`AuditScope` is a `platform` type whose fields are private: only the proofs build one with an actor, so no module can record an entry as someone the request didn't prove it is (AUDIT-002). An entry of the user scope sets `user_id` and leaves `workspace_id` null; one of the workspace scope does the reverse, which the check `audit_entries_scope_check` enforces. `scope` is a Postgres enum (DATA-04), while `action` and `resource_type` are text: each module declares its own actions and resources in its `audit.rs`, so adding one changes no type that every module's entries share.
 
 ### Keys and grants
 

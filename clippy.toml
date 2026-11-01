@@ -111,6 +111,7 @@ disallowed-methods = [
     { path = "opentelemetry::global::meter_provider", reason = "metrics are declared through platform::telemetry::metrics (OBS-11)" },
     { path = "opentelemetry::metrics::MeterProvider::meter", reason = "metrics are declared through platform::telemetry::metrics (OBS-11)" },
     { path = "opentelemetry::metrics::MeterProvider::meter_with_scope", reason = "metrics are declared through platform::telemetry::metrics (OBS-11)" },
+    { path = "platform::authn::Principal::new", reason = "only auth builds a Principal, after a credential check or a registration (the auth spec)" },
 ]
 
 disallowed-macros = [

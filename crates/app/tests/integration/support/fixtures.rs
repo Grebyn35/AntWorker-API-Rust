@@ -37,13 +37,6 @@ async fn gate(State(gate): State<Arc<Gate>>) -> StatusCode {
     StatusCode::NO_CONTENT
 }
 
-/// Never answers.
-#[utoipa::path(get, path = "/v1/forever", responses((status = 204, description = "Never.")))]
-async fn forever() -> StatusCode {
-    std::future::pending::<()>().await;
-    StatusCode::NO_CONTENT
-}
-
 /// Panics.
 #[utoipa::path(get, path = "/v1/panic", responses((status = 204, description = "Never.")))]
 #[expect(clippy::panic, reason = "the fixture proves the catch layer (ERR-12)")]
@@ -77,12 +70,11 @@ async fn items(Query(page): Query<Page>) -> Json<Value> {
     Json(json!({ "limit": page.limit }))
 }
 
-/// The API's routes and the fixtures, with `held` behind `GET /v1/gate`.
+/// The fixtures' routes, with `held` behind `GET /v1/gate`, which the tests add to the API's.
 pub fn routes(held: Arc<Gate>) -> Routes {
-    app::routes()
-        .merge(Routes::new().public(routes!(forever)))
-        .merge(Routes::new().public(routes!(panics)))
-        .merge(Routes::new().public(routes!(broken)))
-        .merge(Routes::new().public(routes!(items)))
-        .merge(Routes::new().public(routes!(gate)).with_state(held))
+    Routes::new()
+        .public(routes!(panics), &[])
+        .merge(Routes::new().public(routes!(broken), &[]))
+        .merge(Routes::new().public(routes!(items), &[]))
+        .merge(Routes::new().public(routes!(gate), &[]).with_state(held))
 }

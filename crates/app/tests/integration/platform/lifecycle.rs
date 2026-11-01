@@ -4,12 +4,13 @@ use std::{io, net::SocketAddr, sync::Arc, time::Duration};
 
 use platform::{
     clock::TestClock,
-    http::Pipeline,
     lifecycle::{self, Readiness, Shutdown},
 };
 use tokio::{net::TcpListener, sync::Notify, task::JoinHandle};
 
 use crate::support::{
+    TestDatabase,
+    api::{Options, application},
     fixtures::{self, Gate},
     http_request,
 };
@@ -19,6 +20,7 @@ const DRAIN: Duration = Duration::from_secs(7);
 
 /// `serve` running on a free port, until the test sends the signal.
 struct Running {
+    _database: TestDatabase,
     address: SocketAddr,
     clock: Arc<TestClock>,
     gate: Arc<Gate>,
@@ -30,14 +32,14 @@ async fn start() -> Running {
     let gate = Arc::new(Gate::default());
     let clock = Arc::new(TestClock::default());
     let readiness = Readiness::new();
-    let app = platform::http::app(
-        fixtures::routes(gate.clone()),
-        Pipeline {
-            clock: clock.clone(),
-            max_concurrent_requests: 100,
-            readiness: readiness.clone(),
-        },
-    );
+    let database = TestDatabase::migrated().await;
+    let (app, _) = application(
+        &database.app().await,
+        Options::routes(fixtures::routes(gate.clone())),
+        clock.clone(),
+        readiness.clone(),
+    )
+    .await;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let signal = Arc::new(Notify::new());
@@ -54,6 +56,7 @@ async fn start() -> Running {
         async move { received.notified().await },
     ));
     Running {
+        _database: database,
         address,
         clock,
         gate,

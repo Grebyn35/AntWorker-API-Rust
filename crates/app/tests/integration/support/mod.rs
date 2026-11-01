@@ -17,6 +17,7 @@
 pub mod api;
 mod contract;
 pub mod fixtures;
+pub mod users;
 
 use std::{
     error::Error,
@@ -44,7 +45,7 @@ use tokio::{
     sync::{OnceCell, mpsc},
 };
 
-pub use api::Api;
+pub use api::{Api, Options};
 
 /// The API binary that Cargo built for the tests.
 pub const BINARY: &str = env!("CARGO_BIN_EXE_antworker-api");
@@ -55,6 +56,14 @@ pub fn service_name() -> &'static str {
         .file_stem()
         .and_then(|name| name.to_str())
         .expect("the binary's name")
+}
+
+/// The client of a unit of work that a test opens itself, as a route opens one for a request.
+pub fn client() -> platform::types::Client {
+    platform::types::Client {
+        ip: "198.51.100.20".parse().unwrap(),
+        user_agent: Some("tests".to_owned()),
+    }
 }
 
 /// The advisory lock that serializes creating the roles and the template, across processes.
@@ -200,6 +209,15 @@ impl TestDatabase {
         Database::connect(&self.app_url(), Self::POOL_SIZE, &app::MIGRATIONS)
             .await
             .expect("connect as app")
+    }
+
+    /// A listener of the access-change signals that units of work send at commit (D35).
+    pub async fn signals(&self) -> Signals {
+        Signals(
+            testing::listen(&self.owner_url(), "access_changed")
+                .await
+                .expect("listen for the signals"),
+        )
     }
 
     /// Runs `sql` as `owner`, to arrange what a migration would create.
@@ -639,6 +657,30 @@ async fn connect(url: &DatabaseUrl) -> PgConnection {
     testing::connect(url)
         .await
         .expect("connect to the test database")
+}
+
+/// The access-change signals a test's API sent.
+pub struct Signals(sqlx::postgres::PgListener);
+
+impl Signals {
+    /// Every signal sent since the last call, as JSON. A signal goes out at commit, before the
+    /// API answers, so a query on the listener's connection reads every signal the requests the
+    /// test sent caused, without waiting for one that may never come.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "raw SQL reads what no unit of work may (TEST-06)"
+    )]
+    pub async fn received(&mut self) -> Vec<Value> {
+        sqlx::raw_sql("SELECT 1")
+            .execute(&mut self.0)
+            .await
+            .expect("query the listener's connection");
+        let mut received = Vec::new();
+        while let Some(notification) = self.0.next_buffered() {
+            received.push(serde_json::from_str(notification.payload()).unwrap());
+        }
+        received
+    }
 }
 
 /// The first column of every row `sql` returns, on a connection with `url`.

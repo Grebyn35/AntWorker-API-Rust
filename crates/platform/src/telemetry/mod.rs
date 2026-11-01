@@ -257,7 +257,7 @@ pub fn environment_name(environment: Environment) -> &'static str {
 }
 
 /// The trace ID of the current span, as 32 hexadecimal digits.
-pub(crate) fn trace_id() -> String {
+pub fn trace_id() -> String {
     Span::current()
         .context()
         .span()

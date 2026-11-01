@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO sessions (\n            user_id, device_id, access_token_hash, refresh_token_hash, access_expires_at,\n            refresh_expires_at, absolute_expires_at\n        ) VALUES (\n            $1, $2, $3, $4,\n            now() + make_interval(secs => least($5::float8, $7::float8)),\n            now() + make_interval(secs => least($6::float8, $7::float8)),\n            now() + make_interval(secs => $7::float8)\n        )\n        RETURNING id, device_id, created_at, access_expires_at, refresh_expires_at,\n            absolute_expires_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "device_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "device_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "access_expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "access_expires_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "refresh_expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "refresh_expires_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "absolute_expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "absolute_expires_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Bytea",
+        "Bytea",
+        "Float8",
+        "Float8",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a5414bb0ee8909905b27624d963e32a5ad59b3d906c2b1e4ff58fa22fa363d0e"
+}

@@ -7,7 +7,7 @@ use crate::support::Api;
 
 #[tokio::test]
 async fn system_001_the_capabilities_list_each_feature_a_deployment_can_turn_off() {
-    let api = Api::new();
+    let api = Api::new().await;
 
     let response = api.get("/v1/capabilities").send().await;
 

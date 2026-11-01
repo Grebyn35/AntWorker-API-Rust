@@ -11,7 +11,13 @@ use std::{
     time::Duration,
 };
 
-use crate::{db::DatabaseUrl, telemetry::OtlpEndpoint};
+mod web;
+
+use ipnet::IpNet;
+
+pub use web::Origin;
+
+use crate::{db::DatabaseUrl, hashing::HmacKey, telemetry::OtlpEndpoint};
 
 /// Where the API runs. Every deployment sets it explicitly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,6 +95,25 @@ pub struct ServerConfig {
     pub shutdown_delay: Duration,
     /// How long `serve` waits for the requests in flight once it stops accepting connections.
     pub shutdown_drain: Duration,
+    /// The key of every keyed hash, such as a rate limit's bucket key (SEC-03).
+    pub hmac_key: HmacKey,
+    /// The proxies whose `X-Forwarded-For` names the client (PLATFORM-047).
+    pub trusted_proxies: Vec<IpNet>,
+    /// The origins of web clients (PLATFORM-052).
+    pub cors_allowed_origins: Vec<Origin>,
+    /// The IP and user limits (PLATFORM-048).
+    pub rate_limits: RateLimitConfig,
+}
+
+/// The limits on the requests of one client IP, and of one user (PLATFORM-048).
+#[derive(Clone, Copy, Debug)]
+pub struct RateLimitConfig {
+    /// How many requests one client IP may send in a window.
+    pub ip_requests: u32,
+    /// How many requests one user may send in a window.
+    pub user_requests: u32,
+    /// The window's length.
+    pub window: Duration,
 }
 
 /// The settings `health` reads.
@@ -152,6 +177,14 @@ impl ConfigError {
 }
 
 const LISTEN_ADDR_EXPECTED: &str = "a socket address such as 0.0.0.0:8080";
+
+const HMAC_KEY_EXPECTED: &str = "base64 of at least 32 random bytes";
+
+const PROXIES_EXPECTED: &str = "IP addresses and ranges separated by commas, such as \
+     172.18.0.0/16, 203.0.113.7";
+
+const ORIGINS_EXPECTED: &str = "origins separated by commas, such as https://app.example.com, \
+     each https, or http on a loopback host in development, with no path";
 
 const DATABASE_URL_EXPECTED: &str = "a PostgreSQL URL with a user, a password, a host and a \
      database, and no query parameters but sslmode, sslrootcert, sslcert, sslkey and \
@@ -265,7 +298,85 @@ where
             max_concurrent_requests: self.number("MAX_CONCURRENT_REQUESTS", 100, 1..=100_000)?,
             shutdown_delay: self.seconds("SHUTDOWN_DELAY_SECONDS", 5)?,
             shutdown_drain: self.seconds("SHUTDOWN_DRAIN_SECONDS", 10)?,
+            hmac_key: self.with("HMAC_KEY", HMAC_KEY_EXPECTED, web::hmac_key)?,
+            trusted_proxies: self
+                .optional_with("TRUSTED_PROXIES", PROXIES_EXPECTED, web::proxies)?
+                .unwrap_or_default(),
+            cors_allowed_origins: self.origins()?,
+            rate_limits: RateLimitConfig {
+                ip_requests: self.number("RATE_LIMIT_IP_REQUESTS", 600, 1..=1_000_000)?,
+                user_requests: self.number("RATE_LIMIT_USER_REQUESTS", 300, 1..=1_000_000)?,
+                window: self.duration("RATE_LIMIT_WINDOW_SECONDS", 60, 1..=86_400)?,
+            },
         })
+    }
+
+    /// A whole number from the setting `name`, or `default` when it is unset (OPS-01).
+    pub fn number(
+        &self,
+        name: &str,
+        default: u32,
+        range: RangeInclusive<u32>,
+    ) -> Result<u32, ConfigError> {
+        let Some(value) = self.value(name)? else {
+            return Ok(default);
+        };
+        value
+            .parse()
+            .ok()
+            .filter(|number| range.contains(number))
+            .ok_or_else(|| {
+                ConfigError::new(name, Problem::OutOfRange(*range.start(), *range.end()))
+            })
+    }
+
+    /// A duration in whole seconds from the setting `name`, or `default` seconds when it is
+    /// unset.
+    pub fn duration(
+        &self,
+        name: &str,
+        default: u32,
+        range: RangeInclusive<u32>,
+    ) -> Result<Duration, ConfigError> {
+        Ok(Duration::from_secs(
+            self.number(name, default, range)?.into(),
+        ))
+    }
+
+    /// The origins of `CORS_ALLOWED_ORIGINS`, which `ENVIRONMENT` decides whether plain `http`
+    /// may name.
+    fn origins(&self) -> Result<Vec<Origin>, ConfigError> {
+        let environment = self.required("ENVIRONMENT", "development, test or production")?;
+        Ok(self
+            .optional_with("CORS_ALLOWED_ORIGINS", ORIGINS_EXPECTED, |value| {
+                web::origins(value, environment)
+            })?
+            .unwrap_or_default())
+    }
+
+    /// The required setting `name`, as `parse` reads it.
+    fn with<T>(
+        &self,
+        name: &str,
+        expected: &'static str,
+        parse: impl Fn(&str) -> Option<T>,
+    ) -> Result<T, ConfigError> {
+        self.optional_with(name, expected, parse)?
+            .ok_or_else(|| ConfigError::new(name, Problem::Missing))
+    }
+
+    /// The setting `name`, as `parse` reads it, or `None` when it is unset.
+    fn optional_with<T>(
+        &self,
+        name: &str,
+        expected: &'static str,
+        parse: impl Fn(&str) -> Option<T>,
+    ) -> Result<Option<T>, ConfigError> {
+        self.value(name)?
+            .map(|value| {
+                parse(&value).ok_or_else(|| ConfigError::new(name, Problem::Invalid(expected)))
+            })
+            .transpose()
     }
 
     /// The settings for `health`.
@@ -318,29 +429,9 @@ where
         Ok(self.parsed(name, expected)?.unwrap_or(default))
     }
 
-    fn number(
-        &self,
-        name: &str,
-        default: u32,
-        range: RangeInclusive<u32>,
-    ) -> Result<u32, ConfigError> {
-        let Some(value) = self.value(name)? else {
-            return Ok(default);
-        };
-        value
-            .parse()
-            .ok()
-            .filter(|number| range.contains(number))
-            .ok_or_else(|| {
-                ConfigError::new(name, Problem::OutOfRange(*range.start(), *range.end()))
-            })
-    }
-
     /// A duration in whole seconds, from 0 to 300.
     fn seconds(&self, name: &str, default: u32) -> Result<Duration, ConfigError> {
-        Ok(Duration::from_secs(
-            self.number(name, default, 0..=300)?.into(),
-        ))
+        self.duration(name, default, 0..=300)
     }
 
     fn parsed<T: FromStr>(
@@ -406,9 +497,11 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    const SERVER: [(&str, &str); 2] = [
+    const SERVER: [(&str, &str); 4] = [
+        ("ENVIRONMENT", "test"),
         ("LISTEN_ADDR", "0.0.0.0:8080"),
         ("DATABASE_URL", "postgres://app:secret@localhost:5432/api"),
+        ("HMAC_KEY", "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="),
     ];
 
     fn settings(
@@ -668,7 +761,7 @@ mod tests {
 
     #[test]
     fn ops_02_env_example_states_each_settings_type_and_default() {
-        let example = include_str!("../../../.env.example");
+        let example = include_str!("../../../../.env.example");
         let mut comments: Vec<&str> = Vec::new();
         for line in example.lines() {
             if let Some(comment) = line.strip_prefix('#') {
@@ -686,7 +779,7 @@ mod tests {
 
     #[test]
     fn ops_02_env_example_names_every_libpq_variable_that_must_be_unset() {
-        let example = include_str!("../../../.env.example");
+        let example = include_str!("../../../../.env.example");
         for name in LIBPQ_VARIABLES {
             assert!(example.contains(name), "{name}");
         }
@@ -712,7 +805,7 @@ mod tests {
 
     #[test]
     fn platform_041_env_example_names_every_variable_that_must_be_unset() {
-        let example = include_str!("../../../.env.example");
+        let example = include_str!("../../../../.env.example");
         let words: Vec<&str> = example
             .split(|c: char| !(c.is_ascii_uppercase() || c == '_'))
             .collect();
@@ -723,7 +816,7 @@ mod tests {
 
     #[test]
     fn platform_041_every_variable_env_example_lists_is_refused() {
-        let example = include_str!("../../../.env.example");
+        let example = include_str!("../../../../.env.example");
         let listed: Vec<&str> = example
             .split(|c: char| !(c.is_ascii_uppercase() || c == '_'))
             .filter(|word| word.starts_with("OTEL_") && *word != "OTEL_EXPORTER_OTLP_ENDPOINT")

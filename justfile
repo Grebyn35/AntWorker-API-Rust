@@ -100,6 +100,7 @@ env:
         -e "s/__ADMIN_PASSWORD__/$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')/g" \
         -e "s/__OWNER_PASSWORD__/$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')/g" \
         -e "s/__APP_PASSWORD__/$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')/g" \
+        -e "s|__HMAC_KEY__|$(head -c 32 /dev/urandom | base64 | tr -d '\n')|g" \
         .env.example > .env
 
 # Prepares this machine (OPS-19): checks the tools the tasks need and their pinned versions,
@@ -120,7 +121,7 @@ setup: && env
 [doc("Writes .env from .env.example, with generated passwords, unless it exists")]
 [group('develop')]
 env:
-    if (-not (Test-Path .env)) { $text = Get-Content .env.example -Raw; foreach ($name in 'ADMIN', 'OWNER', 'APP') { $bytes = New-Object byte[] 16; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes); $text = $text.Replace("__$($name)_PASSWORD__", -join ($bytes | ForEach-Object { $_.ToString('x2') })) }; [IO.File]::WriteAllText((Join-Path $PWD '.env'), $text) }
+    if (-not (Test-Path .env)) { $text = Get-Content .env.example -Raw; foreach ($name in 'ADMIN', 'OWNER', 'APP') { $bytes = New-Object byte[] 16; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes); $text = $text.Replace("__$($name)_PASSWORD__", -join ($bytes | ForEach-Object { $_.ToString('x2') })) }; $key = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($key); $text = $text.Replace('__HMAC_KEY__', [Convert]::ToBase64String($key)); [IO.File]::WriteAllText((Join-Path $PWD '.env'), $text) }
 
 # Starts the services in compose.yaml, and waits until they are healthy.
 [doc("Starts the services in compose.yaml, such as Postgres")]

@@ -17,7 +17,7 @@ async fn test_06_the_api_under_test_connects_as_the_app_role() {
 
     let app = db.app().await;
 
-    let mut uow = app.begin().await.unwrap();
+    let mut uow = app.begin(&crate::support::client()).await.unwrap();
     let role = sqlx::query_scalar!(r#"SELECT current_user AS "role!""#)
         .fetch_one(uow.executor())
         .await
@@ -136,7 +136,12 @@ async fn platform_010_after_bootstrap_the_roles_have_their_attributes_and_grants
         .await
         .unwrap();
 
-    let mut uow = db.app().await.begin().await.unwrap();
+    let mut uow = db
+        .app()
+        .await
+        .begin(&crate::support::client())
+        .await
+        .unwrap();
 
     let roles = sqlx::query!(
         r#"
@@ -297,7 +302,12 @@ async fn obs_04_bootstrap_logs_no_password_verifier() {
 
 /// The roles' attributes and settings, and the grants on the database and its schema, sorted.
 async fn snapshot(db: &TestDatabase) -> Vec<String> {
-    let mut uow = db.app().await.begin().await.unwrap();
+    let mut uow = db
+        .app()
+        .await
+        .begin(&crate::support::client())
+        .await
+        .unwrap();
     let mut lines = sqlx::query_scalar!(
         r#"
         SELECT concat_ws(' ', r.rolname, r.rolcanlogin, r.rolsuper, r.rolinherit, r.rolcreaterole,
@@ -372,7 +382,7 @@ async fn arch_11_a_unit_of_work_commits_all_its_writes_or_none() {
         .await;
     let app = db.app().await;
 
-    let mut committed = app.begin().await.unwrap();
+    let mut committed = app.begin(&crate::support::client()).await.unwrap();
     execute_on(committed.executor(), "INSERT INTO notes VALUES ('kept')").await;
     execute_on(
         committed.executor(),
@@ -380,7 +390,7 @@ async fn arch_11_a_unit_of_work_commits_all_its_writes_or_none() {
     )
     .await;
     committed.commit().await.unwrap();
-    let mut dropped = app.begin().await.unwrap();
+    let mut dropped = app.begin(&crate::support::client()).await.unwrap();
     execute_on(dropped.executor(), "INSERT INTO notes VALUES ('lost')").await;
     drop(dropped);
 

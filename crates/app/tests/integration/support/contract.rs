@@ -43,7 +43,11 @@ impl Contract {
         headers: &HeaderMap,
         body: &[u8],
     ) {
-        if path.starts_with("/health/") {
+        // OpenAPI describes neither the health probes (OPS-05) nor a CORS preflight, which the
+        // CORS layer answers before any route (PLATFORM-052).
+        let preflight =
+            method == Method::OPTIONS && headers.contains_key(header::ACCESS_CONTROL_ALLOW_METHODS);
+        if path.starts_with("/health/") || preflight {
             return;
         }
         let path = path.split('?').next().unwrap_or_default();

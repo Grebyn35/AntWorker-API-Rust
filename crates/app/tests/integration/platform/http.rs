@@ -8,7 +8,7 @@ use platform::telemetry::testing;
 use serde_json::{Value, json};
 
 use crate::support::{
-    Api,
+    Api, Options,
     api::Response,
     fixtures::{self, Gate},
 };
@@ -48,7 +48,7 @@ fn problem(response: &Response, status: StatusCode, code: &str) -> Value {
 
 #[tokio::test]
 async fn platform_021_a_path_that_does_not_exist_answers_a_not_found_problem() {
-    let api = Api::new();
+    let api = Api::new().await;
 
     let response = api.get("/v1/nothing-here").send().await;
 
@@ -59,7 +59,7 @@ async fn platform_021_a_path_that_does_not_exist_answers_a_not_found_problem() {
 
 #[tokio::test]
 async fn platform_021_an_internal_error_answers_the_fixed_problem_and_nothing_else() {
-    let api = Api::with(fixtures::routes(Arc::default()), 100);
+    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
 
     let response = api.get("/v1/broken").send().await;
 
@@ -76,7 +76,7 @@ async fn platform_021_an_internal_error_answers_the_fixed_problem_and_nothing_el
 
 #[tokio::test]
 async fn platform_022_every_response_carries_its_trace_context() {
-    let api = Api::new();
+    let api = Api::new().await;
 
     for path in ["/v1/capabilities", "/v1/nothing-here"] {
         let response = api.get(path).send().await;
@@ -91,7 +91,7 @@ async fn platform_022_every_response_carries_its_trace_context() {
 
 #[tokio::test]
 async fn platform_022_a_valid_traceparent_continues_its_trace() {
-    let api = Api::new();
+    let api = Api::new().await;
 
     let response = api
         .get("/v1/capabilities")
@@ -109,7 +109,7 @@ async fn platform_022_a_valid_traceparent_continues_its_trace() {
 
 #[tokio::test]
 async fn platform_022_an_unsampled_traceparent_is_still_sampled() {
-    let api = Api::new();
+    let api = Api::new().await;
     let unsampled = TRACEPARENT.replace("-01", "-00");
 
     let response = api
@@ -125,7 +125,7 @@ async fn platform_022_an_unsampled_traceparent_is_still_sampled() {
 
 #[tokio::test]
 async fn platform_022_an_invalid_traceparent_starts_a_new_trace() {
-    let api = Api::new();
+    let api = Api::new().await;
 
     let response = api
         .get("/v1/capabilities")
@@ -140,7 +140,7 @@ async fn platform_022_an_invalid_traceparent_starts_a_new_trace() {
 
 #[tokio::test]
 async fn platform_032_a_method_the_path_does_not_serve_answers_405_with_allow() {
-    let api = Api::new();
+    let api = Api::new().await;
 
     let response = api.request(Method::POST, "/v1/capabilities").send().await;
 
@@ -154,7 +154,7 @@ async fn platform_032_a_method_the_path_does_not_serve_answers_405_with_allow() 
 
 #[tokio::test]
 async fn platform_035_an_undocumented_query_parameter_answers_400() {
-    let api = Api::with(fixtures::routes(Arc::default()), 100);
+    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
 
     let response = api.get("/v1/capabilities?verbose=true").send().await;
 
@@ -173,7 +173,7 @@ async fn platform_035_an_undocumented_query_parameter_answers_400() {
 
 #[tokio::test]
 async fn platform_035_a_head_request_is_checked_like_its_get() {
-    let api = Api::new();
+    let api = Api::new().await;
 
     let response = api
         .request(Method::HEAD, "/v1/capabilities?verbose=true")
@@ -185,7 +185,7 @@ async fn platform_035_a_head_request_is_checked_like_its_get() {
 
 #[tokio::test]
 async fn platform_035_a_documented_query_parameter_passes() {
-    let api = Api::with(fixtures::routes(Arc::default()), 100);
+    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
 
     let response = api.get("/v1/items?limit=5").send().await;
 
@@ -194,7 +194,7 @@ async fn platform_035_a_documented_query_parameter_passes() {
 
 #[tokio::test]
 async fn platform_036_a_body_over_the_limit_answers_413_before_it_is_read() {
-    let api = Api::new();
+    let api = Api::new().await;
     let limit = 64 * 1024;
 
     let over = api
@@ -218,11 +218,21 @@ async fn platform_036_a_body_over_the_limit_answers_413_before_it_is_read() {
     assert_eq!(at.status, StatusCode::OK);
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn platform_031_a_request_past_its_timeout_answers_503() {
-    let api = Api::with(fixtures::routes(Arc::default()), 100);
+    let gate = Arc::new(Gate::default());
+    let api = Api::with(Options::routes(fixtures::routes(gate.clone()))).await;
+    let entered = gate.entered.notified();
+    let request = tokio::spawn({
+        let api = api.clone();
+        async move { api.get("/v1/gate").send().await }
+    });
+    entered.await;
+    // Paused once the request waits in its handler, after its rate limit's count in the
+    // database, so tokio's time runs straight to the route's timeout, the only timer left.
+    tokio::time::pause();
 
-    let response = api.get("/v1/forever").send().await;
+    let response = request.await.unwrap();
 
     problem(
         &response,
@@ -235,7 +245,10 @@ async fn platform_031_a_request_past_its_timeout_answers_503() {
 #[tokio::test]
 async fn platform_020_a_request_beyond_the_limit_answers_503_with_retry_after() {
     let gate = Arc::new(Gate::default());
-    let api = Api::with(fixtures::routes(gate.clone()), 1);
+    let api = Api::with(
+        Options::routes(fixtures::routes(gate.clone())).set("MAX_CONCURRENT_REQUESTS", 1),
+    )
+    .await;
     let entered = gate.entered.notified();
     let held = tokio::spawn({
         let api = api.clone();
@@ -260,7 +273,10 @@ async fn platform_020_a_request_beyond_the_limit_answers_503_with_retry_after() 
 #[tokio::test]
 async fn platform_019_the_probes_bypass_load_shedding_and_answer_a_plain_status() {
     let gate = Arc::new(Gate::default());
-    let api = Api::with(fixtures::routes(gate.clone()), 1);
+    let api = Api::with(
+        Options::routes(fixtures::routes(gate.clone())).set("MAX_CONCURRENT_REQUESTS", 1),
+    )
+    .await;
     let entered = gate.entered.notified();
     let held = tokio::spawn({
         let api = api.clone();
@@ -284,7 +300,7 @@ async fn platform_019_the_probes_bypass_load_shedding_and_answer_a_plain_status(
 
 #[tokio::test]
 async fn platform_019_the_probes_bypass_the_route_groups_body_limit() {
-    let api = Api::new();
+    let api = Api::new().await;
     let over = 64 * 1024 + 1;
 
     let live = api
@@ -299,7 +315,7 @@ async fn platform_019_the_probes_bypass_the_route_groups_body_limit() {
 
 #[tokio::test]
 async fn err_12_a_panic_answers_the_internal_problem() {
-    let api = Api::with(fixtures::routes(Arc::default()), 100);
+    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
 
     let response = api.get("/v1/panic").send().await;
 
@@ -314,7 +330,7 @@ async fn err_12_a_panic_answers_the_internal_problem() {
 
 #[tokio::test]
 async fn platform_034_a_panic_leaves_its_error_line_to_the_panic_hook() {
-    let api = Api::with(fixtures::routes(Arc::default()), 100);
+    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
 
     let response = api.get("/v1/panic").send().await;
 
@@ -329,7 +345,7 @@ async fn platform_034_a_panic_leaves_its_error_line_to_the_panic_hook() {
 
 #[tokio::test]
 async fn sec_11_every_response_carries_the_security_headers() {
-    let api = Api::new();
+    let api = Api::new().await;
 
     for path in [
         "/v1/capabilities",
@@ -350,7 +366,7 @@ async fn sec_11_every_response_carries_the_security_headers() {
 
 #[tokio::test]
 async fn platform_034_a_request_writes_one_completion_line() {
-    let api = Api::new();
+    let api = Api::new().await;
 
     let response = api.get("/v1/capabilities").send().await;
 
@@ -368,7 +384,7 @@ async fn platform_034_a_request_writes_one_completion_line() {
 
 #[tokio::test]
 async fn platform_034_a_4xx_writes_nothing_above_info() {
-    let api = Api::new();
+    let api = Api::new().await;
 
     let response = api.get("/v1/nothing-here").send().await;
 
@@ -382,7 +398,7 @@ async fn platform_034_a_4xx_writes_nothing_above_info() {
 
 #[tokio::test]
 async fn platform_034_a_5xx_writes_one_error_line_with_its_cause_chain() {
-    let api = Api::with(fixtures::routes(Arc::default()), 100);
+    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
 
     let response = api.get("/v1/broken").send().await;
 

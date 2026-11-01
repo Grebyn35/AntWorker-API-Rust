@@ -17,7 +17,7 @@ const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 #[tokio::test]
 async fn platform_019_the_live_probe_answers_alive() {
-    let api = Api::new();
+    let api = Api::new().await;
 
     let response = api.get("/health/live").send().await;
 
@@ -27,7 +27,7 @@ async fn platform_019_the_live_probe_answers_alive() {
 
 #[tokio::test]
 async fn platform_037_a_draining_instance_is_not_ready() {
-    let api = Api::new();
+    let api = Api::new().await;
     api.readiness().drain();
 
     let response = api.get("/health/ready").send().await;
@@ -39,7 +39,7 @@ async fn platform_037_a_draining_instance_is_not_ready() {
 #[tokio::test]
 async fn platform_037_readiness_follows_the_instance_s_own_database_connection() {
     let database = TestDatabase::migrated().await;
-    let api = Api::new();
+    let api = Api::new().await;
     let clock = api.clock();
     database
         .app()
@@ -77,7 +77,7 @@ async fn platform_037_readiness_follows_the_instance_s_own_database_connection()
 #[tokio::test]
 async fn platform_037_a_pool_with_every_connection_in_use_stays_ready() {
     let database = TestDatabase::migrated().await;
-    let api = Api::new();
+    let api = Api::new().await;
     let clock = api.clock();
     let pool = database.app().await;
     pool.watch(api.readiness().clone(), clock.clone());
@@ -85,7 +85,7 @@ async fn platform_037_a_pool_with_every_connection_in_use_stays_ready() {
 
     let mut held = Vec::new();
     for _ in 0..TestDatabase::POOL_SIZE {
-        held.push(pool.begin().await.unwrap());
+        held.push(pool.begin(&crate::support::client()).await.unwrap());
     }
     clock.advance(CHECK_INTERVAL);
     clock.sleeping(CHECK_INTERVAL).await;

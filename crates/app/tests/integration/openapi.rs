@@ -51,7 +51,7 @@ fn err_13_every_code_the_pipeline_answers_is_in_the_committed_document() {
 
 #[tokio::test]
 async fn api_17_every_path_serves_exactly_the_methods_its_documentation_lists() {
-    let api = Api::new();
+    let api = Api::new().await;
     let methods = [
         "get", "put", "post", "delete", "options", "head", "patch", "trace",
     ];

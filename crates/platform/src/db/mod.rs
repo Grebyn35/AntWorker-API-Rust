@@ -28,7 +28,7 @@ pub use migrations::{MigrateError, SchemaProblem, Versions, migrate};
 pub use roles::{Admin, BootstrapError, RoleProblem, bootstrap};
 pub use url::{DatabaseUrl, InvalidDatabaseUrl};
 
-use crate::{clock::SharedClock, errors::Internal, lifecycle::Readiness};
+use crate::{clock::SharedClock, errors::Internal, lifecycle::Readiness, types::Client};
 
 /// How long an operation waits for a free connection before it fails.
 const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -104,11 +104,48 @@ impl Database {
         tokio::spawn(monitor::watch(self.options.clone(), readiness, clock));
     }
 
-    /// Opens a unit of work.
-    pub async fn begin(&self) -> Result<UnitOfWork, Internal> {
+    /// Opens a unit of work for a request from `client`, whose audit entries record it
+    /// (AUDIT-003).
+    pub async fn begin(&self, client: &Client) -> Result<UnitOfWork, Internal> {
         Ok(UnitOfWork {
             tx: self.pool.begin().await?,
+            client: Some(client.clone()),
         })
+    }
+
+    /// Adds one request to the rate-limit bucket keyed by `key_hash`, in one statement that
+    /// commits at once, and returns the window's count and how long until the window ends. A
+    /// window that has ended starts again with this request, all by the database's clock
+    /// (PLATFORM-026, PLATFORM-049).
+    pub(crate) async fn count(
+        &self,
+        key_hash: &[u8; 32],
+        window: Duration,
+    ) -> Result<(u32, Duration), Internal> {
+        let row = sqlx::query!(
+            r#"INSERT INTO rate_limit_buckets AS bucket (key_hash, count, window_started_at)
+            VALUES ($1, 1, now())
+            ON CONFLICT (key_hash) DO UPDATE SET
+                count = CASE
+                    WHEN bucket.window_started_at + make_interval(secs => $2) <= now() THEN 1
+                    ELSE LEAST(bucket.count, 2147483646) + 1
+                END,
+                window_started_at = CASE
+                    WHEN bucket.window_started_at + make_interval(secs => $2) <= now() THEN now()
+                    ELSE bucket.window_started_at
+                END
+            RETURNING
+                count,
+                extract(epoch FROM window_started_at + make_interval(secs => $2) - now())::float8
+                    AS "resets_in!""#,
+            key_hash.as_slice(),
+            window.as_secs_f64(),
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let count = u32::try_from(row.count).unwrap_or(u32::MAX);
+        let resets_in = Duration::try_from_secs_f64(row.resets_in.max(0.0)).unwrap_or(window);
+        Ok((count, resets_in))
     }
 }
 
@@ -116,9 +153,15 @@ impl Database {
 /// without [`UnitOfWork::commit`] rolls the transaction back.
 pub struct UnitOfWork {
     tx: Transaction<'static, Postgres>,
+    client: Option<Client>,
 }
 
 impl UnitOfWork {
+    /// The client of the request that opened the unit of work, or `None` for a job's.
+    pub fn client(&self) -> Option<&Client> {
+        self.client.as_ref()
+    }
+
     /// The connection to run this unit of work's queries on, inside its transaction:
     /// `sqlx::query!(...).fetch_one(uow.executor())`.
     pub fn executor(&mut self) -> &mut PgConnection {

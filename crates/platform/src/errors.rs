@@ -78,6 +78,33 @@ pub trait ErrorCode: Error {
     fn detail(&self) -> Option<String> {
         None
     }
+
+    /// The fields of the request that failed validation, for the problem's `errors` (API-07).
+    fn errors(&self) -> Option<Vec<FieldError>> {
+        None
+    }
+}
+
+/// One field of a request that failed validation (API-07, API-10).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ToSchema)]
+pub struct FieldError {
+    /// The JSON Pointer of the field, such as `/email`.
+    pub field: String,
+    /// Why the field failed, as a stable `snake_case` code, such as `too_long`.
+    pub code: &'static str,
+    /// The reason, for humans. Clients act on `code`, never on this (ERR-09).
+    pub message: String,
+}
+
+impl FieldError {
+    /// The field at JSON Pointer `field` failed with `code`, for the reason `message`.
+    pub fn new(field: impl Into<String>, code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            field: field.into(),
+            code,
+            message: message.into(),
+        }
+    }
 }
 
 /// The response that reports `E` as an RFC 9457 problem (API-07). A handler returns
@@ -117,6 +144,10 @@ pub(crate) struct ProblemBody {
     code: &'static str,
     /// The trace ID of the request.
     trace_id: String,
+    /// The fields that failed validation, present only for a validation failure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    errors: Option<Vec<FieldError>>,
 }
 
 /// The cause chain of a 5xx response, which the request log writes and removes (ERR-10).
@@ -149,6 +180,11 @@ fn response(error: &(dyn ErrorCode + 'static)) -> Response {
         detail,
         code,
         trace_id: telemetry::trace_id(),
+        errors: if error.category() == Category::Validation {
+            error.errors()
+        } else {
+            None
+        },
     };
     let mut response = (status, Json(body)).into_response();
     response.headers_mut().insert(
@@ -176,9 +212,28 @@ pub enum RequestError {
     /// The query holds parameters that the route's documentation doesn't list (API-09).
     #[error("the query holds parameters the route doesn't take")]
     InvalidQuery(Vec<String>),
+    /// The body isn't the JSON its route takes (PLATFORM-054).
+    #[error("the body isn't the JSON the route takes")]
+    InvalidBody(BodyFault),
+    /// Fields of the body that their domain types refused (PLATFORM-056).
+    #[error("fields of the request failed validation")]
+    InvalidFields(Vec<FieldError>),
     /// The body is larger than the route's limit (API-08).
     #[error("the body is larger than the route's limit")]
     PayloadTooLarge,
+    /// The request carries no access token, or one no session has (AUTH-009).
+    #[error("the request isn't authenticated")]
+    Unauthenticated,
+    /// The request's access token has expired (AUTH-009).
+    #[error("the access token has expired")]
+    AccessTokenExpired,
+    /// A request that changes something comes from an origin that isn't listed, or a cookie
+    /// authenticates it and it names no origin (PLATFORM-053).
+    #[error("the request's origin isn't allowed")]
+    OriginNotAllowed,
+    /// A rate limit's bucket is full (PLATFORM-048).
+    #[error("a rate limit refused the request")]
+    RateLimited,
     /// The request ran past its timeout (OPS-07).
     #[error("the request ran past its timeout")]
     TimedOut,
@@ -195,13 +250,31 @@ pub enum RequestError {
     Panicked,
 }
 
+/// Why a body isn't the JSON its route takes (PLATFORM-054).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BodyFault {
+    /// The request's `Content-Type` isn't `application/json`.
+    ContentType,
+    /// The body isn't JSON.
+    Syntax,
+    /// The body is JSON, but not of the route's request type, such as with an unknown field. The
+    /// field's JSON Pointer, when the parser names one.
+    Shape(Option<String>),
+}
+
 impl ErrorCode for RequestError {
     fn code(&self) -> &'static str {
         match self {
             Self::NotFound => "request.not_found",
             Self::MethodNotAllowed => "request.method_not_allowed",
             Self::InvalidQuery(_) => "request.invalid_query",
+            Self::InvalidBody(_) => "request.invalid_body",
+            Self::InvalidFields(_) => "request.invalid_fields",
             Self::PayloadTooLarge => "request.payload_too_large",
+            Self::Unauthenticated => "request.unauthenticated",
+            Self::AccessTokenExpired => "request.access_token_expired",
+            Self::OriginNotAllowed => "request.origin_not_allowed",
+            Self::RateLimited => "request.rate_limited",
             Self::TimedOut => "request.timed_out",
             Self::Overloaded => "request.overloaded",
             Self::Unavailable => "request.unavailable",
@@ -214,7 +287,13 @@ impl ErrorCode for RequestError {
             Self::NotFound => "Not found",
             Self::MethodNotAllowed => "Method not allowed",
             Self::InvalidQuery(_) => "Invalid query",
+            Self::InvalidBody(_) => "Invalid body",
+            Self::InvalidFields(_) => "Invalid fields",
             Self::PayloadTooLarge => "Body too large",
+            Self::Unauthenticated => "Not authenticated",
+            Self::AccessTokenExpired => "Access token expired",
+            Self::OriginNotAllowed => "Origin not allowed",
+            Self::RateLimited => "Too many requests",
             Self::TimedOut => "Request timed out",
             Self::Overloaded => "Too many requests in progress",
             Self::Unavailable => "No replica can answer",
@@ -226,8 +305,13 @@ impl ErrorCode for RequestError {
         match self {
             Self::NotFound => Category::NotFound,
             Self::MethodNotAllowed => Category::MethodNotAllowed,
-            Self::InvalidQuery(_) => Category::Validation,
+            Self::InvalidQuery(_) | Self::InvalidBody(_) | Self::InvalidFields(_) => {
+                Category::Validation
+            }
             Self::PayloadTooLarge => Category::PayloadTooLarge,
+            Self::Unauthenticated | Self::AccessTokenExpired => Category::Unauthenticated,
+            Self::OriginNotAllowed => Category::Forbidden,
+            Self::RateLimited => Category::RateLimited,
             Self::TimedOut | Self::Overloaded | Self::Unavailable => Category::Unavailable,
             Self::Panicked => Category::Internal,
         }
@@ -239,6 +323,25 @@ impl ErrorCode for RequestError {
                 "The route takes no query parameter named {}.",
                 names.join(", ")
             )),
+            Self::InvalidBody(BodyFault::ContentType) => {
+                Some("The body must be sent as application/json.".to_owned())
+            }
+            Self::InvalidBody(BodyFault::Syntax) => Some("The body isn't valid JSON.".to_owned()),
+            Self::InvalidBody(BodyFault::Shape(_)) => {
+                Some("The body doesn't match what the route takes.".to_owned())
+            }
+            _ => None,
+        }
+    }
+
+    fn errors(&self) -> Option<Vec<FieldError>> {
+        match self {
+            Self::InvalidBody(BodyFault::Shape(Some(field))) => Some(vec![FieldError::new(
+                field.clone(),
+                "invalid",
+                "The field isn't one the route takes, or has the wrong type.",
+            )]),
+            Self::InvalidFields(fields) => Some(fields.clone()),
             _ => None,
         }
     }
@@ -247,12 +350,18 @@ impl ErrorCode for RequestError {
 impl RequestError {
     /// One value of every variant, so the OpenAPI document can list every code `platform`
     /// answers (ERR-13). A new variant is added here too.
-    pub fn every() -> [Self; 8] {
+    pub fn every() -> [Self; 14] {
         [
             Self::NotFound,
             Self::MethodNotAllowed,
             Self::InvalidQuery(Vec::new()),
+            Self::InvalidBody(BodyFault::Syntax),
+            Self::InvalidFields(Vec::new()),
             Self::PayloadTooLarge,
+            Self::Unauthenticated,
+            Self::AccessTokenExpired,
+            Self::OriginNotAllowed,
+            Self::RateLimited,
             Self::TimedOut,
             Self::Overloaded,
             Self::Unavailable,
