@@ -186,6 +186,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 43773a5..b77e414: each platform's end-to-end tests split between two CI jobs | 1 | 3 (3, 0, 0 shared) | 0 | 0 | `clean`: 6997584 |
 | 4e7c633..cef3b30: decisions D61 to D63, and step 2.1: accounts, auth, the audit writer, authentication, client IP, rate limits, browsers and request bodies, their deployment, metrics and load test, and its CI checks | 1 | 28 (26, 8, 6 shared) | 18 | 0 | `next pass`: 8a121a2 |
 | 4e7c633..eac8668: as above | 2 | 9 (7, 4, 2 shared) | 5 | 1 | `stopped: no progress`: 290c430 |
+| bd2d1fd..5330bf9: decisions D65 and D66, and step 2.2: access, workspaces, authorization, idempotency, publishing events, lists with search, `check-tenancy` and the list shapes of `check-openapi` | 1 | 30 (27, 11, 8 shared) | 13 | 0 | `next pass` |
 
 ## Decisions
 
