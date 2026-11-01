@@ -9,8 +9,8 @@ use serde_json::{Map, Value};
 
 use super::{METHODS, Problem, is_snake_case, operations::parameters, quoted};
 
-/// The IDs that aren't UUIDs: a trace ID, which API-11 gives the 32 lowercase hexadecimal digits
-/// of W3C Trace Context, and a device ID, which its client chooses (the auth spec's Device IDs).
+/// The IDs that API-11 excepts from being UUIDs: a trace ID, the 32 lowercase hexadecimal digits
+/// of W3C Trace Context, and a device ID, which its client chooses.
 const NOT_UUIDS: [&str; 2] = ["trace_id", "device_id"];
 
 /// The most references a schema follows before the check gives up on a cycle.
