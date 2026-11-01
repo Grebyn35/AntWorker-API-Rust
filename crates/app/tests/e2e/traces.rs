@@ -134,17 +134,8 @@ async fn assert_traced(server: &Container, path: &str, status: &str, logged: &st
     let response = http_request(server.address(PORT), "GET", path, &[])
         .await
         .expect("an answer");
-    let body: Value = serde_json::from_str(
-        response
-            .split(
-                "
-
-",
-            )
-            .nth(1)
-            .unwrap_or_default(),
-    )
-    .expect("a problem");
+    let body: Value = serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap_or_default())
+        .expect("a problem");
     let trace = body["trace_id"].as_str().expect("the trace ID").to_owned();
     let logs = fetch_once_it_holds(
         &format!(
@@ -161,16 +152,14 @@ async fn assert_traced(server: &Container, path: &str, status: &str, logged: &st
     );
     assert!(
         logs.status.success(),
-        "{}
-{}",
+        "{}\n{}",
         lossy(&logs),
         why_nothing_arrived(server)
     );
     assert!(lossy(&logs).contains(&trace), "{}", lossy(&logs));
     assert!(
         stored.status.success(),
-        "{}
-{}",
+        "{}\n{}",
         lossy(&stored),
         why_nothing_arrived(server)
     );
