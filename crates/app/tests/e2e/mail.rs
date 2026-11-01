@@ -53,8 +53,8 @@ async fn mail_001_the_deployed_api_sends_an_invitations_email_through_its_mail_s
     assert_eq!(status, 201, "{body}");
     // The email reaches the mail server once a replica's job sends it, within about a second.
     deployment.server.shell_ok(
-        "timeout 60 sh -c 'until wget --quiet --output-document=- \
+        "timeout 60 sh -c 'until wget -q -O - \
          \"http://127.0.0.1:8025/api/v1/search?query=to%3Abob%40example.com\" 2> /dev/null \
-         | grep --quiet \"Ada Lovelace invited you to Acme on AntWorker\"; do sleep 1; done'",
+         | grep -q \"Ada Lovelace invited you to Acme on AntWorker\"; do sleep 1; done'",
     );
 }

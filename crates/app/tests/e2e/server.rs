@@ -566,7 +566,7 @@ impl Server {
         self.shell_ok(&format!(
             "set -e
             docker run --detach --quiet --name mailpit --publish 1025:1025 --publish 127.0.0.1:8025:8025 {image} > /dev/null
-            timeout 60 sh -c 'until wget --quiet --output-document=/dev/null http://127.0.0.1:8025/readyz 2> /dev/null; do sleep 1; done'"
+            timeout 60 sh -c 'until wget -q -O /dev/null http://127.0.0.1:8025/readyz 2> /dev/null; do sleep 1; done'"
         ));
         [
             ("EMAIL", "smtp"),
