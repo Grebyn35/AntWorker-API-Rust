@@ -38,6 +38,11 @@ When a session is revoked, a user is deleted, a membership is removed or a role 
 - Why: a stolen token has a limited life, and lost access ends at once, or within the re-check interval in the worst case (D5, D35).
 - Check: `test` (PLATFORM-017, and one test per kind of access change).
 
+### SEC-19 Browsers hold tokens only in cookies they can't read, for listed origins
+A browser receives its session's tokens only as cookies that are `Secure`, `HttpOnly` and `SameSite=Strict`, named with the `__Host-` prefix (AUTH-015). A request whose method isn't safe (RFC 9110: `GET`, `HEAD`, `OPTIONS` and `TRACE` are) is served only when it carries no `Origin` or one of the origins that `CORS_ALLOWED_ORIGINS` lists, and, when a session cookie authenticates it, only when it carries a listed one (PLATFORM-053). Only a listed origin gets the headers of cross-origin resource sharing (CORS) that let a browser read a response, or send its cookies (PLATFORM-052).
+- Why: no script on a page can read a token, and no other site can make a browser act with one, which is cross-site request forgery (CSRF) (D61).
+- Check: `test`.
+
 ## Authorization
 
 ### SEC-07 Authorization only through `access`
@@ -83,7 +88,7 @@ Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: n
 - Check: `test`.
 
 ### SEC-12 Rate limits protect every route
-An IP limit applies to every route except the health probes, before authentication. A per-user limit applies after it. Per-action limits apply to every action that checks a secret or sends an email (D11). Every check of a user's current password goes through one `auth` function and shares one bucket per user. The client IP is taken from `X-Forwarded-For` only when the request comes from a configured trusted proxy.
+An IP limit applies to every route except the health probes, before authentication. A per-user limit applies after it. Per-action limits apply to every action that checks a password or a verification code, or sends an email (D11); the tokens of SEC-03 are too long to guess, so a check of one needs no limit of its own. Every check of a user's current password goes through one `auth` function and shares one bucket per user. The client IP is taken from `X-Forwarded-For` only when the request comes from a configured trusted proxy.
 - Why: brute force and abuse are bounded, and the IP can't be spoofed.
 - Check: `test`.
 

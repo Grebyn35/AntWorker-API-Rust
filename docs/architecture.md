@@ -202,7 +202,7 @@ sequenceDiagram
   participant S as Module service
   participant DB as PostgreSQL
   C->>P: request
-  P->>P: security headers, trace context, request log,<br/>panics, load shedding, IP rate limit
+  P->>P: security headers, trace context, request log,<br/>panics, load shedding, CORS, IP rate limit
   P->>H: routed request
   H->>H: timeout, body limit, query check, Principal (authn),<br/>user rate limit, idempotency, parse to domain types
   H->>DB: BEGIN, and on workspace routes authorize (authz)
@@ -221,11 +221,12 @@ sequenceDiagram
    - the request log: one line when the request completes, and the error line of a 5xx (OBS-03, ERR-10)
    - panic catching (ERR-12)
    - concurrency limit with load shedding (D20)
+   - CORS for the listed web origins, and the cross-site check (D61)
    - pre-authentication IP rate limit (D11)
 3. **The route** prepares the request, in this order:
    - Its route group's timeout and body size limit apply (OPS-07, API-08).
    - Query parameters that the route's documentation doesn't list are refused (API-09).
-   - `Principal` authenticates the caller (D18).
+   - `Principal` authenticates the caller, by the Bearer header or a browser's cookie (D18, D61).
    - The per-user rate limit, then the idempotency reservation for keyed `POST`s (D12), each in its own short transaction.
    - The body is parsed into request types, then domain types (D25).
    - The unit of work opens last, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one. On workspace routes, opening it produces `Authorized<P>`: inside the unit of work, the caller's membership in the workspace from the path is loaded and permission `P` checked (D2, D3). A missing membership is a 404, so the response never reveals whether the workspace exists. On other routes, the unit of work opens from the `Principal`.

@@ -18,7 +18,7 @@ These names apply to the product schema: the tables, columns and constraints tha
 
 ### DATA-02 Standard columns
 - Every table of the product schema (DATA-01) has `id uuid PRIMARY KEY DEFAULT uuidv7()` and `created_at timestamptz NOT NULL DEFAULT now()`.
-- A table whose rows are edited also has `updated_at` and `version`. One shared trigger maintains both.
+- A table whose rows are edited also has `updated_at` and `version`. One shared trigger maintains both. A table of `platform`'s bookkeeping, whose rows only its own mechanism changes and no client edits, such as the rate-limit buckets, has neither.
 - Pure join tables use a composite primary key instead of `id`.
 
 The migrator's own table, `_sqlx_migrations`, follows the layout sqlx gives it, and tables that tests create are throwaway, so neither is part of the product schema.
@@ -101,7 +101,7 @@ The server refuses to start unless it connects as the role `app`, and that role 
 ### DATA-20 SQL is checked at compile time
 All SQL goes through the sqlx `query!`, `query_as!` and `query_scalar!` macros. The `.sqlx/` offline cache is committed, and CI builds with `SQLX_OFFLINE=true`. Optional filters are nullable parameters in a static query (`$1::text IS NULL OR action = $1`). SQL that can't be a macro query is allowed only in these places, each through an `#[expect]` that states its reason: the statements of `platform::db` that take identifiers, such as role statements; the test support (TEST-06); and a dynamic query that a module spec requires, built with `QueryBuilder`, which never concatenates input.
 - Why: a query that doesn't match the schema doesn't compile (D24).
-- Check: `clippy` (`disallowed_methods` and `disallowed_macros` ban every function, method and macro of sqlx that takes SQL text outside the checked macros, and `QueryBuilder`), `ci: sqlx-check`, plus `review` (where an `#[expect]` allows string SQL).
+- Check: `clippy` (`disallowed_methods` and `disallowed_macros` ban every function, method and macro of sqlx that takes SQL text outside the checked macros, and `QueryBuilder`), `ci: check-sql-bans` (every public function and method of the locked sqlx crates that takes SQL text is one that `clippy.toml` bans, so an update of sqlx can't add one unbanned), `ci: sqlx-check`, plus `review` (where an `#[expect]` allows string SQL).
 
 ### DATA-21 Repositories take a unit of work
 A repository function takes `&mut UnitOfWork`, never a pool or connection. Pools, connections and transactions stay inside `platform::db`, and the test support is the one other place that names them (TEST-06).

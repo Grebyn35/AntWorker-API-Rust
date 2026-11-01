@@ -91,11 +91,14 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 |---|---|
 | `fmt-check`, `test`, `deny` | built |
 | `check-test-map`, `check-docs` | built |
+| `check-docs`, for each route's tag (DOC-15) | 2.1, with the second module that serves routes |
 | `check-docs`, for the names of other codebases and the paths into the inventory (DOC-04) | 3 |
 | `check-docs`, for accepted ADRs (DOC-11) | 6, with the first ADR |
 | `check-openapi`, `check-instrument` | built |
 | `check-metrics`, `check-telemetry-config`, `alert-rules` | built |
 | `check-openapi`, for list shapes, methods, statuses, scopes and formats (API-02 to API-05, API-11) | 2.1, with the first routes that have them |
+| `check-openapi`, for the `maxLength` of each string of a request body (API-17) | 2.1, with the first route that takes a body |
+| `check-sql-bans` (DATA-20) | 2.1, with the first queries of a module |
 | `check-openapi`, for the breaking-change diff (API-18, ERR-02) | the first final release |
 | `check-pins`, `image-scan`, `image-rescan`, `verify-release`, `check-shell` | built |
 | `e2e` | built, and extended by every later step |
@@ -125,13 +128,8 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 
 | From | Proposal | Decided in |
 |---|---|---|
-| Research | API-15 names the draft it follows: draft-ietf-httpapi-ratelimit-headers-11 (2026-05), with `RateLimit: "default";r=50;t=30` and `RateLimit-Policy: "burst";q=100;w=60`. | 2.1 |
 | Research | API-12 names the draft it follows: draft-ietf-httpapi-idempotency-key-header-08 (2026-10), whose key is a structured-field string. | 2.2 |
-| Conformance review of cf1253c | API-07, API-09: whether `request.invalid_query` names the unknown parameters in `errors`, since clients never act on `detail` (ERR-09) | 2.1, with the first route that parses query values |
-| Conformance review of cf1253c | ARCH-12: whether the clock, readiness and the database that `main.rs` opens count among the services that only `composition.rs` builds | 2.1, with the first services |
-| Conformance review of b60787f..9a0522d | DOC-15: `check-docs` reads the `tag` of each `#[utoipa::path]` under `crates/app/src/modules/<module>/`, and fails unless it is `<module>`. | 2.1, with the second module that serves routes |
-| Conformance review of b60787f..9a0522d | API-17: the test support checks each request body an integration test sends against its operation's documented request, and `check-openapi` checks that each field of a domain type carries the type's limits. | 2.1, with the first route that takes a body |
-| Conformance review of c252bab | DATA-20: a check reads the locked sqlx sources and fails on a public function that takes SQL text and that `clippy.toml` doesn't ban, so the bans stay complete when sqlx is updated. | 2.1, which writes the first queries of a module |
+| Conformance review of cf1253c | API-07, API-09: whether `request.invalid_query` names the unknown parameters in `errors`, since clients never act on `detail` (ERR-09) | 2.2, with the first route that parses query values: `GET /v1/workspaces` |
 | Conformance review of 3ae7168 | A DATA rule for D39: data a module adds for its product has a `workspace_id`, and a check fails on a table keyed by a user ID that isn't listed as account data. | 2.2, with the first workspace tables and `check-tenancy` |
 | Conformance review of 3ae7168 | ARCH-07: whether password sign-in is an optional part, for a fork that signs in only through OAuth providers | 5, with the full `auth` module |
 | Conformance review of 3ae7168 | DATA-12 and the platform spec's unit of work: how an operator's subcommand, such as `seed` or the setup subcommand, opens its unit of work, and as which role | 2.4, with `seed` |

@@ -8,11 +8,11 @@
 
 | Table | Holds |
 |---|---|
-| `audit_entries` | `id`, `scope` (`user` or `workspace`), `workspace_id`, `actor_user_id`, `target_user_id`, `action`, `resource_type`, `resource_id`, `values` (IDs and non-personal fields only), `client_ip`, `user_agent`, `trace_id`, `created_at`. |
+| `audit_entries` | `id`; `scope`, `user` or `workspace`; `user_id`, the user whose log holds an entry of the user scope; `workspace_id`, the workspace whose log holds one of the workspace scope; `actor_user_id`, `target_user_id`, `action`, `resource_type`, `resource_id`; `values`, IDs and non-personal fields only; `client_ip`, `user_agent`, `trace_id` and `created_at`. |
 
 ## Interface
 
-- `record(uow, Entry)`: writes one entry in the given unit of work.
+- `record(uow, scope, Entry)`: writes one entry in the given unit of work. The scope names the log and the actor, and comes only from a proof: `Principal::audit_scope`, the user's own log with the user as the actor, or that of `Authorized<P>`, the workspace's log with the member as the actor. `AuditScope::attempt(user_id)` names the log of an account that an unauthenticated request acted on, such as a failed sign-in, with no actor.
 - `SecurityEventSink`, implemented for `platform::authz`.
 - Each module declares its actions in its own `audit.rs` (ARCH-03), named `<resource>.<past-tense verb>`, such as `member.removed`.
 
@@ -27,6 +27,16 @@
 | AUDIT-005 | No request can change or delete an entry: `app` holds only `INSERT` and `SELECT` on `audit_entries`. | D6, DATA-19 | `audit_005_` |
 
 ## Design
+
+### Recording an entry
+
+`record` inserts one row through the unit of work's executor, so the entry commits with the change (AUDIT-001). The client IP and the user agent come from the unit of work, which a route opens with its request's (platform spec, "Unit of work"); a job's unit of work holds neither, and records them as null. The trace ID is that of the span the entry is recorded in (OBS-07). An `Entry` holds the action, the resource's type and ID, the target user if any, and `values`, a JSON object a module builds from IDs and non-personal fields (SEC-16).
+
+`AuditScope` is a `platform` type whose fields are private: only the proofs build one with an actor, so no module can record an entry as someone the request didn't prove it is (AUDIT-002). An entry of the user scope sets `user_id` and leaves `workspace_id` null; one of the workspace scope does the reverse, which the check `audit_entries_scope_check` enforces.
+
+### Keys and grants
+
+`user_id` references `users` with `ON DELETE CASCADE`, since a user's own log belongs to their account. `actor_user_id` and `target_user_id` reference `users` with `ON DELETE RESTRICT`, until the full module's erasure anonymizes them (D31). `workspace_id` gains its key to `workspaces`, with `ON DELETE CASCADE`, when step 2.2 creates that table. The migration that creates the table revokes `UPDATE` and `DELETE` on it from `app`, which the first migration's default privileges would otherwise grant (AUDIT-005).
 
 ### Recording a refusal
 

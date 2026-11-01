@@ -20,12 +20,15 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 ## Interface
 
 - **Database:** `Database`, the pool of connections as the role `app`, which `serve` connects once at startup. Connecting runs the startup checks (PLATFORM-009, PLATFORM-030), and `begin` opens a unit of work.
-- **Unit of work:** `UnitOfWork`, opened by the route (Design: Unit of work), with `executor`, `commit`, `enqueue` and `publish`.
+- **Unit of work:** `UnitOfWork`, opened by the route with the request's `Client` (Design: Unit of work), with `executor`, `commit`, `enqueue` and `publish`.
+- **Request context:** `Client`, the request's client IP (PLATFORM-047) and user agent.
+- **Rate limits:** `RateLimiter`, whose `check` counts a request in a bucket that a module names, for a per-action limit such as AUTH-006 (PLATFORM-026).
+- **Request bodies:** `Json<T>`, the extractor of a JSON body (PLATFORM-054), and `FieldErrors`, which collects every field that a request type's conversion into domain types refuses (PLATFORM-056).
 - **Tasks:** `bootstrap` and `migrate`, run by the binary's subcommands of the same names (ARCH-14).
 - **Routes:** `Routes`, through which every module registers its routes and their documentation (API-14, API-17), and `http::app`, which wraps them in the request pipeline.
 - **Errors:** `Category`, and `Problem<E>`, the one conversion of an error into a response (ERR-07).
 - **Lifecycle:** `Readiness`, `ShutdownSignals` and `serve`, which runs the server until a shutdown signal and then shuts it down (OPS-05, OPS-06), and `probe`, which the `health` subcommand runs (PLATFORM-044).
-- **Proof types:** `Principal`, `Authorized<P>`, `Memberships` and `JobContext`.
+- **Proof types:** `Principal`, `Authorized<P>`, `Memberships` and `JobContext`, and `AuditScope`, the log and the actor of an audit entry, which only a proof builds with an actor ([audit spec](audit.md#recording-an-entry)).
 - **Traits that modules implement** (ARCH-13):
   - `SessionVerifier`, implemented by `auth`.
   - `AccessPolicy`, implemented by `access`, with `authorize` and `memberships`.
@@ -106,6 +109,21 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 | PLATFORM-034 | Every request except the health probes writes one `INFO` line when it completes, with its method, route, status and duration. A 5xx response also writes one `ERROR` line with its cause chain, except a panic's, whose one `ERROR` line the panic hook writes, and a 4xx response writes nothing above `INFO`. | OBS-03, ERR-10, ERR-12 | `platform_034_` |
 | PLATFORM-035 | A query parameter that the route's documentation doesn't list answers 400 `request.invalid_query`. | API-09 | `platform_035_` |
 | PLATFORM-036 | A request whose `Content-Length` exceeds its route's body limit answers 413 `request.payload_too_large`, before the body is read. | API-08 | `platform_036_` |
+| PLATFORM-054 | A JSON body whose `Content-Type` isn't `application/json`, that isn't JSON, or that doesn't match its request type, an unknown field included, answers 400 `request.invalid_body`. When the parser names the field it failed at, `errors` holds that field. | API-08, API-07 | `platform_054_` |
+| PLATFORM-055 | A body that grows past its route's body limit while it is read, without a `Content-Length` that declared it, answers 413 `request.payload_too_large`. | API-08 | `platform_055_` |
+| PLATFORM-056 | A request whose fields their domain types refuse answers 400 `request.invalid_fields`, with every refused field in `errors`: its JSON Pointer, a code that names the domain type's reason, such as `too_long`, and a message. | API-10, API-07 | `platform_056_` |
+
+### Client IP, rate limits and browsers
+
+| ID | Behavior | Rules | Test prefix |
+|---|---|---|---|
+| PLATFORM-047 | A request's client IP is its connection's peer, unless the peer is a trusted proxy (`TRUSTED_PROXIES`): then it is the rightmost address in `X-Forwarded-For` that isn't a trusted proxy. When the walk from the right reaches the header's start, or a value that isn't an IP address, before such an address, the client IP is the last trusted proxy it passed. | SEC-12 | `platform_047_` |
+| PLATFORM-048 | Every request except the health probes counts in the bucket of its client IP before authentication, and every authenticated request in its user's bucket after it. A request that finds its bucket full answers 429 `request.rate_limited`, and nothing after the check runs. The two limits and their window are settings. | SEC-12, D11 | `platform_048_` |
+| PLATFORM-049 | A bucket counts the requests of a window that starts with the first request after the last window ended, by the database's clock. A refused request counts too. | SEC-12, DATA-03 | `platform_049_` |
+| PLATFORM-050 | A response to a request that buckets counted carries `RateLimit` and `RateLimit-Policy` for the bucket with the fewest requests left, which for a 429 is the one that refused it, named by the bucket's kind: `ip`, `user`, or the name of a per-action limit, such as `sign_in`. A 429 also carries `Retry-After`, the whole seconds until that bucket's window ends, rounded up. | API-15 | `platform_050_` |
+| PLATFORM-051 | A bucket's key is an HMAC, under `HMAC_KEY`, of its kind and of what it counts, so no bucket holds an IP address, an email or a user ID. | D7, DATA-28 | `platform_051_` |
+| PLATFORM-052 | A request whose `Origin` is one that `CORS_ALLOWED_ORIGINS` lists gets the headers of cross-origin resource sharing (CORS) that let a browser read the response and send its cookies, and a preflight from it is answered before the IP limit. A request from any other origin gets no CORS header. | SEC-19, D61 | `platform_052_` |
+| PLATFORM-053 | A request whose method isn't safe answers 403 `request.origin_not_allowed` when its `Origin` is one that `CORS_ALLOWED_ORIGINS` doesn't list, or when a session cookie authenticates it and it carries no `Origin`. | SEC-19, D61 | `platform_053_` |
 
 ### Lifecycle
 
@@ -169,11 +187,17 @@ A unit of work is one transaction on the `app` pool. The route opens it after au
 - A user route opens it from its `Principal`, and a public route from the `Database`.
 - A job handler opens it with `for_job`, from the job's `JobContext`.
 
-The service performs the writes and commits. A unit of work dropped without a commit rolls back, and nothing retries it. Every query in it filters by tenant itself (DATA-22). The unit of work sets no database context, because there is no row-level security (D4).
+The service performs the writes and commits. A unit of work dropped without a commit rolls back, and nothing retries it. Every query in it filters by tenant itself (DATA-22). The unit of work sets no database context, because there is no row-level security (D4). A unit of work that a route opens holds the request's `Client`, whose client IP and user agent the audit entries it records keep (AUDIT-003); a job's holds none.
 
 ### Request authentication
 
-`SessionVerifier` hashes the presented access token with SHA-256 (SEC-03), and reads the session through the unique index on `sessions.access_token_hash`. It checks the expiry in SQL against `now()`. It returns a `Principal` holding the user's ID and the session's ID. A missing or unknown token answers 401 `request.unauthenticated`, and an expired one 401 `request.access_token_expired`.
+`Principal` reads the access token from the `Authorization` header when the request has one, which must hold `Bearer` and a token, and otherwise from the cookie `__Host-access_token` (AUTH-015). A request that the cookie authenticates and whose method isn't safe also passes the cross-site check (PLATFORM-053) before it is verified.
+
+`SessionVerifier` hashes the presented access token with SHA-256 (SEC-03), and reads the session through the unique index on `sessions.access_token_hash`. It checks the expiry in SQL against `now()`. It returns a `Principal` holding the user's ID and the session's ID. A missing or unknown token answers 401 `request.unauthenticated`, and an expired one 401 `request.access_token_expired`. The request is then counted in its user's bucket (PLATFORM-048).
+
+### Client IP
+
+Each request's `Client` holds its client IP and its user agent. The client IP is the connection's peer, unless the peer is listed in `TRUSTED_PROXIES`, as addresses or ranges (PLATFORM-047). A proxy appends to `X-Forwarded-For` the address it received the request from, so the addresses on the right were written by trusted proxies, and the first untrusted one, read from the right, is the client that the outermost trusted proxy saw. An address further left could have been written by anyone. The reference deployment lists its own proxy's network, and the addresses its proxy trusts in turn, such as a content delivery network's ([deploy.md](../operations/deploy.md)).
 
 ### Refusals
 
@@ -186,7 +210,14 @@ A refusal is reported to the `SecurityEventSink`, which records it in its own sh
 
 ### Rate limits
 
-A rate-limit check counts the request in its own short transaction, before the operation's unit of work opens, so the count survives whatever happens next (PLATFORM-026). A bucket's key is an HMAC of what it counts, such as an email or an IP address. A check is one call that counts and decides in one statement, so a fork could move the counts to a shared store, such as Valkey, by changing the rate limiter alone ([architecture §1](../architecture.md#1-system-context)).
+Three kinds of bucket count requests:
+- the IP bucket of every request but the health probes, which the pipeline counts before authentication
+- the user bucket of every authenticated request, which `Principal` counts once it has verified the session
+- the bucket of a per-action limit, which a module counts through `RateLimiter::check`, such as the sign-in email's (AUTH-006)
+
+A check counts the request before the operation's unit of work opens, in one statement on a pooled connection, outside any transaction, so the count commits at once and survives whatever happens next (PLATFORM-026). The statement inserts the bucket, adds one to its count, or starts a new window when the last one has ended, and returns the count and the window's end, all by the database's clock (PLATFORM-049). A bucket's key is an HMAC-SHA-256, under `HMAC_KEY`, of its kind and of what it counts, so the table holds no IP address, email or user ID (PLATFORM-051). A check is one call that counts and decides in one statement, so a fork could move the counts to a shared store, such as Valkey, by changing the rate limiter alone ([architecture §1](../architecture.md#1-system-context)).
+
+A request that finds its bucket full stops there with 429 `request.rate_limited`. A check that fails, as when the database doesn't answer, fails the request as an internal error: the request couldn't have been served without the database anyway. The pipeline keeps each bucket that counted a request, and writes on the response, whatever answered it, the headers of the one with the fewest requests left, with `Retry-After` on a 429 (PLATFORM-050). The rows of ended windows stay until the periodic sweep, built with jobs in step 2.3, deletes them; a check that finds one starts a new window, so they change no decision.
 
 ### Jobs
 
@@ -231,6 +262,12 @@ A route that documents its own response for one of those statuses keeps it, and 
 **Limits.** Each route group's timeout and body limit are constants (OPS-07, API-08). The `public`, `user` and `workspace` groups share a timeout of 10 seconds, twice the 5 seconds an operation waits for a pooled connection, and a body limit of 64 KiB, far above the largest JSON body the first slice accepts. A module spec may set others for its routes. The body limit refuses a declared `Content-Length` over it before the body is read, and stops any other body at the limit while it is read; the extractors that read bodies turn that into the 413 problem when they are built (build order 2.1). The concurrency limit is a setting, because a deployment's capacity decides it (OPS-02).
 
 **Query parameters.** A route accepts the query parameters its documentation lists, which come from the type its handler parses them into. That type declares `#[into_params(parameter_in = Query)]`, without which utoipa leaves its fields out of the query. The builder answers any other name with 400 `request.invalid_query`, before the handler runs, so a route without query parameters refuses any query string (PLATFORM-035).
+
+**Request bodies.** `Json<T>` reads a JSON body. It requires `Content-Type: application/json`, with or without a `charset` of `utf-8`, reads at most the route group's body limit (PLATFORM-055), and parses the body into `T`, whose `#[serde(deny_unknown_fields)]` refuses a field it doesn't declare (API-08). Each of those failures answers 400 `request.invalid_body`, with the JSON Pointer of the field the parser names in `errors`, when it names one (PLATFORM-054). A request type then converts into domain types through `TryFrom`, which tries every field and collects each refusal in `FieldErrors`, so one response names them all (API-10): 400 `request.invalid_fields`, whose `errors` give each field's JSON Pointer, the reason's code, and a message (PLATFORM-056).
+
+**Browsers.** `CORS_ALLOWED_ORIGINS` lists the origins of web clients, such as `https://app.example.com`. Empty, the default, the API serves only clients that set their own headers, and sends no CORS header. With origins listed, the CORS layer, between the concurrency limit and the IP limit, answers a preflight from a listed origin itself, and adds to every response to one `Access-Control-Allow-Origin` with that origin, `Access-Control-Allow-Credentials: true` and `Vary: Origin` (PLATFORM-052). A preflight allows the methods the API serves, and the request headers `Authorization`, `Content-Type`, `Idempotency-Key`, `If-Match`, `Last-Event-ID` and `traceparent`; a response exposes `Location`, `ETag`, `RateLimit`, `RateLimit-Policy`, `Retry-After` and `server-timing`. Startup refuses `*`, a value that isn't an origin, and an origin that isn't `https`, except one whose host is a loopback address in development.
+
+The cross-site check runs right after the CORS layer, before the IP limit: a request whose method isn't safe answers 403 `request.origin_not_allowed` when its `Origin` isn't listed (PLATFORM-053). A browser sends `Origin` with every such request, and only a browser sends it, so the check refuses no client that sets its own headers. When a cookie authenticates such a request, `Principal` and the refresh route also refuse one that carries no `Origin`, so a request the cookie authenticates always comes from a listed origin. With `SameSite=Strict`, no other site's page can make a browser send the cookies at all; the check also covers a page of another origin on the same site.
 
 **Panics.** A panic hook replaces the default one, which would write plain text to stderr. It writes one `ERROR` line with the panic's message and location, inside the span the panic happened in, and counts the panic in `platform.panics`, on whatever thread it happened (ERR-12). Every subcommand that logs installs the hook. The catch layer answers the panic with the 500 problem, and marks the response so that the request log writes no `ERROR` line of its own, and the panic is logged once (ERR-10).
 

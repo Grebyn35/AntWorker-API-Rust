@@ -41,9 +41,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 
 ## Contradictions in the first slice
 
-| Item | Settled in |
-|---|---|
-| AUTH-004 answers 200 for a sign-in that creates a session, while API-04 requires 201 with `Location` for a create | the `auth` step |
+None.
 
 ## Not yet carried
 
@@ -54,8 +52,6 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D3 | The server stores no active or default workspace | the `workspaces` step: state it in the spec's Design |
 | D11 | Each user holds a capped number of concurrent streams | the `realtime` step |
 | D12 | Idempotency keys are compared exactly as sent | the idempotency step |
-| D18 | Sign-in and refresh responses come from one function that issues the session | the `auth` step |
-| D18 | Browsers authenticate through an `HttpOnly` cookie, which CSRF protection guards, from the origins a CORS allowlist names (D61) | the `auth` step |
 | D18 | A browser's stream authenticates through the same cookie (D61) | the `realtime` step |
 
 ### For later steps

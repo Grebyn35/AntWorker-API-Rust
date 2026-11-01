@@ -93,7 +93,7 @@ Each kind of fact has one home, listed below. A fact is written in its home as s
 - A rule follows the format in the [standards README](README.md#rule-format): a heading with its ID and its name, the statement, a `Why` line, and a `Check` line that starts with one of the kinds of check the README lists. Its ID starts with the prefix the README gives its file.
 - Every table in a document, a block of lines whose first character other than whitespace is `|`, has a delimiter row under its header, and a blank line after it unless it ends the document. Every row, the delimiter row among them, has as many cells as the header: one pipe at each end of a row bounds it, and a pipe that follows a backslash belongs to its cell.
 - Why: every document of a kind reads the same way, and an edit that changes a document's shape fails CI instead of waiting for a reader to notice (D27).
-- Check: `ci: check-docs`, plus `review` (an operation's first tag names the module that serves it, and a spec lists the routes its module serves outside `openapi.json`, such as the health probes).
+- Check: `ci: check-docs`, which also reads the `tag` of each `#[utoipa::path]` under `crates/app/src/modules/<module>/` and fails unless it is `<module>`, plus `review` (a spec lists the routes its module serves outside `openapi.json`, such as the health probes).
 
 ## Specs, ADRs and the changelog
 

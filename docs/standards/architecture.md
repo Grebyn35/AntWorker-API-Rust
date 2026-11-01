@@ -71,7 +71,7 @@ An operation that spans modules passes one `&mut UnitOfWork` through every call.
 ## Composition
 
 ### ARCH-12 One composition root
-`composition.rs` builds every service once at startup, hands each one its dependencies, registers the four `platform` traits (architecture §5), and mounts every module's routes. Nothing else constructs services. Global mutable state is not allowed. The only exceptions are metric handles and other read-only values that are initialized once, and the state the test support shares between the tests of one process, such as the template database's name.
+`composition.rs` builds every service once at startup, hands each one its dependencies, registers the four `platform` traits (architecture §5), and mounts every module's routes. Nothing else constructs services. The process's resources aren't services: `main.rs` opens them before the services are built, each as a step of startup with its own `startup.area` (OPS-03), and hands them to `composition.rs`. They are the signal handlers, the database, the clock, readiness and the listener. Global mutable state is not allowed. The only exceptions are metric handles and other read-only values that are initialized once, and the state the test support shares between the tests of one process, such as the template database's name.
 - Why: every dependency is visible in one file, and tests build the same graph.
 - Check: `review`.
 

@@ -110,7 +110,7 @@ A caller who isn't a member of the workspace gets 404. A member without permissi
 - Check: `clippy` (`disallowed_methods` bans the routing methods of axum and utoipa-axum outside `platform::http`), plus `test` (TEST-09).
 
 ### API-15 Rate limits are visible
-Rate-limited responses carry the `RateLimit` and `RateLimit-Policy` headers from the IETF draft, describing the bucket that decided the response. A 429 also carries `Retry-After`.
+Rate-limited responses carry the `RateLimit` and `RateLimit-Policy` headers of the IETF's draft-ietf-httpapi-ratelimit-headers-11, which isn't an RFC yet. Each holds one item, for the bucket that decided the response, named by the bucket's kind: `RateLimit-Policy: "ip";q=600;w=60` gives its quota and window in seconds, and `RateLimit: "ip";r=598;t=41` the requests left and the seconds until the window ends. A 429 also carries `Retry-After`.
 - Why: clients can back off correctly (D11).
 - Check: `test`.
 
@@ -120,9 +120,9 @@ Every response except the health probes (OBS-15), including streams and download
 - Check: `test`.
 
 ### API-17 The OpenAPI document is generated and committed
-`openapi.json` is generated from code and committed, and a test fails if the document the binary writes differs from it. Every route under `/v1` documents its requests, responses, error codes and access level, and a response header the document lists is one the API always sends with that response. Every field typed with a domain type carries that type's limits in the schema (D25).
+`openapi.json` is generated from code and committed, and a test fails if the document the binary writes differs from it. Every route under `/v1` documents its requests, responses, error codes and access level, and a response header the document lists is one the API always sends with that response. Every field typed with a domain type carries that type's limits in the schema (D25), and every string of a request body has a `maxLength`.
 - Why: the contract is reviewed in pull requests, and clients are built against it (D8).
-- Check: `clippy` (only the builders of API-14 register routes, each at a path its documentation names), `test` (every documented path serves, of the methods OpenAPI can document, exactly those it documents, the committed document is the one the code writes, and every response the in-process API gives an integration test is checked against the document of the routes that answered it), plus `ci: check-openapi` (each operation's access level and response descriptions, and every reference in the document resolves), plus `review` (each route documents its requests, and fields of domain types carry their limits).
+- Check: `clippy` (only the builders of API-14 register routes, each at a path its documentation names), `test` (every documented path serves, of the methods OpenAPI can document, exactly those it documents, the committed document is the one the code writes, and every request an integration test sends through the test support's typed calls and every response the in-process API gives it are checked against the document of the routes that answered it; a test of malformed input sends its body raw, unchecked), plus `ci: check-openapi` (each operation's access level and response descriptions, every reference in the document resolves, and every string of a request body has a `maxLength`), plus `review` (fields of domain types carry their limits).
 
 ### API-18 `/v1` only grows
 Within `/v1`, changes are additive: new routes, new optional request fields, new response fields. Removing or changing anything existing requires `/v2`.
