@@ -49,17 +49,15 @@ pub(super) async fn role_held(
     role.as_deref().map(Role::from_name).transpose()
 }
 
-/// The role of `user` in `workspace`, if they are a member, with their row locked `FOR UPDATE`,
-/// for an operation that changes it.
-pub(super) async fn role_for_change(
+/// The role of `user` in `workspace`, if they are a member, read without a lock.
+pub(super) async fn role(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
     user: UserId,
 ) -> Result<Option<Role>, Internal> {
     let role = sqlx::query_scalar!(
         r#"SELECT role::text AS "role!" FROM workspace_memberships
-        WHERE workspace_id = $1 AND user_id = $2
-        FOR UPDATE"#,
+        WHERE workspace_id = $1 AND user_id = $2"#,
         workspace.uuid(),
         user.uuid(),
     )
@@ -68,20 +66,26 @@ pub(super) async fn role_for_change(
     role.as_deref().map(Role::from_name).transpose()
 }
 
-/// Deletes the membership of `user` in `workspace`.
-pub(super) async fn delete(
+/// Deletes the membership of `user` in `workspace` if their role is one of `roles`, and returns
+/// whether it did. A row whose role isn't one of them is skipped without being locked, so a
+/// removal never waits on a member it may not remove (DATA-25).
+pub(super) async fn delete_at(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
     user: UserId,
-) -> Result<(), Internal> {
-    sqlx::query!(
-        "DELETE FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2",
+    roles: &[Role],
+) -> Result<bool, Internal> {
+    let roles: Vec<String> = roles.iter().map(|role| role.name().to_owned()).collect();
+    let deleted = sqlx::query!(
+        "DELETE FROM workspace_memberships
+        WHERE workspace_id = $1 AND user_id = $2 AND role::text = ANY($3)",
         workspace.uuid(),
         user.uuid(),
+        &roles,
     )
     .execute(uow.executor())
     .await?;
-    Ok(())
+    Ok(deleted.rows_affected() > 0)
 }
 
 /// A page of `workspace`'s members, the latest joined first, of `role` only and among `users`

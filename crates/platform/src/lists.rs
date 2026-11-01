@@ -1,6 +1,6 @@
 //! Lists: a page's `limit` and `cursor` (API-06, PLATFORM-059), a list's `search` (API-20,
-//! PLATFORM-060), and the body of a page of items (API-05), which a route reads from its
-//! [`Query`] and hands its service.
+//! PLATFORM-060), and the body of a page of items (API-05), which a route reads from the
+//! parameters of its `http::Query` and hands its service.
 
 use std::borrow::Cow;
 
@@ -14,7 +14,7 @@ use utoipa::{
 };
 
 use crate::{
-    http::{FieldErrors, Query},
+    http::{FieldErrors, query::parameter_pointer},
     types::{Invalid, Timestamp},
 };
 
@@ -45,13 +45,18 @@ pub struct Page {
 }
 
 impl Page {
-    /// The page that `query` names, or `None`, recording why, when `errors` refuses its `limit`
-    /// or its `cursor` (PLATFORM-059).
-    pub fn read(query: &Query, errors: &mut FieldErrors) -> Option<Self> {
-        let tag = route_tag(query.route());
+    /// The page of `route` that `limit` and `cursor`, the query's parameters, name, or `None`,
+    /// recording why, when `errors` refuses either (PLATFORM-059).
+    pub fn read(
+        route: &str,
+        limit: Option<&str>,
+        cursor: Option<&str>,
+        errors: &mut FieldErrors,
+    ) -> Option<Self> {
+        let tag = route_tag(route);
         // Both are read before either refusal returns, so one response names them both.
-        let limit = query.read(errors, "limit", parse_limit);
-        let after = query.read(errors, "cursor", |value| decode(value, tag));
+        let limit = parameter(errors, "limit", limit, parse_limit);
+        let after = parameter(errors, "cursor", cursor, |value| decode(value, tag));
         let (limit, after) = limit.zip(after)?;
         Some(Self {
             limit: limit.unwrap_or(DEFAULT_LIMIT),
@@ -88,6 +93,22 @@ impl Page {
             items: rows,
             next_cursor,
         }
+    }
+}
+
+/// The query parameter `name`'s `value` through `parse`, if it was sent, or `None`, recording
+/// why, when `errors` refuses it.
+pub fn parameter<T>(
+    errors: &mut FieldErrors,
+    name: &str,
+    value: Option<&str>,
+    parse: impl FnOnce(&str) -> Result<T, Invalid>,
+) -> Option<Option<T>> {
+    match value {
+        None => Some(None),
+        Some(value) => errors
+            .check(&parameter_pointer(name), parse(value))
+            .map(Some),
     }
 }
 
@@ -144,10 +165,10 @@ impl std::fmt::Debug for Search {
 }
 
 impl Search {
-    /// The search that `query` names, if any, or `None`, recording why, when `errors` refuses
-    /// it.
-    pub fn read(query: &Query, errors: &mut FieldErrors) -> Option<Option<Self>> {
-        query.read(errors, "search", Self::parse)
+    /// The search in `value`, the query's `search`, if any, or `None`, recording why, when
+    /// `errors` refuses it.
+    pub fn read(value: Option<&str>, errors: &mut FieldErrors) -> Option<Option<Self>> {
+        parameter(errors, "search", value, Self::parse)
     }
 
     /// The search in `value`, normalized, or why it isn't one.

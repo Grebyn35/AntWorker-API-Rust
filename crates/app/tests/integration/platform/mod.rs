@@ -6,6 +6,7 @@ mod database;
 mod errors;
 mod health;
 mod http;
+mod idempotency;
 mod lifecycle;
 mod limits;
 mod logging;

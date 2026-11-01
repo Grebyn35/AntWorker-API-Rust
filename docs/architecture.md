@@ -252,7 +252,7 @@ Nothing runs after the response except background work driven by committed rows.
   - `app` serves every request and runs every job. It can read and change data, but not the schema, and it is never a superuser (DATA-12, DATA-13).
 - **Tenancy is enforced by the application (D4).** There is no row-level security. Every query on tenant data filters by tenant itself (DATA-22): workspace data by the workspace ID from `Authorized<P>` or a job's recorded scope, and user data by the caller's ID. Three things keep that true:
   - Repository functions for workspace data take the workspace ID as a parameter.
-  - A CI check fails any query on a workspace table that doesn't filter by `workspace_id`.
+  - A CI check fails any query on a workspace table that doesn't filter by `workspace_id`, or by `user_id` on a table that also has one (DATA-22).
   - A generated test sends every workspace route an ID from another workspace the caller belongs to (TEST-09).
 - **No business logic lives in SQL**, and there are no stored procedures or `SECURITY DEFINER` functions (DATA-07).
 - **What the role can't protect against.** A compromised API process can read and change anything `app` can. The defenses for that case are:

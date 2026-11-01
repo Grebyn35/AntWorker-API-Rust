@@ -7,6 +7,6 @@ mod routes;
 mod service;
 
 pub(crate) use error::AccountsError;
-pub(crate) use model::DisplayName;
+pub(crate) use model::{DisplayName, PublicProfile};
 pub(crate) use routes::routes;
 pub(crate) use service::{Creation, create, find_by_email, matching, profiles};

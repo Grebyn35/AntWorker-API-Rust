@@ -20,6 +20,9 @@ pub(crate) enum Role {
 }
 
 impl Role {
+    /// Every role, from the highest rank to the lowest.
+    pub(crate) const ALL: [Self; 3] = [Self::Owner, Self::Admin, Self::Member];
+
     /// The role's name, as the database's `workspace_role` and the API write it.
     pub(crate) fn name(self) -> &'static str {
         match self {

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM workspace_memberships\n        WHERE workspace_id = $1 AND user_id = $2 AND role::text = ANY($3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a661648eabdd73645f676455640eb296d2266c3a170bfac83750219ea737def5"
+}

@@ -42,7 +42,7 @@
 
 ### Creating a workspace
 
-One operation creates every workspace, inside the unit of work of whatever asks for it: it inserts the `workspaces` row, calls `access::add_owner`, records `workspace.created`, and publishes `membership.created` (D33). Each part that creates workspaces calls it. Those parts are optional (ARCH-07), and the ones a fork keeps give its product its shape ([architecture §5](../architecture.md#workspace-shapes)).
+One operation creates every workspace, inside the unit of work of whatever asks for it: it inserts the `workspaces` row, calls `access::add_owner`, records `workspace.created` with the scope `Principal::founder_scope` gives, and publishes `membership.created` (D33). Each part that creates workspaces calls it. Those parts are optional (ARCH-07), and the ones a fork keeps give its product its shape ([architecture §5](../architecture.md#workspace-shapes)).
 
 Tests arrange workspaces and memberships through the `owner` connection (TEST-06), never through one of the parts, so removing a part leaves the other modules' tests passing.
 

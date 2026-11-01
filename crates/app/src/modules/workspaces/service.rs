@@ -21,8 +21,8 @@ use super::{
     repo,
 };
 use crate::modules::{
-    access::{self, MemberFilter, MembersRead, MembersRemove, Removal, Role},
-    accounts,
+    access::{self, MemberFilter, MembersRead, MembersRemove, Membership, Removal, Role},
+    accounts::{self, PublicProfile},
     audit::{self as log, Entry},
 };
 
@@ -99,7 +99,8 @@ pub(crate) async fn list(
             Some(repo::matching(&mut uow, &all, search).await?)
         }
     };
-    let joined = access::joined(&mut uow, principal, only.as_deref(), page).await?;
+    let joined: List<Membership> =
+        access::joined(&mut uow, principal, only.as_deref(), page).await?;
     let ids: Vec<_> = joined.items.iter().map(|item| item.workspace_id).collect();
     let mut names: HashMap<_, _> = repo::names(&mut uow, &ids).await?.into_iter().collect();
     // A workspace deleted between the two reads drops out of the page.
@@ -140,9 +141,9 @@ pub(crate) async fn members(
         }
     };
     let filter = MemberFilter { role, users };
-    let memberships = access::members(uow, authorized, &filter, page).await?;
+    let memberships: List<Membership> = access::members(uow, authorized, &filter, page).await?;
     let ids: Vec<_> = memberships.items.iter().map(|item| item.user_id).collect();
-    let mut profiles: HashMap<_, _> = accounts::profiles(uow, &ids)
+    let mut profiles: HashMap<UserId, PublicProfile> = accounts::profiles(uow, &ids)
         .await?
         .into_iter()
         .map(|profile| (profile.id, profile))

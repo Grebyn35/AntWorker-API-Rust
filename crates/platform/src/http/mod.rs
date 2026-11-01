@@ -6,7 +6,7 @@ mod browsers;
 mod client;
 mod docs;
 mod limits;
-mod query;
+pub(crate) mod query;
 mod stack;
 
 use std::sync::Arc;

@@ -1,6 +1,6 @@
-//! Events: publishing them inside a unit of work (D1, DATA-27), which the real-time hub delivers
-//! (step 2.4), and access-change signals, the notice, at commit, that a user lost access, so the
-//! hub closes or re-filters their streams (D35, SEC-06).
+//! Events: publishing them inside a unit of work, as a row of `events` and a notification at its
+//! commit (D1, DATA-27), and access-change signals, the notice, at commit, that a user lost
+//! access, so that their streams close or re-filter (D35, SEC-06).
 
 use std::marker::PhantomData;
 

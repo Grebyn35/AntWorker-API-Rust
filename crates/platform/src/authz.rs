@@ -171,11 +171,6 @@ impl<P: Permission, S: Send + Sync> FromRequestParts<S> for Authorize<P> {
 }
 
 impl<P: Permission> Authorize<P> {
-    /// The caller.
-    pub fn principal(&self) -> &Principal {
-        &self.principal
-    }
-
     /// Opens the request's unit of work and authorizes the caller inside it: the open unit of
     /// work with the proof, or 404 `request.not_found` for a caller who isn't a member and 403
     /// `request.permission_denied` for a member without `P`, each recorded first (ACCESS-003,

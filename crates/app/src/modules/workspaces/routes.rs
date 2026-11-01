@@ -11,11 +11,11 @@ use platform::{
     db::Database,
     errors::{Internal, Problem, RequestError},
     http::{FieldErrors, Idempotent, Query, Routes},
-    lists::{Limit, List, Page, Search},
+    lists::{self, Limit, List, Page, Search},
     types::{Client, UserId, WorkspaceId},
 };
 use serde::Deserialize;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::routes;
 
 use super::{
@@ -89,16 +89,27 @@ async fn create(
     Ok(response)
 }
 
+/// The query of `GET /v1/workspaces` (WORKSPACES-003).
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ListQuery {
+    /// How many workspaces a page holds.
+    #[param(value_type = Option<Limit>, inline)]
+    limit: Option<String>,
+    /// The `next_cursor` of the page before.
+    cursor: Option<String>,
+    /// Only the workspaces whose name contains this, ignoring case (API-20).
+    #[param(value_type = Option<Search>, inline)]
+    search: Option<String>,
+}
+
 /// Lists the workspaces the caller belongs to, the latest joined first.
 #[utoipa::path(
     get,
     path = "/v1/workspaces",
     tag = "workspaces",
-    params(
-        ("limit" = inline(Option<Limit>), Query, description = "How many workspaces a page holds."),
-        ("cursor" = Option<String>, Query, description = "The `next_cursor` of the page before."),
-        ("search" = inline(Option<Search>), Query, description = "Only the workspaces whose name contains this, ignoring case (API-20)."),
-    ),
+    params(ListQuery),
     responses(
         (status = 200, description = "A page of the caller's workspaces.", body = List<WorkspaceItem>),
     )
@@ -107,16 +118,40 @@ async fn list(
     State(database): State<Database>,
     client: Client,
     principal: Principal,
-    query: Query,
+    query: Query<ListQuery>,
 ) -> Result<axum::Json<List<WorkspaceItem>>, Problem<WorkspacesError>> {
+    let params = query.params();
     let mut errors = FieldErrors::new();
-    let page = Page::read(&query, &mut errors);
-    let search = Search::read(&query, &mut errors);
+    let page = Page::read(
+        query.route(),
+        params.limit.as_deref(),
+        params.cursor.as_deref(),
+        &mut errors,
+    );
+    let search = Search::read(params.search.as_deref(), &mut errors);
     let (page, search) = errors
         .finish_query(page.zip(search))
         .map_err(WorkspacesError::from)?;
     let list = service::list(&database, &client, &principal, search.as_ref(), &page).await?;
     Ok(axum::Json(list))
+}
+
+/// The query of `GET /v1/workspaces/{workspace_id}/members` (WORKSPACES-004).
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MembersQuery {
+    /// How many members a page holds.
+    #[param(value_type = Option<Limit>, inline)]
+    limit: Option<String>,
+    /// The `next_cursor` of the page before.
+    cursor: Option<String>,
+    /// Only the members whose name or email contains this, ignoring case (API-20).
+    #[param(value_type = Option<Search>, inline)]
+    search: Option<String>,
+    /// Only the members of this role.
+    #[param(value_type = Option<Role>)]
+    role: Option<String>,
 }
 
 /// Lists the workspace's members, the latest joined first.
@@ -126,10 +161,7 @@ async fn list(
     tag = "workspaces",
     params(
         ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
-        ("limit" = inline(Option<Limit>), Query, description = "How many members a page holds."),
-        ("cursor" = Option<String>, Query, description = "The `next_cursor` of the page before."),
-        ("search" = inline(Option<Search>), Query, description = "Only the members whose name or email contains this, ignoring case (API-20)."),
-        ("role" = Option<Role>, Query, description = "Only the members of this role."),
+        MembersQuery,
     ),
     responses(
         (status = 200, description = "A page of the workspace's members.", body = List<Member>),
@@ -137,12 +169,18 @@ async fn list(
 )]
 async fn members(
     authorize: Authorize<MembersRead>,
-    query: Query,
+    query: Query<MembersQuery>,
 ) -> Result<axum::Json<List<Member>>, Problem<WorkspacesError>> {
+    let params = query.params();
     let mut errors = FieldErrors::new();
-    let page = Page::read(&query, &mut errors);
-    let search = Search::read(&query, &mut errors);
-    let role = query.read(&mut errors, "role", Role::parse);
+    let page = Page::read(
+        query.route(),
+        params.limit.as_deref(),
+        params.cursor.as_deref(),
+        &mut errors,
+    );
+    let search = Search::read(params.search.as_deref(), &mut errors);
+    let role = lists::parameter(&mut errors, "role", params.role.as_deref(), Role::parse);
     let (page, (search, role)) = errors
         .finish_query(page.zip(search.zip(role)))
         .map_err(WorkspacesError::from)?;

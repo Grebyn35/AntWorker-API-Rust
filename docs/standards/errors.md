@@ -11,7 +11,7 @@ Each module defines one error enum in `error.rs`, using `thiserror`, with varian
 
 ### ERR-02 Every variant has a stable code and a category
 Every variant implements `platform::errors::ErrorCode`, which gives it:
-- A code in the form `<namespace>.<snake_case_name>`. The namespace is the module name, for example `workspaces.last_owner`. For errors `platform` raises before any module runs (authentication, body limits, rate limits, load shedding, disabled features, internal errors), the namespace is `request`, for example `request.rate_limited`. Once in a final release, a code never changes.
+- A code in the form `<namespace>.<snake_case_name>`. The namespace is the module name, for example `workspaces.last_owner`. For errors `platform` raises itself, before any module runs (authentication, body limits, rate limits, load shedding, disabled features, internal errors) or in a mechanism a module calls (authorization, idempotency keys), the namespace is `request`, for example `request.rate_limited`. Once in a final release, a code never changes.
 - One category.
 - Why: clients act on codes, so codes are part of the contract.
 - Check: `compiler` (the conversion to a response requires `ErrorCode`), plus `ci: check-openapi` (a changed code is a breaking diff).

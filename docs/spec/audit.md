@@ -12,7 +12,7 @@
 
 ## Interface
 
-- `record(uow, scope, Entry)`: writes one entry in the given unit of work. The scope names the log and the actor, and comes only from a proof: `Principal::audit_scope`, the user's own log with the user as the actor, or that of `Authorized<P>`, the workspace's log with the member as the actor. `AuditScope::attempt(user_id)` names the log of an account that an unauthenticated request acted on, such as a failed sign-in, with no actor.
+- `record(uow, scope, Entry)`: writes one entry in the given unit of work. The scope names the log and the actor, and comes only from a proof: `Principal::audit_scope`, the user's own log with the user as the actor, or that of `Authorized<P>`, the workspace's log with the member as the actor. `AuditScope::attempt(user_id)` names the log of an account that an unauthenticated request acted on, such as a failed sign-in, with no actor. `Principal::founder_scope(workspace_id)` names the log of the workspace the caller just created, with them as the actor, before any `Authorized<P>` can name it, and only the operation that creates a workspace may call it, which clippy enforces.
 - `SecurityEventSink`, implemented for `platform::authz`.
 - `Action` and `Resource`, the types of an entry's action and of the kind of resource it happened to. Each module declares its actions, named `<resource>.<past-tense verb>`, such as `member.removed`, and its kinds of resource, such as `member`, as constants in its own `audit.rs` (ARCH-03): clippy bans their constructors everywhere else.
 
@@ -36,7 +36,7 @@
 
 ### Keys and grants
 
-`user_id` references `users` with `ON DELETE CASCADE`, since a user's own log belongs to their account. `actor_user_id` and `target_user_id` reference `users` with `ON DELETE RESTRICT`, until the full module's erasure anonymizes them (D31). `workspace_id` gains its key to `workspaces`, with `ON DELETE CASCADE`, when step 2.2 creates that table. The migration that creates the table revokes `UPDATE` and `DELETE` on it from `app`, which the first migration's default privileges would otherwise grant (AUDIT-005).
+`user_id` references `users` with `ON DELETE CASCADE`, since a user's own log belongs to their account. `actor_user_id` and `target_user_id` reference `users` with `ON DELETE RESTRICT`, until the full module's erasure anonymizes them (D31). `workspace_id` references `workspaces` with `ON DELETE CASCADE`, since a workspace's log belongs to the workspace, through a migration of its own that follows the one creating `workspaces`. The migration that creates the table revokes `UPDATE` and `DELETE` on it from `app`, which the first migration's default privileges would otherwise grant (AUDIT-005).
 
 ### Recording a refusal
 

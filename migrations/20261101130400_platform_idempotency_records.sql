@@ -13,3 +13,6 @@ CREATE TABLE idempotency_records (
     CONSTRAINT idempotency_records_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
     CONSTRAINT idempotency_records_user_id_key_key UNIQUE (user_id, key)
 );
+
+-- A result holds what its operation answered, such as a workspace's name (DATA-28).
+COMMENT ON COLUMN idempotency_records.result IS 'personal_data';

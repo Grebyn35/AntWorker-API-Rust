@@ -1,12 +1,16 @@
 //! Who did what ([spec](../../../../../docs/spec/audit.md)).
 
+// Every module declares its audit actions in its `audit.rs` (ARCH-03), this one too.
+#[expect(
+    clippy::module_inception,
+    reason = "each module's audit actions live in its audit.rs (ARCH-03), audit's own among them"
+)]
+mod audit;
 mod error;
 mod model;
 mod repo;
 mod service;
-mod sink;
 
 pub(crate) use error::AuditError;
 pub(crate) use model::{Action, Entry, Resource};
-pub(crate) use service::record;
-pub(crate) use sink::Sink;
+pub(crate) use service::{Sink, record};

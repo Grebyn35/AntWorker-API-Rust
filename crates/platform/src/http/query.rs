@@ -1,76 +1,69 @@
-//! A request's query parameters, which a list's extractors read (API-09, PLATFORM-035).
-
-use std::collections::HashMap;
+//! A request's query parameters, parsed into the type that documents them (API-09, PLATFORM-035).
 
 use axum::{
     extract::{FromRequestParts, MatchedPath},
     http::request::Parts,
 };
+use serde::de::DeserializeOwned;
+use serde_json::{Map, Value};
 
-use super::FieldErrors;
-use crate::types::Invalid;
+use crate::errors::{FieldError, Problem, RequestError};
 
 /// The JSON Pointer of the query parameter `name`, as `errors` names it (API-07).
 pub(crate) fn parameter_pointer(name: &str) -> String {
     format!("/{}", name.replace('~', "~0").replace('/', "~1"))
 }
 
-/// A request's query parameters, by name, and the route that serves it. The route group has
-/// already refused a name its documentation doesn't list (PLATFORM-035).
+/// A request's query parameters, parsed into `T`, and the route that serves the request. `T` is
+/// the type whose `#[into_params(parameter_in = Query)]` documents the route's parameters, with
+/// `#[serde(deny_unknown_fields)]`, and each field an `Option<String>`, which the route reads into
+/// domain types. The route group has already refused a name its documentation doesn't list
+/// (PLATFORM-035). A name given more than once keeps its last value.
 #[derive(Debug)]
-pub struct Query {
-    values: HashMap<String, String>,
+pub struct Query<T> {
+    params: T,
     route: String,
 }
 
-impl Query {
-    /// The route that serves the request, as its pattern, such as `/v1/workspaces`.
-    pub(crate) fn route(&self) -> &str {
-        &self.route
-    }
-}
-
-impl<S: Send + Sync> FromRequestParts<S> for Query {
-    type Rejection = std::convert::Infallible;
+impl<T: DeserializeOwned, S: Send + Sync> FromRequestParts<S> for Query<T> {
+    type Rejection = Problem<RequestError>;
 
     async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
-        let values = parts
+        let values: Map<String, Value> = parts
             .uri
             .query()
             .map(|query| {
                 url::form_urlencoded::parse(query.as_bytes())
-                    .into_owned()
+                    .map(|(name, value)| (name.into_owned(), Value::String(value.into_owned())))
                     .collect()
             })
             .unwrap_or_default();
+        let params = serde_path_to_error::deserialize(Value::Object(values)).map_err(|error| {
+            let name = error.path().to_string();
+            Problem(RequestError::InvalidQuery(vec![FieldError::new(
+                parameter_pointer(&name),
+                "invalid",
+                "The route doesn't take this parameter as sent.",
+            )]))
+        })?;
         let route = parts
             .extensions
             .get::<MatchedPath>()
             .map(|route| route.as_str().to_owned())
             .unwrap_or_default();
-        Ok(Self { values, route })
+        Ok(Self { params, route })
     }
 }
 
-impl Query {
-    /// The value of the parameter `name`, the last one when the query gives it more than once.
-    pub fn get(&self, name: &str) -> Option<&str> {
-        self.values.get(name).map(String::as_str)
+impl<T> Query<T> {
+    /// The parameters.
+    pub fn params(&self) -> &T {
+        &self.params
     }
 
-    /// Reads the parameter `name` through `parse`, recording why `errors` refuses it.
-    pub fn read<T>(
-        &self,
-        errors: &mut FieldErrors,
-        name: &str,
-        parse: impl FnOnce(&str) -> Result<T, Invalid>,
-    ) -> Option<Option<T>> {
-        match self.get(name) {
-            None => Some(None),
-            Some(value) => errors
-                .check(&parameter_pointer(name), parse(value))
-                .map(Some),
-        }
+    /// The route that serves the request, as its pattern, such as `/v1/workspaces`.
+    pub fn route(&self) -> &str {
+        &self.route
     }
 }
 

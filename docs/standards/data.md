@@ -144,7 +144,7 @@ A transaction never waits on HTTP, the Simple Mail Transfer Protocol (SMTP) or o
 - Check: `review`.
 
 ### DATA-27 Side effects join the unit of work
-Audit entries (`audit::record`), events (`uow.publish`) and jobs (`uow.enqueue`) are written in the same unit of work as the change that causes them.
+Audit entries (`audit::record`), events (`uow.publish_to_user` and `uow.publish_to_workspace`) and jobs (`uow.enqueue`) are written in the same unit of work as the change that causes them.
 
 What is audited:
 - Every change that a request or an enqueued job makes to data a module owns.

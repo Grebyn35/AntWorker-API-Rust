@@ -1,9 +1,11 @@
-//! What other modules ask of `access`, inside their unit of work.
+//! What other modules ask of `access`, inside their unit of work, and the `AccessPolicy` that
+//! `platform::authz` asks on every workspace request (ACCESS-003, the access spec's "Policy").
 
 use platform::{
-    authn::Principal,
-    authz::Authorized,
+    authn::{BoxFuture, Principal},
+    authz::{AccessPolicy, Authorized, Decision},
     db::UnitOfWork,
+    errors::Internal,
     lists::{List, Page, key},
     types::{Timestamp, UserId, WorkspaceId},
 };
@@ -11,9 +13,32 @@ use platform::{
 use super::{
     error::AccessError,
     model::{MemberFilter, Membership, Role},
-    permissions::{MembersRead, MembersRemove},
+    permissions::{self, MembersRead, MembersRemove},
     repo,
 };
+
+/// Decides by the caller's membership and the matrix.
+pub(crate) struct Policy;
+
+impl AccessPolicy for Policy {
+    fn authorize<'a>(
+        &'a self,
+        uow: &'a mut UnitOfWork,
+        user: UserId,
+        workspace: WorkspaceId,
+        permission: &'static str,
+    ) -> BoxFuture<'a, Result<Decision, Internal>> {
+        Box::pin(async move {
+            Ok(match repo::role_held(uow, workspace, user).await? {
+                None => Decision::NotMember,
+                Some(role) if permissions::grants(role, permission) => {
+                    Decision::Allowed(role.name())
+                }
+                Some(_) => Decision::Denied,
+            })
+        })
+    }
+}
 
 /// What removing a member came to (ACCESS-004).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,7 +62,9 @@ pub(crate) async fn add_owner(
     Ok(repo::insert(uow, workspace, user, Role::Owner).await?)
 }
 
-/// Removes `user` from the caller's workspace, if the caller outranks them (ACCESS-004).
+/// Removes `user` from the caller's workspace, if the caller outranks them (ACCESS-004). The
+/// delete itself checks the rank, so it locks the member's row only when it may remove them, and
+/// no two removals wait on each other's rows: no two members each outrank the other (DATA-25).
 pub(crate) async fn remove(
     uow: &mut UnitOfWork,
     authorized: &Authorized<MembersRemove>,
@@ -45,13 +72,16 @@ pub(crate) async fn remove(
 ) -> Result<Removal, AccessError> {
     let caller = Role::from_name(authorized.role())?;
     let workspace = authorized.workspace_id();
-    Ok(match repo::role_for_change(uow, workspace, user).await? {
+    let below: Vec<Role> = Role::ALL
+        .into_iter()
+        .filter(|role| caller.outranks(*role))
+        .collect();
+    if repo::delete_at(uow, workspace, user, &below).await? {
+        return Ok(Removal::Removed);
+    }
+    Ok(match repo::role(uow, workspace, user).await? {
         None => Removal::NotMember,
-        Some(target) if !caller.outranks(target) => Removal::Outranked,
-        Some(_) => {
-            repo::delete(uow, workspace, user).await?;
-            Removal::Removed
-        }
+        Some(_) => Removal::Outranked,
     })
 }
 

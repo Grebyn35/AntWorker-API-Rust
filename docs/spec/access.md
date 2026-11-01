@@ -30,7 +30,7 @@
 |---|---|---|---|
 | ACCESS-001 | Each membership holds exactly one role: `owner`, `admin` or `member`. Each workspace has exactly one owner. | D2 | `access_001_` |
 | ACCESS-002 | A role grants exactly the permissions the matrix gives it, and nothing else. | D2 | `access_002_` |
-| ACCESS-003 | A caller who isn't a member of the workspace in the path gets 404 `request.not_found`. A member without the route's permission gets 403 `request.permission_denied`. Both refusals are reported to the `SecurityEventSink`. | API-14, SEC-07, DATA-27 | `access_003_` |
+| ACCESS-003 | A caller who isn't a member of the workspace in the path gets 404 `request.not_found`. A member without the route's permission gets 403 `request.permission_denied`. Both refusals are reported to the `SecurityEventSink`. A workspace ID that isn't a UUID names no workspace, and answers 404 `request.not_found` unrecorded. | API-14, SEC-07, DATA-27 | `access_003_` |
 | ACCESS-004 | A member acts only on members whose role ranks below their own, and assigns only roles below their own. A refusal goes through `authz::refuse`, and answers 403 `request.permission_denied`. | SEC-08, DATA-27, PLATFORM-025 | `access_004_` |
 | ACCESS-005 | `memberships` returns every workspace the caller belongs to, with their role in each and when they joined, and nothing else. | D3, SEC-17 | `access_005_` |
 
@@ -47,7 +47,11 @@ Rank, from highest to lowest: `owner`, `admin`, `member`.
 | `members.remove` | Removing a member of lower rank | yes | yes | |
 | `invitations.create` | Inviting at a role below one's own | yes | yes | |
 
-The matrix lives in `access/permissions.rs` as one table, so adding a permission is one variant and one row (D2). Later modules add their permissions to this table.
+The matrix lives in `access/permissions.rs` as one table, so adding a permission is one type and one row (D2). Later modules add their permissions to this table.
+
+### Removing a member
+
+The delete itself checks the rank: it deletes the membership only where its role ranks below the caller's (DATA-24, DATA-25). A row whose role doesn't qualify is skipped without being locked, so a removal never waits on a member it may not remove, and two members who each try to remove the other can't wait on each other: at most one outranks the other. When nothing was deleted, a read without a lock tells a member it outranked nobody from a user who isn't a member (ACCESS-004, WORKSPACES-006).
 
 ### Uniqueness of the owner
 

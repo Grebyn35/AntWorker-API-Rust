@@ -45,7 +45,7 @@ A success body is the resource object, with no envelope. A list is `{"items": [.
 ### API-06 Lists use opaque cursors
 Every list is paginated by keyset. `limit` defaults to 50 and is capped at 100. `cursor` is an opaque base64url string that encodes the full sort key, with the row's ID as the tiebreaker. Lists move forward only, unless a module spec defines backward paging for a route.
 - Why: pages stay stable while rows are added, and no row is skipped or repeated (D8, DATA-23).
-- Check: `test` (each list has a test that pages across rows sharing a timestamp).
+- Check: `ci: check-openapi` (a list takes `limit` and `cursor`), plus `test` (each list has a test that pages across rows sharing a timestamp).
 
 ### API-07 Errors are RFC 9457 problems
 An error response, except from the health probes (OPS-05), has `Content-Type: application/problem+json` and these members:
@@ -84,7 +84,7 @@ Timestamps are RFC 3339 in UTC with a `Z` suffix, at microsecond precision. IDs 
 ### API-12 Idempotency keys follow the IETF draft
 `POST` routes marked idempotent in their module spec accept `Idempotency-Key`, as the IETF's draft-ietf-httpapi-idempotency-key-header-08 defines it, which isn't an RFC yet: the key is a string of structured fields, such as `Idempotency-Key: "8e03978e-40d5-43e8-bc93-6894a57f9324"`, of 1 to 255 characters.
 - A key is unique per authenticated user, across their sessions.
-- The fingerprint covers the method, the route, the query and a digest of the body.
+- The fingerprint covers the method, the path, the query and a digest of the body.
 - The same key with the same fingerprint returns the stored result of the first request. A different fingerprint gets 422. A key whose first request is still running gets 409.
 - A committed change always has its stored result, so a retry never repeats it. A request that failed without committing can be retried.
 - Stored results expire after 24 hours.

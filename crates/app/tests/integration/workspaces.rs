@@ -1,10 +1,10 @@
-//! Workspaces and their members (the workspaces spec), with the lists' and the idempotency keys'
-//! mechanisms they are the first to use (the platform spec).
+//! Workspaces and their members (the workspaces spec), with the lists' mechanisms they are the
+//! first to use (the platform spec).
 
 use serde_json::{Value, json};
 
 use crate::support::{
-    Api, execute_on,
+    Api,
     users::{self, SignedIn},
     workspaces,
 };
@@ -56,13 +56,17 @@ async fn workspaces_001_creating_a_workspace_makes_the_caller_its_owner() {
     assert_eq!(members, [format!("{} owner", ada.user_id)]);
     let entries = db
         .owner_reads(
-            "SELECT action || ' ' || scope || ' ' || workspace_id || ' ' || actor_user_id \
+            "SELECT action || ' ' || scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
+             || resource_type || ' ' || resource_id || ' ' || details::text \
              FROM audit_entries WHERE action = 'workspace.created'",
         )
         .await;
     assert_eq!(
         entries,
-        [format!("workspace.created workspace {id} {}", ada.user_id)]
+        [format!(
+            "workspace.created workspace {id} {} workspace {id} {{}}",
+            ada.user_id
+        )]
     );
     let events = db
         .owner_reads(
@@ -94,7 +98,7 @@ async fn workspaces_002_a_name_is_stored_normalized_and_must_hold_a_character() 
 }
 
 #[tokio::test]
-async fn platform_018_a_retry_with_the_key_answers_the_first_result_and_creates_nothing() {
+async fn workspaces_001_a_retry_with_the_key_creates_one_workspace() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
 
@@ -112,78 +116,19 @@ async fn platform_018_a_retry_with_the_key_answers_the_first_result_and_creates_
     assert_eq!(count, ["1"]);
 }
 
-#[tokio::test]
-async fn platform_018_the_key_with_another_request_answers_422() {
-    let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    create(&api, &ada, "Acme", Some("\"k-1\"")).await;
-
-    let reused = create(&api, &ada, "Globex", Some("\"k-1\"")).await;
-
-    assert_eq!(reused.status, 422);
-    assert_eq!(reused.json()["code"], "request.idempotency_key_reused");
-}
-
-#[tokio::test]
-async fn platform_018_a_key_whose_first_request_hasn_t_committed_answers_409_then_runs() {
-    let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    let db = api.database();
-    let mut held = db.owner_connection().await;
-    execute_on(&mut held, "BEGIN").await;
-    execute_on(
-        &mut held,
-        &format!(
-            "INSERT INTO idempotency_records (user_id, key, fingerprint) \
-             VALUES ('{}', 'k-1', '\\x00')",
-            ada.user_id
-        ),
-    )
-    .await;
-
-    let waiting = create(&api, &ada, "Acme", Some("\"k-1\"")).await;
-    execute_on(&mut held, "ROLLBACK").await;
-    let retry = create(&api, &ada, "Acme", Some("\"k-1\"")).await;
-
-    assert_eq!(waiting.status, 409);
-    assert_eq!(waiting.json()["code"], "request.idempotency_key_in_flight");
-    assert_eq!(retry.status, 201);
-}
-
-#[tokio::test]
-async fn platform_018_a_record_older_than_24_hours_counts_as_absent() {
-    let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    create(&api, &ada, "Acme", Some("\"k-1\"")).await;
-    let db = api.database();
-    db.owner_executes("UPDATE idempotency_records SET created_at = now() - interval '25 hours'")
-        .await;
-
-    let again = create(&api, &ada, "Globex", Some("\"k-1\"")).await;
-
-    assert_eq!(again.status, 201);
-    assert_eq!(again.json()["name"], "Globex");
-    let count = db
-        .owner_reads("SELECT count(*)::text FROM workspaces")
-        .await;
-    assert_eq!(count, ["2"]);
-}
-
-#[tokio::test]
-async fn platform_058_a_malformed_key_answers_400_and_keys_are_per_user() {
-    let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    let grace = users::register(&api, "grace@example.com").await;
-
-    let unquoted = create(&api, &ada, "Acme", Some("k-1")).await;
-    let ada_first = create(&api, &ada, "Acme", Some("\"k-1\"")).await;
-    let grace_same_key = create(&api, &grace, "Acme", Some("\"k-1\"")).await;
-
-    assert_eq!(unquoted.status, 400);
-    assert_eq!(unquoted.json()["code"], "request.invalid_idempotency_key");
-    assert_eq!(ada_first.status, 201);
-    assert_eq!(grace_same_key.status, 201);
-    assert_ne!(grace_same_key.json()["id"], ada_first.json()["id"]);
+/// The IDs, by `field`, of every page of the list at `path`, a path with a query, read as `user`
+/// by following each page's `next_cursor`.
+async fn pages(api: &Api, user: &SignedIn, path: &str, field_name: &str) -> Vec<Vec<String>> {
+    let mut pages = Vec::new();
+    let mut next = path.to_owned();
+    loop {
+        let body = api.get(&next).bearer(&user.access).send().await.json();
+        pages.push(field(&body, field_name));
+        match body["next_cursor"].as_str() {
+            Some(cursor) => next = format!("{path}&cursor={cursor}"),
+            None => return pages,
+        }
+    }
 }
 
 #[tokio::test]
@@ -196,6 +141,13 @@ async fn workspaces_003_lists_the_caller_s_workspaces_the_latest_joined_first() 
     let second = workspaces::arrange(db, "Second", &[(&grace.user_id, "owner")]).await;
     workspaces::join(db, &second, &ada.user_id, "member").await;
     workspaces::arrange(db, "Grace's", &[(&grace.user_id, "owner")]).await;
+    db.owner_executes(&format!(
+        "UPDATE workspace_memberships SET created_at = CASE workspace_id \
+         WHEN '{first}' THEN timestamptz '2026-11-01T10:00:00Z' \
+         ELSE timestamptz '2026-11-01T11:00:00.5Z' END WHERE user_id = '{}'",
+        ada.user_id
+    ))
+    .await;
 
     let response = api.get("/v1/workspaces").bearer(&ada.access).send().await;
 
@@ -204,6 +156,10 @@ async fn workspaces_003_lists_the_caller_s_workspaces_the_latest_joined_first() 
     assert_eq!(field(&body, "id"), [second.clone(), first]);
     assert_eq!(field(&body, "name"), ["Second", "First"]);
     assert_eq!(field(&body, "role"), ["member", "owner"]);
+    assert_eq!(
+        field(&body, "joined_at"),
+        ["2026-11-01T11:00:00.500000Z", "2026-11-01T10:00:00.000000Z"]
+    );
     assert_eq!(body["next_cursor"], Value::Null);
 }
 
@@ -317,6 +273,8 @@ async fn access_005_a_search_reaches_every_workspace_the_caller_belongs_to_and_n
         expected.push(workspaces::arrange(db, name, &[(&ada.user_id, "member")]).await);
     }
     workspaces::arrange(db, "Team four", &[(&grace.user_id, "owner")]).await;
+    db.owner_executes("UPDATE workspace_memberships SET created_at = '2026-11-01T10:00:00Z'")
+        .await;
 
     let body = api
         .get("/v1/workspaces?search=team")
@@ -329,6 +287,11 @@ async fn access_005_a_search_reaches_every_workspace_the_caller_belongs_to_and_n
     ids.sort();
     expected.sort();
     assert_eq!(ids, expected);
+    assert_eq!(field(&body, "role"), ["member"; 3]);
+    assert_eq!(
+        field(&body, "joined_at"),
+        ["2026-11-01T10:00:00.000000Z"; 3]
+    );
 }
 
 #[tokio::test]
@@ -339,6 +302,13 @@ async fn workspaces_004_lists_the_members_with_their_profiles_the_latest_joined_
     let db = api.database();
     let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
     workspaces::join(db, &workspace, &grace.user_id, "admin").await;
+    db.owner_executes(&format!(
+        "UPDATE workspace_memberships SET created_at = CASE user_id \
+         WHEN '{}' THEN timestamptz '2026-11-01T10:00:00Z' \
+         ELSE timestamptz '2026-11-01T11:00:00Z' END",
+        ada.user_id
+    ))
+    .await;
 
     let response = api
         .get(&format!("/v1/workspaces/{workspace}/members"))
@@ -358,6 +328,10 @@ async fn workspaces_004_lists_the_members_with_their_profiles_the_latest_joined_
     );
     assert_eq!(field(&body, "name"), ["Ada Lovelace", "Ada Lovelace"]);
     assert_eq!(field(&body, "role"), ["admin", "owner"]);
+    assert_eq!(
+        field(&body, "joined_at"),
+        ["2026-11-01T11:00:00.000000Z", "2026-11-01T10:00:00.000000Z"]
+    );
 }
 
 #[tokio::test]
@@ -430,7 +404,7 @@ async fn accounts_006_a_member_search_matches_only_the_workspace_s_members() {
     let (ada, workspace) = ada_and_an_outsider(&api).await;
 
     let body = api
-        .get(&format!("/v1/workspaces/{workspace}/members?search=ada"))
+        .get(&format!("/v1/workspaces/{workspace}/members?search=ADA"))
         .bearer(&ada.access)
         .send()
         .await
@@ -466,13 +440,14 @@ async fn workspaces_005_removing_a_member_deletes_their_membership_and_signals_i
     let entries = db
         .owner_reads(
             "SELECT scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' || target_user_id \
+             || ' ' || resource_type || ' ' || resource_id || ' ' || details::text \
              FROM audit_entries WHERE action = 'member.removed'",
         )
         .await;
     assert_eq!(
         entries,
         [format!(
-            "workspace {workspace} {} {}",
+            "workspace {workspace} {} {1} member {1} {{}}",
             ada.user_id, grace.user_id
         )]
     );
@@ -531,4 +506,91 @@ async fn workspaces_006_a_caller_can_t_remove_themselves_or_a_rank_at_or_above_t
         .owner_reads("SELECT count(*)::text FROM workspace_memberships")
         .await;
     assert_eq!(members, ["3"]);
+}
+
+#[tokio::test]
+async fn platform_059_a_page_holds_50_items_without_a_limit() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    api.database()
+        .owner_executes(&format!(
+            "WITH created AS (INSERT INTO workspaces (name) \
+             SELECT 'W' || n FROM generate_series(1, 51) AS n RETURNING id) \
+             INSERT INTO workspace_memberships (workspace_id, user_id, role) \
+             SELECT id, '{}', 'member' FROM created",
+            ada.user_id
+        ))
+        .await;
+
+    let body = api
+        .get("/v1/workspaces")
+        .bearer(&ada.access)
+        .send()
+        .await
+        .json();
+
+    assert_eq!(body["items"].as_array().unwrap().len(), 50);
+    assert!(body["next_cursor"].is_string());
+}
+
+#[tokio::test]
+async fn workspaces_004_paging_returns_each_member_once_across_a_shared_joining_time() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    let mut arranged = vec![ada.user_id.clone()];
+    for name in ["b", "c", "d", "e"] {
+        let user = users::register(&api, &format!("{name}@example.com")).await;
+        workspaces::join(db, &workspace, &user.user_id, "member").await;
+        arranged.push(user.user_id);
+    }
+    db.owner_executes("UPDATE workspace_memberships SET created_at = '2026-11-01T10:00:00Z'")
+        .await;
+
+    let path = format!("/v1/workspaces/{workspace}/members?limit=2");
+    let pages = pages(&api, &ada, &path, "user_id").await;
+
+    // Among members who share a joining time, the higher ID comes first.
+    arranged.sort();
+    arranged.reverse();
+    assert_eq!(pages.iter().map(Vec::len).collect::<Vec<_>>(), [2, 2, 1]);
+    assert_eq!(pages.concat(), arranged);
+}
+
+#[tokio::test]
+async fn workspaces_003_a_search_pages_through_its_matches() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    for name in ["Team one", "Other", "Team two", "Team three"] {
+        workspaces::arrange(db, name, &[(&ada.user_id, "owner")]).await;
+    }
+
+    let pages = pages(&api, &ada, "/v1/workspaces?search=team&limit=2", "name").await;
+
+    assert_eq!(pages, [vec!["Team three", "Team two"], vec!["Team one"]]);
+}
+
+#[tokio::test]
+async fn workspaces_004_a_search_pages_through_its_matches() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    for name in ["team.one", "other", "team.two", "team.three"] {
+        let user = users::register(&api, &format!("{name}@example.com")).await;
+        workspaces::join(db, &workspace, &user.user_id, "member").await;
+    }
+
+    let path = format!("/v1/workspaces/{workspace}/members?search=TEAM&limit=2");
+    let pages = pages(&api, &ada, &path, "email").await;
+
+    assert_eq!(
+        pages,
+        [
+            vec!["team.three@example.com", "team.two@example.com"],
+            vec!["team.one@example.com"]
+        ]
+    );
 }

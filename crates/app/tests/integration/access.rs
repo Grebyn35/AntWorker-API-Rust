@@ -99,7 +99,7 @@ async fn audit_004_a_refusal_is_recorded_in_the_member_s_workspace_or_the_caller
     let entries = db
         .owner_reads(
             "SELECT scope || ' ' || coalesce(user_id::text, workspace_id::text) || ' ' || \
-             actor_user_id || ' ' || resource_id || ' ' || details::text \
+             actor_user_id || ' ' || resource_type || ' ' || resource_id || ' ' || details::text \
              FROM audit_entries WHERE action = 'access.denied' ORDER BY created_at, id",
         )
         .await;
@@ -107,15 +107,94 @@ async fn audit_004_a_refusal_is_recorded_in_the_member_s_workspace_or_the_caller
         entries,
         [
             format!(
-                "user {0} {0} {workspace} {{\"permission\": \"members.read\"}}",
+                "user {0} {0} workspace {workspace} {{\"permission\": \"members.read\"}}",
                 stranger.user_id
             ),
             format!(
-                "workspace {workspace} {} {workspace} {{\"permission\": \"members.remove\"}}",
+                "workspace {workspace} {} workspace {workspace} {{\"permission\": \"members.remove\"}}",
                 member.user_id
             ),
         ]
     );
+}
+
+#[tokio::test]
+async fn audit_003_a_refusal_records_the_client_and_the_trace_of_its_request() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let stranger = users::register(&api, "stranger@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&owner.user_id, "owner")]).await;
+
+    let response = api
+        .get(&format!("/v1/workspaces/{workspace}/members"))
+        .bearer(&stranger.access)
+        .header("user-agent", "Desktop/1.2")
+        .send()
+        .await;
+
+    let trace_id = response.header("server-timing").split('-').nth(1).unwrap();
+    let entry = api
+        .database()
+        .owner_reads(
+            "SELECT host(client_ip) || ' ' || user_agent || ' ' || trace_id \
+             FROM audit_entries WHERE action = 'access.denied'",
+        )
+        .await;
+    assert_eq!(entry, [format!("198.51.100.20 Desktop/1.2 {trace_id}")]);
+}
+
+#[tokio::test]
+async fn access_003_a_workspace_id_that_isn_t_a_uuid_answers_404_and_records_nothing() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let response = call(&api, Method::GET, "/v1/workspaces/acme/members", &ada).await;
+
+    assert_eq!(response.status, StatusCode::NOT_FOUND);
+    assert_eq!(response.json()["code"], "request.not_found");
+    let refusals = api
+        .database()
+        .owner_reads("SELECT count(*)::text FROM audit_entries WHERE action = 'access.denied'")
+        .await;
+    assert_eq!(refusals, ["0"]);
+}
+
+#[tokio::test]
+async fn data_25_a_removal_waits_on_no_member_it_may_not_remove() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let first = users::register(&api, "first@example.com").await;
+    let second = users::register(&api, "second@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&owner.user_id, "owner")]).await;
+    workspaces::join(db, &workspace, &first.user_id, "admin").await;
+    workspaces::join(db, &workspace, &second.user_id, "admin").await;
+    // The second admin's own request, such as removing the first, holds their row as
+    // `authorize` does.
+    let mut held = db.owner_connection().await;
+    execute_on(&mut held, "BEGIN").await;
+    execute_on(
+        &mut held,
+        &format!(
+            "SELECT 1 FROM workspace_memberships \
+             WHERE workspace_id = '{workspace}' AND user_id = '{}' FOR SHARE",
+            second.user_id
+        ),
+    )
+    .await;
+
+    let refused = call(
+        &api,
+        Method::DELETE,
+        &format!("/v1/workspaces/{workspace}/members/{}", second.user_id),
+        &first,
+    )
+    .await;
+    execute_on(&mut held, "ROLLBACK").await;
+
+    // Refused at once, without waiting on the row it may not change, so two admins removing
+    // each other can't deadlock.
+    assert_eq!(refused.status, StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
@@ -134,6 +213,7 @@ async fn access_004_a_member_acts_only_on_members_below_their_rank() {
     let down = call(&api, Method::DELETE, &remove(&member.user_id), &admin).await;
 
     assert_eq!(up.status, StatusCode::FORBIDDEN);
+    assert_eq!(up.json()["code"], "request.permission_denied");
     assert_eq!(down.status, StatusCode::NO_CONTENT);
 }
 
