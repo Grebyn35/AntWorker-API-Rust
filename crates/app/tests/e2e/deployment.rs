@@ -141,6 +141,9 @@ impl Deployment {
             ("API_REPLICAS", "2"),
             ("DATABASE_MAX_CONNECTIONS", "2"),
             ("POSTGRES_MAX_CONNECTIONS", "100"),
+            // The tests' traffic comes from one address, far faster than a client's limit allows;
+            // the integration tests cover the limit (PLATFORM-048).
+            ("RATE_LIMIT_IP_REQUESTS", "1000000"),
         ]
         .iter()
         .chain(kind)
