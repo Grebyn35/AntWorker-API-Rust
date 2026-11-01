@@ -197,6 +197,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 4e7c633..eac8668: as above | 2 | 9 (7, 4, 2 shared) | 5 | 1 | `stopped: no progress`: 290c430 |
 | bd2d1fd..5330bf9: decisions D65 and D66, and step 2.2: access, workspaces, authorization, idempotency, publishing events, lists with search, `check-tenancy` and the list shapes of `check-openapi` | 1 | 30 (27, 11, 8 shared) | 13 | 0 | `next pass`: ec21099 |
 | bd2d1fd..ec21099: as above | 2 | 13 (11, 4, 2 shared) | 5 | 2 | `stopped: no progress`: ebdfdc7 |
+| d678a43..4eedca6: decision D67, and step 2.3's first part: jobs, `mail` and `invitations`, their deployment, alerts and end-to-end scenario, and the 0BSD license | 1 | 26 (24, 8, 6 shared) | 18 | 0 | `next pass` |
 
 ## Decisions
 
