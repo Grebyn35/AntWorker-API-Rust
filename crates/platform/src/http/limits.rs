@@ -49,12 +49,13 @@ pub(super) async fn ip_limit(
     response
 }
 
-/// What an IP bucket counts: the address's bytes, with an IPv4 address that arrived mapped into
-/// IPv6 counted as itself.
+/// What an IP bucket counts: an IPv4 address's bytes, with one that arrived mapped into IPv6
+/// counted as itself, or an IPv6 address's /64 prefix, which one subscriber holds whole, so a
+/// client can't escape its limit by moving within it (PLATFORM-048).
 fn key(ip: IpAddr) -> Vec<u8> {
     match ip.to_canonical() {
         IpAddr::V4(address) => address.octets().to_vec(),
-        IpAddr::V6(address) => address.octets().to_vec(),
+        IpAddr::V6(address) => address.octets()[..8].to_vec(),
     }
 }
 
@@ -135,6 +136,15 @@ mod tests {
         assert_eq!(seconds(Duration::from_millis(1)), 1);
         assert_eq!(seconds(Duration::from_secs(41)), 41);
         assert_eq!(seconds(Duration::from_millis(41_200)), 42);
+    }
+
+    #[test]
+    fn platform_048_an_ipv6_client_counts_by_its_64_prefix() {
+        let first: IpAddr = "2001:db8:1:2::1".parse().unwrap();
+        let same: IpAddr = "2001:db8:1:2:ffff::9".parse().unwrap();
+        let other: IpAddr = "2001:db8:1:3::1".parse().unwrap();
+        assert_eq!(key(first), key(same));
+        assert_ne!(key(first), key(other));
     }
 
     #[test]

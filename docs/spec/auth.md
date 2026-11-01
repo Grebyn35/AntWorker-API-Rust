@@ -71,6 +71,10 @@ No route takes an `Idempotency-Key` (API-12).
 
 The presented token is hashed with SHA-256, and the session is read by `refresh_token_hash`. If no session matches, it is read by `previous_refresh_token_hash`, and a match there is reuse (AUTH-012). Rotation updates the session's hashes with `WHERE refresh_token_hash = $presented`, so two concurrent refreshes can't both succeed. A refresh that reads its token from the cookie is a request the cookie authenticates, so the cross-site protection of PLATFORM-053 applies to it.
 
+### Verifying access tokens
+
+Every authenticated request reads its session by its access token's hash, with no cache, so a session that ends, by signing out or by a refresh token's reuse, refuses its token at once (D5, AUTH-013). A cache in each replica would need the access-change signals to drop what it holds, which the hub's listener receives from step 2.4 on. `just load-test me` measures what verifying costs (OPS-18).
+
 ### Token delivery
 
 One function issues a session's tokens for registration, sign-in and refresh (D18), and delivers them in the body or as cookies. A browser asks for cookies, since a token in the body would be readable by any script on its page, while a cookie that is `HttpOnly` isn't. `__Host-` makes a browser refuse the cookie unless it is `Secure`, has `Path=/` and names no `Domain`, so only the API's own host can set it, and the browser sends it to that host alone. The refresh cookie therefore goes with every request to the API too, as the access cookie does, rather than only to the refresh route: requirement 3.3.3 of the Application Security Verification Standard (ASVS) asks for `__Host-` on every cookie that no other host shares, and `Path` can't narrow such a cookie. Only the refresh route reads it, and neither the API nor its proxy logs a cookie. Signing out sets both cookies again, empty and expired, which removes them from the browser.
@@ -93,5 +97,4 @@ Every user may add a second factor, and every superadmin must (D63). The factors
 
 | Question | Settled by |
 |---|---|
-| Whether verifying the access token on every request needs a short in-process cache to keep database load acceptable | `auth_009_` under the slice's load test (OPS-18) |
 | How the per-email sign-in limit (AUTH-006) keeps an attacker who sends 5 attempts every 15 minutes from shutting an account's owner out of signing in with their password, as requirement 6.1.1 of ASVS asks the documentation to explain: such as by counting attempts per email and client IP, beside a looser count per email | the threat model, in step 3 |
