@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT role::text AS \"role!\" FROM workspace_memberships\n        WHERE workspace_id = $1 AND user_id = $2\n        FOR SHARE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "role!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "cea31e8d2eb70b2c627fb7d95e8a06915f8b7db877a894326a62d12a58045330"
+}

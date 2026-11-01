@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO idempotency_records AS record (user_id, key, fingerprint)\n            VALUES ($1, $2, $3)\n            ON CONFLICT ON CONSTRAINT idempotency_records_user_id_key_key DO UPDATE\n                SET fingerprint = EXCLUDED.fingerprint, result = NULL, created_at = now()\n                WHERE record.created_at <= now() - interval '24 hours'\n            RETURNING true AS \"inserted!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "inserted!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "78112eef01b9698ffdf56af9544ea44dc54c1ff26400d2f3fe69871ff194164d"
+}

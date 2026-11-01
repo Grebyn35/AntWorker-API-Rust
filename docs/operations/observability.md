@@ -17,6 +17,8 @@ Each dashboard panel's title is the question it answers (OBS-13). The overview l
 | Is the telemetry pipeline itself losing data? | Telemetry pipeline |
 | Is the server running out of disk or memory? | Server |
 | Does an instance's memory only grow? | API platform: "How much memory does each instance use?" |
+| Is someone probing workspaces they don't belong to? | API platform: "Why does authorization refuse requests?" |
+| Are clients retrying requests that are still running? | API platform: "How do requests with an idempotency key end?" |
 
 ## How telemetry flows
 

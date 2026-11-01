@@ -13,7 +13,7 @@
 ## Interface
 
 - The permission types used with `Authorized<P>`, one type per permission in the matrix below.
-- `AccessPolicy`, implemented for `platform::authz`: `authorize`, and `memberships`, which returns the caller's `Memberships`.
+- `AccessPolicy`, implemented for `platform::authz`: `authorize`, and from step 2.4 on `memberships`, which returns the caller's `Memberships`.
 - `add_owner(uow, workspace_id, user_id)`: makes the creator the owner of a new workspace. Called only by `workspaces`.
 - `add_member(uow, workspace_id, user_id, role)`: adds a member. Called only by `invitations`, after accepting.
 - `is_member(uow, workspace_id, user_id)`: whether the user belongs to the workspace.
@@ -21,7 +21,8 @@
 - `members(uow, &Authorized<MembersRead>, &MemberFilter, &Page)`: a page of the workspace's memberships, newest first, kept to a role and to a set of users when the filter names them.
 - `member_ids(uow, &Authorized<MembersRead>)`: the user IDs of every member of the workspace, which a search of the members hands `accounts` (Design: Searching members).
 - `joined(uow, &Principal, Option<&[WorkspaceId]>, &Page)`: a page of the caller's own memberships, the latest joined first, kept to the given workspaces when a search named them, for listing the caller's workspaces.
-- `outranks(role, role)`: compares two roles (SEC-08).
+- `memberships(uow, &Principal)`: every membership of the caller (ACCESS-005), which `AccessPolicy::memberships` gives `platform` once its hub needs them, in step 2.4.
+- `Role::outranks(role)`: compares two roles (SEC-08).
 
 ## Behaviors
 

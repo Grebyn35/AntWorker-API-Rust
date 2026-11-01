@@ -15,7 +15,7 @@ use crate::{
     http::Cookies,
     rate_limit::{Bucket, LimitError, RateLimits},
     telemetry::names,
-    types::{Client, SessionId, UserId},
+    types::{Client, SessionId, UserId, WorkspaceId},
 };
 
 /// The name of the cookie that holds a browser's access token, after `__Host-` (AUTH-015).
@@ -56,6 +56,17 @@ impl Principal {
             actor: Some(self.user_id),
         }
     }
+
+    /// The scope of the entry that records this caller creating `workspace`, whose ID the
+    /// database just gave it: the workspace's log, with them as the actor, before any
+    /// `Authorized<P>` can name it (WORKSPACES-001). Only the operation that creates a workspace
+    /// calls it; clippy bans it elsewhere.
+    pub fn founder_scope(&self, workspace: WorkspaceId) -> AuditScope {
+        AuditScope {
+            log: Log::Workspace(workspace),
+            actor: Some(self.user_id),
+        }
+    }
 }
 
 /// The log an audit entry belongs to.
@@ -63,6 +74,8 @@ impl Principal {
 pub enum Log {
     /// A user's own log.
     User(UserId),
+    /// A workspace's log.
+    Workspace(WorkspaceId),
 }
 
 /// The log and the actor of an audit entry. Only a proof builds one with an actor, so no module
@@ -80,6 +93,14 @@ impl AuditScope {
         Self {
             log: Log::User(user_id),
             actor: None,
+        }
+    }
+
+    /// The log `log`, with `actor` as the actor, which only the proofs of `platform` build.
+    pub(crate) fn proven(log: Log, actor: UserId) -> Self {
+        Self {
+            log,
+            actor: Some(actor),
         }
     }
 

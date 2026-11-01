@@ -1680,6 +1680,7 @@ dependencies = [
  "tracing-appender",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "unicode-normalization",
  "url",
  "utoipa",
  "utoipa-axum",

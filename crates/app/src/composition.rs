@@ -5,6 +5,7 @@ use std::{ffi::OsString, io, path::Path, sync::Arc};
 
 use platform::{
     authn::SessionVerifier,
+    authz::Authorizer,
     clock::SharedClock,
     config::{ConfigError, ServerConfig, Settings},
     db::Database,
@@ -17,7 +18,7 @@ use platform::{
 use sqlx::migrate::Migrator;
 use utoipa::openapi::OpenApi;
 
-use crate::modules::{accounts, auth, system};
+use crate::modules::{access, accounts, audit, auth, system, workspaces};
 
 /// Every migration in `migrations/`, embedded in the binary. `migrate` applies them, and
 /// `serve` refuses to start until they are all applied (DATA-09).
@@ -70,6 +71,9 @@ pub struct Services {
     pub routes: Routes,
     /// The verifier of access tokens, which `auth` implements (ARCH-13).
     pub verifier: Arc<dyn SessionVerifier>,
+    /// What authorizes workspace routes: the policy `access` implements, and the sink of
+    /// refusals `audit` implements (ARCH-13).
+    pub authorizer: Authorizer,
 }
 
 /// Builds every service once, on `database`, and mounts every module's routes.
@@ -77,10 +81,16 @@ pub async fn compose(database: &Database, config: Config) -> Result<Services, In
     let auth = Arc::new(auth::Auth::new(database.clone(), config.auth).await?);
     let routes = system::routes()
         .merge(accounts::routes().with_state(database.clone()))
-        .merge(auth::routes().with_state(auth.clone()));
+        .merge(auth::routes().with_state(auth.clone()))
+        .merge(workspaces::routes().with_state(database.clone()));
     Ok(Services {
         routes,
         verifier: Arc::new(auth::Verifier(auth)),
+        authorizer: Authorizer {
+            database: database.clone(),
+            policy: Arc::new(access::Policy),
+            sink: Arc::new(audit::Sink::new(database.clone())),
+        },
     })
 }
 
@@ -103,6 +113,7 @@ pub fn pipeline(
         limiter: RateLimiter::new(database.clone(), config.hmac_key.clone()),
         rate_limits: config.rate_limits,
         verifier: services.verifier.clone(),
+        authorizer: services.authorizer.clone(),
     }
 }
 
@@ -111,5 +122,12 @@ pub fn openapi(service: Service) -> OpenApi {
     let mut document = system::routes().openapi(service);
     document.merge(accounts::routes().openapi(service));
     document.merge(auth::routes().openapi(service));
+    document.merge(workspaces::routes().openapi(service));
     document
+}
+
+/// The permission matrix of `access`: each permission's name, with the names of the roles that
+/// hold it, which the generated test of every workspace route reads (TEST-09).
+pub fn permissions() -> Vec<(&'static str, Vec<&'static str>)> {
+    access::matrix()
 }

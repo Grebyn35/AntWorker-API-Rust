@@ -6,6 +6,7 @@ mod browsers;
 mod client;
 mod docs;
 mod limits;
+mod query;
 mod stack;
 
 use std::sync::Arc;
@@ -14,11 +15,13 @@ use axum::{Router, routing::get};
 use utoipa::openapi::{Info, OpenApi};
 use utoipa_axum::router::{OpenApiRouter, UtoipaMethodRouter};
 
-pub use body::{FieldErrors, Json};
+pub use body::{FieldErrors, Idempotent, Json};
 pub use browsers::{Cookies, Origins, expired_cookie, session_cookie};
+pub use query::Query;
 
 use crate::{
     authn::{Authenticator, SessionVerifier},
+    authz::{Authorizer, Permission},
     clock::SharedClock,
     config::RateLimitConfig,
     errors::{ErrorCode, Problem, RequestError},
@@ -35,6 +38,9 @@ enum Access {
     Public,
     /// A caller whom a `Principal` proves.
     User,
+    /// A member of the workspace in the path whom `Authorized<P>` proves, for the permission
+    /// of this name.
+    Workspace(&'static str),
 }
 
 impl Access {
@@ -43,6 +49,7 @@ impl Access {
         match self {
             Self::Public => "public",
             Self::User => "user",
+            Self::Workspace(_) => "workspace",
         }
     }
 }
@@ -84,6 +91,16 @@ where
     /// and which can answer `errors` besides the pipeline's own (ERR-13).
     pub fn user(self, route: UtoipaMethodRouter<S>, errors: &[&dyn ErrorCode]) -> Self {
         self.add(Access::User, route, errors)
+    }
+
+    /// Adds a route that a member of the workspace in the path calls, whose handler extracts
+    /// `Authorize<P>`, and which can answer `errors` besides the pipeline's own (ERR-13).
+    pub fn workspace<P: Permission>(
+        self,
+        route: UtoipaMethodRouter<S>,
+        errors: &[&dyn ErrorCode],
+    ) -> Self {
+        self.add(Access::Workspace(P::NAME), route, errors)
     }
 
     /// The routes, with the state their handlers extract.
@@ -157,6 +174,8 @@ pub struct Pipeline {
     pub rate_limits: RateLimitConfig,
     /// The verifier of access tokens, which `auth` implements (ARCH-13).
     pub verifier: Arc<dyn SessionVerifier>,
+    /// What authorizes workspace routes, with the policy `access` implements (ARCH-13).
+    pub authorizer: Authorizer,
 }
 
 /// The bucket of each client IP's requests (PLATFORM-048).
@@ -201,6 +220,7 @@ pub fn app(routes: Routes, pipeline: Pipeline) -> Router {
                     window: limits.window,
                 },
             },
+            authorizer: pipeline.authorizer,
         },
     );
     let app = Router::new()

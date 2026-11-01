@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspaces (name) VALUES ($1) RETURNING id, created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "f057c46fdfd380a96bed535fc480aebcdfd6bf1720000a1304a8ff4570714a6d"
+}

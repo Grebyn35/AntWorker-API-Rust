@@ -24,6 +24,9 @@ pub(super) type QueryNames = HashMap<Method, HashSet<String>>;
 /// The media type of every error response (API-07).
 const PROBLEM_MEDIA_TYPE: &str = "application/problem+json";
 
+/// The header of an idempotency key (API-12).
+pub(super) const IDEMPOTENCY_KEY: &str = "idempotency-key";
+
 /// Where the document lists a code that `platform` answers.
 enum Place {
     /// On every operation: the route's own pipeline answers it.
@@ -34,6 +37,10 @@ enum Place {
     Authenticated,
     /// On every operation that takes a body (PLATFORM-054, PLATFORM-056).
     Body,
+    /// On every operation of a workspace route, which authorization guards (ACCESS-003).
+    Workspace,
+    /// On every operation that takes an `Idempotency-Key` (PLATFORM-018, PLATFORM-058).
+    Keyed,
     /// Among the components' responses: the router answers it when no operation matches.
     Fallback,
 }
@@ -42,6 +49,10 @@ fn place(error: &RequestError) -> Place {
     match error {
         RequestError::NotFound | RequestError::MethodNotAllowed => Place::Fallback,
         RequestError::OriginNotAllowed => Place::Unsafe,
+        RequestError::PermissionDenied => Place::Workspace,
+        RequestError::InvalidIdempotencyKey
+        | RequestError::IdempotencyKeyReused
+        | RequestError::IdempotencyKeyInFlight => Place::Keyed,
         RequestError::Unauthenticated | RequestError::AccessTokenExpired => Place::Authenticated,
         RequestError::InvalidBody(_) | RequestError::InvalidFields(_) => Place::Body,
         RequestError::InvalidQuery(_)
@@ -61,11 +72,37 @@ fn applies(place: &Place, method: &Method, access: Access, operation: &Operation
         Place::Unsafe => !method.is_safe(),
         Place::Authenticated => !matches!(access, Access::Public),
         Place::Body => operation.request_body.is_some(),
+        Place::Workspace => matches!(access, Access::Workspace(_)),
+        Place::Keyed => takes_key(operation),
         Place::Fallback => false,
     }
 }
 
-/// Documents each operation's access level as the extension `x-access`, the problems the
+/// Whether `operation` documents the `Idempotency-Key` header (API-12).
+fn takes_key(operation: &Operation) -> bool {
+    operation
+        .parameters
+        .iter()
+        .flatten()
+        .any(|parameter| match parameter {
+            RefOr::T(parameter) => {
+                matches!(parameter.parameter_in, ParameterIn::Header)
+                    && parameter.name.eq_ignore_ascii_case(IDEMPOTENCY_KEY)
+            }
+            RefOr::Ref(_) => false,
+        })
+}
+
+/// Whether the pipeline can answer `error` on `operation`. A workspace route answers
+/// `request.not_found` itself, to a caller who isn't a member (ACCESS-003), besides the router's
+/// answer to a path no route has.
+fn answers(error: &RequestError, method: &Method, access: Access, operation: &Operation) -> bool {
+    applies(&place(error), method, access, operation)
+        || (matches!(error, RequestError::NotFound) && matches!(access, Access::Workspace(_)))
+}
+
+/// Documents each operation's access level as the extension `x-access`, a workspace route's
+/// permission as `x-permission`, which TEST-09's generated test reads, the problems the
 /// pipeline can answer on it, and the rate-limit headers of every response the limiter passes
 /// back through (PLATFORM-050). A route that documents its own response for one of those
 /// statuses keeps it, and lists the pipeline's codes in it itself (ERR-13). Returns the query
@@ -74,11 +111,11 @@ pub(super) fn document(paths: &mut Paths, access: Access, errors: &[&dyn ErrorCo
     let mut queries = QueryNames::new();
     for item in paths.paths.values_mut() {
         for (method, operation) in operations(item) {
-            operation.extensions = Some(
-                [("x-access", serde_json::Value::from(access.name()))]
-                    .into_iter()
-                    .collect(),
-            );
+            let mut extensions = vec![("x-access", serde_json::Value::from(access.name()))];
+            if let Access::Workspace(permission) = access {
+                extensions.push(("x-permission", serde_json::Value::from(permission)));
+            }
+            operation.extensions = Some(extensions.into_iter().collect());
             for (status, response) in problems(&method, access, operation, errors) {
                 operation
                     .responses
@@ -200,7 +237,7 @@ fn problems(
     let every = RequestError::every();
     let pipeline = every
         .iter()
-        .filter(|error| applies(&place(error), method, access, operation))
+        .filter(|error| answers(error, method, access, operation))
         .map(|error| error as &dyn ErrorCode);
     let mut by_status: BTreeMap<String, Vec<&dyn ErrorCode>> = BTreeMap::new();
     for error in pipeline.chain(errors.iter().copied()) {

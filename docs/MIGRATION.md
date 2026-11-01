@@ -69,13 +69,13 @@ Each module goes through these stages, in order:
 
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
-| `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits |
-| `accounts` | USER | first slice | first slice | first slice but ACCOUNTS-005, built with its first caller in 2.2 | first slice but ACCOUNTS-005 | first slice but ACCOUNTS-005 |
+| `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits |
+| `accounts` | USER | first slice | first slice | first slice | first slice | first slice but ACCOUNTS-005 and ACCOUNTS-006 |
 | `auth` | AUTH | first slice | first slice | first slice | first slice | first slice |
-| `access` | WS | first slice | first slice | | | |
-| `workspaces` | WS | first slice | first slice | | | |
+| `access` | WS | first slice | first slice | first slice | first slice | |
+| `workspaces` | WS | first slice | first slice | first slice | first slice | |
 | `invitations` | WS, MAIL | first slice | first slice | | | |
-| `audit` | AUDIT | first slice | first slice | the writer | the writer | the writer |
+| `audit` | AUDIT | first slice | first slice | the writer, the security event sink | the writer, the security event sink | the writer |
 | `realtime` | RT | first slice | first slice | | | |
 | `mail` | MAIL | first slice | first slice | | | |
 | `files` | FILE | | | | | |
@@ -93,13 +93,11 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `check-test-map`, `check-docs` | built |
 | `check-docs`, for the names of other codebases and the paths into the inventory (DOC-04) | 3 |
 | `check-docs`, for accepted ADRs (DOC-11) | 6, with the first ADR |
-| `check-openapi`, `check-instrument`, `check-layers`, `check-deps`, `check-schema`, `check-sql-bans` | built |
+| `check-openapi`, with list shapes, `check-instrument`, `check-layers`, `check-deps`, `check-schema`, `check-sql-bans`, `check-tenancy` | built |
 | `check-metrics`, `check-telemetry-config`, `alert-rules` | built |
-| `check-openapi`, for list shapes (API-05) | 2.2, with the first list: `GET /v1/workspaces` |
 | `check-openapi`, for the breaking-change diff (API-18, ERR-02) | the first final release |
 | `check-pins`, `image-scan`, `image-rescan`, `verify-release`, `check-shell` | built |
 | `e2e` | built, and extended by every later step |
-| `check-tenancy` | 2.2, with the first workspace tables |
 | `check-layout`, `check-table-ownership`, `check-config`, `check-migrations`, `sqlx-check`, `setup-smoke` | 3 decides: built, or the rule's check changes |
 | `check-personal-data` | 5, with export and erasure in `accounts` |
 | `check-removable` | 2.3, with the first removal that leaves a workspace shape: `invitations`, for the personal shape |
@@ -117,7 +115,8 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 | DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 | OPS-17 | Postgres treats a segment of the log that its restore command can't fetch as the end of the archive, so a restore whose replay can't fetch one, as when the bucket stops answering, ends the replay there: a restore of the latest state, or the second replay of one to a moment, then serves the database as of that segment, naming its last commit, rather than refusing | 3 |
 | DATA-28 | The rows of `rate_limit_buckets` whose windows ended stay until the periodic sweep deletes them, and no sweep runs before jobs exist: they hold only keyed hashes, and a check that finds one starts a new window, so they change no decision ([platform spec](spec/platform.md#rate-limits)) | 2.3, with jobs |
-| DATA-05 | `audit_entries.workspace_id` has no foreign key: the `workspaces` table it references arrives with the module | 2.2 |
+| DATA-28 | The rows of `idempotency_records` older than 24 hours stay until the periodic sweep deletes them: a claim of their key replaces them, so they change no response ([platform spec](spec/platform.md#idempotency)) | 2.3, with jobs |
+| DATA-28 | The rows of `events` stay until the retention that the event hub's replay needs deletes them | 2.4, with the hub |
 | DATA-28 | No personal data contract is registered for the tables that reference a user or hold personal data, `users`, `identities`, `sessions` and `audit_entries`: the registry, and the export and erasure that read it, arrive with the full `accounts` module (D31) | 5 |
 | OPS-22 | When both colors of replicas run and no deploy recorded which serves, deploy.sh tells the operator to stop one with `docker compose` on the server, a change to the services that no task makes | 3 |
 

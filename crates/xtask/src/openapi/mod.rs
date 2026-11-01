@@ -1,7 +1,9 @@
 //! `check-openapi`: the committed `openapi.json` follows the rules for the HTTP contract
-//! (API-01 to API-05, API-11, API-17, ERR-02, ERR-13). Each operation's scope, method and
-//! statuses are in `operations`, and the formats and request strings' lengths in `schemas`.
+//! (API-01 to API-06, API-11, API-17, ERR-02, ERR-13). Each operation's scope, method and
+//! statuses are in `operations`, the shape of lists in `lists`, and the formats and request
+//! strings' lengths in `schemas`.
 
+mod lists;
 mod operations;
 mod schemas;
 
@@ -64,6 +66,7 @@ pub fn check(repo: &Repo) -> Outcome {
     problems.extend(group_codes(&groups));
     problems.extend(references(&document, &document));
     problems.extend(operations::check(&document));
+    problems.extend(lists::check(&document));
     problems.extend(schemas::problems(&document));
     let responses = document["components"]["responses"]
         .as_object()

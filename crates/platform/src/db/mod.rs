@@ -28,7 +28,18 @@ pub use migrations::{MigrateError, SchemaProblem, Versions, migrate};
 pub use roles::{Admin, BootstrapError, RoleProblem, bootstrap};
 pub use url::{DatabaseUrl, InvalidDatabaseUrl};
 
-use crate::{clock::SharedClock, errors::Internal, lifecycle::Readiness, types::Client};
+use serde::{Serialize, de::DeserializeOwned};
+
+use crate::{
+    clock::SharedClock,
+    errors::{Internal, PlatformError, RequestError},
+    idempotency::{self, Claimed, IdempotencyKey, Outcome},
+    lifecycle::Readiness,
+    types::{Client, UserId},
+};
+
+/// The SQLSTATE of a lock that `lock_timeout` stopped waiting for.
+const LOCK_NOT_AVAILABLE: &str = "55P03";
 
 /// How long an operation waits for a free connection before it fails.
 const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -110,6 +121,7 @@ impl Database {
         Ok(UnitOfWork {
             tx: self.pool.begin().await?,
             client: Some(client.clone()),
+            claimed: None,
         })
     }
 
@@ -154,6 +166,7 @@ impl Database {
 pub struct UnitOfWork {
     tx: Transaction<'static, Postgres>,
     client: Option<Client>,
+    claimed: Option<(UserId, String)>,
 }
 
 impl UnitOfWork {
@@ -168,8 +181,108 @@ impl UnitOfWork {
         &mut self.tx
     }
 
-    /// Commits every write the unit of work holds.
+    /// Commits every write the unit of work holds. A unit of work that claimed an idempotency
+    /// key commits through [`UnitOfWork::commit_with`] instead, so its key keeps its result.
     pub async fn commit(self) -> Result<(), Internal> {
+        if self.claimed.is_some() {
+            return Err(Internal::new(
+                "a unit of work that claimed an idempotency key committed without its result",
+            ));
+        }
         Ok(self.tx.commit().await?)
     }
+
+    /// Claims `key` for `user`, as the unit of work's first statement, so the key's record
+    /// commits or rolls back with the operation (PLATFORM-018). With no key, or no operation
+    /// committed under it in the last 24 hours, the operation runs. The result of the one that
+    /// committed with the same fingerprint answers instead, and another fingerprint is refused
+    /// with 422. A record that another unit of work holds and hasn't committed is waited on for
+    /// at most a second, then refused with 409.
+    pub async fn claim<T: DeserializeOwned>(
+        &mut self,
+        user: UserId,
+        key: Option<&IdempotencyKey>,
+    ) -> Result<Claimed<T>, PlatformError> {
+        let Some(key) = key else {
+            return Ok(Claimed::Fresh);
+        };
+        sqlx::query!("SET LOCAL lock_timeout = '1s'")
+            .execute(&mut *self.tx)
+            .await
+            .map_err(Internal::from)?;
+        let inserted = sqlx::query_scalar!(
+            r#"INSERT INTO idempotency_records AS record (user_id, key, fingerprint)
+            VALUES ($1, $2, $3)
+            ON CONFLICT ON CONSTRAINT idempotency_records_user_id_key_key DO UPDATE
+                SET fingerprint = EXCLUDED.fingerprint, result = NULL, created_at = now()
+                WHERE record.created_at <= now() - interval '24 hours'
+            RETURNING true AS "inserted!""#,
+            user.uuid(),
+            key.key(),
+            key.fingerprint().as_slice(),
+        )
+        .fetch_optional(&mut *self.tx)
+        .await;
+        let inserted = match inserted {
+            Ok(row) => row.is_some(),
+            Err(error) if is_lock_timeout(&error) => {
+                idempotency::count(Outcome::InFlight);
+                return Err(RequestError::IdempotencyKeyInFlight.into());
+            }
+            Err(error) => return Err(Internal::from(error).into()),
+        };
+        sqlx::query!("SET LOCAL lock_timeout TO DEFAULT")
+            .execute(&mut *self.tx)
+            .await
+            .map_err(Internal::from)?;
+        if inserted {
+            idempotency::count(Outcome::New);
+            self.claimed = Some((user, key.key().to_owned()));
+            return Ok(Claimed::Fresh);
+        }
+        let record = sqlx::query!(
+            "SELECT fingerprint, result FROM idempotency_records WHERE user_id = $1 AND key = $2",
+            user.uuid(),
+            key.key(),
+        )
+        .fetch_one(&mut *self.tx)
+        .await
+        .map_err(Internal::from)?;
+        if record.fingerprint.as_slice() != key.fingerprint().as_slice() {
+            idempotency::count(Outcome::Reused);
+            return Err(RequestError::IdempotencyKeyReused.into());
+        }
+        let result = record
+            .result
+            .ok_or_else(|| Internal::new("a committed idempotency record has no result"))?;
+        let result = serde_json::from_value(result).map_err(Internal::new)?;
+        idempotency::count(Outcome::Replayed);
+        Ok(Claimed::Replay(result))
+    }
+
+    /// Commits every write the unit of work holds, with `result` kept under the idempotency key
+    /// it claimed, if any, in the same transaction, so a committed operation always has its
+    /// result (PLATFORM-018).
+    pub async fn commit_with<T: Serialize>(mut self, result: &T) -> Result<(), Internal> {
+        if let Some((user, key)) = self.claimed.take() {
+            let result = serde_json::to_value(result).map_err(Internal::new)?;
+            sqlx::query!(
+                "UPDATE idempotency_records SET result = $3 WHERE user_id = $1 AND key = $2",
+                user.uuid(),
+                key,
+                result,
+            )
+            .execute(&mut *self.tx)
+            .await?;
+        }
+        Ok(self.tx.commit().await?)
+    }
+}
+
+/// Whether `error` is a wait that `lock_timeout` ended.
+fn is_lock_timeout(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .and_then(sqlx::error::DatabaseError::code)
+        .is_some_and(|code| code == LOCK_NOT_AVAILABLE)
 }

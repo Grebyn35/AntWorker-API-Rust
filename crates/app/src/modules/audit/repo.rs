@@ -16,15 +16,20 @@ pub(super) async fn insert(
     entry: &Entry,
     trace_id: &str,
 ) -> Result<(), Internal> {
-    let Log::User(user) = scope.log();
+    let (log, user, workspace) = match scope.log() {
+        Log::User(user) => ("user", Some(user.uuid()), None),
+        Log::Workspace(workspace) => ("workspace", None, Some(workspace.uuid())),
+    };
     let client_ip = uow.client().map(|client| client.ip);
     let user_agent = uow.client().and_then(|client| client.user_agent.clone());
     sqlx::query!(
         "INSERT INTO audit_entries (
-            scope, user_id, actor_user_id, target_user_id, action, resource_type, resource_id,
-            details, client_ip, user_agent, trace_id
-        ) VALUES ('user', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-        user.uuid(),
+            scope, user_id, workspace_id, actor_user_id, target_user_id, action, resource_type,
+            resource_id, details, client_ip, user_agent, trace_id
+        ) VALUES ($1::text::audit_scope, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+        log,
+        user,
+        workspace,
         scope.actor().map(|actor| actor.uuid()),
         entry.target.map(|target| target.uuid()),
         entry.action.name(),

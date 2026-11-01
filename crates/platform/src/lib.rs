@@ -4,6 +4,7 @@
 #![deny(missing_docs)]
 
 pub mod authn;
+pub mod authz;
 pub mod blocking;
 pub mod clock;
 pub mod config;
@@ -12,7 +13,9 @@ pub mod errors;
 pub mod events;
 pub mod hashing;
 pub mod http;
+pub mod idempotency;
 pub mod lifecycle;
+pub mod lists;
 pub mod random;
 pub mod rate_limit;
 pub mod telemetry;

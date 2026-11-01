@@ -67,7 +67,7 @@ ci: checks image image-scan e2e
 # Runs the checks of the code, the part of CI that needs no image.
 [doc("Runs the checks of the code, which need no image")]
 [group('check')]
-checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-schema
+checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-schema check-tenancy
 
 # Lists the tools `just checks` needs besides just and the toolchain, as CI's install step takes
 # them.
@@ -349,6 +349,13 @@ check-deps:
 [group('check')]
 check-schema: services
     {{ xtask }} check-schema
+
+# Fails on a query of workspace data that names no tenant, or a table that holds no workspace data
+# and isn't listed as account or platform data (DATA-22).
+[doc("Fails on a query of workspace data that names no tenant, or a table placed nowhere")]
+[group('check')]
+check-tenancy:
+    {{ xtask }} check-tenancy
 
 # Prints the names of the packages that the images of `repository`, such as owner/name, are in
 # the registry, separated by commas, for the workflows.

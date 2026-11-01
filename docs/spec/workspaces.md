@@ -31,7 +31,7 @@
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
-| WORKSPACES-001 | Creating a workspace makes the caller its owner, in one unit of work. It answers 201 with `Location` and `{id, name, role: "owner", created_at}`. It records `workspace.created` in the workspace's log, and publishes the user event `membership.created` to the caller's other devices. | D33, API-04, DATA-27 | `workspaces_001_` |
+| WORKSPACES-001 | Creating a workspace makes the caller its owner, in one unit of work. It answers 201 with `Location` and `{id, name, role: "owner", created_at}`. It records `workspace.created` in the workspace's log, and publishes the user event `membership.created`, which names the session that caused it, so that device can tell it already knows. | D33, API-04, DATA-27 | `workspaces_001_` |
 | WORKSPACES-002 | A workspace name is trimmed, has internal whitespace collapsed to single spaces, is normalized to Unicode Normalization Form C (NFC), and must be 1 to 255 characters and not only whitespace. | D25, API-10 | `workspaces_002_` |
 | WORKSPACES-003 | `GET /v1/workspaces` lists every workspace the caller belongs to, with `{id, name, role, joined_at}`, the latest joined first, in cursor pages. Its `search` matches the name. | D3, API-05, API-06, API-20 | `workspaces_003_` |
 | WORKSPACES-004 | `GET .../members` lists the workspace's members with `{user_id, name, email, role, joined_at}`, the latest joined first, in cursor pages. Its `search` matches the name or the email, and `role` keeps the members of one role. | API-05, API-06, API-20, DATA-22 | `workspaces_004_` |
@@ -55,6 +55,10 @@ Tests arrange workspaces and memberships through the `owner` connection (TEST-06
 In one unit of work, the subcommand creates a workspace with the name it is given, and its owner's account from an email and a name, through `accounts::create`. An operator runs it once for each workspace the deployment's organization needs, such as one per subsidiary. The account has no password. The subcommand enqueues an email that tells the owner the account exists, and carries no secret. The owner signs in for the first time through password reset in a client: the reset code sent to their address sets the first password, and verifies the address. Their next step is inviting everyone else (INVITATIONS-001).
 
 When an account with that email already exists, the subcommand makes it the owner if its email is verified, or if it has no identity yet, as an account an earlier run created has until its owner sets a password, so one person can own several workspaces before signing in. Otherwise it refuses, so nobody can take a workspace by registering its owner's address first. It records each workspace it creates in `setup_runs`, a table of its own, with the name the run was given, which a unique constraint allows once: a run with a name an earlier run used, even one at the same time, is refused by that constraint and changes nothing, so running it twice by mistake creates one workspace (ERR-05). Deleting a workspace deletes its row with it, so its name can be given again. It prints nothing secret.
+
+### No active workspace
+
+The server stores no active or default workspace for a user (D3). Each request names the workspace it acts in, in its path (API-02), and a client remembers which one it works in, so a user's devices can each work in a different one.
 
 ### Listing the caller's workspaces
 

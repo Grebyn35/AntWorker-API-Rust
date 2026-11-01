@@ -234,6 +234,86 @@
         "x": 0,
         "y": 24
       }
+    },
+    {
+      "type": "timeseries",
+      "title": "Why does authorization refuse requests?",
+      "description": "Workspace requests refused in the last 5 minutes, by why: not_member, which answered 404, permission or rank, which answered 403 (ACCESS-003, ACCESS-004). A rise of not_member from one user is someone probing workspaces they don't belong to; each refusal's audit entry names them.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (authorization_reason) (increase(platform_authorization_refusals_total[5m]))",
+          "legendFormat": "{{authorization_reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 6,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "How do requests with an idempotency key end?",
+      "description": "Requests with an Idempotency-Key in the last 5 minutes, by how claiming the key ended: new, replayed, which answered a committed result again, reused, which answered 422, or in_flight, which answered 409 (PLATFORM-018). Many in_flight are clients retrying before their first request ends.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (idempotency_outcome) (increase(platform_idempotent_requests_total[5m]))",
+          "legendFormat": "{{idempotency_outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 7,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      }
     }
   ]
 }

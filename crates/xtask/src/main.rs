@@ -32,6 +32,7 @@ mod shell;
 mod sql_bans;
 mod stack;
 mod telemetry_config;
+mod tenancy;
 mod test_map;
 mod text;
 
@@ -123,6 +124,13 @@ enum Command {
     /// DATA-12, DATA-19).
     #[command(name = "check-schema")]
     Schema,
+    /// Fails on a query, in a `sqlx` macro of `platform` or `app`, of a table with a
+    /// `workspace_id` that names neither its `workspace_id` nor, for a table with one, its
+    /// `user_id`, outside a listed job that spans tenants, and on a table without a
+    /// `workspace_id` that isn't listed as account or platform data or as the workspaces
+    /// themselves (DATA-22).
+    #[command(name = "check-tenancy")]
+    Tenancy,
     /// Sets the app's version to `version` on `main`, commits it and pushes it, after it checks
     /// that `version` can be released from `main` as it is. The run on `main` that passes with
     /// the version releases it (OPS-14). Without a version, it shows the versions that can come
@@ -317,6 +325,7 @@ fn main() -> ExitCode {
         Command::Layers => layers::check(&repo),
         Command::Deps => deps::check(&repo),
         Command::Schema => schema::check(&repo),
+        Command::Tenancy => tenancy::check(&repo),
         Command::Release { .. }
         | Command::ReleaseCheck { .. }
         | Command::Inputs { .. }

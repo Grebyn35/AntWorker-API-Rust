@@ -159,15 +159,19 @@ async fn platform_035_an_undocumented_query_parameter_answers_400() {
     let response = api.get("/v1/capabilities?verbose=true").send().await;
 
     let unknown = problem(&response, StatusCode::BAD_REQUEST, "request.invalid_query");
+    let message = "The route takes no query parameter of this name.";
     assert_eq!(
-        unknown["detail"],
-        "The route takes no query parameter named verbose."
+        unknown["errors"],
+        serde_json::json!([{ "field": "/verbose", "code": "unknown", "message": message }])
     );
     let response = api.get("/v1/items?limit=5&sort=name&page=2").send().await;
     let unknown = problem(&response, StatusCode::BAD_REQUEST, "request.invalid_query");
     assert_eq!(
-        unknown["detail"],
-        "The route takes no query parameter named page, sort."
+        unknown["errors"],
+        serde_json::json!([
+            { "field": "/page", "code": "unknown", "message": message },
+            { "field": "/sort", "code": "unknown", "message": message },
+        ])
     );
 }
 

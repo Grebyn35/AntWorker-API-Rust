@@ -49,9 +49,7 @@ None.
 
 | Decision | Commitment | Settled in |
 |---|---|---|
-| D3 | The server stores no active or default workspace | the `workspaces` step: state it in the spec's Design |
 | D11 | Each user holds a capped number of concurrent streams | the `realtime` step |
-| D12 | Idempotency keys are compared exactly as sent | the idempotency step |
 | D18 | A browser's stream authenticates through the same cookie (D61) | the `realtime` step |
 
 ### For later steps

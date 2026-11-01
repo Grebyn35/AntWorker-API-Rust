@@ -229,9 +229,14 @@ fn health(config: Result<HealthConfig, ConfigError>) -> ExitCode {
     }
 }
 
-/// Writes the OpenAPI document. It runs no async runtime and writes no logs.
+/// Writes the OpenAPI document. It runs no async runtime and writes no logs. The document passes
+/// through `serde_json::Value`, whose objects keep their keys in order, so a map that `utoipa`
+/// keeps in a `HashMap`, such as an operation's extensions, is written the same every time
+/// (API-17).
 fn openapi(path: &Path) -> ExitCode {
-    let document = match app::openapi(SERVICE).to_pretty_json() {
+    let document = serde_json::to_value(app::openapi(SERVICE))
+        .and_then(|document| serde_json::to_string_pretty(&document));
+    let document = match document {
         Ok(document) => document,
         Err(error) => return failed_before_logging(None, "openapi", &error),
     };

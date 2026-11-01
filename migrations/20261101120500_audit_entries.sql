@@ -1,5 +1,6 @@
 -- Who did what (the audit spec). An entry of the user scope is in user_id's log, and one of the
--- workspace scope in workspace_id's, whose foreign key step 2.2 adds with the workspaces table.
+-- workspace scope in workspace_id's, whose foreign key a later migration adds, once the
+-- workspaces table exists.
 CREATE TYPE audit_scope AS ENUM ('user', 'workspace');
 
 CREATE TABLE audit_entries (

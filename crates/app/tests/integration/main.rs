@@ -5,6 +5,8 @@
 //! `unwrap` and `expect` (CODE-03).
 
 #[cfg(test)]
+mod access;
+#[cfg(test)]
 mod accounts;
 #[cfg(test)]
 mod audit;
@@ -18,3 +20,5 @@ mod platform;
 mod support;
 #[cfg(test)]
 mod system;
+#[cfg(test)]
+mod workspaces;

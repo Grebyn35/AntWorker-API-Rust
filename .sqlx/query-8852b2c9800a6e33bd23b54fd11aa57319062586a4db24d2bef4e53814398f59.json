@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE idempotency_records SET result = $3 WHERE user_id = $1 AND key = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8852b2c9800a6e33bd23b54fd11aa57319062586a4db24d2bef4e53814398f59"
+}

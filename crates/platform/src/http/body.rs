@@ -1,15 +1,20 @@
-//! Request bodies: the JSON extractor (PLATFORM-054, PLATFORM-055), and the collection of every
+//! Request bodies: the JSON extractor (PLATFORM-054, PLATFORM-055), with the idempotency key of a
+//! keyed route (PLATFORM-058), and the collection of every
 //! field that a request type's conversion into domain types refuses (PLATFORM-056, API-10).
 
 use axum::{
+    body::Bytes,
     extract::{FromRequest, Request},
     http::header,
 };
 use http_body_util::{BodyExt, LengthLimitError};
 use serde::de::DeserializeOwned;
+use sha2::{Digest, Sha256};
 
+use super::docs::IDEMPOTENCY_KEY;
 use crate::{
     errors::{BodyFault, FieldError, Problem, RequestError},
+    idempotency::IdempotencyKey,
     types::Invalid,
 };
 
@@ -26,28 +31,72 @@ where
     type Rejection = Problem<RequestError>;
 
     async fn from_request(request: Request, _: &S) -> Result<Self, Self::Rejection> {
-        if !is_json(request.headers().get(header::CONTENT_TYPE)) {
-            return Err(Problem(RequestError::InvalidBody(BodyFault::ContentType)));
-        }
-        let bytes = match request.into_body().collect().await {
-            Ok(collected) => collected.to_bytes(),
-            Err(error) if is_too_large(&error) => {
-                return Err(Problem(RequestError::PayloadTooLarge));
-            }
-            Err(_) => return Err(Problem(RequestError::InvalidBody(BodyFault::Syntax))),
-        };
-        let deserializer = &mut serde_json::Deserializer::from_slice(&bytes);
-        serde_path_to_error::deserialize(deserializer)
-            .map(Self)
-            .map_err(|error| {
-                let fault = if error.inner().is_data() {
-                    BodyFault::Shape(pointer(error.path()))
-                } else {
-                    BodyFault::Syntax
-                };
-                Problem(RequestError::InvalidBody(fault))
-            })
+        let bytes = read(request).await?;
+        parse(&bytes).map(Self)
     }
+}
+
+/// The JSON body of a route that accepts an `Idempotency-Key` (API-12), and the request's key, if
+/// it sent one, with the fingerprint of its method, path, query and body (PLATFORM-018).
+#[derive(Debug)]
+pub struct Idempotent<T> {
+    /// The body, parsed as [`Json`] parses it.
+    pub body: T,
+    /// The key, which the operation's unit of work claims.
+    pub key: Option<IdempotencyKey>,
+}
+
+impl<T, S> FromRequest<S> for Idempotent<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = Problem<RequestError>;
+
+    async fn from_request(request: Request, _: &S) -> Result<Self, Self::Rejection> {
+        let method = request.method().as_str().to_owned();
+        let path = request.uri().path().to_owned();
+        let query = request.uri().query().unwrap_or_default().to_owned();
+        let header = request.headers().get(IDEMPOTENCY_KEY).cloned();
+        let bytes = read(request).await?;
+        let digest: [u8; 32] = Sha256::digest(&bytes).into();
+        let key = header
+            .map(|value| {
+                IdempotencyKey::parse(value.as_bytes(), &method, &path, &query, &digest)
+                    .ok_or(Problem(RequestError::InvalidIdempotencyKey))
+            })
+            .transpose()?;
+        Ok(Self {
+            body: parse(&bytes)?,
+            key,
+        })
+    }
+}
+
+/// The body of `request`, which must be sent as JSON, read up to its route's limit
+/// (PLATFORM-054, PLATFORM-055).
+async fn read(request: Request) -> Result<Bytes, Problem<RequestError>> {
+    if !is_json(request.headers().get(header::CONTENT_TYPE)) {
+        return Err(Problem(RequestError::InvalidBody(BodyFault::ContentType)));
+    }
+    match request.into_body().collect().await {
+        Ok(collected) => Ok(collected.to_bytes()),
+        Err(error) if is_too_large(&error) => Err(Problem(RequestError::PayloadTooLarge)),
+        Err(_) => Err(Problem(RequestError::InvalidBody(BodyFault::Syntax))),
+    }
+}
+
+/// `bytes` parsed into `T`, or the field the parser failed at (PLATFORM-054).
+fn parse<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Problem<RequestError>> {
+    let deserializer = &mut serde_json::Deserializer::from_slice(bytes);
+    serde_path_to_error::deserialize(deserializer).map_err(|error| {
+        let fault = if error.inner().is_data() {
+            BodyFault::Shape(pointer(error.path()))
+        } else {
+            BodyFault::Syntax
+        };
+        Problem(RequestError::InvalidBody(fault))
+    })
 }
 
 /// Whether a `Content-Type` is `application/json`, with no parameter but a `charset` of `utf-8`.
@@ -126,6 +175,15 @@ impl FieldErrors {
         match value {
             Some(value) if self.0.is_empty() => Ok(value),
             _ => Err(RequestError::InvalidFields(self.0)),
+        }
+    }
+
+    /// `value`, which the checked query parameters built, unless one was refused: then the 400
+    /// `request.invalid_query` that names every refused parameter (PLATFORM-035).
+    pub fn finish_query<T>(self, value: Option<T>) -> Result<T, RequestError> {
+        match value {
+            Some(value) if self.0.is_empty() => Ok(value),
+            _ => Err(RequestError::InvalidQuery(self.0)),
         }
     }
 }

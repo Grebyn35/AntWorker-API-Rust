@@ -72,8 +72,16 @@ pub const OTEL_STATUS_CODE: &str = convention("otel.status_code", otel::OTEL_STA
 /// telemetry may carry it (OBS-04).
 pub const USER_ID: &str = convention("user.id", otel::USER_ID);
 
+/// The workspace an `Authorized<P>` proved the caller a member of, on the request's span
+/// (OBS-09). A workspace ID is an opaque key, so telemetry may carry it (OBS-04).
+pub const WORKSPACE_ID: &str = "workspace.id";
+
 /// How long a request took, in seconds.
 pub const REQUEST_DURATION: &str = "request.duration";
+/// Why authorization refused a request: `not_member`, `permission` or `rank` (PLATFORM-025).
+pub const AUTHORIZATION_REASON: &str = "authorization.reason";
+/// How a keyed request's claim of its key ended, such as `new` or `replayed` (PLATFORM-018).
+pub const IDEMPOTENCY_OUTCOME: &str = "idempotency.outcome";
 /// The kind of a rate limit's bucket, such as `ip` or `sign_in` (PLATFORM-050).
 pub const RATE_LIMIT_BUCKET: &str = "rate_limit.bucket";
 /// How a sign-in ended, such as `succeeded` or `invalid_credentials` (AUTH-004, AUTH-005).

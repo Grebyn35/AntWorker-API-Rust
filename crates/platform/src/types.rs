@@ -116,6 +116,10 @@ id_type!(
     /// A session's ID.
     SessionId
 );
+id_type!(
+    /// A workspace's ID, the other tenancy key that `platform` knows (architecture §4).
+    WorkspaceId
+);
 
 fn uuid_schema() -> RefOr<Schema> {
     ObjectBuilder::new()
@@ -161,6 +165,53 @@ impl fmt::Display for Timestamp {
 impl Serialize for Timestamp {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.collect_str(self)
+    }
+}
+
+/// Reads back what `Serialize` writes, such as a stored result that an idempotency key replays
+/// (PLATFORM-018), and nothing else.
+impl<'de> Deserialize<'de> for Timestamp {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Self::parse(&text).ok_or_else(|| serde::de::Error::custom("not a timestamp the API wrote"))
+    }
+}
+
+impl Timestamp {
+    /// The moment in `text`, as `Display` writes it: `YYYY-MM-DDTHH:MM:SS.ffffffZ`.
+    fn parse(text: &str) -> Option<Self> {
+        let bytes = text.as_bytes();
+        let shape_ok = bytes.len() == 27
+            && [
+                (4, b'-'),
+                (7, b'-'),
+                (10, b'T'),
+                (13, b':'),
+                (16, b':'),
+                (19, b'.'),
+                (26, b'Z'),
+            ]
+            .iter()
+            .all(|&(index, byte)| bytes[index] == byte);
+        if !shape_ok {
+            return None;
+        }
+        let number = |range: std::ops::Range<usize>| text.get(range)?.parse::<u32>().ok();
+        let month = time::Month::try_from(u8::try_from(number(5..7)?).ok()?).ok()?;
+        let date = time::Date::from_calendar_date(
+            i32::try_from(number(0..4)?).ok()?,
+            month,
+            u8::try_from(number(8..10)?).ok()?,
+        )
+        .ok()?;
+        let time = time::Time::from_hms_micro(
+            u8::try_from(number(11..13)?).ok()?,
+            u8::try_from(number(14..16)?).ok()?,
+            u8::try_from(number(17..19)?).ok()?,
+            number(20..26)?,
+        )
+        .ok()?;
+        Some(Self(date.with_time(time).assume_utc()))
     }
 }
 
@@ -288,6 +339,16 @@ mod tests {
             Timestamp::from_database(at).to_string(),
             "2026-11-01T02:26:40.123456Z"
         );
+    }
+
+    #[test]
+    fn platform_018_a_timestamp_reads_back_what_it_writes() {
+        let at =
+            time::OffsetDateTime::from_unix_timestamp_nanos(1_793_500_000_123_456_000).unwrap();
+        let written = serde_json::to_value(Timestamp::from_database(at)).unwrap();
+        let read: Timestamp = serde_json::from_value(written).unwrap();
+        assert_eq!(read, Timestamp::from_database(at));
+        assert!(serde_json::from_str::<Timestamp>("\"2026-11-01T02:26:40Z\"").is_err());
     }
 
     #[test]

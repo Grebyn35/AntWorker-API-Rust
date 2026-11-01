@@ -50,7 +50,7 @@ fn err_13_every_code_the_pipeline_answers_is_in_the_committed_document() {
 }
 
 #[tokio::test]
-async fn api_14_every_user_route_refuses_a_caller_without_a_credential() {
+async fn api_14_every_user_and_workspace_route_refuses_a_caller_without_a_credential() {
     let api = Api::new().await;
     let paths = api.document()["paths"].as_object().unwrap().clone();
     let mut called = 0;
@@ -69,7 +69,7 @@ async fn api_14_every_user_route_refuses_a_caller_without_a_credential() {
             .collect::<Vec<_>>()
             .join("/");
         for (method, operation) in item.as_object().unwrap() {
-            if operation["x-access"] != "user" {
+            if operation["x-access"] != "user" && operation["x-access"] != "workspace" {
                 continue;
             }
             let method = Method::from_bytes(method.to_ascii_uppercase().as_bytes()).unwrap();
@@ -89,7 +89,7 @@ async fn api_14_every_user_route_refuses_a_caller_without_a_credential() {
             called += 1;
         }
     }
-    assert!(called >= 3, "only {called} user routes");
+    assert!(called >= 7, "only {called} user and workspace routes");
 }
 
 #[tokio::test]

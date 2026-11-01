@@ -83,6 +83,17 @@ pub(crate) struct Profile {
     pub(crate) email_verified: bool,
 }
 
+/// How a user appears to the other members of a workspace they share (ACCOUNTS-005).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PublicProfile {
+    /// The user's ID.
+    pub(crate) id: UserId,
+    /// The user's email address.
+    pub(crate) email: EmailAddress,
+    /// The user's name.
+    pub(crate) name: DisplayName,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

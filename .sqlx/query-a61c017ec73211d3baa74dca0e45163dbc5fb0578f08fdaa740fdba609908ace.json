@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace_id, user_id, role::text AS \"role!\", created_at\n        FROM workspace_memberships\n        WHERE workspace_id = $1\n            AND ($2::text IS NULL OR role = $2::text::workspace_role)\n            AND ($3::uuid[] IS NULL OR user_id = ANY($3))\n            AND ($4::timestamptz IS NULL OR (created_at, user_id) < ($4, $5))\n        ORDER BY created_at DESC, user_id DESC\n        LIMIT $6",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspace_memberships",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspace_memberships",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "role!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "workspace_memberships",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "UuidArray",
+        "Timestamptz",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "a61c017ec73211d3baa74dca0e45163dbc5fb0578f08fdaa740fdba609908ace"
+}

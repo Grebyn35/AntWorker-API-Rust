@@ -4,12 +4,13 @@ use platform::{
     authn::Principal,
     db::{Database, UnitOfWork},
     errors::Internal,
+    lists::Search,
     types::{Client, EmailAddress, UserId},
 };
 
 use super::{
     error::AccountsError,
-    model::{DisplayName, Profile},
+    model::{DisplayName, Profile, PublicProfile},
     repo,
 };
 
@@ -60,4 +61,23 @@ pub(crate) async fn profile(
     repo::profile(uow, principal.user_id())
         .await?
         .ok_or_else(|| Internal::new("the caller's user doesn't exist").into())
+}
+
+/// The names and emails of exactly the users `ids` names, which came from a query filtered by
+/// tenant, such as a workspace's member list (ACCOUNTS-005, DATA-22).
+pub(crate) async fn profiles(
+    uow: &mut UnitOfWork,
+    ids: &[UserId],
+) -> Result<Vec<PublicProfile>, AccountsError> {
+    Ok(repo::profiles(uow, ids).await?)
+}
+
+/// The IDs among `ids`, passed under the same terms as to [`profiles`], of the users whose name
+/// or email contains `search` (ACCOUNTS-006).
+pub(crate) async fn matching(
+    uow: &mut UnitOfWork,
+    ids: &[UserId],
+    search: &Search,
+) -> Result<Vec<UserId>, AccountsError> {
+    Ok(repo::matching(uow, ids, search).await?)
 }

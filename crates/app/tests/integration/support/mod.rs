@@ -19,6 +19,7 @@ pub mod api;
 mod contract;
 pub mod fixtures;
 pub mod users;
+pub mod workspaces;
 
 use std::{
     error::Error,
@@ -226,6 +227,12 @@ impl TestDatabase {
         let mut owner = connect(&self.owner_url()).await;
         execute(&mut owner, sql).await;
         close(owner).await;
+    }
+
+    /// A connection as `owner` that the test holds, to keep a transaction open while the API
+    /// works, which [`execute_on`] runs statements on.
+    pub async fn owner_connection(&self) -> PgConnection {
+        connect(&self.owner_url()).await
     }
 
     /// Runs `sql` as the administrator, to arrange what no role of the API may do.

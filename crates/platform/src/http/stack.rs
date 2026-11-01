@@ -30,11 +30,13 @@ use super::{
     client::{TrustedProxies, client},
     docs::QueryNames,
     limits::{IpLimit, ip_limit},
+    query::parameter_pointer,
 };
 use crate::{
     authn::Authenticator,
+    authz::Authorizer,
     clock::SharedClock,
-    errors::{self, ErrorReport, Internal, Problem, RequestError},
+    errors::{self, ErrorReport, FieldError, Internal, Problem, RequestError},
     telemetry::{
         self,
         metrics::Histogram,
@@ -105,6 +107,7 @@ pub(super) struct Stack {
     pub(super) origins: Origins,
     pub(super) ip_limit: Arc<IpLimit>,
     pub(super) authenticator: Authenticator,
+    pub(super) authorizer: Authorizer,
 }
 
 /// The stack every request below the security headers passes, health probes aside, in the order
@@ -126,7 +129,8 @@ pub(super) fn request(router: Router, stack: Stack) -> Router {
             .layer(GlobalConcurrencyLimitLayer::new(stack.max_concurrent))
             .layer(middleware::from_fn_with_state(stack.ip_limit, ip_limit))
             .layer(middleware::from_fn_with_state(stack.origins, cross_site))
-            .layer(Extension(stack.authenticator)),
+            .layer(Extension(stack.authenticator))
+            .layer(Extension(stack.authorizer)),
     )
 }
 
@@ -169,6 +173,7 @@ async fn trace(request: Request, next: Next) -> Response {
         { names::HTTP_RESPONSE_STATUS_CODE } = Empty,
         { names::ERROR_TYPE } = Empty,
         { names::USER_ID } = Empty,
+        { names::WORKSPACE_ID } = Empty,
     );
     // An inbound context that isn't valid leaves the span the root of a new trace. Setting the
     // parent fails only if the span isn't one the tracer follows, and then the request goes on
@@ -336,7 +341,17 @@ async fn query(State(queries): State<Arc<QueryNames>>, request: Request, next: N
         unknown.sort();
         unknown.dedup();
         if !unknown.is_empty() {
-            return Problem(RequestError::InvalidQuery(unknown)).into_response();
+            let errors = unknown
+                .iter()
+                .map(|name| {
+                    FieldError::new(
+                        parameter_pointer(name),
+                        "unknown",
+                        "The route takes no query parameter of this name.",
+                    )
+                })
+                .collect();
+            return Problem(RequestError::InvalidQuery(errors)).into_response();
         }
     }
     next.run(request).await

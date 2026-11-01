@@ -4,4 +4,4 @@
 mod composition;
 mod modules;
 
-pub use composition::{Config, MIGRATIONS, Services, compose, openapi, pipeline};
+pub use composition::{Config, MIGRATIONS, Services, compose, openapi, permissions, pipeline};
