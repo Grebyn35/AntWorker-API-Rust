@@ -122,7 +122,7 @@ A row ID alone never addresses tenant data. Two kinds of read are exempt:
 - Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column filters on it, unless it belongs to a listed cross-tenant job, and every table without one is listed as account or platform data), `test` (TEST-09 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
 
 ### DATA-23 Lists use keyset pagination on an index
-A list query filters by the cursor's sort key, with the ID as tiebreaker, and never uses `OFFSET`. An index matches its filter and order.
+A list query filters by the cursor's sort key, with the ID as tiebreaker, and never uses `OFFSET`. An index matches its tenant filter and its order. A `search` (API-20) narrows the rows that index reaches, without an index of its own until a load test asks for one.
 - Why: fast at any depth, and stable under inserts (API-06).
 - Check: `review`, plus `test` (API-06).
 

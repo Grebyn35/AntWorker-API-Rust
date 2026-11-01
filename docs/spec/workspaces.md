@@ -58,7 +58,7 @@ When an account with that email already exists, the subcommand makes it the owne
 
 ### Listing the caller's workspaces
 
-`access::memberships` returns the caller's memberships, filtered by their user ID (ACCESS-005). One query of `workspaces` then reads those workspaces' names, with each membership's role and joining time passed in as arrays, which it orders by joining time and ID, pages by the cursor, and matches against the search, so a page never holds a workspace the caller doesn't belong to (DATA-22, ARCH-06). A user belongs to few workspaces, so the arrays stay small.
+`access::joined` pages the caller's memberships, filtered by their user ID, through the index on their user and joining time, and `names` gives the page's workspace names (DATA-22, DATA-23). A search first takes the IDs of every workspace the caller belongs to, from `access::memberships` (ACCESS-005), and `matching` keeps those whose name contains it, so `joined` pages only those, as the platform spec's "Lists" says.
 
 ### Listing members
 

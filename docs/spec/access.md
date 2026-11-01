@@ -20,6 +20,7 @@
 - `remove(uow, &Authorized<MembersRemove>, user_id)`: removes a member, subject to rank.
 - `members(uow, &Authorized<MembersRead>, &MemberFilter, &Page)`: a page of the workspace's memberships, newest first, kept to a role and to a set of users when the filter names them.
 - `member_ids(uow, &Authorized<MembersRead>)`: the user IDs of every member of the workspace, which a search of the members hands `accounts` (Design: Searching members).
+- `joined(uow, &Principal, Option<&[WorkspaceId]>, &Page)`: a page of the caller's own memberships, the latest joined first, kept to the given workspaces when a search named them, for listing the caller's workspaces.
 - `outranks(role, role)`: compares two roles (SEC-08).
 
 ## Behaviors
