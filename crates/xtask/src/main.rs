@@ -25,6 +25,7 @@ mod restore;
 mod routes;
 mod server;
 mod shell;
+mod sql_bans;
 mod stack;
 mod telemetry_config;
 mod test_map;
@@ -94,6 +95,11 @@ enum Command {
     /// macOS, or in a shell script under `deploy/` (CODE-16).
     #[command(name = "check-shell")]
     Shell,
+    /// Fails on a function, method or macro that the locked sqlx exposes and that takes SQL
+    /// text, outside the checked macros, and that `clippy.toml` doesn't ban, or on a ban of
+    /// sqlx's that reaches nothing (DATA-20).
+    #[command(name = "check-sql-bans")]
+    SqlBans,
     /// Sets the app's version to `version` on `main`, commits it and pushes it, after it checks
     /// that `version` can be released from `main` as it is. The run on `main` that passes with
     /// the version releases it (OPS-14). Without a version, it shows the versions that can come
@@ -284,6 +290,7 @@ fn main() -> ExitCode {
         Command::AlertRules => alerts::check(&repo),
         Command::Pins => pins::check(&repo),
         Command::Shell => shell::check(&repo),
+        Command::SqlBans => sql_bans::check(&repo),
         Command::Release { .. }
         | Command::ReleaseCheck { .. }
         | Command::Inputs { .. }

@@ -67,7 +67,7 @@ ci: checks image image-scan e2e
 # Runs the checks of the code, the part of CI that needs no image.
 [doc("Runs the checks of the code, which need no image")]
 [group('check')]
-checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell
+checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans
 
 # Lists the tools `just checks` needs besides just and the toolchain, as CI's install step takes
 # them.
@@ -315,6 +315,14 @@ check-pins:
 [group('check')]
 check-shell:
     {{ xtask }} check-shell
+
+# Fails on a function, method or macro that the locked sqlx exposes and that takes SQL text,
+# outside the checked macros, and that clippy.toml doesn't ban, or on a ban of sqlx's that
+# reaches nothing (DATA-20).
+[doc("Fails on a function of sqlx that takes SQL text and that clippy.toml doesn't ban")]
+[group('check')]
+check-sql-bans:
+    {{ xtask }} check-sql-bans
 
 # Prints the names of the packages that the images of `repository`, such as owner/name, are in
 # the registry, separated by commas, for the workflows.

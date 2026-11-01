@@ -98,7 +98,6 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `check-metrics`, `check-telemetry-config`, `alert-rules` | built |
 | `check-openapi`, for list shapes, methods, statuses, scopes and formats (API-02 to API-05, API-11) | 2.1, with the first routes that have them |
 | `check-openapi`, for the `maxLength` of each string of a request body (API-17) | 2.1, with the first route that takes a body |
-| `check-sql-bans` (DATA-20) | 2.1, with the first queries of a module |
 | `check-openapi`, for the breaking-change diff (API-18, ERR-02) | the first final release |
 | `check-pins`, `image-scan`, `image-rescan`, `verify-release`, `check-shell` | built |
 | `e2e` | built, and extended by every later step |
