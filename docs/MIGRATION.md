@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 2.2: the spec of `access` and `workspaces`, with `Authorized<P>`, the security event sink and idempotency, then their test-first build, whose review covers the commits after this handoff. Step 2.1 is built and reviewed through 290c430: its review stopped at pass 2 under its no-progress condition, with each must-fix finding resolved, as [Conformance reviews](#conformance-reviews) records. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 2.2's test-first build of `access` and `workspaces`, with `Authorized<P>`, the security event sink, idempotency, publishing events, lists with `search`, `check-tenancy` and the list shapes of `check-openapi`, as their specs now say; its review covers the commits after bd2d1fd. Step 2.1 is built and reviewed through 290c430: its review stopped at pass 2 under its no-progress condition, with each must-fix finding resolved, as [Conformance reviews](#conformance-reviews) records. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
 
 ## Build order
 
@@ -127,9 +127,6 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 
 | From | Proposal | Decided in |
 |---|---|---|
-| Research | API-12 names the draft it follows: draft-ietf-httpapi-idempotency-key-header-08 (2026-10), whose key is a structured-field string. | 2.2 |
-| Conformance review of cf1253c | API-07, API-09: whether `request.invalid_query` names the unknown parameters in `errors`, since clients never act on `detail` (ERR-09) | 2.2, with the first route that parses query values: `GET /v1/workspaces` |
-| Conformance review of 3ae7168 | A DATA rule for D39: data a module adds for its product has a `workspace_id`, and a check fails on a table keyed by a user ID that isn't listed as account data. | 2.2, with the first workspace tables and `check-tenancy` |
 | Conformance review of 3ae7168 | ARCH-07: whether password sign-in is an optional part, for a fork that signs in only through OAuth providers | 5, with the full `auth` module |
 | Conformance review of 3ae7168 | DATA-12 and the platform spec's unit of work: how an operator's subcommand, such as `seed` or the setup subcommand, opens its unit of work, and as which role | 2.4, with `seed` |
 | Conformance review of b299bf2..004d477 | OPS-17: whether the reach of `BACKUP_RETENTION_DAYS` holds on a restored timeline whose closing backup failed, when retention expires the backup from before its branch while a newer full backup on the timeline the restore abandoned stays, and backups.md's "never shorten the reach" with it | 3 |

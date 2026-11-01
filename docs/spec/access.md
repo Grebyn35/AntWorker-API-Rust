@@ -18,7 +18,8 @@
 - `add_member(uow, workspace_id, user_id, role)`: adds a member. Called only by `invitations`, after accepting.
 - `is_member(uow, workspace_id, user_id)`: whether the user belongs to the workspace.
 - `remove(uow, &Authorized<MembersRemove>, user_id)`: removes a member, subject to rank.
-- `members(uow, &Authorized<MembersRead>, page)`: a page of the workspace's memberships.
+- `members(uow, &Authorized<MembersRead>, &MemberFilter, &Page)`: a page of the workspace's memberships, newest first, kept to a role and to a set of users when the filter names them.
+- `member_ids(uow, &Authorized<MembersRead>)`: the user IDs of every member of the workspace, which a search of the members hands `accounts` (Design: Searching members).
 - `outranks(role, role)`: compares two roles (SEC-08).
 
 ## Behaviors
@@ -52,7 +53,11 @@ A partial unique index on `workspace_memberships (workspace_id) WHERE role = 'ow
 
 ### Policy
 
-`AccessPolicy::authorize` runs inside the request's unit of work (PLATFORM-024). It reads the caller's membership row by workspace ID and user ID, and answers not a member, a member without the permission, or the member's role (platform spec, "Refusals").
+`AccessPolicy::authorize` runs inside the request's unit of work (PLATFORM-024). It reads the caller's membership row by workspace ID and user ID, `FOR SHARE`, and answers not a member, a member without the permission, or the member's role (platform spec, "Refusals"). `Authorized<P>` carries the role by its name, which `access` reads back into its `Role`, so `platform` holds no roles of its own (ARCH-02).
+
+### Searching members
+
+The members' names and emails belong to `accounts`, and their memberships to `access`, so no one query joins them (ARCH-06). A search takes three: `member_ids` reads the workspace's members, `accounts::matching` keeps those whose name or email contains the search, and `members` pages the memberships of the users it kept. Each query filters by tenant itself: the first two by the workspace from the proof, and the second by IDs that came from it (DATA-22). A list without a search skips the first two.
 
 ## Open design questions
 

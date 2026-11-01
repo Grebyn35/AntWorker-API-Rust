@@ -13,6 +13,7 @@
 ## Interface
 
 - `names(uow, &[WorkspaceId])`: workspace names for a batch of IDs that came from a query filtered by tenant, used by `invitations` (DATA-22).
+- `matching(uow, &[WorkspaceId], &Search)`: the IDs among a batch, from a query filtered by tenant, of the workspaces whose name contains the search, used by `invitations` (API-20).
 - The domain type `WorkspaceName` (D25).
 
 ## Routes
@@ -32,8 +33,8 @@
 |---|---|---|---|
 | WORKSPACES-001 | Creating a workspace makes the caller its owner, in one unit of work. It answers 201 with `Location` and `{id, name, role: "owner", created_at}`. It records `workspace.created` in the workspace's log, and publishes the user event `membership.created` to the caller's other devices. | D33, API-04, DATA-27 | `workspaces_001_` |
 | WORKSPACES-002 | A workspace name is trimmed, has internal whitespace collapsed to single spaces, is normalized to Unicode Normalization Form C (NFC), and must be 1 to 255 characters and not only whitespace. | D25, API-10 | `workspaces_002_` |
-| WORKSPACES-003 | `GET /v1/workspaces` lists every workspace the caller belongs to, with `{id, name, role, joined_at}`, newest first, in cursor pages. | D3, API-05, API-06 | `workspaces_003_` |
-| WORKSPACES-004 | `GET .../members` lists the workspace's members with `{user_id, name, email, role, joined_at}`, newest first, in cursor pages. | API-05, API-06, DATA-22 | `workspaces_004_` |
+| WORKSPACES-003 | `GET /v1/workspaces` lists every workspace the caller belongs to, with `{id, name, role, joined_at}`, the latest joined first, in cursor pages. Its `search` matches the name. | D3, API-05, API-06, API-20 | `workspaces_003_` |
+| WORKSPACES-004 | `GET .../members` lists the workspace's members with `{user_id, name, email, role, joined_at}`, the latest joined first, in cursor pages. Its `search` matches the name or the email, and `role` keeps the members of one role. | API-05, API-06, API-20, DATA-22 | `workspaces_004_` |
 | WORKSPACES-005 | Removing a member deletes their membership and answers 204. It records `member.removed` in the workspace's log, with the removed user as the target, and publishes the workspace event `member.removed`, which requires `members.read`. It also sends an access-change signal that closes or re-filters the removed user's streams. | SEC-06, SEC-08, DATA-27, D35 | `workspaces_005_` |
 | WORKSPACES-006 | A caller can't remove themselves (422 `workspaces.cannot_remove_self`), and can't remove a member of equal or higher rank (403 `request.permission_denied`, PLATFORM-025), which also protects the owner. A user ID that isn't a member answers 404 `workspaces.member_not_found`. | SEC-08, ERR-03 | `workspaces_006_` |
 
@@ -55,9 +56,13 @@ In one unit of work, the subcommand creates a workspace with the name it is give
 
 When an account with that email already exists, the subcommand makes it the owner if its email is verified, or if it has no identity yet, as an account an earlier run created has until its owner sets a password, so one person can own several workspaces before signing in. Otherwise it refuses, so nobody can take a workspace by registering its owner's address first. It records each workspace it creates in `setup_runs`, a table of its own, with the name the run was given, which a unique constraint allows once: a run with a name an earlier run used, even one at the same time, is refused by that constraint and changes nothing, so running it twice by mistake creates one workspace (ERR-05). Deleting a workspace deletes its row with it, so its name can be given again. It prints nothing secret.
 
+### Listing the caller's workspaces
+
+`access::memberships` returns the caller's memberships, filtered by their user ID (ACCESS-005). One query of `workspaces` then reads those workspaces' names, with each membership's role and joining time passed in as arrays, which it orders by joining time and ID, pages by the cursor, and matches against the search, so a page never holds a workspace the caller doesn't belong to (DATA-22, ARCH-06). A user belongs to few workspaces, so the arrays stay small.
+
 ### Listing members
 
-`access::members` returns the memberships, filtered by the workspace ID. `accounts::profiles` returns their names and emails in one batch call, given exactly those user IDs (ARCH-06, DATA-22).
+`access::members` returns a page of the memberships, filtered by the workspace ID, and narrowed by a search as the access spec says ("Searching members"). `accounts::profiles` returns their names and emails in one batch call, given exactly those user IDs (ACCOUNTS-005, ARCH-06, DATA-22).
 
 ## Open design questions
 
@@ -67,5 +72,4 @@ When an account with that email already exists, the subcommand makes it the owne
 | How the read of every workspace that `superadmins` asks of this module, which no tenant filters, meets DATA-22 and `check-tenancy` (D62) | the spec of `superadmins`, in step 5 |
 | How the owner sets their first password in a deployment with email turned off (MAIL-004), where password reset can't send its code | the spec of the full `auth` module, with password reset |
 | How the owner signs in to the account the setup subcommand created, in a fork that signs in only through OAuth providers | the spec of the full `auth` module, with identity linking |
-| How a client in the personal shape avoids creating two workspaces when two of the user's devices find them in none at the same moment ([architecture §5](../architecture.md#workspace-shapes)) | step 2.2, which builds `POST /v1/workspaces` and its idempotency |
 | How the command that removes an optional part (ARCH-07) rewrites prose that names the part, such as the shapes in architecture §5, so a fork's documents describe only its own shape | the command, built with `check-removable` in step 2.3 |

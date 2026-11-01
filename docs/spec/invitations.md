@@ -31,7 +31,7 @@ None.
 | INVITATIONS-001 | Inviting an email with a role creates a pending invitation that expires after the configured number of days (1 to 90, default 7). It answers 201, records `invitation.created`, and enqueues the invitation email (MAIL-002) in the same unit of work. The role must rank below the inviter's, or the request answers 403 `request.permission_denied` (ACCESS-004). | SEC-08, DATA-27, D1 | `invitations_001_` |
 | INVITATIONS-002 | Inviting an email that belongs to a member of the workspace answers 409 `invitations.already_member`, and writes nothing. | ERR-03 | `invitations_002_` |
 | INVITATIONS-003 | Inviting an email that already has an invitation to this workspace refreshes it in place: the role, inviter and expiry are replaced, and the ID is kept. It answers 200, records `invitation.updated`, and enqueues the email again. | DATA-27, API-04 | `invitations_003_` |
-| INVITATIONS-004 | `GET /v1/users/me/invitations` lists the caller's unexpired invitations in every workspace, with `{id, workspace_id, workspace_name, inviter_name, role, expires_at}`, in cursor pages. It works when the caller belongs to no workspace. | D34, DATA-22, API-06 | `invitations_004_` |
+| INVITATIONS-004 | `GET /v1/users/me/invitations` lists the caller's unexpired invitations in every workspace, with `{id, workspace_id, workspace_name, inviter_name, role, expires_at}`, in cursor pages. Its `search` matches the workspace's name. It works when the caller belongs to no workspace. | D34, DATA-22, API-06, API-20 | `invitations_004_` |
 | INVITATIONS-005 | Accepting adds the caller to the workspace with the invitation's role, and deletes the invitation, in one unit of work. It answers 200 with `{workspace_id, role}`. It records `invitation.accepted` in the workspace's log, publishes the workspace event `member.joined`, which requires `members.read`, and publishes the user event `membership.created`. | D34, DATA-27 | `invitations_005_` |
 | INVITATIONS-006 | Accepting an expired invitation answers 422 `invitations.expired`. Accepting while already a member answers 409 `invitations.already_member` and changes nothing. An invitation not addressed to the caller answers 404 `invitations.not_found`. | D16, D34, DATA-22 | `invitations_006_` |
 | INVITATIONS-007 | A scheduled job deletes expired invitations every hour, configurable, across all workspaces. | OPS-11, DATA-22 | `invitations_007_` |
@@ -48,7 +48,7 @@ None.
 
 ### Listing the caller's invitations
 
-The query filters on the caller's email, from `accounts::profile`, and on `expires_at` against `now()` (DATA-22). Workspace names come from `workspaces::names`, and inviter names from `accounts::profiles`, each passed only the IDs on the page.
+The query filters on the caller's email, from `accounts::profile`, and on `expires_at` against `now()` (DATA-22). Workspace names come from `workspaces::names`, and inviter names from `accounts::profiles`, each passed only the IDs on the page. A search first reads the workspace IDs of every one of the caller's unexpired invitations, and `workspaces::matching` keeps those whose name contains it, so the page holds only their invitations.
 
 ### Accepting
 

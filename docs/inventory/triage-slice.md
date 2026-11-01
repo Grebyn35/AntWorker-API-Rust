@@ -28,14 +28,14 @@ Verdicts:
 | WS-001 New accounts start with no workspace | kept | AUTH-001 | |
 | WS-002 Create a workspace | changed | WORKSPACES-001 | Path (D3), 201 (API-04), owner role (D2), workspace log (D6) |
 | WS-003 Creating doesn't make the workspace active | dropped | | No server-side active workspace (D3) |
-| WS-004 List my workspaces | changed | WORKSPACES-003 | Caller's role in each item; keyset paging; no total count (D8). The name filter arrives with the full module |
-| WS-018 List members | changed | WORKSPACES-004 | Roles instead of permission lists (D2). Filters arrive with the full module |
+| WS-004 List my workspaces | changed | WORKSPACES-003 | Caller's role in each item; keyset paging; no total count (D8). The name filter is kept as `search` (API-20) |
+| WS-018 List members | changed | WORKSPACES-004 | Roles instead of permission lists (D2). `search` by name or email (API-20) and `role` replace the email and permission filters |
 | WS-023 Remove a member | changed | WORKSPACES-005 | Rank rule (D2), access-change signal (D35), audit in the same transaction (D1) |
 | WS-024 Owner and caller can't be removed | changed | WORKSPACES-006 | The owner is protected by rank (SEC-08) |
 | WS-028 Invite by email | changed | INVITATIONS-001, INVITATIONS-008 | A role instead of a permission list (D2); email sent by a job (D1). The invitee's live `invitation.received` is kept |
 | WS-029 Existing members can't be invited | kept | INVITATIONS-002 | |
 | WS-030 Re-inviting refreshes | changed | INVITATIONS-003 | Audited as an update; 200 |
-| WS-034 List my pending invitations | changed | INVITATIONS-004 | Keyset paging instead of in-memory paging (API-06) |
+| WS-034 List my pending invitations | changed | INVITATIONS-004 | Keyset paging instead of in-memory paging (API-06). The workspace-name filter is kept as `search` (API-20) |
 | WS-035 Accept an invitation | changed | INVITATIONS-005 | Recorded in the workspace's log (D6); the membership and the invitation's deletion commit together (D34) |
 | WS-036 Accept guards | changed | INVITATIONS-006 | Expiry is 422; an invitation for another email is 404 (DATA-22) |
 | WS-038 Accepting while a member overwrites | changed | INVITATIONS-006 | 409, and nothing changes (D16) |

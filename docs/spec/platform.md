@@ -13,7 +13,7 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 | `events` | Published events, kept for replay |
 | `jobs` | The job queue |
 | `job_schedules` | One row per periodic job, holding its lease and next run |
-| `idempotency_records` | Reserved and completed idempotency keys, with their stored results |
+| `idempotency_records` | One row per user and idempotency key whose operation committed, with its fingerprint and its result |
 | `rate_limit_buckets` | Rate-limit counters, keyed by a hash-based message authentication code (HMAC) |
 | `_sqlx_migrations` | The applied migrations, recorded by `migrate` |
 
@@ -23,12 +23,14 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 - **Unit of work:** `UnitOfWork`, opened with the request's `Client` (Design: Unit of work), with `executor`, `commit`, `enqueue` and `publish`.
 - **Request context:** `Client`, the request's client IP (PLATFORM-047) and user agent.
 - **Rate limits:** `RateLimits`, which a route takes from the request and hands its service, whose `check` counts the request in a bucket that the module names, and refuses it once the bucket is full, for a per-action limit such as AUTH-006 (PLATFORM-026). `RateLimiter`, whose `count` counts in a bucket, does the counting for it and for the pipeline's IP and user limits.
-- **Request bodies:** `Json<T>`, the extractor of a JSON body (PLATFORM-054), and `FieldErrors`, which collects every field that a request type's conversion into domain types refuses (PLATFORM-056).
+- **Request bodies:** `Json<T>`, the extractor of a JSON body (PLATFORM-054), which also gives the body's digest, and `FieldErrors`, which collects every field that a request type's conversion into domain types refuses (PLATFORM-056).
+- **Idempotency:** `IdempotencyKey`, the extractor of a request's `Idempotency-Key` (PLATFORM-058), and `UnitOfWork::claim` and `commit_with`, which keep an operation's result under its key (API-12).
+- **Lists:** `Page`, the extractor of a list's `limit` and `cursor` (API-06), `Search`, the extractor of its `search` (API-20), and `List<T>`, the body of a page of items, with its next cursor (API-05).
 - **Tasks:** `bootstrap` and `migrate`, run by the binary's subcommands of the same names (ARCH-14).
 - **Routes:** `Routes`, through which every module registers its routes and their documentation (API-14, API-17), and `http::app`, which wraps them in the request pipeline.
 - **Errors:** `Category`, and `Problem<E>`, the one conversion of an error into a response (ERR-07).
 - **Lifecycle:** `Readiness`, `ShutdownSignals` and `serve`, which runs the server until a shutdown signal and then shuts it down (OPS-05, OPS-06), and `probe`, which the `health` subcommand runs (PLATFORM-044).
-- **Proof types:** `Principal`, `Authorized<P>`, `Memberships` and `JobContext`, and `AuditScope`, the log and the actor of an audit entry, which only a proof builds with an actor ([audit spec](audit.md#recording-an-entry)).
+- **Proof types:** `Principal`, `Authorized<P>`, `Memberships` and `JobContext`, and `AuditScope`, the log and the actor of an audit entry, which only a proof builds with an actor ([audit spec](audit.md#recording-an-entry)). `Authorize<P>`, the extractor of a workspace route, proves nothing until its `open` (Design: Unit of work).
 - **Traits that modules implement** (ARCH-13):
   - `SessionVerifier`, implemented by `auth`.
   - `AccessPolicy`, implemented by `access`, with `authorize` and `memberships`.
@@ -91,7 +93,8 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
-| PLATFORM-015 | A published event exists only if its unit of work commits, and each replica's hub loads it once. | DATA-27, D20 | `platform_015_` |
+| PLATFORM-015 | A published event exists only if its unit of work commits. | DATA-27, D1 | `platform_015_` |
+| PLATFORM-057 | Each replica's hub loads a published event once. | D20 | `platform_057_` |
 | PLATFORM-016 | A workspace event reaches only streams whose principal holds the permission its type requires. Replay excludes events from before the membership. | SEC-17 | `platform_016_` |
 | PLATFORM-017 | A committed access change closes or re-filters the affected streams. A missed signal is caught by the periodic re-check. | SEC-06, D35 | `platform_017_` |
 
@@ -99,7 +102,8 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
-| PLATFORM-018 | Same key and fingerprint returns the stored result. A different fingerprint gets 422. A request still in flight gets 409. A committed change always has its record. | API-12 | `platform_018_` |
+| PLATFORM-018 | A request with the key and the fingerprint of an operation that committed answers that operation's result again, and changes nothing. The same key with another fingerprint answers 422 `request.idempotency_key_reused`. A request whose key's first request hasn't committed or rolled back answers 409 `request.idempotency_key_in_flight`. A committed operation always has its record, and one that rolled back has none, so its retry runs. A record older than 24 hours counts as absent. | API-12 | `platform_018_` |
+| PLATFORM-058 | An `Idempotency-Key` that isn't one string of structured fields, of 1 to 255 characters, answers 400 `request.invalid_idempotency_key`. Keys are per user: another user's request with the same key runs as a new one. | API-12 | `platform_058_` |
 | PLATFORM-019 | The health probes bypass rate limits, load shedding and the route groups' body limit, and return a plain status body. | OPS-05 | `platform_019_` |
 | PLATFORM-020 | Requests beyond the concurrency limit get the 503 problem `request.overloaded`, with `Retry-After`. | OPS-07 | `platform_020_` |
 | PLATFORM-021 | Every error is an RFC 9457 problem with `code` and `trace_id`, a path that doesn't exist included, and internal errors expose nothing. | ERR-07, ERR-08, API-07 | `platform_021_` |
@@ -107,7 +111,9 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 | PLATFORM-031 | A request that runs past its timeout answers 503 `request.timed_out`, with `Retry-After`. | OPS-07, ERR-03 | `platform_031_` |
 | PLATFORM-032 | A request to a path that doesn't serve its method answers 405 `request.method_not_allowed`, with `Allow` listing the methods the path serves. | ERR-03, API-07 | `platform_032_` |
 | PLATFORM-034 | Every request except the health probes writes one `INFO` line when it completes, with its method, route, status and duration. A 5xx response also writes one `ERROR` line with its cause chain, except a panic's, whose one `ERROR` line the panic hook writes, and a 4xx response writes nothing above `INFO`. | OBS-03, ERR-10, ERR-12 | `platform_034_` |
-| PLATFORM-035 | A query parameter that the route's documentation doesn't list answers 400 `request.invalid_query`. | API-09 | `platform_035_` |
+| PLATFORM-035 | A query parameter that the route's documentation doesn't list, or whose value the route refuses, answers 400 `request.invalid_query`, with each such parameter in `errors`: its JSON Pointer among the query's parameters, such as `/limit`, and the code `unknown`, or the code of its value's fault, such as `out_of_range`. | API-09, API-07 | `platform_035_` |
+| PLATFORM-059 | A list's `limit` is 50 when absent, and 1 to 100. Its `cursor` is one that the same route answered, or it is refused. Paging through a list, rows that share a sort key included, returns each row once. | API-06, DATA-23 | `platform_059_` |
+| PLATFORM-060 | A list's `search` is trimmed, has internal whitespace collapsed to single spaces, is normalized to Unicode Normalization Form C (NFC), and is 1 to 100 characters. An item matches when one of the fields its route names contains it, ignoring case, with `%`, `_` and `\` matching only themselves. | API-20 | `platform_060_` |
 | PLATFORM-036 | A request whose `Content-Length` exceeds its route's body limit answers 413 `request.payload_too_large`, before the body is read. | API-08 | `platform_036_` |
 | PLATFORM-054 | A JSON body whose `Content-Type` isn't `application/json`, that isn't JSON, or that doesn't match its request type, an unknown field included, answers 400 `request.invalid_body`. When the parser names the field it failed at, `errors` holds that field. | API-08, API-07 | `platform_054_` |
 | PLATFORM-055 | A body that grows past its route's body limit while it is read, without a `Content-Length` that declared it, answers 413 `request.payload_too_large`. | API-08 | `platform_055_` |
@@ -182,8 +188,8 @@ Pools, connections and transactions stay inside `platform::db`, and code elsewhe
 
 ### Unit of work
 
-A unit of work is one transaction on the `app` pool. It opens after authentication, the rate-limit checks, the idempotency reservation and parsing, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one:
-- On a workspace route, it opens together with `Authorized<P>`: the transaction opens, `AccessPolicy::authorize` runs inside it, and the handler receives the open unit of work with the proof, which it hands the service (PLATFORM-024).
+A unit of work is one transaction on the `app` pool. It opens after authentication, the rate-limit checks and parsing, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one:
+- On a workspace route, it opens together with `Authorized<P>`. The handler extracts `Authorize<P>`, which holds the caller's `Principal` and the workspace ID from the path, and calls its `open` once the body is parsed, since axum runs the body's extractor after every other: the transaction opens, `AccessPolicy::authorize` runs inside it, and `open` returns the open unit of work with the proof, which the handler hands the service, or the refusal (PLATFORM-024). `authorize` reads the caller's membership `FOR SHARE`, so a removal or a role change of that membership waits until the operation commits or rolls back, and the operation runs under the role it was authorized with. Rank keeps two operations from waiting on each other: a member acts only on members below their own rank (SEC-08), so no two members each act on the other.
 - On a user or public route, the service opens it from the `Database`, with the request's `Client`, once any per-action limit it checks has counted.
 - A job handler opens it with `for_job`, from the job's `JobContext`.
 
@@ -206,7 +212,9 @@ Each request's `Client` holds its client IP and its user agent. The client IP is
 - a member without the permission, which becomes 403 `request.permission_denied`
 - the member's role, from which `Authorized<P>` is built
 
-A refusal is reported to the `SecurityEventSink`, which records it in its own short transaction, because the refused operation has written nothing. A member's refusal goes to the workspace's log, and a non-member's to the caller's own log. A rank refusal found inside an operation goes through `authz::refuse`: the operation's unit of work rolls back, and the refusal is recorded the same way (PLATFORM-025).
+A refusal is reported to the `SecurityEventSink`, which records it in its own short transaction, because the refused operation has written nothing. A member's refusal goes to the workspace's log, and a non-member's to the caller's own log. A rank refusal found inside an operation goes through `authz::refuse`: the operation's unit of work rolls back, and the refusal is recorded the same way (PLATFORM-025). A refusal names the caller, the workspace, the permission, whether the caller is a member, and the request's `Client`, and the sink records it with the trace ID of the span it is reported in. A sink that fails to record fails the request as an internal error, so no refusal goes unrecorded (DATA-27).
+
+`Permission` is the trait of a permission type, which gives its name, such as `members.read`. The builder `workspace::<P>` registers a route whose handler extracts `Authorize<P>`, and documents the operation's access as `workspace` and its permission as `x-permission`, which TEST-09's generated test reads. A route of `superadmins` (D62) will be authorized the same way, by a proof of its own: a builder `superadmin` whose handler extracts that proof, which a trait of its own, implemented by `superadmins`, checks inside the unit of work, and whose refusals reach the same sink. Neither `Authorized<P>` nor any workspace route changes for it.
 
 ### Rate limits
 
@@ -228,7 +236,8 @@ A request that finds its bucket full stops there with 429 `request.rate_limited`
 
 ### Events and the real-time hub
 
-- `uow.publish` inserts an `events` row and calls `pg_notify` with the event's ID, both in the unit of work's transaction. The row holds the event's scope (a user or a workspace), its type, the permission its type requires, its payload of IDs, and its trace context (OBS-07). Postgres delivers notifications only at commit, and no trigger is involved (DATA-07).
+- Each module declares its event types in its `events.rs`, each with its name (API-19), its scope, and for a workspace event the permission it requires, as it declares its audit actions.
+- `uow.publish` inserts an `events` row and calls `pg_notify` with the event's ID, both in the unit of work's transaction. Publishing is built in step 2.2, and the hub, which reads what it published, in step 2.4. The row holds the event's scope (a user or a workspace), its type, the permission its type requires, its payload of IDs, and its trace context (OBS-07). Postgres delivers notifications only at commit, and no trigger is involved (DATA-07).
 - Each replica's listener receives the notification. The hub loads the event once, and delivers it to each stream whose scope matches and whose principal holds the required permission. The hub caches each stream's `Memberships` from `AccessPolicy::memberships`, and refreshes them on access-change signals.
 - On reconnect, a stream replays from its last event ID. The replay query filters on the caller's user ID and on the workspace IDs in their `Memberships`, and skips events created before the membership in their workspace (SEC-17).
 - An access change sends a signal on the `access_changed` channel with `pg_notify` inside the change's transaction. The signal holds only IDs: the kind of change, the user, and where relevant the workspace or session. It isn't stored (D35). The hub closes the affected streams, or re-filters them against a fresh `AccessPolicy::memberships`.
@@ -236,12 +245,19 @@ A request that finds its bucket full stops there with 429 `request.rate_limited`
 
 ### Idempotency
 
-1. Before the handler runs, the idempotency layer reserves the key. In its own short transaction, it inserts an `idempotency_records` row with the principal, the key, the fingerprint and the state `in_flight`. An existing row for the same key decides the response instead: the stored result, 422 or 409 (API-12).
-2. When the handler's unit of work commits, it updates the reservation, in that same transaction, to the state `done`, and stores the operation's result. A committed change therefore always has its record.
-3. If the operation fails without committing, the layer deletes the reservation, so a retry runs again.
-4. A reservation still `in_flight` after the request timeout (OPS-07) is treated as abandoned, and a new request may take it over.
-5. A replay renders the stored result through the route's response mapping.
-6. An entry older than 24 hours is treated as absent when it is read, whether or not a sweep has removed it yet.
+The key's record is written by the operation's own unit of work, so it exists exactly when the operation committed, and no other state needs cleaning up:
+1. `IdempotencyKey` reads the header, a string of structured fields as draft-ietf-httpapi-idempotency-key-header-08 defines it (RFC 9651), and refuses one that isn't (PLATFORM-058). The fingerprint is a SHA-256 digest of the method, the path, the query and the digest of the body that `Json<T>` read.
+2. The service opens its unit of work, and its first statement is `claim`, with the caller's user ID, the key and the fingerprint. It inserts the record, which the unit of work completes at its commit. A committed record of the same user and key decides instead: its result when the fingerprint matches, which the service returns as its own, so the route maps it as it maps a fresh one, or 422 otherwise.
+3. A record that another unit of work has inserted and not yet committed makes the insert wait on that transaction. `claim` waits at most one second, under a `lock_timeout` of its own, and then answers 409, so a retry of a request still running is refused rather than held.
+4. `commit_with(result)` writes the result into the record and commits, in the same transaction as the operation's writes. A unit of work that claimed a key and commits without its result fails as an internal error, so no keyed operation commits without one.
+5. A unit of work that rolls back, whether it failed or the process ended, takes its record with it, so a retry runs again.
+6. A record older than 24 hours counts as absent: `claim` replaces it. The periodic sweep, built with jobs in step 2.3, deletes such records.
+
+A key is the caller's own, so a retry from another session of the same user, after signing in again, still finds its record. The main alternative was a reservation committed in a transaction of its own before the operation: its failures need it deleted, and a process that ends mid-request leaves it blocking every retry with 409 until it is deemed abandoned.
+
+### Lists
+
+`Page` reads `limit` and `cursor` (PLATFORM-059). A cursor is the base64url encoding of the last item's sort key and ID, so a page is the next rows after that key in the route's order, whatever was added since (API-06). A cursor that doesn't decode into the route's key is refused, as `/cursor` with the code `invalid`. `Search` reads `search` (PLATFORM-060), and a repository matches it with `ILIKE`, its pattern escaped. Every list is first narrowed to one workspace or one user, so the match reads only that tenant's rows, and needs no index of its own until a load test shows one (OPS-18). A list's query parameters that fail are reported together (PLATFORM-035).
 
 ### Request pipeline
 
@@ -307,6 +323,8 @@ The metrics `platform` records:
 - `platform.panics`, by the panic hook (ERR-12)
 - `platform.errors_ignored`, by `errors::ignore` (ERR-11)
 - `platform.rate_limit_refusals`, by the rate limiter, for each request it refuses, by the kind of the bucket (PLATFORM-048)
+- `platform.authorization_refusals`, by `authz`, for each refusal, by its reason: `not_member`, `permission` or `rank` (PLATFORM-025, ACCESS-003)
+- `platform.idempotent_requests`, by `claim`, for each keyed request, by its outcome: `new`, `replayed`, `reused` or `in_flight` (PLATFORM-018)
 - `platform.database_reachable`, 1 or 0, by the readiness check after every ping (PLATFORM-043)
 - `process.memory.usage`, the process's resident memory in bytes, every 15 seconds, from the kernel's report in `/proc/self/status`, so on Linux only (PLATFORM-046)
 - the exporters' counts, above
@@ -348,5 +366,5 @@ A name joins the list with the first code that writes it, such as `workspace.id`
 | Whether the hub refreshes a stream's cached memberships on every access-change signal for that user, or only on the signal's workspace | `platform_016_` and `platform_017_`, measured against a user in several workspaces |
 | Whether a job enqueued in workspace context re-asks `AccessPolicy` when it runs, so a role change in between is respected | `platform_012_`, with a job enqueued before the enqueuing member's role changes |
 | Whether one listener connection per replica is enough under load, or events and access changes need separate connections | a load test of the hub, recorded under OPS-18 |
-| How `platform::authz` proves that the caller of a route of `superadmins` is a superadmin, beside `Authorized<P>` for a membership, inside the unit of work, with refusals reported to the `SecurityEventSink` (D62) | step 2.2, which builds `authz` so that this proof joins it without changing the workspace routes; `superadmins` is built in step 5 |
+| Whether `lock_timeout` bounds `claim`'s wait on another transaction's record, as it bounds the wait on a lock (PLATFORM-018) | `platform_018_`, with two requests of one key, the first held open |
 | Whether `serve` needs a limit on the connections it accepts. Beyond the concurrency limit, a request gets 503 at once, but each open connection still holds memory: in the load test at 1.6 times a replica's capacity, with the client opening a connection for each request it couldn't send on one already open, a replica's memory reached 408 megabytes of its 512, and fell back afterwards | an overload test through Caddy, which opens the replicas' connections in a deployment, recorded under OPS-18 |

@@ -55,7 +55,7 @@ An error response, except from the health probes (OPS-05), has `Content-Type: ap
 - `detail`: a human-readable explanation, when there is one (ERR-09).
 - `code`: the stable error code (ERR-02).
 - `trace_id`: the request's trace ID.
-- `errors`: present only for validation failures. A list of `{field, code, message}`, where `field` is a JSON Pointer to the invalid input.
+- `errors`: present only for validation failures. A list of `{field, code, message}`, where `field` is a JSON Pointer to the invalid input: into the body, or, for `request.invalid_query`, into the query's parameters, such as `/limit`.
 - Why: one standard format that every client parses the same way (D8, D10).
 - Check: `compiler` (ERR-07), plus `test`.
 
@@ -82,8 +82,8 @@ Timestamps are RFC 3339 in UTC with a `Z` suffix, at microsecond precision. IDs 
 ## Behavior
 
 ### API-12 Idempotency keys follow the IETF draft
-`POST` routes marked idempotent in their module spec accept `Idempotency-Key`:
-- A key is unique per authenticated principal.
+`POST` routes marked idempotent in their module spec accept `Idempotency-Key`, as the IETF's draft-ietf-httpapi-idempotency-key-header-08 defines it, which isn't an RFC yet: the key is a string of structured fields, such as `Idempotency-Key: "8e03978e-40d5-43e8-bc93-6894a57f9324"`, of 1 to 255 characters.
+- A key is unique per authenticated user, across their sessions.
 - The fingerprint covers the method, the route, the query and a digest of the body.
 - The same key with the same fingerprint returns the stored result of the first request. A different fingerprint gets 422. A key whose first request is still running gets 409.
 - A committed change always has its stored result, so a retry never repeats it. A request that failed without committing can be retried.
@@ -133,3 +133,8 @@ Within `/v1`, changes are additive: new routes, new optional request fields, new
 Server-sent events (SSE) are named `<resource>.<past-tense verb>`, for example `member.removed`. A payload carries IDs and non-sensitive fields only. Clients fetch details over REST.
 - Why: events never leak data that the REST permission checks would withhold (D7).
 - Check: `review`, plus `test` (TEST-09 covers the REST side).
+
+### API-20 Lists of named resources take `search`
+A list whose items have a name or an email takes `search`, which keeps the items that contain it in one of the fields the route's documentation names, ignoring case, as the platform spec defines it (PLATFORM-060). It works on every page of the list, with the list's order and cursors (API-06).
+- Why: a client finds an item among many in one way on every list, and a fork's lists take the same parameter as the template's.
+- Check: `test` (each list's search has a test that pages through matches), plus `review` (a list of named resources takes it).
