@@ -55,7 +55,7 @@ fn new_server() -> (Server, String) {
     let server = Server::start();
     let mut settings = format!(
         "IMAGE_REPOSITORY=registry:5000/image\nSOURCE=https://example.invalid/e2e\n\
-         API_ADDRESS={API_ADDRESS}\nTELEMETRY=off\nDATABASE=bundled\nAPI_REPLICAS=2\n\
+         API_ADDRESS={API_ADDRESS}\nTELEMETRY=off\nEMAIL=off\nDATABASE=bundled\nAPI_REPLICAS=2\n\
          DATABASE_MAX_CONNECTIONS=2\n"
     );
     for (name, value) in server.start_bucket() {
