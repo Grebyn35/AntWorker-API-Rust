@@ -46,3 +46,5 @@ just metrics         # rewrites the metric catalog from the declarations (OBS-12
 ```
 
 Queries are checked against the database while compiling, and `migrate` is part of the same binary. Add a migration and run `just migrate` before writing the queries that use it, then run `just prepare` before `just ci`.
+
+Editing a migration that no release contains (DATA-09) means recreating the development database, which `migrate` refuses once its applied file differs. Recreate it before changing the queries, while the cache in `.sqlx/` still matches them, so the binary compiles without the database: `docker compose exec postgres psql -U postgres -d postgres -c "DROP DATABASE api WITH (FORCE)" -c "CREATE DATABASE api"`, then `SQLX_OFFLINE=true just migrate`. The tests' databases need nothing: their template is named after the migrations' checksums.

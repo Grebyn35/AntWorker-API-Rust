@@ -177,7 +177,7 @@ modules/workspaces/
   model.rs           domain types
   error.rs           the module's error enum (D17)
   events.rs          event types it publishes
-  audit.rs           audit actions it records
+  audit.rs           audit actions it records, and the kinds of resource they happen to
   jobs.rs            background jobs it declares (D13)
   metrics.rs         metrics it declares (D19)
   personal_data.rs   its export and erasure contract (D31)

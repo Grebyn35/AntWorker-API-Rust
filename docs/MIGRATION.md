@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication for desktop and web clients (D61) and rate limiting, then their test-first build, whose review covers the commits after this handoff. The spec settles the platform spec's open question on where the IP limit counts. Step 1 is built and reviewed through 6997584, each review's result in [Conformance reviews](#conformance-reviews). The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 2.2: the spec of `access` and `workspaces`, with `Authorized<P>`, the security event sink and idempotency, then their test-first build, whose review covers the commits after this handoff. Step 2.1 is built and reviewed through 290c430: its review stopped at pass 2 under its no-progress condition, with each must-fix finding resolved, as [Conformance reviews](#conformance-reviews) records. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
 
 ## Build order
 
@@ -42,7 +42,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | The checker tool, the conformance reviewer and the handoff skill | D23, D27 | built |
 | The request pipeline: problem responses, trace context, the middleware stack, readiness and shutdown | D8, D9, D10, D17, D20, D26 | built |
 | The capabilities endpoint and `openapi.json` | D8, D9 | built |
-| Rate limiting: the IP, per-user and per-action limits, with the client IP taken from trusted proxies | D11 | 2.1 |
+| Rate limiting: the IP, per-user and per-action limits, with the client IP taken from trusted proxies | D11 | built |
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | built |
 | The image and the delivery pipeline, with the release docs | D15, D21, D43 | built |
 | The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30, D44, D45, D47, D49, D50, D51, D52, D53, D54, D55, D56, D57, D59, D60 | built |
@@ -69,13 +69,13 @@ Each module goes through these stages, in order:
 
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
-| `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry | database, configuration, errors, types, request pipeline, lifecycle, telemetry | database, configuration, errors, types, request pipeline, lifecycle, telemetry |
-| `accounts` | USER | first slice | first slice | | | |
-| `auth` | AUTH | first slice | first slice | | | |
+| `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits |
+| `accounts` | USER | first slice | first slice | first slice but ACCOUNTS-005, built with its first caller in 2.2 | first slice but ACCOUNTS-005 | first slice but ACCOUNTS-005 |
+| `auth` | AUTH | first slice | first slice | first slice | first slice | first slice |
 | `access` | WS | first slice | first slice | | | |
 | `workspaces` | WS | first slice | first slice | | | |
 | `invitations` | WS, MAIL | first slice | first slice | | | |
-| `audit` | AUDIT | first slice | first slice | | | |
+| `audit` | AUDIT | first slice | first slice | the writer | the writer | the writer |
 | `realtime` | RT | first slice | first slice | | | |
 | `mail` | MAIL | first slice | first slice | | | |
 | `files` | FILE | | | | | |
@@ -189,7 +189,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | f0d75e5..a7f2c02: each managed deployment of the end-to-end tests on a Postgres server of its own, with no roles lock on its deploys, and a managed Postgres server that holds no other deployment's database | 1 | 3 (2, 1, 0 shared) | 0 | 0 | `clean`: 09fc97e |
 | 43773a5..b77e414: each platform's end-to-end tests split between two CI jobs | 1 | 3 (3, 0, 0 shared) | 0 | 0 | `clean`: 6997584 |
 | 4e7c633..cef3b30: decisions D61 to D63, and step 2.1: accounts, auth, the audit writer, authentication, client IP, rate limits, browsers and request bodies, their deployment, metrics and load test, and its CI checks | 1 | 28 (26, 8, 6 shared) | 18 | 0 | `next pass`: 8a121a2 |
-| 4e7c633..eac8668: as above | 2 | 9 (7, 4, 2 shared) | 5 | 1 | `stopped: no progress` |
+| 4e7c633..eac8668: as above | 2 | 9 (7, 4, 2 shared) | 5 | 1 | `stopped: no progress`: 290c430 |
 
 ## Decisions
 
