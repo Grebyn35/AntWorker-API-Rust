@@ -51,9 +51,9 @@ Tests arrange workspaces and memberships through the `owner` connection (TEST-06
 
 ### The setup subcommand
 
-In one unit of work, the subcommand creates the deployment's one workspace with the name it is given, and its owner's account from an email and a name, through `accounts::create`. The account has no password. The subcommand enqueues an email that tells the owner the account exists, and carries no secret. The owner signs in for the first time through password reset in a client: the reset code sent to their address sets the first password, and verifies the address. Their next step is inviting everyone else (INVITATIONS-001).
+In one unit of work, the subcommand creates a workspace with the name it is given, and its owner's account from an email and a name, through `accounts::create`. An operator runs it once for each workspace the deployment's organization needs, such as one per subsidiary. The account has no password. The subcommand enqueues an email that tells the owner the account exists, and carries no secret. The owner signs in for the first time through password reset in a client: the reset code sent to their address sets the first password, and verifies the address. Their next step is inviting everyone else (INVITATIONS-001).
 
-When an account with that email already exists, the subcommand makes it the owner if its email is verified, and otherwise refuses, so nobody can take the workspace by registering the owner's address first. It records the workspace it created in `setup_runs`, a table of its own that holds at most one row, so a second run, even one at the same time, is refused by that table's constraint and changes nothing (ERR-05). Deleting that workspace deletes the row with it, so the subcommand can run again. It prints nothing secret.
+When an account with that email already exists, the subcommand makes it the owner if its email is verified, or if it has no identity yet, as an account an earlier run created has until its owner sets a password, so one person can own several workspaces before signing in. Otherwise it refuses, so nobody can take a workspace by registering its owner's address first. It records each workspace it creates in `setup_runs`, a table of its own, with the name the run was given, which a unique constraint allows once: a run with a name an earlier run used, even one at the same time, is refused by that constraint and changes nothing, so running it twice by mistake creates one workspace (ERR-05). Deleting a workspace deletes its row with it, so its name can be given again. It prints nothing secret.
 
 ### Listing members
 
@@ -64,7 +64,6 @@ When an account with that email already exists, the subcommand makes it the owne
 | Question | Settled by |
 |---|---|
 | Which actor the setup subcommand's audit entries record, since the subcommand runs with no `Principal` (AUDIT-002), and with it, those of the superadmin subcommand ([architecture §9](../architecture.md#9-runtime-topology)) | the spec of the full `workspaces` module |
-| How a superadmin creates a workspace that has an owner from its start (D33, ACCESS-001): whether the superadmin names its owner, who joins at once or through an invitation, or owns it until a transfer (D62) | the spec of `superadmins`, in step 5 |
 | How the read of every workspace that `superadmins` asks of this module, which no tenant filters, meets DATA-22 and `check-tenancy` (D62) | the spec of `superadmins`, in step 5 |
 | How the owner sets their first password in a deployment with email turned off (MAIL-004), where password reset can't send its code | the spec of the full `auth` module, with password reset |
 | How the owner signs in to the account the setup subcommand created, in a fork that signs in only through OAuth providers | the spec of the full `auth` module, with identity linking |
