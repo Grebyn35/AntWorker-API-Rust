@@ -8,10 +8,11 @@ use axum::{Router, body::Body, extract::ConnectInfo};
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
 use http_body_util::BodyExt;
 use platform::{
-    clock::TestClock,
+    clock::{SharedClock, TestClock},
     config::{ServerConfig, Settings},
     db::Database,
     http::Routes,
+    jobs::Jobs,
     lifecycle::Readiness,
     telemetry::{self, Service},
 };
@@ -69,6 +70,13 @@ fn environment(options: &Options) -> HashMap<String, String> {
         ("RATE_LIMIT_IP_REQUESTS", "1000000"),
         ("RATE_LIMIT_USER_REQUESTS", "1000000"),
         ("SIGN_IN_ATTEMPTS", "1000"),
+        // The emails go to the Mailpit that `just services` starts (MAIL-005), whose SMTP server
+        // takes no TLS and no credentials.
+        ("EMAIL", "smtp"),
+        ("SMTP_HOST", "127.0.0.1"),
+        ("SMTP_PORT", "1025"),
+        ("SMTP_SECURITY", "none"),
+        ("EMAIL_FROM", "AntWorker <noreply@example.com>"),
     ]
     .into_iter()
     .map(|(name, value)| (name.to_owned(), value.to_owned()))
@@ -92,15 +100,19 @@ pub fn configuration(options: &Options) -> (ServerConfig, app::Config) {
     )
 }
 
-/// The API's application as `serve` builds it on `database`, with `options`, and its document.
+/// The API's application as `serve` builds it on `database`, with `options`, its document, and
+/// its jobs, which a test runs through [`Jobs::run_pending`].
 pub async fn application(
     database: &Database,
     options: Options,
     clock: Arc<TestClock>,
     readiness: Readiness,
-) -> (Router, Value) {
+) -> (Router, Value, Jobs) {
     let (config, modules) = configuration(&options);
-    let services = app::compose(database, modules).await.unwrap();
+    let mut jobs = Jobs::new(database, config.job_dead_letter_retention);
+    let services = app::compose(database, modules, clock.clone(), &mut jobs)
+        .await
+        .unwrap();
     let pipeline = app::pipeline(&config, database, &services, clock, readiness);
     let mut document = app::openapi(SERVICE);
     let routes = match options.routes {
@@ -111,7 +123,7 @@ pub async fn application(
         None => services.routes,
     };
     let router = platform::http::app(routes, pipeline);
-    (router, serde_json::to_value(document).unwrap())
+    (router, serde_json::to_value(document).unwrap(), jobs)
 }
 
 /// The routes under test inside the request pipeline, on a database of their own, with a test
@@ -123,6 +135,7 @@ pub struct Api {
     clock: Arc<TestClock>,
     readiness: Readiness,
     database: Arc<TestDatabase>,
+    jobs: Arc<Jobs>,
 }
 
 impl Api {
@@ -137,7 +150,7 @@ impl Api {
         let database = Arc::new(TestDatabase::migrated().await);
         let clock = Arc::new(TestClock::default());
         let readiness = Readiness::new();
-        let (router, document) = application(
+        let (router, document, jobs) = application(
             &database.app().await,
             options,
             clock.clone(),
@@ -150,12 +163,27 @@ impl Api {
             clock,
             readiness,
             database,
+            jobs: Arc::new(jobs),
         }
     }
 
     /// The clock the pipeline measures with.
     pub fn clock(&self) -> Arc<TestClock> {
         self.clock.clone()
+    }
+
+    /// Runs every queued job that the API's requests enqueued and that is runnable now, and
+    /// returns how many runs it made.
+    pub async fn run_jobs(&self) -> usize {
+        let clock: SharedClock = self.clock.clone();
+        self.jobs
+            .run_pending(&self.database.app().await, &clock)
+            .await
+    }
+
+    /// Runs the periodic job `name` once, now.
+    pub async fn run_periodic(&self, name: &str) {
+        self.jobs.run_periodic(name).await.unwrap();
     }
 
     /// The OpenAPI document of the routes, which every response is checked against.

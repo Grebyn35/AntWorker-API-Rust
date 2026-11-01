@@ -13,6 +13,7 @@ use axum::{
 use crate::{
     errors::{Internal, Problem, RequestError},
     http::Cookies,
+    jobs::JobScope,
     rate_limit::{Bucket, LimitError, RateLimits},
     telemetry::names,
     types::{Client, SessionId, UserId, WorkspaceId},
@@ -57,11 +58,27 @@ impl Principal {
         }
     }
 
+    /// The scope of a job this caller's operation enqueues: their own (PLATFORM-012).
+    pub fn job_scope(&self) -> JobScope {
+        JobScope::proven(Some(self.user_id), None)
+    }
+
     /// The scope of the entry that records this caller creating `workspace`, whose ID the
     /// database just gave it: the workspace's log, with them as the actor, before any
     /// `Authorized<P>` can name it (WORKSPACES-001). Only the operation that creates a workspace
     /// calls it; clippy bans it elsewhere.
     pub fn founder_scope(&self, workspace: WorkspaceId) -> AuditScope {
+        AuditScope {
+            log: Log::Workspace(workspace),
+            actor: Some(self.user_id),
+        }
+    }
+
+    /// The scope of the entry that records this caller joining `workspace` by accepting an
+    /// invitation addressed to them: the workspace's log, with them as the actor, before any
+    /// `Authorized<P>` can name it (INVITATIONS-005). Only accepting an invitation calls it;
+    /// clippy bans it elsewhere.
+    pub fn joiner_scope(&self, workspace: WorkspaceId) -> AuditScope {
         AuditScope {
             log: Log::Workspace(workspace),
             actor: Some(self.user_id),

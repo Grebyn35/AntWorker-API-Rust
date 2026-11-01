@@ -20,6 +20,8 @@ mod image;
 #[cfg(test)]
 mod images;
 #[cfg(test)]
+mod mail;
+#[cfg(test)]
 mod server;
 #[cfg(test)]
 mod setup;

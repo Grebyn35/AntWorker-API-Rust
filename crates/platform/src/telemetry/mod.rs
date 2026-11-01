@@ -10,7 +10,9 @@ pub mod process;
 use std::{io, panic::PanicHookInfo};
 
 use json_subscriber::JsonLayer;
-use opentelemetry::trace::{TraceContextExt, TracerProvider};
+use opentelemetry::trace::{
+    SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState, TracerProvider,
+};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_sdk::{
     logs::SdkLoggerProvider,
@@ -279,6 +281,39 @@ pub(crate) fn traceparent(span: &Span) -> Option<String> {
             ids.trace_flags().to_u8()
         )
     })
+}
+
+/// Links `span` to the span whose trace context `traceparent` holds, as [`traceparent`] wrote
+/// it, so work that happens later leads back to what caused it (OBS-07). A value that isn't a
+/// valid trace context adds no link.
+pub(crate) fn link(span: &Span, traceparent: &str) {
+    let mut parts = traceparent.split('-');
+    let (Some("00"), Some(trace), Some(parent), Some(flags), None) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
+        return;
+    };
+    let (Ok(trace), Ok(parent), Ok(flags)) = (
+        TraceId::from_hex(trace),
+        SpanId::from_hex(parent),
+        u8::from_str_radix(flags, 16),
+    ) else {
+        return;
+    };
+    let context = SpanContext::new(
+        trace,
+        parent,
+        TraceFlags::new(flags),
+        true,
+        TraceState::default(),
+    );
+    if context.is_valid() {
+        span.add_link(context);
+    }
 }
 
 /// Writes one `ERROR` line for a panic, in the span it happened in, instead of the default

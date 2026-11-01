@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM idempotency_records WHERE id IN (\n                    SELECT id FROM idempotency_records\n                    WHERE created_at <= now() - interval '24 hours'\n                    LIMIT $1\n                )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "158d0b4aacdcd9971ac6ad65a2aeb093ce5b91e8c1cca1212e2af9f3a4dcf797"
+}

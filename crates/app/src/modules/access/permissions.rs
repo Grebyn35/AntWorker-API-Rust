@@ -19,6 +19,13 @@ impl Permission for MembersRemove {
     const NAME: &'static str = "members.remove";
 }
 
+/// Inviting someone at a role below one's own.
+pub(crate) struct InvitationsCreate;
+
+impl Permission for InvitationsCreate {
+    const NAME: &'static str = "invitations.create";
+}
+
 /// Each permission, and the roles that hold it (ACCESS-002).
 const MATRIX: [(&str, &[Role]); 4] = [
     ("workspace.read", &[Role::Owner, Role::Admin, Role::Member]),

@@ -13,6 +13,10 @@ mod audit;
 #[cfg(test)]
 mod auth;
 #[cfg(test)]
+mod invitations;
+#[cfg(test)]
+mod mail;
+#[cfg(test)]
 mod openapi;
 #[cfg(test)]
 mod platform;

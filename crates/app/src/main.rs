@@ -16,10 +16,11 @@ use platform::{
         TelemetryConfig,
     },
     db::Database,
+    jobs::Jobs,
     lifecycle::{self, Readiness, Shutdown, ShutdownSignals},
     telemetry::{Service, names},
 };
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::watch};
 
 /// The image's static binary allocates through mimalloc, for the reason docs/architecture.md
 /// gives in §10.
@@ -168,7 +169,8 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         { names::SERVER_PORT } = address.port(),
         "listening"
     );
-    let services = match app::compose(&database, modules).await {
+    let mut jobs = Jobs::new(&database, config.job_dead_letter_retention);
+    let services = match app::compose(&database, modules, clock.clone(), &mut jobs).await {
         Ok(services) => services,
         Err(error) => return failed("services", &error),
     };
@@ -184,16 +186,24 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         delay: config.shutdown_delay,
         drain: config.shutdown_drain,
     };
-    match lifecycle::serve(
-        listener,
-        app,
-        readiness,
-        clock,
-        shutdown,
-        signals.received(),
-    )
-    .await
-    {
+    // The jobs stop claiming when the signal arrives, and their runs end by the deadline of the
+    // requests in flight (PLATFORM-063). Should the server stop first, the sender drops, which
+    // stops them too.
+    let (stop_jobs, stopping) = watch::channel(false);
+    let grace = shutdown.delay.saturating_add(shutdown.drain);
+    let jobs = tokio::spawn(jobs.run(database.clone(), clock.clone(), stopping, grace));
+    let signal = async move {
+        signals.received().await;
+        stop_jobs.send_replace(true);
+    };
+    let served = lifecycle::serve(listener, app, readiness, clock, shutdown, signal).await;
+    if let Err(error) = jobs.await {
+        tracing::error!(
+            { names::EXCEPTION_MESSAGE } = platform::errors::chain(&error),
+            "the jobs stopped"
+        );
+    }
+    match served {
         Ok(()) => {
             tracing::info!("stopped");
             ExitCode::SUCCESS

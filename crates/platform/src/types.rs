@@ -235,10 +235,18 @@ const EMAIL_MAX_CHARS: usize = 254;
 
 /// An email address, trimmed and lowercased, of 1 to 254 characters, that is valid as the HTML
 /// standard defines one for `<input type="email">` (ACCOUNTS-002). It is personal data, so
-/// `Debug` doesn't show it (OBS-04).
+/// `Debug` doesn't show it (OBS-04). `Deserialize` reads it back through [`EmailAddress::parse`],
+/// such as from a job's payload.
 #[derive(Clone, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
 pub struct EmailAddress(String);
+
+impl<'de> Deserialize<'de> for EmailAddress {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        Self::parse(&value).map_err(|_| serde::de::Error::custom("not an email address"))
+    }
+}
 
 impl fmt::Debug for EmailAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE job_schedules SET\n                claim_id = gen_random_uuid(),\n                lease_expires_at = now() + make_interval(secs => $2)\n            WHERE id IN (\n                SELECT id FROM job_schedules\n                WHERE name = ANY($1) AND next_run_at <= now()\n                    AND (lease_expires_at IS NULL OR lease_expires_at <= now())\n                FOR UPDATE SKIP LOCKED\n            )\n            RETURNING name, claim_id AS \"claim_id!\", now() AS \"claimed_at!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "job_schedules",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "claim_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "job_schedules",
+            "name": "claim_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "claimed_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "e8ca9a1c08c60459e319085cbdd5f9530b1481203870144d440f24bde313cb18"
+}

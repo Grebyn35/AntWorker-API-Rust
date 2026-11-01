@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE jobs SET claim_id = NULL, lease_expires_at = NULL, attempts = attempts - 1\n            WHERE id = $1 AND claim_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b2ffbb120dc32a41222d03b745357d4592afaf57c6a5f2c0984d84fe36e08a11"
+}

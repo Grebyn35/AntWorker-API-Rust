@@ -123,6 +123,7 @@ disallowed-methods = [
     { path = "opentelemetry::metrics::MeterProvider::meter_with_scope", reason = "metrics are declared through platform::telemetry::metrics (OBS-11)" },
     { path = "platform::authn::Principal::new", reason = "only auth builds a Principal, after a credential check or a registration (the auth spec)" },
     { path = "platform::authn::Principal::founder_scope", reason = "only the operation that creates a workspace records as its founder (the workspaces spec)" },
+    { path = "platform::authn::Principal::joiner_scope", reason = "only accepting an invitation records as the member who joins (the invitations spec)" },
     { path = "platform::events::UserEvent::new", reason = "a module declares its user events in its events.rs (the platform spec's events)" },
     { path = "platform::events::WorkspaceEvent::new", reason = "a module declares its workspace events in its events.rs (the platform spec's events)" },
     { path = "app::modules::audit::model::Action::new", reason = "a module declares its audit actions in its audit.rs (the audit spec)" },

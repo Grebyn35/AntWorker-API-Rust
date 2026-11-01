@@ -166,6 +166,46 @@ groups:
           summary: The collector refused, failed to pass on, or dropped before deciding, telemetry in the last 10 minutes.
           runbook: docs/operations/runbooks.md#collectordroppingtelemetry
 
+      # Background jobs (OBS-14, the platform spec's Jobs). A series of platform_job_runs_total
+      # appears with its first run, so a window counts a series that existed at its start by its
+      # increase, and a newer one by its value, which increase() would miss the first of.
+      - alert: JobsDelayed
+        expr: max(platform_job_delay_seconds) > 600
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: A runnable job has waited more than 10 minutes past its time to run, for 5 minutes.
+          runbook: docs/operations/runbooks.md#jobsdelayed
+
+      - alert: JobsDeadLettered
+        expr: |
+          sum by (job_kind) (
+            (increase(platform_job_runs_total{job_outcome="dead_lettered"}[1h])
+              and platform_job_runs_total{job_outcome="dead_lettered"} offset 1h)
+            or (platform_job_runs_total{job_outcome="dead_lettered"}
+              unless platform_job_runs_total{job_outcome="dead_lettered"} offset 1h)
+          ) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: A job moved to the dead-letter state in the last hour.
+          runbook: docs/operations/runbooks.md#jobsdeadlettered
+
+      - alert: PeriodicJobFailing
+        expr: |
+          sum by (job_kind) (
+            (increase(platform_job_runs_total{job_outcome="failed"}[3h])
+              and platform_job_runs_total{job_outcome="failed"} offset 3h)
+            or (platform_job_runs_total{job_outcome="failed"}
+              unless platform_job_runs_total{job_outcome="failed"} offset 3h)
+          ) >= 2
+        labels:
+          severity: ticket
+        annotations:
+          summary: A periodic job failed at least twice within 3 hours.
+          runbook: docs/operations/runbooks.md#periodicjobfailing
+
       # The bundled database's backups (OBS-14): the times of the status files that its archiving
       # of the write-ahead log and its base backups set, which a managed database lacks.
       - alert: BackupArchivingFailing

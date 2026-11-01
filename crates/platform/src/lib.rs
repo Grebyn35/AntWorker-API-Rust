@@ -14,6 +14,7 @@ pub mod events;
 pub mod hashing;
 pub mod http;
 pub mod idempotency;
+pub mod jobs;
 pub mod lifecycle;
 pub mod lists;
 pub mod random;

@@ -49,7 +49,17 @@ x-api: &api
     SESSION_LIFETIME_SECONDS: ${SESSION_LIFETIME_SECONDS:-7776000}
     SIGN_IN_ATTEMPTS: ${SIGN_IN_ATTEMPTS:-5}
     SIGN_IN_WINDOW_SECONDS: ${SIGN_IN_WINDOW_SECONDS:-900}
-  secrets: [database_url, hmac_key]
+    EMAIL: ${EMAIL:?whether the API sends email, smtp or off, in settings.env}
+    SMTP_HOST: ${SMTP_HOST:-}
+    SMTP_SECURITY: ${SMTP_SECURITY:-}
+    SMTP_PORT: ${SMTP_PORT:-}
+    SMTP_USERNAME: ${SMTP_USERNAME:-}
+    # Empty, as deploy.sh writes it when no answer gave one, it counts as unset (PLATFORM-023).
+    SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+    EMAIL_FROM: ${EMAIL_FROM:-}
+    INVITATION_EXPIRY_DAYS: ${INVITATION_EXPIRY_DAYS:-7}
+    JOB_DEAD_LETTER_RETENTION_DAYS: ${JOB_DEAD_LETTER_RETENTION_DAYS:-14}
+  secrets: [database_url, hmac_key, smtp_password]
   # The shutdown delay and the drain take at most 15 seconds, and writing out telemetry the time
   # that the platform spec's Telemetry export bounds it to, which fits in the rest.
   stop_grace_period: 30s
@@ -353,13 +363,15 @@ volumes:
   grafana:
 
 # The secret files, in secrets/ of the deployment's directory. deploy.sh writes the URLs of the
-# bundled Postgres, the API's HMAC key and Grafana's password; `just server-setup` writes the others
-# (docs/operations/deploy.md).
+# bundled Postgres, the API's HMAC key and Grafana's password, and an empty SMTP password when the
+# mail server takes none; `just server-setup` writes the others (docs/operations/deploy.md).
 secrets:
   database_url:
     file: ./secrets/database_url
   hmac_key:
     file: ./secrets/hmac_key
+  smtp_password:
+    file: ./secrets/smtp_password
   database_owner_url:
     file: ./secrets/database_owner_url
   database_admin_url:

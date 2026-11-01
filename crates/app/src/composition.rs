@@ -11,6 +11,7 @@ use platform::{
     db::Database,
     errors::Internal,
     http::{Origins, Pipeline, Routes},
+    jobs::Jobs,
     lifecycle::Readiness,
     rate_limit::{Bucket, RateLimiter},
     telemetry::Service,
@@ -18,7 +19,12 @@ use platform::{
 use sqlx::migrate::Migrator;
 use utoipa::openapi::OpenApi;
 
-use crate::modules::{access, accounts, audit, auth, system, workspaces};
+use crate::modules::{
+    access, accounts, audit, auth,
+    invitations::{self, Invitations},
+    mail::{self, Mail},
+    system, workspaces,
+};
 
 /// Every migration in `migrations/`, embedded in the binary. `migrate` applies them, and
 /// `serve` refuses to start until they are all applied (DATA-09).
@@ -27,6 +33,8 @@ pub static MIGRATIONS: Migrator = sqlx::migrate!("../../migrations");
 /// The settings of the modules, which `serve` reads before its async runtime starts (OPS-01).
 pub struct Config {
     auth: auth::Settings,
+    mail: mail::Settings,
+    invitations: invitations::Settings,
 }
 
 /// The name of the per-email sign-in limit's bucket (AUTH-006).
@@ -61,6 +69,10 @@ impl Config {
                     window: settings.duration("SIGN_IN_WINDOW_SECONDS", 900, 1..=day)?,
                 },
             },
+            mail: mail::Settings::read(settings)?,
+            invitations: invitations::Settings {
+                expiry_days: settings.number("INVITATION_EXPIRY_DAYS", 7, 1..=90)?,
+            },
         })
     }
 }
@@ -76,13 +88,28 @@ pub struct Services {
     pub authorizer: Authorizer,
 }
 
-/// Builds every service once, on `database`, and mounts every module's routes.
-pub async fn compose(database: &Database, config: Config) -> Result<Services, Internal> {
+/// Builds every service once, on `database`, mounts every module's routes, and registers every
+/// module's jobs in `jobs` (D13).
+pub async fn compose(
+    database: &Database,
+    config: Config,
+    clock: SharedClock,
+    jobs: &mut Jobs,
+) -> Result<Services, Internal> {
     let auth = Arc::new(auth::Auth::new(database.clone(), config.auth).await?);
+    let mail = Mail::new(config.mail, clock)?;
+    mail.register(jobs).map_err(Internal::new)?;
+    let invitations = Invitations::new(database.clone(), mail.clone(), config.invitations);
+    invitations.register(jobs).map_err(Internal::new)?;
+    let features = system::Features {
+        email: mail.is_on(),
+    };
     let routes = system::routes()
+        .with_state(features)
         .merge(accounts::routes().with_state(database.clone()))
         .merge(auth::routes().with_state(auth.clone()))
-        .merge(workspaces::routes().with_state(database.clone()));
+        .merge(workspaces::routes().with_state(database.clone()))
+        .merge(invitations::routes().with_state(invitations));
     Ok(Services {
         routes,
         verifier: Arc::new(auth::Verifier(auth)),
@@ -123,6 +150,7 @@ pub fn openapi(service: Service) -> OpenApi {
     document.merge(accounts::routes().openapi(service));
     document.merge(auth::routes().openapi(service));
     document.merge(workspaces::routes().openapi(service));
+    document.merge(invitations::routes().openapi(service));
     document
 }
 

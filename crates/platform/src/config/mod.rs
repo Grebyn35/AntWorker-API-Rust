@@ -103,6 +103,9 @@ pub struct ServerConfig {
     pub cors_allowed_origins: Vec<Origin>,
     /// The IP and user limits (PLATFORM-048).
     pub rate_limits: RateLimitConfig,
+    /// How long a dead-lettered job keeps its payload before the sweep deletes it
+    /// (PLATFORM-013).
+    pub job_dead_letter_retention: Duration,
 }
 
 /// The limits on the requests of one client IP, and of one user (PLATFORM-048).
@@ -173,6 +176,17 @@ impl ConfigError {
             setting: setting.to_owned(),
             problem,
         }
+    }
+
+    /// The setting `setting` must be `expected`, such as when another setting decides what it
+    /// may hold.
+    pub fn invalid(setting: &str, expected: &'static str) -> Self {
+        Self::new(setting, Problem::Invalid(expected))
+    }
+
+    /// The setting `setting` is required, such as by another setting's value.
+    pub fn missing(setting: &str) -> Self {
+        Self::new(setting, Problem::Missing)
     }
 }
 
@@ -308,6 +322,9 @@ where
                 user_requests: self.number("RATE_LIMIT_USER_REQUESTS", 300, 1..=1_000_000)?,
                 window: self.duration("RATE_LIMIT_WINDOW_SECONDS", 60, 1..=86_400)?,
             },
+            job_dead_letter_retention: Duration::from_secs(
+                u64::from(self.number("JOB_DEAD_LETTER_RETENTION_DAYS", 14, 1..=365)?) * 86_400,
+            ),
         })
     }
 
@@ -355,7 +372,7 @@ where
     }
 
     /// The required setting `name`, as `parse` reads it.
-    fn with<T>(
+    pub fn with<T>(
         &self,
         name: &str,
         expected: &'static str,
@@ -366,7 +383,7 @@ where
     }
 
     /// The setting `name`, as `parse` reads it, or `None` when it is unset.
-    fn optional_with<T>(
+    pub fn optional_with<T>(
         &self,
         name: &str,
         expected: &'static str,

@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 2.3, in two parts, each with a review of its own. First, jobs, `mail` and `invitations`, specified after the handoff d678a43: their test-first build, whose review covers the commits after that handoff. Second, the command that removes an optional part and `check-removable`, with `invitations` as the first removal: its spec, then its build and review. Step 2.2 is built and reviewed through ebdfdc7: its review stopped at pass 2 under its no-progress condition, with each must-fix finding resolved, as [Conformance reviews](#conformance-reviews) records. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 2.3, in two parts, each with a review of its own. First, jobs, `mail` and `invitations`, specified and built after the handoff d678a43: their review, which covers the commits after that handoff. `just deny` refuses the license of `quoted_printable`, which `lettre` uses, 0BSD, until the owner decides whether CODE-12 allows it. Second, the command that removes an optional part and `check-removable`, with `invitations` as the first removal: its spec, then its build and review. A deployment's `settings.env` needs `EMAIL` before its next deploy, which `just server-setup` asks for, and a developer's `.env` the email settings of `.env.example`. Step 2.2 is built and reviewed through ebdfdc7 ([Conformance reviews](#conformance-reviews)). The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. The license waits on the owner.
 
 ## Build order
 
@@ -69,15 +69,15 @@ Each module goes through these stages, in order:
 
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
-| `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits |
+| `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits |
 | `accounts` | USER | first slice | first slice | first slice | first slice | first slice |
 | `auth` | AUTH | first slice | first slice | first slice | first slice | first slice |
 | `access` | WS | first slice | first slice | first slice | first slice | first slice |
 | `workspaces` | WS | first slice | first slice | first slice | first slice | first slice |
-| `invitations` | WS, MAIL | first slice | first slice | | | |
+| `invitations` | WS, MAIL | first slice | first slice | first slice | first slice | |
 | `audit` | AUDIT | first slice | first slice | the writer, the security event sink | the writer, the security event sink | the writer, the security event sink |
 | `realtime` | RT | first slice | first slice | | | |
-| `mail` | MAIL | first slice | first slice | | | |
+| `mail` | MAIL | first slice | first slice | first slice | first slice | |
 | `files` | FILE | | | | | |
 | `client_telemetry` | OBS | | | | | |
 | `superadmins` | none: a new part (D62) | | | | | |
@@ -114,11 +114,10 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 | TEST-07 | `traces::obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace` fails now and then on amd64 in CI, when nothing reaches Loki or Tempo; its output says why, from the stack's start times to the API's export errors | the fix of what its next failure shows |
 | DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 | OPS-17 | Postgres treats a segment of the log that its restore command can't fetch as the end of the archive, so a restore whose replay can't fetch one, as when the bucket stops answering, ends the replay there: a restore of the latest state, or the second replay of one to a moment, then serves the database as of that segment, naming its last commit, rather than refusing | 3 |
-| DATA-28 | The rows of `rate_limit_buckets` whose windows ended stay until the periodic sweep deletes them, and no sweep runs before jobs exist: they hold only keyed hashes, and a check that finds one starts a new window, so they change no decision ([platform spec](spec/platform.md#rate-limits)) | 2.3, with jobs |
-| DATA-28 | The rows of `idempotency_records` older than 24 hours stay until the periodic sweep deletes them: a claim of their key replaces them, so they change no response ([platform spec](spec/platform.md#idempotency)) | 2.3, with jobs |
 | DATA-28 | The rows of `events` stay until the retention that the event hub's replay needs deletes them | 2.4, with the hub |
-| DATA-28 | No personal data contract is registered for the tables that reference a user or hold personal data, `users`, `identities`, `sessions`, `audit_entries`, `workspaces`, `workspace_memberships`, `events` and `idempotency_records`: the registry, and the export and erasure that read it, arrive with the full `accounts` module (D31) | 5 |
+| DATA-28 | No personal data contract is registered for the tables that reference a user or hold personal data, `users`, `identities`, `sessions`, `audit_entries`, `workspaces`, `workspace_memberships`, `events`, `idempotency_records`, `jobs` and `invitations`: the registry, and the export and erasure that read it, arrive with the full `accounts` module (D31) | 5 |
 | API-04 | A created workspace's `Location`, `/v1/workspaces/{id}`, names a resource that no route serves yet: reading one workspace arrives with the full module | 5, with the full `workspaces` module |
+| API-04 | A created invitation's `Location`, `/v1/workspaces/{workspace_id}/invitations/{id}`, names a resource that no route serves yet: reading one invitation arrives with the full module | 5, with the full `invitations` module |
 | OPS-22 | When both colors of replicas run and no deploy recorded which serves, deploy.sh tells the operator to stop one with `docker compose` on the server, a change to the services that no task makes | 3 |
 
 ## Rule proposals

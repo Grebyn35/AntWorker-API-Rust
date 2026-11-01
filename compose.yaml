@@ -1,6 +1,6 @@
 # The services the API needs on a developer's machine, and the images of the tools the tasks run.
-# `just services` starts Postgres, and `just dev observe` the observability stack too, whose
-# services carry the `observability` profile. Every port is published on 127.0.0.1 only.
+# `just services` starts Postgres and Mailpit, and `just dev observe` the observability stack too,
+# whose services carry the `observability` profile. Every port is published on 127.0.0.1 only.
 
 services:
   postgres:
@@ -23,6 +23,23 @@ services:
       # Over TCP: while the image initializes a new database, it runs a server that listens only
       # on its socket, then stops it and starts the real one.
       test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=postgres", "--dbname=api"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # Catches every email the API sends in development and in the tests, so nothing leaves the
+  # machine (MAIL-005): its SMTP server listens on 1025, with no TLS and no credentials, and its
+  # web page and API on 8025. It keeps the latest 10,000 emails, so the tests' emails stay until
+  # each test has read its own.
+  mailpit:
+    image: axllent/mailpit:v1.31.6@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387
+    environment:
+      MP_MAX_MESSAGES: "10000"
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
       interval: 2s
       timeout: 5s
       retries: 30

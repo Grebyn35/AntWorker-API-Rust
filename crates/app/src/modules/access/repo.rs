@@ -30,6 +30,28 @@ pub(super) async fn insert(
     Ok(Timestamp::from_database(joined_at))
 }
 
+/// Adds `user` to `workspace` at `role`, and returns when they joined, or `None` when the unique
+/// constraint on the pair finds them a member already (ERR-05).
+pub(super) async fn insert_unless_member(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+    user: UserId,
+    role: Role,
+) -> Result<Option<Timestamp>, Internal> {
+    let joined_at = sqlx::query_scalar!(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+        VALUES ($1, $2, $3::text::workspace_role)
+        ON CONFLICT ON CONSTRAINT workspace_memberships_workspace_id_user_id_key DO NOTHING
+        RETURNING created_at",
+        workspace.uuid(),
+        user.uuid(),
+        role.name(),
+    )
+    .fetch_optional(uow.executor())
+    .await?;
+    Ok(joined_at.map(Timestamp::from_database))
+}
+
 /// The role of `user` in `workspace`, if they are a member, with their row locked `FOR SHARE`
 /// until the unit of work ends, so a removal or a role change waits for it (PLATFORM-024).
 pub(super) async fn role_held(

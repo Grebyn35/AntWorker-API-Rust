@@ -22,9 +22,11 @@ e2e = []
 [dependencies]
 platform.workspace = true
 argon2.workspace = true
+askama.workspace = true
 axum.workspace = true
 clap.workspace = true
 ipnet.workspace = true
+lettre.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
@@ -33,6 +35,7 @@ time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 unicode-normalization.workspace = true
+url.workspace = true
 utoipa.workspace = true
 utoipa-axum.workspace = true
 uuid.workspace = true
@@ -57,9 +60,9 @@ opentelemetry-proto.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 serde_json.workspace = true
-# The test support shares the template database through tokio::sync::OnceCell, and the tests
-# of timeouts pause tokio's time.
-tokio = { workspace = true, features = ["sync", "test-util"] }
+# The test support shares the template database through tokio::sync::OnceCell, the tests of
+# timeouts pause tokio's time, and a test of the development settings reads their files.
+tokio = { workspace = true, features = ["fs", "sync", "test-util"] }
 tower.workspace = true
 url.workspace = true
 

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE job_schedules SET\n                next_run_at = $3::timestamptz + make_interval(secs => $4),\n                claim_id = NULL,\n                lease_expires_at = NULL\n            WHERE name = $1 AND claim_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Timestamptz",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1d96d790f3436bfb0ce1c60e9bc43f6986454c6bd1bd2fbf1ccb006db7a68499"
+}

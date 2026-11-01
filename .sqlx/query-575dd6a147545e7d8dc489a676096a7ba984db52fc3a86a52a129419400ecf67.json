@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE jobs SET\n                run_at = now() + make_interval(secs => $3),\n                claim_id = NULL,\n                lease_expires_at = NULL,\n                failure = $4\n            WHERE id = $1 AND claim_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Float8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "575dd6a147545e7d8dc489a676096a7ba984db52fc3a86a52a129419400ecf67"
+}

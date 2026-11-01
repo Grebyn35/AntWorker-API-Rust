@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_memberships (workspace_id, user_id, role)\n        VALUES ($1, $2, $3::text::workspace_role)\n        ON CONFLICT ON CONSTRAINT workspace_memberships_workspace_id_user_id_key DO NOTHING\n        RETURNING created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "workspace_memberships",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "495cdb029344e2ad0f9f184640e9109adb17dc0c6b0fc6792357c2946bbf72bb"
+}

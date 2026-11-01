@@ -1,0 +1,3 @@
+{{ email.inviter }} invited you to join the workspace {{ email.workspace }} on {{ email.product }}, as {{ email.role }}. The invitation expires in {{ email.expiry }}.
+
+To accept it, sign in to {{ email.product }} with {{ email.to }}, or create an account with that address.

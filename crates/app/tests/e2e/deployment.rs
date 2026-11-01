@@ -138,6 +138,8 @@ impl Deployment {
             ("API_ADDRESS", API_ADDRESS),
             ("GRAFANA_ADDRESS", GRAFANA_ADDRESS),
             ("TELEMETRY", "off"),
+            // A test that sends email starts a mail server on the server, and sets its own.
+            ("EMAIL", "off"),
             ("API_REPLICAS", "2"),
             ("DATABASE_MAX_CONNECTIONS", "2"),
             ("POSTGRES_MAX_CONNECTIONS", "100"),
@@ -411,13 +413,21 @@ pub fn get_traced(
 /// Sends `POST` to `url` with the JSON body `body`, through a client that trusts `root`, and
 /// returns the response's status and body.
 pub fn post(root: String, url: String, body: String) -> (u16, String) {
+    post_as(root, url, None, body)
+}
+
+/// Sends `POST` to `url` with the JSON body `body`, with `token` as its Bearer access token if
+/// given, through a client that trusts `root`, and returns the response's status and body.
+pub fn post_as(root: String, url: String, token: Option<String>, body: String) -> (u16, String) {
     thread::spawn(move || {
-        let response = client(&root)
+        let mut request = client(&root)
             .post(&url)
             .header("content-type", "application/json")
-            .body(body)
-            .send()
-            .expect("an answer");
+            .body(body);
+        if let Some(token) = token {
+            request = request.bearer_auth(token);
+        }
+        let response = request.send().expect("an answer");
         let status = response.status().as_u16();
         (status, response.text().expect("the body"))
     })

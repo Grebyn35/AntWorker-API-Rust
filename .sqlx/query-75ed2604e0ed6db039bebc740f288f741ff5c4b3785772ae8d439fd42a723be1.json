@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM invitations WHERE id IN (\n                SELECT id FROM invitations WHERE expires_at <= now() LIMIT $1\n            )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "75ed2604e0ed6db039bebc740f288f741ff5c4b3785772ae8d439fd42a723be1"
+}

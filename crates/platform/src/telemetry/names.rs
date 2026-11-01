@@ -86,6 +86,14 @@ pub const IDEMPOTENCY_OUTCOME: &str = "idempotency.outcome";
 pub const RATE_LIMIT_BUCKET: &str = "rate_limit.bucket";
 /// How a sign-in ended, such as `succeeded` or `invalid_credentials` (AUTH-004, AUTH-005).
 pub const AUTH_OUTCOME: &str = "auth.outcome";
+/// A job's kind, or a periodic job's name, such as `mail.send` (PLATFORM-065).
+pub const JOB_KIND: &str = "job.kind";
+/// A queued job's ID, or the claim of a periodic job's run.
+pub const JOB_ID: &str = "job.id";
+/// Which attempt of its job a run is, from 1.
+pub const JOB_ATTEMPT: &str = "job.attempt";
+/// How a job's run ended, such as `succeeded` or `retried` (PLATFORM-065).
+pub const JOB_OUTCOME: &str = "job.outcome";
 /// The part of startup that failed, such as `database` or `listen` (OPS-03).
 pub const STARTUP_AREA: &str = "startup.area";
 /// The migration versions `migrate` applied.

@@ -15,6 +15,7 @@ use crate::{
     authn::{AuditScope, BoxFuture, Log, Principal},
     db::{Database, UnitOfWork},
     errors::{Internal, PlatformError, Problem, RequestError},
+    jobs::JobScope,
     telemetry::{metrics::Counter, names},
     types::{Client, UserId, WorkspaceId},
 };
@@ -253,6 +254,12 @@ impl<P: Permission> Authorized<P> {
     /// actor (AUDIT-002).
     pub fn audit_scope(&self) -> AuditScope {
         AuditScope::proven(Log::Workspace(self.workspace_id), self.principal.user_id())
+    }
+
+    /// The scope of a job this member's operation enqueues: the workspace, and the member
+    /// (PLATFORM-012).
+    pub fn job_scope(&self) -> JobScope {
+        JobScope::proven(Some(self.principal.user_id()), Some(self.workspace_id))
     }
 }
 

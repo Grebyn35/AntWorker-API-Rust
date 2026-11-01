@@ -327,9 +327,10 @@ async fn platform_024_authorization_waits_for_a_change_to_the_caller_s_membershi
 }
 
 /// How the generated test calls a workspace route: the path, given the workspace and a target
-/// member below the caller's rank, and the status of a success.
+/// member below the caller's rank, its JSON body, if it takes one, and the status of a success.
 struct Fixture {
     path: fn(&str, &str) -> String,
+    body: Option<&'static str>,
     success: StatusCode,
 }
 
@@ -339,11 +340,19 @@ fn fixture(method: &str, template: &str) -> Option<Fixture> {
     Some(match (method, template) {
         ("get", "/v1/workspaces/{workspace_id}/members") => Fixture {
             path: |workspace, _| format!("/v1/workspaces/{workspace}/members"),
+            body: None,
             success: StatusCode::OK,
         },
         ("delete", "/v1/workspaces/{workspace_id}/members/{user_id}") => Fixture {
             path: |workspace, target| format!("/v1/workspaces/{workspace}/members/{target}"),
+            body: None,
             success: StatusCode::NO_CONTENT,
+        },
+        // A member is the one role that every role allowed to invite outranks (ACCESS-004).
+        ("post", "/v1/workspaces/{workspace_id}/invitations") => Fixture {
+            path: |workspace, _| format!("/v1/workspaces/{workspace}/invitations"),
+            body: Some(r#"{"email": "invitee@example.com", "role": "member"}"#),
+            success: StatusCode::CREATED,
         },
         _ => return None,
     })
@@ -396,7 +405,17 @@ async fn test_09_every_workspace_route_answers_every_role_as_the_matrix_says() {
                 workspaces::join(db, &workspace, &target.user_id, below).await;
                 let path = (fixture.path)(&workspace, &target.user_id);
 
-                let response = call(&api, method.clone(), &path, caller).await;
+                let response = match fixture.body {
+                    None => call(&api, method.clone(), &path, caller).await,
+                    Some(body) => {
+                        api.request(method.clone(), &path)
+                            .header("content-type", "application/json")
+                            .body(body)
+                            .bearer(&caller.access)
+                            .send()
+                            .await
+                    }
+                };
 
                 let expected = match *role {
                     "none" => StatusCode::NOT_FOUND,

@@ -554,6 +554,32 @@ impl Server {
         format!("http://{address}:9099/alerts")
     }
 
+    /// Starts the stand-in for a mail server on the server: Mailpit, from compose.yaml, whose SMTP
+    /// server takes email on the server's own address, port 1025, with no TLS and no
+    /// credentials, and whose API answers inside the server on port 8025. Returns the settings
+    /// that send the API's email to it.
+    pub fn start_mail_server(&self) -> Vec<(String, String)> {
+        let image = compose(&["config", "--images", "mailpit"]);
+        let address = self
+            .container
+            .inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
+        self.shell_ok(&format!(
+            "set -e
+            docker run --detach --quiet --name mailpit --publish 1025:1025 --publish 127.0.0.1:8025:8025 {image} > /dev/null
+            timeout 60 sh -c 'until wget --quiet --output-document=/dev/null http://127.0.0.1:8025/readyz 2> /dev/null; do sleep 1; done'"
+        ));
+        [
+            ("EMAIL", "smtp"),
+            ("SMTP_HOST", address.as_str()),
+            ("SMTP_PORT", "1025"),
+            ("SMTP_SECURITY", "none"),
+            ("EMAIL_FROM", "AntWorker <noreply@example.com>"),
+        ]
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .collect()
+    }
+
     /// Starts the stand-in for the bundled database's backup bucket on the server: SeaweedFS,
     /// serving S3 over HTTPS on the server's own address, with a certificate for that address
     /// from an authority of the test's own, which the deployment trusts as certs/backup-ca.crt.

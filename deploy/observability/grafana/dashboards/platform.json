@@ -1,7 +1,7 @@
 {
   "uid": "api-platform",
   "title": "API platform",
-  "description": "The health of each instance's mechanisms: its database connection, its panics and the errors it ignored.",
+  "description": "The health of each instance's mechanisms: its database connection, its panics and the errors it ignored, its refusals, and its background jobs.",
   "tags": [
     "api"
   ],
@@ -313,6 +313,126 @@
         "w": 12,
         "x": 12,
         "y": 16
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Are background jobs keeping up?",
+      "description": "How long the longest-waiting runnable job has waited past its time to run, as each instance last recorded it (PLATFORM-065). It stays near 0 while the dispatchers keep up; JobsDelayed pages when it passes 10 minutes for 5.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(platform_job_delay_seconds)",
+          "legendFormat": "longest wait"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 8,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "How do job runs end?",
+      "description": "Job runs in the last 5 minutes, by kind and how each ended: succeeded, retried, dead_lettered, failed for a periodic job, or released at shutdown (PLATFORM-065).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (job_kind, job_outcome) (increase(platform_job_runs_total[5m]))",
+          "legendFormat": "{{job_kind}} {{job_outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 9,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "How long do job runs take?",
+      "description": "The 95th percentile of the runs' durations in the last 5 minutes, by kind.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (job_kind, le) (rate(platform_job_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{job_kind}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 10,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
       }
     }
   ]

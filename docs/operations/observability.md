@@ -19,6 +19,7 @@ Each dashboard panel's title is the question it answers (OBS-13). The overview l
 | Does an instance's memory only grow? | API platform: "How much memory does each instance use?" |
 | Is someone probing workspaces they don't belong to? | API platform: "Why does authorization refuse requests?" |
 | Are clients retrying requests that are still running? | API platform: "How do requests with an idempotency key end?" |
+| Are background jobs, such as emails, keeping up, and which fail? | API platform: "Are background jobs keeping up?" and "How do job runs end?" |
 
 ## How telemetry flows
 

@@ -33,7 +33,7 @@ async fn start() -> Running {
     let clock = Arc::new(TestClock::default());
     let readiness = Readiness::new();
     let database = TestDatabase::migrated().await;
-    let (app, _) = application(
+    let (app, _, _) = application(
         &database.app().await,
         Options::routes(fixtures::routes(gate.clone())),
         clock.clone(),

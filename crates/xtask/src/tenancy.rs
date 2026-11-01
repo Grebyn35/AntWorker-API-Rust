@@ -3,10 +3,11 @@
 //! - A table that the migrations create with a `workspace_id` column holds workspace data. Each
 //!   query of one in the code of `platform` and `app`, in a `sqlx` macro, names its tenant: a
 //!   `workspace_id`, or for a table that also has a `user_id`, a `user_id`, compared in its
-//!   `WHERE` or among the columns it inserts. A file of a scheduled job that spans tenants, in
-//!   [`CROSS_TENANT`], is exempt.
-//! - Every other table is listed below: as account data, keyed by a user; as platform data; or
-//!   as the workspaces themselves.
+//!   `WHERE` or among the columns it inserts. A table of [`ADDRESSED`] is also reached by the
+//!   address of the user its rows are addressed to, which their own queries name instead. A file
+//!   of a scheduled job that spans tenants, in [`CROSS_TENANT`], is exempt.
+//! - Every other table is listed below: as account data, keyed by a user; as platform data, whose
+//!   scope columns, if any, record whom its work is for; or as the workspaces themselves.
 //!
 //! It reads the migrations' `CREATE TABLE` and `ALTER TABLE ... ADD COLUMN` statements as text,
 //! and the code as token streams (`rust`).
@@ -26,16 +27,27 @@ const CODE: [&str; 2] = ["crates/platform/src/", "crates/app/src/"];
 /// Tables of account data, keyed by a user (DATA-22).
 const ACCOUNT_DATA: [&str; 3] = ["users", "identities", "sessions"];
 
-/// Tables of `platform`'s own bookkeeping (DATA-22).
-const PLATFORM_DATA: [&str; 2] = ["rate_limit_buckets", "idempotency_records"];
+/// Tables of `platform`'s own bookkeeping (DATA-22). A job records the workspace and the user it
+/// runs for, which its handler filters by, but the queue's own queries select jobs by their state
+/// (PLATFORM-012).
+const PLATFORM_DATA: [&str; 4] = [
+    "rate_limit_buckets",
+    "idempotency_records",
+    "jobs",
+    "job_schedules",
+];
+
+/// Tables of workspace data whose rows are addressed to a user by email, with that column: the
+/// user's own queries of them filter by the caller's address (DATA-22).
+const ADDRESSED: [(&str, &str); 1] = [("invitations", "email")];
 
 /// The tenants themselves, whose rows a query reaches by IDs that came from a query filtered by
 /// tenant (DATA-22).
 const TENANTS: [&str; 1] = ["workspaces"];
 
 /// The files of scheduled jobs that span tenants, which select rows by their own criteria, such
-/// as expiry (DATA-22). None exists yet.
-const CROSS_TENANT: [&str; 0] = [];
+/// as expiry (DATA-22).
+const CROSS_TENANT: [&str; 1] = ["crates/app/src/modules/invitations/expiry.rs"];
 
 /// The `sqlx` macros that take SQL text (DATA-20).
 const MACROS: [&str; 6] = [
@@ -243,7 +255,9 @@ fn queries(source: &Source<'_>, tables: &BTreeMap<String, Table>) -> (usize, Vec
             let Some(columns) = tables.get(&table).map(|table| &table.columns) else {
                 continue;
             };
-            if !columns.iter().any(|column| column == "workspace_id") {
+            if !columns.iter().any(|column| column == "workspace_id")
+                || PLATFORM_DATA.contains(&table.as_str())
+            {
                 continue;
             }
             checked += 1;
@@ -251,6 +265,12 @@ fn queries(source: &Source<'_>, tables: &BTreeMap<String, Table>) -> (usize, Vec
             if columns.iter().any(|column| column == "user_id") {
                 tenants.push("user_id");
             }
+            tenants.extend(
+                ADDRESSED
+                    .iter()
+                    .filter(|(addressed, _)| *addressed == table)
+                    .map(|(_, column)| *column),
+            );
             if !names_tenant(&lower, &tenants) {
                 findings.push(Finding::new(
                     source.path,
@@ -395,7 +415,10 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
         let migrations = format!(
             "{MIGRATION}CREATE TABLE users (id uuid);\nCREATE TABLE identities (id uuid);\n\
              CREATE TABLE sessions (id uuid);\nCREATE TABLE rate_limit_buckets (id uuid);\n\
-             CREATE TABLE idempotency_records (id uuid);\nCREATE TABLE workspaces (id uuid);\n"
+             CREATE TABLE idempotency_records (id uuid);\nCREATE TABLE workspaces (id uuid);\n\
+             CREATE TABLE jobs (id uuid, workspace_id uuid, user_id uuid);\n\
+             CREATE TABLE job_schedules (id uuid);\n\
+             CREATE TABLE invitations (id uuid, workspace_id uuid, email text);\n"
         );
         let repo = Repo::of(&[
             ("migrations/1_things.sql", &migrations),
@@ -465,6 +488,24 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
     #[test]
     fn data_22_a_listed_table_that_no_migration_creates_is_found() {
         let tables = BTreeMap::new();
-        assert_eq!(placements(&tables).len(), 6);
+        assert_eq!(placements(&tables).len(), 8);
+    }
+
+    #[test]
+    fn data_22_platform_data_and_an_addressee_s_own_rows_name_no_workspace() {
+        let code = r#"
+            fn f() {
+                sqlx::query!("UPDATE jobs SET attempts = attempts + 1 WHERE id = $1", id);
+                sqlx::query!("SELECT id FROM invitations WHERE email = $1", email);
+                sqlx::query!("SELECT id FROM invitations WHERE id = $1", id);
+            }
+        "#;
+        let found = findings(code);
+        let lines: Vec<&str> = found
+            .iter()
+            .filter(|finding| finding.contains("names no"))
+            .map(|finding| finding.split(": ").next().unwrap())
+            .collect();
+        assert_eq!(lines, ["crates/app/src/modules/things/repo.rs:5"]);
     }
 }

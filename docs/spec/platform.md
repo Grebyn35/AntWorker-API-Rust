@@ -257,7 +257,7 @@ A replica that stops without releasing its claims leaves their leases to run out
 
 Scheduled maintenance isn't audited (DATA-27).
 
-**Shutdown.** On a shutdown signal, the dispatcher and the scheduler claim nothing more, while runs in flight go on as the HTTP server drains. At the drain deadline, each run still going is cancelled, and its claim released, its attempt uncounted, so another replica runs it at once (PLATFORM-063).
+**Shutdown.** On a shutdown signal, the dispatcher and the scheduler claim nothing more, while runs in flight go on as the HTTP server drains. Both share one deadline, the requests' own: the shutdown delay and the drain after the signal. At it, each run still going is cancelled, and its claim released, its attempt uncounted, so another replica runs it at once (PLATFORM-063).
 
 **Alerts** (OBS-14). `JobsDelayed` pages when `platform.job_delay` stays above 10 minutes for 5: every email waits, and from step 5 every sign-up's code with them. `JobsDeadLettered`, a ticket, fires on any dead letter; its runbook reads the dead letters with their failures and payloads. Nothing retries a dead letter, since each job's remedy is the operation that caused it, such as inviting again. `PeriodicJobFailing`, a ticket, fires when a periodic job fails twice within 3 hours.
 

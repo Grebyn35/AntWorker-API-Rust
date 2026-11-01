@@ -278,6 +278,79 @@ tests:
               summary: A disk of the server is more than 95% full, and at the rate of the last hour fills within 4 hours.
               runbook: docs/operations/runbooks.md#diskfull
 
+  # A runnable job waits longer and longer from the 5th minute on, as when no replica claims it.
+  - interval: 1m
+    input_series:
+      - series: 'platform_job_delay_seconds{job="api", instance="a"}'
+        values: "0 0 0 0 0 60 120 180 240 300 360 420 480 540 600 660 720 780 840 900 960 1020"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: JobsDelayed
+        exp_alerts: []
+      - eval_time: 21m
+        alertname: JobsDelayed
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: A runnable job has waited more than 10 minutes past its time to run, for 5 minutes.
+              runbook: docs/operations/runbooks.md#jobsdelayed
+
+  # A replica that started an hour in dead-letters its first email at the 2nd minute; one that
+  # started at the 70th minute dead-letters its first at the 71st.
+  - interval: 1m
+    input_series:
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="mail.send", job_outcome="dead_lettered"}'
+        values: "_ _ 1x100"
+      - series: 'platform_job_runs_total{job="api", instance="b", job_kind="mail.send", job_outcome="dead_lettered"}'
+        values: "_x70 1x30"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: JobsDeadLettered
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: JobsDeadLettered
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job_kind: mail.send
+            exp_annotations:
+              summary: A job moved to the dead-letter state in the last hour.
+              runbook: docs/operations/runbooks.md#jobsdeadlettered
+      - eval_time: 65m
+        alertname: JobsDeadLettered
+        exp_alerts: []
+      - eval_time: 75m
+        alertname: JobsDeadLettered
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job_kind: mail.send
+            exp_annotations:
+              summary: A job moved to the dead-letter state in the last hour.
+              runbook: docs/operations/runbooks.md#jobsdeadlettered
+
+  # A periodic job fails once, then again an hour later; another fails once only.
+  - interval: 1m
+    input_series:
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="invitations.expire", job_outcome="failed"}'
+        values: "_ 1x59 2x60"
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.expire_dead_letters", job_outcome="failed"}'
+        values: "_ 1x119"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PeriodicJobFailing
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: PeriodicJobFailing
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job_kind: invitations.expire
+            exp_annotations:
+              summary: A periodic job failed at least twice within 3 hours.
+              runbook: docs/operations/runbooks.md#periodicjobfailing
+
   # A server with 8 gigabytes of memory, of which 500 megabytes stay available.
   - interval: 1m
     input_series:

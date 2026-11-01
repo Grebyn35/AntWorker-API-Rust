@@ -1,0 +1,63 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO invitations (workspace_id, email, role, inviter_id, expires_at)\n        VALUES ($1, $2, $3::text::workspace_role, $4, now() + make_interval(days => $5))\n        ON CONFLICT ON CONSTRAINT invitations_workspace_id_email_key DO UPDATE SET\n            role = EXCLUDED.role,\n            inviter_id = EXCLUDED.inviter_id,\n            expires_at = EXCLUDED.expires_at\n        RETURNING id, created_at, expires_at, (xmax = 0) AS \"created!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "invitations",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "invitations",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "invitations",
+            "name": "expires_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "created!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "7891b67ac6687396a71a524ac30616c9a6b19387e69e9c7437c6288964dc07cc"
+}

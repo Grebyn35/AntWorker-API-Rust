@@ -3,7 +3,8 @@
 //! servers' platform, so no test reaches a registry outside (TEST-07). The servers pull those
 //! images through the cache, and the API's and the deployment's Postgres from Compose's registry.
 //! It reads the images from the reference deployment's Compose files, the tools' that a deploy runs
-//! from deploy/tools/compose.yaml, and the stand-in bucket's from compose.yaml.
+//! from deploy/tools/compose.yaml, and the stand-ins' for the bucket and the mail server from
+//! compose.yaml.
 
 use std::{
     path::Path,
@@ -14,11 +15,11 @@ use crate::{repo::Repo, stack};
 
 /// The Compose files of the reference deployment, whose images a server pulls when it deploys.
 const DEPLOYMENT: [&str; 2] = ["deploy/compose.yaml", "deploy/observability/compose.yaml"];
-/// The services of other Compose files that the tests run on a server: the stand-in bucket, and
-/// the tools of a deploy's import into a managed Grafana. The tools that verify a release come
-/// from other registries, and a test's deploy doesn't verify one.
+/// The services of other Compose files that the tests run on a server: the stand-ins for the
+/// bucket and the mail server, and the tools of a deploy's import into a managed Grafana. The
+/// tools that verify a release come from other registries, and a test's deploy doesn't verify one.
 const ON_SERVER: [(&str, &[&str]); 2] = [
-    ("compose.yaml", &["bucket"]),
+    ("compose.yaml", &["bucket", "mailpit"]),
     ("deploy/tools/compose.yaml", &["curl", "yq"]),
 ];
 
@@ -179,20 +180,21 @@ mod tests {
     }
 
     #[test]
-    fn test_07_the_servers_images_are_the_deployment_s_the_import_s_and_the_bucket_s() {
+    fn test_07_the_servers_images_are_the_deployment_s_the_import_s_and_the_stand_ins() {
         let repo = repo(
             &format!(
                 "services:\n  caddy:\n    image: caddy:2.11.7@{DIGEST}\n  api-blue:\n    image: ${{API_IMAGE_BLUE:?the image}}\n  cosign:\n    extends: {{ file: tools/compose.yaml, service: cosign }}\n"
             ),
             &format!("services:\n  grafana:\n    image: grafana/grafana:13.2.4@{DIGEST}\n"),
             &format!(
-                "services:\n  bucket:\n    image: chrislusf/seaweedfs:4.50@{DIGEST}\n  grype:\n    image: anchore/grype:v0.121.0@{DIGEST}\n"
+                "services:\n  bucket:\n    image: chrislusf/seaweedfs:4.50@{DIGEST}\n  mailpit:\n    image: axllent/mailpit:v1.31.6@{DIGEST}\n  grype:\n    image: anchore/grype:v0.121.0@{DIGEST}\n"
             ),
         );
 
         assert_eq!(
             images(&repo),
             Ok(vec![
+                format!("axllent/mailpit@{DIGEST}"),
                 format!("library/caddy@{DIGEST}"),
                 format!("chrislusf/seaweedfs@{DIGEST}"),
                 format!("curlimages/curl@{DIGEST}"),
@@ -207,7 +209,9 @@ mod tests {
         let repo = repo(
             &format!("services:\n  caddy:\n    image: ghcr.io/caddy/caddy:2@{DIGEST}\n"),
             "services: {}\n",
-            &format!("services:\n  bucket:\n    image: chrislusf/seaweedfs:4.50@{DIGEST}\n"),
+            &format!(
+                "services:\n  bucket:\n    image: chrislusf/seaweedfs:4.50@{DIGEST}\n  mailpit:\n    image: axllent/mailpit:v1.31.6@{DIGEST}\n"
+            ),
         );
 
         let refused = images(&repo).unwrap_err();

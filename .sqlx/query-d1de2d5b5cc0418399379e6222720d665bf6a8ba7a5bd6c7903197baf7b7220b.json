@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO job_schedules (name, next_run_at)\n            SELECT name, now() FROM unnest($1::text[]) AS name\n            ON CONFLICT ON CONSTRAINT job_schedules_name_key DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d1de2d5b5cc0418399379e6222720d665bf6a8ba7a5bd6c7903197baf7b7220b"
+}

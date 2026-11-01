@@ -552,7 +552,7 @@ Wire error format, used in every Errors field: the envelope `code` is SCREAMING_
 - **Behavior:** Deleting the `users` row removes the following through FKs, in one statement:
   - every workspace the user owns, with all of its memberships (other members' included), invitations and `workspace_files`. Other members' `default_workspace_id` is set to NULL.
   - the user's memberships in other workspaces
-  - pending invitations the user sent (`invited_by`)
+  - pending invitations the user sent (`inviter_id`)
   - all of the user's sessions, live and expired, including the current one, which is invalid immediately. Their `oauth_tokens` go with them.
   - `user_identities`, `verification_codes`, `pending_email_changes`, `user_preferences`, `oauth_tokens`
   - all `user_files`, the avatar included. The trigger queues each one's bytes in `pending_object_deletions`.

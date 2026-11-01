@@ -109,7 +109,7 @@ Columns: `id` UUID PK; `user_id` UUID NOT NULL FK `users` ON DELETE CASCADE DEFE
 
 ### `workspace_invitations` — owner WS — RLS on
 
-Columns: `id` UUID PK; `workspace_id` UUID NOT NULL FK `workspaces` ON DELETE CASCADE; `email` TEXT NOT NULL (ciphertext); `email_hash` VARCHAR(64) NOT NULL (HMAC); `permissions` JSONB NOT NULL; `invited_by` UUID NOT NULL FK `users` ON DELETE CASCADE; `invited_at` DEFAULT NOW(); `updated_at` DEFAULT NOW(); `expires_at` NOT NULL. There is no status column: a row's existence means "pending". Constraints: `workspace_invitations_workspace_email_unique UNIQUE(workspace_id, email_hash)`. Indexes: `idx_workspace_invitations_workspace`, `_email_hash`, `_expires`, `_workspace_invited (workspace_id, invited_at DESC)`. Source: `migrations/0002_tables.sql:253-266,651-652`, `migrations/0003_indexes.sql:76-80`.
+Columns: `id` UUID PK; `workspace_id` UUID NOT NULL FK `workspaces` ON DELETE CASCADE; `email` TEXT NOT NULL (ciphertext); `email_hash` VARCHAR(64) NOT NULL (HMAC); `permissions` JSONB NOT NULL; `inviter_id` UUID NOT NULL FK `users` ON DELETE CASCADE; `invited_at` DEFAULT NOW(); `updated_at` DEFAULT NOW(); `expires_at` NOT NULL. There is no status column: a row's existence means "pending". Constraints: `workspace_invitations_workspace_email_unique UNIQUE(workspace_id, email_hash)`. Indexes: `idx_workspace_invitations_workspace`, `_email_hash`, `_expires`, `_workspace_invited (workspace_id, invited_at DESC)`. Source: `migrations/0002_tables.sql:253-266,651-652`, `migrations/0003_indexes.sql:76-80`.
 
 ### `user_preferences` — owner USER — RLS on
 
@@ -165,7 +165,7 @@ sqlx's bookkeeping table (version, description, installed_on, success, checksum,
 | `workspace_memberships.user_id` | `users` | CASCADE | initially deferred |
 | `workspace_memberships.workspace_id` | `workspaces` | CASCADE | initially deferred |
 | `workspace_invitations.workspace_id` | `workspaces` | CASCADE | no |
-| `workspace_invitations.invited_by` | `users` | CASCADE | no |
+| `workspace_invitations.inviter_id` | `users` | CASCADE | no |
 | `oauth_tokens.user_id` | `users` | CASCADE | no |
 | `oauth_tokens.session_id` | `sessions` | CASCADE, ON UPDATE CASCADE | no |
 | `verification_codes.user_id` | `users` | CASCADE | no |

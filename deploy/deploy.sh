@@ -354,6 +354,11 @@ write_secrets() {
         head -c 32 /dev/urandom | base64 | tr -d '\n' > "$secrets/hmac_key"
         say "wrote the API's HMAC key to $secrets/hmac_key"
     fi
+    # The mail server's password, which the replicas read as a file even when the server takes
+    # none: empty, the API reads it as unset.
+    if [ ! -f "$secrets/smtp_password" ]; then
+        : > "$secrets/smtp_password"
+    fi
     # A file that exists empty stands in for a secret the services didn't use before, so it counts
     # as missing.
     if [ "$telemetry" = self-hosted ] && [ ! -s "$secrets/grafana_admin_password" ]; then

@@ -71,6 +71,36 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **What to do.** Refused data means the collector reached its memory limit: give it more memory. Failed sends name a store: check that Tempo, Loki or Prometheus runs and has disk space. Traces dropped early mean the collector holds more undecided traces than its `num_traces`: raise it, along with the collector's memory.
 
+## JobsDelayed
+
+**What it means.** A background job that is due has waited more than 10 minutes without a replica claiming it ([platform spec](../spec/platform.md#jobs)). Every email waits with it. Either no replica's dispatcher claims jobs, every replica's 4 runs are taken by long runs, or the job's kind is one that no running replica knows, as after a rollback to a release that doesn't have it.
+
+**Look first.** The API platform dashboard: "Are background jobs keeping up?" shows since when the delay grows, and "How do job runs end?" whether runs end at all. A replica that can't claim writes the `WARN` line "can't claim jobs", with the database's error.
+
+**What to do.** If no replica runs, follow [ApiTelemetryMissing](#apitelemetrymissing); if claims fail, [DatabaseUnreachable](#databaseunreachable). If runs end but slowly, "How long do job runs take?" names the kind, and its handler's logs say what it waits on. If the waiting job's kind is one the release doesn't know, the query of [JobsDeadLettered](#jobsdeadlettered), with `state = 'waiting'`, shows it: deploy a release that knows it. The alert clears once the queue catches up.
+
+## JobsDeadLettered
+
+**What it means.** A job failed on each of its attempts, or with a failure that every attempt would meet, and moved to the dead-letter state, where nothing retries it ([platform spec](../spec/platform.md#jobs)). For `mail.send`, an email didn't go out: a mail server that refused it for good, or one that didn't answer for the hours its retries span ([mail spec](../spec/mail.md#sending)).
+
+**Look first.** The API's `ERROR` line "job dead-lettered" names the kind and the failure. With the bundled database, this lists the dead letters, without their payloads, which hold personal data such as an email's recipient:
+
+```sh
+ssh <host> "docker exec deployment-postgres-1 psql --username=postgres --dbname=api --command=\"SELECT id, kind, attempts, dead_at, failure FROM jobs WHERE state = 'dead' ORDER BY dead_at DESC\""
+```
+
+With a managed database, run the same query in the provider's console.
+
+**What to do.** Fix what the failure names, such as the mail server's settings or credentials with `just server-setup`, or the sender's domain at the provider. A dead letter's remedy is the operation that caused it, such as inviting again, which sends a new email. The sweep deletes dead letters after `JOB_DEAD_LETTER_RETENTION_DAYS`, and the alert clears an hour after the last one.
+
+## PeriodicJobFailing
+
+**What it means.** A periodic job, such as one of the hourly sweeps, failed at least twice within 3 hours. Each failed run waits for its next interval, so what it deletes stays meanwhile; nothing a request reads changes ([platform spec](../spec/platform.md#jobs)).
+
+**Look first.** The API's `ERROR` line "periodic job failed, and runs again at its next interval" names the job and the failure.
+
+**What to do.** A failure of the database clears with it: follow [DatabaseUnreachable](#databaseunreachable). A run that passes its 5 minutes' time limit deletes in batches, so the next run continues where it stopped. The alert clears 3 hours after the last failure.
+
 ## BackupArchivingFailing
 
 **What it means.** The bundled Postgres failed to archive a segment of its write-ahead log to the backup bucket, and no archive has succeeded since. Postgres keeps each segment until it is archived, so its disk fills, and the latest moment a restore can reach stops advancing: losing the server now loses everything since the last archive that succeeded (OPS-17). Meanwhile a restore refuses, unless it finds Postgres not running or still replaying the log, as [Restoring](backups.md#restoring) says.

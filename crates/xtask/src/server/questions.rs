@@ -81,6 +81,10 @@ fn managed_grafana(settings: &[(String, String)]) -> bool {
     managed_telemetry(settings) && !get(settings, "MANAGED_GRAFANA_URL").is_empty()
 }
 
+fn smtp_credentials(settings: &[(String, String)]) -> bool {
+    get(settings, "EMAIL") == "smtp" && !get(settings, "SMTP_USERNAME").is_empty()
+}
+
 /// The secrets that the operator holds, as docs/operations/deploy.md lists them; the server
 /// generates those it can, for the operator to keep, unless the operator gives a lost server's.
 const SECRETS: &[File] = &[
@@ -146,6 +150,12 @@ const SECRETS: &[File] = &[
                imports the dashboards and the alert rules.",
         generated: false,
         needed: managed_grafana,
+    },
+    File {
+        name: "smtp_password",
+        what: "The password the mail server signs the API in with, as SMTP_USERNAME.",
+        generated: false,
+        needed: smtp_credentials,
     },
 ];
 
@@ -576,10 +586,14 @@ mod tests {
         "",
         "",
         "grafana.example.com",
+        // No email, so no question about a mail server.
+        "off",
         "s3.example.com",
         "",
         "eu-1",
         "backups",
+        "",
+        "",
         "",
         "",
         "",
@@ -675,7 +689,7 @@ mod tests {
     #[test]
     fn ops_22_a_server_that_was_set_up_keeps_what_each_empty_answer_leaves() {
         let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
-                    API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\n\
+                    API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=off\n\
                     FORK_SETTING=kept\n";
         let state = State {
             user: "deploy".to_owned(),
@@ -718,10 +732,49 @@ mod tests {
     }
 
     #[test]
+    fn ops_22_email_through_a_mail_server_with_a_user_name_is_asked_for_its_password() {
+        let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
+                    API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=smtp\n\
+                    SMTP_HOST=smtp.example.com\nSMTP_USERNAME=api\n\
+                    EMAIL_FROM=AntWorker <noreply@example.com>\n";
+        let state = State {
+            user: "deploy".to_owned(),
+            settings: Some(held.to_owned()),
+            secrets: vec![
+                "database_admin_url".to_owned(),
+                "database_owner_url".to_owned(),
+                "database_url".to_owned(),
+            ],
+            certs: Vec::new(),
+        };
+        // Enter for every setting and the database's URLs, the mail server's password, then
+        // Enter for the registry's token.
+        let mut answers = vec![""; setting_questions(held) + 3];
+        answers.extend(["the password", ""]);
+        let mut script = Script::new(&answers);
+
+        let setup = ask(&release(&example()), &state, &[], &mut script, no_file).unwrap();
+
+        assert!(
+            script
+                .asked
+                .iter()
+                .any(|question| question == "SMTP_HOST [smtp.example.com]: "),
+            "{:?}",
+            script.asked
+        );
+        assert_eq!(
+            setup.secrets,
+            vec![("smtp_password".to_owned(), "the password".to_owned())]
+        );
+        assert!(script.answers.is_empty(), "{:?}", script.answers);
+    }
+
+    #[test]
     fn ops_22_the_self_hosted_stack_is_asked_for_each_credential_its_alert_integrations_read() {
         let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
                     API_ADDRESS=api.example.com\nGRAFANA_ADDRESS=grafana.example.com\n\
-                    DATABASE=managed\nTELEMETRY=self-hosted\n";
+                    DATABASE=managed\nTELEMETRY=self-hosted\nEMAIL=off\n";
         let state = State {
             user: "deploy".to_owned(),
             settings: Some(held.to_owned()),

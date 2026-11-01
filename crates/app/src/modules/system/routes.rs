@@ -1,6 +1,6 @@
 //! The capabilities endpoint (SYSTEM-001).
 
-use axum::Json;
+use axum::{Json, extract::State};
 use platform::http::Routes;
 use serde::Serialize;
 use utoipa::ToSchema;
@@ -14,12 +14,16 @@ pub(crate) struct Capabilities {
     features: Features,
 }
 
-/// No feature can be turned off yet.
-#[derive(Debug, Serialize, ToSchema)]
-pub(crate) struct Features {}
+/// Each feature a deployment can turn off, and whether it is on.
+#[derive(Clone, Copy, Debug, Serialize, ToSchema)]
+pub(crate) struct Features {
+    /// Whether the deployment sends email (MAIL-004). While it is off, a client hides what
+    /// needs email, such as a way to reset a password.
+    pub(crate) email: bool,
+}
 
-/// The module's routes.
-pub(crate) fn routes() -> Routes {
+/// The module's routes, which take the deployment's features.
+pub(crate) fn routes() -> Routes<Features> {
     Routes::new().public(routes!(capabilities), &[])
 }
 
@@ -32,8 +36,6 @@ pub(crate) fn routes() -> Routes {
         (status = 200, description = "The deployment's features.", body = Capabilities),
     )
 )]
-async fn capabilities() -> Json<Capabilities> {
-    Json(Capabilities {
-        features: Features {},
-    })
+async fn capabilities(State(features): State<Features>) -> Json<Capabilities> {
+    Json(Capabilities { features })
 }

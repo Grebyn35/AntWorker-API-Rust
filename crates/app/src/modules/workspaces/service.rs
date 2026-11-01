@@ -9,7 +9,7 @@ use platform::{
     events::{self, AccessChange},
     idempotency::{Claimed, IdempotencyKey},
     lists::{List, Page, Search},
-    types::{Client, UserId},
+    types::{Client, UserId, WorkspaceId},
 };
 use serde_json::json;
 
@@ -118,6 +118,25 @@ pub(crate) async fn list(
         items,
         next_cursor: joined.next_cursor,
     })
+}
+
+/// The names of the workspaces `ids` names, which came from a query filtered by tenant, such as
+/// an invitee's invitations (DATA-22).
+pub(crate) async fn names(
+    uow: &mut UnitOfWork,
+    ids: &[WorkspaceId],
+) -> Result<Vec<(WorkspaceId, WorkspaceName)>, WorkspacesError> {
+    Ok(repo::names(uow, ids).await?)
+}
+
+/// The IDs among `ids`, passed under the same terms as to [`names`], of the workspaces whose name
+/// contains `search` (API-20).
+pub(crate) async fn matching(
+    uow: &mut UnitOfWork,
+    ids: &[WorkspaceId],
+    search: &Search,
+) -> Result<Vec<WorkspaceId>, WorkspacesError> {
+    Ok(repo::matching(uow, ids, search).await?)
 }
 
 /// A page of the caller's workspace's members, the latest joined first, of `role` only, and kept

@@ -11,6 +11,7 @@
 
 mod migrations;
 mod monitor;
+mod queue;
 mod roles;
 #[cfg(feature = "test-support")]
 pub mod testing;
@@ -25,6 +26,7 @@ use sqlx::{
 };
 
 pub use migrations::{MigrateError, SchemaProblem, Versions, migrate};
+pub(crate) use queue::{ClaimedJob, ClaimedSchedule};
 pub use roles::{Admin, BootstrapError, RoleProblem, bootstrap};
 pub use url::{DatabaseUrl, InvalidDatabaseUrl};
 
@@ -34,6 +36,7 @@ use crate::{
     clock::SharedClock,
     errors::{Internal, PlatformError, RequestError},
     idempotency::{self, Claimed, IdempotencyKey, Outcome},
+    jobs::JobContext,
     lifecycle::Readiness,
     types::{Client, UserId},
 };
@@ -121,6 +124,17 @@ impl Database {
         Ok(UnitOfWork {
             tx: self.pool.begin().await?,
             client: Some(client.clone()),
+            claimed: None,
+        })
+    }
+
+    /// Opens a unit of work for a job's run, which only a run's `JobContext` can ask for, as
+    /// only a request's `Client` can ask for a request's. Its queries filter by the context's
+    /// scope (PLATFORM-012), and its audit entries record no client.
+    pub async fn for_job(&self, _context: &JobContext) -> Result<UnitOfWork, Internal> {
+        Ok(UnitOfWork {
+            tx: self.pool.begin().await?,
+            client: None,
             claimed: None,
         })
     }

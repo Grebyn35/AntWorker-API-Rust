@@ -2,4 +2,4 @@
 
 mod routes;
 
-pub(crate) use routes::routes;
+pub(crate) use routes::{Features, routes};
