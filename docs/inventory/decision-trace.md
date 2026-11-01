@@ -36,6 +36,8 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D27 | Nothing outside `docs/inventory/` refers to the old API | DOC-04 extends the exception to `docs/MIGRATION.md`, to CLAUDE.md's pointer to the inventory, and to decision IDs and the links that architecture.md and the tracker make to the decisions' records |
 | D32 | A keyed hash only for verification codes and rate-limit keys | SEC-16 adds emails in audit entries, which D32's own principle covers: they are guessable |
 | D36 | A security failure recorded during sign-in answers with that failure | ARCH-11 covers every recorded security failure, such as refresh-token reuse (AUTH-012) |
+| D18 | The cookie transport, CSRF protection, a CORS allowlist for web origins, and signed URLs for private downloads are built later, as additions | D61: each is built with the part it belongs to: the cookie, CSRF protection and the allowlist with `auth`, a stream through the cookie with `realtime`, and signed URLs with `files` |
+| D26 | OWASP ASVS Level 2 is the security bar | The security rules' introduction: Level 2 of version 5.0.0, but for requirement 6.3.3, since every user may add a second factor and every superadmin must (D63) |
 
 ## Contradictions in the first slice
 
@@ -53,6 +55,8 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D11 | Each user holds a capped number of concurrent streams | the `realtime` step |
 | D12 | Idempotency keys are compared exactly as sent | the idempotency step |
 | D18 | Sign-in and refresh responses come from one function that issues the session | the `auth` step |
+| D18 | Browsers authenticate through an `HttpOnly` cookie, which CSRF protection guards, from the origins a CORS allowlist names (D61) | the `auth` step |
+| D18 | A browser's stream authenticates through the same cookie (D61) | the `realtime` step |
 
 ### For later steps
 
@@ -64,7 +68,7 @@ Modules carry their own; the build order step of each other area is in parenthes
 | `audit` | reads filtered by permission (D2); the target filterable and visible to that user; bounded retention (D6) |
 | `auth` | the ADR on accepted enumeration (D7); forgot-password answers 503 with email off (D9); the OAuth redirect allowlist (D18); password reset that sets the first password of an account created without one, and verifies its address (the `workspaces` spec's setup subcommand, D39); with the key that encrypts provider tokens (SEC-02), a backup of that key kept apart from the database's (D30) |
 | `accounts` | deletion refused while the user owns a shared workspace, sole-member workspaces deleted with the account, and the ADR on immediate deletion (D16); the export endpoint, one per 24 hours, its archive, notice and download, and the optional erasure precondition (D31) |
-| `files` | a bucket for anonymous public-file downloads (D11); versioning on the files' bucket, recommended and documented (D30) |
+| `files` | a bucket for anonymous public-file downloads (D11); versioning on the files' bucket, recommended and documented (D30); signed URLs for private downloads, which a browser's `<img>` needs (D18, D61) |
 | Development (2.4) | the OpenAPI UI in development only (D28) |
 | Template (5, 6) | a GitHub template repository and `just new-module` (D29); the ADR on hard deletes (D24) |
 | Security (6) | the ASVS Level 2 conformance pass (D26) |

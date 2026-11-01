@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication and rate limiting, then their test-first build, whose review covers the commits after this handoff. The spec settles the platform spec's open question on where the IP limit counts. Step 1 is built and reviewed through 6997584, each review's result in [Conformance reviews](#conformance-reviews). The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 2.1: the spec of `accounts`, `auth` and the `audit` writer, with authentication for desktop and web clients (D61) and rate limiting, then their test-first build, whose review covers the commits after this handoff. The spec settles the platform spec's open question on where the IP limit counts. Step 1 is built and reviewed through 6997584, each review's result in [Conformance reviews](#conformance-reviews). The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
 
 ## Build order
 
@@ -21,7 +21,7 @@ Every part of the system is listed under [Foundation](#foundation), [Modules](#m
    4. **Image and pipeline:** the image, and CI that builds it once, scans it, boots it, runs the end-to-end suite against it, and promotes its digest, with signed releases that `just release` asks for.
    5. **Reference deployment:** the production setup on one server, its deploy tooling, scheduled backups and restore, and the load test, with Grafana on an HTTPS address of its own and the path to a managed observability backend (D42). The end-to-end suite proves a deploy with no downtime, a rollback, a restore, and the trace-ID guarantee for a 4xx response (D10).
 2. **Thin slice.** Spec it, then build it test-first, each part extending the skeleton:
-   1. `accounts`, `auth` and the `audit` writer, with authentication (`Principal` and `SessionVerifier`) and rate limiting: the IP and per-user limits and the per-email sign-in limit, built once with all three callers. It settles the `auth` items in [inventory/decision-trace.md](inventory/decision-trace.md), and extends the trace-ID guarantee to a 5xx response.
+   1. `accounts`, `auth` and the `audit` writer, with authentication (`Principal` and `SessionVerifier`) and rate limiting: the IP and per-user limits and the per-email sign-in limit, built once with all three callers. Authentication reads the Bearer header and, from browsers, a cookie, with CSRF protection and the CORS allowlist (D61). It settles the `auth` items in [inventory/decision-trace.md](inventory/decision-trace.md), and extends the trace-ID guarantee to a 5xx response.
    2. `access` and `workspaces`, with `Authorized<P>`, the security event sink, and idempotency, which creating a workspace uses.
    3. Jobs, `mail` and `invitations`.
    4. The event hub and `realtime`, ending with "removing a member closes their stream". Readiness then includes the listener, and a deploy with an open stream loses no event.
@@ -80,6 +80,7 @@ Each module goes through these stages, in order:
 | `mail` | MAIL | first slice | first slice | | | |
 | `files` | FILE | | | | | |
 | `client_telemetry` | OBS | | | | | |
+| `superadmins` | none: a new part (D62) | | | | | |
 | `system` | HTTP, OPS | capabilities | capabilities | capabilities | capabilities | capabilities |
 
 ## CI checks
@@ -142,6 +143,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | The restore's fix after 97c76dc | CODE-16: `check-shell` fails on a function of a script under `deploy/` that assigns a variable the script's top level sets, since every variable of `sh` is global, and the assignment changes what the rest of the script reads | 3 |
 | Conformance review of 97c76dc..c3fb265 | TEST-07: whether a test's wait on the output of a command it runs, such as `Server::deploy_until` reading deploy.sh's output, needs a timeout of its own, or the command's own bounded waits bound it | 3 |
 | The check of the foundation before step 2.1 | CODE-07: whether a limit like its 500 lines, which counts Rust files only, applies to a script under `deploy/`, or the server's tasks move out of `sh` into a language whose variables have a scope: `deploy.sh` holds every task on the server in 1,269 lines, where every variable is global, as the CODE-16 proposal above says | 3 |
+| The owner's decision on second factors (D63) | Whether a second factor can be required beyond superadmins: of every user, by a setting of the deployment, or of a workspace's members, by its owner, as Slack and GitHub let an organization require it of its members | 5, with the full `auth` module |
 
 ## Conformance reviews
 
@@ -213,7 +215,7 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D15 | Delivery pipeline and deploy scope | accepted, including the single-host rolling deploy |
 | D16 | Account and workspace lifecycle | accepted |
 | D17 | Internal error model | accepted |
-| D18 | Authentication that is ready for web clients | accepted |
+| D18 | Authentication that is ready for web clients | accepted; what it left for later is built with the parts it belongs to (D61) |
 | D19 | Observability stack design | accepted |
 | D20 | Runtime topology and scaling | accepted |
 | D21 | CI pipeline shape, on GitHub Actions | accepted |
@@ -221,7 +223,7 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D23 | Testing strategy | accepted |
 | D24 | Data access conventions | accepted |
 | D25 | Domain types and input validation | accepted |
-| D26 | Secrets and security baseline | accepted |
+| D26 | Secrets and security baseline | accepted; its bar is Level 2 of ASVS 5.0.0, but for requirement 6.3.3 (D63) |
 | D27 | Documentation and Claude Code guidance | accepted |
 | D28 | Local development experience | accepted |
 | D29 | Fork and extension model | accepted |
@@ -256,3 +258,6 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D58 | A restore reaches the bundled database as it stood at any moment the retention covers that a commit in the bucket follows on its timeline. One that finds Postgres running the database the bucket backs up, with its log reaching the bucket, commits a transaction of its own first, so it reaches every moment until it began, and names the moment that returns the database to how it found it. A moment that no commit follows, such as one while an earlier restore ran or after a lost server's last archived change, is left to the moment a restore named, or after the server's loss to the latest state, rather than recording each restore's run in the bucket for the plan to reach or refuse such a moment (OPS-17, [backups.md](operations/backups.md#restoring)) | superseded by D60 |
 | D59 | A restore that finds Postgres running the database the bucket backs up, with its log not reaching the bucket, as pgBackRest's check finds, refuses before anything stops, and one whose transaction, or the check that archives it, fails once the replicas have stopped starts them again and refuses, unless `--allow-unarchived` lets it go on, rather than going on and saying so: it would leave the changes that the bucket lacks only in the data it moves aside, while the API serves the restored database, and name no moment that undoes it. On a new server, whose empty database the bucket doesn't back up, a restore goes on, as it does while Postgres still replays the log, as after a restore that failed during its replay: a database in recovery takes no writes, and holds only what the bucket gave it (OPS-17, [backups.md](operations/backups.md#restoring)) | accepted |
 | D60 | A restore reaches the bundled database as it stood at any moment the retention covers. One that finds Postgres running the database the bucket backs up, with its log reaching the bucket, commits a transaction of its own first, and names the moment that returns the database to how it found it. A moment that no commit or rollback the bucket holds follows on its timeline, such as one while an earlier restore ran, after the moment it named and before its timeline began, or one after a lost server's last archived change, is restored as of the timeline's end in the bucket, which the restore names by its last commit's time, or by the backup it started from when it replayed none: once Postgres ends the replay to such a moment without reaching it, the restore restores the backup again and replays the timeline to its end, waiting for each replay as long as it advances, rather than failing with the API stopped, and leaving the operator to find a moment that an earlier restore named (OPS-17, [backups.md](operations/backups.md#restoring)) | accepted |
+| D61 | Web clients are supported beside clients that set their own headers, such as the desktop client: a browser authenticates through an `HttpOnly` cookie, which CSRF protection guards, from the origins a CORS allowlist names, built with `auth` in step 2.1; its stream authenticates through the same cookie, in step 2.4; and its private downloads through signed URLs, with `files` in step 5. Each is built with the part it belongs to, rather than after the API as D18 left them, so no fork that exists by then has to add them by hand ([architecture](architecture.md#8-cross-cutting-mechanisms)) | accepted |
+| D62 | A deployment may have superadmins: users whom the operator adds or removes through `just` on the server, never through the API. A superadmin sees every workspace's name, creation time, member count and owner, but not its content, and deletes any workspace, through routes of their own authorized by the caller being a superadmin, never by bypassing a membership. In the provisioned organizations shape, only superadmins create workspaces, a shape that a fork chooses by removing parts, like the others, rather than through a setting. The `superadmins` module is optional (ARCH-07), and is built in step 5 ([architecture](architecture.md#what-each-module-owns)) | accepted |
+| D63 | The security bar is Level 2 of version 5.0.0 of ASVS, but for its requirement 6.3.3: every user may add a second factor, and every superadmin must, rather than every user having to, so a product's users can sign in without setting one up; the threat model records the controls that stand in for the requirement ([security rules](standards/security.md)) | accepted |

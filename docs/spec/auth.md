@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`auth` proves who a caller is. It owns sign-in methods and sessions, and it implements the `SessionVerifier` that `platform::authn` uses on every protected request. This spec covers registration and sign-in with a password, refreshing, signing out, and authenticating requests. Email verification, password reset and change, OAuth and identity linking arrive with the full module.
+`auth` proves who a caller is. It owns sign-in methods and sessions, and it implements the `SessionVerifier` that `platform::authn` uses on every protected request. This spec covers registration and sign-in with a password, refreshing, signing out, and authenticating requests. Email verification, password reset and change, OAuth, identity linking and second factors arrive with the full module.
 
 ## Owns
 
@@ -71,6 +71,10 @@ The presented token is hashed with SHA-256, and the session is read by `refresh_
 ### Device IDs
 
 A device ID is an opaque string the client chooses, 1 to 64 characters from `[A-Za-z0-9_-]`, such as one it generates once per installation.
+
+### Second factors
+
+Every user may add a second factor, and every superadmin must (D63). The factors arrive with the full module, and their kinds are chosen then. Sign-in is built in the first slice so that they add to it without changing what it answers a user who has none: a user who has one gets a challenge to complete, rather than the session's tokens.
 
 ## Open design questions
 

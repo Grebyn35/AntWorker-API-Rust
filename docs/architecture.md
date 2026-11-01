@@ -22,7 +22,7 @@ flowchart LR
   prom --> am[Alertmanager]
 ```
 
-- PostgreSQL is the system of record and the only coordination point between replicas. It holds rate limits, idempotency records, job leases, the job queue and the event log. There is no Redis or other shared cache. Adding one would need an architecture decision record (ADR) showing Postgres can't cope.
+- PostgreSQL is the system of record and the only coordination point between replicas. It holds rate limits, idempotency records, job leases, the job queue and the event log. There is no Redis, Valkey or other shared store, and adding one to the template needs an architecture decision record (ADR) showing Postgres can't cope. What commits with a unit of work stays in Postgres in any fork, since a store outside the transaction can't commit with it (D1): events, jobs, audit entries and idempotency results. What doesn't, the rate-limit counts and any cache, sits behind one type of `platform` each, so a fork that moves one to a shared store changes that type and the composition root, and no module.
 - Object storage holds file bytes. Uploads and downloads use it during the request, and deletions go through background jobs.
 - The Simple Mail Transfer Protocol (SMTP) delivers email, and only background jobs reach it. No request waits for an email to send (D1).
 - The observability stack is always part of the codebase, and turning it on at runtime is optional.
@@ -70,8 +70,8 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `jobs` | A durable job queue with retry, backoff and dead letters, plus a scheduler that runs each periodic job once per interval across the fleet. A job records the user or workspace it was enqueued for, and its handler filters by them. | D1, D13 |
 | `listener` | One `LISTEN` connection per instance, routing notifications to subscribers such as the real-time hub and the job dispatcher. | D20 |
 | `events` | The event log and the real-time hub. A unit of work publishes events. The hub loads each new event once and delivers it to the streams allowed to receive it (SEC-17). It also replays missed events, closes or re-filters streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). | D1, D5, D20 |
-| `http` | The route builders and the OpenAPI document they produce, the middleware stack with trace context, timeouts and load shedding, extractors (JSON, path, query, pagination), idempotency and rate limiting. | D8, D10, D11, D12, D20 |
-| `authn` | Reads credentials through a credential source, a closed enum whose one variant reads the Bearer header, and verifies them through the `SessionVerifier` that `auth` implements, producing a `Principal`. | D18 |
+| `http` | The route builders and the OpenAPI document they produce, the middleware stack with trace context, timeouts, load shedding, cross-origin resource sharing (CORS) and the protection against cross-site request forgery (CSRF), extractors (JSON, path, query, pagination), idempotency and rate limiting. | D8, D10, D11, D12, D20, D61 |
+| `authn` | Reads credentials through a credential source, a closed enum with two variants: the Bearer header, for clients that set their own headers, such as the desktop client, and an `HttpOnly` cookie, for browsers. It verifies them through the `SessionVerifier` that `auth` implements, producing a `Principal`. | D18, D61 |
 | `authz` | The `Authorized<P>` proof and the `Memberships` type, generic over the `Permission` trait. Producing `Authorized<P>` opens the request's unit of work and asks the `AccessPolicy` that `access` implements inside it. Refusals are reported to the `SecurityEventSink` that `audit` implements. | D2, D3, D6 |
 | `errors` | Error categories, the `ErrorCode` trait, and the single conversion to an HTTP response. | D17 |
 | `telemetry` | The logging and tracing setup, the export of spans, logs and metrics over the OpenTelemetry Protocol (OTLP), the list of telemetry names, and the metric declarations. | D10, D19 |
@@ -96,7 +96,7 @@ crates/app/
     composition.rs     the composition root: builds every service once at startup and mounts every module's routes
     modules/
       access/ accounts/ audit/ auth/ client_telemetry/ files/
-      invitations/ mail/ realtime/ system/ workspaces/
+      invitations/ mail/ realtime/ superadmins/ system/ workspaces/
   templates/email/
   tests/               integration tests over HTTP, against real Postgres and S3, and end-to-end tests in tests/e2e/
 ```
@@ -116,6 +116,7 @@ crates/app/
 | `auth` | `sessions`, `verification_codes`, `identities`, `provider_tokens`, `pending_email_changes` | Registration, login with credentials or OAuth, refresh, logout, sessions, password reset and change, email verification and change, identity linking, and re-authentication for sensitive actions. Account deletion is confirmed here, then carried out by `accounts`. One file per OAuth provider in `auth/providers/`. Implements `SessionVerifier`. |
 | `workspaces` | `workspaces`, `setup_runs` | Creating workspaces in each shape (below), updating, transferring and deleting them, the members endpoints (list, change role, remove, leave), and the workspace picture. |
 | `invitations` | `invitations` | Invite, list, resend, cancel, accept, decline, and expiry. |
+| `superadmins` | `superadmins` | The deployment's superadmins (D62): users who see every workspace's name, creation time, member count and owner, but not its content, delete any workspace, and create workspaces, the only users who do in the provisioned shape (below). Its routes are authorized by the caller being a superadmin, never by a membership, and it records each action in the superadmin's own log, since deleting a workspace deletes the workspace's log. Its subcommand adds an account to the superadmins or removes it, which the API can't. |
 | `client_telemetry` | none | The telemetry proxy for clients, enforcing consent on the server (D7). |
 | `system` | none | The capabilities endpoint (D9), and the schema endpoints, which list the permissions and the audit actions. The health probes belong to `platform` (§4). |
 | `platform` | `events`, `jobs`, `job_schedules`, `rate_limit_buckets`, `idempotency_records` | The mechanisms in §4. |
@@ -124,15 +125,16 @@ Table naming follows the data standard.
 
 ### Workspace shapes
 
-Data a module adds for its product lives in a workspace, and is reached through `Authorized<P>` (§6). Account data, such as the profile, sessions and the user's own audit log, belongs to the user. A product uses workspaces in one of three shapes. In the last two, each user works in one workspace, so a client can leave workspaces out of its interface.
+Data a module adds for its product lives in a workspace, and is reached through `Authorized<P>` (§6). Account data, such as the profile, sessions and the user's own audit log, belongs to the user. A product uses workspaces in one of four shapes. In the last two, each user works in one workspace, so a client can leave workspaces out of its interface.
 
 | Shape | Who creates workspaces | Who joins one | The optional parts it keeps |
 |---|---|---|---|
 | Teams | each user, as many as they need | people a member invites | users creating workspaces, `invitations` |
+| Provisioned organizations | a superadmin, one for each organization the deployment serves | people a member invites | `superadmins`, `invitations` |
 | One organization | the setup subcommand, once, together with its owner's account (§9) | people a member invites | the setup subcommand, `invitations` |
 | Personal | the client, whenever a signed-in user belongs to none | nobody | users creating workspaces |
 
-A fork chooses its shape once, when it starts, by removing the optional parts it doesn't keep with the command ARCH-07 provides, never through a setting, so it carries no code for a shape it doesn't use. A shape is enforced by the routes it removes: a route a fork keeps treats every caller the same, whatever the fork's client offers, and lets a caller do only what their role allows (§6). In the personal shape, the API has no notion of a personal workspace: without `invitations`, nobody can join the workspace a user creates. The client works in the oldest workspace the user belongs to, so a workspace made outside the client changes nothing the user sees. The template keeps every part and serves the teams shape. Registration creates no workspace, so an invited user joins only the workspace they were invited to, and a user who signs up uninvited is offered to create one (D16). Only an operator runs the setup subcommand, so keeping it changes nothing for the template's users. How each part creates a workspace is in the [workspaces spec](spec/workspaces.md#creating-a-workspace). In every shape, the same authorization and the same tenancy checks guard the data (DATA-22, TEST-09).
+A fork chooses its shape once, when it starts, by removing the optional parts it doesn't keep with the command ARCH-07 provides, never through a setting, so it carries no code for a shape it doesn't use. A shape is enforced by the routes it removes: a route a fork keeps treats every caller the same, whatever the fork's client offers, and lets a caller do only what their role allows (§6). In the personal shape, the API has no notion of a personal workspace: without `invitations`, nobody can join the workspace a user creates. The client works in the oldest workspace the user belongs to, so a workspace made outside the client changes nothing the user sees. The template keeps every part and serves the teams shape. Registration creates no workspace, so an invited user joins only the workspace they were invited to, and a user who signs up uninvited is offered to create one (D16). Only an operator runs the setup subcommand, so keeping it changes nothing for the template's users. A fork may keep `superadmins` in any shape, for seeing and deleting workspaces; only in the provisioned shape is it the one part that creates them. How each part creates a workspace is in the [workspaces spec](spec/workspaces.md#creating-a-workspace). In every shape, the same authorization and the same tenancy checks guard the data (DATA-22, TEST-09).
 
 ### Dependencies
 
@@ -147,6 +149,7 @@ flowchart TD
   files --> access & audit
   audit --> access
   client_telemetry --> accounts
+  superadmins --> workspaces & access & accounts & audit
 ```
 
 `access`, `mail`, `realtime` and `system` depend on no other module.
@@ -267,8 +270,8 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 
 - **Errors (D17).** Each module has its own error enum. Every variant declares a stable code and a category, and the category alone sets the HTTP status. Infrastructure errors never leave their adapter. An error is logged once, where it is handled.
 - **Validation (D25).** Request types reject unknown fields and convert at the boundary into domain types that can only hold valid values. Code past the boundary accepts only those types.
-- **Authentication (D5, D18).** Sessions slide on refresh but have an absolute maximum lifetime. Credential transport is pluggable. Revoking a session closes its streams.
-- **Authorization (D2).** One permission matrix, in `access/permissions.rs`, maps roles to permissions. Every workspace route declares its permission in its type. Role rank limits who may change whom.
+- **Authentication (D5, D18, D61, D63).** Sessions slide on refresh but have an absolute maximum lifetime. Desktop and web clients are both supported: credentials arrive in the Bearer header from a client that sets its own headers, or in an `HttpOnly` cookie from a browser, whose requests CSRF protection guards, from the origins that the CORS allowlist names. Every user may add a second factor, and every superadmin must. Revoking a session closes its streams.
+- **Authorization (D2, D62).** One permission matrix, in `access/permissions.rs`, maps roles to permissions. Every workspace route declares its permission in its type. Role rank limits who may change whom. A route of `superadmins` is authorized by the caller being a superadmin instead, and reaches no workspace's content.
 - **Observability (D10, D19).** Every response except the health probes carries a trace ID that leads to its logs, and to its trace whenever the request ended in an error. Metrics are declared in code. The metric catalog is generated from the declarations, and CI checks the dashboards and alerts against it.
 - **Configuration (D9).** Strict and typed, with no defaults that are unsafe in production. A disabled feature answers 503 and is advertised by the capabilities endpoint.
 - **Background jobs (D13).** Declared in one registry. Each runs once per interval across the fleet, under a lease with a heartbeat, and shutdown is bounded.
@@ -283,6 +286,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   - `migrate` is the one-shot migration step.
   - `seed` loads development data.
   - The setup subcommand creates the deployment's one workspace and its owner's account, in a fork that keeps it (§5, "Workspace shapes").
+  - The superadmin subcommand adds an account to the superadmins or removes it, in a fork that keeps `superadmins` (D62). `just` runs it, on a deployment's server over Secure Shell (SSH), so only someone who can reach the server can change who is a superadmin.
   - `openapi` writes the contract, `openapi.json`, which a test compares with the committed one (API-17).
   - `health` asks the instance whether it is ready, for the image's health check (PLATFORM-044).
 - **The single-host reference deployment** runs on one Linux server, in Docker Compose (D15, D20, D45):
@@ -359,9 +363,10 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Provider token | A credential from an OAuth provider, stored encrypted (SEC-02). It is revoked when the session or identity that needs it ends. |
 | Principal | The authenticated caller of a request, produced by `platform::authn` (D18). |
 | Workspace | A space whose members share its data: a team's, an organization's, or one user's own (§5). Owns workspace files, invitations and its audit log. |
-| Workspace shape | How a product uses workspaces: teams, one organization, or personal (§5). |
+| Workspace shape | How a product uses workspaces: teams, provisioned organizations, one organization, or personal (§5). |
 | Membership | A user's place in a workspace, with exactly one role. Owned by `access`. |
-| Owner | The one role per workspace that can transfer or delete it. |
+| Owner | The one role per workspace that can transfer or delete it. A superadmin can also delete it. |
+| Superadmin | A user whom the deployment's operator made one through `just`, who sees every workspace without being a member, but not its content, and deletes any workspace (§5, D62). Not a role: roles belong to memberships. |
 | Role | A named set of permissions, defined in code in `access` (D2). |
 | Permission | One thing a role allows on a workspace resource, such as `members.update`. |
 | Invitation | An offer to join a workspace with a role, sent to an email address. |

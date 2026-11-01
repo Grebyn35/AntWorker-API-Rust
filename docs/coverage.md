@@ -36,9 +36,9 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Area | Covered by |
 |---|---|
 | Architecture and threat model | D22, D26 |
-| Authentication | D18, D26, the `auth` spec |
-| Session management | D5, D18 |
-| Access control | D2, D3, D4 |
+| Authentication | D18, D26, D61, D63, the `auth` spec |
+| Session management | D5, D18, D61 |
+| Access control | D2, D3, D4, D62 |
 | Validation, sanitization and encoding | D25, D8 |
 | Cryptography and stored data protection | D14, D26 |
 | Error handling and logging | D17, D7 |
@@ -81,7 +81,7 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Area | Covered by |
 |---|---|
 | Local development experience | D28 |
-| Fork, rename, add and remove modules, workspace shapes, upstream updates | D29, D39 |
+| Fork, rename, add and remove modules, workspace shapes, upstream updates | D29, D39, D62 |
 | Documentation set and Claude Code guidance | D27 |
 | Template versioning and changelog | D15, D29 |
 | License | `Q1` |
@@ -94,10 +94,9 @@ Each module in [architecture.md §5](architecture.md#5-modules) gets a spec in `
 
 Each of these gets a one-line architecture decision record (ADR) so the boundary is on record:
 
-- Web-client support (the seams are in D18).
 - Clients, and how they are distributed, such as a desktop app's auto-updater. Each client is a separate project that uses the API's contract.
 - Kubernetes, Amazon Elastic Container Service (ECS) or Fly manifests (D20 documents the requirements).
-- An admin console, billing, and multi-region deployment.
+- An admin console, billing, and multi-region deployment. The API's part in administering a deployment is the `superadmins` module (D62), which a client may build a console on.
 - Localized server messages. Clients localize by error code and event type.
 
 ## Owner questions
