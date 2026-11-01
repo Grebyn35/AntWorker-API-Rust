@@ -188,7 +188,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | c3fb265..e5d777c: the arm64 end-to-end tests on an arm64 runner, the runners that `check-pins` reads from a matrix, and the close of the review before | 1 | 2 (2, 0, 0 shared) | 0 | 0 | `clean`: eccac06 |
 | f0d75e5..a7f2c02: each managed deployment of the end-to-end tests on a Postgres server of its own, with no roles lock on its deploys, and a managed Postgres server that holds no other deployment's database | 1 | 3 (2, 1, 0 shared) | 0 | 0 | `clean`: 09fc97e |
 | 43773a5..b77e414: each platform's end-to-end tests split between two CI jobs | 1 | 3 (3, 0, 0 shared) | 0 | 0 | `clean`: 6997584 |
-| 4e7c633..cef3b30: decisions D61 to D63, and step 2.1: accounts, auth, the audit writer, authentication, client IP, rate limits, browsers and request bodies, their deployment, metrics and load test, and its CI checks | 1 | 28 (26, 8, 6 shared) | 18 | 0 | `next pass` |
+| 4e7c633..cef3b30: decisions D61 to D63, and step 2.1: accounts, auth, the audit writer, authentication, client IP, rate limits, browsers and request bodies, their deployment, metrics and load test, and its CI checks | 1 | 28 (26, 8, 6 shared) | 18 | 0 | `next pass`: 8a121a2 |
+| 4e7c633..eac8668: as above | 2 | 9 (7, 4, 2 shared) | 5 | 1 | `stopped: no progress` |
 
 ## Decisions
 
