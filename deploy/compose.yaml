@@ -31,12 +31,19 @@ x-api: &api
     MAX_CONCURRENT_REQUESTS: ${MAX_CONCURRENT_REQUESTS:-100}
     DATABASE_MAX_CONNECTIONS: ${DATABASE_MAX_CONNECTIONS:-10}
     DATABASE_URL_FILE: /run/secrets/database_url
+    HMAC_KEY_FILE: /run/secrets/hmac_key
     OTEL_EXPORTER_OTLP_ENDPOINT: ${API_TELEMETRY_ENDPOINT:-}
     # Caddy stops sending requests to a draining replica within its health checks' interval and
     # timeout (deploy/caddy/sites/api.caddy), so the replica keeps serving for longer (OPS-06).
     SHUTDOWN_DELAY_SECONDS: "5"
     SHUTDOWN_DRAIN_SECONDS: "10"
-  secrets: [database_url]
+    # Only the deployment's own containers reach a replica, on its private networks, so every
+    # private peer is Caddy, and the proxies Caddy trusts are trusted too (PLATFORM-047).
+    TRUSTED_PROXIES: "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7, ${TRUSTED_PROXIES:-}"
+    CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+    RATE_LIMIT_IP_REQUESTS: ${RATE_LIMIT_IP_REQUESTS:-600}
+    RATE_LIMIT_USER_REQUESTS: ${RATE_LIMIT_USER_REQUESTS:-300}
+  secrets: [database_url, hmac_key]
   # The shutdown delay and the drain take at most 15 seconds, and writing out telemetry the time
   # that the platform spec's Telemetry export bounds it to, which fits in the rest.
   stop_grace_period: 30s
@@ -340,11 +347,13 @@ volumes:
   grafana:
 
 # The secret files, in secrets/ of the deployment's directory. deploy.sh writes the URLs of the
-# bundled Postgres and Grafana's password; `just server-setup` writes the others
+# bundled Postgres, the API's HMAC key and Grafana's password; `just server-setup` writes the others
 # (docs/operations/deploy.md).
 secrets:
   database_url:
     file: ./secrets/database_url
+  hmac_key:
+    file: ./secrets/hmac_key
   database_owner_url:
     file: ./secrets/database_owner_url
   database_admin_url:

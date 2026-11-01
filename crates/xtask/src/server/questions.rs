@@ -560,10 +560,14 @@ mod tests {
     /// The answers of a new server's setup with the bundled database and the self-hosted stack.
     const NEW_SERVER: &[&str] = &[
         // IMAGE_REPOSITORY, SOURCE, API_ADDRESS, then Enter for the rest of the settings,
-        // until the bucket.
+        // until the bucket: TRUSTED_PROXIES, CORS_ALLOWED_ORIGINS, the two rate limits, and the
+        // replicas'.
         "",
         "",
         "api.example.com",
+        "",
+        "",
+        "",
         "",
         "",
         "",
@@ -760,7 +764,20 @@ mod tests {
             user: "deploy".to_owned(),
             ..State::default()
         };
-        let mut script = Script::new(&["", "", "", "api.example.com", "", "", "", "", "postgres"]);
+        let mut script = Script::new(&[
+            "",
+            "",
+            "",
+            "api.example.com",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "postgres",
+        ]);
 
         let asked = ask(&release(&example()), &state, &[], &mut script, no_file);
 

@@ -319,8 +319,8 @@ check_connections() {
 random() { od -An -N24 -tx1 /dev/urandom | tr -d ' \n'; }
 
 # Writes the secrets the deployment generates, once those the operator holds are there: the
-# passwords of the bundled Postgres's other roles and the URLs made from them, and Grafana's
-# administrator password. The files may be read by every user of a container, as Compose mounts
+# passwords of the bundled Postgres's other roles and the URLs made from them, the API's HMAC
+# key, and Grafana's administrator password. The files may be read by every user of a container, as Compose mounts
 # them, so the directory admits only the deployment's owner.
 write_secrets() {
     secrets=$deployment/secrets
@@ -347,6 +347,12 @@ write_secrets() {
         printf 'postgres://owner:%s@postgres:5432/api' "$owner" > "$secrets/database_owner_url"
         printf 'postgres://app:%s@postgres:5432/api' "$app" > "$secrets/database_url"
         say "wrote the bundled database's passwords to $secrets"
+    fi
+    # The key of the API's keyed hashes, 32 random bytes in base64, written once: a new key starts
+    # every rate-limit bucket afresh (PLATFORM-051).
+    if [ ! -s "$secrets/hmac_key" ]; then
+        head -c 32 /dev/urandom | base64 | tr -d '\n' > "$secrets/hmac_key"
+        say "wrote the API's HMAC key to $secrets/hmac_key"
     fi
     # A file that exists empty stands in for a secret the services didn't use before, so it counts
     # as missing.

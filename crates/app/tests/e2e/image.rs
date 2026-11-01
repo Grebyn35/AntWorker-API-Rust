@@ -67,6 +67,8 @@ pub fn settings(database: &TestDatabase) -> Vec<String> {
     let mut settings = vec![
         "ENVIRONMENT=production".to_owned(),
         format!("LISTEN_ADDR=0.0.0.0:{PORT}"),
+        // 32 bytes of 7, a key only the tests use.
+        "HMAC_KEY=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=".to_owned(),
     ];
     for setting in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
         let mut url = url::Url::parse(&std::env::var(setting).expect(setting)).expect(setting);

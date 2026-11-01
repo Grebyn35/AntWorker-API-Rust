@@ -63,13 +63,15 @@ pub(super) fn origins(value: &str, environment: Environment) -> Option<Vec<Origi
         .collect()
 }
 
-/// The addresses and ranges in `value`, separated by commas, such as
-/// `172.18.0.0/16, 203.0.113.7`, or `None` if one is neither (PLATFORM-047).
+/// The addresses and ranges in `value`, separated by commas or spaces, such as
+/// `172.18.0.0/16, 203.0.113.7`, or `None` if one is neither (PLATFORM-047). An empty item adds
+/// nothing, so a deployment can append a list that may be empty, such as the one its proxy
+/// takes, separated by spaces.
 pub(super) fn proxies(value: &str) -> Option<Vec<IpNet>> {
     value
-        .split(',')
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|item| !item.is_empty())
         .map(|item| {
-            let item = item.trim();
             IpNet::from_str(item)
                 .ok()
                 .or_else(|| IpAddr::from_str(item).ok().map(IpNet::from))
@@ -129,8 +131,8 @@ mod tests {
 
     #[test]
     fn platform_047_trusted_proxies_are_addresses_or_ranges() {
-        let parsed = proxies("172.18.0.0/16, 203.0.113.7,2001:db8::/32").unwrap();
-        assert_eq!(parsed.len(), 3);
+        let parsed = proxies("172.18.0.0/16, 203.0.113.7,2001:db8::/32, 198.51.100.0/24 ").unwrap();
+        assert_eq!(parsed.len(), 4);
         assert!(proxies("172.18.0.0/16, proxy.example.com").is_none());
     }
 

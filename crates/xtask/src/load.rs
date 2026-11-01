@@ -363,9 +363,16 @@ fn limits(root: &Path) -> Result<(String, String), String> {
     Ok((value("API_CPUS")?, value("API_MEMORY")?))
 }
 
-/// The replica's database settings: those of .env, with Compose's Postgres as `postgres`.
+/// The replica's settings: the database's and the HMAC key of .env, with Compose's Postgres as
+/// `postgres`, and an IP limit that the load, which comes from one address, never reaches, so the
+/// test measures the replica rather than the limit, while every request still counts in it.
 fn settings() -> Result<Vec<String>, String> {
-    let mut settings = vec!["ENVIRONMENT=production".to_owned()];
+    let key = std::env::var("HMAC_KEY").map_err(|_| "HMAC_KEY is unset; run `just setup`")?;
+    let mut settings = vec![
+        "ENVIRONMENT=production".to_owned(),
+        format!("HMAC_KEY={key}"),
+        "RATE_LIMIT_IP_REQUESTS=1000000".to_owned(),
+    ];
     for name in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
         let value =
             std::env::var(name).map_err(|_| format!("{name} is unset; run `just setup`"))?;

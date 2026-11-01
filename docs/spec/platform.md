@@ -197,7 +197,7 @@ The service performs the writes and commits. A unit of work dropped without a co
 
 ### Client IP
 
-Each request's `Client` holds its client IP and its user agent. The client IP is the connection's peer, unless the peer is listed in `TRUSTED_PROXIES`, as addresses or ranges (PLATFORM-047). A proxy appends to `X-Forwarded-For` the address it received the request from, so the addresses on the right were written by trusted proxies, and the first untrusted one, read from the right, is the client that the outermost trusted proxy saw. An address further left could have been written by anyone. The reference deployment lists its own proxy's network, and the addresses its proxy trusts in turn, such as a content delivery network's ([deploy.md](../operations/deploy.md)).
+Each request's `Client` holds its client IP and its user agent. The client IP is the connection's peer, unless the peer is listed in `TRUSTED_PROXIES`, as addresses or ranges (PLATFORM-047). A proxy appends to `X-Forwarded-For` the address it received the request from, so the addresses on the right were written by trusted proxies, and the first untrusted one, read from the right, is the client that the outermost trusted proxy saw. An address further left could have been written by anyone. The reference deployment lists the private address ranges, since only its own containers reach a replica, on its private networks, and the addresses its proxy trusts in turn, such as a content delivery network's, which `TRUSTED_PROXIES` in [settings.env.example](../../deploy/settings.env.example) gives both.
 
 ### Refusals
 
