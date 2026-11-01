@@ -1,6 +1,8 @@
 //! Checks every response the in-process API gives an integration test against the OpenAPI
-//! document of the routes that answered it (API-17). A test fails on a response that breaks the
-//! document, even where its own assertions don't look.
+//! document of the routes that answered it, and every body a test sends through a typed call
+//! against the request body the document gives the operation (API-17). A test fails on a
+//! response or a typed request that breaks the document, even where its own assertions don't
+//! look.
 
 use http::{HeaderMap, Method, StatusCode, header};
 use serde_json::{Value, json};
@@ -29,6 +31,41 @@ impl Contract {
             document,
             components,
         }
+    }
+
+    /// Panics with every way the typed request body breaks the `requestBody` the document gives
+    /// the operation for `method` and `path`, in the content for the request's media type, or
+    /// if the operation documents no request body. A request to a path or method the document
+    /// doesn't hold isn't checked, because the response check requires the router's 404 or 405.
+    pub fn check_request(&self, method: &Method, path: &str, headers: &HeaderMap, body: &[u8]) {
+        let path = path.split('?').next().unwrap_or_default();
+        let (_, Some(operation)) = self.operation(method, path) else {
+            return;
+        };
+        let request_body = &operation["requestBody"];
+        assert!(
+            !request_body.is_null(),
+            "{method} {path} was sent a typed body, but its documentation lists no request body"
+        );
+        let media_type = headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(';').next())
+            .unwrap_or_default()
+            .trim();
+        let breaches = match request_body["content"].get(media_type) {
+            None => vec![format!(
+                "the content type {media_type:?} isn't documented, only {:?}",
+                request_body["content"]
+                    .as_object()
+                    .map(|content| content.keys().collect::<Vec<_>>())
+            )],
+            Some(media) => self.validate(&media["schema"], body),
+        };
+        assert!(
+            breaches.is_empty(),
+            "{method} {path} was sent a body that breaks its documentation: {breaches:#?}"
+        );
     }
 
     /// Panics with every way the response breaks the document: a status, content type or field

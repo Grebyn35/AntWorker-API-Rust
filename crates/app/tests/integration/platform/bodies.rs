@@ -60,7 +60,7 @@ async fn platform_056_every_field_its_domain_type_refuses_is_named() {
     let api = Api::new().await;
     let body = json!({ "email": "nope", "password": "short", "name": " ", "device_id": "bad id" });
 
-    let response = api.post("/v1/users", &body).send().await;
+    let response = api.post_raw("/v1/users", &body).send().await;
 
     assert_eq!(response.status, 400);
     let problem = response.json();

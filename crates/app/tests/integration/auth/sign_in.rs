@@ -79,7 +79,7 @@ async fn auth_003_a_password_the_policy_refuses_is_named_with_its_reason() {
     ] {
         let body = json!({ "email": "ada@example.com", "password": password, "name": "Ada" });
 
-        let response = api.post("/v1/users", &body).send().await;
+        let response = api.post_raw("/v1/users", &body).send().await;
 
         assert_eq!(response.status, 400, "{password}");
         assert_eq!(response.json()["errors"][0]["field"], "/password");
@@ -152,7 +152,8 @@ async fn auth_006_each_email_allows_its_attempts_then_answers_429_before_any_loo
 
     let first = users::sign_in(&api, "nobody@example.com", PASSWORD).await;
     let second = users::sign_in(&api, "NOBODY@example.com", PASSWORD).await;
-    let third = users::sign_in(&api, " nobody@example.com", PASSWORD).await;
+    let padded = json!({ "email": " nobody@example.com", "password": PASSWORD });
+    let third = api.post_raw("/v1/sessions", &padded).send().await;
     let other = users::sign_in(&api, "someone@example.com", PASSWORD).await;
 
     assert_eq!(first.status, 401);

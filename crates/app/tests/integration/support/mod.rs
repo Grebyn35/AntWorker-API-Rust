@@ -1,7 +1,8 @@
 //! Test support (TEST-06, TEST-10).
 //!
-//! [`Api`] runs the routes in process, and checks every response against their OpenAPI
-//! document (API-17).
+//! [`Api`] runs the routes in process, and checks every response, and the body of every typed
+//! request, against their OpenAPI document (API-17). A body set raw with `Call::body` is not
+//! checked.
 //!
 //! Every test gets a database of its own. A migrated one is cloned from a template that the
 //! production `migrate` migrated. `Admin::create_roles` and `Admin::grant_database`, the steps

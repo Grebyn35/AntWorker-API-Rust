@@ -30,7 +30,11 @@ async fn accounts_001_the_caller_reads_their_own_record_and_no_other_user_s() {
 #[tokio::test]
 async fn accounts_002_an_email_address_is_stored_trimmed_and_lowercased() {
     let api = Api::new().await;
-    users::register(&api, "  Ada@Example.COM ").await;
+    let body = users::registration("  Ada@Example.COM ");
+
+    let response = api.post_raw("/v1/users", &body).send().await;
+
+    assert_eq!(response.status, 201);
 
     let stored = api.database().owner_reads("SELECT email FROM users").await;
     assert_eq!(stored, ["ada@example.com"]);
@@ -41,7 +45,7 @@ async fn accounts_002_an_invalid_email_address_is_refused() {
     let api = Api::new().await;
 
     let response = api
-        .post("/v1/users", &users::registration("not-an-address"))
+        .post_raw("/v1/users", &users::registration("not-an-address"))
         .send()
         .await;
 

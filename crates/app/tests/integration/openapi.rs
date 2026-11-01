@@ -105,3 +105,16 @@ async fn api_17_every_path_serves_exactly_the_methods_its_documentation_lists() 
         }
     }
 }
+
+#[tokio::test]
+#[should_panic(expected = "POST /v1/users was sent a body that breaks its documentation")]
+async fn api_17_a_typed_request_whose_body_breaks_the_document_fails() {
+    let api = Api::new().await;
+
+    api.post(
+        "/v1/users",
+        &serde_json::json!({ "email": "not-an-address", "colour": "red" }),
+    )
+    .send()
+    .await;
+}

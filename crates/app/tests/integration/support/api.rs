@@ -1,5 +1,6 @@
-//! The API in process, called through HTTP requests, with every response checked against the
-//! OpenAPI document of the routes that answered it (API-17, TEST-04).
+//! The API in process, called through HTTP requests. Every response is checked against the
+//! OpenAPI document of the routes that answered it, and so is the body of every typed request
+//! (API-17, TEST-04).
 
 use std::{collections::HashMap, ffi::OsString, io, net::SocketAddr, sync::Arc};
 
@@ -177,8 +178,18 @@ impl Api {
         self.request(Method::GET, path)
     }
 
-    /// A `POST` of `path`, with `body` as JSON.
+    /// A `POST` of `path`, with `body` as JSON. The body is checked against the operation's
+    /// documented request body when sent; a test of malformed input uses
+    /// [`Api::post_raw`] or [`Call::body`] instead.
     pub fn post(&self, path: &str, body: &Value) -> Call<'_> {
+        let mut call = self.post_raw(path, body);
+        call.typed = true;
+        call
+    }
+
+    /// A `POST` of `path`, with `body` as JSON that is sent raw, never checked against the
+    /// document: the call of a test of malformed input.
+    pub fn post_raw(&self, path: &str, body: &Value) -> Call<'_> {
         self.request(Method::POST, path)
             .header("content-type", "application/json")
             .body(body.to_string())
@@ -192,6 +203,7 @@ impl Api {
             path: path.to_owned(),
             headers: HeaderMap::new(),
             body: Vec::new(),
+            typed: false,
             peer: PEER.parse().unwrap(),
         }
     }
@@ -204,6 +216,8 @@ pub struct Call<'a> {
     path: String,
     headers: HeaderMap,
     body: Vec<u8>,
+    /// Whether the body came from a typed call, and so is checked against the document.
+    typed: bool,
     peer: SocketAddr,
 }
 
@@ -222,9 +236,10 @@ impl Call<'_> {
         self.header("authorization", &format!("Bearer {token}"))
     }
 
-    /// Sets the body.
+    /// Sets the body raw: it is sent as given and never checked against the document.
     pub fn body(mut self, body: impl Into<Vec<u8>>) -> Self {
         self.body = body.into();
+        self.typed = false;
         self
     }
 
@@ -234,8 +249,14 @@ impl Call<'_> {
         self
     }
 
-    /// Sends the request, and checks the response against the document.
+    /// Checks a typed body against the document, sends the request, and checks the response
+    /// against the document.
     pub async fn send(self) -> Response {
+        if self.typed {
+            self.api
+                .contract
+                .check_request(&self.method, &self.path, &self.headers, &self.body);
+        }
         let mut request = Request::builder()
             .method(self.method.clone())
             .uri(&self.path)
