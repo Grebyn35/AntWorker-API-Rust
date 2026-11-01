@@ -1,13 +1,15 @@
 //! `check-docs`, the routes: each module's spec lists, in its Routes table, the operations that
 //! `openapi.json` documents for the module, with their access levels (DOC-15). Once the module
 //! is built, it lists no others: until then, its spec is the plan for routes it doesn't serve
-//! yet. An operation names its module as its first tag.
+//! yet. An operation names its module as its first tag, and the `#[utoipa::path]` of each
+//! operation under `crates/app/src/modules/<module>/` gives the tag `<module>`.
 
 use std::collections::BTreeMap;
 
+use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use serde_json::{Map, Value};
 
-use crate::{Finding, markdown, repo::Repo, text};
+use crate::{Finding, markdown, repo::Repo, rust, text};
 
 /// The committed document.
 const DOCUMENT: &str = "openapi.json";
@@ -35,9 +37,9 @@ pub fn check(repo: &Repo) -> Vec<Finding> {
         .file(DOCUMENT)
         .and_then(|file| serde_json::from_str::<Value>(&file.text).ok())
     else {
-        return Vec::new();
+        return tags(repo);
     };
-    let mut findings = Vec::new();
+    let mut findings = tags(repo);
     let mut documented = operations(&document, repo, &mut findings);
     for file in repo.files() {
         let Some(module) = file
@@ -101,6 +103,101 @@ pub fn check(repo: &Repo) -> Vec<Finding> {
         ));
     }
     findings
+}
+
+/// The `tag` of each `#[utoipa::path]` under `crates/app/src/modules/<module>/` is `<module>`, so
+/// each operation names the module that serves it as its first tag (DOC-15). An operation with
+/// `tags = [...]` names its first tag first.
+fn tags(repo: &Repo) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for file in repo.files() {
+        let Some((module, _)) = rust::feature_module(&file.path) else {
+            continue;
+        };
+        let Ok(tokens) = file.text.parse::<TokenStream>() else {
+            continue;
+        };
+        let tokens: Vec<TokenTree> = tokens.into_iter().collect();
+        for (line, arguments) in operations_of(&tokens) {
+            let tag = first_tag(&arguments);
+            if tag.as_deref() != Some(module) {
+                let found = tag.map_or_else(
+                    || "names no tag".to_owned(),
+                    |tag| format!("has the tag `{tag}`"),
+                );
+                findings.push(Finding::new(
+                    &file.path,
+                    line,
+                    format!(
+                        "this operation of `{module}` {found}, where its tag is `{module}` (DOC-15)"
+                    ),
+                ));
+            }
+        }
+    }
+    findings
+}
+
+/// The arguments of each `#[utoipa::path(...)]` among `tokens`, at any depth, with its line.
+fn operations_of(tokens: &[TokenTree]) -> Vec<(usize, Vec<TokenTree>)> {
+    let mut found = Vec::new();
+    for (at, token) in tokens.iter().enumerate() {
+        let TokenTree::Group(group) = token else {
+            continue;
+        };
+        let inner: Vec<TokenTree> = group.stream().into_iter().collect();
+        let is_attribute = group.delimiter() == Delimiter::Bracket
+            && at > 0
+            && matches!(&tokens[at - 1], TokenTree::Punct(hash) if hash.as_char() == '#');
+        if is_attribute
+            && let [
+                TokenTree::Ident(utoipa),
+                TokenTree::Punct(_),
+                TokenTree::Punct(_),
+                TokenTree::Ident(path),
+                TokenTree::Group(arguments),
+                ..,
+            ] = inner.as_slice()
+            && utoipa == "utoipa"
+            && path == "path"
+        {
+            found.push((
+                group.span().start().line,
+                arguments.stream().into_iter().collect(),
+            ));
+        } else {
+            found.extend(operations_of(&inner));
+        }
+    }
+    found
+}
+
+/// The first tag that the arguments of a `#[utoipa::path]` give: `tag = "..."`, or the first of
+/// `tags = [...]`.
+fn first_tag(arguments: &[TokenTree]) -> Option<String> {
+    arguments.windows(3).find_map(|window| match window {
+        [TokenTree::Ident(key), TokenTree::Punct(equals), value] if equals.as_char() == '=' => {
+            match (key.to_string().as_str(), value) {
+                ("tag", TokenTree::Literal(literal)) => unquoted(literal),
+                ("tags", TokenTree::Group(list)) => {
+                    list.stream().into_iter().find_map(|t| match t {
+                        TokenTree::Literal(literal) => unquoted(&literal),
+                        _ => None,
+                    })
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    })
+}
+
+/// A string literal's text.
+fn unquoted(literal: &proc_macro2::Literal) -> Option<String> {
+    let text = literal.to_string();
+    text.strip_prefix('"')
+        .and_then(|text| text.strip_suffix('"'))
+        .map(str::to_owned)
 }
 
 /// Every operation of the document, by method and path. An operation that names no module
@@ -220,6 +317,42 @@ mod tests {
             findings("## Purpose\n", &workspaces),
             [
                 "the Routes table doesn't list `GET /v1/capabilities`, which openapi.json documents (DOC-15)"
+            ]
+        );
+    }
+
+    #[test]
+    fn doc_15_each_operation_under_a_module_tags_the_module() {
+        let code = r#"
+            #[utoipa::path(get, path = "/v1/users/me", tag = "accounts")]
+            async fn me() {}
+            #[utoipa::path(post, path = "/v1/sessions", tag = "auth")]
+            async fn sign_in() {}
+            #[utoipa::path(get, path = "/v1/x", tags = ["accounts", "auth"])]
+            async fn x() {}
+            mod inner {
+                #[utoipa::path(get, path = "/v1/y")]
+                async fn y() {}
+            }
+        "#;
+        let repo = Repo::of(&[("crates/app/src/modules/accounts/routes.rs", code)]);
+        let found: Vec<(usize, String)> = check(&repo)
+            .into_iter()
+            .map(|finding| (finding.line, finding.message))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (
+                    4,
+                    "this operation of `accounts` has the tag `auth`, where its tag is `accounts` (DOC-15)"
+                        .to_owned()
+                ),
+                (
+                    9,
+                    "this operation of `accounts` names no tag, where its tag is `accounts` (DOC-15)"
+                        .to_owned()
+                ),
             ]
         );
     }

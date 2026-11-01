@@ -67,7 +67,7 @@ ci: checks image image-scan e2e
 # Runs the checks of the code, the part of CI that needs no image.
 [doc("Runs the checks of the code, which need no image")]
 [group('check')]
-checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans
+checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-schema
 
 # Lists the tools `just checks` needs besides just and the toolchain, as CI's install step takes
 # them.
@@ -323,6 +323,32 @@ check-shell:
 [group('check')]
 check-sql-bans:
     {{ xtask }} check-sql-bans
+
+# Fails on sqlx in a module's routes, an HTTP type in its service, a routes type that deserializes
+# without refusing unknown fields, an infrastructure error in a service or route signature, or an
+# HTTP client built outside the places SEC-09 allows (ARCH-08, ARCH-09, API-08, API-09, ERR-04,
+# SEC-09).
+[doc("Fails on code that breaks a module's layers, or builds an HTTP client where SEC-09 forbids")]
+[group('check')]
+check-layers:
+    {{ xtask }} check-layers
+
+# Fails on a module's public submodule, code that reaches into another module's submodule, a use
+# of a module that the graph in docs/architecture.md doesn't allow, a cycle in that graph, or
+# another module's error in a module's public signatures (ARCH-04, ARCH-05, ERR-06).
+[doc("Fails on a dependency between modules that the graph in docs/architecture.md doesn't allow")]
+[group('check')]
+check-deps:
+    {{ xtask }} check-deps
+
+# Fails on a name, a standard column, a foreign key, a soft delete or a role's privilege in the
+# migrations' schema that breaks the data rules, in the catalog of a database that the API's own
+# bootstrap and migrate build on the Postgres that `services` starts (DATA-01, DATA-02, DATA-05,
+# DATA-06, DATA-12, DATA-19).
+[doc("Fails on a table, constraint, index or grant of the migrations that breaks the data rules")]
+[group('check')]
+check-schema: services
+    {{ xtask }} check-schema
 
 # Prints the names of the packages that the images of `repository`, such as owner/name, are in
 # the registry, separated by commas, for the workflows.

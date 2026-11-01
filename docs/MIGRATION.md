@@ -91,17 +91,14 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 |---|---|
 | `fmt-check`, `test`, `deny` | built |
 | `check-test-map`, `check-docs` | built |
-| `check-docs`, for each route's tag (DOC-15) | 2.1, with the second module that serves routes |
 | `check-docs`, for the names of other codebases and the paths into the inventory (DOC-04) | 3 |
 | `check-docs`, for accepted ADRs (DOC-11) | 6, with the first ADR |
-| `check-openapi`, `check-instrument` | built |
+| `check-openapi`, `check-instrument`, `check-layers`, `check-deps`, `check-schema`, `check-sql-bans` | built |
 | `check-metrics`, `check-telemetry-config`, `alert-rules` | built |
-| `check-openapi`, for list shapes, methods, statuses, scopes and formats (API-02 to API-05, API-11) | 2.1, with the first routes that have them |
-| `check-openapi`, for the `maxLength` of each string of a request body (API-17) | 2.1, with the first route that takes a body |
+| `check-openapi`, for list shapes (API-05) | 2.2, with the first list: `GET /v1/workspaces` |
 | `check-openapi`, for the breaking-change diff (API-18, ERR-02) | the first final release |
 | `check-pins`, `image-scan`, `image-rescan`, `verify-release`, `check-shell` | built |
 | `e2e` | built, and extended by every later step |
-| `check-layers`, `check-deps`, `check-schema` | 2.1, with the first service, the first call between modules and the first tables |
 | `check-tenancy` | 2.2, with the first workspace tables |
 | `check-layout`, `check-table-ownership`, `check-config`, `check-migrations`, `sqlx-check`, `setup-smoke` | 3 decides: built, or the rule's check changes |
 | `check-personal-data` | 5, with export and erasure in `accounts` |

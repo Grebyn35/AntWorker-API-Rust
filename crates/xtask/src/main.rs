@@ -8,10 +8,12 @@ mod boards;
 mod catalog;
 mod declarations;
 mod deploy;
+mod deps;
 mod docs;
 mod formats;
 mod inputs;
 mod instrument;
+mod layers;
 mod load;
 mod markdown;
 mod metrics;
@@ -23,6 +25,8 @@ mod release;
 mod repo;
 mod restore;
 mod routes;
+mod rust;
+mod schema;
 mod server;
 mod shell;
 mod sql_bans;
@@ -100,6 +104,25 @@ enum Command {
     /// sqlx's that reaches nothing (DATA-20).
     #[command(name = "check-sql-bans")]
     SqlBans,
+    /// Fails on `sqlx` in a module's routes, an HTTP type in its service, a routes type that
+    /// deserializes without refusing unknown fields, an infrastructure error in a service or
+    /// route signature, or an HTTP client built outside the places SEC-09 allows (ARCH-08,
+    /// ARCH-09, API-08, API-09, ERR-04, SEC-09).
+    #[command(name = "check-layers")]
+    Layers,
+    /// Fails on a module's public submodule, code that reaches into another module's
+    /// submodule, a use of a module the graph in architecture.md doesn't allow, a cycle in that
+    /// graph, or another module's error in a module's public signatures (ARCH-04, ARCH-05,
+    /// ERR-06).
+    #[command(name = "check-deps")]
+    Deps,
+    /// Fails on a table, column, constraint or index of the migrations' schema that breaks the
+    /// data rules for names, standard columns, foreign keys and soft deletes, or a privilege,
+    /// owner or setting of the roles that breaks them, as the catalog of a database that the
+    /// API's own `bootstrap` and `migrate` build shows it (DATA-01, DATA-02, DATA-05, DATA-06,
+    /// DATA-12, DATA-19).
+    #[command(name = "check-schema")]
+    Schema,
     /// Sets the app's version to `version` on `main`, commits it and pushes it, after it checks
     /// that `version` can be released from `main` as it is. The run on `main` that passes with
     /// the version releases it (OPS-14). Without a version, it shows the versions that can come
@@ -291,6 +314,9 @@ fn main() -> ExitCode {
         Command::Pins => pins::check(&repo),
         Command::Shell => shell::check(&repo),
         Command::SqlBans => sql_bans::check(&repo),
+        Command::Layers => layers::check(&repo),
+        Command::Deps => deps::check(&repo),
+        Command::Schema => schema::check(&repo),
         Command::Release { .. }
         | Command::ReleaseCheck { .. }
         | Command::Inputs { .. }

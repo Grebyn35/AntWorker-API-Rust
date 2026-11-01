@@ -1,5 +1,9 @@
 //! `check-openapi`: the committed `openapi.json` follows the rules for the HTTP contract
-//! (API-01, API-05, API-17, ERR-02, ERR-13).
+//! (API-01 to API-05, API-11, API-17, ERR-02, ERR-13). Each operation's scope, method and
+//! statuses are in `operations`, and the formats and request strings' lengths in `schemas`.
+
+mod operations;
+mod schemas;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -59,6 +63,8 @@ pub fn check(repo: &Repo) -> Outcome {
     }
     problems.extend(group_codes(&groups));
     problems.extend(references(&document, &document));
+    problems.extend(operations::check(&document));
+    problems.extend(schemas::problems(&document));
     let responses = document["components"]["responses"]
         .as_object()
         .unwrap_or(&empty);
@@ -384,7 +390,10 @@ mod tests {
         json!({
             "x-access": "public",
             "responses": {
-                "200": { "description": "The thing." },
+                "200": {
+                    "description": "The thing.",
+                    "content": { "application/json": { "schema": {} } },
+                },
                 "503": {
                     "description": "`request.timed_out`: Request timed out.",
                     "content": { "application/problem+json": { "schema": { "allOf": [
@@ -398,10 +407,16 @@ mod tests {
 
     #[test]
     fn api_17_a_document_that_follows_the_rules_passes() {
+        let mut get = operation();
+        get["parameters"] = json!([{
+            "name": "data_export_id", "in": "path", "schema": { "type": "string", "format": "uuid" },
+        }]);
         let ok = document(
             "/v1/data-exports/{data_export_id}",
-            operation(),
-            json!({ "Export": { "properties": { "created_at": {} } } }),
+            get,
+            json!({ "Export": { "properties": { "created_at": {
+                "type": "string", "format": "date-time",
+            } } } }),
         );
         assert_eq!(findings(&ok), Vec::<String>::new());
     }
@@ -409,8 +424,11 @@ mod tests {
     #[test]
     fn api_01_paths_are_versioned_kebab_case_with_id_parameters() {
         let messages = findings(&document("/v1/dataExports/{id}", operation(), json!({})));
-        assert_eq!(messages.len(), 2, "{messages:#?}");
-        assert!(messages.iter().all(|m| m.ends_with("(API-01)")));
+        let api_01: Vec<&String> = messages
+            .iter()
+            .filter(|m| m.ends_with("(API-01)"))
+            .collect();
+        assert_eq!(api_01.len(), 2, "{messages:#?}");
         let unversioned = findings(&document("/things", operation(), json!({})));
         assert_eq!(unversioned, ["/things isn't under /v1 (API-01)"]);
     }
@@ -447,7 +465,7 @@ mod tests {
     fn api_17_every_operation_states_its_access_and_every_response_a_description() {
         let mut bare = operation();
         bare.as_object_mut().unwrap().remove("x-access");
-        bare["responses"]["200"] = json!({});
+        bare["responses"]["200"] = json!({ "content": { "application/json": { "schema": {} } } });
         let messages = findings(&document("/v1/things", bare, json!({})));
         assert_eq!(
             messages,

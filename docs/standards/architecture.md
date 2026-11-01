@@ -24,7 +24,7 @@ Each feature module is a directory under `crates/app/src/modules/`. Its files co
 ### ARCH-04 A module is used only through its `mod.rs`
 Submodules are private (`mod repo;`, never `pub mod repo;`). Other modules use only the items `mod.rs` re-exports.
 - Why: a module's internals can change without touching its callers.
-- Check: `compiler` (visibility), plus `ci: check-layout`.
+- Check: `compiler` (visibility), plus `ci: check-deps` (a module's submodules are private, and no code outside it names one).
 
 ### ARCH-05 Module dependencies follow the allowed graph
 A module references another module only along an edge in the graph in [architecture.md §5](../architecture.md#dependencies). The graph has no cycles.
