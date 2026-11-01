@@ -67,8 +67,8 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 |---|---|---|
 | `config` | Typed configuration loaded once at startup. Values are trimmed, empty means unset, `*_FILE` secret files are supported, and every failure is reported in one format. | D9, D26 |
 | `db` | One connection pool, the unit of work, and the `bootstrap` and `migrate` tasks. A unit of work is one transaction, opened by the service, or with `Authorized<P>` on a workspace route, with a writer for jobs and events, and the claim of an idempotency key, whose record commits with it. Every query in it filters by tenant itself (DATA-22). | D1, D4, D12, D24 |
-| `jobs` | A durable job queue with retry, backoff and dead letters, plus a scheduler that runs each periodic job once per interval across the fleet. A job records the user or workspace it was enqueued for, and its handler filters by them. | D1, D13 |
-| `listener` | One `LISTEN` connection per instance, routing notifications to subscribers such as the real-time hub and the job dispatcher. | D20 |
+| `jobs` | A durable job queue with retry, backoff and dead letters, which every instance's dispatcher polls, plus a scheduler that runs each periodic job once per interval across the fleet. A job records the user or workspace it was enqueued for, and its handler filters by them. | D1, D13 |
+| `listener` | One `LISTEN` connection per instance, routing notifications to their subscribers, such as the real-time hub. | D20 |
 | `events` | The event log and the real-time hub. A unit of work publishes events. The hub loads each new event once and delivers it to the streams allowed to receive it (SEC-17). It also replays missed events, closes or re-filters streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). | D1, D5, D20 |
 | `rate_limit` | The buckets that count requests in windows, in the database every replica shares: the IP and user limits that the request pipeline applies, and the per-action limits a module checks, such as sign-in's. | D11 |
 | `http` | The route builders and the OpenAPI document they produce, the middleware stack with trace context, timeouts, load shedding, cross-origin resource sharing (CORS) and the protection against cross-site request forgery (CSRF), extractors (JSON, a keyed route's JSON with its `Idempotency-Key`, path, query), and rate limiting. | D8, D10, D11, D12, D20, D61 |
@@ -213,7 +213,7 @@ sequenceDiagram
   H->>S: call with domain types, and the unit of work on a workspace route
   S->>DB: domain writes + audit entries + events + jobs
   S->>DB: COMMIT
-  DB-->>P: NOTIFY (events, jobs)
+  DB-->>P: NOTIFY (events)
   S-->>H: result or module error
   H-->>C: response, or RFC 9457 problem with trace_id
 ```
@@ -239,9 +239,9 @@ sequenceDiagram
 4. **The handler** calls the service with domain types only.
 5. **The service** performs its writes in its unit of work, and in the same transaction records audit entries, publishes events and enqueues jobs (D1, D6). For a request with an `Idempotency-Key`, the same transaction stores the operation's result under the key (API-12). Then it commits.
 6. **The response.** The handler maps the result to the response. A module error goes through the single conversion to an RFC 9457 problem that carries the trace ID (D17).
-7. **After the commit**, Postgres notifies the listeners:
-   - Each instance's real-time hub loads a new event once and delivers it to the streams allowed to see it (D5, D20).
-   - The job dispatcher claims new jobs.
+7. **After the commit**, the background work picks up what committed:
+   - Postgres notifies each instance's listener, and its real-time hub loads a new event once and delivers it to the streams allowed to see it (D5, D20).
+   - A job dispatcher, which polls the queue every second, claims each new job.
 
 Nothing runs after the response except background work driven by committed rows.
 
@@ -281,7 +281,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 - **Authorization (D2, D62).** One permission matrix, in `access/permissions.rs`, maps roles to permissions. Every workspace route declares its permission in its type. Role rank limits who may change whom. A route of `superadmins` is authorized by the caller being a superadmin instead, and reaches no workspace's content.
 - **Observability (D10, D19).** Every response except the health probes carries a trace ID that leads to its logs, and to its trace whenever the request ended in an error. Metrics are declared in code. The metric catalog is generated from the declarations, and CI checks the dashboards and alerts against it.
 - **Configuration (D9).** Strict and typed, with no defaults that are unsafe in production. A disabled feature answers 503 and is advertised by the capabilities endpoint.
-- **Background jobs (D13).** Declared in one registry. Each runs once per interval across the fleet, under a lease with a heartbeat, and shutdown is bounded.
+- **Background jobs (D13).** Declared in one registry. A queued job runs at least once, on whichever instance claims it, with retries and a dead-letter state; a periodic job runs once per interval across the fleet. Each run holds a lease that a heartbeat renews, and shutdown is bounded.
 - **Personal data (D31).** Every module that stores personal data implements export and erasure. CI fails if any column referencing a user isn't covered by a contract.
 - **Security (D26).** Level 2 of the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) is the bar. The threat model maps each mitigation to a rule ID.
 

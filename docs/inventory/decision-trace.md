@@ -38,6 +38,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D36 | A security failure recorded during sign-in answers with that failure | ARCH-11 covers every recorded security failure, such as refresh-token reuse (AUTH-012) |
 | D18 | The cookie transport, CSRF protection, a CORS allowlist for web origins, and signed URLs for private downloads are built later, as additions | D61: each is built with the part it belongs to: the cookie, CSRF protection and the allowlist with `auth`, a stream through the cookie with `realtime`, and signed URLs with `files` |
 | D26 | OWASP ASVS Level 2 is the security bar | The security rules' introduction: Level 2 of version 5.0.0, but for requirement 6.3.3, since every user may add a second factor and every superadmin must (D63) |
+| D13 | The outbox dispatcher is one of the periodic jobs, each of which runs once per interval across the fleet | The platform spec's Jobs: every replica runs a dispatcher that claims each queued job under a lease of its own, so queued jobs spread over the replicas, and only periodic jobs run once per interval across the fleet |
 
 ## Contradictions in the first slice
 

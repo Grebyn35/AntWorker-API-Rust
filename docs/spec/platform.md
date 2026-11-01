@@ -11,7 +11,7 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 | Table | Holds |
 |---|---|
 | `events` | Published events, kept for replay |
-| `jobs` | The job queue |
+| `jobs` | The job queue: one row per job that waits, runs or is dead-lettered, with its kind, payload, scope, trace context, attempts and lease. A job's row goes when it succeeds. |
 | `job_schedules` | One row per periodic job, holding its lease and next run |
 | `idempotency_records` | One row per user and idempotency key whose operation committed, with its fingerprint and its result |
 | `rate_limit_buckets` | Rate-limit counters, keyed by a hash-based message authentication code (HMAC) |
@@ -20,7 +20,8 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 ## Interface
 
 - **Database:** `Database`, the pool of connections as the role `app`, which `serve` connects once at startup. Connecting runs the startup checks (PLATFORM-009, PLATFORM-030), and `begin` opens a unit of work.
-- **Unit of work:** `UnitOfWork`, opened with the request's `Client` (Design: Unit of work), with `executor`, `commit`, `enqueue`, `publish_to_user` and `publish_to_workspace`, and `claim` and `commit_with` for an idempotency key.
+- **Unit of work:** `UnitOfWork`, opened with the request's `Client`, or with a job's `JobContext` through `for_job` (Design: Unit of work), with `executor`, `commit`, `enqueue`, `publish_to_user` and `publish_to_workspace`, and `claim` and `commit_with` for an idempotency key.
+- **Jobs:** `Job`, the trait of a queued job's payload, which names its kind, its most attempts and its time limit; `JobScope`, the user or workspace a job runs for, which only a proof builds; `JobFailure`, which says whether a failed run may be retried; and `Jobs`, the registry of every queued and periodic job's handler, whose `run` runs the dispatcher and the scheduler until shutdown (Design: Jobs).
 - **Request context:** `Client`, the request's client IP (PLATFORM-047) and user agent.
 - **Rate limits:** `RateLimits`, which a route takes from the request and hands its service, whose `check` counts the request in a bucket that the module names, and refuses it once the bucket is full, for a per-action limit such as AUTH-006 (PLATFORM-026). `RateLimiter`, whose `count` counts in a bucket, does the counting for it and for the pipeline's IP and user limits.
 - **Request bodies:** `Json<T>`, the extractor of a JSON body (PLATFORM-054), `Idempotent<T>`, which a keyed route extracts instead, the body with its request's `IdempotencyKey` (PLATFORM-058), and `FieldErrors`, which collects every field that a request type's conversion into domain types refuses (PLATFORM-056), or every query parameter (PLATFORM-035).
@@ -85,9 +86,14 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
 | PLATFORM-011 | A job enqueued in a unit of work exists only if that unit of work commits. | DATA-27, D1 | `platform_011_` |
-| PLATFORM-012 | A job runs with the user or workspace it was enqueued for, and its queries filter by them. | DATA-22 | `platform_012_` |
-| PLATFORM-013 | A failing job retries with backoff, then moves to a dead-letter state. A succeeded job keeps no payload. | OPS-10 | `platform_013_` |
+| PLATFORM-012 | A job runs with the scope it was enqueued under, the user or workspace of the proof its unit of work acted for, and its handler's queries filter by them. It doesn't ask `AccessPolicy` again. | DATA-22 | `platform_012_` |
+| PLATFORM-013 | A failing job retries with backoff, up to its kind's most attempts, then moves to the dead-letter state; a failure its handler calls permanent moves it there at once. A succeeded job's row is deleted, so it keeps no payload. A dead letter keeps its payload for `JOB_DEAD_LETTER_RETENTION_DAYS` (1 to 365, default 14), then the sweep deletes it. | OPS-10 | `platform_013_` |
 | PLATFORM-014 | A periodic job runs once per interval across all replicas, and a long run keeps its lease. | OPS-11 | `platform_014_` |
+| PLATFORM-061 | A committed job runs within about a second while a replica has room, each replica running at most 4 at once. A replica claims only the kinds its registry holds, so during a deploy a kind that only the new release knows waits for its replicas. | D13, D20 | `platform_061_` |
+| PLATFORM-062 | A run that passes its kind's time limit is cancelled, and counts as a failed attempt. A job whose replica stopped without ending or releasing it runs again once its lease runs out, and the stale run's outcome changes nothing. | D13, OPS-10 | `platform_062_` |
+| PLATFORM-063 | On a shutdown signal, the dispatcher and the scheduler claim nothing more. Runs in flight go on until the drain deadline; each one still running then is cancelled and released, without counting the attempt, so another replica runs it at once. | OPS-06, D13 | `platform_063_` |
+| PLATFORM-064 | Every hour, periodic jobs delete the rate-limit buckets whose window started more than a day ago, the idempotency records older than 24 hours, and the dead letters older than their retention. | DATA-28, OPS-10 | `platform_064_` |
+| PLATFORM-065 | A job's run has a span of its own, linked to the trace context stored when it was enqueued, and is counted in `platform.job_runs` by kind and outcome. | OBS-07, OBS-11 | `platform_065_` |
 
 ### Events and streams
 
@@ -225,14 +231,35 @@ Three kinds of bucket count requests:
 
 A check counts the request before the operation's unit of work opens, in one statement on a pooled connection, outside any transaction, so the count commits at once and survives whatever happens next (PLATFORM-026). The statement inserts the bucket, adds one to its count, or starts a new window when the last one has ended, and returns the count and the window's end, all by the database's clock (PLATFORM-049). A bucket's key is an HMAC-SHA-256, under `HMAC_KEY`, of its kind and of what it counts, so the table holds no IP address, email or user ID (PLATFORM-051). A check is one call that counts and decides in one statement, so a fork could move the counts to a shared store, such as Valkey, by changing the rate limiter alone ([architecture §1](../architecture.md#1-system-context)). The IP and user limits count in Postgres too, as every limit does, so each holds across the fleet whatever replica a request reaches (D20), at the cost of a write on every request, which `just load-test` measures (OPS-18). Counting them in each replica's memory instead would make each limit one per replica (SEC-12).
 
-A request that finds its bucket full stops there with 429 `request.rate_limited`. A check that fails, as when the database doesn't answer, fails the request as an internal error: the request couldn't have been served without the database anyway. The pipeline keeps each bucket that counted a request, and writes on the response, whatever answered it, other than a 5xx, the headers of the one that decided it, with `Retry-After` on a 429 (PLATFORM-050). The rows of ended windows stay until the periodic sweep, built with jobs in step 2.3, deletes them; a check that finds one starts a new window, so they change no decision.
+A request that finds its bucket full stops there with 429 `request.rate_limited`. A check that fails, as when the database doesn't answer, fails the request as an internal error: the request couldn't have been served without the database anyway. The pipeline keeps each bucket that counted a request, and writes on the response, whatever answered it, other than a 5xx, the headers of the one that decided it, with `Retry-After` on a 429 (PLATFORM-050). The rows of ended windows stay until the hourly sweep deletes them (PLATFORM-064); a check that finds one starts a new window, so they change no decision.
 
 ### Jobs
 
-- `uow.enqueue` inserts a `jobs` row in the unit of work's transaction. The row records the user and workspace the unit of work acted for, so `JobContext` can restore them.
-- The dispatcher claims runnable jobs with `FOR UPDATE SKIP LOCKED`. It runs each handler in a unit of work opened with `for_job`.
-- A handler that fails is retried with exponential backoff and jitter until its maximum attempts, then dead-lettered. A succeeded job's payload is deleted. A dead letter keeps its payload for the configured retention, then loses it (OPS-10).
-- A periodic job claims its `job_schedules` row with `FOR UPDATE SKIP LOCKED`, runs once, sets its next run, and extends its lease with a heartbeat while it runs (OPS-11).
+**Enqueueing.** A module declares each queued job as a payload type that implements `Job`, which names its kind, `<module>.<name>`, its most attempts, 10 unless it names another number, and its time limit, 5 minutes unless it names another. `uow.enqueue(scope, &job)` inserts a `jobs` row in the unit of work's transaction (PLATFORM-011), with the payload as JSON, the scope, and the trace context of the current span (OBS-07). The scope comes from the proof the unit of work acts under, the only place one is built: `Authorized<P>` gives its workspace and member, `Principal` its user, and a `JobContext` the scope of the job that enqueues; scheduled maintenance has none. A payload type changes only by adding fields that may be absent, as a migration expands a table, so a replica of the previous release still runs a job the new release enqueued; a change that can't be made that way is a new kind.
+
+**The dispatcher.** Every replica of `serve` runs one, so jobs spread over the replicas, and no setting turns them off (D13). It claims runnable jobs, waiting ones whose `run_at` has passed, of the kinds its registry holds (PLATFORM-061), with `FOR UPDATE SKIP LOCKED`, in one statement outside any transaction that gives each a lease of 60 seconds and a new claim ID, adds one to its attempts, and commits at once. It runs at most 4 jobs at a time, claims again as soon as one ends, and polls once a second while it finds none, so a job runs within about a second of its commit. It polls rather than waiting on the listener: a notification would save at most that second, and a replica would still poll for what it missed while its listener reconnected.
+
+**A run.** A run happens outside any transaction (DATA-26). The handler receives the payload and a `JobContext`, the job's ID, attempt and scope, and opens a unit of work with `for_job` when it needs one. While it runs, the dispatcher renews its lease every 20 seconds, by its claim ID, so a replica that lost its claim renews nothing. A run that passes its kind's time limit is cancelled, and fails (PLATFORM-062). When a run ends, the dispatcher writes its outcome by its claim ID, so a stale run changes nothing:
+- A success deletes the row (PLATFORM-013): nothing of a job outlives it but its telemetry.
+- A failure that the handler calls permanent, or the failure of the last attempt, moves the job to the dead-letter state, with the failure's message.
+- Any other failure keeps the failure's message and sets `run_at` to the next attempt. The `n`th retry waits a random time between half of and all of the lesser of 10 seconds times 2 to the power `n − 1`, and an hour, so retries spread out rather than arrive together (OPS-10).
+
+A replica that stops without releasing its claims leaves their leases to run out, and another replica then runs the jobs again: a job runs at least once, so every handler is idempotent, or its spec says why it can't be, as an email that may arrive twice ([mail spec](mail.md#design)).
+
+**Scope.** A job runs with the scope it was enqueued under, and its handler's queries filter by it, as a request's do by its proof (PLATFORM-012, DATA-22). It doesn't ask `AccessPolicy` again: a job carries out what an authorized operation committed, such as sending the email of an invitation that exists, which a later change to its actor's role doesn't undo. A handler whose work depends on access as it stands when it runs reads that in its own unit of work.
+
+**Periodic jobs.** The registry declares each with its name, its interval and its time limit, and `serve` inserts its `job_schedules` row, due at once, unless it exists. Every 10 seconds, each replica's scheduler claims the due rows of the names its registry holds with `FOR UPDATE SKIP LOCKED`, giving each a lease and a claim ID, runs the job, renews its lease as the dispatcher does, and then sets its next run one interval after this run began (OPS-11). A failed run waits for its next interval, rather than retrying sooner. A row whose name no registry holds, left by a job that a release removed, is never claimed.
+
+**Sweeps.** `platform` registers three periodic jobs, each hourly, each deleting in batches of at most 1,000 rows, in a transaction each (PLATFORM-064):
+- `platform.expire_rate_limit_buckets`: the buckets whose window started more than a day ago, the longest window any limit allows, so none it deletes still counts.
+- `platform.expire_idempotency_records`: the records older than 24 hours, which `claim` already treats as absent.
+- `platform.expire_dead_letters`: the dead letters older than `JOB_DEAD_LETTER_RETENTION_DAYS`.
+
+Scheduled maintenance isn't audited (DATA-27).
+
+**Shutdown.** On a shutdown signal, the dispatcher and the scheduler claim nothing more, while runs in flight go on as the HTTP server drains. At the drain deadline, each run still going is cancelled, and its claim released, its attempt uncounted, so another replica runs it at once (PLATFORM-063).
+
+**Alerts** (OBS-14). `JobsDelayed` pages when `platform.job_delay` stays above 10 minutes for 5: every email waits, and from step 5 every sign-up's code with them. `JobsDeadLettered`, a ticket, fires on any dead letter; its runbook reads the dead letters with their failures and payloads. Nothing retries a dead letter, since each job's remedy is the operation that caused it, such as inviting again. `PeriodicJobFailing`, a ticket, fires when a periodic job fails twice within 3 hours.
 
 ### Events and the real-time hub
 
@@ -251,7 +278,7 @@ The key's record is written by the operation's own unit of work, so it exists ex
 3. A record that another unit of work has inserted and not yet committed makes the insert wait on that transaction. `claim` waits at most one second, under a `lock_timeout` of its own, which bounds that wait as it bounds a lock's, and then answers 409, so a retry of a request still running is refused rather than held.
 4. `commit_with(result)` writes the result into the record and commits, in the same transaction as the operation's writes. A unit of work that claimed a key and commits without its result fails as an internal error, so no keyed operation commits without one.
 5. A unit of work that rolls back, whether it failed or the process ended, takes its record with it, so a retry runs again.
-6. A record older than 24 hours counts as absent: `claim` replaces it. The periodic sweep, built with jobs in step 2.3, deletes such records.
+6. A record older than 24 hours counts as absent: `claim` replaces it. The hourly sweep deletes such records (PLATFORM-064).
 
 A key is compared exactly as sent, once the structured field's own syntax is read, its quotes, its escapes and the spaces around it, with no trimming inside it and no folding of case (D12). It is the caller's own, so a retry from another session of the same user, after signing in again, still finds its record.
 
@@ -328,6 +355,9 @@ The metrics `platform` records:
 - `platform.authorization_refusals`, by `authz`, for each refusal, by its reason: `not_member`, `permission` or `rank` (PLATFORM-025, ACCESS-003)
 - `platform.idempotent_requests`, by `claim`, for each keyed request, by its outcome: `new`, `replayed`, `reused` or `in_flight` (PLATFORM-018)
 - `platform.database_reachable`, 1 or 0, by the readiness check after every ping (PLATFORM-043)
+- `platform.job_runs`, by the dispatcher and the scheduler, for each run, by the job's kind and the run's outcome: `succeeded`, `retried`, `dead_lettered`, `failed` for a periodic run, which waits for its next interval, or `released` at shutdown (PLATFORM-065)
+- `platform.job_duration`, the seconds each run took, by the job's kind
+- `platform.job_delay`, the seconds the longest-waiting runnable job has waited past its `run_at`, 0 when none waits, by each replica's dispatcher every 15 seconds, so a queue that falls behind shows before anyone misses an email
 - `process.memory.usage`, the process's resident memory in bytes, every 15 seconds, from the kernel's report in `/proc/self/status`, so on Linux only (PLATFORM-046)
 - the exporters' counts, above
 
@@ -335,7 +365,7 @@ The metrics `platform` records:
 
 - The instance keeps one connection to the database outside the pool, and pings it every 5 seconds: a protocol message the server answers without running a query. A ping fails after 2 seconds without an answer, and a failed ping reconnects at once. The readiness probe reads the last result, so it never waits for the database or for a pooled connection (PLATFORM-037). The listener of the real-time hub uses the same connection when it is built (build order 2.4).
 - `ShutdownSignals` installs the handlers for SIGTERM and SIGINT, or Ctrl+C on Windows, before `serve` connects to the database. A failure to install them fails startup (OPS-03, OPS-06).
-- On a signal, `serve` turns readiness to `draining`, waits the shutdown delay so the load balancer stops sending requests, stops accepting connections, and waits for the requests in flight until the drain deadline. It then returns, and a request still running ends with the process. The delay and the deadline are settings, because a deployment's health-check interval and grace period decide them (OPS-02). Then `main` writes out the logs.
+- On a signal, `serve` turns readiness to `draining`, waits the shutdown delay so the load balancer stops sending requests, stops accepting connections, and waits for the requests in flight until the drain deadline. It then returns, and a request still running ends with the process. The jobs' runs drain beside the requests, until the same deadline (PLATFORM-063). The delay and the deadline are settings, because a deployment's health-check interval and grace period decide them (OPS-02). Then `main` writes out the logs.
 - A failed or recovered check changes readiness before its log line is written, so whoever reads the line finds readiness changed.
 - The `health` subcommand is the image's health check (OPS-15). It reads `LISTEN_ADDR` and no other setting, runs no async runtime, and writes nothing but its failure, so a check every few seconds adds nothing to the logs. `lifecycle::probe` connects over plain TCP and writes the request itself: the instance answers on its own address, which needs neither of the outbound clients (SEC-09). It waits 3 seconds for the connection and for each read of the answer, longer than the 2 seconds Windows takes to report a refused connection, and reads at most 4 KiB. A failure of the probe is written in the format of OPS-03, with `startup.area` `health`, because a one-shot subcommand's whole run is its startup; a missing or invalid `LISTEN_ADDR` fails as any setting does, with `config` (PLATFORM-023).
 
@@ -366,6 +396,5 @@ A name joins the list with the first code that writes it.
 | Question | Settled by |
 |---|---|
 | Whether the hub refreshes a stream's cached memberships on every access-change signal for that user, or only on the signal's workspace | `platform_016_` and `platform_017_`, measured against a user in several workspaces |
-| Whether a job enqueued in workspace context re-asks `AccessPolicy` when it runs, so a role change in between is respected | `platform_012_`, with a job enqueued before the enqueuing member's role changes |
 | Whether one listener connection per replica is enough under load, or events and access changes need separate connections | a load test of the hub, recorded under OPS-18 |
 | Whether `serve` needs a limit on the connections it accepts. Beyond the concurrency limit, a request gets 503 at once, but each open connection still holds memory: in the load test at 1.6 times a replica's capacity, with the client opening a connection for each request it couldn't send on one already open, a replica's memory reached 408 megabytes of its 512, and fell back afterwards | an overload test through Caddy, which opens the replicas' connections in a deployment, recorded under OPS-18 |

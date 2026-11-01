@@ -29,7 +29,7 @@ None. No other module uses `system`.
 ### Capabilities
 
 - A feature is a member of `features`, so a release that adds a feature adds a field, which API-18 allows. A client tells a feature that is off, `false`, from one its API doesn't have, which is absent. A list of the features that are on couldn't tell those apart, and adding a value to a closed set of names would change the contract.
-- Email is the first feature a deployment can turn off (MAIL-004), so `features` stays empty until `mail` is built.
+- `email` is the first feature a deployment can turn off: `true` while `EMAIL` is `smtp` (MAIL-004). A client hides what needs email while it is `false`, such as a way to reset a password.
 - The endpoint reports no build version, because the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) asks that responses not reveal the versions of the API or of its components.
 
 ## Open design questions
