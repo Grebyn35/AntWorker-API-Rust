@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 2.3: the spec of jobs, `mail` and `invitations`, then their test-first build, whose review covers the commits after this handoff. Step 2.2 is built and reviewed: its review stopped at pass 2 under its no-progress condition, with each must-fix finding resolved, as [Conformance reviews](#conformance-reviews) records. Step 2.1 is built and reviewed through 290c430: its review stopped at pass 2 under its no-progress condition, with each must-fix finding resolved, as [Conformance reviews](#conformance-reviews) records. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 2.3: the spec of jobs, `mail` and `invitations`, then their test-first build, whose review covers the commits after this handoff. Step 2.2 is built and reviewed through ebdfdc7: its review stopped at pass 2 under its no-progress condition, with each must-fix finding resolved, as [Conformance reviews](#conformance-reviews) records. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
 
 ## Build order
 
@@ -197,7 +197,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 4e7c633..cef3b30: decisions D61 to D63, and step 2.1: accounts, auth, the audit writer, authentication, client IP, rate limits, browsers and request bodies, their deployment, metrics and load test, and its CI checks | 1 | 28 (26, 8, 6 shared) | 18 | 0 | `next pass`: 8a121a2 |
 | 4e7c633..eac8668: as above | 2 | 9 (7, 4, 2 shared) | 5 | 1 | `stopped: no progress`: 290c430 |
 | bd2d1fd..5330bf9: decisions D65 and D66, and step 2.2: access, workspaces, authorization, idempotency, publishing events, lists with search, `check-tenancy` and the list shapes of `check-openapi` | 1 | 30 (27, 11, 8 shared) | 13 | 0 | `next pass`: ec21099 |
-| bd2d1fd..ec21099: as above | 2 | 13 (11, 4, 2 shared) | 5 | 2 | `stopped: no progress` |
+| bd2d1fd..ec21099: as above | 2 | 13 (11, 4, 2 shared) | 5 | 2 | `stopped: no progress`: ebdfdc7 |
 
 ## Decisions
 

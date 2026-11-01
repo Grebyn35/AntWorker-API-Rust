@@ -1,6 +1,6 @@
 //! Lists: a page's `limit` and `cursor` (API-06, PLATFORM-059), a list's `search` (API-20,
 //! PLATFORM-060), and the body of a page of items (API-05), which a route reads from the
-//! parameters of its `http::Query` and hands its service.
+//! parameters of its `http::Query<T>` and hands its service.
 
 use std::borrow::Cow;
 
