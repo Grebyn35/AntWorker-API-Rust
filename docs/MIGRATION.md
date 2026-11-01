@@ -117,6 +117,8 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 | DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 | OPS-17 | Postgres treats a segment of the log that its restore command can't fetch as the end of the archive, so a restore whose replay can't fetch one, as when the bucket stops answering, ends the replay there: a restore of the latest state, or the second replay of one to a moment, then serves the database as of that segment, naming its last commit, rather than refusing | 3 |
 | DATA-28 | The rows of `rate_limit_buckets` whose windows ended stay until the periodic sweep deletes them, and no sweep runs before jobs exist: they hold only keyed hashes, and a check that finds one starts a new window, so they change no decision ([platform spec](spec/platform.md#rate-limits)) | 2.3, with jobs |
+| DATA-05 | `audit_entries.workspace_id` has no foreign key: the `workspaces` table it references arrives with the module | 2.2 |
+| DATA-28 | No personal data contract is registered for the tables that reference a user or hold personal data, `users`, `identities`, `sessions` and `audit_entries`: the registry, and the export and erasure that read it, arrive with the full `accounts` module (D31) | 5 |
 | OPS-22 | When both colors of replicas run and no deploy recorded which serves, deploy.sh tells the operator to stop one with `docker compose` on the server, a change to the services that no task makes | 3 |
 
 ## Rule proposals

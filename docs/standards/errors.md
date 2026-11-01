@@ -23,7 +23,7 @@ Every variant implements `platform::errors::ErrorCode`, which gives it:
 |---|---|---|
 | `Validation` | 400 | Malformed input, or a field that fails validation |
 | `Unauthenticated` | 401 | Missing, invalid or expired credentials |
-| `Forbidden` | 403 | Authenticated, but not allowed, within a resource the caller can see |
+| `Forbidden` | 403 | Not allowed: an authenticated caller's action within a resource the caller can see, or a change from an origin the API doesn't list (PLATFORM-053) |
 | `NotFound` | 404 | The resource doesn't exist or the caller may not know it exists |
 | `MethodNotAllowed` | 405 | The path exists but doesn't serve the method. The response carries `Allow` with the methods it does serve (RFC 9110, §15.5.6) |
 | `Conflict` | 409 | Conflicts with current state: a duplicate, already a member, a request already in flight |

@@ -28,7 +28,6 @@ mod stack;
 #[cfg(test)]
 #[expect(
     dead_code,
-    unused_imports,
     reason = "the end-to-end tests use the support's databases and requests, and not its \
               in-process API"
 )]

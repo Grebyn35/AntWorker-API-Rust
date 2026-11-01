@@ -5,7 +5,7 @@ The security bar is Level 2 of version 5.0.0 of the Application Security Verific
 ## Secrets
 
 ### SEC-01 Secrets arrive by environment or file, and stay wrapped
-A secret is read from an environment variable, or from a file named by `<NAME>_FILE`. It is held in `platform::types::Secret`, which never prints its value through `Debug`, `Display` or serialization. A setting that carries a secret, such as a database URL with its password, is a secret setting as a whole: it is read the same way, its secret part is held in `Secret`, and the setting is never printed. Secrets never appear in images, logs, error details, or the URLs the API sends, serves or logs.
+A secret is read from an environment variable, or from a file named by `<NAME>_FILE`. It is held in `platform::types::Secret`, which never prints its value through `Debug`, `Display` or serialization, or in a type of its own that never prints it either, such as `platform::hashing::HmacKey`. A setting that carries a secret, such as a database URL with its password, is a secret setting as a whole: it is read the same way, its secret part is held in `Secret`, and the setting is never printed. Secrets never appear in images, logs, error details, or the URLs the API sends, serves or logs.
 - Why: the standard delivery paths for containers, and no accidental disclosure (D26).
 - Check: `compiler` (`Secret` has no way to print its value), plus `review`.
 
@@ -22,12 +22,12 @@ Access tokens, refresh tokens and verification codes come from the operating sys
 - Check: `test`, plus `review`.
 
 ### SEC-04 Passwords use Argon2id
-Passwords are hashed with Argon2id at the current OWASP parameters, in the string format of the Password Hashing Competition (PHC), on a blocking thread (CODE-05). A successful login rehashes a password stored with older parameters. The auth spec defines the password policy.
+Passwords are hashed with Argon2id at the current OWASP parameters, in the string format of the Password Hashing Competition (PHC), on a blocking thread (CODE-05). A successful sign-in rehashes a password stored with older parameters. The auth spec defines the password policy.
 - Why: the recommended algorithm, with parameters that can be raised later (D26).
 - Check: `test`.
 
 ### SEC-05 Authentication failures reveal nothing
-A failed login gives the same response and the same timing whether the email exists or not. Enumeration is accepted only on registration and the email-change pre-flight, both rate limited (D7).
+A failed sign-in gives the same response and the same timing whether the email exists or not. Enumeration is accepted only on registration and the email-change pre-flight, both rate limited (D7).
 - Why: attackers can't use sign-in to learn which accounts exist.
 - Check: `test` (identical responses for known and unknown emails), plus `review` (an unknown email runs the same password hash as a known one).
 

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, password_hash FROM identities WHERE user_id = $1 AND method = 'password'",
+  "query": "SELECT id, password_hash FROM identities WHERE user_id = $1 AND method = 'password'\n        FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -36,5 +36,5 @@
       true
     ]
   },
-  "hash": "a083785f56ad0d2c9070a1bf4bb980e799cf7cea5f1ac2519b6b7c85a7033dfb"
+  "hash": "dae2cbed33bdfbaf59783dcca7cbe4343fd2da5f7cdc957b7fe1a2e2ee8988a0"
 }

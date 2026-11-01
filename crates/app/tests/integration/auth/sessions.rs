@@ -4,44 +4,9 @@
 use serde_json::{Value, json};
 
 use crate::support::{
-    Api, Options,
-    api::Response,
-    users::{self, PASSWORD},
+    Api,
+    users::{self, PASSWORD, WEB, browser_sign_in, browsers_api, cookie},
 };
-
-/// The web client's origin that the tests' API lists.
-const WEB: &str = "https://app.example.com";
-
-/// The API with [`WEB`] listed.
-async fn browsers_api() -> Api {
-    Api::with(Options::default().set("CORS_ALLOWED_ORIGINS", WEB)).await
-}
-
-/// The value of the cookie `name` that `response` sets.
-fn cookie(response: &Response, name: &str) -> String {
-    let prefix = format!("__Host-{name}=");
-    let set = response
-        .headers("set-cookie")
-        .into_iter()
-        .find(|cookie| cookie.starts_with(&prefix));
-    assert!(set.is_some(), "no {name} cookie");
-    set.unwrap()[prefix.len()..]
-        .split(';')
-        .next()
-        .unwrap()
-        .to_owned()
-}
-
-/// A browser's sign-in, from [`WEB`], with the tokens in cookies.
-async fn browser_sign_in(api: &Api) -> Response {
-    users::register(api, "ada@example.com").await;
-    let body =
-        json!({ "email": "ada@example.com", "password": PASSWORD, "token_delivery": "cookie" });
-    api.post("/v1/sessions", &body)
-        .header("origin", WEB)
-        .send()
-        .await
-}
 
 #[tokio::test]
 async fn auth_009_a_request_without_a_valid_access_token_answers_401() {
@@ -120,6 +85,56 @@ async fn auth_010_refreshing_rotates_the_pair_and_keeps_the_old_refresh_hash() {
             .await,
         ["session.refreshed"]
     );
+}
+
+#[tokio::test]
+async fn auth_010_a_refresh_slides_the_refresh_expiry() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    db.owner_executes("UPDATE sessions SET refresh_expires_at = now() + interval '1 minute'")
+        .await;
+
+    let response = api
+        .post(
+            "/v1/sessions/refresh",
+            &json!({ "refresh_token": ada.refresh }),
+        )
+        .send()
+        .await;
+
+    assert_eq!(response.status, 200);
+    assert_eq!(
+        db.owner_reads(
+            "SELECT (refresh_expires_at > now() + interval '29 days')::text FROM sessions"
+        )
+        .await,
+        ["true"]
+    );
+}
+
+#[tokio::test]
+async fn auth_010_a_refresh_through_the_cookie_answers_with_new_cookies() {
+    let api = browsers_api().await;
+    let signed_in = browser_sign_in(&api).await;
+    let (access, refresh) = (
+        cookie(&signed_in, "access_token"),
+        cookie(&signed_in, "refresh_token"),
+    );
+
+    let response = api
+        .post("/v1/sessions/refresh", &json!({}))
+        .header("origin", WEB)
+        .header("cookie", &format!("__Host-refresh_token={refresh}"))
+        .send()
+        .await;
+
+    assert_eq!(response.status, 200);
+    let body = response.json();
+    assert!(body.get("access_token").is_none());
+    assert!(body.get("refresh_token").is_none());
+    assert_ne!(cookie(&response, "access_token"), access);
+    assert_ne!(cookie(&response, "refresh_token"), refresh);
 }
 
 #[tokio::test]
@@ -227,6 +242,16 @@ async fn auth_012_presenting_a_rotated_refresh_token_ends_the_session() {
 }
 
 #[tokio::test]
+async fn auth_012_a_refresh_without_a_token_answers_the_same_401() {
+    let api = Api::new().await;
+
+    let response = api.post("/v1/sessions/refresh", &json!({})).send().await;
+
+    assert_eq!(response.status, 401);
+    assert_eq!(response.json()["code"], "auth.invalid_refresh_token");
+}
+
+#[tokio::test]
 async fn auth_013_signing_out_ends_the_session_and_clears_its_cookies() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -273,7 +298,8 @@ async fn auth_015_a_browser_takes_its_tokens_as_cookies_it_can_t_read() {
     let response = browser_sign_in(&api).await;
 
     assert_eq!(response.status, 201);
-    let session = &response.json()["session"];
+    let session = response.json();
+    assert!(session["id"].is_string());
     assert!(session.get("access_token").is_none());
     assert!(session.get("refresh_token").is_none());
     let set = response.headers("set-cookie");
@@ -293,30 +319,12 @@ async fn auth_015_a_browser_takes_its_tokens_as_cookies_it_can_t_read() {
 }
 
 #[tokio::test]
-async fn auth_015_a_browser_refreshes_through_its_cookie_and_gets_cookies_back() {
-    let api = browsers_api().await;
-    let signed_in = browser_sign_in(&api).await;
-    let refresh = cookie(&signed_in, "refresh_token");
-
-    let response = api
-        .post("/v1/sessions/refresh", &json!({}))
-        .header("origin", WEB)
-        .header("cookie", &format!("__Host-refresh_token={refresh}"))
-        .send()
-        .await;
-
-    assert_eq!(response.status, 200);
-    assert!(response.json().get("refresh_token").is_none());
-    assert_ne!(cookie(&response, "refresh_token"), refresh);
-}
-
-#[tokio::test]
 async fn auth_016_the_current_session_is_readable_without_its_tokens() {
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;
     let body = json!({ "email": "ada@example.com", "password": PASSWORD, "device_id": "phone_2" });
     let signed_in = api.post("/v1/sessions", &body).send().await.json();
-    let access = signed_in["session"]["access_token"].as_str().unwrap();
+    let access = signed_in["access_token"].as_str().unwrap();
 
     let response = api
         .get("/v1/users/me/sessions/current")
@@ -326,7 +334,8 @@ async fn auth_016_the_current_session_is_readable_without_its_tokens() {
 
     assert_eq!(response.status, 200);
     let session = response.json();
-    assert_eq!(session["id"], signed_in["session"]["id"]);
+    assert_eq!(session["id"], signed_in["id"]);
+    assert_eq!(session["user_id"], signed_in["user_id"]);
     assert_eq!(session["device_id"], "phone_2");
     assert!(session.get("access_token").is_none());
     assert!(session.get("refresh_token").is_none());

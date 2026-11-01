@@ -11,7 +11,7 @@ use axum::{
 };
 
 use crate::{
-    errors::{Internal, Problem, RequestError},
+    errors::{self, Internal, Problem, RequestError},
     rate_limit::{Bucket, Count, Counted, RateLimiter, RateLimits},
     types::Client,
 };
@@ -74,8 +74,12 @@ fn describe(response: &mut Response, counted: &Counted) {
         ("ratelimit-policy", policy(&tightest)),
         ("ratelimit", state(&tightest)),
     ] {
-        if let Ok(value) = HeaderValue::from_str(&value) {
-            headers.insert(name, value);
+        // A bucket's name and numbers are ASCII, so the value is always a header's.
+        match HeaderValue::from_str(&value) {
+            Ok(value) => {
+                headers.insert(name, value);
+            }
+            Err(error) => errors::ignore(&error, "rate_limit_header_not_set"),
         }
     }
     if response.status() == StatusCode::TOO_MANY_REQUESTS {

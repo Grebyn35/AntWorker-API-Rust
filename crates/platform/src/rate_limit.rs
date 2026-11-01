@@ -16,7 +16,7 @@ use crate::{
 static REFUSALS: Counter<1> = Counter::new(
     "platform.rate_limit_refusals",
     "{request}",
-    "Requests that a rate limit refused, by the kind of the bucket that refused them      (PLATFORM-048).",
+    "Requests that a rate limit refused, by the kind of the bucket that refused them (PLATFORM-048).",
     [names::RATE_LIMIT_BUCKET],
 );
 
@@ -94,20 +94,27 @@ pub struct Counted(Arc<Mutex<Vec<Count>>>);
 impl Counted {
     /// Records that `count`'s bucket counted the request.
     pub fn push(&self, count: Count) {
-        if let Ok(mut counts) = self.0.lock() {
-            counts.push(count);
-        }
+        self.counts().push(count);
     }
 
-    /// The bucket closest to refusing the request: the one with the fewest requests left, and of
-    /// those, the one whose window ends last, so a client that waits for it waits long enough.
+    /// The bucket that decided the response: one that refused the request if any did, and
+    /// otherwise the one with the fewest requests left; of those that tie, the one whose window
+    /// ends last, so a client that waits for it waits long enough (PLATFORM-050).
     pub fn tightest(&self) -> Option<Count> {
-        let counts = self.0.lock().ok()?;
-        counts.iter().copied().min_by(|a, b| {
-            a.remaining()
-                .cmp(&b.remaining())
+        self.counts().iter().copied().min_by(|a, b| {
+            b.refused()
+                .cmp(&a.refused())
+                .then(a.remaining().cmp(&b.remaining()))
                 .then(b.resets_in.cmp(&a.resets_in))
         })
+    }
+
+    /// The counts. A lock that a panic poisoned still holds whole counts, since a push only
+    /// appends, so its data is taken as it is.
+    fn counts(&self) -> std::sync::MutexGuard<'_, Vec<Count>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -202,6 +209,21 @@ mod tests {
         let tightest = counted.tightest().unwrap();
         assert_eq!(tightest.bucket.name, "user");
         assert_eq!(tightest.remaining(), 3);
+    }
+
+    #[test]
+    fn platform_050_a_bucket_that_refused_decides_over_one_merely_full() {
+        let counted = Counted::default();
+        counted.push(count(BUCKET, 10, 600));
+        counted.push(count(
+            Bucket {
+                name: "user",
+                ..BUCKET
+            },
+            11,
+            5,
+        ));
+        assert_eq!(counted.tightest().unwrap().bucket.name, "user");
     }
 
     #[test]

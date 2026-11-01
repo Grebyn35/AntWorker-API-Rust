@@ -120,6 +120,40 @@ async fn platform_048_a_user_beyond_their_limit_answers_429() {
 }
 
 #[tokio::test]
+async fn platform_048_the_window_is_a_setting() {
+    let api = Api::with(
+        Options::default()
+            .set("RATE_LIMIT_IP_REQUESTS", 10)
+            .set("RATE_LIMIT_WINDOW_SECONDS", 30),
+    )
+    .await;
+
+    let response = api.get("/v1/capabilities").send().await;
+
+    assert_eq!(response.header("ratelimit-policy"), "\"ip\";q=10;w=30");
+}
+
+#[tokio::test]
+async fn platform_019_the_probes_bypass_the_rate_limits() {
+    let api = limited(1, 1_000).await;
+    api.get("/v1/capabilities").send().await;
+
+    let live = api.get("/health/live").send().await;
+    let ready = api.get("/health/ready").send().await;
+
+    assert_eq!(live.status, 200);
+    assert_eq!(ready.status, 200);
+    assert!(live.headers.get("ratelimit").is_none());
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT count::text FROM rate_limit_buckets")
+            .await,
+        ["1"],
+        "no probe counted"
+    );
+}
+
+#[tokio::test]
 async fn platform_049_a_window_restarts_with_the_first_request_after_it_ends() {
     let api = limited(1, 1_000).await;
     api.get("/v1/capabilities").send().await;

@@ -586,6 +586,12 @@ mod tests {
         "",
         "",
         "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
         // The bucket's key pair, then Enter leaves the passphrase and the superuser's password
         // to be generated.
         "key",

@@ -25,6 +25,5 @@ async fn me(
     client: Client,
     principal: Principal,
 ) -> Result<Json<Profile>, Problem<AccountsError>> {
-    let mut uow = database.begin(&client).await.map_err(AccountsError::from)?;
-    Ok(Json(service::profile(&mut uow, &principal).await?))
+    Ok(Json(service::me(&database, &client, &principal).await?))
 }

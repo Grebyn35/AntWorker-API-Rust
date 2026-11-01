@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::support::{
     Api,
-    users::{self, PASSWORD},
+    users::{self, PASSWORD, SignedIn},
 };
 
 #[tokio::test]
@@ -70,7 +70,9 @@ async fn accounts_003_a_display_name_is_stored_trimmed_collapsed_and_normalized(
     let response = api.post("/v1/users", &body).send().await;
 
     assert_eq!(response.status, 201);
-    assert_eq!(response.json()["user"]["name"], "Ren\u{e9}e Lovelace");
+    let access = SignedIn::from(&response).access;
+    let me = api.get("/v1/users/me").bearer(&access).send().await;
+    assert_eq!(me.json()["name"], "Ren\u{e9}e Lovelace");
 }
 
 #[tokio::test]

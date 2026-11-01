@@ -34,13 +34,19 @@ impl<T> fmt::Debug for Secret<T> {
 }
 
 /// Who sent a request: its client IP (PLATFORM-047) and its user agent, which audit entries
-/// record (AUDIT-003).
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// record (AUDIT-003). Both are personal data, so `Debug` shows neither (OBS-04).
+#[derive(Clone, PartialEq, Eq)]
 pub struct Client {
     /// The client's address.
     pub ip: std::net::IpAddr,
     /// The `User-Agent` header, when it is text.
     pub user_agent: Option<String>,
+}
+
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Client([redacted])")
+    }
 }
 
 /// Why a domain type refused a value: a stable `snake_case` code, which clients act on, and a
@@ -103,12 +109,9 @@ macro_rules! id_type {
 }
 
 id_type!(
-    /// A user's ID, one of the two tenancy keys `platform` knows (architecture §4).
+    /// A user's ID, one of the two tenancy keys `platform` knows (architecture §4); a workspace's
+    /// joins it with the workspaces, in step 2.2.
     UserId
-);
-id_type!(
-    /// A workspace's ID, the other tenancy key.
-    WorkspaceId
 );
 id_type!(
     /// A session's ID.
@@ -181,10 +184,17 @@ impl ToSchema for Timestamp {
 const EMAIL_MAX_CHARS: usize = 254;
 
 /// An email address, trimmed and lowercased, of 1 to 254 characters, that is valid as the HTML
-/// standard defines one for `<input type="email">` (ACCOUNTS-002).
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+/// standard defines one for `<input type="email">` (ACCOUNTS-002). It is personal data, so
+/// `Debug` doesn't show it (OBS-04).
+#[derive(Clone, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
 pub struct EmailAddress(String);
+
+impl fmt::Debug for EmailAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("EmailAddress([redacted])")
+    }
+}
 
 impl EmailAddress {
     /// The address in `value`, normalized, or why it isn't one.
@@ -279,6 +289,18 @@ mod tests {
             Timestamp::from_database(at).to_string(),
             "2026-11-01T02:26:40.123456Z"
         );
+    }
+
+    #[test]
+    fn obs_04_an_email_address_and_a_client_never_print_through_debug() {
+        let address = EmailAddress::parse("ada@example.com").unwrap();
+        assert!(!format!("{address:?}").contains("ada"));
+        let client = Client {
+            ip: "203.0.113.9".parse().unwrap(),
+            user_agent: Some("Desktop/1.2".to_owned()),
+        };
+        let shown = format!("{client:?}");
+        assert!(!shown.contains("203.0.113.9") && !shown.contains("Desktop"));
     }
 
     #[test]

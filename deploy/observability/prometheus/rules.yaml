@@ -231,15 +231,3 @@ groups:
         annotations:
           summary: Less than 10% of the server's memory has been available for 15 minutes.
           runbook: docs/operations/runbooks.md#memoryrunninglow
-
-      - alert: RequestsRateLimited
-        expr: |
-          sum by (job) (rate(http_server_request_duration_seconds_count{http_response_status_code="429"}[15m]))
-            / sum by (job) (rate(http_server_request_duration_seconds_count[15m]))
-            > 0.05
-        for: 15m
-        labels:
-          severity: ticket
-        annotations:
-          summary: Rate limits have refused more than 5% of the API's requests for 15 minutes.
-          runbook: docs/operations/runbooks.md#requestsratelimited

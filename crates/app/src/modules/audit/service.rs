@@ -1,8 +1,8 @@
 //! Recording entries inside the unit of work of the change they record (D1, D6).
 
-use platform::{authn::AuditScope, db::UnitOfWork, errors::Internal, telemetry};
+use platform::{authn::AuditScope, db::UnitOfWork, telemetry};
 
-use super::{model::Entry, repo};
+use super::{error::AuditError, model::Entry, repo};
 
 /// Records `entry` in the log that `scope` names, in `uow`, so it commits or rolls back with the
 /// change (AUDIT-001). The actor comes from the scope, the client from the unit of work, and the
@@ -11,6 +11,6 @@ pub(crate) async fn record(
     uow: &mut UnitOfWork,
     scope: AuditScope,
     entry: Entry,
-) -> Result<(), Internal> {
-    repo::insert(uow, scope, &entry, &telemetry::trace_id()).await
+) -> Result<(), AuditError> {
+    Ok(repo::insert(uow, scope, &entry, &telemetry::trace_id()).await?)
 }

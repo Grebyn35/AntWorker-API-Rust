@@ -2,8 +2,8 @@
 
 use std::{borrow::Cow, collections::HashSet, sync::LazyLock, time::Duration};
 
-use platform::types::{Invalid, Secret, SessionId, Timestamp};
-use serde::{Deserialize, Serialize};
+use platform::types::{Invalid, Secret, SessionId, Timestamp, UserId};
+use serde::Serialize;
 use utoipa::{
     PartialSchema, ToSchema,
     openapi::{ObjectBuilder, RefOr, Schema, Type},
@@ -27,10 +27,16 @@ const BREACHED_PASSWORDS: &str = include_str!("../../../data/breached-passwords.
 /// (ASVS 6.2.11). `just rename` rewrites the product's name here too (ARCH-15).
 const CONTEXT_WORDS: &[&str] = &["antworker"];
 
-/// The breached-password list as a set, built the first time a password is checked: a read-only
-/// value initialized once (ARCH-12).
+/// The breached-password list as a set: a read-only value initialized once (ARCH-12), which
+/// startup builds through [`load_breached_passwords`].
 static BREACHED: LazyLock<HashSet<&'static str>> =
     LazyLock::new(|| BREACHED_PASSWORDS.lines().collect());
+
+/// Builds the breached-password set, CPU work that startup runs on a blocking thread, so no
+/// request waits for it (CODE-05).
+pub(crate) fn load_breached_passwords() {
+    LazyLock::force(&BREACHED);
+}
 
 /// A password that AUTH-003 allows, kept exactly as the user typed it (ASVS 6.2.8).
 #[derive(Clone, Debug)]
@@ -209,12 +215,11 @@ impl ToSchema for DeviceId {
     }
 }
 
-/// How a client takes its session's tokens (AUTH-015).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
+/// How a client takes its session's tokens: a browser, which every request with an `Origin`
+/// comes from, as cookies, and any other client in the body (AUTH-015, SEC-19).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TokenDelivery {
     /// In the response's body, for a client that sets its own headers.
-    #[default]
     Body,
     /// As cookies that no script can read, for a browser.
     Cookie,
@@ -245,6 +250,8 @@ pub(crate) struct Tokens {
 pub(crate) struct Session {
     /// The session's ID.
     pub(crate) id: SessionId,
+    /// The user the session signs in.
+    pub(crate) user_id: UserId,
     /// The device ID the client signed in with, if any.
     pub(crate) device_id: Option<DeviceId>,
     /// When the session began.

@@ -66,13 +66,13 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | Area | What it provides | Decisions |
 |---|---|---|
 | `config` | Typed configuration loaded once at startup. Values are trimmed, empty means unset, `*_FILE` secret files are supported, and every failure is reported in one format. | D9, D26 |
-| `db` | One connection pool, the unit of work, and the `bootstrap` and `migrate` tasks. A unit of work is one transaction, opened by the route, with a writer for jobs and events. Every query in it filters by tenant itself (DATA-22). | D1, D4, D24 |
+| `db` | One connection pool, the unit of work, and the `bootstrap` and `migrate` tasks. A unit of work is one transaction, opened by the service, or with `Authorized<P>` on a workspace route, with a writer for jobs and events. Every query in it filters by tenant itself (DATA-22). | D1, D4, D24 |
 | `jobs` | A durable job queue with retry, backoff and dead letters, plus a scheduler that runs each periodic job once per interval across the fleet. A job records the user or workspace it was enqueued for, and its handler filters by them. | D1, D13 |
 | `listener` | One `LISTEN` connection per instance, routing notifications to subscribers such as the real-time hub and the job dispatcher. | D20 |
 | `events` | The event log and the real-time hub. A unit of work publishes events. The hub loads each new event once and delivers it to the streams allowed to receive it (SEC-17). It also replays missed events, closes or re-filters streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). | D1, D5, D20 |
 | `rate_limit` | The buckets that count requests in windows, in the database every replica shares: the IP and user limits that the request pipeline applies, and the per-action limits a module checks, such as sign-in's. | D11 |
 | `http` | The route builders and the OpenAPI document they produce, the middleware stack with trace context, timeouts, load shedding, cross-origin resource sharing (CORS) and the protection against cross-site request forgery (CSRF), extractors (JSON, path, query, pagination), idempotency and rate limiting. | D8, D10, D11, D12, D20, D61 |
-| `authn` | Reads credentials through a credential source, a closed enum with two variants: the Bearer header, for clients that set their own headers, such as the desktop client, and an `HttpOnly` cookie, for browsers. It verifies them through the `SessionVerifier` that `auth` implements, producing a `Principal`. | D18, D61 |
+| `authn` | Reads a request's access token from the Bearer header, for clients that set their own headers, such as the desktop client, or otherwise from an `HttpOnly` cookie, for browsers. It verifies the token through the `SessionVerifier` that `auth` implements, producing a `Principal`. | D18, D61 |
 | `authz` | The `Authorized<P>` proof and the `Memberships` type, generic over the `Permission` trait. Producing `Authorized<P>` opens the request's unit of work and asks the `AccessPolicy` that `access` implements inside it. Refusals are reported to the `SecurityEventSink` that `audit` implements. | D2, D3, D6 |
 | `errors` | Error categories, the `ErrorCode` trait, and the single conversion to an HTTP response. | D17 |
 | `telemetry` | The logging and tracing setup, the export of spans, logs and metrics over the OpenTelemetry Protocol (OTLP), the list of telemetry names, and the metric declarations. | D10, D19 |
@@ -115,7 +115,7 @@ crates/app/
 | `mail` | none | Email types and templates. Sending enqueues a job, and the job handler renders and delivers the email (D1). |
 | `files` | `files`, `object_deletions` | Upload, list, download and delete of user and workspace files, public files, and the orphan sweep. |
 | `accounts` | `users`, `user_preferences`, `data_exports` | Profile, preferences and consent, avatar, and account deletion and export, which it orchestrates across modules through the personal data contract (D16, D31). |
-| `auth` | `sessions`, `verification_codes`, `identities`, `provider_tokens`, `pending_email_changes` | Registration, login with credentials or OAuth, refresh, logout, sessions, password reset and change, email verification and change, identity linking, and re-authentication for sensitive actions. Account deletion is confirmed here, then carried out by `accounts`. One file per OAuth provider in `auth/providers/`. Implements `SessionVerifier`. |
+| `auth` | `sessions`, `verification_codes`, `identities`, `provider_tokens`, `pending_email_changes` | Registration, sign-in with a password or OAuth, refresh, sign-out, sessions, password reset and change, email verification and change, identity linking, and re-authentication for sensitive actions. Account deletion is confirmed here, then carried out by `accounts`. One file per OAuth provider in `auth/providers/`. Implements `SessionVerifier`. |
 | `workspaces` | `workspaces`, `setup_runs` | Creating workspaces in each shape (below), updating, transferring and deleting them, the members endpoints (list, change role, remove, leave), and the workspace picture. |
 | `invitations` | `invitations` | Invite, list, resend, cancel, accept, decline, and expiry. |
 | `superadmins` | `superadmins` | The deployment's superadmins (D62): users who see every workspace's name, creation time, member count and owner, but not its content, delete any workspace, and create workspaces, the only users who do in the provisioned shape (below). Its routes are authorized by the caller being a superadmin, never by a membership, and it records each action in the superadmin's own log, since deleting a workspace deletes the workspace's log. Its subcommand adds an account to the superadmins or removes it, which the API can't. |
@@ -204,11 +204,11 @@ sequenceDiagram
   participant S as Module service
   participant DB as PostgreSQL
   C->>P: request
-  P->>P: security headers, trace context, request log,<br/>panics, CORS, load shedding, IP rate limit, cross-site check
+  P->>P: security headers, trace context, request log,<br/>panics, client, CORS, load shedding, IP rate limit, cross-site check
   P->>H: routed request
   H->>H: timeout, body limit, query check, Principal (authn),<br/>user rate limit, idempotency, parse to domain types
   H->>DB: BEGIN, and on workspace routes authorize (authz)
-  H->>S: call with the unit of work and domain types
+  H->>S: call with domain types, and the unit of work on a workspace route
   S->>DB: domain writes + audit entries + events + jobs
   S->>DB: COMMIT
   DB-->>P: NOTIFY (events, jobs)
@@ -222,6 +222,7 @@ sequenceDiagram
    - trace context: the request's server span, and the trace-ID response header (D10)
    - the request log: one line when the request completes, and the error line of a 5xx (OBS-03, ERR-10)
    - panic catching (ERR-12)
+   - the client: its IP, from the trusted proxies' header, and its user agent (PLATFORM-047)
    - CORS for the listed web origins (D61)
    - concurrency limit with load shedding (D20)
    - pre-authentication IP rate limit (D11)
@@ -232,9 +233,9 @@ sequenceDiagram
    - `Principal` authenticates the caller, by the Bearer header or a browser's cookie (D18, D61).
    - The per-user rate limit, then the idempotency reservation for keyed `POST`s (D12), each in its own short transaction.
    - The body is parsed into request types, then domain types (D25).
-   - The unit of work opens last, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one. On workspace routes, opening it produces `Authorized<P>`: inside the unit of work, the caller's membership in the workspace from the path is loaded and permission `P` checked (D2, D3). A missing membership is a 404, so the response never reveals whether the workspace exists. On other routes, the unit of work opens from the `Principal`.
+   - The unit of work opens last, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one. On workspace routes, opening it produces `Authorized<P>`: inside the unit of work, the caller's membership in the workspace from the path is loaded and permission `P` checked (D2, D3). A missing membership is a 404, so the response never reveals whether the workspace exists. On other routes, the service opens it, once any per-action limit it checks has counted, such as the sign-in email's (AUTH-006).
 4. **The handler** calls the service with domain types only.
-5. **The service** performs its writes in the unit of work the route opened, and in the same transaction records audit entries, publishes events and enqueues jobs (D1, D6). For a request with an `Idempotency-Key`, the same transaction stores the operation's result under the key (API-12). Then it commits.
+5. **The service** performs its writes in its unit of work, and in the same transaction records audit entries, publishes events and enqueues jobs (D1, D6). For a request with an `Idempotency-Key`, the same transaction stores the operation's result under the key (API-12). Then it commits.
 6. **The response.** The handler maps the result to the response. A module error goes through the single conversion to an RFC 9457 problem that carries the trace ID (D17).
 7. **After the commit**, Postgres notifies the listeners:
    - Each instance's real-time hub loads a new event once and delivers it to the streams allowed to see it (D5, D20).
@@ -324,6 +325,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | Telemetry export | `opentelemetry-otlp` over HTTP with protobuf bodies, through a blocking `reqwest` client on `rustls` with its ring provider, and `opentelemetry-appender-tracing` for log records | The protocol's default transport; the client runs on a thread of its own, so an export never needs the async runtime (D10, D19) |
 | Observability stack | the OpenTelemetry Collector's contrib distribution, Prometheus, Loki, Tempo, Grafana and Alertmanager | D19's stack, configured once under `deploy/observability/` for development and production |
 | Auto-reload | watchexec | `just dev` restarts the API when its code changes, on Windows, macOS and Linux (D28) |
+| Password hashing | `argon2`, for the Argon2id that SEC-04 requires | The RustCrypto implementation, in pure Rust, which reads and writes the hashes in the string format of the Password Hashing Competition (PHC) (AUTH-014) |
 | Middleware | `tower`, `tower-http` | The concurrency limit, load shedding, timeouts, panic catching and headers that axum is built to use |
 | OpenAPI | `utoipa`, `utoipa-axum` | The document comes from the handlers' own annotations, and a route is registered with its documentation (API-14, API-17) |
 | Command line | `clap` | The binary's subcommands (ARCH-14) |
@@ -344,7 +346,6 @@ A part's tools and libraries are chosen when it is built, as "Docs for unbuilt p
 
 | Concern | Starting point | Chosen in |
 |---|---|---|
-| Password hashing | the `argon2` crate, for the Argon2id that SEC-04 requires | `auth` (2.1) |
 | Email | `lettre`, with Mailpit catching development email (D28) | `mail` (2.3) |
 | Object storage | `object_store`, with SeaweedFS in development (D28) | `files` (5) |
 | Outbound HTTP | `reqwest` with `rustls` | the first outbound caller (5) |
@@ -374,7 +375,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Role | A named set of permissions, defined in code in `access` (D2). |
 | Permission | One thing a role allows on a workspace resource, such as `members.update`. |
 | Invitation | An offer to join a workspace with a role, sent to an email address. |
-| Unit of work | One database transaction, opened by the route, with its side effects: audit entries, events and jobs (D1). |
+| Unit of work | One database transaction, opened by the service, or with `Authorized<P>` on a workspace route, with its side effects: audit entries, events and jobs (D1). |
 | Job | Durable background work, delivered at least once (D13). |
 | Migration | One forward-only change to the schema, in a file of `migrations/`, applied by `migrate` (DATA-09). |
 | Startup | What a subcommand does before it serves: reading the configuration and running its checks. For a one-shot subcommand, such as `migrate`, its whole run. A startup failure ends the process (OPS-03). |

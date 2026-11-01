@@ -3,7 +3,7 @@
 use http::Method;
 use serde_json::json;
 
-use crate::support::{Api, users};
+use crate::support::{Api, api::Response, users};
 
 #[tokio::test]
 async fn platform_054_a_body_that_isn_t_the_route_s_json_answers_400() {
@@ -55,6 +55,24 @@ async fn platform_055_a_body_that_grows_past_the_limit_answers_413() {
     assert_eq!(response.json()["code"], "request.payload_too_large");
 }
 
+/// The field and code of each error of `response`, a 400 `request.invalid_fields`.
+fn named(response: &Response) -> Vec<(String, String)> {
+    assert_eq!(response.status, 400);
+    let problem = response.json();
+    assert_eq!(problem["code"], "request.invalid_fields");
+    problem["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|error| {
+            (
+                error["field"].as_str().unwrap().to_owned(),
+                error["code"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn platform_056_every_field_its_domain_type_refuses_is_named() {
     let api = Api::new().await;
@@ -62,27 +80,32 @@ async fn platform_056_every_field_its_domain_type_refuses_is_named() {
 
     let response = api.post_raw("/v1/users", &body).send().await;
 
-    assert_eq!(response.status, 400);
-    let problem = response.json();
-    assert_eq!(problem["code"], "request.invalid_fields");
-    let named: Vec<(&str, &str)> = problem["errors"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|error| {
-            (
-                error["field"].as_str().unwrap(),
-                error["code"].as_str().unwrap(),
-            )
-        })
-        .collect();
     assert_eq!(
-        named,
+        named(&response),
         [
             ("/email", "invalid_email"),
             ("/password", "too_short"),
             ("/name", "required"),
             ("/device_id", "invalid_device_id"),
         ]
+        .map(|(field, code)| (field.to_owned(), code.to_owned()))
+    );
+}
+
+#[tokio::test]
+async fn platform_056_every_field_a_sign_in_refuses_is_named() {
+    let api = Api::new().await;
+    let body = json!({ "email": "nope", "password": "", "device_id": "bad id" });
+
+    let response = api.post_raw("/v1/sessions", &body).send().await;
+
+    assert_eq!(
+        named(&response),
+        [
+            ("/email", "invalid_email"),
+            ("/password", "required"),
+            ("/device_id", "invalid_device_id"),
+        ]
+        .map(|(field, code)| (field.to_owned(), code.to_owned()))
     );
 }

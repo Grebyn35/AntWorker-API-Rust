@@ -87,6 +87,12 @@ pub(super) fn security_headers(router: Router) -> Router {
             .layer(SetResponseHeaderLayer::overriding(
                 header::REFERRER_POLICY,
                 HeaderValue::from_static("no-referrer"),
+            ))
+            // No response may be kept by a cache: an authenticated one is the caller's alone, and
+            // a session's response holds its tokens. A public file sets its own.
+            .layer(SetResponseHeaderLayer::if_not_present(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("no-store"),
             )),
     )
 }

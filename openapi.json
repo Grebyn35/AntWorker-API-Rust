@@ -20,7 +20,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -44,7 +44,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -83,7 +83,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -122,7 +122,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -243,7 +243,7 @@
         },
         "responses": {
           "201": {
-            "description": "The user and the new session.",
+            "description": "The new session.",
             "headers": {
               "location": {
                 "schema": {
@@ -255,7 +255,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -267,7 +267,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SignedInResponse"
+                  "$ref": "#/components/schemas/SessionResponse"
                 }
               }
             }
@@ -279,7 +279,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -320,7 +320,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -359,7 +359,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -398,7 +398,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -437,7 +437,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -564,7 +564,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -588,7 +588,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -629,7 +629,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -669,7 +669,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -708,7 +708,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -747,7 +747,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -868,19 +868,19 @@
         },
         "responses": {
           "201": {
-            "description": "The user and their first session.",
+            "description": "The user's first session.",
             "headers": {
               "location": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "The new user: `/v1/users/me`."
+                "description": "The new session: `/v1/users/me/sessions/current`."
               },
               "ratelimit": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -892,7 +892,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SignedInResponse"
+                  "$ref": "#/components/schemas/SessionResponse"
                 }
               }
             }
@@ -904,7 +904,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -945,7 +945,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -984,7 +984,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1023,7 +1023,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1062,7 +1062,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1179,7 +1179,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1203,7 +1203,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1242,7 +1242,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1282,7 +1282,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1321,7 +1321,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1438,7 +1438,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1462,7 +1462,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1501,7 +1501,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1541,7 +1541,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1580,7 +1580,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1695,7 +1695,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1712,7 +1712,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1751,7 +1751,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1791,7 +1791,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1830,7 +1830,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -1869,7 +1869,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "The requests left in the bucket closest to its limit, and the seconds until                      its window ends."
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends."
               },
               "ratelimit-policy": {
                 "schema": {
@@ -2140,7 +2140,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/DeviceId",
-                "description": "An ID the client keeps for its installation (AUTH-008)."
+                "description": "An ID the client keeps for its installation (AUTH-008, AUTH-017)."
               },
               {
                 "type": "null"
@@ -2158,10 +2158,6 @@
           "password": {
             "$ref": "#/components/schemas/Password",
             "description": "The user's password (AUTH-003)."
-          },
-          "token_delivery": {
-            "$ref": "#/components/schemas/TokenDelivery",
-            "description": "Where the session's tokens go: `body`, the default, or `cookie` for a browser (AUTH-015)."
           }
         },
         "additionalProperties": false
@@ -2171,6 +2167,7 @@
         "description": "A session, as its client sees it.",
         "required": [
           "id",
+          "user_id",
           "created_at",
           "access_token_expires_at",
           "refresh_token_expires_at",
@@ -2207,6 +2204,10 @@
           "refresh_token_expires_at": {
             "$ref": "#/components/schemas/Timestamp",
             "description": "When its refresh token expires, unless a refresh slides it."
+          },
+          "user_id": {
+            "$ref": "#/components/schemas/UserId",
+            "description": "The user the session signs in."
           }
         }
       },
@@ -2219,6 +2220,7 @@
         "description": "A session, and its tokens when they go in the body.",
         "required": [
           "id",
+          "user_id",
           "created_at",
           "access_token_expires_at",
           "refresh_token_expires_at",
@@ -2263,6 +2265,10 @@
           "refresh_token_expires_at": {
             "$ref": "#/components/schemas/Timestamp",
             "description": "When its refresh token expires, unless a refresh slides it."
+          },
+          "user_id": {
+            "$ref": "#/components/schemas/UserId",
+            "description": "The user the session signs in."
           }
         }
       },
@@ -2278,7 +2284,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/DeviceId",
-                "description": "An ID the client keeps for its installation (AUTH-008)."
+                "description": "An ID the client keeps for its installation (AUTH-008, AUTH-017)."
               },
               {
                 "type": "null"
@@ -2295,43 +2301,13 @@
             "description": "The account's password.",
             "maxLength": 128,
             "minLength": 1
-          },
-          "token_delivery": {
-            "$ref": "#/components/schemas/TokenDelivery",
-            "description": "Where the session's tokens go: `body`, the default, or `cookie` for a browser (AUTH-015)."
           }
         },
         "additionalProperties": false
       },
-      "SignedInResponse": {
-        "type": "object",
-        "description": "A new session, with its user (AUTH-001, AUTH-004).",
-        "required": [
-          "user",
-          "session"
-        ],
-        "properties": {
-          "session": {
-            "$ref": "#/components/schemas/SessionResponse",
-            "description": "The new session."
-          },
-          "user": {
-            "$ref": "#/components/schemas/Profile",
-            "description": "The signed-in user."
-          }
-        }
-      },
       "Timestamp": {
         "type": "string",
         "format": "date-time"
-      },
-      "TokenDelivery": {
-        "type": "string",
-        "description": "How a client takes its session's tokens (AUTH-015).",
-        "enum": [
-          "body",
-          "cookie"
-        ]
       },
       "UserId": {
         "type": "string",

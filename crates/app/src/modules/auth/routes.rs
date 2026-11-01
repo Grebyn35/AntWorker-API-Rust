@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::State,
-    http::{HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use platform::{
@@ -12,7 +12,7 @@ use platform::{
     errors::{Problem, RequestError},
     http::{Cookies, FieldErrors, Json, Routes, expired_cookie, session_cookie},
     rate_limit::RateLimits,
-    types::{Client, EmailAddress, SessionId, Timestamp},
+    types::{Client, EmailAddress, SessionId, Timestamp, UserId},
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -21,12 +21,15 @@ use utoipa_axum::routes;
 use super::{
     error::AuthError,
     model::{DeviceId, Password, Session, TokenDelivery, Tokens},
-    service::{Auth, Registration, SignIn, SignedIn},
+    service::{Auth, Registration, SignIn},
 };
-use crate::modules::accounts::{DisplayName, Profile};
+use crate::modules::accounts::DisplayName;
 
 /// The name of the cookie that holds a browser's refresh token, after `__Host-` (AUTH-015).
 const REFRESH_COOKIE: &str = "refresh_token";
+
+/// Where a new session is: the session that the request's own tokens prove (AUTH-016).
+const CURRENT_SESSION: &str = "/v1/users/me/sessions/current";
 
 /// The module's routes, which take the service as their state.
 pub(crate) fn routes() -> Routes<Arc<Auth>> {
@@ -53,13 +56,10 @@ pub(crate) struct RegistrationRequest {
     /// The user's name.
     #[schema(value_type = DisplayName)]
     name: String,
-    /// An ID the client keeps for its installation (AUTH-008).
+    /// An ID the client keeps for its installation (AUTH-008, AUTH-017).
     #[serde(default)]
     #[schema(value_type = Option<DeviceId>)]
     device_id: Option<String>,
-    /// Where the session's tokens go: `body`, the default, or `cookie` for a browser (AUTH-015).
-    #[serde(default)]
-    token_delivery: TokenDelivery,
 }
 
 impl TryFrom<RegistrationRequest> for Registration {
@@ -93,13 +93,10 @@ pub(crate) struct SignInRequest {
     /// The account's password.
     #[schema(min_length = 1, max_length = 128, format = Password)]
     password: String,
-    /// An ID the client keeps for its installation (AUTH-008).
+    /// An ID the client keeps for its installation (AUTH-008, AUTH-017).
     #[serde(default)]
     #[schema(value_type = Option<DeviceId>)]
     device_id: Option<String>,
-    /// Where the session's tokens go: `body`, the default, or `cookie` for a browser (AUTH-015).
-    #[serde(default)]
-    token_delivery: TokenDelivery,
 }
 
 impl TryFrom<SignInRequest> for SignIn {
@@ -145,6 +142,8 @@ pub(crate) struct RefreshRequest {
 pub(crate) struct SessionResponse {
     /// The session's ID.
     id: SessionId,
+    /// The user the session signs in.
+    user_id: UserId,
     /// The device ID the client signed in with, if any.
     device_id: Option<DeviceId>,
     /// When the session began.
@@ -170,6 +169,7 @@ impl SessionResponse {
     fn new(session: Session, tokens: Option<&Tokens>) -> Self {
         Self {
             id: session.id,
+            user_id: session.user_id,
             device_id: session.device_id,
             created_at: session.created_at,
             access_token_expires_at: session.access_token_expires_at,
@@ -181,15 +181,6 @@ impl SessionResponse {
     }
 }
 
-/// A new session, with its user (AUTH-001, AUTH-004).
-#[derive(Serialize, ToSchema)]
-pub(crate) struct SignedInResponse {
-    /// The signed-in user.
-    user: Profile,
-    /// The new session.
-    session: SessionResponse,
-}
-
 /// Registers a user, and signs them in.
 #[utoipa::path(
     post,
@@ -197,19 +188,19 @@ pub(crate) struct SignedInResponse {
     tag = "auth",
     request_body = RegistrationRequest,
     responses(
-        (status = 201, description = "The user and their first session.", body = SignedInResponse,
-            headers(("location" = String, description = "The new user: `/v1/users/me`."))),
+        (status = 201, description = "The user's first session.", body = SessionResponse,
+            headers(("location" = String, description = "The new session: `/v1/users/me/sessions/current`."))),
     )
 )]
 async fn register(
     State(auth): State<Arc<Auth>>,
     client: Client,
+    headers: HeaderMap,
     Json(request): Json<RegistrationRequest>,
 ) -> Result<Response, Problem<AuthError>> {
-    let delivery = request.token_delivery;
     let input = Registration::try_from(request).map_err(AuthError::from)?;
-    let signed_in = auth.register(&client, input).await?;
-    Ok(signed_in_response("/v1/users/me", signed_in, delivery))
+    let (session, tokens) = auth.register(&client, input).await?;
+    Ok(created(session, &tokens, delivery(&headers))?)
 }
 
 /// Signs in with an email and a password.
@@ -219,7 +210,7 @@ async fn register(
     tag = "auth",
     request_body = SignInRequest,
     responses(
-        (status = 201, description = "The user and the new session.", body = SignedInResponse,
+        (status = 201, description = "The new session.", body = SessionResponse,
             headers(("location" = String, description = "The new session: `/v1/users/me/sessions/current`."))),
     )
 )]
@@ -227,16 +218,12 @@ async fn sign_in(
     State(auth): State<Arc<Auth>>,
     limits: RateLimits,
     client: Client,
+    headers: HeaderMap,
     Json(request): Json<SignInRequest>,
 ) -> Result<Response, Problem<AuthError>> {
-    let delivery = request.token_delivery;
     let input = SignIn::try_from(request).map_err(AuthError::from)?;
-    let signed_in = auth.sign_in(&limits, &client, input).await?;
-    Ok(signed_in_response(
-        "/v1/users/me/sessions/current",
-        signed_in,
-        delivery,
-    ))
+    let (session, tokens) = auth.sign_in(&limits, &client, input).await?;
+    Ok(created(session, &tokens, delivery(&headers))?)
 }
 
 /// Gives the session a new pair of tokens.
@@ -266,9 +253,12 @@ async fn refresh(
         },
     };
     let (session, tokens) = auth.refresh(&client, &token).await?;
-    let mut response = Response::new(axum::body::Body::empty());
-    let body = deliver(&mut response, session, tokens, delivery);
-    Ok((StatusCode::OK, response.headers().clone(), axum::Json(body)).into_response())
+    let (cookies, body) = deliver(session, &tokens, delivery)?;
+    let mut response = (StatusCode::OK, axum::Json(body)).into_response();
+    for cookie in cookies {
+        response.headers_mut().append(header::SET_COOKIE, cookie);
+    }
+    Ok(response)
 }
 
 /// Reads the session that authenticated the request.
@@ -304,58 +294,63 @@ async fn sign_out(
 ) -> Result<Response, Problem<AuthError>> {
     auth.sign_out(&client, &principal).await?;
     let mut response = StatusCode::NO_CONTENT.into_response();
-    let headers = response.headers_mut();
-    headers.append(header::SET_COOKIE, expired_cookie(ACCESS_COOKIE));
-    headers.append(header::SET_COOKIE, expired_cookie(REFRESH_COOKIE));
+    for name in [ACCESS_COOKIE, REFRESH_COOKIE] {
+        let cookie = expired_cookie(name).map_err(AuthError::from)?;
+        response.headers_mut().append(header::SET_COOKIE, cookie);
+    }
     Ok(response)
 }
 
-/// The 201 of a new session, at `location`, with its tokens delivered as the client asked.
-fn signed_in_response(
-    location: &'static str,
-    signed_in: SignedIn,
-    delivery: TokenDelivery,
-) -> Response {
-    let mut response = Response::new(axum::body::Body::empty());
-    let session = deliver(&mut response, signed_in.session, signed_in.tokens, delivery);
-    let body = SignedInResponse {
-        user: signed_in.user,
-        session,
-    };
-    let mut headers = response.headers().clone();
-    headers.insert(header::LOCATION, HeaderValue::from_static(location));
-    (StatusCode::CREATED, headers, axum::Json(body)).into_response()
+/// How the request's client takes its tokens: a request with an `Origin` comes from a browser,
+/// which only ever gets cookies (SEC-19, AUTH-015).
+fn delivery(headers: &HeaderMap) -> TokenDelivery {
+    if headers.contains_key(header::ORIGIN) {
+        TokenDelivery::Cookie
+    } else {
+        TokenDelivery::Body
+    }
 }
 
-/// The session's response, with its tokens in it, or set as cookies on `response` for a browser
-/// (AUTH-015).
-fn deliver(
-    response: &mut Response,
+/// The 201 of a new session, at `/v1/users/me/sessions/current`, with its tokens delivered as
+/// `delivery` says (AUTH-001, AUTH-004).
+fn created(
     session: Session,
-    tokens: Tokens,
+    tokens: &Tokens,
     delivery: TokenDelivery,
-) -> SessionResponse {
+) -> Result<Response, AuthError> {
+    let (cookies, body) = deliver(session, tokens, delivery)?;
+    let mut response = (StatusCode::CREATED, axum::Json(body)).into_response();
+    let headers = response.headers_mut();
+    headers.insert(header::LOCATION, HeaderValue::from_static(CURRENT_SESSION));
+    for cookie in cookies {
+        headers.append(header::SET_COOKIE, cookie);
+    }
+    Ok(response)
+}
+
+/// The session's response, with its tokens in it, or in the cookies returned beside it for a
+/// browser (AUTH-015).
+fn deliver(
+    session: Session,
+    tokens: &Tokens,
+    delivery: TokenDelivery,
+) -> Result<(Vec<HeaderValue>, SessionResponse), AuthError> {
     match delivery {
-        TokenDelivery::Body => SessionResponse::new(session, Some(&tokens)),
+        TokenDelivery::Body => Ok((Vec::new(), SessionResponse::new(session, Some(tokens)))),
         TokenDelivery::Cookie => {
-            let headers = response.headers_mut();
-            headers.append(
-                header::SET_COOKIE,
+            let cookies = vec![
                 session_cookie(
                     ACCESS_COOKIE,
                     tokens.access.expose(),
                     session.access_token_expires_at,
-                ),
-            );
-            headers.append(
-                header::SET_COOKIE,
+                )?,
                 session_cookie(
                     REFRESH_COOKIE,
                     tokens.refresh.expose(),
                     session.refresh_token_expires_at,
-                ),
-            );
-            SessionResponse::new(session, None)
+                )?,
+            ];
+            Ok((cookies, SessionResponse::new(session, None)))
         }
     }
 }

@@ -15,7 +15,7 @@ use crate::{
     http::Cookies,
     rate_limit::{Bucket, LimitError, RateLimits},
     telemetry::names,
-    types::{Client, SessionId, UserId, WorkspaceId},
+    types::{Client, SessionId, UserId},
 };
 
 /// The name of the cookie that holds a browser's access token, after `__Host-` (AUTH-015).
@@ -58,13 +58,11 @@ impl Principal {
     }
 }
 
-/// The log an audit entry belongs to.
+/// The log an audit entry belongs to. A workspace's log joins with the workspaces, in step 2.2.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Log {
     /// A user's own log.
     User(UserId),
-    /// A workspace's log.
-    Workspace(WorkspaceId),
 }
 
 /// The log and the actor of an audit entry. Only a proof builds one with an actor, so no module

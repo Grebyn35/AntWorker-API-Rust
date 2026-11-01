@@ -361,6 +361,7 @@ async fn sec_11_every_response_carries_the_security_headers() {
             "{path}"
         );
         assert_eq!(response.header("referrer-policy"), "no-referrer", "{path}");
+        assert_eq!(response.header("cache-control"), "no-store", "{path}");
     }
 }
 

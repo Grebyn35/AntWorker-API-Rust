@@ -3,14 +3,10 @@
 use http::Method;
 use serde_json::json;
 
-use crate::support::{Api, Options, users};
-
-/// The web client's origin that the tests' API lists.
-const WEB: &str = "https://app.example.com";
-
-async fn browsers_api() -> Api {
-    Api::with(Options::default().set("CORS_ALLOWED_ORIGINS", WEB)).await
-}
+use crate::support::{
+    Api, Options,
+    users::{self, WEB, browser_sign_in, browsers_api, cookies},
+};
 
 #[tokio::test]
 async fn platform_052_a_listed_origin_may_read_responses_and_send_its_cookies() {
@@ -86,6 +82,29 @@ async fn platform_052_any_other_origin_gets_no_cors_header() {
 }
 
 #[tokio::test]
+async fn platform_052_a_listed_origin_s_preflight_is_answered_before_the_ip_limit() {
+    let api = Api::with(
+        Options::default()
+            .set("CORS_ALLOWED_ORIGINS", WEB)
+            .set("RATE_LIMIT_IP_REQUESTS", 1),
+    )
+    .await;
+
+    for _ in 0..3 {
+        let preflight = api
+            .request(Method::OPTIONS, "/v1/users")
+            .header("origin", WEB)
+            .header("access-control-request-method", "POST")
+            .send()
+            .await;
+        assert_eq!(preflight.status, 204);
+    }
+    let first = api.get("/v1/capabilities").send().await;
+
+    assert_eq!(first.status, 200, "no preflight counted");
+}
+
+#[tokio::test]
 async fn platform_053_a_change_from_an_unlisted_origin_answers_403() {
     let api = browsers_api().await;
     for origin in ["https://evil.example.com", "null"] {
@@ -111,19 +130,7 @@ async fn platform_053_a_change_from_an_unlisted_origin_answers_403() {
 #[tokio::test]
 async fn platform_053_a_change_a_cookie_authenticates_needs_a_listed_origin() {
     let api = browsers_api().await;
-    users::register(&api, "ada@example.com").await;
-    let body = json!({ "email": "ada@example.com", "password": users::PASSWORD, "token_delivery": "cookie" });
-    let signed_in = api
-        .post("/v1/sessions", &body)
-        .header("origin", WEB)
-        .send()
-        .await;
-    let cookies: Vec<String> = signed_in
-        .headers("set-cookie")
-        .iter()
-        .map(|cookie| cookie.split(';').next().unwrap().to_owned())
-        .collect();
-    let cookie = cookies.join("; ");
+    let cookie = cookies(&browser_sign_in(&api).await);
 
     let without = api
         .request(Method::DELETE, "/v1/users/me/sessions/current")

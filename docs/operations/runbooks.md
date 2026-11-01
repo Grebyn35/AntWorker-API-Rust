@@ -118,11 +118,3 @@ If a deploy started the failures, roll it back first, then investigate.
 **Look first.** The Server dashboard: "How much of the server's memory is available?" shows since when it fell, and the API platform dashboard's "How much memory does each instance use?" whether a replica's grows. On the server, `docker stats --no-stream` shows each container's memory.
 
 **What to do.** A replica whose memory only grows points to a leak: deploy the release before it, and report it. Otherwise lower `API_REPLICAS` or `API_MEMORY`, or move to a server with more memory.
-
-## RequestsRateLimited
-
-**What it means.** For 15 minutes, rate limits refused more than 5% of the API's requests with 429 ([platform spec](../spec/platform.md#rate-limits)). Either a client sends far more than it should, such as a script that signs in again and again, or the limits are too low for the deployment's real traffic, such as many users behind one office's address.
-
-**Look first.** The API platform dashboard: "Which rate limits refuse requests?" shows which kind of bucket refuses. The Sign-in dashboard shows whether sign-in attempts fail with `invalid_credentials` across many emails, the shape of credential stuffing. The request log lines of the 429s name their routes, and their traces the client IP.
-
-**What to do.** If one address or one user sends the refused requests, the limits work as meant: block the address in front of the server if it keeps on. If many ordinary users are refused, raise `RATE_LIMIT_IP_REQUESTS` or `RATE_LIMIT_USER_REQUESTS` in the deployment's settings, and deploy.

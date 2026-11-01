@@ -1,4 +1,5 @@
-//! Registration, sign-in, refresh and sign-out, and the verifier of access tokens.
+//! Registration, sign-in, refresh and sign-out, and the verifier of access tokens. Each operation
+//! opens its own unit of work, after any per-action limit it counts first.
 
 use std::sync::Arc;
 
@@ -12,18 +13,18 @@ use platform::{
     hashing::sha256,
     random,
     rate_limit::{Bucket, LimitError, RateLimits},
-    types::{Client, EmailAddress, Secret},
+    types::{Client, EmailAddress, Secret, SessionId, UserId},
 };
 
 use super::{
     audit,
     error::AuthError,
     metrics,
-    model::{DeviceId, Lifetimes, Password, Session, Tokens},
+    model::{self, DeviceId, Lifetimes, Password, Session, Tokens},
     repo,
 };
 use crate::modules::{
-    accounts::{self, DisplayName, Profile},
+    accounts::{self, Creation, DisplayName},
     audit::{self as audit_log, Entry},
 };
 
@@ -40,13 +41,6 @@ pub(crate) struct SignIn {
     pub(crate) email: EmailAddress,
     pub(crate) password: Password,
     pub(crate) device_id: Option<DeviceId>,
-}
-
-/// A new session, with its user and its tokens.
-pub(crate) struct SignedIn {
-    pub(crate) user: Profile,
-    pub(crate) session: Session,
-    pub(crate) tokens: Tokens,
 }
 
 /// What `auth` takes from the deployment.
@@ -67,10 +61,14 @@ pub(crate) struct Auth {
 }
 
 impl Auth {
-    /// The service, with its dummy hash computed now, at startup.
+    /// The service, with its dummy hash computed and the breached-password list loaded now, at
+    /// startup, rather than in the first request that needs them (CODE-05).
     pub(crate) async fn new(database: Database, settings: Settings) -> Result<Self, Internal> {
         let dummy = Password::generated(random::token()?);
         let dummy_hash = hash(dummy).await?;
+        blocking::run("load_breached_passwords", model::load_breached_passwords)
+            .await
+            .map_err(Internal::new)?;
         Ok(Self {
             database,
             settings,
@@ -84,10 +82,13 @@ impl Auth {
         &self,
         client: &Client,
         input: Registration,
-    ) -> Result<SignedIn, AuthError> {
+    ) -> Result<(Session, Tokens), AuthError> {
         let password_hash = hash(input.password).await?;
         let mut uow = self.database.begin(client).await?;
-        let user_id = accounts::create(&mut uow, &input.email, &input.name).await?;
+        let user_id = match accounts::create(&mut uow, &input.email, &input.name).await? {
+            Creation::Created(id) => id,
+            Creation::EmailInUse => return Err(AuthError::EmailInUse),
+        };
         repo::insert_password_identity(&mut uow, user_id, &password_hash).await?;
         let (principal, session, tokens) = self
             .start_session(&mut uow, user_id, input.device_id.as_ref())
@@ -98,13 +99,8 @@ impl Auth {
             Entry::new(audit::USER_REGISTERED, "user", user_id.uuid()),
         )
         .await?;
-        let user = accounts::profile(&mut uow, &principal).await?;
         uow.commit().await?;
-        Ok(SignedIn {
-            user,
-            session,
-            tokens,
-        })
+        Ok((session, tokens))
     }
 
     /// Signs in with an email and a password (AUTH-004 to AUTH-008), and counts how the attempt
@@ -114,7 +110,7 @@ impl Auth {
         limits: &RateLimits,
         client: &Client,
         input: SignIn,
-    ) -> Result<SignedIn, AuthError> {
+    ) -> Result<(Session, Tokens), AuthError> {
         let result = self.attempt(limits, client, input).await;
         match &result {
             Ok(_) => metrics::sign_in(metrics::SignIn::Succeeded),
@@ -134,7 +130,7 @@ impl Auth {
         limits: &RateLimits,
         client: &Client,
         input: SignIn,
-    ) -> Result<SignedIn, AuthError> {
+    ) -> Result<(Session, Tokens), AuthError> {
         limits
             .check(self.settings.sign_in, input.email.as_str().as_bytes())
             .await?;
@@ -143,12 +139,13 @@ impl Auth {
             verify(self.dummy_hash.clone(), input.password).await?;
             return Err(AuthError::InvalidCredentials);
         };
-        let Some(identity) = repo::password_identity(&mut uow, user_id).await? else {
+        // Locked for the rest of the unit of work, so two sign-ins of one user take turns, and
+        // one on a device ends the session the other just started there (DATA-25).
+        let Some(identity) = repo::password_identity_for_update(&mut uow, user_id).await? else {
             verify(self.dummy_hash.clone(), input.password).await?;
             return Err(AuthError::InvalidCredentials);
         };
-        let stored = identity.hash.clone();
-        let (matches, password) = verify(stored, input.password).await?;
+        let (matches, password) = verify(identity.hash.clone(), input.password).await?;
         if !matches {
             audit_log::record(
                 &mut uow,
@@ -159,41 +156,54 @@ impl Auth {
             uow.commit().await?;
             return Err(AuthError::InvalidCredentials);
         }
-        let replaced = match &input.device_id {
-            Some(device_id) => repo::session_on_device(&mut uow, user_id, device_id).await?,
+        let (principal, session, tokens) = self
+            .replace_session(&mut uow, user_id, input.device_id.as_ref())
+            .await?;
+        if !identity.hash.starts_with(&self.current_parameters()) {
+            let rehashed = hash(password).await?;
+            repo::update_password_hash(&mut uow, user_id, identity.id, &rehashed).await?;
+            audit_log::record(
+                &mut uow,
+                principal.audit_scope(),
+                Entry::new(audit::PASSWORD_REHASHED, "identity", identity.id),
+            )
+            .await?;
+        }
+        uow.commit().await?;
+        Ok((session, tokens))
+    }
+
+    /// Starts a session of `user_id`, ending the one its device has, if any, through the full
+    /// sign-out path (AUTH-008).
+    async fn replace_session(
+        &self,
+        uow: &mut UnitOfWork,
+        user_id: UserId,
+        device_id: Option<&DeviceId>,
+    ) -> Result<(Principal, Session, Tokens), AuthError> {
+        let replaced = match device_id {
+            Some(device_id) => repo::session_on_device(uow, user_id, device_id).await?,
             None => None,
         };
         if let Some(old) = replaced {
-            end_session(&mut uow, user_id, old).await?;
+            end_session(uow, user_id, old).await?;
         }
-        let (principal, session, tokens) = self
-            .start_session(&mut uow, user_id, input.device_id.as_ref())
-            .await?;
+        let (principal, session, tokens) = self.start_session(uow, user_id, device_id).await?;
         if let Some(old) = replaced {
             audit_log::record(
-                &mut uow,
+                uow,
                 principal.audit_scope(),
                 Entry::new(audit::SESSION_ENDED, "session", old.uuid()),
             )
             .await?;
         }
         audit_log::record(
-            &mut uow,
+            uow,
             principal.audit_scope(),
             Entry::new(audit::SESSION_CREATED, "session", session.id.uuid()),
         )
         .await?;
-        if !identity.hash.starts_with(&self.current_parameters()) {
-            let rehashed = hash(password).await?;
-            repo::update_password_hash(&mut uow, user_id, identity.id, &rehashed).await?;
-        }
-        let user = accounts::profile(&mut uow, &principal).await?;
-        uow.commit().await?;
-        Ok(SignedIn {
-            user,
-            session,
-            tokens,
-        })
+        Ok((principal, session, tokens))
     }
 
     /// Gives the session of the refresh token `token` a new pair of tokens (AUTH-010 to
@@ -282,7 +292,7 @@ impl Auth {
     async fn start_session(
         &self,
         uow: &mut UnitOfWork,
-        user_id: platform::types::UserId,
+        user_id: UserId,
         device_id: Option<&DeviceId>,
     ) -> Result<(Principal, Session, Tokens), AuthError> {
         let tokens = new_tokens()?;
@@ -315,8 +325,8 @@ impl Auth {
 /// Deletes a session, and signals that it ended, so its streams close (AUTH-013, D35).
 async fn end_session(
     uow: &mut UnitOfWork,
-    user_id: platform::types::UserId,
-    session_id: platform::types::SessionId,
+    user_id: UserId,
+    session_id: SessionId,
 ) -> Result<(), Internal> {
     repo::delete_session(uow, user_id, session_id).await?;
     events::signal(

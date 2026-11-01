@@ -18,13 +18,16 @@ async fn auth_001_registering_creates_the_user_their_password_and_a_session() {
         .await;
 
     assert_eq!(response.status, 201);
-    assert_eq!(response.header("location"), "/v1/users/me");
+    assert_eq!(response.header("location"), "/v1/users/me/sessions/current");
     let body = response.json();
-    assert_eq!(body["user"]["email"], "ada@example.com");
-    assert_eq!(body["user"]["email_verified"], false);
-    let user_id = body["user"]["id"].as_str().unwrap();
-    let session_id = body["session"]["id"].as_str().unwrap();
+    let user_id = body["user_id"].as_str().unwrap();
+    let session_id = body["id"].as_str().unwrap();
     let db = api.database();
+    assert_eq!(
+        db.owner_reads("SELECT id::text || ' ' || email FROM users")
+            .await,
+        [format!("{user_id} ada@example.com")]
+    );
     assert_eq!(
         db.owner_reads("SELECT method::text FROM identities").await,
         ["password"]
@@ -97,8 +100,8 @@ async fn auth_004_signing_in_creates_a_session() {
     assert_eq!(response.status, 201);
     assert_eq!(response.header("location"), "/v1/users/me/sessions/current");
     let body = response.json();
-    assert_eq!(body["user"]["id"], ada.user_id.as_str());
-    let session_id = body["session"]["id"].as_str().unwrap();
+    assert_eq!(body["user_id"], ada.user_id.as_str());
+    let session_id = body["id"].as_str().unwrap();
     assert_ne!(session_id, ada.session_id);
     let created = api
         .database()
@@ -140,7 +143,7 @@ async fn auth_005_every_failed_sign_in_answers_the_same_401() {
         .database()
         .owner_reads(
             "SELECT user_id || ' ' || coalesce(actor_user_id::text, 'none') FROM audit_entries \
-             WHERE action = 'auth.sign_in_failed'",
+             WHERE action = 'sign_in.failed'",
         )
         .await;
     assert_eq!(failures, [format!("{} none", ada.user_id)]);
@@ -166,6 +169,28 @@ async fn auth_006_each_email_allows_its_attempts_then_answers_429_before_any_loo
             .starts_with("\"sign_in\";q=2;w=900")
     );
     assert_eq!(other.status, 401);
+}
+
+#[tokio::test]
+async fn auth_006_an_existing_email_s_attempts_count_too_in_a_window_that_is_a_setting() {
+    let options = Options::default()
+        .set("SIGN_IN_ATTEMPTS", 2)
+        .set("SIGN_IN_WINDOW_SECONDS", 60);
+    let api = Api::with(options).await;
+    users::register(&api, "ada@example.com").await;
+
+    let wrong = users::sign_in(&api, "ada@example.com", "wrong-password-123").await;
+    let right = users::sign_in(&api, "ada@example.com", PASSWORD).await;
+    let refused = users::sign_in(&api, "ada@example.com", PASSWORD).await;
+
+    assert_eq!(wrong.status, 401);
+    assert_eq!(right.status, 201);
+    assert_eq!(refused.status, 429);
+    assert!(
+        refused
+            .header("ratelimit-policy")
+            .starts_with("\"sign_in\";q=2;w=60")
+    );
 }
 
 #[tokio::test]
@@ -226,10 +251,10 @@ async fn auth_008_signing_in_again_on_a_device_ends_its_old_session() {
     let new = api.post("/v1/sessions", &body).send().await;
 
     assert_eq!(new.status, 201);
-    let old_token = old["session"]["access_token"].as_str().unwrap();
+    let old_token = old["access_token"].as_str().unwrap();
     let refused = api.get("/v1/users/me").bearer(old_token).send().await;
     assert_eq!(refused.status, 401);
-    let old_id = old["session"]["id"].as_str().unwrap();
+    let old_id = old["id"].as_str().unwrap();
     assert_eq!(
         api.database()
             .owner_reads(
@@ -242,6 +267,27 @@ async fn auth_008_signing_in_again_on_a_device_ends_its_old_session() {
     assert_eq!(received.len(), 1);
     assert_eq!(received[0]["kind"], "session_ended");
     assert_eq!(received[0]["session_id"], old_id);
+}
+
+#[tokio::test]
+async fn auth_008_concurrent_sign_ins_on_one_device_leave_it_one_session() {
+    let api = Api::new().await;
+    users::register(&api, "ada@example.com").await;
+    let body = json!({ "email": "ada@example.com", "password": PASSWORD, "device_id": "laptop-1" });
+
+    let (first, second) = tokio::join!(
+        api.post("/v1/sessions", &body).send(),
+        api.post("/v1/sessions", &body).send(),
+    );
+
+    assert_eq!(first.status, 201);
+    assert_eq!(second.status, 201);
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT count(*)::text FROM sessions WHERE device_id = 'laptop-1'")
+            .await,
+        ["1"]
+    );
 }
 
 #[tokio::test]
@@ -289,13 +335,52 @@ async fn auth_014_a_sign_in_rehashes_a_password_stored_with_other_parameters() {
         .owner_executes(&format!("UPDATE identities SET password_hash = '{older}'"))
         .await;
 
-    users::new_session(&api, "ada@example.com").await;
+    let ada = users::new_session(&api, "ada@example.com").await;
 
-    let stored = api
-        .database()
-        .owner_reads("SELECT password_hash FROM identities")
-        .await;
+    let db = api.database();
+    let stored = db.owner_reads("SELECT password_hash FROM identities").await;
     assert!(stored[0].starts_with("$argon2id$v=19$m=19456,t=2,p=1$"));
+    assert_eq!(
+        db.owner_reads(
+            "SELECT e.user_id || ' ' || e.actor_user_id || ' ' || e.resource_type || ' ' || \
+             (e.resource_id = i.id)::text \
+             FROM audit_entries e, identities i WHERE e.action = 'password.rehashed'"
+        )
+        .await,
+        [format!("{0} {0} identity true", ada.user_id)]
+    );
+}
+
+#[tokio::test]
+async fn auth_017_a_device_id_is_1_to_64_letters_digits_underscores_and_hyphens() {
+    let api = Api::new().await;
+    users::register(&api, "ada@example.com").await;
+    let (longest, too_long) = ("x".repeat(64), "x".repeat(65));
+    for device_id in ["a", "Laptop_2-b", longest.as_str()] {
+        let body =
+            json!({ "email": "ada@example.com", "password": PASSWORD, "device_id": device_id });
+
+        let response = api.post("/v1/sessions", &body).send().await;
+
+        assert_eq!(response.status, 201, "{device_id}");
+        assert_eq!(response.json()["device_id"], device_id);
+    }
+    for device_id in ["", "bad id", "caf\u{e9}", "laptop.1", too_long.as_str()] {
+        let body =
+            json!({ "email": "ada@example.com", "password": PASSWORD, "device_id": device_id });
+
+        let response = api.post_raw("/v1/sessions", &body).send().await;
+
+        assert_eq!(response.status, 400, "{device_id}");
+        assert_eq!(
+            response.json()["errors"],
+            json!([{
+                "field": "/device_id",
+                "code": "invalid_device_id",
+                "message": "A device ID has 1 to 64 letters, digits, underscores and hyphens.",
+            }])
+        );
+    }
 }
 
 #[tokio::test]
@@ -308,7 +393,7 @@ async fn platform_006_a_failed_sign_in_commits_its_record_then_answers_401() {
     assert_eq!(response.status, 401);
     let recorded = api
         .database()
-        .owner_reads("SELECT user_id::text FROM audit_entries WHERE action = 'auth.sign_in_failed'")
+        .owner_reads("SELECT user_id::text FROM audit_entries WHERE action = 'sign_in.failed'")
         .await;
     assert_eq!(recorded, [ada.user_id]);
 }

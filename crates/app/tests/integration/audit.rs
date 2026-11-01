@@ -39,7 +39,7 @@ async fn audit_002_an_entry_s_actor_and_log_come_from_the_proof() {
         entries,
         [
             format!("user.registered user {0} {0} none", ada.user_id),
-            format!("auth.sign_in_failed user {} none none", ada.user_id),
+            format!("sign_in.failed user {} none none", ada.user_id),
         ]
     );
 }

@@ -5,7 +5,7 @@ use platform::{
     rate_limit::LimitError,
 };
 
-use crate::modules::accounts::AccountsError;
+use crate::modules::{accounts::AccountsError, audit::AuditError};
 
 /// A failure of `auth`.
 #[derive(Debug, thiserror::Error)]
@@ -36,9 +36,15 @@ pub(crate) enum AuthError {
 impl From<AccountsError> for AuthError {
     fn from(error: AccountsError) -> Self {
         match error {
-            AccountsError::EmailInUse => Self::EmailInUse,
-            AccountsError::Request(error) => Self::Request(error),
             AccountsError::Internal(error) => Self::Internal(error),
+        }
+    }
+}
+
+impl From<AuditError> for AuthError {
+    fn from(error: AuditError) -> Self {
+        match error {
+            AuditError::Internal(error) => Self::Internal(error),
         }
     }
 }

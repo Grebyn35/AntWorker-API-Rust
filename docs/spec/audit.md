@@ -30,7 +30,7 @@
 
 ### Recording an entry
 
-`record` inserts one row through the unit of work's executor, so the entry commits with the change (AUDIT-001). The client IP and the user agent come from the unit of work, which a route opens with its request's (platform spec, "Unit of work"); a job's unit of work holds neither, and records them as null. The trace ID is that of the span the entry is recorded in (OBS-07). An `Entry` holds the action, the resource's type and ID, the target user if any, and `details`, a JSON object a module builds from IDs and non-personal fields (SEC-16).
+`record` inserts one row through the unit of work's executor, so the entry commits with the change (AUDIT-001). The client IP and the user agent come from the unit of work, which opens with its request's (platform spec, "Unit of work"); a job's unit of work holds neither, and records them as null. The trace ID is that of the span the entry is recorded in (OBS-07). An `Entry` holds the action, the resource's type and ID, the target user if any, and `details`, a JSON object a module builds from IDs and non-personal fields (SEC-16).
 
 `AuditScope` is a `platform` type whose fields are private: only the proofs build one with an actor, so no module can record an entry as someone the request didn't prove it is (AUDIT-002). An entry of the user scope sets `user_id` and leaves `workspace_id` null; one of the workspace scope does the reverse, which the check `audit_entries_scope_check` enforces. `scope` is a Postgres enum (DATA-04), while `action` and `resource_type` are text: each module declares its own actions and resources in its `audit.rs`, so adding one changes no type that every module's entries share.
 

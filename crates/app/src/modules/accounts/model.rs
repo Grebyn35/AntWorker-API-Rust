@@ -14,10 +14,17 @@ use utoipa::{
 const NAME_MAX_CHARS: usize = 100;
 
 /// How a user appears to others: trimmed, with each run of whitespace inside collapsed to one
-/// space, in Unicode Normalization Form C, of 1 to 100 characters (ACCOUNTS-003).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+/// space, in Unicode Normalization Form C, of 1 to 100 characters (ACCOUNTS-003). It is personal
+/// data, so `Debug` doesn't show it (OBS-04).
+#[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub(crate) struct DisplayName(String);
+
+impl std::fmt::Debug for DisplayName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DisplayName([redacted])")
+    }
+}
 
 impl DisplayName {
     /// The name in `value`, normalized, or why it isn't one.

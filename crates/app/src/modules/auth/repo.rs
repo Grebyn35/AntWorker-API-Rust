@@ -22,6 +22,22 @@ pub(super) struct Found {
     pub(super) expired: bool,
 }
 
+/// The session of a row that holds a session's columns.
+macro_rules! session {
+    ($row:expr) => {{
+        let row = $row;
+        Session {
+            id: SessionId::from_uuid(row.id),
+            user_id: UserId::from_uuid(row.user_id),
+            device_id: row.device_id.map(DeviceId::from_stored),
+            created_at: Timestamp::from_database(row.created_at),
+            access_token_expires_at: Timestamp::from_database(row.access_expires_at),
+            refresh_token_expires_at: Timestamp::from_database(row.refresh_expires_at),
+            expires_at: Timestamp::from_database(row.absolute_expires_at),
+        }
+    }};
+}
+
 /// Seconds, as Postgres's `make_interval` takes them.
 fn seconds(duration: std::time::Duration) -> f64 {
     duration.as_secs_f64()
@@ -42,12 +58,15 @@ pub(super) async fn insert_password_identity(
     Ok(())
 }
 
-pub(super) async fn password_identity(
+/// The password identity of `user_id`, locked until the unit of work ends, so the sign-ins of
+/// one user take turns (DATA-25).
+pub(super) async fn password_identity_for_update(
     uow: &mut UnitOfWork,
     user_id: UserId,
 ) -> Result<Option<PasswordIdentity>, Internal> {
     let row = sqlx::query!(
-        "SELECT id, password_hash FROM identities WHERE user_id = $1 AND method = 'password'",
+        "SELECT id, password_hash FROM identities WHERE user_id = $1 AND method = 'password'
+        FOR UPDATE",
         user_id.uuid(),
     )
     .fetch_optional(uow.executor())
@@ -95,7 +114,7 @@ pub(super) async fn insert_session(
             now() + make_interval(secs => least($6::float8, $7::float8)),
             now() + make_interval(secs => $7::float8)
         )
-        RETURNING id, device_id, created_at, access_expires_at, refresh_expires_at,
+        RETURNING id, user_id, device_id, created_at, access_expires_at, refresh_expires_at,
             absolute_expires_at",
         user_id.uuid(),
         device_id.map(DeviceId::as_str),
@@ -107,14 +126,7 @@ pub(super) async fn insert_session(
     )
     .fetch_one(uow.executor())
     .await?;
-    Ok(Session {
-        id: SessionId::from_uuid(row.id),
-        device_id: row.device_id.map(DeviceId::from_stored),
-        created_at: Timestamp::from_database(row.created_at),
-        access_token_expires_at: Timestamp::from_database(row.access_expires_at),
-        refresh_token_expires_at: Timestamp::from_database(row.refresh_expires_at),
-        expires_at: Timestamp::from_database(row.absolute_expires_at),
-    })
+    Ok(session!(row))
 }
 
 /// The session `user_id` has on `device_id`, if any (AUTH-008).
@@ -226,7 +238,7 @@ pub(super) async fn rotate(
             access_expires_at = least(now() + make_interval(secs => $6::float8), absolute_expires_at),
             refresh_expires_at = least(now() + make_interval(secs => $7::float8), absolute_expires_at)
         WHERE id = $2 AND user_id = $1 AND refresh_token_hash = $3
-        RETURNING id, device_id, created_at, access_expires_at, refresh_expires_at,
+        RETURNING id, user_id, device_id, created_at, access_expires_at, refresh_expires_at,
             absolute_expires_at",
         found.user_id.uuid(),
         found.id.uuid(),
@@ -238,14 +250,7 @@ pub(super) async fn rotate(
     )
     .fetch_optional(uow.executor())
     .await?;
-    Ok(row.map(|row| Session {
-        id: SessionId::from_uuid(row.id),
-        device_id: row.device_id.map(DeviceId::from_stored),
-        created_at: Timestamp::from_database(row.created_at),
-        access_token_expires_at: Timestamp::from_database(row.access_expires_at),
-        refresh_token_expires_at: Timestamp::from_database(row.refresh_expires_at),
-        expires_at: Timestamp::from_database(row.absolute_expires_at),
-    }))
+    Ok(row.map(|row| session!(row)))
 }
 
 /// The session `session_id` of `user_id` (AUTH-016).
@@ -255,7 +260,7 @@ pub(super) async fn session(
     session_id: SessionId,
 ) -> Result<Option<Session>, Internal> {
     let row = sqlx::query!(
-        "SELECT id, device_id, created_at, access_expires_at, refresh_expires_at,
+        "SELECT id, user_id, device_id, created_at, access_expires_at, refresh_expires_at,
             absolute_expires_at
         FROM sessions WHERE id = $2 AND user_id = $1",
         user_id.uuid(),
@@ -263,12 +268,5 @@ pub(super) async fn session(
     )
     .fetch_optional(uow.executor())
     .await?;
-    Ok(row.map(|row| Session {
-        id: SessionId::from_uuid(row.id),
-        device_id: row.device_id.map(DeviceId::from_stored),
-        created_at: Timestamp::from_database(row.created_at),
-        access_token_expires_at: Timestamp::from_database(row.access_expires_at),
-        refresh_token_expires_at: Timestamp::from_database(row.refresh_expires_at),
-        expires_at: Timestamp::from_database(row.absolute_expires_at),
-    }))
+    Ok(row.map(|row| session!(row)))
 }

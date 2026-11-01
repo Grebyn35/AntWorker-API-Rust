@@ -13,7 +13,7 @@ use axum::{
 
 use crate::{
     config::Origin,
-    errors::{Problem, RequestError},
+    errors::{self, Internal, Problem, RequestError},
     types::Timestamp,
 };
 
@@ -42,12 +42,15 @@ pub struct Origins(Arc<Vec<HeaderValue>>);
 impl Origins {
     /// The origins of `origins`.
     pub fn new(origins: &[Origin]) -> Self {
-        Self(Arc::new(
-            origins
-                .iter()
-                .filter_map(|origin| HeaderValue::from_str(origin.as_str()).ok())
-                .collect(),
-        ))
+        let mut values = Vec::new();
+        for origin in origins {
+            // The settings admit only an origin's ASCII serialization, which is a header's value.
+            match HeaderValue::from_str(origin.as_str()) {
+                Ok(value) => values.push(value),
+                Err(error) => errors::ignore(&error, "origin_not_a_header"),
+            }
+        }
+        Self(Arc::new(values))
     }
 
     fn lists(&self, origin: &HeaderValue) -> bool {
@@ -202,20 +205,26 @@ fn pairs(headers: &HeaderMap) -> Vec<(String, String)> {
 /// The `Set-Cookie` value of the session cookie `__Host-<name>`, holding `value` until
 /// `expires`, when its token expires: `Secure`, `HttpOnly`, `SameSite=Strict`, `Path=/` and no
 /// `Domain` (SEC-19).
-pub fn session_cookie(name: &str, value: &str, expires: Timestamp) -> HeaderValue {
+pub fn session_cookie(
+    name: &str,
+    value: &str,
+    expires: Timestamp,
+) -> Result<HeaderValue, Internal> {
     cookie(name, value, &format!("Expires={}", http_date(expires)))
 }
 
 /// The `Set-Cookie` value that removes the session cookie `__Host-<name>` from the browser.
-pub fn expired_cookie(name: &str) -> HeaderValue {
+pub fn expired_cookie(name: &str) -> Result<HeaderValue, Internal> {
     cookie(name, "", "Max-Age=0")
 }
 
-fn cookie(name: &str, value: &str, lifetime: &str) -> HeaderValue {
+/// The cookie, or an internal error when its name or value can't be a header's, which a token
+/// never causes.
+fn cookie(name: &str, value: &str, lifetime: &str) -> Result<HeaderValue, Internal> {
     let text = format!(
         "{HOST_PREFIX}{name}={value}; {lifetime}; Path=/; Secure; HttpOnly; SameSite=Strict"
     );
-    HeaderValue::from_str(&text).unwrap_or_else(|_| HeaderValue::from_static(""))
+    HeaderValue::from_str(&text).map_err(Internal::new)
 }
 
 /// `at` as HTTP writes a date, such as `Sun, 01 Nov 2026 02:26:40 GMT` (RFC 9110).
@@ -264,11 +273,11 @@ mod tests {
             time::OffsetDateTime::from_unix_timestamp(1_793_500_000).unwrap(),
         );
         assert_eq!(
-            session_cookie("access_token", "abc", expires),
+            session_cookie("access_token", "abc", expires).unwrap(),
             "__Host-access_token=abc; Expires=Sun, 01 Nov 2026 02:26:40 GMT; Path=/; Secure; HttpOnly; SameSite=Strict"
         );
         assert_eq!(
-            expired_cookie("refresh_token"),
+            expired_cookie("refresh_token").unwrap(),
             "__Host-refresh_token=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict"
         );
     }

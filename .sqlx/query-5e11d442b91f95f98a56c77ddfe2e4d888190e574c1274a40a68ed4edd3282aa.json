@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO sessions (\n            user_id, device_id, access_token_hash, refresh_token_hash, access_expires_at,\n            refresh_expires_at, absolute_expires_at\n        ) VALUES (\n            $1, $2, $3, $4,\n            now() + make_interval(secs => least($5::float8, $7::float8)),\n            now() + make_interval(secs => least($6::float8, $7::float8)),\n            now() + make_interval(secs => $7::float8)\n        )\n        RETURNING id, device_id, created_at, access_expires_at, refresh_expires_at,\n            absolute_expires_at",
+  "query": "UPDATE sessions SET\n            access_token_hash = $4,\n            refresh_token_hash = $5,\n            previous_refresh_token_hash = $3,\n            access_expires_at = least(now() + make_interval(secs => $6::float8), absolute_expires_at),\n            refresh_expires_at = least(now() + make_interval(secs => $7::float8), absolute_expires_at)\n        WHERE id = $2 AND user_id = $1 AND refresh_token_hash = $3\n        RETURNING id, user_id, device_id, created_at, access_expires_at, refresh_expires_at,\n            absolute_expires_at",
   "describe": {
     "columns": [
       {
@@ -16,6 +16,17 @@
       },
       {
         "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
         "name": "device_id",
         "type_info": "Text",
         "origin": {
@@ -26,7 +37,7 @@
         }
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "access_expires_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -48,7 +59,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "refresh_expires_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "absolute_expires_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -73,15 +84,16 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text",
+        "Uuid",
         "Bytea",
         "Bytea",
-        "Float8",
+        "Bytea",
         "Float8",
         "Float8"
       ]
     },
     "nullable": [
+      false,
       false,
       true,
       false,
@@ -90,5 +102,5 @@
       false
     ]
   },
-  "hash": "a5414bb0ee8909905b27624d963e32a5ad59b3d906c2b1e4ff58fa22fa363d0e"
+  "hash": "5e11d442b91f95f98a56c77ddfe2e4d888190e574c1274a40a68ed4edd3282aa"
 }

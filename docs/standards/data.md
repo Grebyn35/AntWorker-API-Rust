@@ -36,7 +36,7 @@ The schema declares keys, uniqueness, foreign keys and `NOT NULL`. Closed sets a
 - Check: `review`.
 
 ### DATA-05 Foreign keys are declared and indexed
-Every reference is a declared foreign key with an explicit `ON DELETE`: `CASCADE` for children the parent owns, `RESTRICT` otherwise. Every foreign-key column has an index.
+Every reference is a declared foreign key with an explicit `ON DELETE`: `CASCADE` for children the parent owns, `RESTRICT` otherwise. The one exception is an audit entry's `resource_id`, which may name a row of any table, and outlives it (DATA-27). Every foreign-key column has an index.
 - Why: deletes behave as the schema says, and cascades stay fast.
 - Check: `ci: check-schema`.
 
@@ -135,7 +135,7 @@ An update made with `If-Match` includes `WHERE version = $expected`. Zero rows u
 
 ### DATA-25 Read committed, with row locks where the spec says so
 Transactions use `READ COMMITTED`. An operation whose correctness depends on rows that another request may change at the same time does one of two things, as its module spec states: it locks them with `SELECT ... FOR UPDATE`, taking locks in a consistent order, or it changes them with an update that checks what it read (DATA-24). Nothing inside the API retries a transaction. A deadlock is a defect, and surfaces as an internal error. A failed job is retried by the job system (OPS-10).
-- Why: no layer can re-run an operation, because the route opens its unit of work and the service commits it. Under `READ COMMITTED` there are no serialization failures, so a deadlock means two operations took locks in different orders: a bug to fix, not to retry.
+- Why: a unit of work carries the effects of every module the operation called, so no one layer holds what it would need to re-run it. Under `READ COMMITTED` there are no serialization failures, so a deadlock means two operations took locks in different orders: a bug to fix, not to retry.
 - Check: `review`.
 
 ### DATA-26 No external calls inside a transaction

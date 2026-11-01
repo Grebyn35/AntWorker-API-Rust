@@ -191,6 +191,7 @@ The image and its settings don't depend on this deployment, so a fork can run th
 - one Postgres that every replica shares, with point-in-time recovery (OPS-17), on a server that holds no other deployment's database, since deployments on one server share its roles ([platform spec](../spec/platform.md#database-roles));
 - object storage, once the `files` module stores files;
 - routing that sends requests only to replicas whose `/health/ready` answers 200, and stops within `SHUTDOWN_DELAY_SECONDS` of a replica answering `draining`;
+- every proxy between the clients and the replicas listed in `TRUSTED_PROXIES`, each adding the address it received the request from to `X-Forwarded-For`, so that the rate limits count each client by its own address (PLATFORM-047);
 - a grace period after the shutdown signal longer than `SHUTDOWN_DELAY_SECONDS` plus `SHUTDOWN_DRAIN_SECONDS` plus the time that writing out telemetry may take, which the platform spec's [Telemetry export](../spec/platform.md#telemetry-export) bounds;
 - TLS for every connection that leaves the host, and encryption at rest (OPS-20);
 - a connection budget that fits, as above, counting every replica that runs at once during a rollout.
