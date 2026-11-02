@@ -166,6 +166,8 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 0d036d0..1ff84e6 | OPS-21: a test that counts the instance's own connections in `pg_stat_activity` across checks that time out, by an `application_name` its connection sets | 3 |
 | Conformance review of 0d036d0..1ff84e6 | CODE-07: build `check-layout`'s count of a file's lines before step 3, since review alone let a fix push `events/hub.rs` past 500 | 3 |
 | Conformance review of 0d036d0..1ff84e6 | CODE-10: one name for the instance's own connection, which the rules call the listener, the code `db::Listener` and `events::Connection`, and `startup.area` `listener` | 3 |
+| Conformance review of c619d50..efa110e | ERR-13: a test that every code of an `ErrorCode` of `app` or `platform` is in `openapi.json`, since `check-openapi` reads only the codes already there | 3 |
+| Conformance review of c619d50..efa110e | TEST-07: whether a test may wait in a loop with no bound at all, as `platform_076_`'s wait for the gauge and the waits for a hub's log line do, rather than by a timeout | 3 |
 | Building step 2.4's second part | ARCH-07: `just checks`, not only `check-removable` on `main`, fails on a part's marker after Rust code on a line that formatting can join to another or split, such as an argument of a call, since removing the line then cuts a statement | 3 |
 | A development machine's Docker, during step 2.3 | OPS-22: whether `just server-check` refuses a server whose `/etc/resolv.conf` names the search domain `.`, which Docker copies into containers, where no short name then resolves, as on a development machine; whether the deployment's own lookups, such as the API's of `postgres`, fail on such a server is unverified | 3 |
 

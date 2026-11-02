@@ -102,36 +102,43 @@ async fn workspaces(api: &Api, token: &str) -> Vec<(String, String)> {
     workspaces
 }
 
+/// Runs the binary's `seed` in development on `database`, which must succeed (TEST-04), and
+/// returns the password it printed.
+async fn seed(database: &TestDatabase) -> String {
+    let output = database
+        .run_api(&["seed"], &[("ENVIRONMENT", "development")])
+        .await;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert_eq!(output.status.code(), Some(0), "{stdout}");
+    stdout
+        .lines()
+        .find_map(|line| line.split_once("with the password "))
+        .map(|(_, password)| password.trim_end_matches(':').to_owned())
+        .unwrap()
+}
+
 #[tokio::test]
 async fn system_003_seed_creates_its_accounts_and_workspaces_through_the_routes() {
-    let api = Api::new().await;
+    let database = TestDatabase::migrated().await;
 
-    let report = app::seed(api.router()).await.unwrap();
+    let password = seed(&database).await;
 
-    assert_eq!(
-        &report.accounts[..3],
-        [
-            ("owner@example.com", "Olivia Owner"),
-            ("admin@example.com", "Adam Admin"),
-            ("member@example.com", "Mia Member"),
-        ]
-    );
-    let olivia = sign_in(&api, "owner@example.com", report.password).await;
-    let adam = sign_in(&api, "admin@example.com", report.password).await;
-    let mia = sign_in(&api, "member@example.com", report.password).await;
+    let api = Api::on(database, Options::default()).await;
+    let olivia = sign_in(&api, "owner@example.com", &password).await;
+    let adam = sign_in(&api, "admin@example.com", &password).await;
+    let mia = sign_in(&api, "member@example.com", &password).await;
+    let names = api
+        .database()
+        .owner_reads(
+            "SELECT name FROM users WHERE email IN \
+             ('owner@example.com', 'admin@example.com', 'member@example.com') ORDER BY email",
+        )
+        .await;
+    assert_eq!(names, ["Adam Admin", "Mia Member", "Olivia Owner"]);
     assert_eq!(
         workspaces(&api, &olivia).await,
         [("Acme".to_owned(), "owner".to_owned())]
     );
-    let listed = api
-        .get("/v1/workspaces")
-        .bearer(&olivia)
-        .send()
-        .await
-        .json();
-    let names: Vec<&str> = report.workspaces.iter().map(|(name, _)| *name).collect();
-    assert_eq!(names, ["Acme", "Side Project"]);
-    assert_eq!(listed["items"][0]["id"], report.workspaces[0].1.as_str());
     assert!(
         workspaces(&api, &mia)
             .await
@@ -204,11 +211,12 @@ async fn system_003_the_subcommand_prints_the_accounts_their_password_and_the_wo
 }
 
 #[tokio::test]
-async fn system_004_the_subcommand_fails_on_a_database_it_seeded() {
+async fn system_004_seed_stops_at_an_account_that_exists_and_changes_nothing_more() {
     let database = TestDatabase::migrated().await;
-    database
-        .run_api(&["seed"], &[("ENVIRONMENT", "development")])
-        .await;
+    seed(&database).await;
+    let rows = "SELECT (SELECT count(*) FROM users) || ' ' || (SELECT count(*) FROM workspaces) \
+                || ' ' || (SELECT count(*) FROM audit_entries)";
+    let before = database.owner_reads(rows).await;
 
     let again = database
         .run_api(&["seed"], &[("ENVIRONMENT", "development")])
@@ -218,43 +226,22 @@ async fn system_004_the_subcommand_fails_on_a_database_it_seeded() {
     assert!(String::from_utf8_lossy(&again.stdout).contains(
         "owner@example.com is registered already, so this database holds the seed's data"
     ));
-}
-
-#[tokio::test]
-async fn system_004_seed_stops_at_an_account_that_exists_and_changes_nothing_more() {
-    let api = Api::new().await;
-    app::seed(api.router()).await.unwrap();
-    let users = || {
-        api.database()
-            .owner_reads("SELECT count(*)::text FROM users")
-    };
-    let before = users().await;
-
-    let again = app::seed(api.router()).await;
-
-    let error = again.err().expect("a second seed fails").to_string();
-    assert!(
-        error.starts_with(
-            "owner@example.com is registered already, so this database holds the seed's data"
-        ),
-        "{error}"
-    );
-    assert_eq!(users().await, before);
+    assert_eq!(database.owner_reads(rows).await, before);
 }
 
 // part: invitations
 #[tokio::test]
 async fn system_005_seed_has_olivia_invite_adam_and_mia_who_accept_and_ian_whose_invitation_waits()
 {
-    let api = Api::new().await;
+    let database = TestDatabase::migrated().await;
 
-    let report = app::seed(api.router()).await.unwrap();
+    let password = seed(&database).await;
 
-    assert_eq!(report.accounts[3], ("invitee@example.com", "Ian Invitee"));
-    let olivia = sign_in(&api, "owner@example.com", report.password).await;
-    let adam = sign_in(&api, "admin@example.com", report.password).await;
-    let mia = sign_in(&api, "member@example.com", report.password).await;
-    let ian = sign_in(&api, "invitee@example.com", report.password).await;
+    let api = Api::on(database, Options::default()).await;
+    let olivia = sign_in(&api, "owner@example.com", &password).await;
+    let adam = sign_in(&api, "admin@example.com", &password).await;
+    let mia = sign_in(&api, "member@example.com", &password).await;
+    let ian = sign_in(&api, "invitee@example.com", &password).await;
     assert_eq!(
         workspaces(&api, &adam).await,
         [("Acme".to_owned(), "admin".to_owned())]

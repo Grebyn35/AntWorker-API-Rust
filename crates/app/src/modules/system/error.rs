@@ -1,8 +1,8 @@
 //! What `system` reports (ERR-01): the failures of `seed`, which its subcommand writes, and which
-//! no route answers.
+//! no route answers, so they carry no code (ERR-02).
 
 use axum::http::{Method, StatusCode};
-use platform::errors::{Category, ErrorCode, Internal};
+use platform::errors::Internal;
 
 /// A failure of `system`.
 #[derive(Debug, thiserror::Error)]
@@ -35,33 +35,4 @@ pub(crate) enum SystemError {
     /// Anything else, such as an answer that isn't the JSON it should be (ERR-04).
     #[error(transparent)]
     Internal(#[from] Internal),
-}
-
-impl ErrorCode for SystemError {
-    fn code(&self) -> &'static str {
-        match self {
-            Self::NotDevelopment => "system.not_development",
-            Self::Seeded(_) => "system.seeded",
-            Self::Refused { .. } => "system.seed_refused",
-            Self::Internal(error) => error.code(),
-        }
-    }
-
-    fn title(&self) -> &'static str {
-        match self {
-            Self::NotDevelopment => "Not a development environment",
-            Self::Seeded(_) => "Seeded already",
-            Self::Refused { .. } => "A seed's request was refused",
-            Self::Internal(error) => error.title(),
-        }
-    }
-
-    fn category(&self) -> Category {
-        match self {
-            Self::NotDevelopment => Category::BusinessRule,
-            Self::Seeded(_) => Category::Conflict,
-            Self::Refused { .. } => Category::Internal,
-            Self::Internal(error) => error.category(),
-        }
-    }
 }

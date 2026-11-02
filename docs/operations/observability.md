@@ -20,7 +20,7 @@ Each dashboard panel's title is the question it answers (OBS-13). The overview l
 | Is someone probing workspaces they don't belong to? | API platform: "Why does authorization refuse requests?" |
 | Are clients retrying requests that are still running? | API platform: "How do requests with an idempotency key end?" |
 | Are background jobs, such as emails, keeping up, and which fail? | API platform: "Are background jobs keeping up?" and "How do job runs end?" |
-| Do events reach clients promptly, and why do their streams close? | API platform: "How long after commit do events reach the streams?", "How many event streams are open?" and "Why do event streams close?" |
+| Do events reach clients promptly, and why do their streams close? | API platform: "How long after commit do events reach the streams?", "How many events does each hub owe its streams?", "How many event streams are open?" and "Why do event streams close?" |
 
 ## How telemetry flows
 

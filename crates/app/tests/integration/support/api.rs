@@ -171,8 +171,13 @@ impl Api {
 
     /// The API with `options`.
     pub async fn with(options: Options) -> Self {
+        Self::on(TestDatabase::migrated().await, options).await
+    }
+
+    /// The API with `options`, on `database`, such as one that a subcommand of the binary filled.
+    pub async fn on(database: TestDatabase, options: Options) -> Self {
         telemetry::testing::install(SERVICE).unwrap();
-        let database = Arc::new(TestDatabase::migrated().await);
+        let database = Arc::new(database);
         let clock = Arc::new(TestClock::default());
         let readiness = Readiness::new();
         let pool = database.app().await;

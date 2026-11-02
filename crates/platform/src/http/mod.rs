@@ -218,9 +218,9 @@ const IP_BUCKET: &str = "ip";
 /// The bucket of each user's requests (PLATFORM-048).
 const USER_BUCKET: &str = "user";
 
-/// The application: every module's routes inside the middleware stack, the fallbacks, and the
-/// health probes, answered before the stack (OPS-05). The security headers wrap them all
-/// (SEC-11).
+/// The application: every module's routes inside the middleware stack, the fallbacks, the API
+/// reference when the pipeline holds the document, in development (PLATFORM-075), and the health
+/// probes, answered before the stack (OPS-05). The security headers wrap them all (SEC-11).
 #[expect(
     clippy::disallowed_methods,
     reason = "the builders are the one place that registers routes (API-14, API-17)"

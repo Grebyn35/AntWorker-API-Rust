@@ -1,7 +1,8 @@
 //! REALTIME-008: every event that a module's `events.rs` declares is in the document's event
 //! catalog, so a module that declares an event and forgets to register it with its routes, or a
 //! document written before the event existed, fails. API-19: each frame type in the catalog is
-//! named `<resource>.<past-tense verb>`, each part `snake_case`.
+//! named `<resource>.<verb>`, each part `snake_case`; review checks that the verb is in the past
+//! tense.
 
 use std::collections::BTreeSet;
 
@@ -32,8 +33,8 @@ pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
                     super::DOCUMENT,
                     line_of(&file.text, &format!("\"x-event\": \"{name}\"")),
                     format!(
-                        "the frame type {name} isn't named <resource>.<past-tense verb>, each \
-                         part snake_case (API-19)"
+                        "the frame type {name} isn't named <resource>.<verb>, each part \
+                         snake_case (API-19)"
                     ),
                 ));
             }
