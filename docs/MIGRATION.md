@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 2.3, in two parts, each with a review of its own. First, jobs, `mail` and `invitations`, specified and built after the handoff d678a43: their review, which covers the commits after that handoff. Second, the command that removes an optional part and `check-removable`, with `invitations` as the first removal: its spec, then its build and review. A deployment's `settings.env` needs `EMAIL` before its next deploy, which `just server-setup` asks for, and a developer's `.env` the email settings of `.env.example`. Step 2.2 is built and reviewed through ebdfdc7 ([Conformance reviews](#conformance-reviews)). The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 2.3's second part: the command that removes an optional part and `check-removable`, with `invitations` as the first removal: its spec, then its build and review. It settles the rows of [Foundation](#foundation), [CI checks](#ci-checks) and [Known gaps](#known-gaps) that name 2.3. The first part, jobs, `mail` and `invitations`, is built and reviewed through 5bdf7a5 ([Conformance reviews](#conformance-reviews)). A deployment's `settings.env` needs `EMAIL` before its next deploy, which `just server-setup` asks for, and a developer's `.env` the email settings of `.env.example`. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
 
 ## Build order
 
@@ -207,7 +207,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | bd2d1fd..5330bf9: decisions D65 and D66, and step 2.2: access, workspaces, authorization, idempotency, publishing events, lists with search, `check-tenancy` and the list shapes of `check-openapi` | 1 | 30 (27, 11, 8 shared) | 13 | 0 | `next pass`: ec21099 |
 | bd2d1fd..ec21099: as above | 2 | 13 (11, 4, 2 shared) | 5 | 2 | `stopped: no progress`: ebdfdc7 |
 | d678a43..4eedca6: decision D67, and step 2.3's first part: jobs, `mail` and `invitations`, their deployment, alerts and end-to-end scenario, and the 0BSD license | 1 | 26 (24, 8, 6 shared) | 18 | 0 | `next pass`: 364d2e9 |
-| d678a43..364d2e9: as above | 2 | 10 (9, 5, 4 shared) | 2 | 2 | `stopped: no progress` |
+| d678a43..364d2e9: as above | 2 | 10 (9, 5, 4 shared) | 2 | 2 | `stopped: no progress`: 5bdf7a5 |
 
 ## Decisions
 
