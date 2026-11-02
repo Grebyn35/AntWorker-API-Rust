@@ -232,8 +232,8 @@ enum Command {
         #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
         arguments: Vec<String>,
     },
-    /// Warns of each setting of `.env.example` that `.env` lacks or sets otherwise, which `just
-    /// setup` and `just dev` run (OPS-19).
+    /// Warns of each setting of `.env.example` that `.env` lacks, or still sets to an earlier
+    /// value of the example's, which `just setup` and `just dev` run (OPS-19).
     #[command(name = "env-drift")]
     EnvDrift,
     /// Measures one replica's capacity: the highest constant rate of requests it serves with

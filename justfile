@@ -177,8 +177,9 @@ dev $mode="": _env-drift bootstrap
 dev mode="": _env-drift bootstrap
     if ('{{ mode }}' -eq 'observe') { docker compose --profile observability up --detach --wait; if ($LASTEXITCODE -ne 0) { throw 'the observability stack did not start' }; $env:OTEL_EXPORTER_OTLP_ENDPOINT = 'http://127.0.0.1:4318' } elseif ('{{ mode }}' -ne '') { throw 'just dev takes nothing, or observe' }; watchexec --restart --shell=none --watch crates --watch migrations --exts rs,sql,toml -- just _dev-serve
 
-# Warns of each setting of .env.example that .env lacks or sets otherwise (OPS-19): `just setup`
-# writes .env once, and later commits add settings and change development values.
+# Warns of each setting of .env.example that .env lacks, or still sets to an earlier value of the
+# example's (OPS-19): `just setup` writes .env once, and later commits add settings and change
+# development values.
 _env-drift:
     {{ xtask }} env-drift
 
