@@ -26,9 +26,10 @@ const APP: &str = "crates/app/src/";
 const MAIN: &str = "crates/app/src/main.rs";
 
 /// Where an exception to a print lint is allowed, with the lints it may name (CODE-03): the
-/// startup line before logging exists, and the checker's output.
+/// binary's startup line before logging exists, on stderr, and the accounts `seed` reports, on
+/// stdout; and the output of the checks and the other tasks.
 const PRINTING: [(&str, &[&str]); 2] = [
-    (MAIN, &["print_stderr"]),
+    (MAIN, &["print_stdout", "print_stderr"]),
     ("crates/xtask/src/", &["print_stdout", "print_stderr"]),
 ];
 
@@ -589,10 +590,7 @@ mod tests {
             findings(PLATFORM, stderr),
             ["an exception to `print_stderr` outside the places CODE-03 allows printing (CODE-03)"]
         );
-        assert_eq!(
-            findings(MAIN, stdout),
-            ["an exception to `print_stdout` outside the places CODE-03 allows printing (CODE-03)"]
-        );
+        assert_eq!(findings(MAIN, stdout), Vec::<String>::new());
         assert_eq!(findings(MAIN, stderr), Vec::<String>::new());
         assert_eq!(
             findings("crates/xtask/src/main.rs", stdout),
@@ -627,7 +625,7 @@ mod tests {
         let group = r#"#[expect(clippy::restriction, clippy::blanket_clippy_restriction_lints, reason = "r")] fn f() {}"#;
         let message = "an exception to `restriction`, the group that holds `print_stdout`, outside the places CODE-03 allows printing (CODE-03)";
         assert_eq!(findings(PLATFORM, group), [message]);
-        assert_eq!(findings(MAIN, group), [message]);
+        assert_eq!(findings(MAIN, group), Vec::<String>::new());
         assert_eq!(
             findings("crates/xtask/src/main.rs", group),
             Vec::<String>::new()

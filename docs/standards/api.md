@@ -132,7 +132,7 @@ Within `/v1`, changes are additive: new routes, new optional request fields, new
 ### API-19 Event names and payloads
 Server-sent events (SSE) are named `<resource>.<past-tense verb>`, for example `member.removed`. A payload carries IDs and non-sensitive fields only, and is a type that its event declares, whose schema the event catalog documents (REALTIME-008). Clients fetch details over REST.
 - Why: events never leak data that the REST permission checks would withhold (D7), and a client knows each payload's shape from the document (D8).
-- Check: `compiler` (an event is published only with the payload type it declares), `review` (what a payload holds), plus `test` (TEST-09 covers the REST side, and REALTIME-008 the payloads' schemas).
+- Check: `compiler` (an event is published only with the payload type it declares), `ci: check-openapi` (each frame type's name), `review` (what a payload holds), plus `test` (TEST-09 covers the REST side, and REALTIME-008 the payloads' schemas).
 
 ### API-20 Lists of named resources take `search`
 A list whose items have a name or an email takes `search`, which keeps the items that contain it in one of the fields the route's documentation names, ignoring case, as the platform spec defines it (PLATFORM-060). It works on every page of the list, with the list's order and cursors (API-06).

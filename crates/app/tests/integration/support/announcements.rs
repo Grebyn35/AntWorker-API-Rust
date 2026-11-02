@@ -1,7 +1,7 @@
 //! Routes that only the tests serve, which publish events of the tests' own, for the behaviors of
 //! the hub and the stream that no route of the API shows on demand (TEST-05): events to the
 //! caller, and events in a workspace that need a permission every role holds, or one that the
-//! `member` role lacks.
+//! `member` role lacks. With them, the event the tests publish from units of work of their own.
 
 use axum::{Extension, http::StatusCode};
 use platform::{
@@ -12,8 +12,7 @@ use platform::{
     http::{Json as Body, Routes},
     types::{Client, WorkspaceId},
 };
-use serde::Deserialize;
-use serde_json::json;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::routes;
 
@@ -35,17 +34,43 @@ impl Permission for Removing {
     clippy::disallowed_methods,
     reason = "a test-only route declares its events where it publishes them"
 )]
-mod published {
-    use super::{Reading, Removing, UserEvent, WorkspaceEvent};
+pub mod published {
+    use super::{Announced, Note, Posted, Reading, Removing, UserEvent, WorkspaceEvent};
 
     /// An announcement to its caller.
-    pub(super) const TO_USER: UserEvent = UserEvent::new("announcement.made");
+    pub(super) const TO_USER: UserEvent<Announced> = UserEvent::new("announcement.made");
     /// An announcement to every member of a workspace.
-    pub(super) const TO_MEMBERS: WorkspaceEvent<Reading> =
+    pub(super) const TO_MEMBERS: WorkspaceEvent<Reading, Posted> =
         WorkspaceEvent::new("announcement.posted");
     /// An announcement to the members of a workspace who may remove members.
-    pub(super) const TO_ADMINS: WorkspaceEvent<Removing> =
+    pub(super) const TO_ADMINS: WorkspaceEvent<Removing, Posted> =
         WorkspaceEvent::new("announcement.restricted");
+    /// A note that a test publishes to a user from a unit of work of its own.
+    pub const NOTED: UserEvent<Note> = UserEvent::new("note.made");
+}
+
+/// The payload of an announcement to its caller.
+#[derive(Serialize, ToSchema)]
+pub struct Announced {
+    /// Its number, from 1, in the unit of work that published it.
+    n: u32,
+}
+
+/// The payload of an announcement in a workspace.
+#[derive(Serialize, ToSchema)]
+pub struct Posted {
+    /// The workspace.
+    workspace_id: WorkspaceId,
+    /// Its number, from 1, in the unit of work that published it.
+    n: u32,
+}
+
+/// The payload of a note, which a test tells apart by its label, if it gives one.
+#[derive(Serialize, ToSchema)]
+pub struct Note {
+    /// What the test tells the note by.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 /// What the announcing routes take.
@@ -78,7 +103,7 @@ async fn to_caller(
         .await
         .map_err(PlatformError::from)?;
     for n in 1..=announcement.count {
-        uow.publish_to_user(&published::TO_USER, principal.user_id(), &json!({ "n": n }))
+        uow.publish_to_user(&published::TO_USER, principal.user_id(), &Announced { n })
             .await
             .map_err(PlatformError::from)?;
     }
@@ -102,7 +127,10 @@ async fn to_members(
     let (mut uow, authorized) = authorize.open().await?;
     let workspace = authorized.workspace_id();
     for n in 1..=announcement.count {
-        let payload = json!({ "workspace_id": workspace, "n": n });
+        let payload = Posted {
+            workspace_id: workspace,
+            n,
+        };
         if announcement.restricted {
             uow.publish_to_workspace(&published::TO_ADMINS, workspace, &payload)
                 .await
@@ -119,6 +147,12 @@ async fn to_members(
 /// The announcing routes, which the tests of the stream add to the API's.
 pub fn routes() -> Routes {
     Routes::new()
+        .events(&[
+            &published::TO_USER,
+            &published::TO_MEMBERS,
+            &published::TO_ADMINS,
+            &published::NOTED,
+        ])
         .user(routes!(to_caller), &[])
         .merge(Routes::new().workspace::<Reading>(routes!(to_members), &[]))
 }

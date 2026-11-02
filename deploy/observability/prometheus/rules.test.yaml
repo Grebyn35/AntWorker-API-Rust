@@ -300,6 +300,28 @@ tests:
               summary: Events have reached their streams more than 5 seconds after they committed, at the 99th percentile, for 10 minutes.
               runbook: docs/operations/runbooks.md#eventsdelayed
 
+  # From the 5th minute on, one replica's hub owes an event that its loads can't reach, while the
+  # other's owes one only now and then, as a busy hub does between a notification and its load.
+  - interval: 1m
+    input_series:
+      - series: 'platform_events_unloaded{job="api", instance="a"}'
+        values: "0 0 0 0 0 1 1 1 1 1 1 1 1 1 1"
+      - series: 'platform_events_unloaded{job="api", instance="b"}'
+        values: "0 2 0 0 3 0 0 1 0 0 0 4 0 0 0"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: EventsStalled
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: EventsStalled
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              instance: a
+            exp_annotations:
+              summary: A replica's hub has owed its streams events it couldn't load for 5 minutes.
+              runbook: docs/operations/runbooks.md#eventsstalled
+
   # A runnable job waits longer and longer from the 5th minute on, as when no replica claims it.
   - interval: 1m
     input_series:

@@ -147,6 +147,13 @@ migrate: bootstrap
 run: migrate
     {{ api }} serve
 
+# Fills the development database with demo accounts and workspaces, through the API's routes, and
+# prints how to sign in (SYSTEM-003). It fills a database once; README.md says how to start again.
+[doc("Fills the development database with demo accounts and workspaces")]
+[group('develop')]
+seed: migrate
+    {{ api }} seed
+
 # Runs the API on this machine with auto-reload (OPS-19): starts Postgres and bootstraps the
 # database, then applies new migrations and restarts the API whenever its code or a migration
 # changes. `just dev observe` also starts the observability stack and exports the API's
@@ -465,6 +472,7 @@ e2e *tests: services
 # that compose.yaml pins. It prints each step, then the highest rate served with none failed and
 # the 99th percentile within the latency objective, for GET /v1/capabilities, or with `me`, for
 # GET /v1/users/me as a signed-in user. docs/operations/release.md says when to run it.
+# `just load-test streams` measures the replica's hub instead, with 1,000 streams open on it.
 [doc("Measures one replica's capacity, for the release notes")]
 [group('image')]
 load-test route="capabilities": services

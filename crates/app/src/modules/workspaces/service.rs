@@ -14,7 +14,6 @@ use platform::{
         WorkspaceId, // part: invitations
     },
 };
-use serde_json::json;
 
 use super::{
     audit,
@@ -65,8 +64,10 @@ async fn found(
     let scope = principal.founder_scope(id);
     let entry = Entry::new(audit::WORKSPACE_CREATED, audit::WORKSPACE, id.uuid());
     log::record(uow, scope, entry).await?;
-    // The session that caused the event, so its own device can tell it already knows.
-    let payload = json!({ "workspace_id": id, "session_id": principal.session_id() });
+    let payload = published::MembershipCreated {
+        workspace_id: id,
+        session_id: principal.session_id(),
+    };
     uow.publish_to_user(
         &published::MEMBERSHIP_CREATED,
         principal.user_id(),
@@ -207,7 +208,10 @@ pub(crate) async fn remove_member(
     let mut entry = Entry::new(audit::MEMBER_REMOVED, audit::MEMBER, user.uuid());
     entry.target = Some(user);
     log::record(&mut uow, authorized.audit_scope(), entry).await?;
-    let payload = json!({ "workspace_id": workspace, "user_id": user });
+    let payload = published::MemberRemoved {
+        workspace_id: workspace,
+        user_id: user,
+    };
     uow.publish_to_workspace(&published::MEMBER_REMOVED, workspace, &payload)
         .await?;
     Ok(uow.commit().await?)

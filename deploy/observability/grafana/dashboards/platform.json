@@ -563,6 +563,46 @@
         "x": 0,
         "y": 48
       }
+    },
+    {
+      "type": "timeseries",
+      "title": "How many events does each hub owe its streams?",
+      "description": "The events each instance's hub has heard of but not yet loaded, as it last recorded them (PLATFORM-076). It reads 0 but for a moment between a notification and its load; one that stays above 0 means the hub's loads fail, and its streams receive nothing new, which EventsStalled alerts on.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (instance) (platform_events_unloaded)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 14,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      }
     }
   ]
 }

@@ -137,15 +137,14 @@ pub async fn application(
     )
     .await
     .unwrap();
-    let pipeline = app::pipeline(&config, database, &services, clock, readiness);
+    let pipeline = app::pipeline(&config, database, &services, clock, readiness, SERVICE);
     let jobs = services.jobs;
-    let mut document = app::openapi(SERVICE);
-    let routes = match options.routes {
-        Some(extra) => {
-            document.merge(extra.openapi(SERVICE));
-            services.routes.merge(extra)
-        }
-        None => services.routes,
+    let (document, routes) = match options.routes {
+        Some(extra) => (
+            platform::http::document([app::openapi(SERVICE), extra.openapi(SERVICE)]),
+            services.routes.merge(extra),
+        ),
+        None => (app::openapi(SERVICE), services.routes),
     };
     let router = platform::http::app(routes, pipeline);
     (router, serde_json::to_value(document).unwrap(), jobs)
@@ -217,6 +216,11 @@ impl Api {
     /// The OpenAPI document of the routes, which every response is checked against.
     pub fn document(&self) -> &Value {
         self.contract.document()
+    }
+
+    /// The checks against the document, which a stream's frames go through.
+    pub fn contract(&self) -> Arc<Contract> {
+        self.contract.clone()
     }
 
     /// What the readiness probe reports.

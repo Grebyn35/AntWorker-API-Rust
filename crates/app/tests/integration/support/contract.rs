@@ -1,8 +1,8 @@
 //! Checks every response the in-process API gives an integration test against the OpenAPI
-//! document of the routes that answered it, and every body a test sends through a typed call
-//! against the request body the document gives the operation (API-17). A test fails on a
-//! response or a typed request that breaks the document, even where its own assertions don't
-//! look.
+//! document of the routes that answered it, every body a test sends through a typed call
+//! against the request body the document gives the operation, and every frame of a stream that a
+//! test reads against the event catalog (API-17, REALTIME-008). A test fails on a response, a
+//! typed request or a frame that breaks the document, even where its own assertions don't look.
 
 use http::{HeaderMap, Method, StatusCode, header};
 use serde_json::{Value, json};
@@ -68,6 +68,49 @@ impl Contract {
         );
     }
 
+    /// Panics with every way a frame of the stream, its `event`, `id` and `data` as a client's
+    /// parser reads them, breaks the entry of the event catalog that its `event` names, its
+    /// `data` read as JSON against the entry's `contentSchema` (REALTIME-008).
+    pub fn check_frame(&self, event: Option<&str>, id: Option<&str>, data: Option<&str>) {
+        let entries = self.components["schemas"]["Frame"]["oneOf"]
+            .as_array()
+            .expect("the document's event catalog");
+        let component = entries
+            .iter()
+            .filter_map(|entry| entry["$ref"].as_str())
+            .filter_map(|reference| reference.rsplit('/').next())
+            .find(|component| {
+                self.components["schemas"][*component]["properties"]["event"]["enum"][0].as_str()
+                    == event
+            });
+        assert!(
+            component.is_some(),
+            "the stream sent {event:?}, which the event catalog doesn't list"
+        );
+        let component = component.unwrap();
+        let frame = &self.components["schemas"][component];
+        let mut instance = json!({});
+        for (field, value) in [("event", event), ("id", id), ("data", data)] {
+            if let Some(value) = value {
+                instance[field] = Value::from(value);
+            }
+        }
+        let mut breaches = self.validate(
+            &json!({ "$ref": format!("#/components/schemas/{component}") }),
+            instance.to_string().as_bytes(),
+        );
+        if let Some(data) = data {
+            breaches.extend(self.validate(
+                &frame["properties"]["data"]["contentSchema"],
+                data.as_bytes(),
+            ));
+        }
+        assert!(
+            breaches.is_empty(),
+            "the stream sent a {event:?} frame that breaks the event catalog: {breaches:#?}"
+        );
+    }
+
     /// Panics with every way the response breaks the document: a status, content type or field
     /// it doesn't list, and a header it lists that the response lacks. A request that no
     /// operation documents must get the router's `NotFound` or `MethodNotAllowed`. The health
@@ -80,11 +123,13 @@ impl Contract {
         headers: &HeaderMap,
         body: &[u8],
     ) {
-        // OpenAPI describes neither the health probes (OPS-05) nor a CORS preflight, which the
-        // CORS layer answers before any route (PLATFORM-052).
+        // OpenAPI describes neither the health probes (OPS-05), nor the API reference that
+        // development serves (PLATFORM-075), nor a CORS preflight, which the CORS layer answers
+        // before any route (PLATFORM-052).
         let preflight =
             method == Method::OPTIONS && headers.contains_key(header::ACCESS_CONTROL_ALLOW_METHODS);
-        if path.starts_with("/health/") || preflight {
+        let reference = path == "/docs" || path.starts_with("/docs/");
+        if path.starts_with("/health/") || reference || preflight {
             return;
         }
         let path = path.split('?').next().unwrap_or_default();
@@ -245,7 +290,7 @@ fn close(schema: &mut Value) {
     if let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) {
         properties.values_mut().for_each(close);
     }
-    for key in ["items", "additionalProperties"] {
+    for key in ["items", "additionalProperties", "contentSchema"] {
         if let Some(inner) = object.get_mut(key) {
             close(inner);
         }

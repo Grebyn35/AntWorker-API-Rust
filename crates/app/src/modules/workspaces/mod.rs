@@ -9,7 +9,7 @@ mod routes;
 mod service;
 
 pub(crate) use error::WorkspacesError; // part: invitations
-pub(crate) use events::MEMBERSHIP_CREATED; // part: invitations
+pub(crate) use events::{MEMBERSHIP_CREATED, MembershipCreated}; // part: invitations
 pub(crate) use model::WorkspaceName; // part: invitations
 pub(crate) use routes::routes;
 pub(crate) use service::{matching, names}; // part: invitations

@@ -79,6 +79,14 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **What to do.** If the database is slow for everything, follow [DatabaseUnreachable](#databaseunreachable)'s look at its load. If only events are late while streams grew, the replicas hold more streams than their hubs serve: add replicas, so the streams spread over more hubs (OPS-18). The alert clears once the lag falls.
 
+## EventsStalled
+
+**What it means.** A replica's hub has heard of events that committed, but for 5 minutes it couldn't load them ([platform spec](../spec/platform.md#events-and-the-real-time-hub), PLATFORM-076). The streams on that replica receive nothing new, though their clients' requests still answer: a reload shows what the stream left out. The hub records no lag for events it doesn't load, so [EventsDelayed](#eventsdelayed) stays silent.
+
+**Look first.** The API platform dashboard: "How many events does each hub owe its streams?" shows which replica, and since when. That replica writes the `WARN` line "the hub couldn't load events" at every check, every 5 seconds, with the database's error: a pool whose every connection is taken shows as a timeout acquiring one, and then the requests that need one fail too, which "Which routes answer with a 5xx, and with which error?" on the API requests dashboard shows.
+
+**What to do.** If the pool is exhausted, find what holds its connections, as [DatabaseUnreachable](#databaseunreachable)'s look at the database's load does, or raise `DATABASE_MAX_CONNECTIONS` within the budget that [deploy.md](deploy.md#scaling) works out. Any other error names its cause in the line. Restarting the replica closes its streams, whose clients reconnect to another and replay what they missed (REALTIME-004). The alert clears once the hub owes nothing.
+
 ## JobsDelayed
 
 **What it means.** A background job that is due has waited more than 10 minutes without a replica claiming it ([platform spec](../spec/platform.md#jobs)). Every email waits with it. Either no replica's dispatcher claims jobs, every replica's 4 runs are taken by long runs, or the job's kind is one that no running replica knows, as after a rollback to a release that doesn't have it.

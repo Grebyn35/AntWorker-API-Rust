@@ -113,7 +113,10 @@ pub(crate) async fn invite(
         .send(&mut uow, authorized.job_scope(), email)
         .await?;
     if let Some(user) = invitee {
-        let payload = json!({ "invitation_id": invitation.id, "workspace_id": workspace });
+        let payload = published::InvitationReceived {
+            invitation_id: invitation.id,
+            workspace_id: workspace,
+        };
         uow.publish_to_user(&published::INVITATION_RECEIVED, user, &payload)
             .await?;
     }
@@ -235,11 +238,16 @@ pub(crate) async fn accept(
     let scope = principal.joiner_scope(workspace);
     let entry = Entry::new(audit::INVITATION_ACCEPTED, audit::INVITATION, id);
     log::record(&mut uow, scope, entry).await?;
-    let payload = json!({ "workspace_id": workspace, "user_id": user });
+    let payload = published::MemberJoined {
+        workspace_id: workspace,
+        user_id: user,
+    };
     uow.publish_to_workspace(&published::MEMBER_JOINED, workspace, &payload)
         .await?;
-    // The session that caused the event, so its own device can tell it already knows.
-    let payload = json!({ "workspace_id": workspace, "session_id": principal.session_id() });
+    let payload = workspaces::MembershipCreated {
+        workspace_id: workspace,
+        session_id: principal.session_id(),
+    };
     uow.publish_to_user(&workspaces::MEMBERSHIP_CREATED, user, &payload)
         .await?;
     uow.commit().await?;

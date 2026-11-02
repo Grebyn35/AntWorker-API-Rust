@@ -33,6 +33,8 @@ sqlx.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
+# seed sends the API's router its requests in process.
+tower.workspace = true
 tracing.workspace = true
 unicode-normalization.workspace = true
 utoipa.workspace = true
@@ -62,7 +64,6 @@ serde_json.workspace = true
 # The test support shares the template database through tokio::sync::OnceCell, the tests of
 # timeouts pause tokio's time, and a test of the development settings reads their files.
 tokio = { workspace = true, features = ["fs", "sync", "test-util"] }
-tower.workspace = true
 url.workspace = true
 
 [lints]

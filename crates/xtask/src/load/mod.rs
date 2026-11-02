@@ -12,6 +12,8 @@
 //! platform spec's Telemetry export, under Batching).
 //!
 //! The search is a pure function, so tests cover it without Docker.
+//!
+//! `streams` measures a replica's hub instead (OPS-18): see its module.
 
 use std::{
     io::{BufRead, BufReader},
@@ -23,7 +25,11 @@ use serde_json::Value;
 
 use crate::{repo::Repo, telemetry_config};
 
-/// The rate the search starts at, in requests a second.
+// part: invitations
+mod streams;
+// end part: invitations
+
+/// The rate the search for a replica's capacity starts at, in requests a second.
 const FIRST_RATE: u64 = 200;
 /// The port `serve` binds in the replica's container.
 const PORT: u16 = 8080;
@@ -42,6 +48,11 @@ pub struct Step {
 }
 
 impl Step {
+    /// The step's rate, and whether the replica served it.
+    fn outcome(&self) -> (u64, bool) {
+        (self.rate, self.passed())
+    }
+
     /// Whether the replica served the step's rate.
     pub fn passed(&self) -> bool {
         self.failed == 0 && self.dropped == 0 && self.p99_ms <= self.objective_ms
@@ -62,22 +73,22 @@ impl Step {
     }
 }
 
-/// The rate to try after `steps`, or none once the highest passing rate and the lowest failing
-/// one are within a tenth of each other: the rate doubles until a step fails, then the search
-/// halves the gap.
-pub fn next_rate(steps: &[Step]) -> Option<u64> {
+/// The rate to try after `steps`, each a rate and whether it passed, or none once the highest
+/// passing rate and the lowest failing one are within a tenth of each other: the rate starts at
+/// `first`, doubles until a step fails, then the search halves the gap.
+pub fn next_rate(first: u64, steps: &[(u64, bool)]) -> Option<u64> {
     let passed = steps
         .iter()
-        .filter(|step| step.passed())
-        .map(|step| step.rate)
+        .filter(|(_, passed)| *passed)
+        .map(|(rate, _)| *rate)
         .max();
     let failed = steps
         .iter()
-        .filter(|step| !step.passed())
-        .map(|step| step.rate)
+        .filter(|(_, passed)| !passed)
+        .map(|(rate, _)| *rate)
         .min();
     match (passed, failed) {
-        (None, None) => Some(FIRST_RATE),
+        (None, None) => Some(first),
         (Some(passed), None) => Some(passed * 2),
         (None, Some(failed)) if failed > 10 => Some(failed / 2),
         (None, Some(_)) => None,
@@ -88,10 +99,15 @@ pub fn next_rate(steps: &[Step]) -> Option<u64> {
     }
 }
 
-/// Runs the load test against the API's image under test, which `just load-test` pushed.
+/// Runs the load test against the API's image under test, which `just load-test` pushed: of a
+/// replica's capacity on `route`, or of its hub with `streams`.
 pub fn run(route: &str) -> ExitCode {
-    let Some(path) = path_of(route) else {
-        return fail(&format!("no route is named {route}: capabilities or me"));
+    let path = path_of(route);
+    // part: invitations
+    let path = path.or((route == "streams").then_some(""));
+    // end part: invitations
+    let Some(path) = path else {
+        return fail(&format!("no route is named {route}: {ROUTES}"));
     };
     let root = root();
     let image = match image(&root) {
@@ -114,6 +130,16 @@ pub fn run(route: &str) -> ExitCode {
         Ok(prepared) => prepared,
         Err(error) => return fail(&error),
     };
+    // part: invitations
+    if route == "streams" {
+        let replica = Replica {
+            image,
+            network: &network,
+            settings: &settings,
+        };
+        return streams::run(&root, &replica, (&cpus, &memory), objective_ms);
+    }
+    // end part: invitations
     let listen = format!("LISTEN_ADDR=0.0.0.0:{PORT}");
     let mut args = vec![
         "run",
@@ -177,6 +203,20 @@ fn prepare(root: &Path, image: &str) -> Result<(String, Vec<String>), String> {
     Ok((network, settings))
 }
 
+/// The names `just load-test` takes.
+const ROUTES: &str = concat!(
+    "capabilities, me",
+    ", or streams", // part: invitations
+);
+
+/// What a replica of the image under test runs with: the image, the network of Compose's
+/// Postgres, and its settings.
+struct Replica<'a> {
+    image: &'a str,
+    network: &'a str,
+    settings: &'a [String],
+}
+
 /// The path of the route the load test can measure, by its name.
 fn path_of(route: &str) -> Option<&'static str> {
     match route {
@@ -211,7 +251,7 @@ fn measure(
         Err(error) => return fail(&error),
     };
     let mut steps: Vec<Step> = Vec::new();
-    while let Some(rate) = next_rate(&steps) {
+    while let Some(rate) = next_rate(FIRST_RATE, &outcomes(&steps)) {
         let step = match step(root, &address, route, rate, objective_ms) {
             Ok(step) => step,
             Err(error) => return fail(&error),
@@ -261,6 +301,11 @@ fn measure(
         capacity.rate, capacity.objective_ms, capacity.spans, capacity.requests
     ));
     ExitCode::SUCCESS
+}
+
+/// Each step's rate, and whether it passed.
+fn outcomes(steps: &[Step]) -> Vec<(u64, bool)> {
+    steps.iter().map(Step::outcome).collect()
 }
 
 /// Runs one step at `rate` on `route` of the replica at `address`, which passes within the
@@ -395,9 +440,12 @@ fn limits(root: &Path) -> Result<(String, String), String> {
 /// counts in them.
 fn settings() -> Result<Vec<String>, String> {
     let key = std::env::var("HMAC_KEY").map_err(|_| "HMAC_KEY is unset; run `just setup`")?;
+    // The load sends no email, so the replicas turn email off, which `serve` requires them to
+    // say (PLATFORM-069).
     let mut settings = vec![
         "ENVIRONMENT=production".to_owned(),
         format!("HMAC_KEY={key}"),
+        "EMAIL=off".to_owned(),
         "RATE_LIMIT_IP_REQUESTS=1000000".to_owned(),
         "RATE_LIMIT_USER_REQUESTS=1000000".to_owned(),
     ];
@@ -474,7 +522,7 @@ mod tests {
         let mut steps = Vec::new();
         let mut tried = Vec::new();
         // A replica that serves up to 1,000 requests a second.
-        while let Some(rate) = next_rate(&steps) {
+        while let Some(rate) = next_rate(FIRST_RATE, &outcomes(&steps)) {
             tried.push(rate);
             steps.push(step(rate, rate <= 1000));
         }

@@ -7,7 +7,8 @@ use http::StatusCode;
 use serde_json::json;
 
 use crate::support::{
-    Api, Options, announcements,
+    Api, Options,
+    announcements::{self, Note, published::NOTED},
     streams::{self, Stream},
     users::{self, SignedIn},
     workspaces,
@@ -424,13 +425,6 @@ async fn realtime_006_a_user_holds_at_most_10_streams_on_a_replica() {
     assert!(after_one_closed.stream().is_some());
 }
 
-/// The event the tests publish from a unit of work of their own, outside any trace.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a test declares the event it publishes from its own unit of work"
-)]
-const UNTRACED: platform::events::UserEvent = platform::events::UserEvent::new("note.made");
-
 #[tokio::test]
 async fn realtime_002_an_event_published_outside_a_trace_has_no_trace_id_and_the_stream_s_frames_its_request_s()
  {
@@ -441,7 +435,7 @@ async fn realtime_002_an_event_published_outside_a_trace_has_no_trace_id_and_the
     let opened = stream.opened().await;
 
     let mut uow = api.pool().begin(&crate::support::client()).await.unwrap();
-    uow.publish_to_user(&UNTRACED, user, &json!({}))
+    uow.publish_to_user(&NOTED, user, &Note { label: None })
         .await
         .unwrap();
     uow.commit().await.unwrap();
@@ -533,7 +527,7 @@ async fn realtime_002_an_event_a_job_publishes_carries_the_trace_id_of_the_job_s
             let mut uow = database.for_job(&context).await.map_err(failed)?;
             let run = platform::telemetry::trace_id();
             let user = platform::types::UserId::from_uuid(job.user);
-            uow.publish_to_user(&UNTRACED, user, &json!({ "run": run }))
+            uow.publish_to_user(&NOTED, user, &Note { label: Some(run) })
                 .await
                 .map_err(failed)?;
             uow.commit().await.map_err(failed)
@@ -557,7 +551,7 @@ async fn realtime_002_an_event_a_job_publishes_carries_the_trace_id_of_the_job_s
     jobs.run_pending(api.pool(), &clock).await;
     let published = stream.event().await;
 
-    let run = published.payload()["run"].as_str().unwrap().to_owned();
+    let run = published.payload()["label"].as_str().unwrap().to_owned();
     assert_eq!(run.len(), 32);
     assert_eq!(published.data.unwrap()["trace_id"], run.as_str());
 }
@@ -597,4 +591,107 @@ async fn realtime_004_a_stream_resumes_after_an_event_its_caller_may_not_receive
     assert_eq!(removed.status, StatusCode::NO_CONTENT);
     assert_eq!(opened.payload(), &json!({ "truncated": false }));
     assert_eq!(replayed.event.as_deref(), Some("announcement.made"));
+}
+
+/// The schema of the frame type `event` in the event catalog of `api`'s document.
+fn entry<'a>(api: &'a Api, event: &str) -> &'a serde_json::Value {
+    let schemas = &api.document()["components"]["schemas"];
+    let found = schemas["Frame"]["oneOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| &schemas[entry["$ref"].as_str().unwrap().rsplit('/').next().unwrap()])
+        .find(|frame| frame["properties"]["event"]["enum"][0] == event);
+    assert!(found.is_some(), "the catalog lists no {event}");
+    found.unwrap()
+}
+
+#[tokio::test]
+async fn realtime_008_the_catalog_lists_each_frame_type_with_its_scope_permission_and_payload() {
+    let api = Api::new().await;
+    let document = api.document();
+    let stream = &document["paths"]["/v1/users/me/events"]["get"]["responses"]["200"]["content"]["text/event-stream"];
+    let schemas = &document["components"]["schemas"];
+    let payload = |frame: &serde_json::Value| {
+        let reference = frame["properties"]["data"]["contentSchema"]["properties"]["data"]["$ref"]
+            .as_str()
+            .unwrap();
+        schemas[reference.rsplit('/').next().unwrap()].clone()
+    };
+
+    assert_eq!(
+        stream["x-itemSchema"],
+        json!({ "$ref": "#/components/schemas/Frame" })
+    );
+    let membership = entry(&api, "membership.created");
+    assert!(
+        membership["description"]
+            .as_str()
+            .unwrap()
+            .contains("a user event: it reaches its user's streams")
+    );
+    assert_eq!(membership["required"], json!(["event", "data", "id"]));
+    assert_eq!(
+        payload(membership)["required"],
+        json!(["workspace_id", "session_id"])
+    );
+    let removed = entry(&api, "member.removed");
+    assert!(
+        removed["description"]
+            .as_str()
+            .unwrap()
+            .contains("a workspace event: it reaches the streams of the workspace's members who hold `members.read`")
+    );
+    assert_eq!(
+        payload(removed)["required"],
+        json!(["workspace_id", "user_id"])
+    );
+    let joined = entry(&api, "member.joined"); // part: invitations
+    assert_eq!(
+        payload(joined)["required"],
+        json!(["workspace_id", "user_id"])
+    ); // part: invitations
+    let opened = entry(&api, "stream.opened");
+    assert_eq!(opened["required"], json!(["event", "data"]));
+    assert!(opened["properties"]["id"].is_object());
+    let closed = entry(&api, "stream.closed");
+    assert!(closed["properties"]["id"].is_null());
+    let reason = &payload(closed)["properties"]["reason"]["$ref"];
+    assert_eq!(
+        schemas[reason.as_str().unwrap().rsplit('/').next().unwrap()]["enum"],
+        json!([
+            "session_ended",
+            "access_changed",
+            "lagging",
+            "shutdown",
+            "interrupted"
+        ])
+    );
+}
+
+#[tokio::test]
+async fn realtime_008_a_frame_whose_payload_or_type_the_catalog_doesn_t_hold_fails_the_test() {
+    let api = Api::new().await;
+    let contract = api.contract();
+    let id = "0b5b3a59-4a3c-4bde-9b2b-7a25a5b6f0e1";
+    let check = |event: &'static str, data: String| {
+        let contract = contract.clone();
+        std::panic::catch_unwind(move || contract.check_frame(Some(event), Some(id), Some(&data)))
+    };
+    let payload =
+        |payload: serde_json::Value| json!({ "data": payload, "trace_id": null }).to_string();
+
+    let matching = check(
+        "membership.created",
+        payload(json!({ "workspace_id": id, "session_id": id })),
+    );
+    let drifted = check(
+        "membership.created",
+        payload(json!({ "workspace_id": id, "session": id })),
+    );
+    let unlisted = check("membership.renamed", payload(json!({})));
+
+    assert!(matching.is_ok());
+    assert!(drifted.is_err());
+    assert!(unlisted.is_err());
 }

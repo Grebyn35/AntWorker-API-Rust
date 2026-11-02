@@ -17,7 +17,7 @@ The API is built from exactly two crates, `platform` and `app`, and `platform` h
 ## Modules
 
 ### ARCH-03 One directory per module, with fixed file names
-Each feature module is a directory under `crates/app/src/modules/`. Its files come only from this set, and only those it needs: `mod.rs`, `routes.rs`, `service.rs`, `repo.rs`, `model.rs`, `error.rs`, `events.rs`, `audit.rs`, `jobs.rs`, `emails.rs`, `metrics.rs`, `personal_data.rs`. The two module-specific entries listed in [architecture.md §5](../architecture.md#inside-a-module) are also allowed: `access/permissions.rs` and `auth/providers/`. A module's email templates are in a directory named after it under `crates/app/templates/`. A file that outgrows the limit in CODE-07 becomes a directory with the same name.
+Each feature module is a directory under `crates/app/src/modules/`. Its files come only from this set, and only those it needs: `mod.rs`, `routes.rs`, `service.rs`, `repo.rs`, `model.rs`, `error.rs`, `events.rs`, `audit.rs`, `jobs.rs`, `emails.rs`, `metrics.rs`, `personal_data.rs`. The three module-specific entries listed in [architecture.md §5](../architecture.md#inside-a-module) are also allowed: `access/permissions.rs`, `auth/providers/` and `system/seed.rs`. A module's email templates are in a directory named after it under `crates/app/templates/`. A file that outgrows the limit in CODE-07 becomes a directory with the same name.
 - Why: every module reads the same way, so a developer who knows one knows all of them (D22, D29).
 - Check: `ci: check-layout`.
 

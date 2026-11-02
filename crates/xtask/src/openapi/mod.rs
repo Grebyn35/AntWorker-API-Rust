@@ -1,8 +1,9 @@
 //! `check-openapi`: the committed `openapi.json` follows the rules for the HTTP contract
-//! (API-01 to API-06, API-11, API-17, ERR-02, ERR-13). Each operation's scope, method and
-//! statuses are in `operations`, the shape of lists in `lists`, and the formats and request
-//! strings' lengths in `schemas`.
+//! (API-01 to API-06, API-11, API-17, ERR-02, ERR-13, REALTIME-008). Each operation's scope,
+//! method and statuses are in `operations`, the shape of lists in `lists`, the formats and
+//! request strings' lengths in `schemas`, and the event catalog in `events`.
 
+mod events;
 mod lists;
 mod operations;
 mod schemas;
@@ -94,10 +95,11 @@ pub fn check(repo: &Repo) -> Outcome {
     for (name, schema) in schemas {
         properties(&format!("schema {name}"), schema, &mut problems);
     }
-    let findings = problems
+    let mut findings: Vec<Finding> = problems
         .into_iter()
         .map(|(needle, message)| Finding::new(DOCUMENT, line_of(&file.text, &needle), message))
         .collect();
+    findings.extend(events::check(repo, &document));
     Outcome {
         report: Vec::new(),
         findings,
@@ -305,7 +307,7 @@ fn properties(owner: &str, schema: &Value, problems: &mut Vec<Problem>) {
             properties(&format!("{owner}.{name}"), property, problems);
         }
     }
-    for key in ["items", "additionalProperties"] {
+    for key in ["items", "additionalProperties", "contentSchema"] {
         if schema[key].is_object() {
             properties(owner, &schema[key], problems);
         }

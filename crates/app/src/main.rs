@@ -48,6 +48,9 @@ enum Command {
     Migrate,
     /// Runs the HTTP server.
     Serve,
+    /// Fills a development database with demo accounts and workspaces, through the API's routes,
+    /// and prints how to sign in. Refuses unless ENVIRONMENT is development.
+    Seed,
     /// Asks the instance that `LISTEN_ADDR` names whether it is ready, for a container's health
     /// check, and exits 0 only if it is.
     Health,
@@ -69,6 +72,12 @@ fn main() -> ExitCode {
                 .server()
                 .and_then(|server| Ok((server, app::Config::read(&settings)?)));
             start(settings.telemetry(), config, serve)
+        }
+        Command::Seed => {
+            let config = settings
+                .server()
+                .and_then(|server| Ok((server, app::Config::read(&settings)?)));
+            start(settings.telemetry(), config, seed)
         }
         Command::Health => health(settings.health()),
         Command::Openapi { path } => openapi(&path),
@@ -175,6 +184,7 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         &services,
         clock.clone(),
         readiness.clone(),
+        SERVICE,
     );
     let app = platform::http::app(services.routes, pipeline);
     let shutdown = Shutdown {
@@ -213,6 +223,61 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
             );
             ExitCode::FAILURE
         }
+    }
+}
+
+/// Fills a development database through the API as `serve` builds it, without binding a port or
+/// running the jobs, and prints the accounts and their password (SYSTEM-002 to SYSTEM-005). It
+/// refuses before it connects unless `ENVIRONMENT` is development.
+async fn seed((config, modules): (ServerConfig, app::Config)) -> ExitCode {
+    if let Err(error) = app::seed_allowed(config.environment) {
+        return failed("seed", &error);
+    }
+    let database = match connect(&config).await {
+        Ok(database) => database,
+        Err(code) => return code,
+    };
+    let clock: SharedClock = Arc::new(SystemClock);
+    let readiness = Readiness::new();
+    let connection = match platform::events::listen(&database, clock.as_ref()).await {
+        Ok(connection) => connection,
+        Err(error) => return failed("listener", &error),
+    };
+    let services = match app::compose(
+        &database,
+        &config,
+        modules,
+        clock.clone(),
+        readiness.clone(),
+        connection,
+    )
+    .await
+    {
+        Ok(services) => services,
+        Err(error) => return failed("services", &error),
+    };
+    let pipeline = app::pipeline(&config, &database, &services, clock, readiness, SERVICE);
+    match app::seed(platform::http::app(services.routes, pipeline)).await {
+        Ok(report) => {
+            print_seeded(&report);
+            ExitCode::SUCCESS
+        }
+        Err(error) => failed("seed", &error),
+    }
+}
+
+/// Prints how to sign in to what `seed` created (SYSTEM-003).
+#[expect(
+    clippy::print_stdout,
+    reason = "the accounts are the seed's output, for the developer who ran it (CODE-03)"
+)]
+fn print_seeded(report: &app::SeedReport) {
+    println!(
+        "Seeded the database. Sign in as any of these, with the password {}:",
+        report.password
+    );
+    for (email, name) in &report.accounts {
+        println!("  {email:<24}{name}");
     }
 }
 

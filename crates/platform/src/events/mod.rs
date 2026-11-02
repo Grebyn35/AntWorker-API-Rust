@@ -1,8 +1,10 @@
 //! Events: publishing them inside a unit of work, as a row of `events` that its commit positions
 //! and notifies (D1, DATA-27, PLATFORM-071); access-change signals, the notice, at commit, that a
-//! user's access changed, so that their streams close (D35, SEC-06); and the real-time hub, which
-//! delivers what commits to the streams allowed to receive it (SEC-17).
+//! user's access changed, so that their streams close (D35, SEC-06); the real-time hub, which
+//! delivers what commits to the streams allowed to receive it (SEC-17); and the event catalog,
+//! which documents each event's payload (REALTIME-008).
 
+pub(crate) mod catalog;
 mod hub;
 mod log;
 mod streams;
@@ -12,6 +14,7 @@ mod task;
 use std::marker::PhantomData;
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::{
     authz::Permission,
@@ -21,6 +24,7 @@ use crate::{
     types::{SessionId, UserId, WorkspaceId},
 };
 
+pub use catalog::{Catalogued, Entry, FrameId, StreamFrame};
 pub use hub::{Connection, Hub, ListenError, SubscribeError, listen};
 pub use subscription::{Closed, Delivery, Event, Subscription};
 
@@ -34,61 +38,69 @@ pub(crate) const EVENTS_CHANNEL: &str = "events";
 /// (PLATFORM-071): the bytes of `events`.
 pub(crate) const POSITION_LOCK: i64 = 0x6576_656e_7473;
 
-/// An event that goes to one user's streams, such as `membership.created`. Each module declares
-/// its own in its `events.rs`, the one place clippy lets build one.
-#[derive(Clone, Copy, Debug)]
-pub struct UserEvent {
+/// An event that goes to one user's streams, such as `membership.created`, with a payload of
+/// type `T`, which the event catalog documents (API-19, REALTIME-008). Each module declares its
+/// own in its `events.rs`, the one place clippy lets build one.
+#[derive(Debug)]
+pub struct UserEvent<T> {
     name: &'static str,
+    payload: PhantomData<fn(&T)>,
 }
 
-impl UserEvent {
+impl<T: Serialize + ToSchema> UserEvent<T> {
     /// The user event `name`, `<resource>.<past-tense verb>` (API-19).
     pub const fn new(name: &'static str) -> Self {
-        Self { name }
+        Self {
+            name,
+            payload: PhantomData,
+        }
     }
 }
 
 /// An event that goes to the streams of a workspace's members who hold permission `P`, such as
-/// `member.removed` (SEC-17). Each module declares its own in its `events.rs`, the one place
-/// clippy lets build one.
+/// `member.removed` (SEC-17), with a payload of type `T`, which the event catalog documents
+/// (API-19, REALTIME-008). Each module declares its own in its `events.rs`, the one place clippy
+/// lets build one.
 #[derive(Debug)]
-pub struct WorkspaceEvent<P> {
+pub struct WorkspaceEvent<P, T> {
     name: &'static str,
     permission: PhantomData<fn() -> P>,
+    payload: PhantomData<fn(&T)>,
 }
 
-impl<P: Permission> WorkspaceEvent<P> {
+impl<P: Permission, T: Serialize + ToSchema> WorkspaceEvent<P, T> {
     /// The workspace event `name`, `<resource>.<past-tense verb>` (API-19).
     pub const fn new(name: &'static str) -> Self {
         Self {
             name,
             permission: PhantomData,
+            payload: PhantomData,
         }
     }
 }
 
 impl UnitOfWork {
-    /// Publishes `event` to `user`'s streams with `payload`, which holds IDs only (API-19), when
-    /// the unit of work commits, and never if it rolls back (PLATFORM-015). Its commit gives the
-    /// event its position (PLATFORM-071).
-    pub async fn publish_to_user(
+    /// Publishes `event` to `user`'s streams with `payload`, of the type the event declares
+    /// (API-19), when the unit of work commits, and never if it rolls back (PLATFORM-015). Its
+    /// commit gives the event its position (PLATFORM-071).
+    pub async fn publish_to_user<T: Serialize + ToSchema>(
         &mut self,
-        event: &UserEvent,
+        event: &UserEvent<T>,
         user: UserId,
-        payload: &impl Serialize,
+        payload: &T,
     ) -> Result<(), Internal> {
         self.publish(event.name, Some(user), None, None, payload)
             .await
     }
 
     /// Publishes `event` to the streams of `workspace`'s members who hold its permission, with
-    /// `payload`, which holds IDs only (API-19), when the unit of work commits, and never if it
-    /// rolls back (PLATFORM-015).
-    pub async fn publish_to_workspace<P: Permission>(
+    /// `payload`, of the type the event declares (API-19), when the unit of work commits, and
+    /// never if it rolls back (PLATFORM-015).
+    pub async fn publish_to_workspace<P: Permission, T: Serialize + ToSchema>(
         &mut self,
-        event: &WorkspaceEvent<P>,
+        event: &WorkspaceEvent<P, T>,
         workspace: WorkspaceId,
-        payload: &impl Serialize,
+        payload: &T,
     ) -> Result<(), Internal> {
         self.publish(event.name, None, Some(workspace), Some(P::NAME), payload)
             .await

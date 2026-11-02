@@ -88,6 +88,8 @@ pub struct TelemetryConfig {
 /// The settings `serve` reads.
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
+    /// Where the API runs, which decides whether it serves the API reference (PLATFORM-075).
+    pub environment: Environment,
     /// The address the HTTP server binds.
     pub listen_addr: SocketAddr,
     /// The connection the API uses, as the role `app`.
@@ -269,6 +271,7 @@ where
     /// The settings for `serve`.
     pub fn server(&self) -> Result<ServerConfig, ConfigError> {
         Ok(ServerConfig {
+            environment: self.required("ENVIRONMENT", "development, test or production")?,
             listen_addr: self.required("LISTEN_ADDR", LISTEN_ADDR_EXPECTED)?,
             database_url: self.database_url("DATABASE_URL")?,
             database_max_connections: self.number("DATABASE_MAX_CONNECTIONS", 10, 1..=1000)?,

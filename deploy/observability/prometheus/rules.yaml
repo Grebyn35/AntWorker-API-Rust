@@ -177,6 +177,17 @@ groups:
           summary: Events have reached their streams more than 5 seconds after they committed, at the 99th percentile, for 10 minutes.
           runbook: docs/operations/runbooks.md#eventsdelayed
 
+      # A hub that hears of events but can't load them records no lag, so EventsDelayed never
+      # sees it; the events it owes stay above 0 (PLATFORM-076).
+      - alert: EventsStalled
+        expr: max by (instance) (platform_events_unloaded) > 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: A replica's hub has owed its streams events it couldn't load for 5 minutes.
+          runbook: docs/operations/runbooks.md#eventsstalled
+
       # Background jobs (OBS-14, the platform spec's Jobs). A series of platform_job_runs_total
       # appears with its first run, so a window counts a series that existed at its start by its
       # increase, and a newer one by its value, which increase() would miss the first of.

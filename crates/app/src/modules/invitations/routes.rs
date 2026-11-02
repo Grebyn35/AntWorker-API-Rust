@@ -20,14 +20,16 @@ use utoipa_axum::routes;
 
 use super::{
     error::InvitationsError,
+    events::{INVITATION_RECEIVED, MEMBER_JOINED},
     model::{Accepted, Invitation, NewInvitation, ReceivedInvitation},
     service::{self, Invitations},
 };
 use crate::modules::access::{InvitationsCreate, Role};
 
-/// The module's routes, which take its state.
+/// The module's routes, which take its state, and the events they publish.
 pub(crate) fn routes() -> Routes<Invitations> {
     Routes::new()
+        .events(&[&INVITATION_RECEIVED, &MEMBER_JOINED])
         .workspace::<InvitationsCreate>(routes!(invite), &[&InvitationsError::AlreadyMember])
         .user(routes!(received), &[])
         .user(

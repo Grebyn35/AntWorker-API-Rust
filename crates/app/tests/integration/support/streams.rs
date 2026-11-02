@@ -7,7 +7,7 @@ use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
 
-use super::{Api, api::Response};
+use super::{Api, api::Response, contract::Contract};
 
 /// The stream's path.
 pub const PATH: &str = "/v1/users/me/events";
@@ -34,6 +34,7 @@ impl Frame {
 
 /// An open stream.
 pub struct Stream {
+    contract: std::sync::Arc<Contract>,
     headers: http::HeaderMap,
     body: Body,
     buffer: String,
@@ -104,6 +105,7 @@ pub async fn open(api: &Api, headers: &[(&str, &str)]) -> Opened {
     }
     api.check(&Method::GET, PATH, status, &headers, &[]);
     Opened::Stream(Box::new(Stream {
+        contract: api.contract(),
         headers,
         body: response.into_body(),
         buffer: String::new(),
@@ -129,6 +131,7 @@ pub async fn open_with_bytes(api: &Api, token: &str, name: &str, value: &[u8]) -
     let headers = response.headers().clone();
     api.check(&Method::GET, PATH, status, &headers, &[]);
     Opened::Stream(Box::new(Stream {
+        contract: api.contract(),
         headers,
         body: response.into_body(),
         buffer: String::new(),
@@ -162,6 +165,7 @@ pub async fn connect_on(
     assert_eq!(status, StatusCode::OK);
     api.check(&Method::GET, PATH, status, &headers, &[]);
     Stream {
+        contract: api.contract(),
         headers,
         body: response.into_body(),
         buffer: String::new(),
@@ -258,8 +262,13 @@ impl Stream {
                 _ => {}
             }
         }
-        if !data.is_empty() {
-            frame.data = Some(serde_json::from_str(&data.join("\n")).unwrap());
+        let data = (!data.is_empty()).then(|| data.join("\n"));
+        if !frame.comment {
+            self.contract
+                .check_frame(frame.event.as_deref(), frame.id.as_deref(), data.as_deref());
+        }
+        if let Some(data) = data {
+            frame.data = Some(serde_json::from_str(&data).unwrap());
         }
         if let Some(id) = &frame.id {
             self.last_event_id = Some(id.clone());

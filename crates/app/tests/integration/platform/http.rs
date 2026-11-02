@@ -419,3 +419,99 @@ async fn platform_034_a_5xx_writes_one_error_line_with_its_cause_chain() {
     );
     assert_eq!(lines[1]["http.response.status_code"], 500);
 }
+
+#[tokio::test]
+async fn platform_075_development_serves_the_api_reference_of_the_running_code() {
+    let api = Api::with(Options::default().set("ENVIRONMENT", "development")).await;
+
+    let page = api.get("/docs").send().await;
+    let document = api.get("/docs/openapi.json").send().await;
+
+    assert_eq!(page.status, StatusCode::OK);
+    assert_eq!(page.header("content-type"), "text/html; charset=utf-8");
+    let html = String::from_utf8(page.body.clone()).unwrap();
+    for pinned in [
+        "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.34.0/swagger-ui-bundle.js\" integrity=\"sha384-",
+        "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.34.0/swagger-ui.css\" integrity=\"sha384-",
+        "url: \"/docs/openapi.json\"",
+        "validatorUrl: null",
+    ] {
+        assert!(html.contains(pinned), "{pinned}");
+    }
+    assert!(page.header("server-timing").starts_with("trace;desc="));
+    assert_eq!(document.status, StatusCode::OK);
+    assert_eq!(document.header("content-type"), "application/json");
+    assert_eq!(&document.json(), api.document());
+}
+
+#[tokio::test]
+async fn platform_075_any_other_environment_answers_the_reference_s_paths_with_404() {
+    let api = Api::new().await;
+
+    for path in ["/docs", "/docs/openapi.json"] {
+        let response = api.get(path).send().await;
+
+        problem(&response, StatusCode::NOT_FOUND, "request.not_found");
+    }
+}
+
+#[tokio::test]
+async fn platform_075_the_development_settings_let_the_reference_s_requests_through_the_cross_site_check()
+ {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+    let example = tokio::fs::read_to_string(format!("{root}/.env.example"))
+        .await
+        .unwrap();
+    let setting = |name: &str| {
+        example
+            .lines()
+            .find_map(|line| line.strip_prefix(&format!("{name}=")))
+            .unwrap()
+            .to_owned()
+    };
+    let port = setting("LISTEN_ADDR")
+        .rsplit(':')
+        .next()
+        .unwrap()
+        .to_owned();
+    let origins = setting("CORS_ALLOWED_ORIGINS");
+    let api = Api::with(
+        Options::default()
+            .set("ENVIRONMENT", "development")
+            .set("CORS_ALLOWED_ORIGINS", &origins),
+    )
+    .await;
+
+    for (n, origin) in [
+        format!("http://127.0.0.1:{port}"),
+        format!("http://localhost:{port}"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let registered = api
+            .post(
+                "/v1/users",
+                &json!({
+                    "email": format!("reference-{n}@example.com"),
+                    "password": "plum-tractor-41-quiet",
+                    "name": "Ada",
+                }),
+            )
+            .header("origin", &origin)
+            .send()
+            .await;
+
+        assert!(
+            origins.split(',').any(|listed| listed.trim() == origin),
+            "{origin} isn't in {origins}"
+        );
+        assert_eq!(
+            registered.status,
+            StatusCode::CREATED,
+            "{}",
+            registered.json()
+        );
+        assert!(registered.header("set-cookie").starts_with("__Host-"));
+    }
+}

@@ -3,11 +3,13 @@
 
 use std::{ffi::OsString, io, path::Path, sync::Arc, time::Duration};
 
+use axum::Router;
+
 use platform::{
     authn::SessionVerifier,
     authz::Authorizer,
     clock::SharedClock,
-    config::{ConfigError, ServerConfig, Settings},
+    config::{ConfigError, Environment, ServerConfig, Settings},
     db::Database,
     errors::Internal,
     events::{Connection, Hub},
@@ -166,14 +168,20 @@ pub async fn compose(
 }
 
 /// The request pipeline that `config` describes, which counts its rate limits in `database` and
-/// verifies access tokens through `services`.
+/// verifies access tokens through `services`, and which serves the API reference of `service`'s
+/// document in development (PLATFORM-075).
 pub fn pipeline(
     config: &ServerConfig,
     database: &Database,
     services: &Services,
     clock: SharedClock,
     readiness: Readiness,
+    service: Service,
 ) -> Pipeline {
+    let reference = (config.environment == Environment::Development)
+        .then(|| serde_json::to_string(&openapi(service)).ok())
+        .flatten()
+        .map(Arc::from);
     Pipeline {
         clock,
         max_concurrent_requests: usize::try_from(config.max_concurrent_requests)
@@ -185,18 +193,55 @@ pub fn pipeline(
         rate_limits: config.rate_limits,
         verifier: services.verifier.clone(),
         authorizer: services.authorizer.clone(),
+        reference,
     }
 }
 
-/// The OpenAPI document of every module's routes, which needs no database (API-17).
+/// The OpenAPI document of every module's routes, with the event catalog of every event they
+/// publish, which needs no database (API-17, REALTIME-008).
 pub fn openapi(service: Service) -> OpenApi {
-    let mut document = system::routes().openapi(service);
-    document.merge(accounts::routes().openapi(service));
-    document.merge(auth::routes().openapi(service));
-    document.merge(workspaces::routes().openapi(service));
-    document.merge(realtime::routes().openapi(service));
-    document.merge(invitations::routes().openapi(service)); // part: invitations
-    document
+    platform::http::document([
+        system::routes().openapi(service),
+        accounts::routes().openapi(service),
+        auth::routes().openapi(service),
+        workspaces::routes().openapi(service),
+        realtime::routes().openapi(service),
+        invitations::routes().openapi(service), // part: invitations
+    ])
+}
+
+/// What `seed` created: each account's email address and name, which all share `password`
+/// (SYSTEM-003).
+pub struct SeedReport {
+    /// Each account's email address and name, in the order it registered them.
+    pub accounts: Vec<(&'static str, &'static str)>,
+    /// Every account's password.
+    pub password: &'static str,
+}
+
+/// Why `seed` refused, or stopped (SYSTEM-002, SYSTEM-004).
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct SeedError(system::SeedError);
+
+/// Refuses `seed` unless `environment` is development, before it connects to anything
+/// (SYSTEM-002).
+pub fn seed_allowed(environment: Environment) -> Result<(), SeedError> {
+    system::seed_allowed(environment).map_err(SeedError)
+}
+
+/// Fills the database behind `router`, the API as `serve` builds it, with demo accounts and
+/// workspaces, through its routes (SYSTEM-003 to SYSTEM-005).
+pub async fn seed(router: Router) -> Result<SeedReport, SeedError> {
+    let seeded = system::seed(router).await.map_err(SeedError)?;
+    Ok(SeedReport {
+        accounts: seeded
+            .accounts
+            .iter()
+            .map(|account| (account.email, account.name))
+            .collect(),
+        password: system::PASSWORD,
+    })
 }
 
 /// The permission matrix of `access`: each permission's name, with the names of the roles that

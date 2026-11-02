@@ -3,7 +3,9 @@
 
 use std::{collections::VecDeque, sync::Arc};
 
+use serde::Serialize;
 use tokio::sync::{mpsc, watch};
+use utoipa::ToSchema;
 
 use super::hub::{Command, StreamId};
 use crate::{
@@ -13,7 +15,9 @@ use crate::{
 };
 
 /// Why the hub closed a stream, which `stream.closed` names (REALTIME-005).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+#[schema(as = CloseReason)]
 pub enum Closed {
     /// The caller's session ended, or stopped lasting.
     SessionEnded,

@@ -21,7 +21,11 @@ use crate::{
     db::{Checked, Database, Listener, Received},
     errors::{self, Internal},
     lifecycle::Readiness,
-    telemetry::{self, metrics::Histogram, names},
+    telemetry::{
+        self,
+        metrics::{Gauge, Histogram},
+        names,
+    },
     types::UserId,
 };
 
@@ -42,6 +46,15 @@ static DELIVERY_LAG: Histogram<1> = Histogram::new(
     &[
         0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0,
     ],
+);
+
+static UNLOADED: Gauge<1> = Gauge::new(
+    "platform.events_unloaded",
+    "{event}",
+    "The events a replica's hub owes its streams: the positions after the last event it loaded, up \
+     to the last that a notification it handled named, by the name of the database whose events \
+     it delivers. It stays above 0 while the hub's loads fail (PLATFORM-076).",
+    [names::DB_NAMESPACE],
 );
 
 /// What the hub's task holds.
@@ -105,6 +118,7 @@ impl Task {
     ) {
         let clock = self.clock.clone();
         let readiness = self.readiness.clone();
+        self.record_unloaded();
         self.check().await;
         let mut check = clock.sleep(CHECK_INTERVAL);
         let mut rechecked = clock.sleep(recheck);
@@ -174,6 +188,7 @@ impl Task {
             Ok(latest) if latest > self.streams.head() => {
                 self.streams.set_head(latest);
                 self.notified = self.notified.max(latest);
+                self.record_unloaded();
             }
             Ok(_) => {}
             // The head stays: the next notification's load reaches the events in between, from
@@ -237,6 +252,17 @@ impl Task {
                 );
             }
         }
+        self.record_unloaded();
+    }
+
+    /// Records the positions the hub owes its streams, from its head up to the last position a
+    /// notification it handled named (PLATFORM-076).
+    fn record_unloaded(&self) {
+        let owed = self.notified.saturating_sub(self.streams.head()).max(0);
+        UNLOADED.set(
+            u64::try_from(owed).unwrap_or_default(),
+            [self.streams.database().into()],
+        );
     }
 
     /// Loads the events after the head, up to `through`, and delivers each to its streams, in

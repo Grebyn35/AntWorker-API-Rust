@@ -4,11 +4,13 @@
 use std::time::Duration;
 
 use http::StatusCode;
-use platform::{events::UserEvent, telemetry::testing, types::UserId};
+use platform::{telemetry::testing, types::UserId};
 use serde_json::json;
 
 use crate::support::{
-    Api, Options, announcements, client,
+    Api, Options,
+    announcements::{self, Note, published::NOTED},
+    client,
     streams::{self, Stream},
     users::{self, SignedIn},
     workspaces,
@@ -20,12 +22,12 @@ const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 /// How often the hub re-checks its streams, by default (PLATFORM-017).
 const RECHECK: Duration = Duration::from_secs(60);
 
-/// The event the tests publish from units of work of their own.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a test declares the event it publishes from its own units of work"
-)]
-const NOTED: UserEvent = UserEvent::new("note.made");
+/// A note labelled `label`.
+fn note(label: &str) -> Note {
+    Note {
+        label: Some(label.to_owned()),
+    }
+}
 
 async fn api() -> Api {
     Api::with(Options::routes(announcements::routes())).await
@@ -283,12 +285,12 @@ async fn platform_071_events_reach_a_stream_and_its_replay_in_the_order_their_un
     // The first unit of work publishes first and commits last.
     let mut first = api.pool().begin(&client()).await.unwrap();
     first
-        .publish_to_user(&NOTED, user, &json!({ "unit": "first" }))
+        .publish_to_user(&NOTED, user, &note("first"))
         .await
         .unwrap();
     let mut second = api.pool().begin(&client()).await.unwrap();
     second
-        .publish_to_user(&NOTED, user, &json!({ "unit": "second" }))
+        .publish_to_user(&NOTED, user, &note("second"))
         .await
         .unwrap();
     second.commit().await.unwrap();
@@ -305,11 +307,11 @@ async fn platform_071_events_reach_a_stream_and_its_replay_in_the_order_their_un
     for frames in [&live, &replayed] {
         let units: Vec<_> = frames
             .iter()
-            .map(|frame| frame.payload()["unit"].clone())
+            .map(|frame| frame.payload()["label"].clone())
             .collect();
         assert_eq!(units, [json!("second"), json!("first")]);
     }
-    assert_eq!(rest.payload()["unit"], "first");
+    assert_eq!(rest.payload()["label"], "first");
 }
 
 #[tokio::test]
@@ -535,7 +537,7 @@ async fn platform_073_after_a_lost_connection_every_stream_closes_and_replays_wh
     let unavailable = lose_the_connection(
         &api,
         &unnotified(&format!(
-            "('user', '{}', NULL, 'note.made', NULL, '{{\"while\": \"away\"}}')",
+            "('user', '{}', NULL, 'note.made', NULL, '{{\"label\": \"away\"}}')",
             ada.user_id
         )),
     )
@@ -553,7 +555,7 @@ async fn platform_073_after_a_lost_connection_every_stream_closes_and_replays_wh
     assert!(before.is_empty(), "{before:?}");
     assert_eq!(reason, "interrupted");
     assert_eq!(ready.status, StatusCode::OK);
-    assert_eq!(replayed.payload(), &json!({ "while": "away" }));
+    assert_eq!(replayed.payload(), &json!({ "label": "away" }));
 }
 
 #[tokio::test]
@@ -930,7 +932,7 @@ async fn platform_073_a_load_that_fails_is_tried_again_at_the_next_check() {
     api.database()
         .owner_executes(&format!(
             "WITH published AS (INSERT INTO events (scope, user_id, type, payload, position, \
-             xact, snapshot, created_at) VALUES ('user', '{}', 'note.made', '{{\"n\": 1}}', \
+             xact, snapshot, created_at) VALUES ('user', '{}', 'note.made', '{{\"label\": \"loaded\"}}', \
              nextval('events_position_seq'), pg_current_xact_id(), pg_current_snapshot(), \
              clock_timestamp()) RETURNING position) \
              SELECT pg_notify('events', position::text) FROM published",
@@ -944,7 +946,50 @@ async fn platform_073_a_load_that_fails_is_tried_again_at_the_next_check() {
     clock.advance(CHECK_INTERVAL);
     let delivered = stream.event().await;
 
-    assert_eq!(delivered.payload(), &json!({ "n": 1 }));
+    assert_eq!(delivered.payload(), &json!({ "label": "loaded" }));
+}
+
+#[tokio::test]
+async fn platform_076_the_hub_records_the_events_it_owes_while_its_loads_fail() {
+    let api = api().await;
+    let clock = api.clock();
+    let name = api.database().name().to_owned();
+    let unloaded = || {
+        testing::recorded("platform.events_unloaded")
+            .into_iter()
+            .find(|point| point.labels.get("db.namespace") == Some(&name))
+            .map(|point| point.value)
+    };
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = opened(&api, &ada).await;
+    clock.sleeping(CHECK_INTERVAL).await;
+
+    // Every pooled connection is held, so the hub's load waits out the pool and fails.
+    let mut held = Vec::new();
+    for _ in 0..crate::support::TestDatabase::POOL_SIZE {
+        held.push(api.pool().begin(&client()).await.unwrap());
+    }
+    api.database()
+        .owner_executes(&format!(
+            "WITH published AS (INSERT INTO events (scope, user_id, type, payload, position, \
+             xact, snapshot, created_at) VALUES ('user', '{}', 'note.made', '{{}}', \
+             nextval('events_position_seq'), pg_current_xact_id(), pg_current_snapshot(), \
+             clock_timestamp()) RETURNING position) \
+             SELECT pg_notify('events', position::text) FROM published",
+            ada.user_id
+        ))
+        .await;
+    while unloaded() != Some(1.0) {
+        tokio::task::yield_now().await;
+    }
+    let owed = unloaded();
+    drop(held);
+    clock.advance(CHECK_INTERVAL);
+    stream.event().await;
+    let settled = unloaded();
+
+    assert_eq!(owed, Some(1.0));
+    assert_eq!(settled, Some(0.0));
 }
 
 /// Whether a hub has logged `message`.

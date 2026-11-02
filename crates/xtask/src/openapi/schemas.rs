@@ -167,6 +167,11 @@ fn formats(
                     format!("{owner}: the timestamp {name} isn't format: date-time (API-11)"),
                 ));
             }
+            // A frame's type is an event's name, which API-19 shapes, not a closed set of
+            // API-11; `events` checks it.
+            if name == "event" && !schema["x-event"].is_null() {
+                continue;
+            }
             formats(
                 document,
                 property,
@@ -176,7 +181,7 @@ fn formats(
             );
         }
     }
-    for key in ["items", "additionalProperties"] {
+    for key in ["items", "additionalProperties", "contentSchema"] {
         if schema[key].is_object() {
             formats(document, &schema[key], owner, needle, problems);
         }

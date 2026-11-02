@@ -92,6 +92,17 @@
         ],
         "type": "object"
       },
+      "CloseReason": {
+        "description": "Why the hub closed a stream, which `stream.closed` names (REALTIME-005).",
+        "enum": [
+          "session_ended",
+          "access_changed",
+          "lagging",
+          "shutdown",
+          "interrupted"
+        ],
+        "type": "string"
+      },
       "CreateRequest": {
         "additionalProperties": false,
         "description": "What creating a workspace takes (WORKSPACES-001).",
@@ -187,6 +198,29 @@
         ],
         "type": "object"
       },
+      "Frame": {
+        "description": "A frame of the stream of server-sent events, one schema for each type, which its `event` names (REALTIME-008).",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/InvitationReceivedFrame"
+          },
+          {
+            "$ref": "#/components/schemas/MemberJoinedFrame"
+          },
+          {
+            "$ref": "#/components/schemas/MemberRemovedFrame"
+          },
+          {
+            "$ref": "#/components/schemas/MembershipCreatedFrame"
+          },
+          {
+            "$ref": "#/components/schemas/StreamClosedFrame"
+          },
+          {
+            "$ref": "#/components/schemas/StreamOpenedFrame"
+          }
+        ]
+      },
       "Invitation": {
         "description": "An invitation to a workspace (INVITATIONS-001). `Deserialize` only reads back a stored result\nthat an idempotency key replays (PLATFORM-018).",
         "properties": {
@@ -230,6 +264,72 @@
           "expires_at"
         ],
         "type": "object"
+      },
+      "InvitationReceived": {
+        "description": "The payload of `invitation.received`: an invitation for the user's address.",
+        "properties": {
+          "invitation_id": {
+            "description": "The invitation, which the user may accept.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId",
+            "description": "The workspace it invites them to."
+          }
+        },
+        "required": [
+          "invitation_id",
+          "workspace_id"
+        ],
+        "type": "object"
+      },
+      "InvitationReceivedFrame": {
+        "description": "`invitation.received`, a user event: it reaches its user's streams.",
+        "properties": {
+          "data": {
+            "contentMediaType": "application/json",
+            "contentSchema": {
+              "properties": {
+                "data": {
+                  "$ref": "#/components/schemas/InvitationReceived"
+                },
+                "trace_id": {
+                  "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "data",
+                "trace_id"
+              ],
+              "type": "object"
+            },
+            "description": "JSON: the payload, and the trace ID of what sent it (REALTIME-002).",
+            "type": "string"
+          },
+          "event": {
+            "enum": [
+              "invitation.received"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "description": "What a client that reconnects names in `Last-Event-ID` (REALTIME-004).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "data",
+          "id"
+        ],
+        "type": "object",
+        "x-event": "invitation.received"
       },
       "InviteRequest": {
         "additionalProperties": false,
@@ -445,6 +545,201 @@
           "joined_at"
         ],
         "type": "object"
+      },
+      "MemberJoined": {
+        "description": "The payload of `member.joined`: someone joined the workspace by accepting an invitation.",
+        "properties": {
+          "user_id": {
+            "$ref": "#/components/schemas/UserId",
+            "description": "The member who joined."
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId",
+            "description": "The workspace."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "user_id"
+        ],
+        "type": "object"
+      },
+      "MemberJoinedFrame": {
+        "description": "`member.joined`, a workspace event: it reaches the streams of the workspace's members who hold `members.read` (SEC-17).",
+        "properties": {
+          "data": {
+            "contentMediaType": "application/json",
+            "contentSchema": {
+              "properties": {
+                "data": {
+                  "$ref": "#/components/schemas/MemberJoined"
+                },
+                "trace_id": {
+                  "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "data",
+                "trace_id"
+              ],
+              "type": "object"
+            },
+            "description": "JSON: the payload, and the trace ID of what sent it (REALTIME-002).",
+            "type": "string"
+          },
+          "event": {
+            "enum": [
+              "member.joined"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "description": "What a client that reconnects names in `Last-Event-ID` (REALTIME-004).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "data",
+          "id"
+        ],
+        "type": "object",
+        "x-event": "member.joined"
+      },
+      "MemberRemoved": {
+        "description": "The payload of `member.removed`: a member was removed from the workspace.",
+        "properties": {
+          "user_id": {
+            "$ref": "#/components/schemas/UserId",
+            "description": "The member who was removed."
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId",
+            "description": "The workspace."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "user_id"
+        ],
+        "type": "object"
+      },
+      "MemberRemovedFrame": {
+        "description": "`member.removed`, a workspace event: it reaches the streams of the workspace's members who hold `members.read` (SEC-17).",
+        "properties": {
+          "data": {
+            "contentMediaType": "application/json",
+            "contentSchema": {
+              "properties": {
+                "data": {
+                  "$ref": "#/components/schemas/MemberRemoved"
+                },
+                "trace_id": {
+                  "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "data",
+                "trace_id"
+              ],
+              "type": "object"
+            },
+            "description": "JSON: the payload, and the trace ID of what sent it (REALTIME-002).",
+            "type": "string"
+          },
+          "event": {
+            "enum": [
+              "member.removed"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "description": "What a client that reconnects names in `Last-Event-ID` (REALTIME-004).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "data",
+          "id"
+        ],
+        "type": "object",
+        "x-event": "member.removed"
+      },
+      "MembershipCreated": {
+        "description": "The payload of `membership.created`: the user joined a workspace.",
+        "properties": {
+          "session_id": {
+            "$ref": "#/components/schemas/SessionId",
+            "description": "The session whose request added them, so that device can tell it already knows."
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId",
+            "description": "The workspace they joined."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "session_id"
+        ],
+        "type": "object"
+      },
+      "MembershipCreatedFrame": {
+        "description": "`membership.created`, a user event: it reaches its user's streams.",
+        "properties": {
+          "data": {
+            "contentMediaType": "application/json",
+            "contentSchema": {
+              "properties": {
+                "data": {
+                  "$ref": "#/components/schemas/MembershipCreated"
+                },
+                "trace_id": {
+                  "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "data",
+                "trace_id"
+              ],
+              "type": "object"
+            },
+            "description": "JSON: the payload, and the trace ID of what sent it (REALTIME-002).",
+            "type": "string"
+          },
+          "event": {
+            "enum": [
+              "membership.created"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "description": "What a client that reconnects names in `Last-Event-ID` (REALTIME-004).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "data",
+          "id"
+        ],
+        "type": "object",
+        "x-event": "membership.created"
       },
       "Password": {
         "format": "password",
@@ -767,6 +1062,119 @@
           "password"
         ],
         "type": "object"
+      },
+      "StreamClosed": {
+        "description": "The payload of `stream.closed`.",
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/CloseReason",
+            "description": "Why the stream closed."
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
+      "StreamClosedFrame": {
+        "description": "`stream.closed`, the stream's last frame, which says why it closed; the client reconnects (REALTIME-005).",
+        "properties": {
+          "data": {
+            "contentMediaType": "application/json",
+            "contentSchema": {
+              "properties": {
+                "data": {
+                  "$ref": "#/components/schemas/StreamClosed"
+                },
+                "trace_id": {
+                  "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "data",
+                "trace_id"
+              ],
+              "type": "object"
+            },
+            "description": "JSON: the payload, and the trace ID of what sent it (REALTIME-002).",
+            "type": "string"
+          },
+          "event": {
+            "enum": [
+              "stream.closed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "data"
+        ],
+        "type": "object",
+        "x-event": "stream.closed"
+      },
+      "StreamOpened": {
+        "description": "The payload of `stream.opened`.",
+        "properties": {
+          "truncated": {
+            "description": "Whether the replay was truncated, so the client reloads its state (REALTIME-004).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "StreamOpenedFrame": {
+        "description": "`stream.opened`, the stream's first frame. Its `id`, when it has one, is where a reconnect resumes a stream that started with what commits next (REALTIME-001, REALTIME-004).",
+        "properties": {
+          "data": {
+            "contentMediaType": "application/json",
+            "contentSchema": {
+              "properties": {
+                "data": {
+                  "$ref": "#/components/schemas/StreamOpened"
+                },
+                "trace_id": {
+                  "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "data",
+                "trace_id"
+              ],
+              "type": "object"
+            },
+            "description": "JSON: the payload, and the trace ID of what sent it (REALTIME-002).",
+            "type": "string"
+          },
+          "event": {
+            "enum": [
+              "stream.opened"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "description": "What a client that reconnects names in `Last-Event-ID` (REALTIME-004).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "data"
+        ],
+        "type": "object",
+        "x-event": "stream.opened"
       },
       "Timestamp": {
         "format": "date-time",
@@ -2262,10 +2670,13 @@
               "text/event-stream": {
                 "schema": {
                   "type": "string"
+                },
+                "x-itemSchema": {
+                  "$ref": "#/components/schemas/Frame"
                 }
               }
             },
-            "description": "Server-sent events. The first is `stream.opened`, whose payload is `{\"truncated\": <bool>}`: when true, the client reloads its state. An event's `id` is its ID, its `event` its type, and its `data` `{\"data\": <payload>, \"trace_id\": <string or null>}`. `stream.closed`, whose payload is `{\"reason\": <reason>}`, ends the stream. A comment comes at every heartbeat.",
+            "description": "Server-sent events, each a frame that `Frame`, the event catalog, describes, which `x-itemSchema` names. The first is `stream.opened`, and `stream.closed` ends the stream. A comment comes at every heartbeat.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",

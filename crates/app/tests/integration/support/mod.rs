@@ -195,8 +195,11 @@ impl TestDatabase {
 
     fn api_command<V: AsRef<OsStr>>(&self, args: &[&str], env: &[(&str, V)]) -> Command {
         let mut command = Command::new(BINARY);
+        // The development origins that `.env` lists are plain `http`, which every environment
+        // but development refuses (PLATFORM-052), so a test names the origins it needs.
         command
             .args(args)
+            .env("CORS_ALLOWED_ORIGINS", "")
             .envs(env.iter().map(|(name, value)| (name, value)));
         for setting in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
             let mut url =

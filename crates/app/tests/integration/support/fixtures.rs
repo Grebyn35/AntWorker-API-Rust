@@ -106,7 +106,11 @@ struct Keyed {
     clippy::disallowed_methods,
     reason = "a test-only route declares its event where it publishes it"
 )]
-const KEYED_RAN: UserEvent = UserEvent::new("keyed.ran");
+const KEYED_RAN: UserEvent<Ran> = UserEvent::new("keyed.ran");
+
+/// The payload of `keyed.ran`, which holds nothing.
+#[derive(Serialize, ToSchema)]
+struct Ran {}
 
 /// A keyed operation, as a module's keyed route runs one: it claims the key, publishes an event
 /// to its caller, and commits with its result (PLATFORM-015, PLATFORM-018).
@@ -132,7 +136,7 @@ async fn keyed(
     if let Claimed::Replay(keyed) = uow.claim(principal.user_id(), request.key.as_ref()).await? {
         return Ok(Json(keyed));
     }
-    uow.publish_to_user(&KEYED_RAN, principal.user_id(), &json!({}))
+    uow.publish_to_user(&KEYED_RAN, principal.user_id(), &Ran {})
         .await
         .map_err(PlatformError::from)?;
     if request.body.fail {
@@ -244,6 +248,7 @@ pub fn routes(held: Arc<Gate>) -> Routes {
         .merge(Routes::new().public(routes!(gate), &[]).with_state(held))
         .merge(
             Routes::new()
+                .events(&[&KEYED_RAN])
                 .user(routes!(keyed), &[])
                 .with_state(Arc::new(AtomicU64::new(0))),
         )

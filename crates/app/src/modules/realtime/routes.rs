@@ -16,11 +16,13 @@ use platform::{
     authn::Principal,
     clock::{SharedClock, Sleep},
     errors::Problem,
-    events::{Delivery, Hub, Subscription},
+    events::{Closed, Delivery, FrameId, Hub, StreamFrame, Subscription},
     http::Routes,
     telemetry,
 };
+use serde::Serialize;
 use serde_json::{Value, json};
+use utoipa::ToSchema;
 use utoipa_axum::routes;
 
 use super::error::RealtimeError;
@@ -39,12 +41,44 @@ pub(crate) struct Realtime {
     pub(crate) heartbeat: Duration,
 }
 
-/// The module's routes, which take the hub.
+/// The stream's first frame (REALTIME-001).
+const STREAM_OPENED: StreamFrame<StreamOpened> = StreamFrame::new(
+    "stream.opened",
+    FrameId::Sometimes,
+    "`stream.opened`, the stream's first frame. Its `id`, when it has one, is where a reconnect \
+     resumes a stream that started with what commits next (REALTIME-001, REALTIME-004).",
+);
+
+/// The stream's last frame (REALTIME-005).
+const STREAM_CLOSED: StreamFrame<StreamClosed> = StreamFrame::new(
+    "stream.closed",
+    FrameId::Never,
+    "`stream.closed`, the stream's last frame, which says why it closed; the client reconnects \
+     (REALTIME-005).",
+);
+
+/// The payload of `stream.opened`.
+#[derive(Serialize, ToSchema)]
+struct StreamOpened {
+    /// Whether the replay was truncated, so the client reloads its state (REALTIME-004).
+    truncated: bool,
+}
+
+/// The payload of `stream.closed`.
+#[derive(Serialize, ToSchema)]
+struct StreamClosed {
+    /// Why the stream closed.
+    reason: Closed,
+}
+
+/// The module's routes, which take the hub, and the stream's own frames.
 pub(crate) fn routes() -> Routes<Realtime> {
-    Routes::new().user(
-        routes!(events),
-        &[&RealtimeError::TooManyStreams, &RealtimeError::Unavailable],
-    )
+    Routes::new()
+        .events(&[&STREAM_OPENED, &STREAM_CLOSED])
+        .user(
+            routes!(events),
+            &[&RealtimeError::TooManyStreams, &RealtimeError::Unavailable],
+        )
 }
 
 /// Opens the caller's stream of events: their own, and those of their workspaces that their role
@@ -60,12 +94,9 @@ pub(crate) fn routes() -> Routes<Realtime> {
     ),
     responses(
         (status = 200, content_type = "text/event-stream", body = String,
-            description = "Server-sent events. The first is `stream.opened`, whose payload is \
-            `{\"truncated\": <bool>}`: when true, the client reloads its state. An event's `id` \
-            is its ID, its `event` its type, and its `data` \
-            `{\"data\": <payload>, \"trace_id\": <string or null>}`. `stream.closed`, whose \
-            payload is `{\"reason\": <reason>}`, ends the stream. A comment comes at every \
-            heartbeat."),
+            description = "Server-sent events, each a frame that `Frame`, the event catalog, \
+            describes, which `x-itemSchema` names. The first is `stream.opened`, and \
+            `stream.closed` ends the stream. A comment comes at every heartbeat."),
     )
 )]
 async fn events(
@@ -152,8 +183,8 @@ impl Frames {
                 .event(event.name())
                 .data(envelope(event.payload().clone(), event.trace_id())),
             Delivery::Opened { truncated, resume } => {
-                let frame = Frame::default().event("stream.opened").data(envelope(
-                    json!({ "truncated": truncated }),
+                let frame = Frame::default().event(STREAM_OPENED.name()).data(envelope(
+                    json!(StreamOpened { truncated }),
                     Some(&self.trace_id),
                 ));
                 match resume {
@@ -163,8 +194,8 @@ impl Frames {
             }
             Delivery::Closed(closed) => {
                 self.ended = true;
-                Frame::default().event("stream.closed").data(envelope(
-                    json!({ "reason": closed.reason() }),
+                Frame::default().event(STREAM_CLOSED.name()).data(envelope(
+                    json!(StreamClosed { reason: closed }),
                     Some(&self.trace_id),
                 ))
             }

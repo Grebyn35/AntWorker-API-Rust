@@ -8,15 +8,29 @@ use axum::http::Method;
 use utoipa::{
     PartialSchema, ToSchema,
     openapi::{
-        AllOfBuilder, Components, Content, ObjectBuilder, OpenApi, Ref, RefOr, Response, Schema,
-        Type,
+        AllOfBuilder, Components, Content, ObjectBuilder, OneOfBuilder, OpenApi, Ref, RefOr,
+        Response, Schema, Type,
+        extensions::Extensions,
         header::HeaderBuilder,
         path::{Operation, ParameterIn, PathItem, Paths},
     },
 };
 
 use super::Access;
-use crate::errors::{ErrorCode, ProblemBody, RequestError};
+use crate::{
+    errors::{ErrorCode, ProblemBody, RequestError},
+    events::catalog::EVENT_EXTENSION,
+};
+
+/// The component of the event catalog, which holds every frame type (REALTIME-008).
+const FRAME: &str = "Frame";
+
+/// The media type of the stream of server-sent events.
+const EVENT_STREAM: &str = "text/event-stream";
+
+/// The extension of the stream's media type that names the schema of each of its frames, as
+/// OpenAPI 3.2's `itemSchema` does, which OpenAPI 3.1 lacks (REALTIME-008).
+const ITEM_SCHEMA: &str = "x-itemSchema";
 
 /// The query parameters each method of a path accepts (API-09).
 pub(super) type QueryNames = HashMap<Method, HashSet<String>>;
@@ -192,6 +206,56 @@ pub(super) fn fallbacks(document: &mut OpenApi) {
         components
             .responses
             .insert(name.to_owned(), RefOr::T(response));
+    }
+}
+
+/// Builds the event catalog `Frame`, a `oneOf` of every frame type's schema that `document`'s
+/// components mark, in the order of their names, and names it in each `text/event-stream` media
+/// type of `document`'s responses (REALTIME-008).
+pub(super) fn catalog(document: &mut OpenApi) {
+    let components = document.components.get_or_insert_default();
+    let mut frames: Vec<(String, String)> = components
+        .schemas
+        .iter()
+        .filter_map(|(name, schema)| match schema {
+            RefOr::T(Schema::Object(object)) => object
+                .extensions
+                .as_ref()?
+                .get(EVENT_EXTENSION)?
+                .as_str()
+                .map(|event| (event.to_owned(), name.clone())),
+            _ => None,
+        })
+        .collect();
+    if frames.is_empty() {
+        return;
+    }
+    frames.sort();
+    let mut one_of = OneOfBuilder::new().description(Some(
+        "A frame of the stream of server-sent events, one schema for each type, which its \
+         `event` names (REALTIME-008).",
+    ));
+    for (_, component) in &frames {
+        one_of = one_of.item(Ref::from_schema_name(component.as_str()));
+    }
+    components
+        .schemas
+        .insert(FRAME.to_owned(), RefOr::T(Schema::OneOf(one_of.build())));
+    let reference = serde_json::json!({ "$ref": format!("#/components/schemas/{FRAME}") });
+    for item in document.paths.paths.values_mut() {
+        for (_, operation) in operations(item) {
+            for response in operation.responses.responses.values_mut() {
+                let RefOr::T(response) = response else {
+                    continue;
+                };
+                if let Some(RefOr::T(content)) = response.content.get_mut(EVENT_STREAM) {
+                    content
+                        .extensions
+                        .get_or_insert_with(Extensions::default)
+                        .insert(ITEM_SCHEMA.to_owned(), reference.clone());
+                }
+            }
+        }
     }
 }
 

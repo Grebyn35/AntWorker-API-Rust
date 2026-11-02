@@ -7,6 +7,7 @@ mod client;
 mod docs;
 mod limits;
 pub(crate) mod query;
+mod reference;
 mod stack;
 
 use std::sync::Arc;
@@ -25,6 +26,7 @@ use crate::{
     clock::SharedClock,
     config::RateLimitConfig,
     errors::{ErrorCode, Problem, RequestError},
+    events::Catalogued,
     lifecycle::{self, Readiness},
     rate_limit::{Bucket, RateLimiter},
     telemetry::Service,
@@ -103,6 +105,21 @@ where
         self.add(Access::Workspace(P::NAME), route, errors)
     }
 
+    /// Registers `events`, which the module's routes publish or send, in the event catalog of
+    /// the routes' document (REALTIME-008).
+    #[must_use]
+    pub fn events(mut self, events: &[&dyn Catalogued]) -> Self {
+        let components = self
+            .router
+            .get_openapi_mut()
+            .components
+            .get_or_insert_default();
+        for event in events {
+            event.entry().document(components);
+        }
+        self
+    }
+
     /// The routes, with the state their handlers extract.
     pub fn with_state<S2>(self, state: S) -> Routes<S2> {
         Routes {
@@ -156,6 +173,20 @@ where
     }
 }
 
+/// The OpenAPI document of `parts`, the documents of the modules' routes, merged, with the event
+/// catalog `Frame` built from every frame type they register, which each stream's media type names
+/// (REALTIME-008). Building it again from a document it built, merged with more, builds the
+/// catalog of all of them.
+pub fn document(parts: impl IntoIterator<Item = OpenApi>) -> OpenApi {
+    let mut parts = parts.into_iter();
+    let mut document = parts.next().unwrap_or_default();
+    for part in parts {
+        document.merge(part);
+    }
+    docs::catalog(&mut document);
+    document
+}
+
 /// What the request pipeline takes from the deployment.
 pub struct Pipeline {
     /// The clock the request log measures durations with.
@@ -176,6 +207,9 @@ pub struct Pipeline {
     pub verifier: Arc<dyn SessionVerifier>,
     /// What authorizes workspace routes, with the policy `access` implements (ARCH-13).
     pub authorizer: Authorizer,
+    /// The OpenAPI document, as JSON, which the API reference shows: only in development
+    /// (PLATFORM-075).
+    pub reference: Option<Arc<str>>,
 }
 
 /// The bucket of each client IP's requests (PLATFORM-048).
@@ -193,6 +227,10 @@ const USER_BUCKET: &str = "user";
 )]
 pub fn app(routes: Routes, pipeline: Pipeline) -> Router {
     let (api, _) = routes.router.split_for_parts();
+    let api = match pipeline.reference {
+        Some(document) => reference::mount(api, document),
+        None => api,
+    };
     let api = api
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed);

@@ -16,7 +16,7 @@ just ci           # runs every check CI runs, building the image too
 just release      # shows the versions that can come next; `just release 1.0.0` releases main as 1.0.0 (docs/operations/release.md)
 ```
 
-`just seed` fills a database once. To fill it again, recreate the database with the commands that [CLAUDE.md](CLAUDE.md#commands) gives for editing a migration.
+While `just dev` runs, http://127.0.0.1:8080/docs shows the API reference of the running code, from which a browser can call the API, signed in as an account that `just seed` created, and http://127.0.0.1:8025 shows every email the API sent. `just seed` fills a database once. To fill it again, recreate the database with the commands that [CLAUDE.md](CLAUDE.md#commands) gives for editing a migration.
 
 ## Documentation
 
