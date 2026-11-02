@@ -19,8 +19,8 @@ use crate::{
 /// The list of the optional parts and of `check-removable`'s runs, from the repository root.
 const LIST: &str = "crates/xtask/parts.yaml";
 
-/// The documents that only the migration has, which describe the old API and its progress: the
-/// migration's close deletes them, so a removal neither edits them nor reads them (ARCH-07).
+/// The migration workspace (DOC-04), which the migration's close deletes, so a removal neither
+/// edits it nor reads it (ARCH-07).
 const MIGRATION: [&str; 2] = ["docs/inventory/", "docs/MIGRATION.md"];
 
 /// An optional part, as `parts.yaml` lists it.
@@ -213,8 +213,9 @@ fn leftovers(repo: &Repo, removed: &[&Part]) -> Vec<Finding> {
 }
 
 /// Removes the parts named `names` from the repository (ARCH-07): it deletes the files they own
-/// whole and the lines their markers mark, writes `openapi.json` and the metric catalog again,
-/// formats the code, and fails while a file it kept still names one of them.
+/// whole and the lines their markers mark, then the cached queries that no kept code holds,
+/// updates `Cargo.lock`, writes `openapi.json` and the metric catalog again, formats the code, and
+/// fails while a file it kept still names one of them.
 pub fn remove(names: &[String]) -> ExitCode {
     let repo = match Repo::load() {
         Ok(repo) => repo,

@@ -2,10 +2,9 @@
 #
 # Each part names the files it owns whole: files, or directories with every file under them. A
 # module part also names its module, whose migrations, those named
-# `<timestamp>_<module>_<description>.sql`, and the entries of the query cache whose queries name
-# a table they create, are its own. Its words are what no file may still hold once it is removed,
-# compared without regard to case. A part's entry carries its marker, so removing it removes the
-# entry too.
+# `<timestamp>_<module>_<description>.sql`, are its own. Its words are what no file may still hold
+# once it is removed, compared without regard to case. A part's entry carries its marker, so
+# removing it removes the entry too.
 parts:
   # part: invitations
   - name: invitations

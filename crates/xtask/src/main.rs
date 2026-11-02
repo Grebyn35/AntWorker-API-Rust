@@ -134,8 +134,9 @@ enum Command {
     #[command(name = "check-tenancy")]
     Tenancy,
     /// Removes the optional parts named `parts` (ARCH-07): it deletes the files each owns whole
-    /// and the lines its markers mark, writes `openapi.json` and the metric catalog again, and
-    /// formats the code, then fails while a file it kept still names one of them.
+    /// and the lines its markers mark, then the cached queries that no kept code holds, updates
+    /// `Cargo.lock`, writes `openapi.json` and the metric catalog again, and formats the code,
+    /// then fails while a file it kept still names one of them.
     Remove {
         /// The parts, such as those a workspace shape doesn't keep (architecture §5).
         #[arg(required = true)]

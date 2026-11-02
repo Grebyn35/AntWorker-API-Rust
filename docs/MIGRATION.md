@@ -156,6 +156,9 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of d678a43..364d2e9 | CODE-14: whether its unused public items include those that only tests call, such as `Principal::job_scope`, `JobContext`'s `id`, `attempt` and `scope`, and `JobScope::user` and `workspace`, which the platform spec names | 3 |
 | Conformance review of 317909b..259b888 | CODE-11: a check that fails a dependency that no code of its crate uses, such as `cargo-machete`, which would also catch a dependency that only a removed part used and that carries no marker | 3 |
 | Conformance review of 317909b..259b888 | DOC-13: `check-docs` fails a link whose anchor names a heading whose text another heading of the same document shares, such as a spec's Behaviors and Design subsections of one area | 3 |
+| Conformance review of 317909b..34b65f5 | DATA-10 and the platform spec's Jobs: a release that renames or retires a queued job's kind keeps a handler of the old kind for one release, or its deploy moves the old kind's waiting rows, since a waiting job of a kind no replica holds never runs, never dead-letters, and holds `platform.job_delay` up | 3 |
+| Conformance review of 317909b..34b65f5 | DOC-13: `check-docs` also resolves a behavior's test prefix that a comment or document cites, such as `invitations_001`, as it resolves the ID in capitals | 3 |
+| Conformance review of 317909b..34b65f5 | ARCH-07: `just remove` or `check-docs` fails on a spec section that a removal leaves empty, as removing `invitations` leaves `workspaces`'s Interface, where a spec otherwise writes "None." | 3 |
 
 ## Conformance reviews
 

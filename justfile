@@ -359,9 +359,10 @@ check-removable *runs:
     {{ xtask }} check-removable {{ runs }}
 
 # Removes the optional parts named, as a fork does before its first release to choose its
-# workspace shape (ARCH-07, architecture.md §5): it deletes the files and the marked
-# lines of each, writes openapi.json and the metric catalog again, and formats the code, then fails
-# while a kept line still names one. Commit what it leaves once `just ci` passes.
+# workspace shape (ARCH-07, architecture.md §5): it deletes the files and the marked lines of
+# each, then the cached queries that no kept code holds, updates Cargo.lock, writes openapi.json
+# and the metric catalog again, and formats the code, then fails while a kept line still names
+# one. Commit what it leaves once `just ci` passes.
 [doc("Removes optional parts, to choose a workspace shape")]
 [group('fork')]
 remove +parts:

@@ -52,7 +52,7 @@ An optional part consists of everything that exists only for it: its code and it
 3. It deletes each entry of the query cache (DATA-20) whose query no code it kept holds, updates `Cargo.lock` to the dependencies left, writes `openapi.json` and the metric catalog again, and formats the code.
 4. It fails while any word of the part, which `xtask` lists with its files, appears in a file it kept, naming each line.
 
-Steps 2 and 4, and the Check's reading of markers, leave out `docs/inventory/` and `docs/MIGRATION.md`, which describe the old API and the migration's progress, and which the migration's close deletes.
+Steps 2 and 4, and the Check's reading of markers, leave out the migration workspace (DOC-04), which the migration's close deletes.
 
 So a line that names an optional part either exists only for it, and carries its marker, or is written so that it doesn't name it, with the part's words in a line of their own, such as a sentence of a paragraph on its own source line. A fork removes optional parts before its first release: its history starts fresh (D29), so no release of its own contains the migrations it deletes (DATA-09, DATA-10). Every other module is a core module. No Cargo feature flag selects modules or optional parts.
 - Why: a fork that doesn't need a feature removes it by deleting it, and the workspace parts it keeps give its product its shape (D29, D39).
