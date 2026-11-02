@@ -17,7 +17,7 @@ The API is built from exactly two crates, `platform` and `app`, and `platform` h
 ## Modules
 
 ### ARCH-03 One directory per module, with fixed file names
-Each feature module is a directory under `crates/app/src/modules/`. Its files come only from this set, and only those it needs: `mod.rs`, `routes.rs`, `service.rs`, `repo.rs`, `model.rs`, `error.rs`, `events.rs`, `audit.rs`, `jobs.rs`, `metrics.rs`, `personal_data.rs`. The two module-specific entries listed in [architecture.md §5](../architecture.md#inside-a-module) are also allowed: `access/permissions.rs` and `auth/providers/`. A file that outgrows the limit in CODE-07 becomes a directory with the same name.
+Each feature module is a directory under `crates/app/src/modules/`. Its files come only from this set, and only those it needs: `mod.rs`, `routes.rs`, `service.rs`, `repo.rs`, `model.rs`, `error.rs`, `events.rs`, `audit.rs`, `jobs.rs`, `emails.rs`, `metrics.rs`, `personal_data.rs`. The two module-specific entries listed in [architecture.md §5](../architecture.md#inside-a-module) are also allowed: `access/permissions.rs` and `auth/providers/`. A module's email templates are in a directory named after it under `crates/app/templates/`. A file that outgrows the limit in CODE-07 becomes a directory with the same name.
 - Why: every module reads the same way, so a developer who knows one knows all of them (D22, D29).
 - Check: `ci: check-layout`.
 
@@ -40,11 +40,21 @@ SQL in a module references only the tables that module owns. Data owned by anoth
 These parts are optional:
 - Each OAuth provider is one file in `auth/providers/` plus one line in that directory's registry.
 - The `client_telemetry` module is registered only in `composition.rs`.
-- Each part that gives a product its workspace shape ([architecture.md §5](../architecture.md#workspace-shapes)): users creating workspaces through `POST /v1/workspaces`, the setup subcommand, the `superadmins` module with its subcommand, and the `invitations` module.
+- Each part that gives a product its workspace shape ([architecture.md §5](../architecture.md#workspace-shapes)):
+  - users creating workspaces through `POST /v1/workspaces`
+  - the setup subcommand
+  - the `superadmins` module, with its subcommand
+  - the `invitations` module <!-- part: invitations -->
 
-An optional part consists of everything that exists only for it: its code and its registration; the items of other modules that only it uses, such as a permission, an email or a function; its tables, each created and changed only by migrations of its own; its tests; its section of the module spec, or for a module its whole spec and its row in the spec index; its settings in `.env.example`; the metrics it declares, with the dashboard panels and alerts that use them; and its routes in `openapi.json`. One command removes a named part by deleting all of these, together with every link and ID that points into them, and leaves a codebase that passes `just ci`. A fork removes optional parts before its first release: its history starts fresh (D29), so no release of its own contains the migrations it deletes (DATA-09, DATA-10). Every other module is a core module. No Cargo feature flag selects modules or optional parts.
+An optional part consists of everything that exists only for it: its code and its registration; the items of other modules that only it uses, such as a permission or a function; its emails, with their templates; its tables, each created and changed only by migrations of its own; its tests; its section of the module spec, or for a module its whole spec and its row in the spec index; its settings in `.env.example` and in the reference deployment's files; the metrics it declares, with the dashboard panels and alerts that use them; its routes in `openapi.json`; and every sentence, list item or table row of a document that exists only for it. `just remove <part>` deletes all of these, together with every link and ID that points into them, and leaves a codebase that passes `just ci`:
+1. It deletes the files that the part owns whole, which `xtask` lists for each part. A module owns its directory, its templates' directory, its test files, its spec, the migrations whose names hold its name (DATA-09), and the entries of the query cache (DATA-20) whose queries name a table those migrations create.
+2. In every other file, it deletes what the part's markers mark. A marker is a comment that reads `part: <part>`, in the file's own syntax: `// part: <part>` in Rust, `# part: <part>` in TOML, YAML, shell scripts, the justfile and the settings files, `<!-- part: <part> -->` in Markdown, and `%% part: <part>` in a Mermaid diagram. A line that holds a marker after other text, as a table row does in its last cell, is deleted. A marker alone on its line opens a block, which the next line that holds only `end part: <part>`, in the same syntax, closes; the block is deleted with both lines.
+3. It writes `openapi.json` and the metric catalog again, and formats the code.
+4. It fails while any word of the part, which `xtask` lists with its files, appears in a file it kept, naming each line, outside `docs/inventory/` and `docs/MIGRATION.md`, which the migration's close deletes.
+
+So a line that names an optional part either exists only for it, and carries its marker, or is written so that it doesn't name it, with the part's words in a line of their own, such as a sentence of a paragraph on its own source line. A fork removes optional parts before its first release: its history starts fresh (D29), so no release of its own contains the migrations it deletes (DATA-09, DATA-10). Every other module is a core module. No Cargo feature flag selects modules or optional parts.
 - Why: a fork that doesn't need a feature removes it by deleting it, and the workspace parts it keeps give its product its shape (D29, D39).
-- Check: `ci: check-removable`, which runs on `main`. On a copy of the repository, it runs the command for each OAuth provider, for `client_telemetry`, and for the parts each workspace shape removes, then runs `just ci` on the copy, as on a fork before its first release. No run removes every part that creates workspaces, since every shape keeps one.
+- Check: `ci: check-removable`, which runs on `main`. For each OAuth provider, for `client_telemetry`, and for each workspace shape, it copies the repository, runs `just remove` on the copy for the parts the run removes, then runs `just checks` on the copy, as on a fork before its first release. No run removes every part that creates workspaces, since every shape keeps one. It fails first on a marker that names no part, or a block that no end marker closes. `review` covers what only the image and the end-to-end tests would show of a copy.
 
 ## Layers
 

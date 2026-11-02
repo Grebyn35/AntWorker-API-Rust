@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`invitations` lets a member invite someone by email, and lets the invitee see and accept the invitation. This spec covers inviting, the invitee's live notification, listing the caller's own invitations, accepting, and the expiry sweep. Listing a workspace's invitations, updating, resending, cancelling and declining arrive with the full module.
+`invitations` lets a member invite someone by email, and lets the invitee see and accept the invitation. This spec covers inviting, with its email, the invitee's live notification, listing the caller's own invitations, accepting, and the expiry sweep. Listing a workspace's invitations, updating, resending, cancelling and declining arrive with the full module.
 
 ## Owns
 
@@ -28,7 +28,7 @@ None.
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
-| INVITATIONS-001 | Inviting an email with a role creates a pending invitation that expires after `INVITATION_EXPIRY_DAYS` (1 to 90, default 7). It answers 201 with `Location` and `{id, workspace_id, email, role, inviter_id, created_at, expires_at}`, records `invitation.created`, and enqueues the invitation email (MAIL-002) in the same unit of work; with email off, the invitation is created all the same (MAIL-004). The role must rank below the inviter's, or the request answers 403 `request.permission_denied` (ACCESS-004). | SEC-08, DATA-27, D1, API-04 | `invitations_001_` |
+| INVITATIONS-001 | Inviting an email with a role creates a pending invitation that expires after `INVITATION_EXPIRY_DAYS` (1 to 90, default 7). It answers 201 with `Location` and `{id, workspace_id, email, role, inviter_id, created_at, expires_at}`, records `invitation.created`, and enqueues the invitation email (INVITATIONS-010) in the same unit of work; with email off, the invitation is created all the same (PLATFORM-067). The role must rank below the inviter's, or the request answers 403 `request.permission_denied` (ACCESS-004). | SEC-08, DATA-27, D1, API-04 | `invitations_001_` |
 | INVITATIONS-002 | Inviting an email that belongs to a member of the workspace answers 409 `invitations.already_member`, and writes nothing. | ERR-03 | `invitations_002_` |
 | INVITATIONS-003 | Inviting an email that already has an invitation to this workspace refreshes it in place: the role, inviter and expiry are replaced, and the ID is kept. It answers 200 with the invitation, as INVITATIONS-001 shows it, records `invitation.updated`, and enqueues the email again. | DATA-27, API-04 | `invitations_003_` |
 | INVITATIONS-004 | `GET /v1/users/me/invitations` lists the caller's unexpired invitations in every workspace, with `{id, workspace_id, workspace_name, inviter_name, role, expires_at}`, the latest created first, in cursor pages. Its `search` matches the workspace's name. It works when the caller belongs to no workspace. | D34, DATA-22, API-06, API-20 | `invitations_004_` |
@@ -37,6 +37,7 @@ None.
 | INVITATIONS-007 | The periodic job `invitations.expire` deletes expired invitations every hour, across all workspaces. | OPS-11, DATA-22 | `invitations_007_` |
 | INVITATIONS-008 | When the invited email belongs to an account, the new or refreshed invitation also publishes the user event `invitation.received` to that user. | D34, SEC-17 | `invitations_008_` |
 | INVITATIONS-009 | Each member may invite `INVITATION_LIMIT` times (1 to 100,000, default 100) per `INVITATION_WINDOW_SECONDS` (1 to 86,400, default 3,600), which bounds the emails a member's invitations send. Beyond that, inviting answers 429 `request.rate_limited` before anything is written. Every request to invite whose fields are valid is counted, whatever it answers. One refused for its fields, or its body, writes and sends nothing, and only PLATFORM-048's user limit counts it. | SEC-12, API-15, PLATFORM-026 | `invitations_009_` |
+| INVITATIONS-010 | The invitation email names the inviter, the workspace, the role and the days until the invitation expires, and tells the invitee to sign in, or create an account, with the address it was sent to. It has a plain-text part, and an HTML part whose values are escaped. | D1, D26, D34 | `invitations_010_` |
 
 ## Design
 
@@ -50,9 +51,19 @@ An invitation is addressed to an email, not to a user. It reaches whichever acco
 2. The service opens the unit of work with the `Authorize<InvitationsCreate>` the handler handed it, which authorizes the caller inside it (platform spec, Unit of work).
 3. `accounts::find_by_email` looks up the invitee's account. If there is one, `access::is_member` decides INVITATIONS-002.
 4. The invitation is inserted or refreshed by `(workspace_id, email)`, expiring `INVITATION_EXPIRY_DAYS` after `now()`.
-5. The audit entry is recorded, and `Mail::send` enqueues the invitation email under the proof's scope, the workspace and the inviter, with the inviter's name from `accounts::profiles`, the workspace's from `workspaces::names`, and the setting's days. If the invitee has an account, `invitation.received` is published to them (INVITATIONS-008). Then the unit of work commits.
+5. The audit entry is recorded, and `Mail::send` enqueues the invitation email (The invitation email) under the proof's scope, the workspace and the inviter, with the inviter's name from `accounts::profiles`, the workspace's from `workspaces::names`, and the setting's days. If the invitee has an account, `invitation.received` is published to them (INVITATIONS-008). Then the unit of work commits.
 
 The created invitation's `Location` is `/v1/workspaces/{workspace_id}/invitations/{id}`, the route that reads one invitation, which arrives with the full module.
+
+### The invitation email
+
+`emails.rs` declares it, with its templates in `crates/app/templates/invitations/` ([platform spec](platform.md#mail)). Its plain-text part reads:
+
+> Subject: Bob Jones invited you to Acme on AntWorker
+>
+> Bob Jones invited you to join the workspace Acme on AntWorker, as a member. The invitation expires in 7 days.
+>
+> To accept it, sign in to AntWorker with alice@example.com, or create an account with that address.
 
 ### Listing the caller's invitations
 

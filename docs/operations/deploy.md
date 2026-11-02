@@ -164,10 +164,11 @@ Object storage for files joins the deployment with the `files` module, which off
 
 ## Email
 
-The API sends email through a provider's mail server, over the Simple Mail Transfer Protocol (SMTP), from background jobs, so no request waits on it ([mail spec](../spec/mail.md)). `EMAIL` has no default: `just server-setup` asks for it, and a deploy refuses to start without it, so no deployment goes without email by accident.
+The API sends email through a provider's mail server, over the Simple Mail Transfer Protocol (SMTP), from background jobs, so no request waits on it ([platform spec](../spec/platform.md#mail)). `EMAIL` has no default: `just server-setup` asks for it, and a deploy refuses to start without it, so no deployment goes without email by accident.
 
-- **`smtp`** sends email, such as each invitation's to its invitee.
-- **`off`** sends none. An invitation is still created, but its invitee hears of it only from whoever invited them, and since no email can prove an address, an address is whatever its account claims: an invitation reaches whichever account holds its address (D67). The capabilities endpoint says so, and clients hide what needs email. Choose it for a trial, a deployment that only your own people reach, or one whose users sign in only through providers that vouch for their addresses.
+- **`smtp`** sends email.
+- **`off`** sends none. Since no email can prove an address, an address is whatever its account claims (D67). The capabilities endpoint says so, and clients hide what needs email. Choose it for a trial, a deployment that only your own people reach, or one whose users sign in only through providers that vouch for their addresses.
+  An invitation is still created, but its invitee hears of it only from whoever invited them, and it reaches whichever account holds its address. <!-- part: invitations -->
 
 Any provider with an SMTP relay works. From it, take:
 
@@ -175,7 +176,7 @@ Any provider with an SMTP relay works. From it, take:
 2. **The SMTP credentials**, which providers often issue apart from their API keys: the user name goes in `SMTP_USERNAME`, and the password in the secret file `smtp_password`, which `just server-setup` asks for once the user name is set.
 3. **A sender on a domain of yours.** The provider asks you to add DNS records to the domain, usually for the Sender Policy Framework (SPF) and DomainKeys Identified Mail (DKIM), and recommends one for Domain-based Message Authentication, Reporting and Conformance (DMARC); until they verify, the provider refuses or holds the email, and receiving servers file what does arrive as spam. Set the sender, with a name, in `EMAIL_FROM`, such as `AntWorker <noreply@example.com>`.
 
-A provider's refusal, such as of a sender it hasn't verified, dead-letters the email at once, and `JobsDeadLettered` fires, whose runbook finds the reply's code ([runbooks.md](runbooks.md#jobsdeadlettered)). A provider that doesn't answer delays the emails while they retry, for as long as the [mail spec](../spec/mail.md#sending) says, before they dead-letter.
+A provider's refusal, such as of a sender it hasn't verified, dead-letters the email at once, and `JobsDeadLettered` fires, whose runbook finds the reply's code ([runbooks.md](runbooks.md#jobsdeadlettered)). A provider that doesn't answer delays the emails while they retry, for as long as the [platform spec](../spec/platform.md#mail) says, before they dead-letter.
 
 ## TLS and proxies
 

@@ -81,7 +81,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 ## JobsDeadLettered
 
-**What it means.** A job failed on each of its attempts, or with a failure that every attempt would meet, and moved to the dead-letter state, where nothing retries it ([platform spec](../spec/platform.md#jobs)). For `mail.send`, an email didn't go out: a mail server that refused it for good, or one that didn't answer for the hours its retries span ([mail spec](../spec/mail.md#sending)).
+**What it means.** A job failed on each of its attempts, or with a failure that every attempt would meet, and moved to the dead-letter state, where nothing retries it ([platform spec](../spec/platform.md#jobs)). For `mail.send`, an email didn't go out: a mail server that refused it for good, or one that didn't answer for the hours its retries span ([platform spec](../spec/platform.md#mail)).
 
 **Look first.** The API's `ERROR` line "job dead-lettered" names the kind and the failure. With the bundled database, this lists the dead letters, without their payloads, which hold personal data such as an email's recipient:
 
@@ -91,7 +91,7 @@ ssh <host> "docker exec deployment-postgres-1 psql --username=postgres --dbname=
 
 With a managed database, run the same query in the provider's console. Add `payload` to the columns only when the failure doesn't say enough: it holds what the job needed, such as an email's recipient.
 
-**What to do.** Fix what the failure names, such as the mail server's settings or credentials with `just server-setup`, or the sender's domain at the provider. A dead letter's remedy is the operation that caused it, such as inviting again, which sends a new email. The sweep deletes dead letters after `JOB_DEAD_LETTER_RETENTION_DAYS`, and the alert clears an hour after the last one.
+**What to do.** Fix what the failure names, such as the mail server's settings or credentials with `just server-setup`, or the sender's domain at the provider. A dead letter's remedy is the operation that caused it, done again, such as the request that sent an email, which sends a new one. The sweep deletes dead letters after `JOB_DEAD_LETTER_RETENTION_DAYS`, and the alert clears an hour after the last one.
 
 ## PeriodicJobFailing
 

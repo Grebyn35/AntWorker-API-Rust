@@ -22,7 +22,7 @@ A spec has these sections, in this order:
 
 ## IDs
 
-A behavior's ID is the module name in capitals plus a three-digit number, such as `AUTH-004` or `INVITATIONS-002`. IDs are never reused. A spec covers the behaviors that have been built or are about to be built, and grows as its module does.
+A behavior's ID is the module name in capitals plus a three-digit number, such as `AUTH-004` or `WORKSPACES-002`. IDs are never reused. A spec covers the behaviors that have been built or are about to be built, and grows as its module does.
 
 ## Specs
 
@@ -34,7 +34,6 @@ A behavior's ID is the module name in capitals plus a three-digit number, such a
 | `auth` | [auth.md](auth.md) |
 | `access` | [access.md](access.md) |
 | `workspaces` | [workspaces.md](workspaces.md) |
-| `invitations` | [invitations.md](invitations.md) |
+| `invitations` | [invitations.md](invitations.md) <!-- part: invitations --> |
 | `audit` | [audit.md](audit.md) |
 | `realtime` | [realtime.md](realtime.md) |
-| `mail` | [mail.md](mail.md) |

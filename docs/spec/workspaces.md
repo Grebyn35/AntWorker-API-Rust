@@ -52,7 +52,8 @@ Tests arrange workspaces and memberships through the `owner` connection (TEST-06
 
 ### The setup subcommand
 
-In one unit of work, the subcommand creates a workspace with the name it is given, and its owner's account from an email and a name, through `accounts::create`. An operator runs it once for each workspace the deployment's organization needs, such as one per subsidiary. The account has no password. The subcommand enqueues an email that tells the owner the account exists, and carries no secret. The owner signs in for the first time through password reset in a client: the reset code sent to their address sets the first password, and verifies the address. Their next step is inviting everyone else (INVITATIONS-001).
+In one unit of work, the subcommand creates a workspace with the name it is given, and its owner's account from an email and a name, through `accounts::create`. An operator runs it once for each workspace the deployment's organization needs, such as one per subsidiary. The account has no password. The subcommand enqueues an email that tells the owner the account exists, and carries no secret. The owner signs in for the first time through password reset in a client: the reset code sent to their address sets the first password, and verifies the address.
+Their next step is inviting everyone else (INVITATIONS-001). <!-- part: invitations -->
 
 When an account with that email already exists, the subcommand makes it the owner if its email is verified, or if it has no identity yet, as an account an earlier run created has until its owner sets a password, so one person can own several workspaces before signing in. Otherwise it refuses, so nobody can take a workspace by registering its owner's address first. It records each workspace it creates in `setup_runs`, a table of its own, with the name the run was given, which a unique constraint allows once: a run with a name an earlier run used, even one at the same time, is refused by that constraint and changes nothing, so running it twice by mistake creates one workspace (ERR-05). Deleting a workspace deletes its row with it, so its name can be given again. It prints nothing secret.
 
@@ -74,6 +75,5 @@ The server stores no active or default workspace for a user (D3). Each request n
 |---|---|
 | Which actor the setup subcommand's audit entries record, since the subcommand runs with no `Principal` (AUDIT-002), and with it, those of the superadmin subcommand ([architecture §9](../architecture.md#9-runtime-topology)) | the spec of the full `workspaces` module |
 | How the read of every workspace that `superadmins` asks of this module, which no tenant filters, meets DATA-22 and `check-tenancy` (D62) | the spec of `superadmins`, in step 5 |
-| How the owner sets their first password in a deployment with email turned off (MAIL-004), where password reset can't send its code | the spec of the full `auth` module, with password reset |
+| How the owner sets their first password in a deployment with email turned off (PLATFORM-067), where password reset can't send its code | the spec of the full `auth` module, with password reset |
 | How the owner signs in to the account the setup subcommand created, in a fork that signs in only through OAuth providers | the spec of the full `auth` module, with identity linking |
-| How the command that removes an optional part (ARCH-07) rewrites prose that names the part, such as the shapes in architecture §5, so a fork's documents describe only its own shape | the command, built with `check-removable` in step 2.3 |

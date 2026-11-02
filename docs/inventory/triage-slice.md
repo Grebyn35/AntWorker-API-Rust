@@ -40,7 +40,7 @@ Verdicts:
 | WS-036 Accept guards | changed | INVITATIONS-006 | Expiry is 422; an invitation for another email is 404 (DATA-22) |
 | WS-038 Accepting while a member overwrites | changed | INVITATIONS-006 | 409, and nothing changes (D16) |
 | WS-040 Invitation expiry | changed | INVITATIONS-007 | Hourly sweep. Managing expired invitations arrives with the full module |
-| MAIL-028 Invitation email | changed | MAIL-002 | Sent by a job with retry (D1); not personalized with the invitee's account name |
+| MAIL-028 Invitation email | changed | INVITATIONS-010 | Sent by a job with retry (D1); not personalized with the invitee's account name |
 | RT-001 Open the event stream | changed | REALTIME-001 | Filtered by permission (SEC-17); closed on loss of access (SEC-06) |
 | RT-003 Event frame | kept | REALTIME-002 | |
 | RT-004 Heartbeats | kept | REALTIME-003 | |
