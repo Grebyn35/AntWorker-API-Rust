@@ -3,8 +3,8 @@
 //! of work, and the job `mail.send` sends it through the mail server, never inside a request
 //! (PLATFORM-066, D1).
 //!
-//! The job `mail.send` (OPS-09) is triggered by `Mail::send`, and touches no table but the
-//! queue's own. A run that sent the email and then stopped, before its success was written,
+//! The job `mail.send` (OPS-09) is owned by this area, triggered by `Mail::send`, and touches no
+//! table but the queue's own. A run that sent the email and then stopped, before its success was written,
 //! leaves the job to run again, which sends a second copy with the same `Message-ID`, so the
 //! receiving system can recognize it (PLATFORM-070): no protocol sends an email exactly once.
 

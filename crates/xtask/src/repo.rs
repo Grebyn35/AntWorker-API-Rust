@@ -10,9 +10,11 @@ pub struct File {
     pub text: String,
 }
 
-/// The repository's text files: every UTF-8 file that git tracks, or would track once added.
+/// The repository's text files: every UTF-8 file that git tracks, or would track once added; and
+/// the paths of all of those files, the others among them.
 pub struct Repo {
     files: Vec<File>,
+    paths: Vec<String>,
 }
 
 impl Repo {
@@ -42,6 +44,7 @@ impl Repo {
         read: impl Fn(&str) -> io::Result<Vec<u8>>,
     ) -> io::Result<Self> {
         let mut files = Vec::new();
+        let mut paths = Vec::new();
         let listing = String::from_utf8_lossy(listing);
         for path in listing.split('\0').filter(|path| !path.is_empty()) {
             let bytes = match read(path) {
@@ -51,6 +54,7 @@ impl Repo {
                 Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
                 Err(error) => return Err(io::Error::new(error.kind(), format!("{path}: {error}"))),
             };
+            paths.push(path.to_owned());
             if let Ok(text) = String::from_utf8(bytes) {
                 files.push(File {
                     path: path.to_owned(),
@@ -58,12 +62,12 @@ impl Repo {
                 });
             }
         }
-        Ok(Self::new(files))
+        Ok(Self { files, paths })
     }
 
-    /// A repository made of `files`.
-    pub fn new(files: Vec<File>) -> Self {
-        Self { files }
+    /// The path of every file, text or not.
+    pub fn paths(&self) -> impl Iterator<Item = &str> {
+        self.paths.iter().map(String::as_str)
     }
 
     /// Every file.
@@ -91,15 +95,16 @@ impl Repo {
 impl Repo {
     /// A repository of `(path, text)` pairs.
     pub fn of(files: &[(&str, &str)]) -> Self {
-        Self::new(
-            files
+        Self {
+            files: files
                 .iter()
                 .map(|(path, text)| File {
                     path: (*path).to_owned(),
                     text: (*text).to_owned(),
                 })
                 .collect(),
-        )
+            paths: files.iter().map(|(path, _)| (*path).to_owned()).collect(),
+        }
     }
 }
 

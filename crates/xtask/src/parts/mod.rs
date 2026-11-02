@@ -94,16 +94,16 @@ fn check_markers(repo: &Repo, known: &[&str]) -> Vec<Finding> {
         .collect()
 }
 
-/// The files that `part` owns whole: its paths, its module's migrations, and the entries of the
-/// query cache whose queries name a table those migrations create.
+/// The files that `part` owns whole, text or not: its paths, its module's migrations, and the
+/// entries of the query cache whose queries name a table those migrations create.
 fn owned(repo: &Repo, part: &Part) -> Vec<String> {
     let under = |path: &str, owner: &str| {
         path == owner || path.starts_with(&format!("{}/", owner.trim_end_matches('/')))
     };
     let mut owned: Vec<String> = repo
-        .files()
-        .filter(|file| part.paths.iter().any(|path| under(&file.path, path)))
-        .map(|file| file.path.clone())
+        .paths()
+        .filter(|path| part.paths.iter().any(|owner| under(path, owner)))
+        .map(str::to_owned)
         .collect();
     let Some(module) = &part.module else {
         return owned;
@@ -169,32 +169,39 @@ fn names(sql: &str, table: &str) -> bool {
     })
 }
 
-/// Each line of a file that `removal` kept, outside the migration's documents, that holds a word
-/// of a removed part, and each path that does.
+/// Each line of a file that the removal kept, outside the migration's documents, that holds a
+/// word of a removed part, and each kept path that does, text or not.
 fn leftovers(repo: &Repo, removed: &[&Part]) -> Vec<Finding> {
+    let words: Vec<(&str, String)> = removed
+        .iter()
+        .flat_map(|part| {
+            part.words
+                .iter()
+                .map(|word| (part.name.as_str(), word.to_ascii_lowercase()))
+        })
+        .collect();
     let mut findings = Vec::new();
+    for path in repo.paths().filter(|path| !is_migration(path)) {
+        for (part, word) in &words {
+            if path.to_ascii_lowercase().contains(word) {
+                findings.push(Finding::new(
+                    path,
+                    1,
+                    format!("its path names `{part}`, which was removed (ARCH-07)"),
+                ));
+            }
+        }
+    }
     for file in repo.files().filter(|file| !is_migration(&file.path)) {
-        for part in removed {
-            for word in &part.words {
-                let word = word.to_ascii_lowercase();
-                if file.path.to_ascii_lowercase().contains(&word) {
+        for (index, line) in file.text.lines().enumerate() {
+            let line = line.to_ascii_lowercase();
+            for (part, word) in &words {
+                if line.contains(word) {
                     findings.push(Finding::new(
                         &file.path,
-                        1,
-                        format!(
-                            "its path names `{}`, which was removed (ARCH-07)",
-                            part.name
-                        ),
+                        index + 1,
+                        format!("names `{part}`, which was removed (ARCH-07)"),
                     ));
-                }
-                for (index, line) in file.text.lines().enumerate() {
-                    if line.to_ascii_lowercase().contains(&word) {
-                        findings.push(Finding::new(
-                            &file.path,
-                            index + 1,
-                            format!("names `{}`, which was removed (ARCH-07)", part.name),
-                        ));
-                    }
                 }
             }
         }
@@ -454,7 +461,7 @@ mod tests {
             .iter()
             .map(|finding| (finding.path.as_str(), finding.line))
             .collect();
-        assert_eq!(places, [("src/a.rs", 2), ("src/offers_test.rs", 1)]);
+        assert_eq!(places, [("src/offers_test.rs", 1), ("src/a.rs", 2)]);
     }
 
     #[test]
