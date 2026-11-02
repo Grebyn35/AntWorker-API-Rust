@@ -93,6 +93,47 @@ async fn invitations_001_inviting_an_email_creates_a_pending_invitation_and_enqu
 }
 
 #[tokio::test]
+async fn invitations_001_with_email_off_the_invitation_is_created_and_nothing_is_enqueued() {
+    let api = Api::with(Options::default().set("EMAIL", "off")).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+
+    let response = invite(&api, &ada, &workspace, "bob@example.com", "member").await;
+
+    assert_eq!(response.status, 201);
+    let db = api.database();
+    assert!(db.owner_reads("SELECT kind FROM jobs").await.is_empty());
+    let invitations = db.owner_reads("SELECT email FROM invitations").await;
+    assert_eq!(invitations, ["bob@example.com"]);
+}
+
+#[tokio::test]
+async fn invitations_010_the_invitation_email_reaches_the_invitee_with_both_parts() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    let invitee = mailbox::address("invitee");
+    invite(&api, &ada, &workspace, &invitee, "member").await;
+
+    api.run_jobs().await;
+
+    let emails = mailbox::to(&invitee).await;
+    assert_eq!(emails.len(), 1);
+    let email = &emails[0];
+    assert_eq!(
+        email.subject,
+        "Ada Lovelace invited you to Acme on AntWorker"
+    );
+    for part in [&email.text, &email.html] {
+        assert!(part.contains("Ada Lovelace"), "{part}");
+        assert!(part.contains("the workspace"), "{part}");
+        assert!(part.contains("as a member"), "{part}");
+        assert!(part.contains("expires in 7 days"), "{part}");
+        assert!(part.contains(&format!("with {invitee}")), "{part}");
+    }
+}
+
+#[tokio::test]
 async fn invitations_001_an_invitation_lasts_the_configured_days() {
     let api = Api::with(Options::default().set("INVITATION_EXPIRY_DAYS", 3)).await;
     let ada = users::register(&api, "ada@example.com").await;

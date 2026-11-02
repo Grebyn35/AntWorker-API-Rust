@@ -28,7 +28,7 @@ services:
       retries: 30
 
   # Catches every email the API sends in development and in the tests, so nothing leaves the
-  # machine (MAIL-005): its SMTP server listens on 1025, with no TLS and no credentials, and its
+  # machine (PLATFORM-068): its SMTP server listens on 1025, with no TLS and no credentials, and its
   # web page and API on 8025. It keeps the latest 10,000 emails, so the tests' emails stay until
   # each test has read its own.
   mailpit:

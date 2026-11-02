@@ -1,7 +1,8 @@
 //! Routes that only the tests serve, registered the way a module registers its own, for the
 //! behaviors of the pipeline that no route of the API shows, or that only an optional part's
 //! routes show: a request that waits, one that never ends, a panic, an internal error, a
-//! documented query parameter, and a keyed operation that publishes an event.
+//! documented query parameter, a keyed operation that publishes an event, and an email sent
+//! (TEST-05).
 
 use std::sync::{
     Arc,
@@ -18,9 +19,10 @@ use platform::{
     authz::Authorizer,
     errors::{Internal, PlatformError, Problem},
     events::UserEvent,
-    http::{Idempotent, Routes},
+    http::{Idempotent, Json as Body, Routes},
     idempotency::Claimed,
-    types::Client,
+    mail::{Email, Mail},
+    types::{Client, EmailAddress},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -142,6 +144,56 @@ async fn keyed(
     };
     uow.commit_with(&keyed).await.map_err(PlatformError::from)?;
     Ok(Json(keyed))
+}
+
+/// What `POST /v1/mail` takes.
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+struct Mailed {
+    /// The address the email goes to.
+    to: String,
+    /// Its subject.
+    subject: String,
+}
+
+/// Sends an email of the tests' own to `to`, as a module's operation sends one: in its unit of
+/// work, under its caller's scope, through `mail` (PLATFORM-066).
+#[utoipa::path(
+    post,
+    path = "/v1/mail",
+    request_body = Mailed,
+    responses((status = 204, description = "The email is enqueued.")),
+)]
+async fn send(
+    State(mail): State<Mail>,
+    Extension(authorizer): Extension<Authorizer>,
+    client: Client,
+    principal: Principal,
+    Body(mailed): Body<Mailed>,
+) -> Result<StatusCode, Problem<PlatformError>> {
+    let mut uow = authorizer
+        .database
+        .begin(&client)
+        .await
+        .map_err(PlatformError::from)?;
+    let email = Email {
+        to: EmailAddress::parse(&mailed.to)
+            .map_err(|_| PlatformError::from(Internal::new("the fixture's address is invalid")))?,
+        text: format!("The plain-text part of {}.", mailed.subject),
+        html: format!("<p>The HTML part of {}.</p>", mailed.subject),
+        subject: mailed.subject,
+    };
+    mail.send(&mut uow, principal.job_scope(), email)
+        .await
+        .map_err(PlatformError::from)?;
+    uow.commit().await.map_err(PlatformError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// The route `POST /v1/mail`, which sends its emails through `mail`, built from the settings of
+/// the API it is added to.
+pub fn mailing(mail: Mail) -> Routes {
+    Routes::new().user(routes!(send), &[]).with_state(mail)
 }
 
 /// The fixtures' routes, with `held` behind `GET /v1/gate`, which the tests add to the API's.

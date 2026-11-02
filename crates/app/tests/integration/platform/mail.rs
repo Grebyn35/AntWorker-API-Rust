@@ -1,8 +1,14 @@
-//! Sending email from jobs (the mail spec).
+//! Sending email from jobs (the platform spec's Mail), with an email of the tests' own, which
+//! the fixture `POST /v1/mail` sends (TEST-05).
 
 use std::{net::SocketAddr, sync::Arc};
 
-use platform::{clock::TestClock, lifecycle::Readiness};
+use platform::{
+    clock::{SharedClock, TestClock},
+    lifecycle::Readiness,
+    mail::Mail,
+};
+use serde_json::json;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpListener,
@@ -10,19 +16,29 @@ use tokio::{
 
 use crate::support::{
     Api, Options,
-    api::application,
-    invitations::invite,
-    mailbox,
+    api::{application, configuration},
+    fixtures, mailbox,
     users::{self, SignedIn},
-    workspaces,
 };
 
-/// An API whose emails go to Mailpit, with Ada owning the workspace Acme.
-async fn acme(options: Options) -> (Api, SignedIn, String) {
-    let api = Api::with(options).await;
+/// An API with `options`, which also serves `POST /v1/mail` through a `Mail` of the same
+/// settings, and Ada, signed in.
+async fn api(options: Options) -> (Api, SignedIn) {
+    let (config, _) = configuration(&options);
+    let mail = Mail::new(config.mail, Arc::new(TestClock::default())).unwrap();
+    let api = Api::with(options.with_routes(fixtures::mailing(mail))).await;
     let ada = users::register(&api, "ada@example.com").await;
-    let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
-    (api, ada, workspace)
+    (api, ada)
+}
+
+/// Ada sends the fixture's email to `to`, which answers 204 once it is enqueued.
+async fn send(api: &Api, ada: &SignedIn, to: &str) {
+    let response = api
+        .post("/v1/mail", &json!({ "to": to, "subject": "the fixture" }))
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(response.status, 204, "{:?}", response.json());
 }
 
 /// One column of the jobs table, as text.
@@ -32,6 +48,15 @@ async fn jobs(api: &Api, column: &str) -> Vec<String> {
             "SELECT {column} FROM jobs ORDER BY created_at, id"
         ))
         .await
+}
+
+/// A port that nothing listens on: the closed listener's.
+async fn closed() -> SocketAddr {
+    TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap()
+        .local_addr()
+        .unwrap()
 }
 
 /// A mail server on a port of its own that refuses every recipient with a permanent reply,
@@ -67,31 +92,34 @@ async fn refusing_server() -> SocketAddr {
 }
 
 #[tokio::test]
-async fn mail_001_a_request_only_enqueues_its_email_and_a_job_sends_it() {
-    let (api, ada, workspace) = acme(Options::default()).await;
-    let invitee = mailbox::address("invitee");
+async fn platform_066_a_request_only_enqueues_its_email_and_a_job_sends_it() {
+    let (api, ada) = api(Options::default()).await;
+    let to = mailbox::address("enqueued");
 
-    let response = invite(&api, &ada, &workspace, &invitee, "member").await;
+    send(&api, &ada, &to).await;
 
-    assert_eq!(response.status, 201);
-    assert!(mailbox::to(&invitee).await.is_empty());
+    assert!(mailbox::to(&to).await.is_empty());
     assert_eq!(jobs(&api, "kind").await, ["mail.send"]);
     assert_eq!(api.run_jobs().await, 1);
-    assert_eq!(mailbox::to(&invitee).await.len(), 1);
+    let emails = mailbox::to(&to).await;
+    assert_eq!(emails.len(), 1);
+    assert_eq!(emails[0].subject, "the fixture");
+    assert_eq!(emails[0].text, "The plain-text part of the fixture.");
+    assert!(
+        emails[0]
+            .html
+            .contains("<p>The HTML part of the fixture.</p>"),
+        "{}",
+        emails[0].html
+    );
     assert!(jobs(&api, "kind").await.is_empty());
 }
 
 #[tokio::test]
-async fn mail_001_a_failed_send_is_retried_with_backoff_then_dead_lettered() {
-    // Nothing listens on the port the closed listener had.
-    let closed = TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap()
-        .local_addr()
-        .unwrap();
-    let options = Options::default().set("SMTP_PORT", closed.port());
-    let (api, ada, workspace) = acme(options).await;
-    invite(&api, &ada, &workspace, "bob@example.com", "member").await;
+async fn platform_066_a_failed_send_is_retried_with_backoff_then_dead_lettered() {
+    let options = Options::default().set("SMTP_PORT", closed().await.port());
+    let (api, ada) = api(options).await;
+    send(&api, &ada, "bob@example.com").await;
 
     api.run_jobs().await;
 
@@ -118,11 +146,10 @@ async fn mail_001_a_failed_send_is_retried_with_backoff_then_dead_lettered() {
 }
 
 #[tokio::test]
-async fn mail_001_a_permanent_rejection_dead_letters_at_once_without_the_servers_text() {
+async fn platform_066_a_permanent_rejection_dead_letters_at_once_without_the_servers_text() {
     let server = refusing_server().await;
-    let options = Options::default().set("SMTP_PORT", server.port());
-    let (api, ada, workspace) = acme(options).await;
-    invite(&api, &ada, &workspace, "bob@example.com", "member").await;
+    let (api, ada) = api(Options::default().set("SMTP_PORT", server.port())).await;
+    send(&api, &ada, "bob@example.com").await;
 
     api.run_jobs().await;
 
@@ -131,51 +158,21 @@ async fn mail_001_a_permanent_rejection_dead_letters_at_once_without_the_servers
 }
 
 #[tokio::test]
-async fn mail_002_the_invitation_email_reaches_the_invitee_with_both_parts() {
-    let (api, ada, workspace) = acme(Options::default()).await;
-    let invitee = mailbox::address("invitee");
-    invite(&api, &ada, &workspace, &invitee, "member").await;
+async fn platform_067_with_email_off_nothing_is_enqueued_and_the_capabilities_say_so() {
+    let (api, ada) = api(Options::default().set("EMAIL", "off")).await;
 
-    api.run_jobs().await;
-
-    let emails = mailbox::to(&invitee).await;
-    assert_eq!(emails.len(), 1);
-    let email = &emails[0];
-    assert_eq!(
-        email.subject,
-        "Ada Lovelace invited you to Acme on AntWorker"
-    );
-    for part in [&email.text, &email.html] {
-        assert!(part.contains("Ada Lovelace"), "{part}");
-        assert!(part.contains("the workspace"), "{part}");
-        assert!(part.contains("as a member"), "{part}");
-        assert!(part.contains("expires in 7 days"), "{part}");
-        assert!(part.contains(&format!("with {invitee}")), "{part}");
-    }
-}
-
-#[tokio::test]
-async fn mail_004_with_email_off_nothing_is_enqueued_and_the_invitation_is_created() {
-    let (api, ada, workspace) = acme(Options::default().set("EMAIL", "off")).await;
-
-    let response = invite(&api, &ada, &workspace, "bob@example.com", "member").await;
+    send(&api, &ada, "bob@example.com").await;
     let capabilities = api.get("/v1/capabilities").send().await;
 
-    assert_eq!(response.status, 201);
     assert!(jobs(&api, "kind").await.is_empty());
-    let invitations = api
-        .database()
-        .owner_reads("SELECT email FROM invitations")
-        .await;
-    assert_eq!(invitations, ["bob@example.com"]);
     assert_eq!(capabilities.json()["features"]["email"], false);
 }
 
 #[tokio::test]
-async fn mail_004_a_replica_with_email_off_drops_a_job_enqueued_while_email_was_on() {
-    let (api, ada, workspace) = acme(Options::default()).await;
-    let invitee = mailbox::address("invitee");
-    invite(&api, &ada, &workspace, &invitee, "member").await;
+async fn platform_067_a_replica_with_email_off_drops_a_job_enqueued_while_email_was_on() {
+    let (api, ada) = api(Options::default()).await;
+    let to = mailbox::address("dropped");
+    send(&api, &ada, &to).await;
     let database = api.database().app().await;
     let clock = Arc::new(TestClock::default());
     let (_, _, off) = application(
@@ -186,16 +183,16 @@ async fn mail_004_a_replica_with_email_off_drops_a_job_enqueued_while_email_was_
     )
     .await;
 
-    let clock: platform::clock::SharedClock = clock;
+    let clock: SharedClock = clock;
     let runs = off.run_pending(&database, &clock).await;
 
     assert_eq!(runs, 1);
     assert!(jobs(&api, "kind").await.is_empty());
-    assert!(mailbox::to(&invitee).await.is_empty());
+    assert!(mailbox::to(&to).await.is_empty());
 }
 
 #[tokio::test]
-async fn mail_005_in_development_every_email_reaches_the_mail_catcher_on_the_machine() {
+async fn platform_068_in_development_every_email_reaches_the_mail_catcher_on_the_machine() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let example = tokio::fs::read_to_string(format!("{root}/.env.example"))
         .await
@@ -212,25 +209,21 @@ async fn mail_005_in_development_every_email_reaches_the_mail_catcher_on_the_mac
         assert!(example.lines().any(|line| line == setting), "{setting}");
     }
     assert!(compose.contains("\"127.0.0.1:1025:1025\""));
-    let (api, ada, workspace) = acme(Options::default()).await;
-    let invitee = mailbox::address("invitee");
-    invite(&api, &ada, &workspace, &invitee, "member").await;
+    let (api, ada) = api(Options::default()).await;
+    let to = mailbox::address("caught");
+    send(&api, &ada, &to).await;
 
     api.run_jobs().await;
 
-    assert_eq!(mailbox::to(&invitee).await.len(), 1);
+    assert_eq!(mailbox::to(&to).await.len(), 1);
 }
 
 #[tokio::test]
-async fn mail_007_every_email_comes_from_email_from_with_the_message_id_fixed_when_enqueued() {
-    let closed = TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap()
-        .local_addr()
-        .unwrap();
-    let (api, ada, workspace) = acme(Options::default()).await;
-    let invitee = mailbox::address("invitee");
-    invite(&api, &ada, &workspace, &invitee, "member").await;
+async fn platform_070_every_email_comes_from_email_from_with_the_message_id_fixed_when_enqueued() {
+    let closed = closed().await;
+    let (api, ada) = api(Options::default()).await;
+    let to = mailbox::address("identified");
+    send(&api, &ada, &to).await;
     let enqueued = jobs(&api, "payload->>'message_id'").await.remove(0);
     // A first attempt that fails, as one whose success went unrecorded would, keeps the job.
     let (_, _, failing) = application(
@@ -240,7 +233,7 @@ async fn mail_007_every_email_comes_from_email_from_with_the_message_id_fixed_wh
         Readiness::new(),
     )
     .await;
-    let clock: platform::clock::SharedClock = Arc::new(TestClock::default());
+    let clock: SharedClock = Arc::new(TestClock::default());
     failing
         .run_pending(&api.database().app().await, &clock)
         .await;
@@ -250,7 +243,7 @@ async fn mail_007_every_email_comes_from_email_from_with_the_message_id_fixed_wh
 
     api.run_jobs().await;
 
-    let emails = mailbox::to(&invitee).await;
+    let emails = mailbox::to(&to).await;
     assert_eq!(emails.len(), 1);
     assert_eq!(emails[0].from, "noreply@example.com");
     assert_eq!(emails[0].from_name, "AntWorker");
@@ -259,10 +252,10 @@ async fn mail_007_every_email_comes_from_email_from_with_the_message_id_fixed_wh
 }
 
 #[tokio::test]
-async fn mail_007_a_second_run_of_a_mail_job_sends_a_copy_with_the_same_message_id() {
-    let (api, ada, workspace) = acme(Options::default()).await;
-    let invitee = mailbox::address("invitee");
-    invite(&api, &ada, &workspace, &invitee, "member").await;
+async fn platform_070_a_second_run_of_a_mail_job_sends_a_copy_with_the_same_message_id() {
+    let (api, ada) = api(Options::default()).await;
+    let to = mailbox::address("copied");
+    send(&api, &ada, &to).await;
     // The same job once more, as when a replica stopped after its send and before its success
     // was written.
     api.database()
@@ -276,7 +269,7 @@ async fn mail_007_a_second_run_of_a_mail_job_sends_a_copy_with_the_same_message_
     let runs = api.run_jobs().await;
 
     assert_eq!(runs, 2);
-    let emails = mailbox::to(&invitee).await;
+    let emails = mailbox::to(&to).await;
     assert_eq!(emails.len(), 2);
     for email in emails {
         assert_eq!(format!("<{}>", email.message_id), enqueued);

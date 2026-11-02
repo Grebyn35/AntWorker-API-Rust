@@ -5,6 +5,5 @@ pub(crate) mod accounts;
 pub(crate) mod audit;
 pub(crate) mod auth;
 pub(crate) mod invitations;
-pub(crate) mod mail;
 pub(crate) mod system;
 pub(crate) mod workspaces;

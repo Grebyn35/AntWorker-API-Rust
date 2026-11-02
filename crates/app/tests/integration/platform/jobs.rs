@@ -679,17 +679,15 @@ async fn platform_065_each_run_is_counted_by_its_kind_and_outcome() {
 async fn platform_065_a_runs_span_links_to_the_trace_that_enqueued_it() {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
-    let invitee = mailbox::address("linked");
+    let to = mailbox::address("linked");
     let trace = "4bf92f3577b34da6a3ce929d0e0e4736";
     let payload = json!({
         "message_id": "<linked@example.com>",
-        "message": {
-            "kind": "invitation",
-            "to": invitee,
-            "inviter": "Ada Lovelace",
-            "workspace": "Acme",
-            "role": "member",
-            "expires_in_days": 7,
+        "email": {
+            "to": to,
+            "subject": "Linked",
+            "text": "A linked run.",
+            "html": "<p>A linked run.</p>",
         },
     });
     database
@@ -727,7 +725,7 @@ async fn platform_065_a_runs_span_links_to_the_trace_that_enqueued_it() {
         attribute(&span.attributes, names::JOB_KIND).as_deref(),
         Some("mail.send")
     );
-    assert_eq!(mailbox::to(&invitee).await.len(), 1);
+    assert_eq!(mailbox::to(&to).await.len(), 1);
 }
 
 fn hex(bytes: &[u8]) -> String {

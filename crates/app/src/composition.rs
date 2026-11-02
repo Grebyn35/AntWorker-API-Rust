@@ -13,6 +13,7 @@ use platform::{
     http::{Origins, Pipeline, Routes},
     jobs::Jobs,
     lifecycle::Readiness,
+    mail::Mail,
     rate_limit::{Bucket, RateLimiter},
     telemetry::Service,
 };
@@ -22,7 +23,6 @@ use utoipa::openapi::OpenApi;
 use crate::modules::{
     access, accounts, audit, auth,
     invitations::{self, Invitations},
-    mail::Mail,
     system, workspaces,
 };
 

@@ -1,4 +1,4 @@
-//! The emails that the Mailpit of `just services` received (MAIL-005), read through its API.
+//! The emails that the Mailpit of `just services` received (PLATFORM-068), read through its API.
 //! Every test runs against the same Mailpit, so a test sends only to addresses of its own, from
 //! [`address`], and reads only those.
 

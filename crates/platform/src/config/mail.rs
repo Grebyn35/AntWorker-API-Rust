@@ -1,4 +1,4 @@
-//! The email settings (MAIL-006), which `serve` reads with the rest of its settings.
+//! The email settings (PLATFORM-069), which `serve` reads with the rest of its settings.
 
 use std::{ffi::OsString, io, path::Path};
 
@@ -113,7 +113,7 @@ mod tests {
     }
 
     #[test]
-    fn mail_006_email_is_required_and_is_smtp_or_off() {
+    fn platform_069_email_is_required_and_is_smtp_or_off() {
         assert_eq!(read(&[]).err().unwrap(), "EMAIL is required");
         assert_eq!(
             read(&[("EMAIL", "sendmail")]).err().unwrap(),
@@ -123,7 +123,7 @@ mod tests {
     }
 
     #[test]
-    fn mail_006_with_email_off_no_other_email_setting_is_read() {
+    fn platform_069_with_email_off_no_other_email_setting_is_read() {
         let settings = read(&[
             ("EMAIL", "off"),
             ("SMTP_PORT", "not a port"),
@@ -134,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    fn mail_006_smtp_requires_the_host_and_the_sender() {
+    fn platform_069_smtp_requires_the_host_and_the_sender() {
         assert_eq!(
             read(&[("EMAIL", "smtp"), ("EMAIL_FROM", "a@example.com")])
                 .err()
@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn mail_006_credentials_come_in_pairs_and_never_unencrypted() {
+    fn platform_069_credentials_come_in_pairs_and_never_unencrypted() {
         assert_eq!(
             read(&smtp(&[("SMTP_USERNAME", "api")])).err().unwrap(),
             "SMTP_PASSWORD must be set when SMTP_USERNAME is"
@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn mail_006_the_port_follows_the_security_unless_set() {
+    fn platform_069_the_port_follows_the_security_unless_set() {
         let port = |more: &[(&'static str, &'static str)]| match read(&smtp(more)) {
             Ok(MailConfig::Smtp(smtp)) => (smtp.security, smtp.port),
             _ => unreachable!("the settings are valid"),
@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn mail_006_values_are_checked() {
+    fn platform_069_values_are_checked() {
         assert_eq!(
             read(&smtp(&[("SMTP_SECURITY", "ssl")])).err().unwrap(),
             "SMTP_SECURITY must be tls, starttls or none"

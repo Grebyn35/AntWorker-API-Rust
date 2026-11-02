@@ -51,6 +51,15 @@ impl Options {
         }
     }
 
+    /// The options, with `routes` added to theirs.
+    pub fn with_routes(mut self, routes: Routes) -> Self {
+        self.routes = Some(match self.routes.take() {
+            Some(theirs) => theirs.merge(routes),
+            None => routes,
+        });
+        self
+    }
+
     /// The options, with the setting `name` set to `value`.
     pub fn set(mut self, name: &'static str, value: impl ToString) -> Self {
         self.settings.push((name, value.to_string()));
@@ -70,7 +79,7 @@ fn environment(options: &Options) -> HashMap<String, String> {
         ("RATE_LIMIT_IP_REQUESTS", "1000000"),
         ("RATE_LIMIT_USER_REQUESTS", "1000000"),
         ("SIGN_IN_ATTEMPTS", "1000"),
-        // The emails go to the Mailpit that `just services` starts (MAIL-005), whose SMTP server
+        // The emails go to the Mailpit that `just services` starts (PLATFORM-068), whose SMTP server
         // takes no TLS and no credentials.
         ("EMAIL", "smtp"),
         ("SMTP_HOST", "127.0.0.1"),

@@ -23,7 +23,7 @@ Every part of the system is listed under [Foundation](#foundation), [Modules](#m
 2. **Thin slice.** Spec it, then build it test-first, each part extending the skeleton:
    1. `accounts`, `auth` and the `audit` writer, with authentication (`Principal` and `SessionVerifier`) and rate limiting: the IP and per-user limits and the per-email sign-in limit, built once with all three callers. Authentication reads the Bearer header and, from browsers, a cookie, with CSRF protection and the CORS allowlist (D61). It settles the `auth` items in [inventory/decision-trace.md](inventory/decision-trace.md), and extends the trace-ID guarantee to a 5xx response.
    2. `access` and `workspaces`, with `Authorized<P>`, the security event sink, and idempotency, which creating a workspace uses.
-   3. Jobs, `mail` and `invitations`.
+   3. Jobs, email and `invitations`.
    4. The event hub and `realtime`, ending with "removing a member closes their stream". Readiness then includes the listener, and a deploy with an open stream loses no event.
 
    Together these exercise every mechanism the document reviews couldn't settle: D32 to D36, idempotency, jobs, email and the real-time hub.
@@ -69,7 +69,7 @@ Each module goes through these stages, in order:
 
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
-| `platform` | HTTP, DATA, RT, OBS, OPS | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs, mail | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs, mail | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs, mail |
+| `platform` | HTTP, DATA, RT, OBS, OPS, MAIL | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs, mail | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs, mail | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs, mail |
 | `accounts` | USER | first slice | first slice | first slice | first slice | first slice |
 | `auth` | AUTH | first slice | first slice | first slice | first slice | first slice |
 | `access` | WS | first slice | first slice | first slice | first slice | first slice |
@@ -77,7 +77,6 @@ Each module goes through these stages, in order:
 | `invitations` | WS, MAIL | first slice | first slice | first slice | first slice | first slice |
 | `audit` | AUDIT | first slice | first slice | the writer, the security event sink | the writer, the security event sink | the writer, the security event sink |
 | `realtime` | RT | first slice | first slice | | | |
-| `mail` | MAIL | first slice | first slice | first slice | first slice | first slice |
 | `files` | FILE | | | | | |
 | `client_telemetry` | OBS | | | | | |
 | `superadmins` | none: a new part (D62) | | | | | |
@@ -150,7 +149,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of d678a43..4eedca6 | SEC-12: a check that a route whose operation enqueues an email counts a per-action bucket first, such as `check-layers` failing a service that calls `Mail::send` under a route that takes no `RateLimits` | 3 |
 | Conformance review of d678a43..4eedca6 | OPS-09: `check-layout` fails an `impl Job`, or a call of `Jobs::queued` or `Jobs::periodic`, outside a module's `jobs.rs` and `platform::jobs` | 3 |
 | Conformance review of d678a43..4eedca6 | DATA-04: `check-schema` fails a `CHECK` constraint that reads one column only, which states a rule on a value | 3 |
-| Conformance review of d678a43..4eedca6 | API-10: whether a job's payload carries the domain types of its values, such as a `mail::Invitation`'s inviter and workspace names, held as `String`, since `mail` can't name another module's types (ARCH-05) | 3 |
+| Conformance review of d678a43..4eedca6 | API-10: whether an email's values carry domain types, such as the inviter's and the workspace's names in `invitations::emails::Invitation`, held as `String` | 3 |
 | Conformance review of d678a43..364d2e9 | ARCH-08: `check-layers` fails a call of `RateLimits::check` in a module's `routes.rs`, since the service counts a per-action limit (platform spec, Unit of work) | 3 |
 | Conformance review of d678a43..364d2e9 | DOC-01: `check-docs` fails a comment or a document that names a module's `.rs` file that doesn't exist | 3 |
 | Conformance review of d678a43..364d2e9 | OPS-20: whether `serve` refuses `SMTP_SECURITY=none` for a mail server off the API's server, which `deploy/settings.env.example` allows only for a relay on the server's private network | 3 |

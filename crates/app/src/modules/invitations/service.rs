@@ -9,13 +9,14 @@ use platform::{
     errors::Internal,
     idempotency::{Claimed, IdempotencyKey},
     lists::{List, Page, Search, key},
+    mail::Mail,
     rate_limit::RateLimits,
     types::{Client, UserId},
 };
 use serde_json::json;
 
 use super::{
-    audit,
+    audit, emails,
     error::InvitationsError,
     events as published,
     model::{Accepted, Invited, NewInvitation, ReceivedInvitation, Settings},
@@ -25,7 +26,6 @@ use crate::modules::{
     access::{self, InvitationsCreate, Role},
     accounts::{self, PublicProfile},
     audit::{self as log, Entry},
-    mail::{self, Mail, Message},
     workspaces,
 };
 
@@ -100,16 +100,17 @@ pub(crate) async fn invite(
     entry.target = invitee;
     entry.details = json!({ "role": input.role });
     log::record(&mut uow, authorized.audit_scope(), entry).await?;
-    let message = Message::Invitation(mail::Invitation {
+    let email = emails::Invitation {
         to: input.email,
         inviter: inviter_name(&mut uow, inviter).await?,
         workspace: workspace_name(&mut uow, authorized).await?,
-        role: input.role.name().to_owned(),
+        role: input.role,
         expires_in_days: expiry_days,
-    });
+    }
+    .render()?;
     invitations
         .mail
-        .send(&mut uow, authorized.job_scope(), message)
+        .send(&mut uow, authorized.job_scope(), email)
         .await?;
     if let Some(user) = invitee {
         let payload = json!({ "invitation_id": invitation.id, "workspace_id": workspace });

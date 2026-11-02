@@ -6,8 +6,7 @@ use platform::{
 };
 
 use crate::modules::{
-    access::AccessError, accounts::AccountsError, audit::AuditError, mail::MailError,
-    workspaces::WorkspacesError,
+    access::AccessError, accounts::AccountsError, audit::AuditError, workspaces::WorkspacesError,
 };
 
 /// A failure of `invitations`.
@@ -61,14 +60,6 @@ impl From<AuditError> for InvitationsError {
     fn from(error: AuditError) -> Self {
         match error {
             AuditError::Internal(error) => Self::Internal(error),
-        }
-    }
-}
-
-impl From<MailError> for InvitationsError {
-    fn from(error: MailError) -> Self {
-        match error {
-            MailError::Internal(error) => Self::Internal(error),
         }
     }
 }

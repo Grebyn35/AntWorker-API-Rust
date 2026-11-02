@@ -111,7 +111,7 @@ pub struct ServerConfig {
     /// How long a dead-lettered job keeps its payload before the sweep deletes it
     /// (PLATFORM-013).
     pub job_dead_letter_retention: Duration,
-    /// Whether email is sent, and through which server (MAIL-006).
+    /// Whether email is sent, and through which server (PLATFORM-069).
     pub mail: MailConfig,
 }
 

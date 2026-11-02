@@ -1,7 +1,6 @@
-//! The SMTP transport (architecture §4, the platform spec's Mail): one per process, with a pool
-//! of connections, whose TLS verifies the server's certificate against the system's certificates
-//! (D38), and whose every send is a client span (OBS-06). The emails and their templates live in
-//! `app`'s `mail` module.
+//! The SMTP transport (the platform spec's Mail): one per process, with a pool of connections,
+//! whose TLS verifies the server's certificate against the system's certificates (D38), and whose
+//! every send is a client span (OBS-06).
 
 use std::time::Duration;
 
@@ -17,33 +16,11 @@ use lettre::{
 };
 use tracing::Instrument;
 
-use crate::{
-    errors::Internal,
-    jobs::JobFailure,
-    telemetry::names,
-    types::{EmailAddress, Secret},
-};
+use super::Email;
+use crate::{errors::Internal, jobs::JobFailure, telemetry::names, types::Secret};
 
 /// How long a connection, or a reply of the server, may take.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// Whether the deployment sends email, and through which server (MAIL-006).
-#[derive(Clone)]
-pub enum MailConfig {
-    /// No email is sent (MAIL-004).
-    Off,
-    /// Email is sent through this server.
-    Smtp(Smtp),
-}
-
-impl std::fmt::Debug for MailConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Off => f.write_str("Off"),
-            Self::Smtp(smtp) => write!(f, "Smtp({}:{}, {:?})", smtp.host, smtp.port, smtp.security),
-        }
-    }
-}
 
 /// The mail server, and the sender.
 #[derive(Clone)]
@@ -56,7 +33,7 @@ pub struct Smtp {
     pub(crate) security: Security,
     /// The user name and password, if the server asks for them.
     pub(crate) credentials: Option<(String, Secret<String>)>,
-    /// The sender of every email (MAIL-007).
+    /// The sender of every email (PLATFORM-070).
     pub(crate) from: Mailbox,
 }
 
@@ -83,22 +60,8 @@ impl Security {
     }
 }
 
-/// An email, rendered, to one recipient.
-pub struct Email {
-    /// Its recipient.
-    pub to: EmailAddress,
-    /// Its `Message-ID`, fixed when it was enqueued (MAIL-007).
-    pub message_id: String,
-    /// Its subject.
-    pub subject: String,
-    /// Its plain-text part.
-    pub text: String,
-    /// Its HTML part.
-    pub html: String,
-}
-
 /// The mail server that the settings name.
-pub struct Transport {
+pub(super) struct Transport {
     smtp: AsyncSmtpTransport<Tokio1Executor>,
     from: Mailbox,
     host: String,
@@ -109,7 +72,7 @@ impl Transport {
     /// The transport to the server `smtp` names. It connects only when it sends. With TLS, it
     /// reads the system's certificates once, a blocking read that the platform spec's Mail names
     /// (CODE-05).
-    pub fn new(smtp: Smtp) -> Result<Self, Internal> {
+    pub(super) fn new(smtp: Smtp) -> Result<Self, Internal> {
         let tls = || {
             TlsParameters::builder(smtp.host.clone())
                 .certificate_store(CertificateStore::Default)
@@ -140,14 +103,14 @@ impl Transport {
     }
 
     /// The domain of the sender's address, under which each email's `Message-ID` is made.
-    pub fn domain(&self) -> &str {
+    pub(super) fn domain(&self) -> &str {
         self.from.email.domain()
     }
 
-    /// Sends `email` from the sender (MAIL-007), in a client span of its own (OBS-06). A reply
-    /// from 500 to 599 fails permanently; any other failure may pass on another attempt
-    /// (MAIL-001).
-    pub async fn send(&self, email: Email) -> Result<(), JobFailure> {
+    /// Sends `email` from the sender, with `message_id` (PLATFORM-070), in a client span of its
+    /// own (OBS-06). A reply from 500 to 599 fails permanently; any other failure may pass on
+    /// another attempt (PLATFORM-066).
+    pub(super) async fn send(&self, message_id: String, email: Email) -> Result<(), JobFailure> {
         let span = tracing::info_span!(
             "smtp",
             { names::OTEL_NAME } = "smtp send",
@@ -163,7 +126,7 @@ impl Transport {
                 .from(self.from.clone())
                 .to(Mailbox::new(None, to))
                 .subject(email.subject)
-                .message_id(Some(email.message_id))
+                .message_id(Some(message_id))
                 .multipart(MultiPart::alternative_plain_html(email.text, email.html))
                 .map_err(|_| JobFailure::Permanent(Internal::new("the email can't be built")))?;
             self.smtp.send(message).await.map(|_| ()).map_err(failure)

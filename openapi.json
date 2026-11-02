@@ -155,7 +155,7 @@
         "description": "Each feature a deployment can turn off, and whether it is on.",
         "properties": {
           "email": {
-            "description": "Whether the deployment sends email (MAIL-004). While it is off, a client hides what\nneeds email, such as a way to reset a password.",
+            "description": "Whether the deployment sends email (PLATFORM-067). While it is off, a client hides what\nneeds email, such as a way to reset a password.",
             "type": "boolean"
           }
         },

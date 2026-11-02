@@ -11,6 +11,7 @@ mod jobs;
 mod lifecycle;
 mod limits;
 mod logging;
+mod mail;
 mod migrations;
 mod startup;
 mod telemetry;

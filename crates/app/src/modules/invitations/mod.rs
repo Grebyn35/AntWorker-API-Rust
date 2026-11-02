@@ -2,6 +2,7 @@
 //! invitation ([spec](../../../../../docs/spec/invitations.md)).
 
 mod audit;
+mod emails;
 mod error;
 mod events;
 mod jobs;
