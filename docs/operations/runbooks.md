@@ -71,6 +71,14 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **What to do.** Refused data means the collector reached its memory limit: give it more memory. Failed sends name a store: check that Tempo, Loki or Prometheus runs and has disk space. Traces dropped early mean the collector holds more undecided traces than its `num_traces`: raise it, along with the collector's memory.
 
+## EventsDelayed
+
+**What it means.** Events reach their streams more than 5 seconds after their units of work committed, for the slowest one in a hundred ([platform spec](../spec/platform.md#events-and-the-real-time-hub)). Clients then show changes late. Either the hubs' loads of new events are slow, each replica's hub running one at a time, or units of work that publish wait on each other's commits, which Postgres serializes for every transaction that notifies.
+
+**Look first.** The API platform dashboard: "How long after commit do events reach the streams?" shows since when, and "How many event streams are open?" whether streams grew with it. The Requests dashboard shows whether the database is slow for every request too. A hub whose load fails writes the `WARN` line "the hub couldn't load events", with the database's error.
+
+**What to do.** If the database is slow for everything, follow [DatabaseUnreachable](#databaseunreachable)'s look at its load. If only events are late while streams grew, the replicas hold more streams than their hubs serve: add replicas, so the streams spread over more hubs (OPS-18). The alert clears once the lag falls.
+
 ## JobsDelayed
 
 **What it means.** A background job that is due has waited more than 10 minutes without a replica claiming it ([platform spec](../spec/platform.md#jobs)). Every email waits with it. Either no replica's dispatcher claims jobs, every replica's 4 runs are taken by long runs, or the job's kind is one that no running replica knows, as after a rollback to a release that doesn't have it.

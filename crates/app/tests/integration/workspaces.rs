@@ -465,7 +465,7 @@ async fn workspaces_005_removing_a_member_deletes_their_membership_and_signals_i
     assert_eq!(
         signals.received().await,
         [
-            json!({ "kind": "membership_ended", "user_id": grace.user_id, "workspace_id": workspace })
+            json!({ "kind": "membership_changed", "user_id": grace.user_id, "workspace_id": workspace })
         ]
     );
 }

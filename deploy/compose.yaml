@@ -63,6 +63,8 @@ x-api: &api
     INVITATION_WINDOW_SECONDS: ${INVITATION_WINDOW_SECONDS:-3600}
     # end part: invitations
     JOB_DEAD_LETTER_RETENTION_DAYS: ${JOB_DEAD_LETTER_RETENTION_DAYS:-14}
+    STREAM_HEARTBEAT_SECONDS: ${STREAM_HEARTBEAT_SECONDS:-15}
+    STREAM_RECHECK_SECONDS: ${STREAM_RECHECK_SECONDS:-60}
   secrets: [database_url, hmac_key, smtp_password]
   # The shutdown delay and the drain take at most 15 seconds, and writing out telemetry the time
   # that the platform spec's Telemetry export bounds it to, which fits in the rest.

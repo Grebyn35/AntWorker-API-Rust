@@ -15,11 +15,13 @@
               connections, none of which a unit of work can do"
 )]
 
+pub mod announcements;
 pub mod api;
 mod contract;
 pub mod fixtures;
 pub mod invitations; // part: invitations
 pub mod mailbox;
+pub mod streams;
 pub mod users;
 pub mod workspaces;
 

@@ -28,6 +28,8 @@ mod setup;
 #[cfg(test)]
 mod stack;
 #[cfg(test)]
+mod streams;
+#[cfg(test)]
 #[expect(
     dead_code,
     reason = "the end-to-end tests use the support's databases and requests, and not its \

@@ -44,6 +44,15 @@ pub(super) fn grants(role: Role, permission: &str) -> bool {
         .any(|(name, roles)| *name == permission && roles.contains(&role))
 }
 
+/// The names of the permissions `role` holds, in the matrix's order (ACCESS-002, ACCESS-007).
+pub(super) fn held(role: Role) -> Vec<&'static str> {
+    MATRIX
+        .iter()
+        .filter(|(_, roles)| roles.contains(&role))
+        .map(|(name, _)| *name)
+        .collect()
+}
+
 /// The matrix, as each permission's name with the names of the roles that hold it, which the
 /// generated test of every workspace route reads (TEST-09).
 pub(crate) fn matrix() -> Vec<(&'static str, Vec<&'static str>)> {

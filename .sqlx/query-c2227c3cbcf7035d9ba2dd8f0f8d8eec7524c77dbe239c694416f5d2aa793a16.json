@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM events WHERE id IN (\n                    SELECT id FROM events\n                    WHERE created_at <= now() - interval '24 hours'\n                    LIMIT $1\n                )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c2227c3cbcf7035d9ba2dd8f0f8d8eec7524c77dbe239c694416f5d2aa793a16"
+}

@@ -9,8 +9,8 @@
     reason = "this module owns the pool, its connections and its transactions (DATA-21)"
 )]
 
+mod listener;
 mod migrations;
-mod monitor;
 mod queue;
 mod roles;
 #[cfg(feature = "test-support")]
@@ -25,6 +25,7 @@ use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
 };
 
+pub(crate) use listener::{Checked, Listener, Received};
 pub use migrations::{MigrateError, SchemaProblem, Versions, migrate};
 pub(crate) use queue::{ClaimedJob, ClaimedSchedule};
 pub use roles::{Admin, BootstrapError, RoleProblem, bootstrap};
@@ -33,11 +34,10 @@ pub use url::{DatabaseUrl, InvalidDatabaseUrl};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
-    clock::SharedClock,
     errors::{Internal, PlatformError, RequestError},
+    events,
     idempotency::{self, Claimed, IdempotencyKey, Outcome},
     jobs::JobContext,
-    lifecycle::Readiness,
     types::{Client, UserId},
 };
 
@@ -106,16 +106,10 @@ impl Database {
         Ok(Self { pool, options })
     }
 
-    /// The most connections the instance opens: the pool's, plus the one of its own that
-    /// [`Database::watch`] checks the database on (OPS-21).
+    /// The most connections the instance opens: the pool's, plus the one of its own on which the
+    /// hub listens and readiness checks the database (OPS-21).
     pub fn connections(&self) -> u32 {
         self.pool.options().get_max_connections().saturating_add(1)
-    }
-
-    /// Checks the database on a connection of its own every five seconds, for as long as the
-    /// async runtime runs, and records each result in `readiness` (PLATFORM-037).
-    pub fn watch(&self, readiness: Readiness, clock: SharedClock) {
-        tokio::spawn(monitor::watch(self.options.clone(), readiness, clock));
     }
 
     /// Opens a unit of work for a request from `client`, whose audit entries record it
@@ -125,6 +119,7 @@ impl Database {
             tx: self.pool.begin().await?,
             client: Some(client.clone()),
             claimed: None,
+            published: Vec::new(),
         })
     }
 
@@ -132,10 +127,17 @@ impl Database {
     /// only a request's `Client` can ask for a request's. Its queries filter by the context's
     /// scope (PLATFORM-012), and its audit entries record no client.
     pub async fn for_job(&self, _context: &JobContext) -> Result<UnitOfWork, Internal> {
+        self.unattributed().await
+    }
+
+    /// Opens a unit of work for `platform`'s own mechanisms, such as the hub's reads, which act
+    /// for no request and no job, and whose audit entries record no client.
+    pub(crate) async fn unattributed(&self) -> Result<UnitOfWork, Internal> {
         Ok(UnitOfWork {
             tx: self.pool.begin().await?,
             client: None,
             claimed: None,
+            published: Vec::new(),
         })
     }
 
@@ -181,6 +183,7 @@ pub struct UnitOfWork {
     tx: Transaction<'static, Postgres>,
     client: Option<Client>,
     claimed: Option<(UserId, String)>,
+    published: Vec<uuid::Uuid>,
 }
 
 impl UnitOfWork {
@@ -202,6 +205,21 @@ impl UnitOfWork {
             return Err(Internal::new(
                 "a unit of work that claimed an idempotency key committed without its result",
             ));
+        }
+        self.finish().await
+    }
+
+    /// Records that the unit of work published the event `id`, which its commit positions.
+    pub(crate) fn published(&mut self, id: uuid::Uuid) {
+        self.published.push(id);
+    }
+
+    /// Positions the events the unit of work published, as its last statement, then commits
+    /// (PLATFORM-071).
+    async fn finish(mut self) -> Result<(), Internal> {
+        let published = std::mem::take(&mut self.published);
+        if !published.is_empty() {
+            position(&mut self.tx, &published).await?;
         }
         Ok(self.tx.commit().await?)
     }
@@ -289,8 +307,35 @@ impl UnitOfWork {
             .execute(&mut *self.tx)
             .await?;
         }
-        Ok(self.tx.commit().await?)
+        self.finish().await
     }
+}
+
+/// Gives the events `published` the next positions of `events_position_seq`, in the order they
+/// were published, with `created_at` the time it does, and notifies the hubs on `events` with the
+/// last of them, all under the advisory lock that only these commits take. Postgres releases it
+/// once the commit is visible, so positions follow the order of the commits (PLATFORM-071). The
+/// rows were inserted before, with their foreign-key checks, so the statement waits on no row
+/// while it holds the lock.
+async fn position(tx: &mut PgConnection, published: &[uuid::Uuid]) -> Result<(), Internal> {
+    sqlx::query!(
+        "WITH locked AS MATERIALIZED (SELECT pg_advisory_xact_lock($1)),
+        ordered AS (SELECT id FROM events, locked WHERE id = ANY($2) ORDER BY id),
+        positioned AS (SELECT id, nextval('events_position_seq') AS position FROM ordered),
+        updated AS (
+            UPDATE events SET position = positioned.position, created_at = clock_timestamp()
+            FROM positioned
+            WHERE events.id = positioned.id
+            RETURNING events.position
+        )
+        SELECT pg_notify($3, max(position)::text) FROM updated",
+        events::POSITION_LOCK,
+        published,
+        events::EVENTS_CHANNEL,
+    )
+    .execute(tx)
+    .await?;
+    Ok(())
 }
 
 /// Whether `error` is a wait that `lock_timeout` ended.

@@ -113,6 +113,8 @@ pub struct ServerConfig {
     pub job_dead_letter_retention: Duration,
     /// Whether email is sent, and through which server (PLATFORM-069).
     pub mail: MailConfig,
+    /// How often the hub re-checks each open stream's session and memberships (PLATFORM-017).
+    pub stream_recheck: Duration,
 }
 
 /// The limits on the requests of one client IP, and of one user (PLATFORM-048).
@@ -287,6 +289,7 @@ where
                 u64::from(self.number("JOB_DEAD_LETTER_RETENTION_DAYS", 14, 1..=365)?) * 86_400,
             ),
             mail: self.mail()?,
+            stream_recheck: self.duration("STREAM_RECHECK_SECONDS", 60, 10..=3_600)?,
         })
     }
 

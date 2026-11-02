@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT sessions.id FROM sessions\n        JOIN unnest($1::uuid[], $2::uuid[]) AS asked(user_id, id)\n            ON sessions.user_id = asked.user_id AND sessions.id = asked.id\n        WHERE sessions.refresh_token_expires_at > now() AND sessions.expires_at > now()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ab4b4fa6f8230d7704a2c4c744d2cb00336a4db9e8b3af08a5b7f771ffc608fa"
+}

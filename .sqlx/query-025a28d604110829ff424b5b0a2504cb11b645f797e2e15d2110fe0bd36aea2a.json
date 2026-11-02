@@ -1,0 +1,121 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, user_id, workspace_id, type AS name, permission, payload, traceparent,\n            position AS \"position!\",\n            extract(epoch FROM clock_timestamp() - created_at)::float8 AS \"lag!\"\n        FROM events\n        WHERE position > $1 AND position <= $2\n        ORDER BY position\n        LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "permission",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "permission"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "payload",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "payload"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "traceparent",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "traceparent"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "position!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "lag!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "025a28d604110829ff424b5b0a2504cb11b645f797e2e15d2110fe0bd36aea2a"
+}

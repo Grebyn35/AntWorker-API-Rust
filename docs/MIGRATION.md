@@ -69,14 +69,14 @@ Each module goes through these stages, in order:
 
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
-| `platform` | HTTP, DATA, RT, OBS, OPS, MAIL | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs, mail | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs, mail | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs, mail |
+| `platform` | HTTP, DATA, RT, OBS, OPS, MAIL | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs, mail |
 | `accounts` | USER | first slice | first slice | first slice | first slice | first slice |
 | `auth` | AUTH | first slice | first slice | first slice | first slice | first slice |
 | `access` | WS | first slice | first slice | first slice | first slice | first slice |
 | `workspaces` | WS | first slice | first slice | first slice | first slice | first slice |
 | `invitations` | WS, MAIL | first slice | first slice | first slice | first slice | first slice |
 | `audit` | AUDIT | first slice | first slice | the writer, the security event sink | the writer, the security event sink | the writer, the security event sink |
-| `realtime` | RT | first slice | first slice | | | |
+| `realtime` | RT | first slice | first slice | first slice | first slice | |
 | `files` | FILE | | | | | |
 | `client_telemetry` | OBS | | | | | |
 | `superadmins` | none: a new part (D62) | | | | | |
@@ -113,7 +113,6 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 | TEST-07 | `traces::obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace` fails now and then on amd64 in CI, when nothing reaches Loki or Tempo; its output says why, from the stack's start times to the API's export errors | the fix of what its next failure shows |
 | DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 | OPS-17 | Postgres treats a segment of the log that its restore command can't fetch as the end of the archive, so a restore whose replay can't fetch one, as when the bucket stops answering, ends the replay there: a restore of the latest state, or the second replay of one to a moment, then serves the database as of that segment, naming its last commit, rather than refusing | 3 |
-| DATA-28 | The rows of `events` stay until the retention that the event hub's replay needs deletes them | 2.4, with the hub |
 | DATA-28 | No personal data contract is registered for the tables that reference a user or hold personal data, `users`, `identities`, `sessions`, `audit_entries`, `workspaces`, `workspace_memberships`, `events`, `idempotency_records`, `jobs` and `invitations`: the registry, and the export and erasure that read it, arrive with the full `accounts` module (D31) | 5 |
 | API-04 | A created workspace's `Location`, `/v1/workspaces/{id}`, names a resource that no route serves yet: reading one workspace arrives with the full module | 5, with the full `workspaces` module |
 | API-04 | A created invitation's `Location`, `/v1/workspaces/{workspace_id}/invitations/{id}`, names a resource that no route serves yet: reading one invitation arrives with the full module | 5, with the full `invitations` module |

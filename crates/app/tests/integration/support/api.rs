@@ -124,7 +124,7 @@ pub async fn application(
     readiness: Readiness,
 ) -> (Router, Value, Jobs) {
     let (config, modules) = configuration(&options);
-    let services = app::compose(database, &config, modules, clock.clone())
+    let services = app::compose(database, &config, modules, clock.clone(), readiness.clone())
         .await
         .unwrap();
     let pipeline = app::pipeline(&config, database, &services, clock, readiness);
@@ -150,6 +150,7 @@ pub struct Api {
     clock: Arc<TestClock>,
     readiness: Readiness,
     database: Arc<TestDatabase>,
+    pool: Database,
     jobs: Arc<Jobs>,
 }
 
@@ -165,21 +166,23 @@ impl Api {
         let database = Arc::new(TestDatabase::migrated().await);
         let clock = Arc::new(TestClock::default());
         let readiness = Readiness::new();
-        let (router, document, jobs) = application(
-            &database.app().await,
-            options,
-            clock.clone(),
-            readiness.clone(),
-        )
-        .await;
+        let pool = database.app().await;
+        let (router, document, jobs) =
+            application(&pool, options, clock.clone(), readiness.clone()).await;
         Self {
             router,
             contract: Arc::new(Contract::new(document)),
             clock,
             readiness,
             database,
+            pool,
             jobs: Arc::new(jobs),
         }
+    }
+
+    /// The pool the API's routes and its hub run on.
+    pub fn pool(&self) -> &Database {
+        &self.pool
     }
 
     /// The clock the pipeline measures with.
@@ -209,6 +212,23 @@ impl Api {
     /// What the readiness probe reports.
     pub fn readiness(&self) -> &Readiness {
         &self.readiness
+    }
+
+    /// The API's router, for a test that reads a response as it streams.
+    pub fn router(&self) -> Router {
+        self.router.clone()
+    }
+
+    /// Checks a response against the document, as every response of [`Call::send`] is.
+    pub fn check(
+        &self,
+        method: &Method,
+        path: &str,
+        status: StatusCode,
+        headers: &HeaderMap,
+        body: &[u8],
+    ) {
+        self.contract.check(method, path, status, headers, body);
     }
 
     /// The database the API runs on.

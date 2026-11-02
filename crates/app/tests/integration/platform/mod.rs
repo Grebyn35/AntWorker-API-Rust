@@ -4,6 +4,7 @@ mod browsers;
 mod config;
 mod database;
 mod errors;
+mod events;
 mod health;
 mod http;
 mod idempotency;

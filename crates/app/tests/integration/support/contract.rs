@@ -168,7 +168,8 @@ impl Contract {
                         "the content type {media_type:?} isn't documented, only {:?}",
                         content.keys().collect::<Vec<_>>()
                     )),
-                    Some(_) if method == Method::HEAD => {}
+                    // A stream's frames are no JSON that a schema describes: its tests read them.
+                    Some(_) if method == Method::HEAD || media_type == "text/event-stream" => {}
                     Some(media) => breaches.extend(self.validate(&media["schema"], body)),
                 }
             }

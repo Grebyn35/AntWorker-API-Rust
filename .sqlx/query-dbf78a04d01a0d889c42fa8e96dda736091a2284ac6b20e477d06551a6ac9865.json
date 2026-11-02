@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH locked AS MATERIALIZED (SELECT pg_advisory_xact_lock($1)),\n        ordered AS (SELECT id FROM events, locked WHERE id = ANY($2) ORDER BY id),\n        positioned AS (SELECT id, nextval('events_position_seq') AS position FROM ordered),\n        updated AS (\n            UPDATE events SET position = positioned.position, created_at = clock_timestamp()\n            FROM positioned\n            WHERE events.id = positioned.id\n            RETURNING events.position\n        )\n        SELECT pg_notify($3, max(position)::text) FROM updated",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pg_notify",
+        "type_info": "Void",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "dbf78a04d01a0d889c42fa8e96dda736091a2284ac6b20e477d06551a6ac9865"
+}

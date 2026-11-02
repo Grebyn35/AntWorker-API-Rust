@@ -434,6 +434,135 @@
         "x": 12,
         "y": 32
       }
+    },
+    {
+      "type": "timeseries",
+      "title": "How many event streams are open?",
+      "description": "The streams open on each instance, as its hub last recorded them (PLATFORM-074). A user holds at most 10 on an instance (REALTIME-006); a drop to 0 on every instance at once follows a deploy or a lost database connection, after which clients reconnect.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (instance) (platform_streams)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 11,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Why do event streams close?",
+      "description": "The streams each hub closed, by why (PLATFORM-074): session_ended and access_changed follow what users did, shutdown follows a deploy, and lagging names clients too slow to keep up with their events (PLATFORM-072).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (stream_close_reason) (increase(platform_stream_closes_total[5m]))",
+          "legendFormat": "{{stream_close_reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 12,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "How long after commit do events reach the streams?",
+      "description": "The time from an event's commit to its delivery by a hub, the median and the 99th percentile (PLATFORM-074). EventsDelayed opens a ticket when the 99th percentile passes 5 seconds for 10 minutes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(platform_event_delivery_lag_seconds_bucket[5m])))",
+          "legendFormat": "median"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(platform_event_delivery_lag_seconds_bucket[5m])))",
+          "legendFormat": "99th percentile"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 13,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      }
     }
   ]
 }

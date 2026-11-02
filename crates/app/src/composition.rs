@@ -1,7 +1,7 @@
 //! The composition root: builds every service once and mounts every module's routes (ARCH-12).
 //! `main.rs` opens the process's resources, such as the database, and hands them here.
 
-use std::{ffi::OsString, io, path::Path, sync::Arc};
+use std::{ffi::OsString, io, path::Path, sync::Arc, time::Duration};
 
 use platform::{
     authn::SessionVerifier,
@@ -10,6 +10,7 @@ use platform::{
     config::{ConfigError, ServerConfig, Settings},
     db::Database,
     errors::Internal,
+    events::Hub,
     http::{Origins, Pipeline, Routes},
     jobs::Jobs,
     lifecycle::Readiness,
@@ -26,6 +27,7 @@ use crate::modules::{
     audit,
     auth,
     invitations::{self, Invitations}, // part: invitations
+    realtime::{self, Realtime},
     system,
     workspaces,
 };
@@ -38,6 +40,7 @@ pub static MIGRATIONS: Migrator = sqlx::migrate!("../../migrations");
 pub struct Config {
     auth: auth::Settings,
     invitations: invitations::Settings, // part: invitations
+    heartbeat: Duration,
 }
 
 /// The name of the per-email sign-in limit's bucket (AUTH-006).
@@ -87,6 +90,7 @@ impl Config {
                 },
             },
             // end part: invitations
+            heartbeat: settings.duration("STREAM_HEARTBEAT_SECONDS", 15, 5..=300)?,
         })
     }
 }
@@ -105,16 +109,18 @@ pub struct Services {
 }
 
 /// Builds every service once, on `database`, with `server`'s settings for `platform`'s and the
-/// modules' own in `config`, mounts every module's routes, and registers every job.
+/// modules' own in `config`, mounts every module's routes, registers every job, and starts the
+/// hub, which records in `readiness` whether it reaches the database.
 pub async fn compose(
     database: &Database,
     server: &ServerConfig,
     config: Config,
     clock: SharedClock,
+    readiness: Readiness,
 ) -> Result<Services, Internal> {
     let mut jobs = Jobs::new(database, server.job_dead_letter_retention);
     let auth = Arc::new(auth::Auth::new(database.clone(), config.auth).await?);
-    let mail = Mail::new(server.mail.clone(), clock)?;
+    let mail = Mail::new(server.mail.clone(), clock.clone())?;
     mail.register(&mut jobs).map_err(Internal::new)?;
     // part: invitations
     let invitations = Invitations::new(database.clone(), mail.clone(), config.invitations);
@@ -123,6 +129,20 @@ pub async fn compose(
     let features = system::Features {
         email: mail.is_on(),
     };
+    let verifier: Arc<dyn SessionVerifier> = Arc::new(auth::Verifier(auth.clone()));
+    let policy = Arc::new(access::Policy);
+    let realtime = Realtime {
+        hub: Hub::start(
+            database,
+            policy.clone(),
+            verifier.clone(),
+            readiness,
+            clock.clone(),
+            server.stream_recheck,
+        ),
+        clock,
+        heartbeat: config.heartbeat,
+    };
     let routes = system::routes()
         .with_state(features)
         .merge(accounts::routes().with_state(database.clone()))
@@ -130,13 +150,14 @@ pub async fn compose(
         // part: invitations
         .merge(invitations::routes().with_state(invitations))
         // end part: invitations
-        .merge(workspaces::routes().with_state(database.clone()));
+        .merge(workspaces::routes().with_state(database.clone()))
+        .merge(realtime::routes().with_state(realtime));
     Ok(Services {
         routes,
-        verifier: Arc::new(auth::Verifier(auth)),
+        verifier,
         authorizer: Authorizer {
             database: database.clone(),
-            policy: Arc::new(access::Policy),
+            policy,
             sink: Arc::new(audit::Sink::new(database.clone())),
         },
         jobs,
@@ -172,6 +193,7 @@ pub fn openapi(service: Service) -> OpenApi {
     document.merge(accounts::routes().openapi(service));
     document.merge(auth::routes().openapi(service));
     document.merge(workspaces::routes().openapi(service));
+    document.merge(realtime::routes().openapi(service));
     document.merge(invitations::routes().openapi(service)); // part: invitations
     document
 }

@@ -1,10 +1,16 @@
-//! Events: publishing them inside a unit of work, as a row of `events` and a notification at its
-//! commit (D1, DATA-27), and access-change signals, the notice, at commit, that a user lost
-//! access, so that their streams close or re-filter (D35, SEC-06).
+//! Events: publishing them inside a unit of work, as a row of `events` that its commit positions
+//! and notifies (D1, DATA-27, PLATFORM-071); access-change signals, the notice, at commit, that a
+//! user's access changed, so that their streams close (D35, SEC-06); and the real-time hub, which
+//! delivers what commits to the streams allowed to receive it (SEC-17).
+
+mod hub;
+mod log;
+mod streams;
+mod subscription;
 
 use std::marker::PhantomData;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     authz::Permission,
@@ -14,11 +20,18 @@ use crate::{
     types::{SessionId, UserId, WorkspaceId},
 };
 
+pub use hub::{Hub, SubscribeError};
+pub use subscription::{Closed, Delivery, Event, Subscription};
+
 /// The channel the signals go out on.
 const CHANNEL: &str = "access_changed";
 
-/// The channel that names each published event, when its unit of work commits.
-const EVENTS_CHANNEL: &str = "events";
+/// The channel on which each commit that published names the last position it gave.
+pub(crate) const EVENTS_CHANNEL: &str = "events";
+
+/// The key of the transaction-level advisory lock under which a commit positions its events
+/// (PLATFORM-071): the bytes of `events`.
+pub(crate) const POSITION_LOCK: i64 = 0x6576_656e_7473;
 
 /// An event that goes to one user's streams, such as `membership.created`. Each module declares
 /// its own in its `events.rs`, the one place clippy lets build one.
@@ -55,7 +68,8 @@ impl<P: Permission> WorkspaceEvent<P> {
 
 impl UnitOfWork {
     /// Publishes `event` to `user`'s streams with `payload`, which holds IDs only (API-19), when
-    /// the unit of work commits, and never if it rolls back (PLATFORM-015).
+    /// the unit of work commits, and never if it rolls back (PLATFORM-015). Its commit gives the
+    /// event its position (PLATFORM-071).
     pub async fn publish_to_user(
         &mut self,
         event: &UserEvent,
@@ -110,15 +124,13 @@ impl UnitOfWork {
         )
         .fetch_one(self.executor())
         .await?;
-        sqlx::query!("SELECT pg_notify($1, $2)", EVENTS_CHANNEL, id.to_string())
-            .execute(self.executor())
-            .await?;
+        self.published(id);
         Ok(())
     }
 }
 
 /// A change to what a user may access. It holds IDs only, and is never stored (D35).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AccessChange {
     /// A session ended, by signing out or by the reuse of a refresh token, so its streams close.
@@ -128,13 +140,23 @@ pub enum AccessChange {
         /// The session.
         session_id: SessionId,
     },
-    /// A user stopped being a member of a workspace, so their streams stop receiving its events.
-    MembershipEnded {
-        /// The former member.
+    /// A user's membership in a workspace started or ended, so their streams close, and open
+    /// again with their memberships as they then stand (PLATFORM-017).
+    MembershipChanged {
+        /// The user.
         user_id: UserId,
         /// The workspace.
         workspace_id: WorkspaceId,
     },
+}
+
+impl AccessChange {
+    /// The user whose access changed.
+    fn user_id(&self) -> UserId {
+        match *self {
+            Self::SessionEnded { user_id, .. } | Self::MembershipChanged { user_id, .. } => user_id,
+        }
+    }
 }
 
 /// Sends `change` on the channel when `uow` commits, and never if it rolls back: Postgres delivers

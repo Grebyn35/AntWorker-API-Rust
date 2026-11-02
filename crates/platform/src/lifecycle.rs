@@ -15,7 +15,11 @@ use std::{
 use axum::{Json, Router, extract::State, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use tokio::{net::TcpListener, sync::Notify, task::JoinError};
+use tokio::{
+    net::TcpListener,
+    sync::{Notify, watch},
+    task::JoinError,
+};
 
 use crate::{
     clock::SharedClock,
@@ -168,7 +172,8 @@ pub(crate) async fn ready(State(readiness): State<Readiness>) -> (StatusCode, Js
 const READY: &str = "ready";
 
 /// Whether the instance can serve: it isn't draining, and the last check of its own database
-/// connection succeeded. Clones share the state.
+/// connection succeeded; and whether it has stopped accepting connections, when its streams
+/// close. Clones share the state.
 #[derive(Clone, Debug, Default)]
 pub struct Readiness {
     state: Arc<ReadinessState>,
@@ -178,6 +183,7 @@ pub struct Readiness {
 struct ReadinessState {
     draining: AtomicBool,
     database_unavailable: AtomicBool,
+    stopping: watch::Sender<bool>,
 }
 
 impl Readiness {
@@ -189,6 +195,19 @@ impl Readiness {
     /// Turns readiness off for the rest of the process's life.
     pub fn drain(&self) {
         self.state.draining.store(true, Ordering::Relaxed);
+    }
+
+    /// Records that the server stops accepting connections, once the shutdown delay has passed,
+    /// so the hub closes its streams (PLATFORM-038).
+    pub fn stop(&self) {
+        self.state.stopping.send_replace(true);
+    }
+
+    /// Completes once [`Readiness::stop`] has been called.
+    pub(crate) async fn stopping(&self) {
+        let mut stopping = self.state.stopping.subscribe();
+        // The sender lives as long as the state, which this borrows.
+        drop(stopping.wait_for(|stopping| *stopping).await);
     }
 
     /// Records the result of the last database check.
@@ -288,6 +307,8 @@ pub async fn serve(
     readiness.drain();
     tracing::info!("shutting down");
     clock.sleep(shutdown.delay).await;
+    // The streams close, so the drain doesn't wait for them (OPS-06).
+    readiness.stop();
     // Kept until the server waits for it, if it hasn't started waiting yet.
     stop.notify_one();
     tokio::select! {

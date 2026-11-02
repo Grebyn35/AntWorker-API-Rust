@@ -3,7 +3,11 @@
 //! inside the request's unit of work (D2, PLATFORM-024), and the report of every refusal to the
 //! `SecurityEventSink` that `audit` implements (ACCESS-003, PLATFORM-025).
 
-use std::{marker::PhantomData, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    marker::PhantomData,
+    sync::Arc,
+};
 
 use axum::{
     extract::{FromRequestParts, RawPathParams},
@@ -17,7 +21,7 @@ use crate::{
     errors::{Internal, PlatformError, Problem, RequestError},
     jobs::JobScope,
     telemetry::{metrics::Counter, names},
-    types::{Client, UserId, WorkspaceId},
+    types::{Client, Timestamp, UserId, WorkspaceId},
 };
 
 /// The path parameter that names a route's workspace (API-02).
@@ -54,6 +58,75 @@ pub trait AccessPolicy: Send + Sync {
         workspace: WorkspaceId,
         permission: &'static str,
     ) -> BoxFuture<'a, Result<Decision, Internal>>;
+
+    /// The memberships of each of `users`, read inside `uow`, for the hub's streams: a user who
+    /// belongs to no workspace may be left out (SEC-17).
+    fn memberships<'a>(
+        &'a self,
+        uow: &'a mut UnitOfWork,
+        users: &'a [UserId],
+    ) -> BoxFuture<'a, Result<HashMap<UserId, Memberships>, Internal>>;
+}
+
+/// The workspaces a user belongs to, each with the names of the permissions their role holds
+/// there and when they joined, which `AccessPolicy::memberships` reads for the hub, so a stream
+/// receives only the workspace events its caller may (SEC-17).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Memberships {
+    workspaces: BTreeMap<WorkspaceId, Membership>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Membership {
+    permissions: Vec<&'static str>,
+    joined_at: Timestamp,
+}
+
+impl Memberships {
+    /// Records that the user belongs to `workspace` since `joined_at`, with a role that holds
+    /// `permissions`.
+    pub fn insert(
+        &mut self,
+        workspace: WorkspaceId,
+        joined_at: Timestamp,
+        permissions: &[&'static str],
+    ) {
+        let mut permissions = permissions.to_vec();
+        permissions.sort_unstable();
+        self.workspaces.insert(
+            workspace,
+            Membership {
+                permissions,
+                joined_at,
+            },
+        );
+    }
+
+    /// The workspaces the user belongs to.
+    pub(crate) fn workspaces(&self) -> impl Iterator<Item = WorkspaceId> + '_ {
+        self.workspaces.keys().copied()
+    }
+
+    /// Whether the user's role in `workspace` holds `permission`.
+    pub(crate) fn holds(&self, workspace: WorkspaceId, permission: &str) -> bool {
+        self.workspaces
+            .get(&workspace)
+            .is_some_and(|membership| membership.permissions.contains(&permission))
+    }
+
+    /// One row per workspace and permission the user holds there: its workspace, the
+    /// permission, and when the user joined it, which the replay's query joins on.
+    pub(crate) fn rows(&self) -> (Vec<uuid::Uuid>, Vec<String>, Vec<time::OffsetDateTime>) {
+        let mut rows = (Vec::new(), Vec::new(), Vec::new());
+        for (workspace, membership) in &self.workspaces {
+            for permission in &membership.permissions {
+                rows.0.push(workspace.uuid());
+                rows.1.push((*permission).to_owned());
+                rows.2.push(membership.joined_at.at());
+            }
+        }
+        rows
+    }
 }
 
 /// A refused request, as the `SecurityEventSink` records it (DATA-27).

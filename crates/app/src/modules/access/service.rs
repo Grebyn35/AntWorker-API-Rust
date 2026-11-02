@@ -1,11 +1,14 @@
 //! What other modules ask of `access`, inside their unit of work, and the `AccessPolicy` that
 //! `platform::authz` asks on every workspace request (ACCESS-003, the access spec's "Policy").
 
+use std::collections::HashMap;
+
 use platform::{
     authn::{BoxFuture, Principal},
-    authz::{AccessPolicy, Authorized, Decision},
+    authz::{AccessPolicy, Authorized, Decision, Memberships},
     db::UnitOfWork,
     errors::Internal,
+    events::{self, AccessChange},
     lists::{List, Page, key},
     types::{Timestamp, UserId, WorkspaceId},
 };
@@ -38,6 +41,41 @@ impl AccessPolicy for Policy {
             })
         })
     }
+
+    fn memberships<'a>(
+        &'a self,
+        uow: &'a mut UnitOfWork,
+        users: &'a [UserId],
+    ) -> BoxFuture<'a, Result<HashMap<UserId, Memberships>, Internal>> {
+        Box::pin(async move {
+            let mut memberships: HashMap<UserId, Memberships> = HashMap::new();
+            for (user, workspace, role, joined_at) in repo::memberships_of(uow, users).await? {
+                memberships.entry(user).or_default().insert(
+                    workspace,
+                    joined_at,
+                    &permissions::held(role),
+                );
+            }
+            Ok(memberships)
+        })
+    }
+}
+
+/// Signals that `user`'s membership in `workspace` started or ended, so their streams close once
+/// the unit of work commits (ACCESS-006, D35).
+async fn changed(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+    user: UserId,
+) -> Result<(), Internal> {
+    events::signal(
+        uow,
+        AccessChange::MembershipChanged {
+            user_id: user,
+            workspace_id: workspace,
+        },
+    )
+    .await
 }
 
 /// What removing a member came to (ACCESS-004).
@@ -59,7 +97,9 @@ pub(crate) async fn add_owner(
     workspace: WorkspaceId,
     user: UserId,
 ) -> Result<Timestamp, AccessError> {
-    Ok(repo::insert(uow, workspace, user, Role::Owner).await?)
+    let joined_at = repo::insert(uow, workspace, user, Role::Owner).await?;
+    changed(uow, workspace, user).await?;
+    Ok(joined_at)
 }
 
 // part: invitations
@@ -71,7 +111,11 @@ pub(crate) async fn add_member(
     user: UserId,
     role: Role,
 ) -> Result<Option<Timestamp>, AccessError> {
-    Ok(repo::insert_unless_member(uow, workspace, user, role).await?)
+    let joined_at = repo::insert_unless_member(uow, workspace, user, role).await?;
+    if joined_at.is_some() {
+        changed(uow, workspace, user).await?;
+    }
+    Ok(joined_at)
 }
 
 /// Whether `user` belongs to `workspace`.
@@ -99,6 +143,7 @@ pub(crate) async fn remove(
         .filter(|role| caller.outranks(*role))
         .collect();
     if repo::delete_at(uow, workspace, user, &below).await? {
+        changed(uow, workspace, user).await?;
         return Ok(Removal::Removed);
     }
     Ok(match repo::role(uow, workspace, user).await? {

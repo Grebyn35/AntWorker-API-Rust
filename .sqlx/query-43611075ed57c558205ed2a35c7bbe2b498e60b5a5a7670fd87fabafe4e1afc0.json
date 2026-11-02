@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT coalesce(max(position), 0) AS \"head!\" FROM events",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "head!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "43611075ed57c558205ed2a35c7bbe2b498e60b5a5a7670fd87fabafe4e1afc0"
+}

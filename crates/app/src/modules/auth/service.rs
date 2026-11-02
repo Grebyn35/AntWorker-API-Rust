@@ -1,7 +1,7 @@
 //! Registration, sign-in, refresh and sign-out, and the verifier of access tokens. Each operation
 //! opens its own unit of work, after any per-action limit it counts first.
 
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use platform::{
@@ -406,6 +406,20 @@ impl SessionVerifier for Verifier {
             )]
             let principal = Principal::new(found.user_id, found.id);
             Ok(principal)
+        })
+    }
+
+    fn lasting<'a>(
+        &'a self,
+        uow: &'a mut UnitOfWork,
+        principals: &'a [Principal],
+    ) -> BoxFuture<'a, Result<HashSet<SessionId>, Internal>> {
+        Box::pin(async move {
+            let sessions: Vec<(UserId, SessionId)> = principals
+                .iter()
+                .map(|principal| (principal.user_id(), principal.session_id()))
+                .collect();
+            Ok(repo::lasting(uow, &sessions).await?.into_iter().collect())
         })
     }
 }

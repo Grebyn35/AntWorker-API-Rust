@@ -25,6 +25,8 @@ enum Sweep {
     /// The idempotency records older than 24 hours, which a claim treats as absent
     /// (PLATFORM-018).
     IdempotencyRecords,
+    /// The events older than 24 hours, which no replay reaches (REALTIME-004).
+    Events,
     /// The dead letters older than their retention (OPS-10).
     DeadLetters(Duration),
 }
@@ -40,6 +42,7 @@ pub(super) fn register(jobs: &mut Jobs, database: &Database, retention: Duration
             "platform.expire_idempotency_records",
             Sweep::IdempotencyRecords,
         ),
+        ("platform.expire_events", Sweep::Events),
         (
             "platform.expire_dead_letters",
             Sweep::DeadLetters(retention),
@@ -80,6 +83,17 @@ async fn run(database: &Database, context: &JobContext, sweep: Sweep) -> Result<
             Sweep::IdempotencyRecords => sqlx::query!(
                 "DELETE FROM idempotency_records WHERE id IN (
                     SELECT id FROM idempotency_records
+                    WHERE created_at <= now() - interval '24 hours'
+                    LIMIT $1
+                )",
+                BATCH,
+            )
+            .execute(uow.executor())
+            .await?
+            .rows_affected(),
+            Sweep::Events => sqlx::query!(
+                "DELETE FROM events WHERE id IN (
+                    SELECT id FROM events
                     WHERE created_at <= now() - interval '24 hours'
                     LIMIT $1
                 )",

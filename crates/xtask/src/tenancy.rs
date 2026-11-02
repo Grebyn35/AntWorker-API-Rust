@@ -29,12 +29,14 @@ const ACCOUNT_DATA: [&str; 3] = ["users", "identities", "sessions"];
 
 /// Tables of `platform`'s own bookkeeping (DATA-22). A job records the workspace and the user it
 /// runs for, which its handler filters by, but the queue's own queries select jobs by their state
-/// (PLATFORM-012).
-const PLATFORM_DATA: [&str; 4] = [
+/// (PLATFORM-012). An event records whom it reaches, which a stream's replay filters by, but the
+/// hub loads events by their position (PLATFORM-057).
+const PLATFORM_DATA: [&str; 5] = [
     "rate_limit_buckets",
     "idempotency_records",
     "jobs",
     "job_schedules",
+    "events",
 ];
 
 /// Tables of workspace data whose rows are addressed to a user by email, with that column: the
@@ -434,6 +436,7 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
              CREATE TABLE idempotency_records (id uuid);\nCREATE TABLE workspaces (id uuid);\n\
              CREATE TABLE jobs (id uuid, workspace_id uuid, user_id uuid);\n\
              CREATE TABLE job_schedules (id uuid);\n\
+             CREATE TABLE events (id uuid, workspace_id uuid, user_id uuid);\n\
              CREATE TABLE offers (id uuid, workspace_id uuid, email text);\n"
         );
         let repo = Repo::of(&[
@@ -504,7 +507,7 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
     #[test]
     fn data_22_a_listed_table_that_no_migration_creates_is_found() {
         let tables = BTreeMap::new();
-        assert_eq!(placements(&tables).len(), 8);
+        assert_eq!(placements(&tables).len(), 9);
     }
 
     #[test]

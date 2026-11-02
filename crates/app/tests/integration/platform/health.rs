@@ -38,13 +38,9 @@ async fn platform_037_a_draining_instance_is_not_ready() {
 
 #[tokio::test]
 async fn platform_037_readiness_follows_the_instance_s_own_database_connection() {
-    let database = TestDatabase::migrated().await;
     let api = Api::new().await;
+    let database = api.database();
     let clock = api.clock();
-    database
-        .app()
-        .await
-        .watch(api.readiness().clone(), clock.clone());
     clock.sleeping(CHECK_INTERVAL).await;
     let ready = api.get("/health/ready").send().await;
 
@@ -76,11 +72,9 @@ async fn platform_037_readiness_follows_the_instance_s_own_database_connection()
 
 #[tokio::test]
 async fn platform_037_a_pool_with_every_connection_in_use_stays_ready() {
-    let database = TestDatabase::migrated().await;
     let api = Api::new().await;
     let clock = api.clock();
-    let pool = database.app().await;
-    pool.watch(api.readiness().clone(), clock.clone());
+    let pool = api.pool();
     clock.sleeping(CHECK_INTERVAL).await;
 
     let mut held = Vec::new();

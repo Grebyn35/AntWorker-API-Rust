@@ -25,6 +25,7 @@ argon2.workspace = true
 askama.workspace = true # part: invitations
 axum.workspace = true
 clap.workspace = true
+futures-util.workspace = true
 ipnet.workspace = true
 serde.workspace = true
 serde_json.workspace = true

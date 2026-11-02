@@ -2,7 +2,7 @@
 //! implements proves from the request's access token, read from the `Authorization` header or a
 //! browser's cookie (D18, D61), and the audit scope a proof gives an entry.
 
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
 
 use axum::{
     extract::FromRequestParts,
@@ -11,6 +11,7 @@ use axum::{
 };
 
 use crate::{
+    db::UnitOfWork,
     errors::{Internal, Problem, RequestError},
     http::Cookies,
     jobs::JobScope,
@@ -158,6 +159,14 @@ pub trait SessionVerifier: Send + Sync {
         token: &'a str,
         client: &'a Client,
     ) -> BoxFuture<'a, Result<Principal, Unverified>>;
+
+    /// The sessions of `principals` that still last, read inside `uow`: those that can still be
+    /// refreshed, for the hub's re-check of its streams (SEC-06).
+    fn lasting<'a>(
+        &'a self,
+        uow: &'a mut UnitOfWork,
+        principals: &'a [Principal],
+    ) -> BoxFuture<'a, Result<HashSet<SessionId>, Internal>>;
 }
 
 /// What authenticating a request takes: the verifier, and the user's rate-limit bucket.

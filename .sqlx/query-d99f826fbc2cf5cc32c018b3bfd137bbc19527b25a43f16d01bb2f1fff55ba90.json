@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id AS \"id!\" FROM (\n            SELECT id, position FROM events WHERE user_id = $2 AND position <= $1\n            UNION ALL\n            SELECT e.id, e.position\n            FROM unnest($3::uuid[], $4::text[], $5::timestamptz[])\n                AS m(workspace_id, permission, joined_at)\n            JOIN events AS e ON e.workspace_id = m.workspace_id\n                AND e.permission = m.permission\n                AND e.created_at >= m.joined_at\n                AND e.position <= $1\n        ) AS visible\n        ORDER BY position DESC\n        LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "UuidArray",
+        "TextArray",
+        "TimestamptzArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d99f826fbc2cf5cc32c018b3bfd137bbc19527b25a43f16d01bb2f1fff55ba90"
+}

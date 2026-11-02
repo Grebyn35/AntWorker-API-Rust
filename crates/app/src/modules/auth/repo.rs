@@ -160,6 +160,27 @@ pub(super) async fn delete_session(
     Ok(())
 }
 
+/// The sessions among `sessions`, each with its user, that can still be refreshed: their
+/// refresh token and their absolute lifetime haven't expired (AUTH-018).
+pub(super) async fn lasting(
+    uow: &mut UnitOfWork,
+    sessions: &[(UserId, SessionId)],
+) -> Result<Vec<SessionId>, Internal> {
+    let users: Vec<uuid::Uuid> = sessions.iter().map(|(user, _)| user.uuid()).collect();
+    let ids: Vec<uuid::Uuid> = sessions.iter().map(|(_, id)| id.uuid()).collect();
+    let lasting = sqlx::query_scalar!(
+        "SELECT sessions.id FROM sessions
+        JOIN unnest($1::uuid[], $2::uuid[]) AS asked(user_id, id)
+            ON sessions.user_id = asked.user_id AND sessions.id = asked.id
+        WHERE sessions.refresh_token_expires_at > now() AND sessions.expires_at > now()",
+        &users,
+        &ids,
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(lasting.into_iter().map(SessionId::from_uuid).collect())
+}
+
 /// The session whose access token hashes to `hash`, and whether that token has expired.
 pub(super) async fn by_access_token(
     uow: &mut UnitOfWork,

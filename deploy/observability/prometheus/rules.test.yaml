@@ -278,6 +278,28 @@ tests:
               summary: A disk of the server is more than 95% full, and at the rate of the last hour fills within 4 hours.
               runbook: docs/operations/runbooks.md#diskfull
 
+  # From the 10th minute on, every event a hub loads committed 10 seconds before.
+  - interval: 1m
+    input_series:
+      - series: 'platform_event_delivery_lag_seconds_bucket{job="api", instance="a", le="0.1"}'
+        values: "0+60x10 600x30"
+      - series: 'platform_event_delivery_lag_seconds_bucket{job="api", instance="a", le="10"}'
+        values: "0+60x40"
+      - series: 'platform_event_delivery_lag_seconds_bucket{job="api", instance="a", le="+Inf"}'
+        values: "0+60x40"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: EventsDelayed
+        exp_alerts: []
+      - eval_time: 32m
+        alertname: EventsDelayed
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: Events have reached their streams more than 5 seconds after they committed, at the 99th percentile, for 10 minutes.
+              runbook: docs/operations/runbooks.md#eventsdelayed
+
   # A runnable job waits longer and longer from the 5th minute on, as when no replica claims it.
   - interval: 1m
     input_series:

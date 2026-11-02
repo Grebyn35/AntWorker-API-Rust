@@ -261,8 +261,8 @@ async fn platform_046_the_resident_memory_is_recorded_at_once_and_every_15_secon
 
 #[tokio::test]
 async fn platform_043_the_database_gauge_follows_each_check() {
-    let database = TestDatabase::migrated().await;
     let api = Api::new().await;
+    let database = api.database();
     let clock = api.clock();
     let reachable = || {
         testing::recorded("platform.database_reachable")
@@ -270,10 +270,6 @@ async fn platform_043_the_database_gauge_follows_each_check() {
             .find(|point| point.labels.get("db.namespace") == Some(&database.name().to_owned()))
             .map(|point| point.value)
     };
-    database
-        .app()
-        .await
-        .watch(api.readiness().clone(), clock.clone());
     clock.sleeping(CHECK_INTERVAL).await;
     let answered = reachable();
 

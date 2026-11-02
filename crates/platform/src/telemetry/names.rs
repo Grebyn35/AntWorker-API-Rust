@@ -94,6 +94,8 @@ pub const JOB_ID: &str = "job.id";
 pub const JOB_ATTEMPT: &str = "job.attempt";
 /// How a job's run ended, such as `succeeded` or `retried` (PLATFORM-065).
 pub const JOB_OUTCOME: &str = "job.outcome";
+/// Why the hub closed a stream, such as `access_changed` (PLATFORM-074).
+pub const STREAM_CLOSE_REASON: &str = "stream.close_reason";
 /// The part of startup that failed, such as `database` or `listen` (OPS-03).
 pub const STARTUP_AREA: &str = "startup.area";
 /// The migration versions `migrate` applied.

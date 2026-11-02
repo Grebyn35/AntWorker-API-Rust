@@ -141,23 +141,12 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         Ok(signals) => signals,
         Err(error) => return failed("signals", &error),
     };
-    let database = match Database::connect(
-        &config.database_url,
-        config.database_max_connections,
-        &app::MIGRATIONS,
-    )
-    .await
-    {
+    let database = match connect(&config).await {
         Ok(database) => database,
-        Err(error) => return failed("database", &error),
+        Err(code) => return code,
     };
-    tracing::info!(
-        { names::DATABASE_CONNECTIONS } = database.connections(),
-        "connected to the database"
-    );
     let clock: SharedClock = Arc::new(SystemClock);
     let readiness = Readiness::new();
-    database.watch(readiness.clone(), clock.clone());
     platform::telemetry::process::watch(clock.clone());
     let (listener, address) = match bind(config.listen_addr).await {
         Ok(bound) => bound,
@@ -168,7 +157,15 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         { names::SERVER_PORT } = address.port(),
         "listening"
     );
-    let services = match app::compose(&database, &config, modules, clock.clone()).await {
+    let services = match app::compose(
+        &database,
+        &config,
+        modules,
+        clock.clone(),
+        readiness.clone(),
+    )
+    .await
+    {
         Ok(services) => services,
         Err(error) => return failed("services", &error),
     };
@@ -217,6 +214,23 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Connects to the database, after the startup checks, and logs the most connections the
+/// instance opens (PLATFORM-045).
+async fn connect(config: &ServerConfig) -> Result<Database, ExitCode> {
+    let database = Database::connect(
+        &config.database_url,
+        config.database_max_connections,
+        &app::MIGRATIONS,
+    )
+    .await
+    .map_err(|error| failed("database", &error))?;
+    tracing::info!(
+        { names::DATABASE_CONNECTIONS } = database.connections(),
+        "connected to the database"
+    );
+    Ok(database)
 }
 
 /// Binds `address`, and returns the listener with the address it bound, whose port the system

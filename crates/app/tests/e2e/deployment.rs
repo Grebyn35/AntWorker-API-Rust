@@ -449,6 +449,27 @@ pub fn post_as(root: String, url: String, token: Option<String>, body: String) -
     .expect("the request")
 }
 
+/// Sends `DELETE` to `url`, with `token` as its Bearer access token, through a client that trusts
+/// `root`, and returns the response's status.
+pub fn delete_as(root: String, url: String, token: String) -> u16 {
+    thread::spawn(move || {
+        let response = client(&root)
+            .delete(&url)
+            .bearer_auth(token)
+            .send()
+            .expect("an answer");
+        response.status().as_u16()
+    })
+    .join()
+    .expect("the request")
+}
+
+/// A client of the API that trusts `root`, Caddy's authority, and gives up on each read of an
+/// answer after `timeout`, for a stream whose answer never ends.
+pub fn streaming_client(root: &str, timeout: Duration) -> reqwest::blocking::Client {
+    client_within(root, timeout)
+}
+
 /// Starts the server of a managed database: another server of Compose's Postgres, for the reason
 /// docs/operations/ci.md gives. It runs the service's image with its command and environment, and
 /// its health check's test, interval, timeout and retries, joins its network, and keeps its data

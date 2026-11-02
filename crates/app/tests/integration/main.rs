@@ -21,6 +21,8 @@ mod openapi;
 #[cfg(test)]
 mod platform;
 #[cfg(test)]
+mod realtime;
+#[cfg(test)]
 mod support;
 #[cfg(test)]
 mod system;

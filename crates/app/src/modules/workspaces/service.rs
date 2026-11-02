@@ -6,7 +6,6 @@ use platform::{
     authn::Principal,
     authz::{self, Authorized},
     db::{Database, UnitOfWork},
-    events::{self, AccessChange},
     idempotency::{Claimed, IdempotencyKey},
     lists::{List, Page, Search},
     types::{
@@ -211,13 +210,5 @@ pub(crate) async fn remove_member(
     let payload = json!({ "workspace_id": workspace, "user_id": user });
     uow.publish_to_workspace(&published::MEMBER_REMOVED, workspace, &payload)
         .await?;
-    events::signal(
-        &mut uow,
-        AccessChange::MembershipEnded {
-            user_id: user,
-            workspace_id: workspace,
-        },
-    )
-    .await?;
     Ok(uow.commit().await?)
 }
