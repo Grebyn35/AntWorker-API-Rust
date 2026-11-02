@@ -67,12 +67,12 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Area | Covered by |
 |---|---|
 | Module structure and dependency rules | D22 |
-| Error model | D17 |
+| Error model | D17, D70 |
 | Domain types and input validation | D25 |
 | Data access: IDs, time, queries, transactions, concurrency | D24 |
 | Side effects and consistency | D1 |
 | Testing strategy | D23 |
-| API contract | D8 |
+| API contract | D8, D68, D71 |
 | Naming, formatting, comments, file and function size | CODE, DOC |
 | Dependency policy, Rust edition and toolchain | CODE-01, CODE-11 to CODE-13, D21 |
 
@@ -80,7 +80,7 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 
 | Area | Covered by |
 |---|---|
-| Local development experience | D28 |
+| Local development experience | D28, D69, D71 |
 | Fork, rename, add and remove modules, workspace shapes, upstream updates | D29, D39, D62, D65, D66 |
 | Documentation set and Claude Code guidance | D27 |
 | Template versioning and changelog | D15, D29 |

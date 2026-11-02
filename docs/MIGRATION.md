@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 2.4's second part, its spec first: `just seed`, with how it opens its unit of work (Rule proposals, DATA-12), the OpenAPI UI in development, the event catalog in `openapi.json` (the realtime spec's open question), and the hub's load test (the platform spec's). Step 2.4's first part, the event hub and `realtime`, is built and reviewed through f7eb030 ([Conformance reviews](#conformance-reviews)). Two migrations that no release holds changed in it, so a development database made before it is recreated, as CLAUDE.md says. A developer's `.env` needs the email settings of `.env.example`, and a deployment's `settings.env` needs `EMAIL`, which `just server-setup` asks for. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 3, the rule fixes: one round of rule changes from what steps 1 and 2 taught, through [Changing a rule](standards/README.md#changing-a-rule), which decides each row of [Rule proposals](#rule-proposals) that names step 3, and each check that [CI checks](#ci-checks) leaves to it, then renumbers the IDs once, as [Build order](#build-order) says. Step 2, the thin slice, is built and reviewed: its last part, step 2.4's second, through cdcb2ef ([Conformance reviews](#conformance-reviews)). A developer's `.env` needs `CORS_ALLOWED_ORIGINS` as `.env.example` sets it, for the API reference at `/docs` to sign in, and the email settings of `.env.example`; a development database made before step 2.4 is recreated, as CLAUDE.md says. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
 
 ## Build order
 
@@ -80,7 +80,7 @@ Each module goes through these stages, in order:
 | `files` | FILE | | | | | |
 | `client_telemetry` | OBS | | | | | |
 | `superadmins` | none: a new part (D62) | | | | | |
-| `system` | HTTP, OPS | capabilities, seed | capabilities, seed | capabilities, seed | capabilities, seed | capabilities |
+| `system` | HTTP, OPS | capabilities, seed | capabilities, seed | capabilities, seed | capabilities, seed | capabilities, seed |
 
 ## CI checks
 
@@ -228,7 +228,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 0d036d0..d59e8d0: step 2.4's first part: the event hub and `realtime`, their deployment, metrics, alert and end-to-end scenario, and the fixes made before the review | 1 | 21 (20, 16, 15 shared) | 14 | 0 | `next pass`: 29a0c2c, 1ff84e6 |
 | 0d036d0..1ff84e6: as above | 2 | 15 (10, 10, 5 shared) | 8 | 5 | `stopped: no progress`: f7eb030 |
 | c619d50..92a1d55: step 2.4's second part: the event catalog, the API reference in development, `seed`, the hub's owed events, the hub's load test, and the `invitations` part's markers on them | 1 | 13 (10, 9, 6 shared) | 8 | 0 | `next pass`: efa110e |
-| c619d50..efa110e: as above | 2 | 6 (4, 5, 3 shared) | 4 | 1 | `stopped: no progress` |
+| c619d50..efa110e: as above | 2 | 6 (4, 5, 3 shared) | 4 | 1 | `stopped: no progress`: cdcb2ef |
 
 ## Decisions
 
@@ -303,3 +303,7 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D65 | The setup subcommand creates a workspace and its owner's account each time an operator runs it, so one organization's deployment can hold a workspace per subsidiary, rather than one workspace in all; a run with a name an earlier run used is refused, so a second run by mistake creates nothing, and an account an earlier run created may own more before its owner signs in ([workspaces spec](spec/workspaces.md#the-setup-subcommand)) | accepted |
 | D66 | A superadmin who creates a workspace becomes its owner, as a user who creates one does, and hands it over through the ordinary ownership transfer, rather than naming an owner who joins at once or through an invitation; they see its content as a member, never as a superadmin ([architecture](architecture.md#workspace-shapes)) | accepted |
 | D67 | Email stays optional, and what an address proves follows it. With email on, an account proves its address, by a code sent to it or a sign-in provider that vouches for it, before the API serves it anything but verifying, checked where every request is authenticated, and its session says whether it must still verify. With email off, nothing asks for a proof, and an invitation reaches whichever account holds its address. This rather than a proof always, which would make email required wherever invitations are, a setting of its own, a check on invitations alone, or a check left to the client, which any other caller skips ([auth spec](spec/auth.md#email-verification)) | accepted |
+| D68 | The event catalog is documented in `openapi.json` at OpenAPI 3.1: one component per frame type, each in the shape OpenAPI 3.2 gives an item of a `text/event-stream`, with its payload's type as a component of its own, and the stream's media type naming their union in the extension `x-itemSchema`, rather than moving the document to OpenAPI 3.2 for `itemSchema`, which the generators most clients use don't read yet (REALTIME-008) | accepted |
+| D69 | `seed` creates its data by sending the API's own routes, in process, the requests a client would, so its units of work open as any request's do, as `app`, rather than through services or rows of its own (the system spec's Seed, DATA-12) | accepted |
+| D70 | An error that only a subcommand reports implements no `ErrorCode`, since no client receives it, rather than carrying a code that the OpenAPI document can't list (ERR-02, ERR-13) | accepted |
+| D71 | The API reference that development serves lives at `/docs`, outside `/v1`, and outside the document, on the API's own origin, rather than in a container beside the API or under the versioned contract (API-01, API-14, PLATFORM-075) | accepted |
