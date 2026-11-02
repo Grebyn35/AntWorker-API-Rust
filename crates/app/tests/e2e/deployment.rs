@@ -19,7 +19,7 @@ use serde_json::Value;
 use tokio::sync::{Semaphore, SemaphorePermit};
 
 use crate::{
-    docker::{Container, compose, lossy, postgres_network},
+    docker::{Container, compose, docker, lossy, postgres_network},
     images::Pushed,
     server::{DEPLOYMENT, RunningDeploy, Server},
 };
@@ -304,9 +304,23 @@ impl Deployment {
         (set.to_owned(), timeline.to_owned())
     }
 
-    /// The first column of each row that `sql` returns from the bundled database, as its
-    /// administrator, one row per line.
+    /// The first column of each row that `sql` returns from the deployment's database, the
+    /// bundled one or the managed one on its server, as its administrator, one row per line.
     pub fn sql(&self, sql: &str) -> String {
+        if let Some(database) = &self.database {
+            return docker(&[
+                "exec",
+                database.id(),
+                "psql",
+                "--username=postgres",
+                "--dbname=api",
+                "-qAt",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "--command",
+                sql,
+            ]);
+        }
         self.server.write("/root/statement.sql", sql);
         self.server.shell_ok(
             "docker exec --interactive deployment-postgres-1 \
