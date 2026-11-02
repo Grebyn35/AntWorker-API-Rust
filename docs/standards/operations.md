@@ -44,7 +44,7 @@ While no replica is ready, such as during a restore, the reference deployment's 
 The instance installs its handlers for the shutdown signals before it connects to anything, and fails startup if it can't (OPS-03). On SIGTERM, the instance shuts down in this order:
 1. Turn readiness off.
 2. Wait one health-check interval, so the load balancer stops sending traffic.
-3. Stop accepting connections.
+3. Close the open streams, so their clients reconnect to another instance, and stop accepting connections.
 4. Drain requests, up to a deadline.
 5. Cancel jobs and release their leases.
 6. Flush telemetry.

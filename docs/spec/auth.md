@@ -13,7 +13,7 @@
 
 ## Interface
 
-- `SessionVerifier`, implemented for `platform::authn`.
+- `SessionVerifier`, implemented for `platform::authn`: `verify`, and `lasting`, for the hub's re-check of its streams (AUTH-018).
 - The domain type `Password` (D25).
 - `Principal` is built here only, after a successful credential check or a registration: clippy bans its constructor, and `auth` alone allows it, through `#[expect]`.
 
@@ -50,6 +50,7 @@ No route takes an `Idempotency-Key` (API-12).
 | AUTH-015 | A registration, sign-in or refresh from a browser, a request that carries `Origin`, leaves the tokens out of the body and sets them as cookies: the access token in `__Host-access_token`, and the refresh token in `__Host-refresh_token`. Each is `Secure`, `HttpOnly` and `SameSite=Strict`, with `Path=/` and no `Domain`, and expires with its token. | SEC-19, D61 | `auth_015_` |
 | AUTH-016 | `GET /v1/users/me/sessions/current` answers with the session that authenticated the request: its ID, its user's ID, its device ID, its creation time and its three expiry times, and no token. | API-02, DATA-22 | `auth_016_` |
 | AUTH-017 | A device ID is a string the client chooses, of 1 to 64 letters, digits, underscores and hyphens, rather than a UUID the API issues (API-11). Any other answers 400 with `invalid_device_id` at `/device_id`. | API-10, API-11 | `auth_017_` |
+| AUTH-018 | `lasting` keeps, of the sessions it is given, those that exist and whose refresh token and absolute lifetime haven't expired, whether or not their access token has. | SEC-06, D5 | `auth_018_` |
 
 ## Design
 
@@ -74,7 +75,9 @@ The presented token is hashed with SHA-256, and the session is read by `refresh_
 
 ### Verifying access tokens
 
-Every authenticated request reads its session by its access token's hash, with no cache, so a session that ends, by signing out or by a refresh token's reuse, refuses its token at once (D5, AUTH-013). A cache in each replica would need the access-change signals to drop what it holds, which the hub's listener receives from step 2.4 on. `just load-test me` measures what verifying costs (OPS-18).
+Every authenticated request reads its session by its access token's hash, with no cache, so a session that ends, by signing out or by a refresh token's reuse, refuses its token at once (D5, AUTH-013). A cache in each replica would need the access-change signals to drop what it holds, which only the hub receives. `just load-test me` measures what verifying costs (OPS-18).
+
+`SessionVerifier::lasting` reads the sessions it is given by their IDs, which came from the hub's streams' principals, and keeps those whose refresh token and absolute lifetime haven't expired: a session lasts while it can still be refreshed, so a stream outlives its access token, but not its session (AUTH-018, SEC-06).
 
 ### Token delivery
 

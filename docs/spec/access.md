@@ -13,7 +13,7 @@
 ## Interface
 
 - The permission types used with `Authorized<P>`, one type per permission of the matrix below that a route requires.
-- `AccessPolicy`, implemented for `platform::authz`: `authorize`, and from step 2.4 on `memberships`, which returns the caller's `Memberships`.
+- `AccessPolicy`, implemented for `platform::authz`: `authorize`, and `memberships`, which gives each of a set of users their `Memberships`, for the hub's streams (ACCESS-007).
 - `add_owner(uow, workspace_id, user_id)`: makes the creator the owner of a new workspace. Called only by `workspaces`.
 - `add_member(uow, workspace_id, user_id, role)`: adds a member, or reports that the user is one already, which changes nothing. Called only by `invitations`, after accepting. <!-- part: invitations -->
 - `is_member(uow, workspace_id, user_id)`: whether the user belongs to the workspace. <!-- part: invitations -->
@@ -21,7 +21,7 @@
 - `members(uow, &Authorized<MembersRead>, &MemberFilter, &Page)`: a page of the workspace's memberships, newest first, kept to a role and to a set of users when the filter names them.
 - `member_ids(uow, &Authorized<MembersRead>)`: the user IDs of every member of the workspace, which a search of the members hands `accounts` (Design: Searching members).
 - `joined(uow, &Principal, Option<&[WorkspaceId]>, &Page)`: a page of the caller's own memberships, the latest joined first, kept to the given workspaces when a search named them, for listing the caller's workspaces.
-- `workspace_ids(uow, &Principal)`: the ID of every workspace the caller belongs to (ACCESS-005), which a search of the caller's workspaces hands `workspaces`. `AccessPolicy::memberships`, with the caller's role in each, arrives with the hub that needs it, in step 2.4.
+- `workspace_ids(uow, &Principal)`: the ID of every workspace the caller belongs to (ACCESS-005), which a search of the caller's workspaces hands `workspaces`.
 - `Role::outranks(role)`: compares two roles (SEC-08).
 
 ## Behaviors
@@ -33,6 +33,8 @@
 | ACCESS-003 | A caller who isn't a member of the workspace in the path gets 404 `request.not_found`. A member without the route's permission gets 403 `request.permission_denied`. Both refusals are reported to the `SecurityEventSink`. A workspace ID that isn't a UUID names no workspace, and answers 404 `request.not_found` unrecorded. | API-14, SEC-07, DATA-27 | `access_003_` |
 | ACCESS-004 | A member acts only on members whose role ranks below their own, and assigns only roles below their own. A refusal goes through `authz::refuse`, and answers 403 `request.permission_denied`. | SEC-08, DATA-27, PLATFORM-025 | `access_004_` |
 | ACCESS-005 | `workspace_ids` returns the ID of every workspace the caller belongs to, and nothing else. | D3, DATA-22 | `access_005_` |
+| ACCESS-006 | Adding a membership, as the owner of a new workspace or as a member, and removing one, each sends an access-change signal for its user and workspace in the same unit of work, which closes that user's streams once it commits. | SEC-06, D35, PLATFORM-017 | `access_006_` |
+| ACCESS-007 | `memberships` gives each user it is asked about every workspace they belong to, with the permissions their role holds there and when they joined, and nothing else. | SEC-17, DATA-22 | `access_007_` |
 
 ## Design
 
@@ -52,6 +54,14 @@ The matrix lives in `access/permissions.rs` as one table, so adding a permission
 ### Removing a member
 
 The delete itself checks the rank: it deletes the membership only where its role ranks below the caller's (DATA-24, DATA-25). A row whose role doesn't qualify is skipped without being locked, so a removal never waits on a member it may not remove, and two members who each try to remove the other can't wait on each other: at most one outranks the other. When nothing was deleted, a read without a lock tells a member it outranked nobody from a user who isn't a member (ACCESS-004, WORKSPACES-006).
+
+### Signals
+
+The functions that add or remove a membership send its signal themselves, so no caller can change who belongs to a workspace without the hub hearing of it. A role's change, with the full `workspaces` module, signals the same way (SEC-06).
+
+### Memberships for the hub
+
+`AccessPolicy::memberships` reads the memberships of the users it is given, filtered by their IDs, which came from the hub's own streams' principals (DATA-22), through the index on the members' user, and turns each role into the names of its permissions from the matrix, so `platform`, which holds no roles, filters events by permission names alone (ARCH-02).
 
 ### Uniqueness of the owner
 

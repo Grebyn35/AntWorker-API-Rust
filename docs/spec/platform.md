@@ -21,6 +21,7 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 
 - **Database:** `Database`, the pool of connections as the role `app`, which `serve` connects once at startup. Connecting runs the startup checks (PLATFORM-009, PLATFORM-030), and `begin` opens a unit of work.
 - **Unit of work:** `UnitOfWork`, opened with the request's `Client`, or with a job's `JobContext` through `for_job` (Design: Unit of work), with `executor`, `commit`, `enqueue`, `publish_to_user` and `publish_to_workspace`, and `claim` and `commit_with` for an idempotency key.
+- **Events:** `UserEvent` and `WorkspaceEvent<P>`, the event types a module declares in its `events.rs`; `events::signal`, which sends an `AccessChange` when its unit of work commits (D35); and `Hub`, the real-time hub, which `main.rs` starts once on the instance's own connection, and whose `subscribe` opens a caller's stream, a `Subscription` that yields each event for it, `replay.truncated`, and the reason the hub closed it (Design: Events and the real-time hub).
 - **Mail:** `MailConfig`, the email settings that `ServerConfig` holds (PLATFORM-069); `Email`, a module's email, rendered, to one recipient; and `Mail`, built once from the settings, whose `send` enqueues an `Email` in a unit of work, whose `is_on` says whether email is on, and whose `register` registers the job `platform.send_email`, which sends what `send` enqueued over the Simple Mail Transfer Protocol (SMTP) (Design: Sending email).
 - **Jobs:** `Job`, the trait of a queued job's payload, which names its kind, its most attempts and its time limit; `JobScope`, the user or workspace a job runs for, which only a proof builds, but the scope of no one, which only `platform`'s scheduler builds; `JobFailure`, which says whether a failed run may be retried; and `Jobs`, the registry of every queued and periodic job's handler, whose `run` runs the dispatcher and the scheduler until shutdown (Design: Jobs).
 - **Request context:** `Client`, the request's client IP (PLATFORM-047) and user agent.
@@ -34,17 +35,15 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 - **Lifecycle:** `Readiness`, `ShutdownSignals` and `serve`, which runs the server until a shutdown signal and then shuts it down (OPS-05, OPS-06), and `probe`, which the `health` subcommand runs (PLATFORM-044).
 - **Proof types:** `Principal`, `Authorized<P>`, `Memberships` and `JobContext`, and `AuditScope`, the log and the actor of an audit entry, which only a proof builds with an actor ([audit spec](audit.md#recording-an-entry)). `Authorize<P>`, the extractor of a workspace route, proves nothing until its `open` (Design: Unit of work).
 - **Traits that modules implement** (ARCH-13):
-  - `SessionVerifier`, implemented by `auth`.
-  - `AccessPolicy`, implemented by `access`, with `authorize`, and from step 2.4 on `memberships`.
+  - `SessionVerifier`, implemented by `auth`, with `verify`, and `lasting`, which says which of a set of sessions still last, for the hub's re-check.
+  - `AccessPolicy`, implemented by `access`, with `authorize`, and `memberships`, which gives each of a set of users their `Memberships`: every workspace they belong to, with the permissions their role holds there and when they joined.
   - `SecurityEventSink`, implemented by `audit`.
   - The personal data contract.
 - **Traits that modules use:** `Permission`, `ErrorCode`, and `Job`.
 - **Calls:**
   - `authz::refuse(uow, &Authorized<P>)`: for a refusal inside an operation, rolls its unit of work back, records the refusal as a security event, and gives the 403 `request.permission_denied` (PLATFORM-025).
-  - `events::subscribe(&Principal, &Memberships, last_event_id)`: a stream of the caller's events (SEC-17).
 - **Services:**
   - the job registry and scheduler
-  - the event types' declaration
   - the outbound HTTP clients (SEC-09)
   - the clock and the random source (CODE-06)
   - the metric declarations: `Counter`, `Histogram` and `Gauge` (OBS-11)
@@ -93,7 +92,7 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 | PLATFORM-061 | A committed job runs within about a second while a replica has room, each replica running at most 4 at once. A replica claims only the kinds its registry holds, so during a deploy a kind that only the new release knows waits for its replicas. | D13, D20 | `platform_061_` |
 | PLATFORM-062 | A run that passes its kind's time limit is cancelled, and counts as a failed attempt. A job whose replica stopped without ending or releasing it runs again once its lease runs out, and the stale run's outcome changes nothing; when the stopped run was its last attempt, the attempt counts as failed, and the job moves to the dead-letter state without running again. | D13, OPS-10 | `platform_062_` |
 | PLATFORM-063 | On a shutdown signal, the dispatcher and the scheduler claim nothing more. Runs in flight go on until the drain deadline; each one still running then is cancelled and released, without counting the attempt, so another replica runs it at once. | OPS-06, D13 | `platform_063_` |
-| PLATFORM-064 | Every hour, periodic jobs delete the rate-limit buckets whose window started more than a day ago, the idempotency records older than 24 hours, and the dead letters older than their retention. | DATA-28, OPS-10 | `platform_064_` |
+| PLATFORM-064 | Every hour, periodic jobs delete the rate-limit buckets whose window started more than a day ago, the idempotency records and the events older than 24 hours, and the dead letters older than their retention. | DATA-28, OPS-10 | `platform_064_` |
 | PLATFORM-065 | A job's run has a span of its own, linked to the trace context stored when it was enqueued, and is counted in `platform.job_runs` by kind and outcome. | OBS-07, OBS-11 | `platform_065_` |
 
 ### Mail
@@ -111,9 +110,13 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
 | PLATFORM-015 | A published event exists only if its unit of work commits. | DATA-27, D1 | `platform_015_` |
-| PLATFORM-057 | Each replica's hub loads a published event once. | D20 | `platform_057_` |
-| PLATFORM-016 | A workspace event reaches only streams whose principal holds the permission its type requires. Replay excludes events from before the membership. | SEC-17 | `platform_016_` |
-| PLATFORM-017 | A committed access change closes or re-filters the affected streams. A missed signal is caught by the periodic re-check. | SEC-06, D35 | `platform_017_` |
+| PLATFORM-057 | Each replica's hub loads each committed event once, in the order the units of work committed. | D20 | `platform_057_` |
+| PLATFORM-071 | Every committed event has a position, assigned as its unit of work commits, in the order the units of work commit. A stream that resumes from an event gets every event committed after it that its caller may receive, each once, whichever replica it resumes on. | D1, D20, SEC-17 | `platform_071_` |
+| PLATFORM-016 | A user event reaches only its user's streams. A workspace event reaches only streams whose principal holds, in its workspace, the permission its type requires. Replay excludes events from before the membership. | SEC-17 | `platform_016_` |
+| PLATFORM-017 | A committed access change closes the affected streams before the hub delivers any event committed after it: a session's end closes that session's streams, and a membership that starts or ends closes its user's streams. Every `STREAM_RECHECK_SECONDS` (10 to 3,600, default 60), the hub also closes each stream whose session has stopped lasting, or whose caller's memberships differ from those it opened with, so no stream outlives its session, or a missed signal, by more than that interval. | SEC-06, D35 | `platform_017_` |
+| PLATFORM-072 | A stream whose client reads too slowly, with 256 frames waiting to be sent, closes with `lagging`. | D20 | `platform_072_` |
+| PLATFORM-073 | While the hub's connection to the database is lost, readiness answers `database_unavailable`. Once it is back, the hub re-checks every stream, then delivers the events committed while it was away, so a stream neither misses one nor receives one that access it lost meanwhile withholds. | OPS-05, SEC-06, SEC-17 | `platform_073_` |
+| PLATFORM-074 | `platform.streams` records each replica's open streams, `platform.stream_closes` counts the streams the hub closed, by reason, and `platform.event_delivery_lag` records the seconds from an event's commit to the hub's delivery of it. | OBS-11 | `platform_074_` |
 
 ### HTTP
 
@@ -152,8 +155,8 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
-| PLATFORM-037 | `/health/ready` answers 200 `{"status": "ready"}` while the database answers the instance's own connection and the instance isn't draining. Otherwise it answers 503 with the status `draining` or `database_unavailable`. A pool with every connection in use doesn't change the answer. | OPS-05, D20 | `platform_037_` |
-| PLATFORM-038 | On a shutdown signal, readiness answers `draining` at once. The server keeps serving for the shutdown delay, then stops accepting connections, waits for the requests in flight until the drain deadline, and returns. | OPS-06 | `platform_038_` |
+| PLATFORM-037 | `/health/ready` answers 200 `{"status": "ready"}` while the database answers the instance's own connection, on which the hub listens, and the instance isn't draining. Otherwise it answers 503 with the status `draining` or `database_unavailable`. A pool with every connection in use doesn't change the answer. | OPS-05, D20 | `platform_037_` |
+| PLATFORM-038 | On a shutdown signal, readiness answers `draining` at once. The server keeps serving for the shutdown delay, then closes the open streams with `shutdown`, stops accepting connections, waits for the requests in flight until the drain deadline, and returns. | OPS-06 | `platform_038_` |
 | PLATFORM-044 | `health` sends `GET /health/ready` to the address in `LISTEN_ADDR`, the loopback address of its family when that address is unspecified, such as `0.0.0.0`. It exits 0 when the answer is 200. Otherwise it exits 1 and writes one startup-failure line on stderr that names the answer, or names the address as one nothing listens on, that didn't answer within 3 seconds, or that didn't answer with HTTP. | OPS-15, OPS-03, OPS-05 | `platform_044_` |
 
 ### Configuration
@@ -291,11 +294,19 @@ Each send runs in a client span of its own, `smtp send`, with the server's addre
 ### Events and the real-time hub
 
 - Each module declares its event types in its `events.rs`, each with its name (API-19), its scope, and for a workspace event the permission it requires, as it declares its audit actions.
-- `uow.publish_to_user` and `uow.publish_to_workspace` insert an `events` row and call `pg_notify` with the event's ID, both in the unit of work's transaction. The hub, which delivers what is published, arrives in step 2.4. The row holds the event's scope (a user or a workspace), its type, the permission its type requires, its payload of IDs, and its trace context (OBS-07). Postgres delivers notifications only at commit, and no trigger is involved (DATA-07).
-- Each replica's listener receives the notification. The hub loads the event once, and delivers it to each stream whose scope matches and whose principal holds the required permission. The hub caches each stream's `Memberships` from `AccessPolicy::memberships`, and refreshes them on access-change signals.
-- On reconnect, a stream replays from its last event ID. The replay query filters on the caller's user ID and on the workspace IDs in their `Memberships`, and skips events created before the membership in their workspace (SEC-17).
-- An access change sends a signal on the `access_changed` channel with `pg_notify` inside the change's transaction. The signal holds only IDs: the kind of change, the user, and where relevant the workspace or session. It isn't stored (D35). The hub closes the affected streams, or re-filters them against a fresh `AccessPolicy::memberships`.
-- Every configured interval (60 seconds by default), the hub re-checks each open stream's session through `SessionVerifier` and its memberships through `AccessPolicy`, and closes or re-filters it on any change (SEC-06).
+- **Publishing.** `uow.publish_to_user` and `uow.publish_to_workspace` insert an `events` row in the unit of work's transaction: its scope (a user or a workspace), its type, the permission its type requires, its payload of IDs, and its trace context (OBS-07). The commit of a unit of work that published takes a transaction-level advisory lock, gives its events the next positions of a sequence, with `created_at` the time it does, sends `pg_notify` on `events` with the last of them, and commits. Postgres releases the lock only once the commit is visible, so the positions follow the order of the commits, and every lower position has committed or rolled back. Postgres already makes the commits of transactions that notify one at a time: each holds a lock on its notification queue from just before its commit until after it, so that notifications arrive in commit order. The advisory lock lengthens that step by one statement, and serializes nothing that wasn't. The rows, with their foreign-key checks, are inserted before the lock is taken, so a unit of work that holds it waits on no row, and can't deadlock with one that holds a row it references. No trigger is involved (DATA-07).
+- **The hub.** Each replica runs one hub, a task that owns the instance's own connection, outside the pool: it listens there on `events` and `access_changed`, and checks the connection for readiness (Readiness and shutdown). Postgres delivers the notifications in commit order. For a notification on `events`, the hub loads, in one query, the events after its head, the last position it loaded, up to the position the notification names, so it loads each event once (PLATFORM-057), and no event passes a signal that committed before it. Notifications that wait together are loaded together.
+- **Delivery.** The hub keeps its streams by user and by workspace. A user event goes to its user's streams, and a workspace event to the streams whose memberships hold its permission in its workspace (SEC-17). Each stream has a queue of 256 frames. When one's queue is full, the hub closes it with `lagging`, rather than wait for its client or drop an event it would never get, and the client reconnects and replays (PLATFORM-072).
+- **Signals.** An access change sends a signal on `access_changed` with `pg_notify` inside the change's transaction. The signal holds only IDs: the kind of change, the user, and the session or the workspace. It isn't stored (D35). `auth` sends one when a session ends, and `access` when it adds or removes a membership. For a session's end, the hub closes that session's streams; for a membership, every stream of its user. Each gets `stream.closed`, and its client reconnects, with a stream that reads the memberships as they then stand. The hub closes rather than re-filters, so every change of access takes the one path of a reconnect, whose replay sends what the closed stream didn't, and the client learns that its access changed.
+- **Subscribing.** `Hub::subscribe` counts the stream against its user's limit on the replica (REALTIME-006), and registers it under its user, so a signal for the user from then on closes it. It then reads the caller's `Memberships` through `AccessPolicy::memberships`, outside the hub's task, and hands them to the hub, which keeps the stream under them and answers with its head. The events up to that head come from the replay, and those after it from the hub, so the stream misses none and receives none twice:
+  - With a `Last-Event-ID` that names an event the API holds, the replay reads the events after its position, up to the head, that the caller may receive: their own, and those of each workspace in their memberships whose permission their role there holds, created at or after they joined (SEC-17). The query filters by the caller's ID and their memberships' workspaces, and by position, through indexes on `(user_id, position)` and `(workspace_id, position)`. It reads at most 1,001 rows: a 1,001st means more than 1,000 wait, and the stream sends `replay.truncated` instead (REALTIME-004).
+  - Without one, the stream starts at the head, and delivers what commits after it.
+  - A stream that resumes from a position past the hub's head, after a reconnect from a replica whose hub was ahead, skips what it already received.
+- **The re-check.** Every `STREAM_RECHECK_SECONDS`, the hub asks `SessionVerifier::lasting` which of its streams' sessions still last, and `AccessPolicy::memberships` for its streams' users, 1,000 of each per query, and closes the streams whose session ended or whose memberships changed (SEC-06). A session lasts while it can still be refreshed, so an access token's expiry doesn't close a stream.
+- **A lost connection.** When a check fails or the connection breaks, the hub connects again and listens again, at once and then at every check until it can. Notifications sent meanwhile are lost, so before it delivers anything else it re-checks every stream, then loads every event after its head (PLATFORM-073).
+- **Shutdown.** When the shutdown delay ends, the hub closes every stream with `shutdown` before the server stops accepting connections, so the drain doesn't wait for them, and their clients reconnect to a replica that serves (OPS-06, PLATFORM-038).
+- **Retention.** Events are kept for 24 hours, as long as a client away longer would need a replay larger than its cap, which the hourly sweep deletes in batches (PLATFORM-064). A `Last-Event-ID` older than that names no event, and gets `replay.truncated` (REALTIME-004).
+- **Delivery's telemetry.** The hub loads each event in a span of its own, linked to the trace context stored with it (OBS-07), and records its lag from the event's `created_at` (PLATFORM-074).
 
 ### Idempotency
 
@@ -390,7 +401,7 @@ The metrics `platform` records:
 
 ### Readiness and shutdown
 
-- The instance keeps one connection to the database outside the pool, and pings it every 5 seconds: a protocol message the server answers without running a query. A ping fails after 2 seconds without an answer, and a failed ping reconnects at once. The readiness probe reads the last result, so it never waits for the database or for a pooled connection (PLATFORM-037). The listener of the real-time hub uses the same connection when it is built (build order 2.4).
+- The instance keeps one connection to the database outside the pool, on which the hub listens, and checks it every 5 seconds. A check fails after 2 seconds without an answer, and a failed check connects again at once, and listens again. The readiness probe reads the last result, so it never waits for the database or for a pooled connection (PLATFORM-037), and a replica whose hub can't hear what commits leaves the rotation (OPS-05).
 - `ShutdownSignals` installs the handlers for SIGTERM and SIGINT, or Ctrl+C on Windows, before `serve` connects to the database. A failure to install them fails startup (OPS-03, OPS-06).
 - On a signal, `serve` turns readiness to `draining`, waits the shutdown delay so the load balancer stops sending requests, stops accepting connections, and waits for the requests in flight until the drain deadline. It then returns, and a request still running ends with the process. The jobs' runs drain beside the requests, until the same deadline (PLATFORM-063). The delay and the deadline are settings, because a deployment's health-check interval and grace period decide them (OPS-02). Then `main` writes out the logs.
 - A failed or recovered check changes readiness before its log line is written, so whoever reads the line finds readiness changed.
@@ -422,6 +433,5 @@ A name joins the list with the first code that writes it.
 
 | Question | Settled by |
 |---|---|
-| Whether the hub refreshes a stream's cached memberships on every access-change signal for that user, or only on the signal's workspace | `platform_016_` and `platform_017_`, measured against a user in several workspaces |
-| Whether one listener connection per replica is enough under load, or events and access changes need separate connections | a load test of the hub, recorded under OPS-18 |
+| How many events a second one replica's hub delivers, to how many open streams, before its lag grows, and how much memory each stream holds: whether one task on one connection is enough, or events and access changes need connections of their own | a load test of the hub, recorded under OPS-18 |
 | Whether `serve` needs a limit on the connections it accepts. Beyond the concurrency limit, a request gets 503 at once, but each open connection still holds memory: in the load test at 1.6 times a replica's capacity, with the client opening a connection for each request it couldn't send on one already open, a replica's memory reached 408 megabytes of its 512, and fell back afterwards | an overload test through Caddy, which opens the replicas' connections in a deployment, recorded under OPS-18 |
