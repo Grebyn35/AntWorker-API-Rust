@@ -16,6 +16,9 @@ use crate::support::{
 /// How often a stream sends a comment, by default (REALTIME-003).
 const HEARTBEAT: Duration = Duration::from_secs(15);
 
+/// How often the hub checks its connection (PLATFORM-037).
+const CHECK_INTERVAL: Duration = Duration::from_secs(5);
+
 /// The API, with the announcing routes added.
 async fn api() -> Api {
     Api::with(Options::routes(announcements::routes())).await
@@ -90,6 +93,11 @@ async fn realtime_001_a_stream_delivers_its_caller_s_events_and_their_workspaces
     announce(&api, &ada, 1).await;
 
     assert_eq!(opened.payload(), &json!({ "truncated": false }));
+    // No event of hers lies before the stream, so a reconnect resumes from none.
+    assert_eq!(
+        opened.id.as_deref(),
+        Some("00000000-0000-0000-0000-000000000000")
+    );
     assert_eq!(
         numbered(&events(&mut stream, 4).await),
         [
@@ -349,9 +357,42 @@ async fn realtime_005_a_replica_that_stops_closes_its_streams_with_shutdown() {
 
     api.readiness().stop();
     let (_, reason) = stream.closed().await;
-    let refused = streams::open_as(&api, &ada.access).await;
 
     assert_eq!(reason, "shutdown");
+}
+
+#[tokio::test]
+async fn realtime_005_a_lost_connection_closes_the_stream_with_interrupted() {
+    let api = api().await;
+    let clock = api.clock();
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = streams::connect(&api, &ada.access, None).await;
+    stream.opened().await;
+    clock.sleeping(CHECK_INTERVAL).await;
+
+    api.database().cut_off_app().await;
+    clock.advance(CHECK_INTERVAL);
+    clock.sleeping(CHECK_INTERVAL).await;
+    api.database()
+        .admin_executes(&format!(
+            "GRANT CONNECT ON DATABASE \"{}\" TO app",
+            api.database().name()
+        ))
+        .await;
+    clock.advance(CHECK_INTERVAL);
+    let (_, reason) = stream.closed().await;
+
+    assert_eq!(reason, "interrupted");
+}
+
+#[tokio::test]
+async fn realtime_007_a_replica_that_stops_opens_no_stream_and_answers_503() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    api.readiness().stop();
+    let refused = streams::open_as(&api, &ada.access).await;
+
     let response = refused
         .refused()
         .expect("a stopping replica opens no stream");
@@ -378,6 +419,7 @@ async fn realtime_006_a_user_holds_at_most_10_streams_on_a_replica() {
     let refused = eleventh.refused().expect("an eleventh stream is refused");
     assert_eq!(refused.status, StatusCode::CONFLICT);
     assert_eq!(refused.json()["code"], "realtime.too_many_streams");
+    assert!(!refused.headers.contains_key("retry-after"));
     assert!(other_user.stream().is_some());
     assert!(after_one_closed.stream().is_some());
 }
@@ -466,4 +508,93 @@ async fn realtime_005_a_client_that_reads_too_slowly_is_closed_with_lagging() {
     let (_, reason) = stream.closed().await;
 
     assert_eq!(reason, "lagging");
+}
+
+/// A job of the tests' own, which publishes an event to `user`, with the trace ID of its own run.
+#[derive(serde::Deserialize, serde::Serialize)]
+struct Publish {
+    user: uuid::Uuid,
+}
+
+impl platform::jobs::Job for Publish {
+    const KIND: &'static str = "tests.publish";
+}
+
+#[tokio::test]
+async fn realtime_002_an_event_a_job_publishes_carries_the_trace_id_of_the_job_s_run() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut jobs = platform::jobs::Jobs::new(api.pool(), Duration::from_secs(86_400));
+    let database = api.pool().clone();
+    jobs.queued(move |context, job: Publish| {
+        let database = database.clone();
+        async move {
+            let failed = |error| platform::jobs::JobFailure::Transient(error);
+            let mut uow = database.for_job(&context).await.map_err(failed)?;
+            let run = platform::telemetry::trace_id();
+            let user = platform::types::UserId::from_uuid(job.user);
+            uow.publish_to_user(&UNTRACED, user, &json!({ "run": run }))
+                .await
+                .map_err(failed)?;
+            uow.commit().await.map_err(failed)
+        }
+    })
+    .unwrap();
+    let mut stream = streams::connect(&api, &ada.access, None).await;
+    stream.opened().await;
+
+    let mut uow = api.pool().begin(&crate::support::client()).await.unwrap();
+    uow.enqueue(
+        platform::jobs::JobScope::for_tests(),
+        &Publish {
+            user: ada.user_id.parse().unwrap(),
+        },
+    )
+    .await
+    .unwrap();
+    uow.commit().await.unwrap();
+    let clock: platform::clock::SharedClock = api.clock();
+    jobs.run_pending(api.pool(), &clock).await;
+    let published = stream.event().await;
+
+    let run = published.payload()["run"].as_str().unwrap().to_owned();
+    assert_eq!(run.len(), 32);
+    assert_eq!(published.data.unwrap()["trace_id"], run.as_str());
+}
+
+#[tokio::test]
+async fn realtime_004_a_stream_resumes_after_an_event_its_caller_may_not_receive_now() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Analytical",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "member")],
+    )
+    .await;
+    let mut stream = streams::connect(&api, &grace.access, None).await;
+    stream.opened().await;
+    post(&api, &ada, &workspace, 1).await;
+    stream.event().await;
+    // Her last event is of the workspace that removes her next.
+    let last = stream.last_event_id.clone();
+
+    let removed = api
+        .request(
+            http::Method::DELETE,
+            &format!("/v1/workspaces/{workspace}/members/{}", grace.user_id),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+    stream.closed().await;
+    announce(&api, &grace, 1).await;
+    let mut again = streams::connect(&api, &grace.access, last.as_deref()).await;
+    let opened = again.opened().await;
+    let replayed = again.event().await;
+
+    assert_eq!(removed.status, StatusCode::NO_CONTENT);
+    assert_eq!(opened.payload(), &json!({ "truncated": false }));
+    assert_eq!(replayed.event.as_deref(), Some("announcement.made"));
 }

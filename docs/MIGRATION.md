@@ -163,6 +163,11 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 0d036d0..d59e8d0 | OPS-01: a test generated from the `Type:` lines of `.env.example` refuses each number setting just outside its range, so no range goes untested | 3 |
 | Conformance review of 0d036d0..d59e8d0 | OBS-14: a gauge of how far each hub's head trails the log's last position, with a cause alert, since `EventsDelayed` sees only the events a hub loaded | 2.4's second part, with the hub's load test |
 | Conformance review of 0d036d0..d59e8d0 | CODE-10: one term for an event's type, which the column calls `type`, Rust `name`, the specs "event type", and API-19 "named" | 3 |
+| Conformance review of 0d036d0..1ff84e6 | DATA-22: name the hub's reads by IDs from its own streams' principals, such as `access`'s memberships of them and `auth`'s sessions that last, which neither the acting user's clause nor the two exemptions cover; and the lookup of a `Last-Event-ID`'s position by the event's ID alone, which tells a caller whether an ID names an event | 3 |
+| Conformance review of 0d036d0..1ff84e6 | TEST-10: one support builder that commits an event as a unit of work does, with its position, transaction and snapshot, for the tests that insert events by hand | 3 |
+| Conformance review of 0d036d0..1ff84e6 | OPS-21: a test that counts the instance's own connections in `pg_stat_activity` across checks that time out, by an `application_name` its connection sets | 3 |
+| Conformance review of 0d036d0..1ff84e6 | CODE-07: build `check-layout`'s count of a file's lines before step 3, since review alone let a fix push `events/hub.rs` past 500 | 3 |
+| Conformance review of 0d036d0..1ff84e6 | CODE-10: one name for the instance's own connection, which the rules call the listener, the code `db::Listener` and `events::Connection`, and `startup.area` `listener` | 3 |
 | A development machine's Docker, during step 2.3 | OPS-22: whether `just server-check` refuses a server whose `/etc/resolv.conf` names the search domain `.`, which Docker copies into containers, where no short name then resolves, as on a development machine; whether the deployment's own lookups, such as the API's of `postgres`, fail on such a server is unverified | 3 |
 
 ## Conformance reviews

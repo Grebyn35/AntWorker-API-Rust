@@ -7,6 +7,7 @@ mod hub;
 mod log;
 mod streams;
 mod subscription;
+mod task;
 
 use std::marker::PhantomData;
 

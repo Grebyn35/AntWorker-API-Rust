@@ -43,8 +43,8 @@ static STREAMS: Gauge<1> = Gauge::new(
 static CLOSES: Counter<2> = Counter::new(
     "platform.stream_closes",
     "{stream}",
-    "Streams the hub closed, by why: session_ended, access_changed, lagging or shutdown, and by \
-     the name of the database whose events it delivers (PLATFORM-074).",
+    "Streams the hub closed, by why: session_ended, access_changed, lagging, shutdown or \
+     interrupted, and by the name of the database whose events it delivers (PLATFORM-074).",
     [names::STREAM_CLOSE_REASON, names::DB_NAMESPACE],
 );
 
@@ -111,6 +111,15 @@ impl Streams {
         let ids: Vec<StreamId> = self.streams.keys().copied().collect();
         for id in ids {
             self.close(id, Closed::Shutdown);
+        }
+    }
+
+    /// Closes every stream with `interrupted`, after the hub's connection was lost
+    /// (PLATFORM-073).
+    pub(super) fn interrupt(&mut self) {
+        let ids: Vec<StreamId> = self.streams.keys().copied().collect();
+        for id in ids {
+            self.close(id, Closed::Interrupted);
         }
     }
 

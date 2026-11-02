@@ -1,48 +1,28 @@
-//! The real-time hub: one task per replica, which owns the instance's own connection, listens
-//! there for what commits, loads each committed event once and delivers it to the streams allowed
-//! to receive it, closes the streams that an access change affects, and re-checks every stream at
-//! an interval (the platform spec's "Events and the real-time hub").
+//! The real-time hub's handle: the instance's own connection, which `main.rs` opens, and the
+//! subscription of a caller's stream, which the hub's task (`task`) then serves (the platform
+//! spec's "Events and the real-time hub").
 
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{
-    AccessChange, CHANNEL, EVENTS_CHANNEL, log,
-    streams::Streams,
+    CHANNEL, EVENTS_CHANNEL, log,
     subscription::{Closed, Delivery, Registration, Subscription},
+    task::Task,
 };
 use crate::{
     authn::{Principal, SessionVerifier},
     authz::{AccessPolicy, Memberships},
     clock::{Clock, SharedClock},
-    db::{Checked, Database, Listener, Received, UnitOfWork},
+    db::{Checked, Database, Listener, UnitOfWork},
     errors::{self, Internal},
     lifecycle::Readiness,
-    telemetry::{self, metrics::Histogram, names},
     types::UserId,
 };
 
-/// How often the hub checks its connection, for readiness (PLATFORM-037).
-const CHECK_INTERVAL: Duration = Duration::from_secs(5);
-
 /// The channels the hub listens on.
 const CHANNELS: &[&str] = &[EVENTS_CHANNEL, CHANNEL];
-
-/// The most streams and users one query of the re-check reads.
-const RECHECK_BATCH: usize = 1_000;
-
-static DELIVERY_LAG: Histogram<1> = Histogram::new(
-    "platform.event_delivery_lag",
-    "s",
-    "How long after its unit of work committed each event was loaded by a replica's hub, which \
-     delivers it to its streams at once, by the name of the database whose events it delivers \
-     (PLATFORM-074).",
-    [names::DB_NAMESPACE],
-    &[
-        0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0,
-    ],
-);
 
 /// A stream's number in its hub.
 pub(crate) type StreamId = u64;
@@ -91,10 +71,10 @@ pub enum SubscribeError {
 /// The instance's own connection to the database, listening, which `main.rs` opens as a step of
 /// startup (ARCH-12) and the hub then runs on.
 pub struct Connection {
-    database: Database,
-    listener: Listener,
+    pub(super) database: Database,
+    pub(super) listener: Listener,
     /// The last position given when it began to listen, from which the hub loads.
-    head: i64,
+    pub(super) head: i64,
 }
 
 /// The instance's own connection couldn't listen.
@@ -129,31 +109,6 @@ pub struct Hub {
     policy: Arc<dyn AccessPolicy>,
 }
 
-/// What the hub's task holds besides its streams.
-struct Task {
-    database: Database,
-    policy: Arc<dyn AccessPolicy>,
-    verifier: Arc<dyn SessionVerifier>,
-    readiness: Readiness,
-    clock: SharedClock,
-    listener: Listener,
-    streams: Streams,
-    reachable: bool,
-    owed: Owed,
-}
-
-/// What the hub owes before it delivers as usual.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Owed {
-    /// Nothing.
-    Nothing,
-    /// The events after the head, which a failed load left.
-    Load,
-    /// A re-check of every stream, then the events after the head: notifications were lost
-    /// while no connection listened (PLATFORM-073).
-    CatchUp,
-}
-
 impl Hub {
     /// Starts the hub on `connection`, which it checks every 5 seconds and records in
     /// `readiness`, filtering events through `policy` and re-checking every stream through
@@ -167,22 +122,8 @@ impl Hub {
         recheck: Duration,
     ) -> Self {
         let (commands, received) = mpsc::unbounded_channel();
-        let Connection {
-            database,
-            listener,
-            head,
-        } = connection;
-        let task = Task {
-            database: database.clone(),
-            policy: policy.clone(),
-            verifier,
-            readiness,
-            clock,
-            listener,
-            streams: Streams::new(database.name(), head),
-            reachable: true,
-            owed: Owed::Nothing,
-        };
+        let database = connection.database.clone();
+        let task = Task::new(connection, policy.clone(), verifier, readiness, clock);
         tokio::spawn(task.run(received, recheck));
         Self {
             commands,
@@ -222,7 +163,7 @@ impl Hub {
             .remove(&user)
             .unwrap_or_default();
         let resumed = match last_event_id.and_then(|id| uuid::Uuid::parse_str(id.trim()).ok()) {
-            Some(id) => Some(log::position(&mut uow, id, user, &memberships).await?),
+            Some(id) => Some(log::position(&mut uow, id).await?),
             None if last_event_id.is_some_and(|id| !id.trim().is_empty()) => Some(None),
             None => None,
         };
@@ -312,201 +253,4 @@ async fn begin(
         resume: Some(resume),
     });
     Ok(subscription)
-}
-
-impl Task {
-    async fn run(mut self, mut commands: mpsc::UnboundedReceiver<Command>, recheck: Duration) {
-        let clock = self.clock.clone();
-        let readiness = self.readiness.clone();
-        self.check().await;
-        let mut check = clock.sleep(CHECK_INTERVAL);
-        let mut rechecked = clock.sleep(recheck);
-        let mut stopping = std::pin::pin!(readiness.stopping());
-        loop {
-            tokio::select! {
-                biased;
-                command = commands.recv() => match command {
-                    Some(command) => self.streams.command(command),
-                    None => return,
-                },
-                () = &mut stopping, if !self.streams.stopped() => self.streams.stop(),
-                () = &mut check => {
-                    self.check().await;
-                    check = clock.sleep(CHECK_INTERVAL);
-                }
-                received = self.listener.recv() => self.received(received).await,
-                () = &mut rechecked => {
-                    if let Err(error) = self.recheck().await {
-                        // The next re-check, or the next connection's, closes what this one
-                        // would have.
-                        tracing::warn!(
-                            { names::EXCEPTION_MESSAGE } = errors::chain(&error),
-                            "the hub couldn't re-check its streams"
-                        );
-                    }
-                    rechecked = clock.sleep(recheck);
-                }
-            }
-        }
-    }
-
-    /// Checks the connection and records the result in readiness, then settles what the hub
-    /// owes: on a new connection, a re-check and the events committed without one
-    /// (PLATFORM-073). A failure to settle leaves readiness to the connection, which answered
-    /// (PLATFORM-037), and is tried again at the next check.
-    async fn check(&mut self) {
-        match self.listener.check(self.clock.as_ref()).await {
-            Checked::Failed(failure) => self.reached(Some(failure)),
-            checked => {
-                if matches!(checked, Checked::Connected) {
-                    self.owed = Owed::CatchUp;
-                }
-                self.reached(None);
-                if let Err(error) = self.settle().await {
-                    tracing::warn!(
-                        { names::EXCEPTION_MESSAGE } = errors::chain(&error),
-                        "the hub couldn't catch up with the events"
-                    );
-                }
-            }
-        }
-    }
-
-    /// Records whether the hub can hear what commits, in readiness and its log, which readiness
-    /// changes before the line is written.
-    fn reached(&mut self, failure: Option<String>) {
-        self.readiness.set_database(failure.is_none());
-        match (&failure, self.reachable) {
-            (Some(failure), true) => tracing::warn!(
-                { names::EXCEPTION_MESSAGE } = failure.as_str(),
-                "the database stopped answering"
-            ),
-            (None, false) => tracing::info!("the database answers again"),
-            _ => {}
-        }
-        self.reachable = failure.is_none();
-    }
-
-    /// Does what the hub owes, in order: after a new connection, re-checks every stream before
-    /// it delivers anything else; and loads every event after its head, which a failed load
-    /// left.
-    async fn settle(&mut self) -> Result<(), Internal> {
-        if self.owed == Owed::Nothing {
-            return Ok(());
-        }
-        if self.owed == Owed::CatchUp {
-            self.recheck().await?;
-            self.owed = Owed::Load;
-        }
-        let mut uow = self.database.unattributed().await?;
-        let latest = log::head(&mut uow).await?;
-        drop(uow);
-        self.load(latest).await?;
-        self.owed = Owed::Nothing;
-        Ok(())
-    }
-
-    async fn received(&mut self, received: Received) {
-        match received {
-            // Nothing is delivered before the re-check the hub owes (PLATFORM-073).
-            Received::Notification { channel, .. }
-                if channel == EVENTS_CHANNEL && self.owed == Owed::CatchUp => {}
-            Received::Notification { channel, payload } if channel == EVENTS_CHANNEL => {
-                let Ok(through) = payload.parse::<i64>() else {
-                    tracing::warn!("a notification of events named no position");
-                    return;
-                };
-                match self.load(through).await {
-                    // A load from the head covers what a failed one left.
-                    Ok(()) => self.owed = Owed::Nothing,
-                    Err(error) => {
-                        // The events stay in the log: the next notification, or the next check,
-                        // loads them.
-                        self.owed = Owed::Load;
-                        tracing::warn!(
-                            { names::EXCEPTION_MESSAGE } = errors::chain(&error),
-                            "the hub couldn't load events"
-                        );
-                    }
-                }
-            }
-            Received::Notification { payload, .. } => {
-                match serde_json::from_str::<AccessChange>(&payload) {
-                    Ok(change) => self.streams.changed(change),
-                    Err(_) => tracing::warn!("an access-change signal didn't parse"),
-                }
-            }
-            Received::Lost(failure) => {
-                self.reached(Some(failure));
-                self.check().await;
-            }
-        }
-    }
-
-    /// Loads the events after the head, up to `through`, and delivers each to its streams, in
-    /// the order of their positions.
-    async fn load(&mut self, through: i64) -> Result<(), Internal> {
-        while self.streams.head() < through {
-            let after = self.streams.head();
-            let mut uow = self.database.unattributed().await?;
-            let events = log::load(&mut uow, after, through).await?;
-            drop(uow);
-            let Some(last) = events.last().map(|(event, _)| event.position) else {
-                // Positions up to `through` that no event holds were given to units of work that
-                // rolled back.
-                self.streams.set_head(through);
-                return Ok(());
-            };
-            for (event, lag) in events {
-                let span =
-                    tracing::info_span!("deliver event", { names::OTEL_NAME } = "deliver event");
-                if let Some(traceparent) = &event.traceparent {
-                    telemetry::link(&span, traceparent);
-                }
-                DELIVERY_LAG.observe(lag.max(0.0), [self.streams.database().into()]);
-                span.in_scope(|| self.streams.deliver(&event));
-            }
-            self.streams.set_head(last);
-        }
-        Ok(())
-    }
-
-    /// Closes the streams whose session stopped lasting, or whose caller's memberships changed
-    /// (PLATFORM-017), and fails at the first batch it couldn't re-check.
-    async fn recheck(&mut self) -> Result<(), Internal> {
-        let open = self.streams.open();
-        for batch in open.chunks(RECHECK_BATCH) {
-            self.recheck_batch(batch).await?;
-        }
-        Ok(())
-    }
-
-    async fn recheck_batch(
-        &mut self,
-        batch: &[(StreamId, Principal, Memberships)],
-    ) -> Result<(), Internal> {
-        let principals: Vec<Principal> = batch
-            .iter()
-            .map(|(_, principal, _)| principal.clone())
-            .collect();
-        let mut users: Vec<UserId> = principals.iter().map(Principal::user_id).collect();
-        users.sort_unstable();
-        users.dedup();
-        let mut uow = self.database.unattributed().await?;
-        let lasting = self.verifier.lasting(&mut uow, &principals).await?;
-        let current = self.policy.memberships(&mut uow, &users).await?;
-        drop(uow);
-        for (id, principal, memberships) in batch {
-            let now = current
-                .get(&principal.user_id())
-                .cloned()
-                .unwrap_or_default();
-            if !lasting.contains(&principal.session_id()) {
-                self.streams.close(*id, Closed::SessionEnded);
-            } else if now != *memberships {
-                self.streams.close(*id, Closed::AccessChanged);
-            }
-        }
-        Ok(())
-    }
 }

@@ -80,37 +80,19 @@ pub(super) async fn load(
     Ok(events)
 }
 
-/// The position of the event `id`, if it is one that `user` with `memberships` may receive, as
-/// the replay reads them; `None` when the API holds no such event, so an ID tells a caller
-/// nothing of an event it may not receive.
+/// The position of the event `id`, or `None` when the API holds no such event. The event may be
+/// one the caller may not receive now, such as the last of a workspace they left: its position
+/// marks where their stream resumes all the same (REALTIME-004).
 pub(super) async fn position(
     uow: &mut UnitOfWork,
     id: uuid::Uuid,
-    user: UserId,
-    memberships: &Memberships,
 ) -> Result<Option<i64>, Internal> {
-    let (workspaces, permissions, joined) = memberships.rows();
-    Ok(sqlx::query_scalar!(
-        r#"SELECT position AS "position!" FROM (
-            SELECT position FROM events WHERE id = $1 AND user_id = $2
-            UNION ALL
-            SELECT e.position
-            FROM unnest($3::uuid[], $4::text[], $5::text[])
-                AS m(workspace_id, permission, joined)
-            JOIN events AS e ON e.workspace_id = m.workspace_id
-                AND e.permission = m.permission
-                AND (m.joined::xid8 = e.xact OR pg_visible_in_snapshot(m.joined::xid8, e.snapshot))
-            WHERE e.id = $1
-        ) AS visible
-        WHERE position IS NOT NULL"#,
-        id,
-        user.uuid(),
-        &workspaces,
-        &permissions,
-        &joined,
+    Ok(
+        sqlx::query_scalar!("SELECT position FROM events WHERE id = $1", id)
+            .fetch_optional(uow.executor())
+            .await?
+            .flatten(),
     )
-    .fetch_optional(uow.executor())
-    .await?)
 }
 
 /// The events after `after`, up to `through`, that `user` with `memberships` may receive, in

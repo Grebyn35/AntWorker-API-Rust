@@ -23,6 +23,8 @@ pub enum Closed {
     Lagging,
     /// The instance is shutting down (PLATFORM-038).
     Shutdown,
+    /// The hub's connection was lost, so it may have missed signals (PLATFORM-073).
+    Interrupted,
 }
 
 impl Closed {
@@ -33,6 +35,7 @@ impl Closed {
             Self::AccessChanged => "access_changed",
             Self::Lagging => "lagging",
             Self::Shutdown => "shutdown",
+            Self::Interrupted => "interrupted",
         }
     }
 }

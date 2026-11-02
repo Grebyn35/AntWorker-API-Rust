@@ -74,6 +74,15 @@ async fn types(stream: &mut Stream, count: usize) -> Vec<String> {
     types
 }
 
+/// The next `count` events of `stream`.
+async fn frames(stream: &mut Stream, count: usize) -> Vec<streams::Frame> {
+    let mut frames = Vec::new();
+    for _ in 0..count {
+        frames.push(stream.event().await);
+    }
+    frames
+}
+
 /// A stream of `user`'s, open and past its `stream.opened`.
 async fn opened(api: &Api, user: &SignedIn) -> Stream {
     let mut stream = streams::connect(api, &user.access, None).await;
@@ -99,24 +108,38 @@ async fn platform_016_a_workspace_event_reaches_only_the_members_whose_role_hold
 
     post(&api, &ada, &workspace, 1, true).await;
     post(&api, &ada, &workspace, 1, false).await;
-    // Each stream's last event is its own, so what it reads before shows what reached it.
-    for user in [&ada, &grace, &alan] {
-        announce(&api, user, 1).await;
+    // Each user's own events come last, numbered from 1, so another's would show as a number
+    // out of its place.
+    for (user, count) in [(&ada, 1), (&grace, 2), (&alan, 3)] {
+        announce(&api, user, count).await;
     }
 
+    let numbered = |frames: Vec<streams::Frame>| -> Vec<(String, u64)> {
+        frames
+            .into_iter()
+            .map(|frame| {
+                let n = frame.payload()["n"].as_u64().unwrap();
+                (frame.event.unwrap(), n)
+            })
+            .collect()
+    };
+    let made = |n| ("announcement.made".to_owned(), n);
     assert_eq!(
-        types(&mut admin, 3).await,
+        numbered(frames(&mut admin, 3).await),
         [
-            "announcement.restricted",
-            "announcement.posted",
-            "announcement.made"
+            ("announcement.restricted".to_owned(), 1),
+            ("announcement.posted".to_owned(), 1),
+            made(1),
         ]
     );
     assert_eq!(
-        types(&mut member, 2).await,
-        ["announcement.posted", "announcement.made"]
+        numbered(frames(&mut member, 3).await),
+        [("announcement.posted".to_owned(), 1), made(1), made(2)]
     );
-    assert_eq!(types(&mut outsider, 1).await, ["announcement.made"]);
+    assert_eq!(
+        numbered(frames(&mut outsider, 3).await),
+        [made(1), made(2), made(3)]
+    );
 }
 
 #[tokio::test]
@@ -179,11 +202,71 @@ async fn platform_057_each_event_is_loaded_once_whatever_the_streams_it_reaches(
     let before = loaded();
 
     post(&api, &users[0], &workspace, 2, false).await;
+    let mut orders = Vec::new();
     for stream in &mut open {
-        types(stream, 2).await;
+        let frames = [stream.event().await, stream.event().await];
+        orders.push(frames.map(|frame| frame.payload()["n"].as_u64().unwrap()));
     }
 
     assert_eq!(loaded() - before, 2);
+    // Every stream received both, in the order they were published and committed.
+    assert!(orders.iter().all(|order| *order == [1, 2]), "{orders:?}");
+}
+
+#[tokio::test]
+async fn platform_017_a_signal_closes_its_streams_before_any_event_that_commits_after_it() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let other = users::new_session(&api, "ada@example.com").await;
+    let workspace =
+        workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "owner")]).await;
+    let mut ended = opened(&api, &ada).await;
+
+    let signed_out = api
+        .request(http::Method::DELETE, "/v1/users/me/sessions/current")
+        .bearer(&ada.access)
+        .send()
+        .await;
+    post(&api, &other, &workspace, 1, false).await;
+    announce(&api, &other, 1).await;
+    let (before, reason) = ended.closed().await;
+
+    assert_eq!(signed_out.status, StatusCode::NO_CONTENT);
+    assert!(before.is_empty(), "{before:?}");
+    assert_eq!(reason, "session_ended");
+}
+
+#[tokio::test]
+async fn platform_071_a_stream_resumes_on_another_replica_with_every_event_after_its_last() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // A second replica: another application, with a hub of its own, on the same database.
+    let (second, _, _) = crate::support::api::application(
+        api.pool(),
+        Options::routes(announcements::routes()),
+        api.clock(),
+        platform::lifecycle::Readiness::new(),
+    )
+    .await;
+    let mut first = opened(&api, &ada).await;
+    announce(&api, &ada, 1).await;
+    first.event().await;
+    let last = first.last_event_id.clone();
+    drop(first);
+
+    announce(&api, &ada, 2).await;
+    let mut resumed = streams::connect_on(&api, second, &ada.access, last.as_deref()).await;
+    resumed.opened().await;
+    let replayed = [resumed.event().await, resumed.event().await];
+    announce(&api, &ada, 1).await;
+    let live = resumed.event().await;
+
+    let numbers: Vec<_> = replayed
+        .iter()
+        .map(|frame| frame.payload()["n"].clone())
+        .collect();
+    assert_eq!(numbers, [json!(1), json!(2)]);
+    assert_eq!(live.payload()["n"], 1);
 }
 
 #[tokio::test]
@@ -404,28 +487,29 @@ async fn platform_072_a_stream_whose_client_reads_too_slowly_closes_with_lagging
     assert_eq!(before[255].payload()["n"], 256);
 }
 
-#[tokio::test]
-async fn platform_073_after_a_lost_connection_the_hub_delivers_what_committed_meanwhile() {
-    let api = api().await;
-    let clock = api.clock();
-    let ada = users::register(&api, "ada@example.com").await;
-    let mut stream = opened(&api, &ada).await;
-    clock.sleeping(CHECK_INTERVAL).await;
+/// The statement that publishes, as a commit of the API does, the events that `values`
+/// describes, each as the `(scope, user_id, workspace_id, type, permission, payload)` of a row,
+/// without notifying.
+fn unnotified(values: &str) -> String {
+    format!(
+        "INSERT INTO events (scope, user_id, workspace_id, type, permission, payload, position, \
+         xact, snapshot, created_at) SELECT scope::event_scope, user_id::uuid, workspace_id::uuid, \
+         type, permission, payload::jsonb, nextval('events_position_seq'), pg_current_xact_id(), \
+         pg_current_snapshot(), clock_timestamp() FROM (VALUES {values}) \
+         AS v(scope, user_id, workspace_id, type, permission, payload)"
+    )
+}
 
+/// Cuts the API's role off the database, so the hub's connection is lost and its next check
+/// fails; returns readiness's answer then; and lets the role in again after `meanwhile`, which
+/// runs as owner, so the hub connects again at its next check.
+async fn lose_the_connection(api: &Api, meanwhile: &str) -> crate::support::api::Response {
+    let clock = api.clock();
     api.database().cut_off_app().await;
-    // The next check fails, and the hub waits for the one after.
     clock.advance(CHECK_INTERVAL);
     clock.sleeping(CHECK_INTERVAL).await;
     let unavailable = api.get("/health/ready").send().await;
-    // Committed while no connection of the hub's listens: its notification is lost.
-    api.database()
-        .owner_executes(&format!(
-            "INSERT INTO events (scope, user_id, type, payload, position, created_at) VALUES \
-             ('user', '{}', 'note.made', '{{\"while\": \"away\"}}', \
-             nextval('events_position_seq'), clock_timestamp())",
-            ada.user_id
-        ))
-        .await;
+    api.database().owner_executes(meanwhile).await;
     api.database()
         .admin_executes(&format!(
             "GRANT CONNECT ON DATABASE \"{}\" TO app",
@@ -433,46 +517,114 @@ async fn platform_073_after_a_lost_connection_the_hub_delivers_what_committed_me
         ))
         .await;
     clock.advance(CHECK_INTERVAL);
-    let caught_up = stream.event().await;
+    unavailable
+}
+
+#[tokio::test]
+async fn platform_073_after_a_lost_connection_every_stream_closes_and_replays_what_committed_meanwhile()
+ {
+    let api = api().await;
+    let clock = api.clock();
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = opened(&api, &ada).await;
+    announce(&api, &ada, 1).await;
+    stream.event().await;
+    let last = stream.last_event_id.clone();
+    clock.sleeping(CHECK_INTERVAL).await;
+
+    let unavailable = lose_the_connection(
+        &api,
+        &unnotified(&format!(
+            "('user', '{}', NULL, 'note.made', NULL, '{{\"while\": \"away\"}}')",
+            ada.user_id
+        )),
+    )
+    .await;
+    let (before, reason) = stream.closed().await;
     let ready = api.get("/health/ready").send().await;
+    let mut again = streams::connect(&api, &ada.access, last.as_deref()).await;
+    again.opened().await;
+    let replayed = again.event().await;
 
     assert_eq!(
         unavailable.json(),
         json!({ "status": "database_unavailable" })
     );
-    assert_eq!(caught_up.payload(), &json!({ "while": "away" }));
+    assert!(before.is_empty(), "{before:?}");
+    assert_eq!(reason, "interrupted");
     assert_eq!(ready.status, StatusCode::OK);
+    assert_eq!(replayed.payload(), &json!({ "while": "away" }));
 }
 
 #[tokio::test]
-async fn platform_073_after_a_lost_connection_a_stream_that_lost_access_meanwhile_closes_first() {
+async fn platform_073_after_a_lost_connection_a_reconnect_leaves_out_what_access_lost_meanwhile_withholds()
+ {
     let api = api().await;
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
     let workspace =
         workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "member")]).await;
     let mut stream = opened(&api, &ada).await;
+    announce(&api, &ada, 1).await;
+    stream.event().await;
+    let last = stream.last_event_id.clone();
     clock.sleeping(CHECK_INTERVAL).await;
 
-    api.database().cut_off_app().await;
-    api.database()
-        .owner_executes(&format!(
-            "DELETE FROM workspace_memberships WHERE workspace_id = '{workspace}'; \
-             INSERT INTO events (scope, workspace_id, type, permission, payload, position, \
-             created_at) VALUES ('workspace', '{workspace}', 'note.made', 'workspace.read', \
-             '{{}}', nextval('events_position_seq'), clock_timestamp())"
-        ))
-        .await;
-    api.database()
-        .admin_executes(&format!(
-            "GRANT CONNECT ON DATABASE \"{}\" TO app",
-            api.database().name()
-        ))
-        .await;
-    clock.advance(CHECK_INTERVAL);
+    // While no connection listens, an event of her workspace commits, then her removal, whose
+    // signal is lost with the notifications, then another event of the workspace.
+    lose_the_connection(
+        &api,
+        &format!(
+            "{}; DELETE FROM workspace_memberships WHERE workspace_id = '{workspace}'; {}",
+            unnotified(&format!(
+                "('workspace', NULL, '{workspace}', 'note.made', 'workspace.read', '{{}}')"
+            )),
+            unnotified(&format!(
+                "('workspace', NULL, '{workspace}', 'note.made', 'workspace.read', '{{}}')"
+            )),
+        ),
+    )
+    .await;
     let (before, reason) = stream.closed().await;
+    let mut again = streams::connect(&api, &ada.access, last.as_deref()).await;
+    again.opened().await;
+    announce(&api, &ada, 1).await;
+    let next = again.event().await;
 
     assert!(before.is_empty(), "{before:?}");
+    assert_eq!(reason, "interrupted");
+    // Her replay holds neither event of the workspace: she isn't its member now.
+    assert_eq!(next.event.as_deref(), Some("announcement.made"));
+}
+
+#[tokio::test]
+async fn platform_073_a_re_check_that_fails_is_tried_again_at_the_next_check() {
+    let api = api().await;
+    let clock = api.clock();
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace =
+        workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "member")]).await;
+    let mut stream = opened(&api, &ada).await;
+    api.database()
+        .owner_executes(&format!(
+            "DELETE FROM workspace_memberships WHERE workspace_id = '{workspace}'"
+        ))
+        .await;
+
+    // Every pooled connection is held, so the re-check waits out the pool and fails.
+    let mut held = Vec::new();
+    for _ in 0..crate::support::TestDatabase::POOL_SIZE {
+        held.push(api.pool().begin(&client()).await.unwrap());
+    }
+    clock.sleeping(RECHECK).await;
+    clock.advance(RECHECK);
+    while !logged("the hub couldn't re-check its streams") {
+        tokio::task::yield_now().await;
+    }
+    drop(held);
+    clock.advance(CHECK_INTERVAL);
+    let (_, reason) = stream.closed().await;
+
     assert_eq!(reason, "access_changed");
 }
 
@@ -785,7 +937,7 @@ async fn platform_073_a_load_that_fails_is_tried_again_at_the_next_check() {
             ada.user_id
         ))
         .await;
-    while !logged_load_failure() {
+    while !logged("the hub couldn't load events") {
         tokio::task::yield_now().await;
     }
     drop(held);
@@ -795,9 +947,9 @@ async fn platform_073_a_load_that_fails_is_tried_again_at_the_next_check() {
     assert_eq!(delivered.payload(), &json!({ "n": 1 }));
 }
 
-/// Whether a hub has logged that it couldn't load events.
-fn logged_load_failure() -> bool {
+/// Whether a hub has logged `message`.
+fn logged(message: &str) -> bool {
     testing::all_logged()
         .iter()
-        .any(|line| line["message"] == "the hub couldn't load events")
+        .any(|line| line["message"] == message)
 }

@@ -99,8 +99,8 @@ async fn events(
             let unavailable = matches!(error, RealtimeError::Unavailable);
             let mut response = Problem(error).into_response();
             if unavailable {
-                // The hub delivers again within a check of its connection, or the replica has
-                // stopped and the next request reaches another (OPS-07).
+                // The replica has stopped accepting connections, so the next request reaches
+                // another (OPS-07).
                 response
                     .headers_mut()
                     .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));

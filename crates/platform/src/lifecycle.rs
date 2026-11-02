@@ -206,8 +206,11 @@ impl Readiness {
     /// Completes once [`Readiness::stop`] has been called.
     pub(crate) async fn stopping(&self) {
         let mut stopping = self.state.stopping.subscribe();
-        // The sender lives as long as the state, which this borrows.
-        drop(stopping.wait_for(|stopping| *stopping).await);
+        // The sender lives as long as the state, which this borrows, so the wait ends only once
+        // `stop` has been called.
+        if let Err(error) = stopping.wait_for(|stopping| *stopping).await {
+            errors::ignore(&error, "readiness_dropped");
+        }
     }
 
     /// Records the result of the last database check.

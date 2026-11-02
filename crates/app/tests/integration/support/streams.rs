@@ -136,6 +136,39 @@ pub async fn open_with_bytes(api: &Api, token: &str, name: &str, value: &[u8]) -
     }))
 }
 
+/// Opens the stream of `token`'s caller on `router`, another application of `api`'s database,
+/// as on another replica, which must answer 200, with `Last-Event-ID` set to `last_event_id`
+/// when given.
+pub async fn connect_on(
+    api: &Api,
+    router: axum::Router,
+    token: &str,
+    last_event_id: Option<&str>,
+) -> Stream {
+    let mut builder = Request::builder()
+        .method(Method::GET)
+        .uri(PATH)
+        .header("authorization", format!("Bearer {token}"));
+    if let Some(id) = last_event_id {
+        builder = builder.header("last-event-id", id);
+    }
+    let mut request = builder.body(Body::empty()).unwrap();
+    request.extensions_mut().insert(ConnectInfo(
+        super::api::PEER.parse::<std::net::SocketAddr>().unwrap(),
+    ));
+    let response = router.oneshot(request).await.unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    assert_eq!(status, StatusCode::OK);
+    api.check(&Method::GET, PATH, status, &headers, &[]);
+    Stream {
+        headers,
+        body: response.into_body(),
+        buffer: String::new(),
+        last_event_id: None,
+    }
+}
+
 /// Opens a stream as the caller whose access token is `token`, and returns what that came to.
 pub async fn open_as(api: &Api, token: &str) -> Opened {
     open(api, &[("authorization", &format!("Bearer {token}"))]).await

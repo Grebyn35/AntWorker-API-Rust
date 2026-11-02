@@ -1,11 +1,14 @@
 //! The instance's own database connection, outside the pool, on which the hub listens for what
 //! commits, and whose checks the readiness probe reports (PLATFORM-037, PLATFORM-073). A pool
-//! with every connection in use doesn't delay a check, so load alone never takes the instance out
-//! of rotation.
+//! with every connection in use doesn't change a check's answer, so load alone never takes the
+//! instance out of rotation, though it delays the next check while the hub waits for the pool.
 
 use std::time::Duration;
 
-use sqlx::postgres::{PgConnectOptions, PgListener, PgPoolOptions};
+use sqlx::{
+    PgPool,
+    postgres::{PgListener, PgPoolOptions},
+};
 
 use super::Database;
 use crate::{
@@ -29,7 +32,9 @@ static DATABASE_REACHABLE: Gauge<1> = Gauge::new(
 /// connection until a check opens one, and drops one that fails, so the next check opens it
 /// again and listens again.
 pub(crate) struct Listener {
-    options: PgConnectOptions,
+    /// The listener's own pool of one connection, which every connection it opens comes from, so
+    /// it never holds two: one it dropped returns there only once sqlx's `UNLISTEN` on it ends.
+    pool: PgPool,
     channels: &'static [&'static str],
     database: String,
     connection: Option<PgListener>,
@@ -71,7 +76,13 @@ impl Database {
     pub(crate) fn listener(&self, channels: &'static [&'static str]) -> Listener {
         Listener {
             database: self.name(),
-            options: self.options.clone(),
+            pool: PgPoolOptions::new()
+                .max_connections(1)
+                .min_connections(0)
+                .max_lifetime(None)
+                .idle_timeout(None)
+                .acquire_timeout(CHECK_TIMEOUT)
+                .connect_lazy_with(self.options.clone()),
             channels,
             connection: None,
         }
@@ -98,8 +109,9 @@ impl Listener {
             if matches!(answered, Ok(Ok(_))) {
                 return Checked::Answered;
             }
-            // A connection that failed its check is dropped rather than closed, since closing it
-            // would wait on the same database.
+            // A connection that failed its check is dropped: sqlx then sends it `UNLISTEN` in a
+            // task of its own, and returns it to the pool of one, which the next connection waits
+            // for, so the instance never opens a second (OPS-21).
             self.connection = None;
         }
         match within(clock, self.connect()).await {
@@ -112,17 +124,10 @@ impl Listener {
         }
     }
 
-    /// A connection of its own, outside the pool, that listens on the channels. The pool of one
-    /// connection is the listener's own, which sqlx needs to open it; it never reconnects by
-    /// itself, so a lost connection shows at once.
+    /// A connection of its own, outside the API's pool, that listens on the channels, from the
+    /// listener's pool of one; it never reconnects by itself, so a lost connection shows at once.
     async fn connect(&self) -> Result<PgListener, sqlx::Error> {
-        let pool = PgPoolOptions::new()
-            .max_connections(1)
-            .min_connections(0)
-            .max_lifetime(None)
-            .idle_timeout(None)
-            .connect_lazy_with(self.options.clone());
-        let mut connection = PgListener::connect_with(&pool).await?;
+        let mut connection = PgListener::connect_with(&self.pool).await?;
         connection.ignore_pool_close_event(true);
         connection.eager_reconnect(false);
         connection.listen_all(self.channels.iter().copied()).await?;
