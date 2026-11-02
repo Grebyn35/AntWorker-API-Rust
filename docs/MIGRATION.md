@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 2.4, in two parts, each reviewed on its own. The first, the event hub and `realtime`, ending with "removing a member closes their stream", is specified and being built. The second is `just seed`, the OpenAPI UI in development, the event catalog in `openapi.json`, and the hub's load test. Step 2.3 is built and reviewed: its first part through 5bdf7a5, and its second, sending email in `platform` with each module's emails in its own `emails.rs`, `just remove` and `check-removable` with `invitations` as the first part, through 500b68d ([Conformance reviews](#conformance-reviews)). A developer's `.env` needs the email settings of `.env.example`, and a deployment's `settings.env` needs `EMAIL`, which `just server-setup` asks for. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 2.4's second part, its spec first: `just seed`, with how it opens its unit of work (Rule proposals, DATA-12), the OpenAPI UI in development, the event catalog in `openapi.json` (the realtime spec's open question), and the hub's load test (the platform spec's). Step 2.4's first part, the event hub and `realtime`, is built and reviewed through f7eb030 ([Conformance reviews](#conformance-reviews)). Two migrations that no release holds changed in it, so a development database made before it is recreated, as CLAUDE.md says. A developer's `.env` needs the email settings of `.env.example`, and a deployment's `settings.env` needs `EMAIL`, which `just server-setup` asks for. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
 
 ## Build order
 
@@ -69,14 +69,14 @@ Each module goes through these stages, in order:
 
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
-| `platform` | HTTP, DATA, RT, OBS, OPS, MAIL | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, publishing events, lists, jobs, mail |
+| `platform` | HTTP, DATA, RT, OBS, OPS, MAIL | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail |
 | `accounts` | USER | first slice | first slice | first slice | first slice | first slice |
 | `auth` | AUTH | first slice | first slice | first slice | first slice | first slice |
 | `access` | WS | first slice | first slice | first slice | first slice | first slice |
 | `workspaces` | WS | first slice | first slice | first slice | first slice | first slice |
 | `invitations` | WS, MAIL | first slice | first slice | first slice | first slice | first slice |
 | `audit` | AUDIT | first slice | first slice | the writer, the security event sink | the writer, the security event sink | the writer, the security event sink |
-| `realtime` | RT | first slice | first slice | first slice | first slice | |
+| `realtime` | RT | first slice | first slice | first slice | first slice | first slice |
 | `files` | FILE | | | | | |
 | `client_telemetry` | OBS | | | | | |
 | `superadmins` | none: a new part (D62) | | | | | |
@@ -225,7 +225,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 317909b..259b888: step 2.3's second part: sending email in `platform`, emails in their modules, `just remove` and `check-removable`, with `invitations` as the first part | 1 | 8 (4, 4, 0 shared) | 2 | 0 | `next pass`: 34b65f5 |
 | 317909b..34b65f5: as above | 2 | 3 (2, 2, 1 shared) | 1 | 1 | `stopped: no progress`: 500b68d |
 | 0d036d0..d59e8d0: step 2.4's first part: the event hub and `realtime`, their deployment, metrics, alert and end-to-end scenario, and the fixes made before the review | 1 | 21 (20, 16, 15 shared) | 14 | 0 | `next pass`: 29a0c2c, 1ff84e6 |
-| 0d036d0..1ff84e6: as above | 2 | 15 (10, 10, 5 shared) | 8 | 5 | `stopped: no progress` |
+| 0d036d0..1ff84e6: as above | 2 | 15 (10, 10, 5 shared) | 8 | 5 | `stopped: no progress`: f7eb030 |
 
 ## Decisions
 
