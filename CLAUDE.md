@@ -38,6 +38,7 @@ just image           # the image, for both platforms, into target/image
 just e2e             # the end-to-end tests, against the image in target/image; `just e2e obs_13` runs those whose names hold obs_13
 just release         # the versions that can come next; `just release 1.4.0` releases main as 1.4.0, once CI passes (docs/operations/release.md)
 just check-test-map  # which spec behaviors tests prove
+just check-removable # each workspace shape's copy of the repository, without the parts it removes, passes the checks (ARCH-07)
 just test            # the tests; they start Postgres through Compose
 just run             # the API with the settings in .env, after bootstrap and migrate
 just migrate         # applies new migrations

@@ -9,7 +9,11 @@ use platform::{
     events::{self, AccessChange},
     idempotency::{Claimed, IdempotencyKey},
     lists::{List, Page, Search},
-    types::{Client, UserId, WorkspaceId},
+    types::{
+        Client,
+        UserId,
+        WorkspaceId, // part: invitations
+    },
 };
 use serde_json::json;
 
@@ -120,6 +124,7 @@ pub(crate) async fn list(
     })
 }
 
+// part: invitations
 /// The names of the workspaces `ids` names, which came from a query filtered by tenant, such as
 /// an invitee's invitations (DATA-22).
 pub(crate) async fn names(
@@ -138,6 +143,7 @@ pub(crate) async fn matching(
 ) -> Result<Vec<WorkspaceId>, WorkspacesError> {
     Ok(repo::matching(uow, ids, search).await?)
 }
+// end part: invitations
 
 /// A page of the caller's workspace's members, the latest joined first, of `role` only, and kept
 /// to those whose name or email contains `search` (WORKSPACES-004).

@@ -13,8 +13,9 @@
 ## Interface
 
 - `create(uow, &EmailAddress, &DisplayName)`: inserts a user and returns `Creation::Created` with the user's ID, or `Creation::EmailInUse` when the unique index refuses the email (ACCOUNTS-004).
-- `find_by_email(uow, &EmailAddress)`: the ID of the user with this email, if there is one. `auth` uses it to sign in, and `invitations` to find an invitee's account.
-- `profile(uow, &Principal)`: the caller's own `id`, `email`, `name` and `email_verified`.
+- `find_by_email(uow, &EmailAddress)`: the ID of the user with this email, if there is one. `auth` uses it to sign in.
+  `invitations` uses it to find an invitee's account. <!-- part: invitations -->
+- `profile(uow, &Principal)`: the caller's own `id`, `email`, `name` and `email_verified`. <!-- part: invitations -->
 - `profiles(uow, &[UserId])`: names and emails for a batch of users. Callers pass only IDs that came from a query filtered by tenant, such as a workspace's member list (DATA-22).
 - `matching(uow, &[UserId], &Search)`: the IDs among a batch, passed under the same terms, of the users whose name or email contains the search (API-20).
 - The domain type `DisplayName` (D25). `EmailAddress` is in `platform::types`.

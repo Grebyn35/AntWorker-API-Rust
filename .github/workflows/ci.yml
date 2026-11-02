@@ -36,6 +36,25 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: just checks
 
+  # On main, each run of check-removable: a copy of the repository without the optional parts
+  # that the run removes passes the checks (ARCH-07). Each copy builds into a target of its own.
+  removable:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: just@1.59.0
+      - id: tools
+        run: echo "tools=$(just ci-tools)" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: ${{ steps.tools.outputs.tools }}
+      - run: just setup
+      - run: just check-removable
+
   # The images, each built once for both platforms (OPS-14).
   image:
     runs-on: ubuntu-24.04
@@ -144,7 +163,7 @@ jobs:
   # The tested digests, published on main as sha-<commit>, and as edge while it is main's head.
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [checks, scan, verify]
+    needs: [checks, removable, scan, verify]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

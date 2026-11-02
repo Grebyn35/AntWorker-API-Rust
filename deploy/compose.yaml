@@ -57,9 +57,11 @@ x-api: &api
     # Empty, as deploy.sh writes it when no answer gave one, it counts as unset (PLATFORM-023).
     SMTP_PASSWORD_FILE: /run/secrets/smtp_password
     EMAIL_FROM: ${EMAIL_FROM:-}
+    # part: invitations
     INVITATION_EXPIRY_DAYS: ${INVITATION_EXPIRY_DAYS:-7}
     INVITATION_LIMIT: ${INVITATION_LIMIT:-100}
     INVITATION_WINDOW_SECONDS: ${INVITATION_WINDOW_SECONDS:-3600}
+    # end part: invitations
     JOB_DEAD_LETTER_RETENTION_DAYS: ${JOB_DEAD_LETTER_RETENTION_DAYS:-14}
   secrets: [database_url, hmac_key, smtp_password]
   # The shutdown delay and the drain take at most 15 seconds, and writing out telemetry the time

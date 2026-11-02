@@ -19,6 +19,7 @@ mod markdown;
 mod metrics;
 mod mirror;
 mod openapi;
+mod parts;
 mod pins;
 mod promql;
 mod release;
@@ -131,6 +132,21 @@ enum Command {
     /// themselves (DATA-22).
     #[command(name = "check-tenancy")]
     Tenancy,
+    /// Removes the optional parts named `parts` (ARCH-07): it deletes the files each owns whole
+    /// and the lines its markers mark, writes `openapi.json` and the metric catalog again, and
+    /// formats the code, then fails while a file it kept still names one of them.
+    Remove {
+        /// The parts, such as those a workspace shape doesn't keep (architecture §5).
+        #[arg(required = true)]
+        parts: Vec<String>,
+    },
+    /// On a copy of the repository for each run that `crates/xtask/parts.yaml` lists, or for the
+    /// runs named, removes the run's parts, then runs `just checks` (ARCH-07).
+    #[command(name = "check-removable")]
+    CheckRemovable {
+        /// The runs, such as `personal`; every run by default.
+        runs: Vec<String>,
+    },
     /// Sets the app's version to `version` on `main`, commits it and pushes it, after it checks
     /// that `version` can be released from `main` as it is. The run on `main` that passes with
     /// the version releases it (OPS-14). Without a version, it shows the versions that can come
@@ -282,6 +298,8 @@ pub struct Outcome {
 
 fn main() -> ExitCode {
     let command = match Cli::parse().command {
+        Command::Remove { parts } => return parts::remove(&parts),
+        Command::CheckRemovable { runs } => return parts::check_removable(&runs),
         Command::Release { version } => return release::run(version.as_deref()),
         Command::ReleaseCheck { version } => return release::check(&version),
         Command::Inputs { directory } => return inputs::run(&directory),
@@ -326,7 +344,9 @@ fn main() -> ExitCode {
         Command::Deps => deps::check(&repo),
         Command::Schema => schema::check(&repo),
         Command::Tenancy => tenancy::check(&repo),
-        Command::Release { .. }
+        Command::Remove { .. }
+        | Command::CheckRemovable { .. }
+        | Command::Release { .. }
         | Command::ReleaseCheck { .. }
         | Command::Inputs { .. }
         | Command::Deploy { .. }

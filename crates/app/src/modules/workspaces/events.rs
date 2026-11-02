@@ -8,8 +8,8 @@ use platform::events::{UserEvent, WorkspaceEvent};
 
 use crate::modules::access::MembersRead;
 
-/// The user joined a workspace, by creating it or by accepting an invitation, sent to their
-/// streams (WORKSPACES-001, INVITATIONS-005).
+/// The user joined a workspace, sent to their streams by each operation that adds a member, such
+/// as creating the workspace (WORKSPACES-001).
 pub(crate) const MEMBERSHIP_CREATED: UserEvent = UserEvent::new("membership.created");
 /// A member was removed, sent to the members who may list members (WORKSPACES-005).
 pub(super) const MEMBER_REMOVED: WorkspaceEvent<MembersRead> =

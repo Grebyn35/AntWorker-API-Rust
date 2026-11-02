@@ -348,12 +348,14 @@ fn fixture(method: &str, template: &str) -> Option<Fixture> {
             body: None,
             success: StatusCode::NO_CONTENT,
         },
+        // part: invitations
         // A member is the one role that every role allowed to invite outranks (ACCESS-004).
         ("post", "/v1/workspaces/{workspace_id}/invitations") => Fixture {
             path: |workspace, _| format!("/v1/workspaces/{workspace}/invitations"),
             body: Some(r#"{"email": "invitee@example.com", "role": "member"}"#),
             success: StatusCode::CREATED,
         },
+        // end part: invitations
         _ => return None,
     })
 }

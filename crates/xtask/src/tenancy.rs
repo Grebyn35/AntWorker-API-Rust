@@ -39,7 +39,9 @@ const PLATFORM_DATA: [&str; 4] = [
 
 /// Tables of workspace data whose rows are addressed to a user by email, with that column: the
 /// user's own queries of them filter by the caller's address (DATA-22).
-const ADDRESSED: [(&str, &str); 1] = [("invitations", "email")];
+const ADDRESSED: &[(&str, &str)] = &[
+    ("invitations", "email"), // part: invitations
+];
 
 /// The tenants themselves, whose rows a query reaches by IDs that came from a query filtered by
 /// tenant (DATA-22).
@@ -47,7 +49,9 @@ const TENANTS: [&str; 1] = ["workspaces"];
 
 /// The files of scheduled jobs that span tenants, which select rows by their own criteria, such
 /// as expiry (DATA-22).
-const CROSS_TENANT: [&str; 1] = ["crates/app/src/modules/invitations/jobs.rs"];
+const CROSS_TENANT: &[&str] = &[
+    "crates/app/src/modules/invitations/jobs.rs", // part: invitations
+];
 
 /// The `sqlx` macros that take SQL text (DATA-20).
 const MACROS: [&str; 6] = [
@@ -68,18 +72,25 @@ struct Table {
 
 /// Checks the migrations' tables and every query of the code.
 pub fn check(repo: &Repo) -> Outcome {
+    check_with(repo, ADDRESSED, CROSS_TENANT)
+}
+
+/// Checks the migrations' tables and every query of the code, with `addressed` as the tables
+/// whose rows are addressed to a user, and `cross_tenant` as the files of the jobs that span
+/// tenants.
+fn check_with(repo: &Repo, addressed: &[(&str, &str)], cross_tenant: &[&str]) -> Outcome {
     let mut findings = Vec::new();
     let mut checked = 0;
     let tables = tables(repo);
     findings.extend(placements(&tables));
     for file in repo.files() {
         let in_code = CODE.iter().any(|code| file.path.starts_with(code));
-        if !file.path.ends_with(".rs") || !in_code || CROSS_TENANT.contains(&file.path.as_str()) {
+        if !file.path.ends_with(".rs") || !in_code || cross_tenant.contains(&file.path.as_str()) {
             continue;
         }
         match Source::read(file) {
             Ok(source) => {
-                let (count, found) = queries(&source, &tables);
+                let (count, found) = queries(&source, &tables, addressed);
                 checked += count;
                 findings.extend(found);
             }
@@ -243,8 +254,13 @@ fn placements(tables: &BTreeMap<String, Table>) -> Vec<Finding> {
     findings
 }
 
-/// How many queries of `source` reach workspace data, and each that doesn't name its tenant.
-fn queries(source: &Source<'_>, tables: &BTreeMap<String, Table>) -> (usize, Vec<Finding>) {
+/// How many queries of `source` reach workspace data, and each that doesn't name its tenant, or
+/// for a table of `addressed`, its addressee's address.
+fn queries(
+    source: &Source<'_>,
+    tables: &BTreeMap<String, Table>,
+    addressed: &[(&str, &str)],
+) -> (usize, Vec<Finding>) {
     let mut found = Vec::new();
     sql_texts(&source.tokens, &mut found);
     let mut checked = 0;
@@ -266,7 +282,7 @@ fn queries(source: &Source<'_>, tables: &BTreeMap<String, Table>) -> (usize, Vec
                 tenants.push("user_id");
             }
             tenants.extend(
-                ADDRESSED
+                addressed
                     .iter()
                     .filter(|(addressed, _)| *addressed == table)
                     .map(|(_, column)| *column),
@@ -418,13 +434,13 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
              CREATE TABLE idempotency_records (id uuid);\nCREATE TABLE workspaces (id uuid);\n\
              CREATE TABLE jobs (id uuid, workspace_id uuid, user_id uuid);\n\
              CREATE TABLE job_schedules (id uuid);\n\
-             CREATE TABLE invitations (id uuid, workspace_id uuid, email text);\n"
+             CREATE TABLE offers (id uuid, workspace_id uuid, email text);\n"
         );
         let repo = Repo::of(&[
             ("migrations/1_things.sql", &migrations),
             ("crates/app/src/modules/things/repo.rs", code),
         ]);
-        check(&repo)
+        check_with(&repo, &[("offers", "email")], &[])
             .findings
             .iter()
             .map(ToString::to_string)
@@ -496,8 +512,8 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
         let code = r#"
             fn f() {
                 sqlx::query!("UPDATE jobs SET attempts = attempts + 1 WHERE id = $1", id);
-                sqlx::query!("SELECT id FROM invitations WHERE email = $1", email);
-                sqlx::query!("SELECT id FROM invitations WHERE id = $1", id);
+                sqlx::query!("SELECT id FROM offers WHERE email = $1", email);
+                sqlx::query!("SELECT id FROM offers WHERE id = $1", id);
             }
         "#;
         let found = findings(code);

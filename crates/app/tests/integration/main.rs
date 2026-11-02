@@ -12,8 +12,10 @@ mod accounts;
 mod audit;
 #[cfg(test)]
 mod auth;
+// part: invitations
 #[cfg(test)]
 mod invitations;
+// end part: invitations
 #[cfg(test)]
 mod openapi;
 #[cfg(test)]

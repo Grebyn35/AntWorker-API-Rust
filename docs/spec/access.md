@@ -15,8 +15,8 @@
 - The permission types used with `Authorized<P>`, one type per permission of the matrix below that a route requires.
 - `AccessPolicy`, implemented for `platform::authz`: `authorize`, and from step 2.4 on `memberships`, which returns the caller's `Memberships`.
 - `add_owner(uow, workspace_id, user_id)`: makes the creator the owner of a new workspace. Called only by `workspaces`.
-- `add_member(uow, workspace_id, user_id, role)`: adds a member, or reports that the user is one already, which changes nothing. Called only by `invitations`, after accepting.
-- `is_member(uow, workspace_id, user_id)`: whether the user belongs to the workspace.
+- `add_member(uow, workspace_id, user_id, role)`: adds a member, or reports that the user is one already, which changes nothing. Called only by `invitations`, after accepting. <!-- part: invitations -->
+- `is_member(uow, workspace_id, user_id)`: whether the user belongs to the workspace. <!-- part: invitations -->
 - `remove(uow, &Authorized<MembersRemove>, user_id)`: removes a member, subject to rank.
 - `members(uow, &Authorized<MembersRead>, &MemberFilter, &Page)`: a page of the workspace's memberships, newest first, kept to a role and to a set of users when the filter names them.
 - `member_ids(uow, &Authorized<MembersRead>)`: the user IDs of every member of the workspace, which a search of the members hands `accounts` (Design: Searching members).
@@ -45,7 +45,7 @@ Rank, from highest to lowest: `owner`, `admin`, `member`.
 | `workspace.read` | Reading the workspace | yes | yes | yes |
 | `members.read` | Listing members, with their names, emails and roles | yes | yes | yes |
 | `members.remove` | Removing a member of lower rank | yes | yes | |
-| `invitations.create` | Inviting at a role below one's own | yes | yes | |
+| `invitations.create` | Inviting at a role below one's own | yes | yes | <!-- part: invitations --> |
 
 The matrix lives in `access/permissions.rs` as one table, so adding a permission is one type and one row (D2). Later modules add their permissions to this table.
 

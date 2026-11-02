@@ -82,9 +82,11 @@ pub(super) fn blocks(example: &str) -> Vec<Block> {
                 settings: std::mem::take(&mut settings),
             });
         }
-        match line.strip_prefix('#') {
-            Some(text) => comment.push(text.strip_prefix(' ').unwrap_or(text).to_owned()),
-            None => comment.clear(),
+        // A part's marker (ARCH-07) is no part of what the comment tells the operator.
+        match crate::parts::unmarked(line).map(|kept| kept.strip_prefix('#')) {
+            Some(Some(text)) => comment.push(text.strip_prefix(' ').unwrap_or(text).to_owned()),
+            Some(None) => comment.clear(),
+            None => {}
         }
     }
     if !settings.is_empty() {
@@ -191,6 +193,33 @@ mod tests {
             .iter()
             .find(|block| block.settings.iter().any(|(setting, _)| setting == name))
             .expect("a block for the setting")
+    }
+
+    #[test]
+    fn arch_07_a_part_s_markers_show_the_operator_nothing() {
+        let marker = |end: &str| format!("# {end}{} offers", "part:");
+        let example = [
+            "# The size.".to_owned(),
+            format!("# The shop's size too. {}", marker("")),
+            "SIZE=1".to_owned(),
+            String::new(),
+            marker(""),
+            "# The offers.".to_owned(),
+            "OFFERS=2".to_owned(),
+            marker("end "),
+        ]
+        .join("\n");
+
+        let blocks = blocks(&example);
+
+        let comments: Vec<&Vec<String>> = blocks.iter().map(|block| &block.comment).collect();
+        assert_eq!(
+            comments,
+            [
+                &vec!["The size.".to_owned(), "The shop's size too.".to_owned()],
+                &vec!["The offers.".to_owned()]
+            ]
+        );
     }
 
     #[test]

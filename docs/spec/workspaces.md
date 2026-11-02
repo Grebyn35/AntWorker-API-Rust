@@ -12,9 +12,9 @@
 
 ## Interface
 
-- `names(uow, &[WorkspaceId])`: workspace names for a batch of IDs that came from a query filtered by tenant, used by `invitations` (DATA-22).
-- `matching(uow, &[WorkspaceId], &Search)`: the IDs among a batch, from a query filtered by tenant, of the workspaces whose name contains the search, used by `invitations` (API-20).
-- The domain type `WorkspaceName` (D25).
+- `names(uow, &[WorkspaceId])`: workspace names for a batch of IDs that came from a query filtered by tenant, used by `invitations` (DATA-22). <!-- part: invitations -->
+- `matching(uow, &[WorkspaceId], &Search)`: the IDs among a batch, from a query filtered by tenant, of the workspaces whose name contains the search, used by `invitations` (API-20). <!-- part: invitations -->
+- The domain type `WorkspaceName` (D25), which `invitations` uses. <!-- part: invitations -->
 
 ## Routes
 

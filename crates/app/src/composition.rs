@@ -21,9 +21,13 @@ use sqlx::migrate::Migrator;
 use utoipa::openapi::OpenApi;
 
 use crate::modules::{
-    access, accounts, audit, auth,
-    invitations::{self, Invitations},
-    system, workspaces,
+    access,
+    accounts,
+    audit,
+    auth,
+    invitations::{self, Invitations}, // part: invitations
+    system,
+    workspaces,
 };
 
 /// Every migration in `migrations/`, embedded in the binary. `migrate` applies them, and
@@ -33,14 +37,16 @@ pub static MIGRATIONS: Migrator = sqlx::migrate!("../../migrations");
 /// The settings of the modules, which `serve` reads before its async runtime starts (OPS-01).
 pub struct Config {
     auth: auth::Settings,
-    invitations: invitations::Settings,
+    invitations: invitations::Settings, // part: invitations
 }
 
 /// The name of the per-email sign-in limit's bucket (AUTH-006).
 const SIGN_IN_BUCKET: &str = "sign_in";
 
+// part: invitations
 /// The name of the per-member limit's bucket on inviting (INVITATIONS-009).
 const INVITATION_BUCKET: &str = "invitation";
+// end part: invitations
 
 impl Config {
     /// The modules' settings from `settings`.
@@ -71,6 +77,7 @@ impl Config {
                     window: settings.duration("SIGN_IN_WINDOW_SECONDS", 900, 1..=day)?,
                 },
             },
+            // part: invitations
             invitations: invitations::Settings {
                 expiry_days: settings.number("INVITATION_EXPIRY_DAYS", 7, 1..=90)?,
                 limit: Bucket {
@@ -79,6 +86,7 @@ impl Config {
                     window: settings.duration("INVITATION_WINDOW_SECONDS", 3_600, 1..=day)?,
                 },
             },
+            // end part: invitations
         })
     }
 }
@@ -108,8 +116,10 @@ pub async fn compose(
     let auth = Arc::new(auth::Auth::new(database.clone(), config.auth).await?);
     let mail = Mail::new(server.mail.clone(), clock)?;
     mail.register(&mut jobs).map_err(Internal::new)?;
+    // part: invitations
     let invitations = Invitations::new(database.clone(), mail.clone(), config.invitations);
     invitations.register(&mut jobs).map_err(Internal::new)?;
+    // end part: invitations
     let features = system::Features {
         email: mail.is_on(),
     };
@@ -117,8 +127,10 @@ pub async fn compose(
         .with_state(features)
         .merge(accounts::routes().with_state(database.clone()))
         .merge(auth::routes().with_state(auth.clone()))
-        .merge(workspaces::routes().with_state(database.clone()))
-        .merge(invitations::routes().with_state(invitations));
+        // part: invitations
+        .merge(invitations::routes().with_state(invitations))
+        // end part: invitations
+        .merge(workspaces::routes().with_state(database.clone()));
     Ok(Services {
         routes,
         verifier: Arc::new(auth::Verifier(auth)),
@@ -160,7 +172,7 @@ pub fn openapi(service: Service) -> OpenApi {
     document.merge(accounts::routes().openapi(service));
     document.merge(auth::routes().openapi(service));
     document.merge(workspaces::routes().openapi(service));
-    document.merge(invitations::routes().openapi(service));
+    document.merge(invitations::routes().openapi(service)); // part: invitations
     document
 }
 

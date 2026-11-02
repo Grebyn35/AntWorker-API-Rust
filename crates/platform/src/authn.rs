@@ -74,6 +74,7 @@ impl Principal {
         }
     }
 
+    // part: invitations
     /// The scope of the entry that records this caller joining `workspace` by accepting an
     /// invitation addressed to them: the workspace's log, with them as the actor, before any
     /// `Authorized<P>` can name it (INVITATIONS-005). Only accepting an invitation calls it;
@@ -84,6 +85,7 @@ impl Principal {
             actor: Some(self.user_id),
         }
     }
+    // end part: invitations
 }
 
 /// The log an audit entry belongs to.

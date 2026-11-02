@@ -5,7 +5,7 @@ How errors are defined, how they move through the code, and how they reach the c
 ## Defining errors
 
 ### ERR-01 One error enum per module
-Each module defines one error enum in `error.rs`, using `thiserror`, with variants named in domain terms (for example `LastOwner` or `InvitationExpired`). A large module may group variants into nested enums inside that file.
+Each module defines one error enum in `error.rs`, using `thiserror`, with variants named in domain terms (for example `SessionExpired` or `MemberNotFound`). A large module may group variants into nested enums inside that file.
 - Why: a module's failure modes can be read in one place (D17).
 - Check: `ci: check-layout` (`error.rs` exists in every module that returns errors), plus `review`.
 

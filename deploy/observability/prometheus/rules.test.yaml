@@ -333,7 +333,7 @@ tests:
   # A periodic job fails once, then again an hour later; another fails once only.
   - interval: 1m
     input_series:
-      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="invitations.expire", job_outcome="failed"}'
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.expire_idempotency_records", job_outcome="failed"}'
         values: "_ 1x59 2x60"
       - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.expire_dead_letters", job_outcome="failed"}'
         values: "_ 1x119"
@@ -346,7 +346,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: ticket
-              job_kind: invitations.expire
+              job_kind: platform.expire_idempotency_records
             exp_annotations:
               summary: A periodic job failed at least twice within 3 hours.
               runbook: docs/operations/runbooks.md#periodicjobfailing

@@ -30,6 +30,7 @@ pub(super) async fn insert(
     Ok(Timestamp::from_database(joined_at))
 }
 
+// part: invitations
 /// Adds `user` to `workspace` at `role`, and returns when they joined, or `None` when the unique
 /// constraint on the pair finds them a member already (ERR-05).
 pub(super) async fn insert_unless_member(
@@ -51,6 +52,7 @@ pub(super) async fn insert_unless_member(
     .await?;
     Ok(joined_at.map(Timestamp::from_database))
 }
+// end part: invitations
 
 /// The role of `user` in `workspace`, if they are a member, with their row locked `FOR SHARE`
 /// until the unit of work ends, so a removal or a role change waits for it (PLATFORM-024).

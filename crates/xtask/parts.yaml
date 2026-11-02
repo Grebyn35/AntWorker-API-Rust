@@ -1,0 +1,30 @@
+# The optional parts that `just remove` deletes (ARCH-07), and the runs of `check-removable`.
+#
+# Each part names the files it owns whole: files, or directories with every file under them. A
+# module part also names its module, whose migrations, those named
+# `<timestamp>_<module>_<description>.sql`, and the entries of the query cache whose queries name
+# a table they create, are its own. Its words are what no file may still hold once it is removed,
+# compared without regard to case. A part's entry carries its marker, so removing it removes the
+# entry too.
+parts:
+  # part: invitations
+  - name: invitations
+    module: invitations
+    paths:
+      - crates/app/src/modules/invitations
+      - crates/app/templates/invitations
+      - crates/app/tests/integration/invitations.rs
+      - crates/app/tests/integration/support/invitations.rs
+      - docs/spec/invitations.md
+    words:
+      - invit
+  # end part: invitations
+
+# Each run removes its parts from a copy of the repository of its own, then runs `just checks` on
+# the copy: one for each workspace shape (architecture §5), for each OAuth provider, and for
+# `client_telemetry`. A run whose parts are all removed already is skipped.
+runs:
+  # The personal shape: users create workspaces, and nobody joins them.
+  - name: personal
+    parts:
+      - invitations # part: invitations

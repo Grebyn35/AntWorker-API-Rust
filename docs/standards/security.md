@@ -51,11 +51,11 @@ Every workspace route is authorized by `Authorized<P>` (API-14), and every permi
 - Check: `compiler` (API-14), plus `review`.
 
 ### SEC-08 Role rank limits who may change whom
-A member can change, remove or invite only members at roles below their own, and can assign only roles below their own. Each workspace has exactly one owner. Two actions are exceptions, and each has its own rule:
+A member can change or remove only members at roles below their own, and can assign only roles below their own. Each workspace has exactly one owner. Two actions are exceptions, and each has its own rule:
 - **Transfer.** The owner transfers ownership to a member who holds the admin role. The two swap roles: that member becomes the owner, and the former owner becomes an admin (D2).
 - **Leave.** Any member except the owner may leave, which removes their own membership. The owner must transfer ownership before leaving.
 - Why: no escalation by delegation, and a workspace always has exactly one owner (D2, D16).
-- Check: `test`. Each route that changes, removes or invites a member has tests that act on a target of equal and of higher rank, and that assign an equal and a higher role. Transfer and leave each have tests, including an owner trying to leave.
+- Check: `test`. Each route that changes or removes a member, or assigns a role, has tests that act on a target of equal and of higher rank, and that assign an equal and a higher role. Transfer and leave each have tests, including an owner trying to leave.
 
 ## Requests and responses
 

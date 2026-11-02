@@ -19,19 +19,21 @@ impl Permission for MembersRemove {
     const NAME: &'static str = "members.remove";
 }
 
+// part: invitations
 /// Inviting someone at a role below one's own.
 pub(crate) struct InvitationsCreate;
 
 impl Permission for InvitationsCreate {
     const NAME: &'static str = "invitations.create";
 }
+// end part: invitations
 
 /// Each permission, and the roles that hold it (ACCESS-002).
-const MATRIX: [(&str, &[Role]); 4] = [
+const MATRIX: &[(&str, &[Role])] = &[
     ("workspace.read", &[Role::Owner, Role::Admin, Role::Member]),
     ("members.read", &[Role::Owner, Role::Admin, Role::Member]),
     ("members.remove", &[Role::Owner, Role::Admin]),
-    ("invitations.create", &[Role::Owner, Role::Admin]),
+    ("invitations.create", &[Role::Owner, Role::Admin]), // part: invitations
 ];
 
 /// Whether `role` holds the permission named `permission`: exactly when the matrix says so
@@ -62,7 +64,7 @@ mod tests {
                 "workspace.read",
                 "members.read",
                 "members.remove",
-                "invitations.create",
+                "invitations.create", // part: invitations
                 "files.read",
             ]
             .into_iter()
@@ -73,7 +75,7 @@ mod tests {
             "workspace.read",
             "members.read",
             "members.remove",
-            "invitations.create",
+            "invitations.create", // part: invitations
         ];
         assert_eq!(held(Role::Owner), all);
         assert_eq!(held(Role::Admin), all);

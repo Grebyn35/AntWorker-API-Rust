@@ -58,11 +58,11 @@ export E2E_IMAGE_NAME := e2e_image
 default:
     @just --list
 
-# Runs every check CI runs: the checks of the code, then the build of the image and its checks,
-# on this machine's platform.
+# Runs every check CI runs: the checks of the code, on the repository and on its copies without
+# each run's optional parts, then the build of the image and its checks, on this machine's platform.
 [doc("Runs every check CI runs, the image's included")]
 [group('check')]
-ci: checks image image-scan e2e
+ci: checks check-removable image image-scan e2e
 
 # Runs the checks of the code, the part of CI that needs no image.
 [doc("Runs the checks of the code, which need no image")]
@@ -349,6 +349,23 @@ check-deps:
 [group('check')]
 check-schema: services
     {{ xtask }} check-schema
+
+# On a copy of the repository for each run that crates/xtask/parts.yaml lists, or for the runs
+# named, such as `personal`, removes the run's optional parts with `just remove`, then runs `just
+# checks` on the copy (ARCH-07). Each copy and its build are in target/removable/<run>/.
+[doc("Fails unless removing each workspace shape's optional parts leaves a copy that passes the checks")]
+[group('check')]
+check-removable *runs:
+    {{ xtask }} check-removable {{ runs }}
+
+# Removes the optional parts named, as a fork does before its first release to choose its
+# workspace shape (ARCH-07, architecture.md §5): it deletes the files and the marked
+# lines of each, writes openapi.json and the metric catalog again, and formats the code, then fails
+# while a kept line still names one. Commit what it leaves once `just ci` passes.
+[doc("Removes optional parts, to choose a workspace shape")]
+[group('fork')]
+remove +parts:
+    {{ xtask }} remove {{ parts }}
 
 # Fails on a query of workspace data that names no tenant, or a table that holds no workspace data
 # and isn't listed as account or platform data (DATA-22).

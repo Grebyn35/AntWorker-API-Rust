@@ -47,7 +47,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | The image and the delivery pipeline, with the release docs | D15, D21, D43 | built |
 | The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30, D44, D45, D47, D49, D50, D51, D52, D53, D54, D55, D56, D57, D59, D60 | built |
 | Grafana on an HTTPS address of its own with sign-in, and the path to a managed observability backend through the collector, with Grafana Cloud as the worked example | D19, D42 | built |
-| The command that removes an optional part, which `check-removable` runs | D29, D39 | 2.3 |
+| The command that removes an optional part, which `check-removable` runs | D29, D39 | built |
 | `just seed` and the OpenAPI UI in development | D28 | 2.4 |
 | The threat model | D26 | 3 |
 | `just new-module` and the guide to adding a module | D29 | 5 |
@@ -99,7 +99,7 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `e2e` | built, and extended by every later step |
 | `check-layout`, `check-table-ownership`, `check-config`, `check-migrations`, `sqlx-check`, `setup-smoke` | 3 decides: built, or the rule's check changes |
 | `check-personal-data` | 5, with export and erasure in `accounts` |
-| `check-removable` | 2.3, with the first removal that leaves a workspace shape: `invitations`, for the personal shape |
+| `check-removable` | built |
 | `test-migrations` | 6, with the first final release |
 | `check-rename` | 6, with `just rename` |
 
@@ -118,7 +118,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 | API-04 | A created workspace's `Location`, `/v1/workspaces/{id}`, names a resource that no route serves yet: reading one workspace arrives with the full module | 5, with the full `workspaces` module |
 | API-04 | A created invitation's `Location`, `/v1/workspaces/{workspace_id}/invitations/{id}`, names a resource that no route serves yet: reading one invitation arrives with the full module | 5, with the full `invitations` module |
 | OPS-22 | When both colors of replicas run and no deploy recorded which serves, deploy.sh tells the operator to stop one with `docker compose` on the server, a change to the services that no task makes | 3 |
-| TEST-05 | `platform_065_a_runs_span_links_to_the_trace_that_enqueued_it` runs an invitation email, the only email before step 5, so removing `invitations` would break a test of `platform` | 2.3, with `check-removable` |
+| ARCH-07 | `just remove` knows `invitations` only: users creating workspaces through `POST /v1/workspaces` isn't marked as a part, since no run of `check-removable` can remove it until a part that also creates workspaces, the setup subcommand or `superadmins`, is built | 5, with the setup subcommand or `superadmins` |
 
 ## Rule proposals
 

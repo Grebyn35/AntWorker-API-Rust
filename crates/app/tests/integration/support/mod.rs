@@ -18,7 +18,7 @@
 pub mod api;
 mod contract;
 pub mod fixtures;
-pub mod invitations;
+pub mod invitations; // part: invitations
 pub mod mailbox;
 pub mod users;
 pub mod workspaces;

@@ -112,14 +112,17 @@ A repository function takes `&mut UnitOfWork`, never a pool or connection. Pools
 Tenancy is enforced by the application, and every query on user or workspace data carries its own filter (D3, D4). Data a module adds for its product lives in a workspace, in a table with a `workspace_id` (D39); a table without one holds account data, keyed by a user, such as `sessions`, or is `workspaces` itself. `platform`'s bookkeeping, such as `jobs`, is platform data whatever its columns: a job's `workspace_id` and `user_id` record whom it runs for, which its handler filters by, while the queue selects jobs by their state. `check-tenancy` lists the tables of each kind.
 - Workspace data is filtered by the workspace ID from the proof the operation runs under: `Authorized<P>`, or the `JobContext` of a job enqueued for a workspace. A repository function takes that ID as a parameter.
 - User data is filtered by the acting user's ID.
-- A lookup by a presented token's hash, or of a user by an email address, goes through a unique index: before sign-in, by the token or the sign-in email; when inviting, by the invitee's email; and in the setup subcommand, by its owner's email.
-- An invitee's own invitations are filtered by the caller's email.
+- A lookup by a presented token's hash, or of a user by an email address, goes through a unique index:
+  - before sign-in, by the token or the sign-in email
+  - when inviting, by the invitee's email <!-- part: invitations -->
+  - in the setup subcommand, by its owner's email
+- Rows addressed to a user by an email address are filtered by the caller's email.
 
 A row ID alone never addresses tenant data. Two kinds of read are exempt:
 - batch reads of display data, such as names, by IDs that came from a query filtered by tenant in the calling module, for example a workspace's member list
 - scheduled jobs that span tenants, which select rows by their own criteria, such as expiry
 - Why: there is no row-level security, so the application's filters are the only guard between tenants, and they are checked by machine and by test (D4).
-- Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, such as an invitation's email, unless it belongs to a listed cross-tenant job, and every other table is listed), `test` (TEST-09 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
+- Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, unless it belongs to a listed cross-tenant job, and every other table is listed), `test` (TEST-09 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
 
 ### DATA-23 Lists use keyset pagination on an index
 A list query filters by the cursor's sort key, with the ID as tiebreaker, and never uses `OFFSET`. An index matches its tenant filter and its order. A `search` (API-20) narrows the rows that index reaches, without an index of its own until a load test asks for one.

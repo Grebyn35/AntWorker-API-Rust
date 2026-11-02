@@ -99,7 +99,8 @@ Every user may add a second factor, and every superadmin must (D63). The factors
 What an address proves follows whether the deployment sends email (D67). The flow and its check arrive with the full module.
 
 - **Email on.** An account proves its address before the API serves it anything else: by entering a code sent to the address, or by signing in through a provider that vouches for the same address. Until then, every request of the account is refused with a code of its own, but those that verifying needs, such as entering the code, asking for a new one, reading and refreshing its session, and signing out. The check reads the account's address, whatever way its session signed in, and runs where every request is authenticated, so a route a fork adds needs no check of its own. The session that registration, sign-in and AUTH-016 return says whether the account must still verify, so a client shows the code's screen first, rather than deciding it from the capabilities endpoint.
-- **Email off.** No code can reach an address, so nothing asks for one, and no request is refused for it. An address is what its account claims: an invitation reaches whichever account holds its address ([invitations spec](invitations.md#who-an-invitation-reaches)), and the documentation of the email setting says so.
+- **Email off.** No code can reach an address, so nothing asks for one, and no request is refused for it. An address is what its account claims, and the documentation of the email setting says so.
+  An invitation reaches whichever account holds its address ([invitations spec](invitations.md#who-an-invitation-reaches)). <!-- part: invitations -->
 
 ## Open design questions
 

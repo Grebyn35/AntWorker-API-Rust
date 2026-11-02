@@ -121,6 +121,25 @@ pub fn write(path: &str, text: &str) -> io::Result<()> {
     std::fs::write(root.join(path), text)
 }
 
+/// Deletes the file at `path`, a path from the repository root, and each directory above it that
+/// it leaves empty.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the checks run as a synchronous program, with no async runtime to stall"
+)]
+pub fn delete(path: &str) -> io::Result<()> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    std::fs::remove_file(root.join(path))?;
+    let mut directory = Path::new(path).parent();
+    while let Some(parent) = directory.filter(|parent| !parent.as_os_str().is_empty()) {
+        if std::fs::remove_dir(root.join(parent)).is_err() {
+            break;
+        }
+        directory = parent.parent();
+    }
+    Ok(())
+}
+
 /// Makes the directory at `path`, a path from the repository root, empty: it removes what the
 /// directory holds, or creates it.
 #[expect(

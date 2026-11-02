@@ -62,6 +62,7 @@ pub(crate) async fn add_owner(
     Ok(repo::insert(uow, workspace, user, Role::Owner).await?)
 }
 
+// part: invitations
 /// Makes `user` a member of `workspace` at `role`, and returns when they joined, or `None` when
 /// they already are one, which changes nothing (D16). Only accepting an invitation calls it.
 pub(crate) async fn add_member(
@@ -81,6 +82,7 @@ pub(crate) async fn is_member(
 ) -> Result<bool, AccessError> {
     Ok(repo::role(uow, workspace, user).await?.is_some())
 }
+// end part: invitations
 
 /// Removes `user` from the caller's workspace, if the caller outranks them (ACCESS-004). The
 /// delete itself checks the rank, so it locks the member's row only when it may remove them, and
