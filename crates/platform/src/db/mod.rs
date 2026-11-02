@@ -120,6 +120,7 @@ impl Database {
             client: Some(client.clone()),
             claimed: None,
             published: Vec::new(),
+            ordered: false,
         })
     }
 
@@ -138,6 +139,7 @@ impl Database {
             client: None,
             claimed: None,
             published: Vec::new(),
+            ordered: false,
         })
     }
 
@@ -184,6 +186,7 @@ pub struct UnitOfWork {
     client: Option<Client>,
     claimed: Option<(UserId, String)>,
     published: Vec<uuid::Uuid>,
+    ordered: bool,
 }
 
 impl UnitOfWork {
@@ -214,10 +217,23 @@ impl UnitOfWork {
         self.published.push(id);
     }
 
-    /// Positions the events the unit of work published, as its last statement, then commits
+    /// Makes the unit of work commit in the order of the commits that publish events, as one
+    /// that publishes does, so each event's snapshot tells whether it committed after this unit
+    /// of work: an operation that adds a membership asks for it (SEC-17).
+    pub fn order_with_events(&mut self) {
+        self.ordered = true;
+    }
+
+    /// Takes the lock of the commits that publish, if the unit of work published or asked for
+    /// it, positions the events it published, as its last statements, then commits
     /// (PLATFORM-071).
     async fn finish(mut self) -> Result<(), Internal> {
         let published = std::mem::take(&mut self.published);
+        if self.ordered || !published.is_empty() {
+            sqlx::query!("SELECT pg_advisory_xact_lock($1)", events::POSITION_LOCK)
+                .execute(&mut *self.tx)
+                .await?;
+        }
         if !published.is_empty() {
             position(&mut self.tx, &published).await?;
         }
@@ -312,24 +328,29 @@ impl UnitOfWork {
 }
 
 /// Gives the events `published` the next positions of `events_position_seq`, in the order they
-/// were published, with `created_at` the time it does, and notifies the hubs on `events` with the
-/// last of them, all under the advisory lock that only these commits take. Postgres releases it
-/// once the commit is visible, so positions follow the order of the commits (PLATFORM-071). The
-/// rows were inserted before, with their foreign-key checks, so the statement waits on no row
-/// while it holds the lock.
+/// were published, with `created_at` the time it does, `xact` the unit of work's transaction and
+/// `snapshot` the transactions that have committed by then, and notifies the hubs on `events` with the last of them. It runs under the
+/// lock that every commit that publishes, or adds a membership, takes, in a statement of its own
+/// after the lock's, so its snapshot sees every commit before it; Postgres releases the lock once
+/// the commit is visible, so positions follow the order of the commits (PLATFORM-071), and the
+/// snapshot holds every membership that committed before the event (SEC-17). The rows were
+/// inserted before, with their foreign-key checks, so the statement waits on no row while it
+/// holds the lock.
 async fn position(tx: &mut PgConnection, published: &[uuid::Uuid]) -> Result<(), Internal> {
     sqlx::query!(
-        "WITH locked AS MATERIALIZED (SELECT pg_advisory_xact_lock($1)),
-        ordered AS (SELECT id FROM events, locked WHERE id = ANY($2) ORDER BY id),
+        "WITH ordered AS (SELECT id FROM events WHERE id = ANY($1) ORDER BY id),
         positioned AS (SELECT id, nextval('events_position_seq') AS position FROM ordered),
         updated AS (
-            UPDATE events SET position = positioned.position, created_at = clock_timestamp()
+            UPDATE events SET
+                position = positioned.position,
+                xact = pg_current_xact_id(),
+                snapshot = pg_current_snapshot(),
+                created_at = clock_timestamp()
             FROM positioned
             WHERE events.id = positioned.id
             RETURNING events.position
         )
-        SELECT pg_notify($3, max(position)::text) FROM updated",
-        events::POSITION_LOCK,
+        SELECT pg_notify($2, max(position)::text) FROM updated",
         published,
         events::EVENTS_CHANNEL,
     )

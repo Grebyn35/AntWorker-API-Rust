@@ -1,12 +1,16 @@
 //! The hub's reads of the event log: its head, the events it loads by position, and a stream's
 //! replay (PLATFORM-057, PLATFORM-071, SEC-17). `events` is `platform`'s bookkeeping: the hub
-//! reads it by position, and a replay by its caller's ID and memberships (DATA-22).
+//! reads it by position, and a stream's reads by its caller's ID and memberships (DATA-22).
+//!
+//! A workspace event reaches a member whose role holds its permission, and whose membership had
+//! committed when the event did: the transaction that added the membership is the event's own, or
+//! among those its commit's snapshot holds, as `pg_visible_in_snapshot` reads it (SEC-17).
 
 use std::sync::Arc;
 
 use super::subscription::{Audience, Event};
 use crate::{
-    authz::Memberships,
+    authz::{Committed, Memberships},
     db::UnitOfWork,
     errors::Internal,
     types::{UserId, WorkspaceId},
@@ -36,7 +40,7 @@ pub(super) async fn load(
 ) -> Result<Vec<(Arc<Event>, f64)>, Internal> {
     let rows = sqlx::query!(
         r#"SELECT id, user_id, workspace_id, type AS name, permission, payload, traceparent,
-            position AS "position!",
+            position AS "position!", xact::text AS xact, snapshot::text AS snapshot,
             extract(epoch FROM clock_timestamp() - created_at)::float8 AS "lag!"
         FROM events
         WHERE position > $1 AND position <= $2
@@ -69,28 +73,49 @@ pub(super) async fn load(
             traceparent: row.traceparent,
             position: row.position,
             audience,
+            committed: committed(row.xact.as_deref(), row.snapshot.as_deref()),
         };
         events.push((Arc::new(event), row.lag));
     }
     Ok(events)
 }
 
-/// The position of the event `id`, or `None` when the API holds no such event.
+/// The position of the event `id`, if it is one that `user` with `memberships` may receive, as
+/// the replay reads them; `None` when the API holds no such event, so an ID tells a caller
+/// nothing of an event it may not receive.
 pub(super) async fn position(
     uow: &mut UnitOfWork,
     id: uuid::Uuid,
+    user: UserId,
+    memberships: &Memberships,
 ) -> Result<Option<i64>, Internal> {
-    Ok(
-        sqlx::query_scalar!("SELECT position FROM events WHERE id = $1", id)
-            .fetch_optional(uow.executor())
-            .await?
-            .flatten(),
+    let (workspaces, permissions, joined) = memberships.rows();
+    Ok(sqlx::query_scalar!(
+        r#"SELECT position AS "position!" FROM (
+            SELECT position FROM events WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT e.position
+            FROM unnest($3::uuid[], $4::text[], $5::text[])
+                AS m(workspace_id, permission, joined)
+            JOIN events AS e ON e.workspace_id = m.workspace_id
+                AND e.permission = m.permission
+                AND (m.joined::xid8 = e.xact OR pg_visible_in_snapshot(m.joined::xid8, e.snapshot))
+            WHERE e.id = $1
+        ) AS visible
+        WHERE position IS NOT NULL"#,
+        id,
+        user.uuid(),
+        &workspaces,
+        &permissions,
+        &joined,
     )
+    .fetch_optional(uow.executor())
+    .await?)
 }
 
 /// The events after `after`, up to `through`, that `user` with `memberships` may receive, in
 /// order: their own, and those of each of their workspaces whose permission their role holds
-/// there, created at or after they joined (SEC-17). At most [`REPLAY_LIMIT`] and one more, which
+/// there, committed after their membership (SEC-17). At most [`REPLAY_LIMIT`] and one more, which
 /// tells that the replay would be cut short.
 pub(super) async fn replay(
     uow: &mut UnitOfWork,
@@ -102,19 +127,20 @@ pub(super) async fn replay(
     let (workspaces, permissions, joined) = memberships.rows();
     let rows = sqlx::query!(
         r#"SELECT id AS "id!", type AS "name!", payload AS "payload!", traceparent,
-            position AS "position!", user_id, workspace_id, permission
+            position AS "position!", user_id, workspace_id, permission, xact, snapshot
         FROM (
-            SELECT id, type, payload, traceparent, position, user_id, workspace_id, permission
+            SELECT id, type, payload, traceparent, position, user_id, workspace_id, permission,
+                xact::text AS xact, snapshot::text AS snapshot
             FROM events
             WHERE user_id = $3 AND position > $1 AND position <= $2
             UNION ALL
             SELECT e.id, e.type, e.payload, e.traceparent, e.position, e.user_id, e.workspace_id,
-                e.permission
-            FROM unnest($4::uuid[], $5::text[], $6::timestamptz[])
-                AS m(workspace_id, permission, joined_at)
+                e.permission, e.xact::text, e.snapshot::text
+            FROM unnest($4::uuid[], $5::text[], $6::text[])
+                AS m(workspace_id, permission, joined)
             JOIN events AS e ON e.workspace_id = m.workspace_id
                 AND e.permission = m.permission
-                AND e.created_at >= m.joined_at
+                AND (m.joined::xid8 = e.xact OR pg_visible_in_snapshot(m.joined::xid8, e.snapshot))
                 AND e.position > $1 AND e.position <= $2
         ) AS visible
         ORDER BY position
@@ -146,14 +172,15 @@ pub(super) async fn replay(
                 traceparent: row.traceparent,
                 position: row.position,
                 audience,
+                committed: committed(row.xact.as_deref(), row.snapshot.as_deref()),
             })
         })
         .collect();
     Ok(events)
 }
 
-/// The newest event, at or before `through`, that `user` with `memberships` may receive, as the
-/// replay reads them, from which a reconnect resumes a stream that started after `through`: no
+/// The newest event, at or before `through`, that `user` with `memberships` may receive, as
+/// the replay reads them, from which a reconnect resumes a stream that started after `through`: no
 /// event it may receive lies between the two (REALTIME-001).
 pub(super) async fn newest_visible(
     uow: &mut UnitOfWork,
@@ -167,11 +194,11 @@ pub(super) async fn newest_visible(
             SELECT id, position FROM events WHERE user_id = $2 AND position <= $1
             UNION ALL
             SELECT e.id, e.position
-            FROM unnest($3::uuid[], $4::text[], $5::timestamptz[])
-                AS m(workspace_id, permission, joined_at)
+            FROM unnest($3::uuid[], $4::text[], $5::text[])
+                AS m(workspace_id, permission, joined)
             JOIN events AS e ON e.workspace_id = m.workspace_id
                 AND e.permission = m.permission
-                AND e.created_at >= m.joined_at
+                AND (m.joined::xid8 = e.xact OR pg_visible_in_snapshot(m.joined::xid8, e.snapshot))
                 AND e.position <= $1
         ) AS visible
         ORDER BY position DESC
@@ -184,6 +211,11 @@ pub(super) async fn newest_visible(
     )
     .fetch_optional(uow.executor())
     .await?)
+}
+
+/// The transactions that had committed with an event, from its stored `xact` and `snapshot`.
+fn committed(xact: Option<&str>, snapshot: Option<&str>) -> Option<Committed> {
+    Committed::parse(xact?, snapshot?)
 }
 
 /// The trace ID of a stored `traceparent`, `00-<trace ID>-<span ID>-<flags>`.

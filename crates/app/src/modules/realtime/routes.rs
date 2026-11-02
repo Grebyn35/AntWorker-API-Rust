@@ -73,10 +73,16 @@ async fn events(
     principal: Principal,
     headers: HeaderMap,
 ) -> Response {
+    // A header that isn't text names no event the API holds, so its replay is truncated
+    // (REALTIME-004).
     let last_event_id = headers
         .get(LAST_EVENT_ID)
-        .and_then(|value| value.to_str().ok());
-    match realtime.hub.subscribe(&principal, last_event_id).await {
+        .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned());
+    match realtime
+        .hub
+        .subscribe(&principal, last_event_id.as_deref())
+        .await
+    {
         Ok(subscription) => {
             let frames = Frames {
                 beat: realtime.clock.sleep(realtime.heartbeat),

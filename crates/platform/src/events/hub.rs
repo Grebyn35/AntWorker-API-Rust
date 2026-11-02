@@ -80,8 +80,7 @@ pub enum SubscribeError {
     /// The caller holds the most open streams a user may on this replica (REALTIME-006).
     #[error("the caller holds the most open streams a user may")]
     TooManyStreams,
-    /// The hub can't deliver yet: it hasn't connected to the database since the instance started,
-    /// or the instance is shutting down.
+    /// The instance is shutting down, so its hub opens no stream.
     #[error("the hub can't deliver events")]
     Unavailable,
     /// A read of the subscription failed.
@@ -94,6 +93,8 @@ pub enum SubscribeError {
 pub struct Connection {
     database: Database,
     listener: Listener,
+    /// The last position given when it began to listen, from which the hub loads.
+    head: i64,
 }
 
 /// The instance's own connection couldn't listen.
@@ -102,16 +103,21 @@ pub struct Connection {
 pub struct ListenError(String);
 
 /// Opens the instance's own connection to `database`, outside its pool, and listens there for
-/// what commits, within a check's timeout on `clock` (OPS-21).
+/// what commits, within a check's timeout on `clock` (OPS-21); then reads the last position
+/// given, so every event that commits from then on is one the hub loads.
 pub async fn listen(database: &Database, clock: &dyn Clock) -> Result<Connection, ListenError> {
     let mut listener = database.listener(CHANNELS);
-    match listener.check(clock).await {
-        Checked::Failed(failure) => Err(ListenError(failure)),
-        Checked::Answered | Checked::Connected => Ok(Connection {
-            database: database.clone(),
-            listener,
-        }),
+    if let Checked::Failed(failure) = listener.check(clock).await {
+        return Err(ListenError(failure));
     }
+    let failed = |error: Internal| ListenError(errors::chain(&error));
+    let mut uow = database.unattributed().await.map_err(failed)?;
+    let head = log::head(&mut uow).await.map_err(failed)?;
+    Ok(Connection {
+        database: database.clone(),
+        listener,
+        head,
+    })
 }
 
 /// The handle of the replica's hub, which `subscribe` opens streams through. Clones share the
@@ -133,6 +139,19 @@ struct Task {
     listener: Listener,
     streams: Streams,
     reachable: bool,
+    owed: Owed,
+}
+
+/// What the hub owes before it delivers as usual.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Owed {
+    /// Nothing.
+    Nothing,
+    /// The events after the head, which a failed load left.
+    Load,
+    /// A re-check of every stream, then the events after the head: notifications were lost
+    /// while no connection listened (PLATFORM-073).
+    CatchUp,
 }
 
 impl Hub {
@@ -148,7 +167,11 @@ impl Hub {
         recheck: Duration,
     ) -> Self {
         let (commands, received) = mpsc::unbounded_channel();
-        let Connection { database, listener } = connection;
+        let Connection {
+            database,
+            listener,
+            head,
+        } = connection;
         let task = Task {
             database: database.clone(),
             policy: policy.clone(),
@@ -156,8 +179,9 @@ impl Hub {
             readiness,
             clock,
             listener,
-            streams: Streams::new(database.name()),
+            streams: Streams::new(database.name(), head),
             reachable: true,
+            owed: Owed::Nothing,
         };
         tokio::spawn(task.run(received, recheck));
         Self {
@@ -187,7 +211,8 @@ impl Hub {
             commands: self.commands.clone(),
         };
         // Registered first, so a signal for the caller from now on closes the stream; then the
-        // memberships, read as they stand once it is.
+        // memberships, read as they stand once it is. No pooled connection is held while the
+        // hub answers, since the hub's own reads may wait for one.
         let mut uow = self.database.unattributed().await?;
         let user = principal.user_id();
         let memberships = self
@@ -197,10 +222,11 @@ impl Hub {
             .remove(&user)
             .unwrap_or_default();
         let resumed = match last_event_id.and_then(|id| uuid::Uuid::parse_str(id.trim()).ok()) {
-            Some(id) => Some(log::position(&mut uow, id).await?),
+            Some(id) => Some(log::position(&mut uow, id, user, &memberships).await?),
             None if last_event_id.is_some_and(|id| !id.trim().is_empty()) => Some(None),
             None => None,
         };
+        drop(uow);
         let (reply, head) = oneshot::channel();
         self.send(Command::Activate {
             id: registered.id,
@@ -221,6 +247,7 @@ impl Hub {
             ended: false,
             _registration: registration,
         };
+        let mut uow = self.database.unattributed().await?;
         begin(
             &mut uow,
             user,
@@ -309,28 +336,40 @@ impl Task {
                 }
                 received = self.listener.recv() => self.received(received).await,
                 () = &mut rechecked => {
-                    self.recheck().await;
+                    if let Err(error) = self.recheck().await {
+                        // The next re-check, or the next connection's, closes what this one
+                        // would have.
+                        tracing::warn!(
+                            { names::EXCEPTION_MESSAGE } = errors::chain(&error),
+                            "the hub couldn't re-check its streams"
+                        );
+                    }
                     rechecked = clock.sleep(recheck);
                 }
             }
         }
     }
 
-    /// Checks the connection, records the result in readiness, and on a new connection catches
-    /// up with what committed without one (PLATFORM-073); until it has read its head, as it does
-    /// first, it reads it.
+    /// Checks the connection and records the result in readiness, then settles what the hub
+    /// owes: on a new connection, a re-check and the events committed without one
+    /// (PLATFORM-073). A failure to settle leaves readiness to the connection, which answered
+    /// (PLATFORM-037), and is tried again at the next check.
     async fn check(&mut self) {
-        let checked = self.listener.check(self.clock.as_ref()).await;
-        let failure = match &checked {
-            Checked::Failed(failure) => Some(failure.clone()),
-            Checked::Answered if self.streams.head().is_some() => None,
-            Checked::Answered | Checked::Connected => self
-                .caught_up()
-                .await
-                .err()
-                .map(|error| errors::chain(&error)),
-        };
-        self.reached(failure);
+        match self.listener.check(self.clock.as_ref()).await {
+            Checked::Failed(failure) => self.reached(Some(failure)),
+            checked => {
+                if matches!(checked, Checked::Connected) {
+                    self.owed = Owed::CatchUp;
+                }
+                self.reached(None);
+                if let Err(error) = self.settle().await {
+                    tracing::warn!(
+                        { names::EXCEPTION_MESSAGE } = errors::chain(&error),
+                        "the hub couldn't catch up with the events"
+                    );
+                }
+            }
+        }
     }
 
     /// Records whether the hub can hear what commits, in readiness and its log, which readiness
@@ -348,36 +387,47 @@ impl Task {
         self.reachable = failure.is_none();
     }
 
-    /// After a new connection: the first sets the head; a later one re-checks every stream, then
-    /// delivers what committed while no connection listened.
-    async fn caught_up(&mut self) -> Result<(), Internal> {
+    /// Does what the hub owes, in order: after a new connection, re-checks every stream before
+    /// it delivers anything else; and loads every event after its head, which a failed load
+    /// left.
+    async fn settle(&mut self) -> Result<(), Internal> {
+        if self.owed == Owed::Nothing {
+            return Ok(());
+        }
+        if self.owed == Owed::CatchUp {
+            self.recheck().await?;
+            self.owed = Owed::Load;
+        }
         let mut uow = self.database.unattributed().await?;
         let latest = log::head(&mut uow).await?;
-        match self.streams.head() {
-            None => self.streams.set_head(latest),
-            Some(_) => {
-                drop(uow);
-                self.recheck().await;
-                self.load(latest).await?;
-            }
-        }
+        drop(uow);
+        self.load(latest).await?;
+        self.owed = Owed::Nothing;
         Ok(())
     }
 
     async fn received(&mut self, received: Received) {
         match received {
+            // Nothing is delivered before the re-check the hub owes (PLATFORM-073).
+            Received::Notification { channel, .. }
+                if channel == EVENTS_CHANNEL && self.owed == Owed::CatchUp => {}
             Received::Notification { channel, payload } if channel == EVENTS_CHANNEL => {
                 let Ok(through) = payload.parse::<i64>() else {
                     tracing::warn!("a notification of events named no position");
                     return;
                 };
-                if let Err(error) = self.load(through).await {
-                    // The events stay in the log: the next notification, or the next connection,
-                    // loads them.
-                    tracing::warn!(
-                        { names::EXCEPTION_MESSAGE } = errors::chain(&error),
-                        "the hub couldn't load events"
-                    );
+                match self.load(through).await {
+                    // A load from the head covers what a failed one left.
+                    Ok(()) => self.owed = Owed::Nothing,
+                    Err(error) => {
+                        // The events stay in the log: the next notification, or the next check,
+                        // loads them.
+                        self.owed = Owed::Load;
+                        tracing::warn!(
+                            { names::EXCEPTION_MESSAGE } = errors::chain(&error),
+                            "the hub couldn't load events"
+                        );
+                    }
                 }
             }
             Received::Notification { payload, .. } => {
@@ -396,7 +446,8 @@ impl Task {
     /// Loads the events after the head, up to `through`, and delivers each to its streams, in
     /// the order of their positions.
     async fn load(&mut self, through: i64) -> Result<(), Internal> {
-        while let Some(after) = self.streams.head().filter(|head| *head < through) {
+        while self.streams.head() < through {
+            let after = self.streams.head();
             let mut uow = self.database.unattributed().await?;
             let events = log::load(&mut uow, after, through).await?;
             drop(uow);
@@ -421,18 +472,13 @@ impl Task {
     }
 
     /// Closes the streams whose session stopped lasting, or whose caller's memberships changed
-    /// (PLATFORM-017).
-    async fn recheck(&mut self) {
+    /// (PLATFORM-017), and fails at the first batch it couldn't re-check.
+    async fn recheck(&mut self) -> Result<(), Internal> {
         let open = self.streams.open();
         for batch in open.chunks(RECHECK_BATCH) {
-            if let Err(error) = self.recheck_batch(batch).await {
-                tracing::warn!(
-                    { names::EXCEPTION_MESSAGE } = errors::chain(&error),
-                    "the hub couldn't re-check its streams"
-                );
-                return;
-            }
+            self.recheck_batch(batch).await?;
         }
+        Ok(())
     }
 
     async fn recheck_batch(

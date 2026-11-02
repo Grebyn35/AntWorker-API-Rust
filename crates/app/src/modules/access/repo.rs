@@ -221,15 +221,15 @@ pub(super) async fn workspace_ids(
     Ok(ids.into_iter().map(WorkspaceId::from_uuid).collect())
 }
 
-/// Every membership of each of `users`, with its workspace, role and joining time, for the
-/// hub's streams: the IDs come from the hub's own streams' principals (DATA-22).
+/// Every membership of each of `users`, with its workspace, role and the transaction that added
+/// it, for the hub's streams: the IDs come from the hub's own streams' principals (DATA-22).
 pub(super) async fn memberships_of(
     uow: &mut UnitOfWork,
     users: &[UserId],
-) -> Result<Vec<(UserId, WorkspaceId, Role, Timestamp)>, Internal> {
+) -> Result<Vec<(UserId, WorkspaceId, Role, u64)>, Internal> {
     let users: Vec<uuid::Uuid> = users.iter().map(|user| user.uuid()).collect();
     let rows = sqlx::query!(
-        r#"SELECT user_id, workspace_id, role::text AS "role!", created_at
+        r#"SELECT user_id, workspace_id, role::text AS "role!", joined_xact::text AS "joined!"
         FROM workspace_memberships
         WHERE user_id = ANY($1)"#,
         &users,
@@ -238,11 +238,12 @@ pub(super) async fn memberships_of(
     .await?;
     rows.into_iter()
         .map(|row| {
+            let joined = row.joined.parse().map_err(Internal::new)?;
             Ok((
                 UserId::from_uuid(row.user_id),
                 WorkspaceId::from_uuid(row.workspace_id),
                 Role::from_name(&row.role)?,
-                Timestamp::from_database(row.created_at),
+                joined,
             ))
         })
         .collect()

@@ -438,7 +438,7 @@
     {
       "type": "timeseries",
       "title": "How many event streams are open?",
-      "description": "The streams open on each instance, as its hub last recorded them (PLATFORM-074). A user holds at most 10 on an instance (REALTIME-006); a drop to 0 on every instance at once follows a deploy or a lost database connection, after which clients reconnect.",
+      "description": "The streams open on each instance, as its hub last recorded them (PLATFORM-074). A user holds at most 10 on an instance (REALTIME-006). A deploy empties the old color's instances as the new color's fill, since every stream closes with shutdown and its client reconnects; a lost database connection closes none.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

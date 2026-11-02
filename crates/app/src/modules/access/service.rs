@@ -49,16 +49,22 @@ impl AccessPolicy for Policy {
     ) -> BoxFuture<'a, Result<HashMap<UserId, Memberships>, Internal>> {
         Box::pin(async move {
             let mut memberships: HashMap<UserId, Memberships> = HashMap::new();
-            for (user, workspace, role, joined_at) in repo::memberships_of(uow, users).await? {
+            for (user, workspace, role, joined) in repo::memberships_of(uow, users).await? {
                 memberships.entry(user).or_default().insert(
                     workspace,
-                    joined_at,
+                    joined,
                     &permissions::held(role),
                 );
             }
             Ok(memberships)
         })
     }
+}
+
+/// Makes the unit of work that adds a membership commit in the order of the commits that
+/// publish events, so each event tells whether the membership had committed before it (SEC-17).
+fn ordered(uow: &mut UnitOfWork) {
+    uow.order_with_events();
 }
 
 /// Signals that `user`'s membership in `workspace` started or ended, so their streams close once
@@ -98,6 +104,7 @@ pub(crate) async fn add_owner(
     user: UserId,
 ) -> Result<Timestamp, AccessError> {
     let joined_at = repo::insert(uow, workspace, user, Role::Owner).await?;
+    ordered(uow);
     changed(uow, workspace, user).await?;
     Ok(joined_at)
 }
@@ -113,6 +120,7 @@ pub(crate) async fn add_member(
 ) -> Result<Option<Timestamp>, AccessError> {
     let joined_at = repo::insert_unless_member(uow, workspace, user, role).await?;
     if joined_at.is_some() {
+        ordered(uow);
         changed(uow, workspace, user).await?;
     }
     Ok(joined_at)

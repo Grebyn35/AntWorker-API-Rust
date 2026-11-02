@@ -7,6 +7,7 @@ use tokio::sync::{mpsc, watch};
 
 use super::hub::{Command, StreamId};
 use crate::{
+    authz::Committed,
     errors,
     types::{UserId, WorkspaceId},
 };
@@ -55,6 +56,9 @@ pub struct Event {
     pub(crate) traceparent: Option<String>,
     pub(crate) position: i64,
     pub(crate) audience: Audience,
+    /// The transactions that had committed when the event did, which a workspace event's
+    /// members' memberships must be among (SEC-17).
+    pub(crate) committed: Option<Committed>,
 }
 
 impl Event {

@@ -11,8 +11,7 @@ pub(crate) enum RealtimeError {
     /// The caller holds the most open streams a user may on the replica (REALTIME-006).
     #[error("the caller holds the most open streams a user may")]
     TooManyStreams,
-    /// The replica's hub can't deliver events: it hasn't reached the database since the replica
-    /// started, or the replica is shutting down.
+    /// The replica is shutting down, so its hub opens no stream.
     #[error("the replica's hub can't deliver events")]
     Unavailable,
     /// Anything else (ERR-04).

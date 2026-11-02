@@ -1,5 +1,7 @@
 -- Who belongs to each workspace, at which role (the access spec). created_at is when the member
--- joined. A member's role can change, so the table isn't a pure join table, and has an id
+-- joined, and joined_xact the transaction that added them, which a stream's events are compared
+-- with: an event reaches a member only if that transaction had committed when the event did
+-- (SEC-17). A member's role can change, so the table isn't a pure join table, and has an id
 -- (DATA-02).
 CREATE TYPE workspace_role AS ENUM ('owner', 'admin', 'member');
 
@@ -8,6 +10,7 @@ CREATE TABLE workspace_memberships (
     workspace_id uuid NOT NULL,
     user_id uuid NOT NULL,
     role workspace_role NOT NULL,
+    joined_xact xid8 NOT NULL DEFAULT pg_current_xact_id(),
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     version bigint NOT NULL DEFAULT 1,

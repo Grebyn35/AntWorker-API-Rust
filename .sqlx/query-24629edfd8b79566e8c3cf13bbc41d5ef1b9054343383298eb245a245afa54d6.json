@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT position AS \"position!\" FROM (\n            SELECT position FROM events WHERE id = $1 AND user_id = $2\n            UNION ALL\n            SELECT e.position\n            FROM unnest($3::uuid[], $4::text[], $5::text[])\n                AS m(workspace_id, permission, joined)\n            JOIN events AS e ON e.workspace_id = m.workspace_id\n                AND e.permission = m.permission\n                AND (m.joined::xid8 = e.xact OR pg_visible_in_snapshot(m.joined::xid8, e.snapshot))\n            WHERE e.id = $1\n        ) AS visible\n        WHERE position IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "position!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "UuidArray",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "24629edfd8b79566e8c3cf13bbc41d5ef1b9054343383298eb245a245afa54d6"
+}

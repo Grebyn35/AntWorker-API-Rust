@@ -16,8 +16,8 @@ use serde_json::Value;
 const URLS: [&str; 3] = ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"];
 
 /// The catalog, as one JSON value: the tables with their columns, their triggers and the
-/// privileges `app` holds on them, the constraints, the indexes, the functions, and the roles'
-/// privileges and settings that DATA-12 and DATA-19 give.
+/// privileges `app` holds on them, the sequences with theirs, the constraints, the indexes, the
+/// functions, and the roles' privileges and settings that DATA-12 and DATA-19 give.
 const QUERY: &str = r"
 WITH app AS (SELECT oid FROM pg_roles WHERE rolname = 'app')
 SELECT json_build_object(
@@ -42,6 +42,15 @@ SELECT json_build_object(
     ) ORDER BY c.relname), '[]')
     FROM pg_class c
     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p', 'v', 'm')),
+  'sequences', (SELECT coalesce(json_agg(json_build_object(
+      'name', c.relname,
+      'owner', pg_get_userbyid(c.relowner),
+      'app', (SELECT coalesce(json_agg(p.privilege_type ORDER BY p.privilege_type), '[]')
+              FROM aclexplode(coalesce(c.relacl, acldefault('s', c.relowner))) p, app
+              WHERE p.grantee = app.oid)
+    ) ORDER BY c.relname), '[]')
+    FROM pg_class c
+    WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'S'),
   'constraints', (SELECT coalesce(json_agg(json_build_object(
       'name', con.conname, 'table', rel.relname, 'type', con.contype,
       'on_delete', con.confdeltype,

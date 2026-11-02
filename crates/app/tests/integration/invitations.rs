@@ -7,7 +7,7 @@ use crate::support::{
     Api, Options,
     api::Response,
     invitations::invite,
-    mailbox,
+    mailbox, streams,
     users::{self, SignedIn},
     workspaces,
 };
@@ -704,4 +704,72 @@ async fn invitations_009_the_limit_and_its_window_are_checked() {
 
         assert_eq!(refusal, refused);
     }
+}
+
+#[tokio::test]
+async fn access_006_accepting_an_invitation_closes_the_new_member_s_streams() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let carol = users::register(&api, "carol@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    let invitation = invite(&api, &ada, &workspace, "carol@example.com", "member")
+        .await
+        .json();
+    let mut stream = streams::connect(&api, &carol.access, None).await;
+    stream.opened().await;
+
+    let response = accept(&api, &carol, invitation["id"].as_str().unwrap()).await;
+    let (_, reason) = stream.closed().await;
+
+    assert_eq!(response.status, 200);
+    assert_eq!(reason, "access_changed");
+}
+
+#[tokio::test]
+async fn sec_17_member_joined_reaches_the_members_and_no_replay_from_before_joining() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let carol = users::register(&api, "carol@example.com").await;
+    let dan = users::register(&api, "dan@example.com").await;
+    // Every role holds members.read, which member.joined requires: no member lacks it.
+    let workspace = acme(&api, &ada, &[(&grace, "member")]).await;
+    let invitation = invite(&api, &ada, &workspace, "carol@example.com", "member")
+        .await
+        .json();
+    let mut owner = streams::connect(&api, &ada.access, None).await;
+    owner.opened().await;
+    let mut member = streams::connect(&api, &grace.access, None).await;
+    member.opened().await;
+    // Dan's last event is his own, from before Carol joins and before he does.
+    let welcome = invite(&api, &ada, &workspace, "dan@example.com", "member")
+        .await
+        .json();
+    let mut first = streams::connect(&api, &dan.access, None).await;
+    let resume = first.opened().await.id;
+    drop(first);
+
+    let accepted = accept(&api, &carol, invitation["id"].as_str().unwrap()).await;
+    let joined = accept(&api, &dan, welcome["id"].as_str().unwrap()).await;
+    let mut later = streams::connect(&api, &dan.access, resume.as_deref()).await;
+    later.opened().await;
+    let replayed = [later.event().await, later.event().await];
+
+    assert_eq!(accepted.status, 200);
+    assert_eq!(joined.status, 200);
+    for stream in [&mut owner, &mut member] {
+        let frame = stream.event().await;
+        assert_eq!(frame.event.as_deref(), Some("member.joined"));
+        assert_eq!(frame.payload()["user_id"], carol.user_id.as_str());
+    }
+    // Carol's joining came before Dan's membership, so his replay holds only his own.
+    let types: Vec<_> = replayed.iter().map(|frame| frame.event.clone()).collect();
+    assert_eq!(
+        types,
+        [
+            Some("member.joined".to_owned()),
+            Some("membership.created".to_owned())
+        ]
+    );
+    assert_eq!(replayed[0].payload()["user_id"], dan.user_id.as_str());
 }

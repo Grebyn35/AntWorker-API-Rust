@@ -533,3 +533,271 @@ async fn platform_064_the_sweep_deletes_the_events_older_than_24_hours() {
     let left = api.database().owner_reads("SELECT type FROM events").await;
     assert_eq!(left, ["announcement.made"]);
 }
+
+#[tokio::test]
+async fn access_006_removing_a_membership_closes_its_user_s_streams() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Analytical",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "member")],
+    )
+    .await;
+    let mut removed = opened(&api, &grace).await;
+
+    let response = api
+        .request(
+            http::Method::DELETE,
+            &format!("/v1/workspaces/{workspace}/members/{}", grace.user_id),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+    let (_, reason) = removed.closed().await;
+
+    assert_eq!(response.status, StatusCode::NO_CONTENT);
+    assert_eq!(reason, "access_changed");
+}
+
+#[tokio::test]
+async fn auth_018_the_recheck_closes_a_stream_whose_session_outlived_its_lifetime_or_is_gone() {
+    let api = api().await;
+    let clock = api.clock();
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let mut expired = opened(&api, &ada).await;
+    let mut deleted = opened(&api, &grace).await;
+
+    // Past its absolute lifetime, though its refresh token hasn't expired; and gone, with no
+    // signal to tell the hub.
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE sessions SET expires_at = now() - interval '1 second' WHERE user_id = '{}'; \
+             DELETE FROM sessions WHERE user_id = '{}'",
+            ada.user_id, grace.user_id
+        ))
+        .await;
+    clock.sleeping(RECHECK).await;
+    clock.advance(RECHECK);
+    let (_, expired_reason) = expired.closed().await;
+    let (_, deleted_reason) = deleted.closed().await;
+
+    assert_eq!(expired_reason, "session_ended");
+    assert_eq!(deleted_reason, "session_ended");
+}
+
+#[tokio::test]
+async fn platform_017_the_recheck_interval_is_a_setting_of_10_to_3600_seconds() {
+    for seconds in [9, 3_601] {
+        let refused = crate::support::api::refusal(
+            &Options::default().set("STREAM_RECHECK_SECONDS", seconds),
+        );
+        assert!(refused.contains("STREAM_RECHECK_SECONDS"), "{refused}");
+        assert!(refused.contains("10 to 3600"), "{refused}");
+    }
+    let every = Duration::from_secs(10);
+    let api = Api::with(
+        Options::routes(announcements::routes()).set("STREAM_RECHECK_SECONDS", every.as_secs()),
+    )
+    .await;
+    let clock = api.clock();
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace =
+        workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "member")]).await;
+    let mut stream = opened(&api, &ada).await;
+
+    api.database()
+        .owner_executes(&format!(
+            "DELETE FROM workspace_memberships WHERE workspace_id = '{workspace}'"
+        ))
+        .await;
+    clock.sleeping(every).await;
+    clock.advance(every);
+    let (_, reason) = stream.closed().await;
+
+    assert_eq!(reason, "access_changed");
+}
+
+#[tokio::test]
+async fn sec_17_member_removed_reaches_every_member_and_no_replay_from_before_joining() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let alan = users::register(&api, "alan@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Analytical",
+        &[
+            (&ada.user_id, "owner"),
+            (&grace.user_id, "member"),
+            (&bob.user_id, "member"),
+        ],
+    )
+    .await;
+    // Every role holds members.read, which member.removed requires: no member lacks it.
+    let mut owner = opened(&api, &ada).await;
+    let mut member = opened(&api, &grace).await;
+    let mut later = opened(&api, &alan).await;
+    announce(&api, &alan, 1).await;
+    later.event().await;
+    let before = later.last_event_id.clone();
+    drop(later);
+
+    let removed = api
+        .request(
+            http::Method::DELETE,
+            &format!("/v1/workspaces/{workspace}/members/{}", bob.user_id),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+    workspaces::join(api.database(), &workspace, &alan.user_id, "member").await;
+    let mut joined = streams::connect(&api, &alan.access, before.as_deref()).await;
+    joined.opened().await;
+    announce(&api, &alan, 1).await;
+    let after_joining = joined.event().await;
+
+    assert_eq!(removed.status, StatusCode::NO_CONTENT);
+    assert_eq!(types(&mut owner, 1).await, ["member.removed"]);
+    assert_eq!(types(&mut member, 1).await, ["member.removed"]);
+    // The removal from before Alan joined isn't replayed to him.
+    assert_eq!(after_joining.event.as_deref(), Some("announcement.made"));
+}
+
+#[tokio::test]
+async fn obs_07_an_event_s_delivery_links_to_the_trace_that_published_it() {
+    let collector = testing::collector::Collector::start().await.unwrap();
+    let database = crate::support::TestDatabase::migrated().await;
+    let trace = "4bf92f3577b34da6a3ce929d0e0e4736";
+    let _server = database
+        .serve(&[
+            ("ENVIRONMENT", "production"),
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
+        ])
+        .await;
+    let user = database
+        .owner_reads(
+            "INSERT INTO users (email, name) VALUES ('u@example.com', 'U') RETURNING id::text",
+        )
+        .await
+        .remove(0);
+
+    // An event committed and notified as a unit of work's commit does it, with the trace context
+    // of what published it.
+    database
+        .owner_executes(&format!(
+            "WITH published AS (INSERT INTO events (scope, user_id, type, payload, traceparent, \
+             position, snapshot, created_at) VALUES ('user', '{user}', 'note.made', '{{}}', \
+             '00-{trace}-00f067aa0ba902b7-01', nextval('events_position_seq'), \
+             pg_current_snapshot(), clock_timestamp()) RETURNING position) \
+             SELECT pg_notify('events', position::text) FROM published"
+        ))
+        .await;
+    let received = collector
+        .wait_for(|received| {
+            received
+                .spans()
+                .iter()
+                .any(|(_, span)| span.name == "deliver event")
+        })
+        .await;
+
+    let (_, span) = received
+        .spans()
+        .into_iter()
+        .find(|(_, span)| span.name == "deliver event")
+        .unwrap();
+    assert_eq!(span.links.len(), 1);
+    let hex = |bytes: &[u8]| -> String { bytes.iter().map(|byte| format!("{byte:02x}")).collect() };
+    assert_eq!(hex(&span.links[0].trace_id), trace);
+    assert_eq!(hex(&span.links[0].span_id), "00f067aa0ba902b7");
+    assert_ne!(hex(&span.trace_id), trace);
+}
+
+#[tokio::test]
+async fn platform_016_an_event_that_commits_while_its_member_joins_reaches_them_not() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let alan = users::register(&api, "alan@example.com").await;
+    let workspace =
+        workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "owner")]).await;
+    let mut first = opened(&api, &alan).await;
+    announce(&api, &alan, 1).await;
+    first.event().await;
+    let before = first.last_event_id.clone();
+    drop(first);
+
+    // Alan's membership is added in a transaction that is still open when the event commits.
+    let mut joining = api.database().owner_connection().await;
+    crate::support::execute_on(&mut joining, "BEGIN").await;
+    crate::support::execute_on(
+        &mut joining,
+        &format!(
+            "INSERT INTO workspace_memberships (workspace_id, user_id, role) \
+             VALUES ('{workspace}', '{}', 'member')",
+            alan.user_id
+        ),
+    )
+    .await;
+    post(&api, &ada, &workspace, 1, false).await;
+    crate::support::execute_on(&mut joining, "COMMIT").await;
+    post(&api, &ada, &workspace, 2, false).await;
+    let mut again = streams::connect(&api, &alan.access, before.as_deref()).await;
+    again.opened().await;
+    let replayed = [again.event().await, again.event().await];
+
+    let numbers: Vec<_> = replayed
+        .iter()
+        .map(|frame| frame.payload()["n"].clone())
+        .collect();
+    // The second post's two events, not the first's, which committed before Alan was a member.
+    assert_eq!(numbers, [json!(1), json!(2)]);
+    announce(&api, &alan, 1).await;
+    assert_eq!(
+        again.event().await.event.as_deref(),
+        Some("announcement.made")
+    );
+}
+
+#[tokio::test]
+async fn platform_073_a_load_that_fails_is_tried_again_at_the_next_check() {
+    let api = api().await;
+    let clock = api.clock();
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = opened(&api, &ada).await;
+    clock.sleeping(CHECK_INTERVAL).await;
+
+    // Every pooled connection is held, so the hub's load waits out the pool and fails.
+    let mut held = Vec::new();
+    for _ in 0..crate::support::TestDatabase::POOL_SIZE {
+        held.push(api.pool().begin(&client()).await.unwrap());
+    }
+    api.database()
+        .owner_executes(&format!(
+            "WITH published AS (INSERT INTO events (scope, user_id, type, payload, position, \
+             xact, snapshot, created_at) VALUES ('user', '{}', 'note.made', '{{\"n\": 1}}', \
+             nextval('events_position_seq'), pg_current_xact_id(), pg_current_snapshot(), \
+             clock_timestamp()) RETURNING position) \
+             SELECT pg_notify('events', position::text) FROM published",
+            ada.user_id
+        ))
+        .await;
+    while !logged_load_failure() {
+        tokio::task::yield_now().await;
+    }
+    drop(held);
+    clock.advance(CHECK_INTERVAL);
+    let delivered = stream.event().await;
+
+    assert_eq!(delivered.payload(), &json!({ "n": 1 }));
+}
+
+/// Whether a hub has logged that it couldn't load events.
+fn logged_load_failure() -> bool {
+    testing::all_logged()
+        .iter()
+        .any(|line| line["message"] == "the hub couldn't load events")
+}

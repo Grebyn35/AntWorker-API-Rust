@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT user_id, workspace_id, role::text AS \"role!\", created_at\n        FROM workspace_memberships\n        WHERE user_id = ANY($1)",
+  "query": "SELECT user_id, workspace_id, role::text AS \"role!\", joined_xact::text AS \"joined!\"\n        FROM workspace_memberships\n        WHERE user_id = ANY($1)",
   "describe": {
     "columns": [
       {
@@ -33,14 +33,9 @@
       },
       {
         "ordinal": 3,
-        "name": "created_at",
-        "type_info": "Timestamptz",
-        "origin": {
-          "Table": {
-            "table": "workspace_memberships",
-            "name": "created_at"
-          }
-        }
+        "name": "joined!",
+        "type_info": "Text",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -52,8 +47,8 @@
       false,
       false,
       null,
-      false
+      null
     ]
   },
-  "hash": "7ea2e9896c2a494c06f628119dc1fbeca1698ba86a0bbb5afd4203a91f6c240f"
+  "hash": "55f5ff9826ba0b7753bafb01f5258a30dc34168b06227d8debe185d0a8538359"
 }

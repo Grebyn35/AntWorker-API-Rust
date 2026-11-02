@@ -256,6 +256,12 @@ async fn realtime_004_an_id_the_api_doesn_t_hold_truncates_the_replay() {
         let mut stream = streams::connect(&api, &ada.access, Some(id)).await;
         truncated.push(stream.opened().await);
     }
+    // A header that isn't text at all names no event either.
+    let mut unreadable = streams::open_with_bytes(&api, &ada.access, "last-event-id", b"\xff\xfe")
+        .await
+        .stream()
+        .expect("the stream opened");
+    truncated.push(unreadable.opened().await);
 
     for opened in truncated {
         assert_eq!(opened.payload(), &json!({ "truncated": true }));
@@ -374,4 +380,90 @@ async fn realtime_006_a_user_holds_at_most_10_streams_on_a_replica() {
     assert_eq!(refused.json()["code"], "realtime.too_many_streams");
     assert!(other_user.stream().is_some());
     assert!(after_one_closed.stream().is_some());
+}
+
+/// The event the tests publish from a unit of work of their own, outside any trace.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test declares the event it publishes from its own unit of work"
+)]
+const UNTRACED: platform::events::UserEvent = platform::events::UserEvent::new("note.made");
+
+#[tokio::test]
+async fn realtime_002_an_event_published_outside_a_trace_has_no_trace_id_and_the_stream_s_frames_its_request_s()
+ {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let user = platform::types::UserId::from_uuid(ada.user_id.parse().unwrap());
+    let mut stream = streams::connect(&api, &ada.access, None).await;
+    let opened = stream.opened().await;
+
+    let mut uow = api.pool().begin(&crate::support::client()).await.unwrap();
+    uow.publish_to_user(&UNTRACED, user, &json!({}))
+        .await
+        .unwrap();
+    uow.commit().await.unwrap();
+    let untraced = stream.event().await;
+    api.readiness().stop();
+    let closing = stream.event().await;
+
+    assert_eq!(untraced.data, Some(json!({ "data": {}, "trace_id": null })));
+    let own = stream.trace_id();
+    assert_eq!(opened.data.unwrap()["trace_id"], own.as_str());
+    assert_eq!(closing.event.as_deref(), Some("stream.closed"));
+    assert_eq!(closing.data.unwrap()["trace_id"], own.as_str());
+}
+
+#[tokio::test]
+async fn realtime_003_the_heartbeat_is_a_setting_of_5_to_300_seconds() {
+    for seconds in [4, 301] {
+        let refused = crate::support::api::refusal(
+            &Options::default().set("STREAM_HEARTBEAT_SECONDS", seconds),
+        );
+        assert!(refused.contains("STREAM_HEARTBEAT_SECONDS"), "{refused}");
+        assert!(refused.contains("5 to 300"), "{refused}");
+    }
+    let every = Duration::from_secs(5);
+    let api = Api::with(Options::default().set("STREAM_HEARTBEAT_SECONDS", every.as_secs())).await;
+    let clock = api.clock();
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = streams::connect(&api, &ada.access, None).await;
+    stream.opened().await;
+
+    clock.sleeping(every).await;
+    clock.advance(every);
+    let beat = stream.frame().await.unwrap();
+
+    assert!(beat.comment, "{beat:?}");
+}
+
+#[tokio::test]
+async fn realtime_005_an_access_change_closes_the_stream_with_access_changed() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = streams::connect(&api, &ada.access, None).await;
+    stream.opened().await;
+
+    let created = api
+        .post("/v1/workspaces", &json!({ "name": "Analytical" }))
+        .bearer(&ada.access)
+        .send()
+        .await;
+    let (_, reason) = stream.closed().await;
+
+    assert_eq!(created.status, StatusCode::CREATED);
+    assert_eq!(reason, "access_changed");
+}
+
+#[tokio::test]
+async fn realtime_005_a_client_that_reads_too_slowly_is_closed_with_lagging() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = streams::connect(&api, &ada.access, None).await;
+    stream.opened().await;
+
+    announce(&api, &ada, 300).await;
+    let (_, reason) = stream.closed().await;
+
+    assert_eq!(reason, "lagging");
 }

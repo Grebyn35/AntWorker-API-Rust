@@ -63,7 +63,7 @@ struct Entry {
 pub(super) struct Streams {
     /// The name of the database whose events the hub delivers, which its metrics carry.
     database: String,
-    head: Option<i64>,
+    head: i64,
     next: StreamId,
     streams: HashMap<StreamId, Entry>,
     by_user: HashMap<UserId, HashSet<StreamId>>,
@@ -72,11 +72,12 @@ pub(super) struct Streams {
 }
 
 impl Streams {
-    /// No streams, for the hub of the database named `database`, before it has connected.
-    pub(super) fn new(database: String) -> Self {
+    /// No streams, for the hub of the database named `database`, which loads the events after
+    /// `head`.
+    pub(super) fn new(database: String, head: i64) -> Self {
         Self {
             database,
-            head: None,
+            head,
             next: 0,
             streams: HashMap::new(),
             by_user: HashMap::new(),
@@ -90,13 +91,13 @@ impl Streams {
         self.database.clone()
     }
 
-    /// The last position the hub loaded, once it has connected.
-    pub(super) fn head(&self) -> Option<i64> {
+    /// The last position the hub loaded.
+    pub(super) fn head(&self) -> i64 {
         self.head
     }
 
     pub(super) fn set_head(&mut self, head: i64) {
-        self.head = Some(head);
+        self.head = head;
     }
 
     /// Whether the instance is shutting down, so the streams have closed.
@@ -140,7 +141,7 @@ impl Streams {
 
     fn register(&mut self, principal: Principal) -> Result<Registered, SubscribeError> {
         let user = principal.user_id();
-        if self.stopped || self.head.is_none() {
+        if self.stopped {
             return Err(SubscribeError::Unavailable);
         }
         let held = self.by_user.get(&user).map_or(0, HashSet::len);
@@ -177,7 +178,7 @@ impl Streams {
             self.by_workspace.entry(workspace).or_default().insert(id);
         }
         entry.memberships = Some(memberships);
-        self.head
+        Some(self.head)
     }
 
     /// Closes the streams `change` affects: a session's, or all of a user's (PLATFORM-017).
@@ -223,7 +224,10 @@ impl Streams {
                         .filter(|id| {
                             self.streams.get(id).is_some_and(|entry| {
                                 entry.memberships.as_ref().is_some_and(|memberships| {
-                                    memberships.holds(*workspace, permission)
+                                    // An event that holds no snapshot reaches no member.
+                                    event.committed.as_ref().is_some_and(|committed| {
+                                        memberships.admits(*workspace, permission, committed)
+                                    })
                                 })
                             })
                         })

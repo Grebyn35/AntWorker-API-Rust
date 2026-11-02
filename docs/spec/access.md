@@ -8,7 +8,7 @@
 
 | Table | Holds |
 |---|---|
-| `workspace_memberships` | One row per member of a workspace: `id`, `workspace_id`, `user_id`, `role`, `created_at`, when the member joined, `updated_at` and `version`. `(workspace_id, user_id)` is unique. A member's role can change, so the table has an `id` rather than a composite key (DATA-02), which breaks a tie between memberships that share a joining time in a list's order (API-06). |
+| `workspace_memberships` | One row per member of a workspace: `id`, `workspace_id`, `user_id`, `role`, `joined_xact`, the ID of the transaction that added the member, `created_at`, when the member joined, `updated_at` and `version`. `(workspace_id, user_id)` is unique. A member's role can change, so the table has an `id` rather than a composite key (DATA-02), which breaks a tie between memberships that share a joining time in a list's order (API-06). |
 
 ## Interface
 
@@ -34,7 +34,7 @@
 | ACCESS-004 | A member acts only on members whose role ranks below their own, and assigns only roles below their own. A refusal goes through `authz::refuse`, and answers 403 `request.permission_denied`. | SEC-08, DATA-27, PLATFORM-025 | `access_004_` |
 | ACCESS-005 | `workspace_ids` returns the ID of every workspace the caller belongs to, and nothing else. | D3, DATA-22 | `access_005_` |
 | ACCESS-006 | Adding a membership, as the owner of a new workspace or as a member, and removing one, each sends an access-change signal for its user and workspace in the same unit of work, which closes that user's streams once it commits. | SEC-06, D35, PLATFORM-017 | `access_006_` |
-| ACCESS-007 | `memberships` gives each user it is asked about every workspace they belong to, with the permissions their role holds there and when they joined, and nothing else. | SEC-17, DATA-22 | `access_007_` |
+| ACCESS-007 | `memberships` gives each user it is asked about every workspace they belong to, with the permissions their role holds there and the transaction that added the membership, and nothing else. | SEC-17, DATA-22 | `access_007_` |
 
 ## Design
 
@@ -57,11 +57,11 @@ The delete itself checks the rank: it deletes the membership only where its role
 
 ### Signals
 
-The functions that add or remove a membership send its signal themselves, so no caller can change who belongs to a workspace without the hub hearing of it. A role's change, with the full `workspaces` module, signals the same way (SEC-06).
+The functions that add or remove a membership send its signal themselves, so no caller can change who belongs to a workspace without the hub hearing of it. Those that add one also call `UnitOfWork::order_with_events`, so the membership commits in the order of the commits that publish, and each event's snapshot tells whether the membership had committed before it (the platform spec's "A member's events"). A role's change, with the full `workspaces` module, signals the same way (SEC-06).
 
 ### Memberships for the hub
 
-`AccessPolicy::memberships` reads the memberships of the users it is given, filtered by their IDs, which came from the hub's own streams' principals (DATA-22), through the index on the members' user, and turns each role into the names of its permissions from the matrix, so `platform`, which holds no roles, filters events by permission names alone (ARCH-02).
+`AccessPolicy::memberships` reads the memberships of the users it is given, filtered by their IDs, which came from the hub's own streams' principals (DATA-22), through the index on the members' user, with the transaction that added each, and turns each role into the names of its permissions from the matrix, so `platform`, which holds no roles, filters events by permission names alone (ARCH-02).
 
 ### Uniqueness of the owner
 

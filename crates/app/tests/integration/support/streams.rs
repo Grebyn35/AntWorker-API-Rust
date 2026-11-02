@@ -111,6 +111,31 @@ pub async fn open(api: &Api, headers: &[(&str, &str)]) -> Opened {
     }))
 }
 
+/// Opens a stream as the caller whose access token is `token`, with the header `name` set to
+/// `value`, bytes that need not be text, and returns what that came to.
+pub async fn open_with_bytes(api: &Api, token: &str, name: &str, value: &[u8]) -> Opened {
+    let mut request = Request::builder()
+        .method(Method::GET)
+        .uri(PATH)
+        .header("authorization", format!("Bearer {token}"))
+        .header(name, http::HeaderValue::from_bytes(value).unwrap())
+        .body(Body::empty())
+        .unwrap();
+    request.extensions_mut().insert(ConnectInfo(
+        super::api::PEER.parse::<std::net::SocketAddr>().unwrap(),
+    ));
+    let response = api.router().oneshot(request).await.unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    api.check(&Method::GET, PATH, status, &headers, &[]);
+    Opened::Stream(Box::new(Stream {
+        headers,
+        body: response.into_body(),
+        buffer: String::new(),
+        last_event_id: None,
+    }))
+}
+
 /// Opens a stream as the caller whose access token is `token`, and returns what that came to.
 pub async fn open_as(api: &Api, token: &str) -> Opened {
     open(api, &[("authorization", &format!("Bearer {token}"))]).await

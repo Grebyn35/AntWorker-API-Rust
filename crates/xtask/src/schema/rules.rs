@@ -337,7 +337,19 @@ fn objects(catalog: &Value) -> Vec<Problem> {
             );
         }
     }
-    for kind in ["types", "functions"] {
+    for sequence in list(catalog, "sequences") {
+        let name = text(sequence, "name");
+        if let Some(other) = strings(sequence, "app")
+            .iter()
+            .find(|privilege| **privilege != "USAGE")
+        {
+            problem(
+                name,
+                format!("app holds {other} on {name}, beyond USAGE (DATA-19)"),
+            );
+        }
+    }
+    for kind in ["types", "sequences", "functions"] {
         for object in list(catalog, kind) {
             let name = text(object, "name");
             if object["owner"] != "owner" {
@@ -467,6 +479,7 @@ mod tests {
                 { "name": "audit_entries_user_id_idx", "table": "audit_entries", "unique": false, "partial": false, "constraint": false, "columns": ["user_id"] },
                 { "name": "users_lower_email_key", "table": "users", "unique": true, "partial": false, "constraint": false, "columns": [null] },
             ],
+            "sequences": [{ "name": "events_position_seq", "owner": "owner", "app": ["USAGE"] }],
             "functions": [{ "name": "set_row_version", "owner": "owner", "public_execute": false }],
             "types": [{ "name": "audit_scope", "owner": "owner" }],
             "default_function_execute": false,
@@ -581,6 +594,7 @@ mod tests {
         let mut catalog = catalog();
         catalog["tables"][0]["app"] = json!(["DELETE", "INSERT", "SELECT", "TRUNCATE", "UPDATE"]);
         catalog["tables"][3]["app"] = json!(["DELETE", "INSERT", "SELECT"]);
+        catalog["sequences"][0]["app"] = json!(["SELECT", "UPDATE", "USAGE"]);
         catalog["functions"][0]["public_execute"] = json!(true);
         catalog["default_function_execute"] = json!(true);
         catalog["app_settings"] = json!(["statement_timeout=30s"]);
@@ -590,6 +604,7 @@ mod tests {
             [
                 "app holds TRUNCATE on users, beyond SELECT, INSERT, UPDATE and DELETE (DATA-19)",
                 "app holds DELETE, INSERT, SELECT on audit_entries, not only INSERT and SELECT (DATA-19)",
+                "app holds SELECT on events_position_seq, beyond USAGE (DATA-19)",
                 "PUBLIC may execute set_row_version (DATA-19)",
                 "PUBLIC may execute the functions owner creates (DATA-19)",
                 "app has no idle_in_transaction_session_timeout of its own (DATA-19)",
