@@ -94,7 +94,7 @@ impl Container {
                 "--filter",
                 "event=die",
                 "--format",
-                "{{.Status}}",
+                "{{.Action}}",
             ])
             .stdout(Stdio::piped())
             .spawn()

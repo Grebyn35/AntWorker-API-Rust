@@ -319,7 +319,7 @@ fn healthy(root: &Path, id: &str) -> Result<(), String> {
             "--filter",
             "event=die",
             "--format",
-            "{{.Status}}",
+            "{{.Action}}",
         ])
         .stdout(Stdio::piped())
         .spawn()
