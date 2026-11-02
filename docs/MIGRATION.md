@@ -166,6 +166,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 0d036d0..1ff84e6 | OPS-21: a test that counts the instance's own connections in `pg_stat_activity` across checks that time out, by an `application_name` its connection sets | 3 |
 | Conformance review of 0d036d0..1ff84e6 | CODE-07: build `check-layout`'s count of a file's lines before step 3, since review alone let a fix push `events/hub.rs` past 500 | 3 |
 | Conformance review of 0d036d0..1ff84e6 | CODE-10: one name for the instance's own connection, which the rules call the listener, the code `db::Listener` and `events::Connection`, and `startup.area` `listener` | 3 |
+| Building step 2.4's second part | ARCH-07: `just checks`, not only `check-removable` on `main`, fails on a part's marker after Rust code on a line that formatting can join to another or split, such as an argument of a call, since removing the line then cuts a statement | 3 |
 | A development machine's Docker, during step 2.3 | OPS-22: whether `just server-check` refuses a server whose `/etc/resolv.conf` names the search domain `.`, which Docker copies into containers, where no short name then resolves, as on a development machine; whether the deployment's own lookups, such as the API's of `postgres`, fail on such a server is unverified | 3 |
 
 ## Conformance reviews
@@ -224,6 +225,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 317909b..34b65f5: as above | 2 | 3 (2, 2, 1 shared) | 1 | 1 | `stopped: no progress`: 500b68d |
 | 0d036d0..d59e8d0: step 2.4's first part: the event hub and `realtime`, their deployment, metrics, alert and end-to-end scenario, and the fixes made before the review | 1 | 21 (20, 16, 15 shared) | 14 | 0 | `next pass`: 29a0c2c, 1ff84e6 |
 | 0d036d0..1ff84e6: as above | 2 | 15 (10, 10, 5 shared) | 8 | 5 | `stopped: no progress`: f7eb030 |
+| c619d50..92a1d55: step 2.4's second part: the event catalog, the API reference in development, `seed`, the hub's owed events, the hub's load test, and the `invitations` part's markers on them | 1 | 13 (10, 9, 6 shared) | 8 | 0 | `next pass` |
 
 ## Decisions
 
