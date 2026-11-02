@@ -210,13 +210,15 @@ pub fn openapi(service: Service) -> OpenApi {
     ])
 }
 
-/// What `seed` created: each account's email address and name, which all share `password`
-/// (SYSTEM-003).
+/// What `seed` created: each account's email address and name, which all share `password`, and
+/// each workspace's name and ID (SYSTEM-003).
 pub struct SeedReport {
     /// Each account's email address and name, in the order it registered them.
     pub accounts: Vec<(&'static str, &'static str)>,
     /// Every account's password.
     pub password: &'static str,
+    /// Each workspace's name and ID.
+    pub workspaces: Vec<(&'static str, String)>,
 }
 
 /// Why `seed` refused, or stopped (SYSTEM-002, SYSTEM-004).
@@ -231,7 +233,7 @@ pub fn seed_allowed(environment: Environment) -> Result<(), SeedError> {
 }
 
 /// Fills the database behind `router`, the API as `serve` builds it, with demo accounts and
-/// workspaces, through its routes (SYSTEM-003 to SYSTEM-005).
+/// workspaces, through its routes (the system spec's Seed).
 pub async fn seed(router: Router) -> Result<SeedReport, SeedError> {
     let seeded = system::seed(router).await.map_err(SeedError)?;
     Ok(SeedReport {
@@ -241,6 +243,7 @@ pub async fn seed(router: Router) -> Result<SeedReport, SeedError> {
             .map(|account| (account.email, account.name))
             .collect(),
         password: system::PASSWORD,
+        workspaces: seeded.workspaces,
     })
 }
 

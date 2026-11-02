@@ -227,8 +227,8 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
 }
 
 /// Fills a development database through the API as `serve` builds it, without binding a port or
-/// running the jobs, and prints the accounts and their password (SYSTEM-002 to SYSTEM-005). It
-/// refuses before it connects unless `ENVIRONMENT` is development.
+/// running the jobs, and prints the accounts, their password and the workspaces (the system spec's
+/// Seed). It refuses before it connects unless `ENVIRONMENT` is development (SYSTEM-002).
 async fn seed((config, modules): (ServerConfig, app::Config)) -> ExitCode {
     if let Err(error) = app::seed_allowed(config.environment) {
         return failed("seed", &error);
@@ -278,6 +278,10 @@ fn print_seeded(report: &app::SeedReport) {
     );
     for (email, name) in &report.accounts {
         println!("  {email:<24}{name}");
+    }
+    println!("The workspaces:");
+    for (name, id) in &report.workspaces {
+        println!("  {name:<24}{id}");
     }
 }
 

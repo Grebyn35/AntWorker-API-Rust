@@ -472,7 +472,7 @@ e2e *tests: services
 # that compose.yaml pins. It prints each step, then the highest rate served with none failed and
 # the 99th percentile within the latency objective, for GET /v1/capabilities, or with `me`, for
 # GET /v1/users/me as a signed-in user. docs/operations/release.md says when to run it.
-# `just load-test streams` measures the replica's hub instead, with 1,000 streams open on it.
+# `just load-test streams` measures the replica's hub instead, with 1,000 streams open on it. # part: invitations
 [doc("Measures one replica's capacity, for the release notes")]
 [group('image')]
 load-test route="capabilities": services

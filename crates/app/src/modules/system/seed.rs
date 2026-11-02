@@ -1,5 +1,5 @@
-//! `seed`, which fills a development database with demo accounts and workspaces (SYSTEM-003 to
-//! SYSTEM-005, D28). It knows the API only through its routes, as any client does: it sends the
+//! `seed`, which fills a development database with demo accounts and workspaces (the system
+//! spec's Seed, D28). It knows the API only through its routes, as any client does: it sends the
 //! API's router each request in process, with a JSON body and the Bearer header of the account it
 //! acts as, so every row it creates passes a client's checks and carries the audit entries and
 //! events that the request records ([system spec](../../../../../docs/spec/system.md#seed)).
@@ -65,11 +65,13 @@ pub(crate) enum SeedError {
     Exchange(String),
 }
 
-/// What the seed created: the accounts, each with the password [`PASSWORD`].
+/// What the seed created: the accounts, each with the password [`PASSWORD`], and the workspaces.
 #[derive(Debug)]
 pub(crate) struct Seeded {
     /// The accounts, in the order it registered them.
     pub(crate) accounts: Vec<Account>,
+    /// Each workspace's name and ID, which a developer names in the paths of its routes.
+    pub(crate) workspaces: Vec<(&'static str, String)>,
 }
 
 /// Refuses unless `environment` is development, so no deployment holds the seed's accounts, whose
@@ -81,8 +83,8 @@ pub(crate) fn allowed(environment: Environment) -> Result<(), SeedError> {
     }
 }
 
-/// Fills the database behind `router` with the demo data (SYSTEM-003, SYSTEM-005), and stops at
-/// the first account that exists already (SYSTEM-004).
+/// Fills the database behind `router` with the demo data (SYSTEM-003), and stops at the first
+/// account that exists already (SYSTEM-004).
 pub(crate) async fn seed(router: Router) -> Result<Seeded, SeedError> {
     let api = Api { router };
     let olivia = api.register("owner@example.com", "Olivia Owner").await?;
@@ -92,8 +94,9 @@ pub(crate) async fn seed(router: Router) -> Result<Seeded, SeedError> {
     let ian = api.register("invitee@example.com", "Ian Invitee").await?;
     // end part: invitations
     let acme = api.create_workspace(&olivia, "Acme").await?;
-    api.create_workspace(&mia, "Side Project").await?;
+    let side_project = api.create_workspace(&mia, "Side Project").await?;
     // part: invitations
+    // The members of Acme, and the invitation that waits (SYSTEM-005).
     for (invitee, role) in [(&adam, "admin"), (&mia, "member")] {
         let invitation = api.invite(&olivia, &acme, invitee, role).await?;
         api.send(
@@ -106,10 +109,13 @@ pub(crate) async fn seed(router: Router) -> Result<Seeded, SeedError> {
     }
     api.invite(&olivia, &acme, &ian, "member").await?;
     // end part: invitations
+    let accounts = vec![olivia, adam, mia];
+    // part: invitations
+    let accounts = [accounts, vec![ian]].concat();
+    // end part: invitations
     Ok(Seeded {
-        accounts: vec![
-            olivia, adam, mia, ian, // part: invitations
-        ],
+        accounts,
+        workspaces: vec![("Acme", acme), ("Side Project", side_project)],
     })
 }
 

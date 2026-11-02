@@ -126,6 +126,15 @@ async fn system_003_seed_creates_its_accounts_and_workspaces_through_the_routes(
         workspaces(&api, &olivia).await,
         [("Acme".to_owned(), "owner".to_owned())]
     );
+    let listed = api
+        .get("/v1/workspaces")
+        .bearer(&olivia)
+        .send()
+        .await
+        .json();
+    let names: Vec<&str> = report.workspaces.iter().map(|(name, _)| *name).collect();
+    assert_eq!(names, ["Acme", "Side Project"]);
+    assert_eq!(listed["items"][0]["id"], report.workspaces[0].1.as_str());
     assert!(
         workspaces(&api, &mia)
             .await

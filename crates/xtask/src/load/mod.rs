@@ -107,7 +107,11 @@ pub fn run(route: &str) -> ExitCode {
     let path = path.or((route == "streams").then_some(""));
     // end part: invitations
     let Some(path) = path else {
-        return fail(&format!("no route is named {route}: {ROUTES}"));
+        let names = ["capabilities", "me"];
+        // part: invitations
+        let names = [names.as_slice(), &["streams"]].concat();
+        // end part: invitations
+        return fail(&format!("no route is named {route}: {}", names.join(", ")));
     };
     let root = root();
     let image = match image(&root) {
@@ -132,7 +136,7 @@ pub fn run(route: &str) -> ExitCode {
     };
     // part: invitations
     if route == "streams" {
-        let replica = Replica {
+        let replica = streams::Replica {
             image,
             network: &network,
             settings: &settings,
@@ -201,20 +205,6 @@ fn prepare(root: &Path, image: &str) -> Result<(String, Vec<String>), String> {
         docker(root, &args).map_err(|error| format!("{task} failed: {error}"))?;
     }
     Ok((network, settings))
-}
-
-/// The names `just load-test` takes.
-const ROUTES: &str = concat!(
-    "capabilities, me",
-    ", or streams", // part: invitations
-);
-
-/// What a replica of the image under test runs with: the image, the network of Compose's
-/// Postgres, and its settings.
-struct Replica<'a> {
-    image: &'a str,
-    network: &'a str,
-    settings: &'a [String],
 }
 
 /// The path of the route the load test can measure, by its name.

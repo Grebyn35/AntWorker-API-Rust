@@ -646,11 +646,13 @@ async fn realtime_008_the_catalog_lists_each_frame_type_with_its_scope_permissio
         payload(removed)["required"],
         json!(["workspace_id", "user_id"])
     );
-    let joined = entry(&api, "member.joined"); // part: invitations
+    // part: invitations
+    let joined = entry(&api, "member.joined");
     assert_eq!(
         payload(joined)["required"],
         json!(["workspace_id", "user_id"])
-    ); // part: invitations
+    );
+    // end part: invitations
     let opened = entry(&api, "stream.opened");
     assert_eq!(opened["required"], json!(["event", "data"]));
     assert!(opened["properties"]["id"].is_object());

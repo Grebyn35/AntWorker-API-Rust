@@ -26,8 +26,16 @@ use std::{
 
 use serde_json::{Value, json};
 
-use super::{PORT, Replica, docker, fail, healthy, next_rate, report};
+use super::{PORT, docker, fail, healthy, next_rate, report};
 use client::Stream;
+
+/// What a replica of the image under test runs with: the image, the network of Compose's
+/// Postgres, and its settings.
+pub(super) struct Replica<'a> {
+    pub(super) image: &'a str,
+    pub(super) network: &'a str,
+    pub(super) settings: &'a [String],
+}
 
 /// The users whose streams the measured replica holds.
 const USERS: usize = 100;
