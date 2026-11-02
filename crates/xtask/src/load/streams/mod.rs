@@ -67,11 +67,20 @@ pub(super) struct HubStep {
 }
 
 impl HubStep {
-    /// Whether the hub delivered the step's events, all of them, within the latency objective.
+    /// Whether the step passed: every event published, and the hub kept up with them.
     fn passed(&self) -> bool {
-        self.failed == 0
-            && self.dropped == 0
-            && self.delivered == self.requests
+        self.published() && self.kept_up()
+    }
+
+    /// Whether the publishing replica published every event the step asked for.
+    fn published(&self) -> bool {
+        self.failed == 0 && self.dropped == 0
+    }
+
+    /// Whether the hub delivered every event that was published, to each of its user's streams,
+    /// within the latency objective, closing none.
+    fn kept_up(&self) -> bool {
+        self.delivered == self.requests.saturating_sub(self.failed)
             && self.consistent
             && self.ended == 0
             && self.lag_p99_ms.is_some_and(|lag| lag <= self.objective_ms)
@@ -90,6 +99,8 @@ pub(super) fn run(
         Ok(id) => id,
         Err(error) => return fail(&format!("the measured replica didn't start: {error}")),
     };
+    // The publishing replica's pool and concurrency limit are wide, so that its own limits end
+    // the search as late as they can (OPS-07).
     let outcome = match start(root, replica, None) {
         Ok(publisher) => {
             let outcome = measure(root, &hub, &publisher, (cpus, memory), objective_ms);
@@ -117,8 +128,14 @@ fn start(
         replica.network,
         "--read-only",
     ];
-    if let Some((cpus, memory)) = limits {
-        args.extend(["--cpus", cpus, "--memory", memory]);
+    match limits {
+        Some((cpus, memory)) => args.extend(["--cpus", cpus, "--memory", memory]),
+        None => args.extend([
+            "--env",
+            "DATABASE_MAX_CONNECTIONS=40",
+            "--env",
+            "MAX_CONCURRENT_REQUESTS=10000",
+        ]),
     }
     args.extend([
         "--publish",
@@ -209,13 +226,23 @@ fn measure(
     else {
         return fail("the hub delivered no rate the search tried");
     };
+    // When the hub kept up at every step, the publishing replica's limit ended the search, and
+    // the hub's capacity is higher than the highest rate it was given.
+    let bound = if steps.iter().all(HubStep::kept_up) {
+        "at least "
+    } else {
+        ""
+    };
     report(&format!(
-        "Hub capacity: {} events a second, each to the 10 streams of its user, {} frames a second to {} open streams, on one replica with {cpus} CPU and {memory} of memory, with none lost and the 99th percentile of their lag within {} ms. Each open stream holds about {per_stream:.1} KiB.",
+        "Hub capacity: {bound}{} events a second, each to the 10 streams of its user, {} frames a second to {} open streams, on one replica with {cpus} CPU and {memory} of memory, with none lost and the 99th percentile of their lag within {} ms. Each open stream holds about {per_stream:.1} KiB.",
         capacity.rate,
         capacity.rate * STREAMS_PER_USER as u64,
         USERS * STREAMS_PER_USER,
         capacity.objective_ms
     ));
+    if !bound.is_empty() {
+        report("The hub kept up at every step: the steps that failed failed to publish.");
+    }
     ExitCode::SUCCESS
 }
 
@@ -352,7 +379,10 @@ struct Streams {
 }
 
 /// Opens 10 streams for each of `tokens`' users on the hub at `address`, each read on a thread of
-/// its own, and returns once every one has sent `stream.opened`.
+/// its own, one after another, as clients connect over time rather than all at once, which the
+/// concurrency limit would shed (PLATFORM-020), and returns once every one has sent
+/// `stream.opened`. A stream that the replica doesn't answer ends at its socket's timeout, so each
+/// one tells.
 fn open_streams(address: &str, tokens: &[String]) -> Result<Streams, String> {
     let count = tokens.len() * STREAMS_PER_USER;
     let received: Received = Arc::new(Mutex::new(vec![Vec::new(); count]));
@@ -367,9 +397,6 @@ fn open_streams(address: &str, tokens: &[String]) -> Result<Streams, String> {
             // The task may have finished, and the receiver gone with it.
             tell.send(News::Ended(index, ended)).unwrap_or_default();
         });
-    }
-    // A stream that the replica doesn't answer ends at its socket's timeout, so each one tells.
-    for _ in 0..count {
         match news.recv() {
             Ok(News::Opened) => {}
             Ok(News::Ended(index, why)) => {
@@ -573,6 +600,13 @@ mod tests {
         };
 
         assert!(passing.passed());
+        let shed = HubStep {
+            failed: 100,
+            delivered: 2900,
+            ..passing.clone()
+        };
+        assert!(!shed.passed());
+        assert!(shed.kept_up());
         for failing in [
             HubStep {
                 delivered: 2999,
