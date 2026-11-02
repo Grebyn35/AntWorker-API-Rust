@@ -22,7 +22,7 @@ e2e = []
 [dependencies]
 platform.workspace = true
 argon2.workspace = true
-askama.workspace = true
+askama.workspace = true # part: invitations
 axum.workspace = true
 clap.workspace = true
 ipnet.workspace = true

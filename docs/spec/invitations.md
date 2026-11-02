@@ -18,7 +18,7 @@ None.
 
 | Method and path | Access | Behaviors |
 |---|---|---|
-| `POST /v1/workspaces/{workspace_id}/invitations` | `workspace::<InvitationsCreate>` | INVITATIONS-001 to INVITATIONS-003, INVITATIONS-008, INVITATIONS-009 |
+| `POST /v1/workspaces/{workspace_id}/invitations` | `workspace::<InvitationsCreate>` | INVITATIONS-001 to INVITATIONS-003, INVITATIONS-008 to INVITATIONS-010 |
 | `GET /v1/users/me/invitations` | user | INVITATIONS-004 |
 | `POST /v1/users/me/invitations/{invitation_id}/accept` | user | INVITATIONS-005, INVITATIONS-006 |
 
@@ -57,7 +57,7 @@ The created invitation's `Location` is `/v1/workspaces/{workspace_id}/invitation
 
 ### The invitation email
 
-`emails.rs` declares it, with its templates in `crates/app/templates/invitations/` ([platform spec](platform.md#mail)). Its plain-text part reads:
+`emails.rs` declares it, with its templates in `crates/app/templates/invitations/` ([platform spec](platform.md#sending-email)). Its plain-text part reads:
 
 > Subject: Bob Jones invited you to Acme on AntWorker
 >

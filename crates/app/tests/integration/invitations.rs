@@ -87,7 +87,10 @@ async fn invitations_001_inviting_an_email_creates_a_pending_invitation_and_enqu
     let jobs = db
         .owner_reads("SELECT kind || ' ' || workspace_id || ' ' || user_id FROM jobs")
         .await;
-    assert_eq!(jobs, [format!("mail.send {workspace} {}", ada.user_id)]);
+    assert_eq!(
+        jobs,
+        [format!("platform.send_email {workspace} {}", ada.user_id)]
+    );
     assert_eq!(api.run_jobs().await, 1);
     assert_eq!(mailbox::to(&invitee).await.len(), 1);
 }
@@ -523,30 +526,6 @@ async fn invitations_008_an_invitee_with_an_account_receives_invitation_received
         to_carol["id"].as_str().unwrap()
     );
     assert_eq!(events, [received.clone(), received]);
-}
-
-#[tokio::test]
-async fn platform_012_a_job_runs_for_its_scope_after_its_member_loses_their_role() {
-    let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    let bob = users::register(&api, "bob@example.com").await;
-    let workspace = acme(&api, &ada, &[(&bob, "admin")]).await;
-    let invitee = mailbox::address("invitee");
-    invite(&api, &bob, &workspace, &invitee, "member").await;
-    let removed = api
-        .request(
-            http::Method::DELETE,
-            &format!("/v1/workspaces/{workspace}/members/{}", bob.user_id),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
-    assert_eq!(removed.status, 204);
-
-    let runs = api.run_jobs().await;
-
-    assert_eq!(runs, 1);
-    assert_eq!(mailbox::to(&invitee).await.len(), 1);
 }
 
 #[tokio::test]

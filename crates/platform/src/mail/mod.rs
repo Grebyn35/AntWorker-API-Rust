@@ -1,9 +1,9 @@
-//! Sending email (architecture §4, the platform spec's Mail). A module renders each email it
+//! Sending email (architecture §4, the platform spec's Sending email). A module renders each email it
 //! declares in its `emails.rs` into an [`Email`], [`Mail::send`] enqueues it in the module's unit
-//! of work, and the job `mail.send` sends it through the mail server, never inside a request
+//! of work, and the job `platform.send_email` sends it through the mail server, never inside a request
 //! (PLATFORM-066, D1).
 //!
-//! The job `mail.send` (OPS-09) is owned by this area, triggered by `Mail::send`, and touches no
+//! The job `platform.send_email` (OPS-09) is owned by this area, triggered by `Mail::send`, and touches no
 //! table but the queue's own. A run that sent the email and then stopped, before its success was written,
 //! leaves the job to run again, which sends a second copy with the same `Message-ID`, so the
 //! receiving system can recognize it (PLATFORM-070): no protocol sends an email exactly once.
@@ -81,7 +81,7 @@ struct Sender {
     clock: SharedClock,
 }
 
-/// The payload of the job `mail.send`: the email as rendered, so a job that one release enqueued
+/// The payload of the job `platform.send_email`: the email as rendered, so a job that one release enqueued
 /// sends the same email when a replica of another runs it, and the `Message-ID` fixed when it was
 /// enqueued (PLATFORM-070).
 #[derive(Serialize, Deserialize)]
@@ -91,8 +91,8 @@ struct Delivery {
 }
 
 impl Job for Delivery {
-    const KIND: &'static str = "mail.send";
-    /// The platform spec's Mail says why 12 (PLATFORM-066).
+    const KIND: &'static str = "platform.send_email";
+    /// The platform spec's Sending email says why 12 (PLATFORM-066).
     const MOST_ATTEMPTS: u32 = 12;
     const TIME_LIMIT: Duration = Duration::from_secs(60);
 }

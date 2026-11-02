@@ -64,8 +64,8 @@ default:
 [group('check')]
 ci: checks check-removable image image-scan e2e
 
-# Runs the checks of the code, the part of CI that needs no image.
-[doc("Runs the checks of the code, which need no image")]
+# Runs the checks of the code that need neither the image nor a copy of the repository.
+[doc("Runs the checks of the code that need no image and no copy of the repository")]
 [group('check')]
 checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-schema check-tenancy
 

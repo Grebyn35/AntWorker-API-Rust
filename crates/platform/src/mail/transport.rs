@@ -1,4 +1,4 @@
-//! The SMTP transport (the platform spec's Mail): one per process, with a pool of connections,
+//! The SMTP transport (the platform spec's Sending email): one per process, with a pool of connections,
 //! whose TLS verifies the server's certificate against the system's certificates (D38), and whose
 //! every send is a client span (OBS-06).
 
@@ -70,7 +70,7 @@ pub(super) struct Transport {
 
 impl Transport {
     /// The transport to the server `smtp` names. It connects only when it sends. With TLS, it
-    /// reads the system's certificates once, a blocking read that the platform spec's Mail names
+    /// reads the system's certificates once, a blocking read that the platform spec's Sending email names
     /// (CODE-05).
     pub(super) fn new(smtp: Smtp) -> Result<Self, Internal> {
         let tls = || {

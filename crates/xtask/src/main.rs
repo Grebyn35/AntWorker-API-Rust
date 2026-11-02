@@ -1,4 +1,5 @@
-//! The repository's custom CI checks, and the tasks that `just` runs to release, deploy and test.
+//! The repository's custom CI checks, and the tasks that `just` runs to release, deploy, test and
+//! remove a fork's optional parts.
 //! Each subcommand runs as a `just` task (OPS-12), and the API crates never depend on this one
 //! (ARCH-01).
 

@@ -1,5 +1,5 @@
 //! The invitation email (INVITATIONS-010), rendered from its templates in
-//! `templates/invitations/` (the platform spec's Mail).
+//! `templates/invitations/` (the platform spec's Sending email).
 
 use askama::Template;
 use platform::{errors::Internal, mail::Email, types::EmailAddress};

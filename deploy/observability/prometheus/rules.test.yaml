@@ -300,9 +300,9 @@ tests:
   # started at the 70th minute dead-letters its first at the 71st.
   - interval: 1m
     input_series:
-      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="mail.send", job_outcome="dead_lettered"}'
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.send_email", job_outcome="dead_lettered"}'
         values: "_ _ 1x100"
-      - series: 'platform_job_runs_total{job="api", instance="b", job_kind="mail.send", job_outcome="dead_lettered"}'
+      - series: 'platform_job_runs_total{job="api", instance="b", job_kind="platform.send_email", job_outcome="dead_lettered"}'
         values: "_x70 1x30"
     alert_rule_test:
       - eval_time: 1m
@@ -313,7 +313,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: ticket
-              job_kind: mail.send
+              job_kind: platform.send_email
             exp_annotations:
               summary: A job moved to the dead-letter state in the last hour.
               runbook: docs/operations/runbooks.md#jobsdeadlettered
@@ -325,7 +325,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: ticket
-              job_kind: mail.send
+              job_kind: platform.send_email
             exp_annotations:
               summary: A job moved to the dead-letter state in the last hour.
               runbook: docs/operations/runbooks.md#jobsdeadlettered

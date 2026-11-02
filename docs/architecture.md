@@ -59,7 +59,7 @@ The configuration of the services the API runs beside lives under `deploy/`, so 
 
 ## 4. Crates
 
-The API has two crates. Cargo forbids `platform` from depending on `app`, so the shared mechanisms can never come to depend on a feature. The workspace's third crate, `xtask`, holds the custom CI checks, and the tasks that `just` runs to release, deploy and test, such as `just release`, `just deploy` and `just load-test`, and neither API crate depends on it.
+The API has two crates. Cargo forbids `platform` from depending on `app`, so the shared mechanisms can never come to depend on a feature. The workspace's third crate, `xtask`, holds the custom CI checks, and the tasks that `just` runs to release, deploy, test and remove a fork's optional parts, such as `just release`, `just deploy`, `just load-test` and `just remove`, and neither API crate depends on it.
 
 ### `platform`
 
@@ -79,7 +79,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `errors` | Error categories, the `ErrorCode` trait, and the single conversion to an HTTP response. | D17 |
 | `telemetry` | The logging and tracing setup, the export of spans, logs and metrics over the OpenTelemetry Protocol (OTLP), the list of telemetry names, and the metric declarations. | D10, D19 |
 | `storage` | An object storage client. | D1, D14 |
-| `mail` | Sending email: `Mail` enqueues a module's rendered email in a unit of work, and the job `mail.send` sends it through the SMTP transport, which the email settings configure, with a client span for each send. Each module's emails, and their templates, live in the module (§5). | D1, D9 |
+| `mail` | Sending email: `Mail` enqueues a module's rendered email in a unit of work, and the job `platform.send_email` sends it through the SMTP transport, which the email settings configure, with a client span for each send. Each module's emails, and their templates, live in the module (§5). | D1, D9 |
 | `outbound` | The only HTTP clients: one for URLs from configuration, and one for URLs supplied by third parties, with protection against server-side request forgery (SSRF) (SEC-09). | D26 |
 | `types` | Shared domain types: `Secret`, `EmailAddress`, the ID types. | D7, D25 |
 | `clock`, `random` | The injectable clock and the operating system's secure random source (CODE-06). | D23, D26 |
@@ -339,7 +339,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | Logging | `tracing`, `tracing-subscriber`, with `json-subscriber` for JSON lines and `tracing-appender` for the logging thread | The ecosystem standard; `json-subscriber` puts the trace context and the service's fields at the top level of a line (OBS-02, OBS-05) |
 | Trace context | `opentelemetry`, `opentelemetry_sdk`, `tracing-opentelemetry` | The standard bridge from `tracing` spans to OpenTelemetry (D10, D19) |
 | Telemetry names | `opentelemetry-semantic-conventions` | The conventions' names, checked at compile time (OBS-05) |
-| Email | `lettre` over SMTP, with `rustls` on `ring`, and `askama` templates; Mailpit catches development email (D28) | Async SMTP with pooled connections and the system's certificates (SEC-14, D38); templates checked against their values at compile time, with HTML escaped ([platform spec](spec/platform.md#mail)) |
+| Email | `lettre` over SMTP, with `rustls` on `ring`, and `askama` templates; Mailpit catches development email (D28) | Async SMTP with pooled connections and the system's certificates (SEC-14, D38); templates checked against their values at compile time, with HTML escaped ([platform spec](spec/platform.md#sending-email)) |
 | Telemetry export | `opentelemetry-otlp` over HTTP with protobuf bodies, through a blocking `reqwest` client on `rustls` with its ring provider, and `opentelemetry-appender-tracing` for log records | The protocol's default transport; the client runs on a thread of its own, so an export never needs the async runtime (D10, D19) |
 | Observability stack | the OpenTelemetry Collector's contrib distribution, Prometheus, Loki, Tempo, Grafana and Alertmanager | D19's stack, configured once under `deploy/observability/` for development and production |
 | Auto-reload | watchexec | `just dev` restarts the API when its code changes, on Windows, macOS and Linux (D28) |

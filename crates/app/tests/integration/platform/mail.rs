@@ -1,4 +1,4 @@
-//! Sending email from jobs (the platform spec's Mail), with an email of the tests' own, which
+//! Sending email from jobs (the platform spec's Sending email), with an email of the tests' own, which
 //! the fixture `POST /v1/mail` sends (TEST-05).
 
 use std::{net::SocketAddr, sync::Arc};
@@ -19,6 +19,7 @@ use crate::support::{
     api::{application, configuration},
     fixtures, mailbox,
     users::{self, SignedIn},
+    workspaces,
 };
 
 /// An API with `options`, which also serves `POST /v1/mail` through a `Mail` of the same
@@ -99,7 +100,7 @@ async fn platform_066_a_request_only_enqueues_its_email_and_a_job_sends_it() {
     send(&api, &ada, &to).await;
 
     assert!(mailbox::to(&to).await.is_empty());
-    assert_eq!(jobs(&api, "kind").await, ["mail.send"]);
+    assert_eq!(jobs(&api, "kind").await, ["platform.send_email"]);
     assert_eq!(api.run_jobs().await, 1);
     let emails = mailbox::to(&to).await;
     assert_eq!(emails.len(), 1);
@@ -155,6 +156,45 @@ async fn platform_066_a_permanent_rejection_dead_letters_at_once_without_the_ser
 
     let dead = jobs(&api, "state::text || ' ' || attempts || ' ' || failure").await;
     assert_eq!(dead, ["dead 1 internal error: the mail server replied 550"]);
+}
+
+#[tokio::test]
+async fn platform_012_a_job_runs_for_its_workspace_scope_after_its_member_loses_their_role() {
+    let (api, ada) = api(Options::default()).await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&ada.user_id, "owner"), (&bob.user_id, "admin")],
+    )
+    .await;
+    let to = mailbox::address("scoped");
+    let sent = api
+        .post(
+            &format!("/v1/workspaces/{workspace}/mail"),
+            &json!({ "to": to, "subject": "the scoped fixture" }),
+        )
+        .bearer(&bob.access)
+        .send()
+        .await;
+    assert_eq!(sent.status, 204);
+    let removed = api
+        .request(
+            http::Method::DELETE,
+            &format!("/v1/workspaces/{workspace}/members/{}", bob.user_id),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(removed.status, 204);
+
+    let scope = jobs(&api, "workspace_id::text || ' ' || user_id::text").await;
+    let runs = api.run_jobs().await;
+
+    assert_eq!(scope, [format!("{workspace} {}", bob.user_id)]);
+    assert_eq!(runs, 1);
+    assert_eq!(mailbox::to(&to).await.len(), 1);
 }
 
 #[tokio::test]

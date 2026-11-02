@@ -693,7 +693,7 @@ async fn platform_065_a_runs_span_links_to_the_trace_that_enqueued_it() {
     database
         .owner_executes(&format!(
             "INSERT INTO jobs (kind, payload, traceparent) \
-             VALUES ('mail.send', '{payload}', '00-{trace}-00f067aa0ba902b7-01')"
+             VALUES ('platform.send_email', '{payload}', '00-{trace}-00f067aa0ba902b7-01')"
         ))
         .await;
 
@@ -708,14 +708,14 @@ async fn platform_065_a_runs_span_links_to_the_trace_that_enqueued_it() {
             received
                 .spans()
                 .iter()
-                .any(|(_, span)| span.name == "mail.send")
+                .any(|(_, span)| span.name == "platform.send_email")
         })
         .await;
 
     let (_, span) = received
         .spans()
         .into_iter()
-        .find(|(_, span)| span.name == "mail.send")
+        .find(|(_, span)| span.name == "platform.send_email")
         .unwrap();
     assert_eq!(span.links.len(), 1);
     assert_eq!(hex(&span.links[0].trace_id), trace);
@@ -723,7 +723,7 @@ async fn platform_065_a_runs_span_links_to_the_trace_that_enqueued_it() {
     assert_ne!(hex(&span.trace_id), trace);
     assert_eq!(
         attribute(&span.attributes, names::JOB_KIND).as_deref(),
-        Some("mail.send")
+        Some("platform.send_email")
     );
     assert_eq!(mailbox::to(&to).await.len(), 1);
 }

@@ -147,13 +147,15 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of bd2d1fd..ec21099 | TEST-10: a check that an integration test inserts no rows into a table that a support builder arranges | 3 |
 | The owner's decision on second factors (D63) | Whether a second factor can be required beyond superadmins: of every user, by a setting of the deployment, or of a workspace's members, by its owner, as Slack and GitHub let an organization require it of its members | 5, with the full `auth` module |
 | Conformance review of d678a43..4eedca6 | SEC-12: a check that a route whose operation enqueues an email counts a per-action bucket first, such as `check-layers` failing a service that calls `Mail::send` under a route that takes no `RateLimits` | 3 |
-| Conformance review of d678a43..4eedca6 | OPS-09: `check-layout` fails an `impl Job`, or a call of `Jobs::queued` or `Jobs::periodic`, outside a module's `jobs.rs` and `platform::jobs` | 3 |
+| Conformance review of d678a43..4eedca6 | OPS-09: `check-layout` fails an `impl Job`, or a call of `Jobs::queued` or `Jobs::periodic`, outside a module's `jobs.rs` and the area of `platform` that declares it, such as `platform::jobs` and `platform::mail`, and a kind that doesn't start with its module's name, or with `platform.` for a job of `platform` | 3 |
 | Conformance review of d678a43..4eedca6 | DATA-04: `check-schema` fails a `CHECK` constraint that reads one column only, which states a rule on a value | 3 |
 | Conformance review of d678a43..4eedca6 | API-10: whether an email's values carry domain types, such as the inviter's and the workspace's names in `invitations::emails::Invitation`, held as `String` | 3 |
 | Conformance review of d678a43..364d2e9 | ARCH-08: `check-layers` fails a call of `RateLimits::check` in a module's `routes.rs`, since the service counts a per-action limit (platform spec, Unit of work) | 3 |
 | Conformance review of d678a43..364d2e9 | DOC-01: `check-docs` fails a comment or a document that names a module's `.rs` file that doesn't exist | 3 |
 | Conformance review of d678a43..364d2e9 | OPS-20: whether `serve` refuses `SMTP_SECURITY=none` for a mail server off the API's server, which `deploy/settings.env.example` allows only for a relay on the server's private network | 3 |
 | Conformance review of d678a43..364d2e9 | CODE-14: whether its unused public items include those that only tests call, such as `Principal::job_scope`, `JobContext`'s `id`, `attempt` and `scope`, and `JobScope::user` and `workspace`, which the platform spec names | 3 |
+| Conformance review of 317909b..259b888 | CODE-11: a check that fails a dependency that no code of its crate uses, such as `cargo-machete`, which would also catch a dependency that only a removed part used and that carries no marker | 3 |
+| Conformance review of 317909b..259b888 | DOC-13: `check-docs` fails a link whose anchor names a heading whose text another heading of the same document shares, such as a spec's Behaviors and Design subsections of one area | 3 |
 
 ## Conformance reviews
 

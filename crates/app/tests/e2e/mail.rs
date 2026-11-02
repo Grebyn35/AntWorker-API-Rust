@@ -1,4 +1,4 @@
-//! Email from the deployed image (the platform spec's Mail), through a mail server on the tests'
+//! Email from the deployed image (the platform spec's Sending email), through a mail server on the tests'
 //! own server.
 
 use serde_json::json;
@@ -28,7 +28,7 @@ async fn platform_066_the_deployed_api_sends_an_email_through_its_mail_server() 
     });
 
     deployment.sql(&format!(
-        "INSERT INTO jobs (kind, payload) VALUES ('mail.send', '{payload}')"
+        "INSERT INTO jobs (kind, payload) VALUES ('platform.send_email', '{payload}')"
     ));
 
     // The email reaches the mail server once a replica's job sends it, within about a second.

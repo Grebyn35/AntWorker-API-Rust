@@ -61,11 +61,13 @@ static DELAY: Gauge<0> = Gauge::new(
     [],
 );
 
-/// The payload of a queued job, which a module declares for each kind of job it enqueues. A
-/// payload type changes only by adding fields that may be absent, so a replica of the previous
-/// release still runs a job that the new release enqueued; any other change is a new kind.
+/// The payload of a queued job, which a module, or an area of `platform`, declares for each kind
+/// of job it enqueues. A payload type changes only by adding fields that may be absent, so a
+/// replica of the previous release still runs a job that the new release enqueued; any other
+/// change is a new kind.
 pub trait Job: Serialize + DeserializeOwned + Send + 'static {
-    /// The kind, `<module>.<name>`, such as `mail.send`.
+    /// The kind: `<module>.<name>` for a module's job, and `platform.<name>` for one of
+    /// `platform`'s, such as `platform.send_email`.
     const KIND: &'static str;
     /// The most attempts its runs make before it moves to the dead-letter state (OPS-10).
     const MOST_ATTEMPTS: u32 = 10;

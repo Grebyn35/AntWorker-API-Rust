@@ -16,13 +16,13 @@ use axum::{
 };
 use platform::{
     authn::Principal,
-    authz::Authorizer,
+    authz::{Authorize, Authorizer, Permission},
     errors::{Internal, PlatformError, Problem},
     events::UserEvent,
     http::{Idempotent, Json as Body, Routes},
     idempotency::Claimed,
     mail::{Email, Mail},
-    types::{Client, EmailAddress},
+    types::{Client, EmailAddress, WorkspaceId},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -176,13 +176,7 @@ async fn send(
         .begin(&client)
         .await
         .map_err(PlatformError::from)?;
-    let email = Email {
-        to: EmailAddress::parse(&mailed.to)
-            .map_err(|_| PlatformError::from(Internal::new("the fixture's address is invalid")))?,
-        text: format!("The plain-text part of {}.", mailed.subject),
-        html: format!("<p>The HTML part of {}.</p>", mailed.subject),
-        subject: mailed.subject,
-    };
+    let email = fixture_email(mailed)?;
     mail.send(&mut uow, principal.job_scope(), email)
         .await
         .map_err(PlatformError::from)?;
@@ -190,10 +184,55 @@ async fn send(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// The route `POST /v1/mail`, which sends its emails through `mail`, built from the settings of
-/// the API it is added to.
+/// What the workspace route of the fixtures requires: reading the workspace, which every role
+/// holds, as `access`'s matrix names it.
+struct Reading;
+
+impl Permission for Reading {
+    const NAME: &'static str = "workspace.read";
+}
+
+/// Sends an email of the tests' own to `to`, as a workspace's operation sends one: in the unit of
+/// work its proof opens, under the member's scope in the workspace (PLATFORM-012).
+#[utoipa::path(
+    post,
+    path = "/v1/workspaces/{workspace_id}/mail",
+    params(("workspace_id" = WorkspaceId, Path, description = "The workspace.")),
+    request_body = Mailed,
+    responses((status = 204, description = "The email is enqueued.")),
+)]
+async fn send_in_workspace(
+    State(mail): State<Mail>,
+    authorize: Authorize<Reading>,
+    Body(mailed): Body<Mailed>,
+) -> Result<StatusCode, Problem<PlatformError>> {
+    let (mut uow, authorized) = authorize.open().await?;
+    let email = fixture_email(mailed)?;
+    mail.send(&mut uow, authorized.job_scope(), email)
+        .await
+        .map_err(PlatformError::from)?;
+    uow.commit().await.map_err(PlatformError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// The email of the tests' own that `mailed` asks for.
+fn fixture_email(mailed: Mailed) -> Result<Email, PlatformError> {
+    Ok(Email {
+        to: EmailAddress::parse(&mailed.to)
+            .map_err(|_| PlatformError::from(Internal::new("the fixture's address is invalid")))?,
+        text: format!("The plain-text part of {}.", mailed.subject),
+        html: format!("<p>The HTML part of {}.</p>", mailed.subject),
+        subject: mailed.subject,
+    })
+}
+
+/// The routes `POST /v1/mail` and `POST /v1/workspaces/{workspace_id}/mail`, which send their
+/// emails through `mail`, built from the settings of the API they are added to.
 pub fn mailing(mail: Mail) -> Routes {
-    Routes::new().user(routes!(send), &[]).with_state(mail)
+    Routes::new()
+        .user(routes!(send), &[])
+        .merge(Routes::new().workspace::<Reading>(routes!(send_in_workspace), &[]))
+        .with_state(mail)
 }
 
 /// The fixtures' routes, with `held` behind `GET /v1/gate`, which the tests add to the API's.
