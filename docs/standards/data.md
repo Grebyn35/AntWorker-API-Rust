@@ -78,7 +78,7 @@ CI applies every migration to an empty database, and applies the new migrations 
 | Role | Used by | Attributes |
 |---|---|---|
 | `owner` | the `migrate` subcommand only | owns the tables it creates, and has `CREATE` on the schema `public`, which the database's owner keeps |
-| `app` | every request and every job | no superuser, owns nothing, data manipulation statements (DML) only (DATA-19) |
+| `app` | every request and every job, and `seed`, which sends the API's routes requests in process ([system spec](../spec/system.md#seed)) | no superuser, owns nothing, data manipulation statements (DML) only (DATA-19) |
 
 The `bootstrap` subcommand creates both roles with these attributes, grants their privileges on the database and sets the role-level timeouts (DATA-19). The privileges on the tables come from the first migration. It runs with an administrator connection: the bundled Postgres superuser, or a managed provider's admin role. Running it again keeps the roles, their attributes and the grants, and sets each role's password again from its URL.
 - Why: the running API can change data but never the schema, and holds no privilege beyond that (D4).

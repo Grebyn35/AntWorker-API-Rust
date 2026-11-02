@@ -22,7 +22,7 @@ CI runs clippy with `-D warnings` and the lint set in `[workspace.lints]`. That 
 - `let_underscore_must_use`, `let_underscore_future`, `unused_result_ok`
 - `allow_attributes`, `allow_attributes_without_reason`, so every exception to a lint is an `#[expect]` that states its reason, and fails once nothing triggers the lint
 
-`clippy.toml` allows `unwrap` and `expect` in tests only. Printing is allowed in three places: the API binary's startup line before logging exists (OPS-03) and the output of the checks and of the other tasks in `xtask`, each through an `#[expect]` that states its reason, and the instructions a build script prints to Cargo, which clippy's print lints don't cover.
+`clippy.toml` allows `unwrap` and `expect` in tests only. Printing is allowed in three places: the API binary's `main.rs`, for its startup line before logging exists (OPS-03) and for the accounts that `seed` reports once it finishes (SYSTEM-003); the checks and the other tasks in `xtask`, for their output; each of these through an `#[expect]` that states its reason; and a build script, for the instructions it prints to Cargo, which clippy's print lints don't cover.
 - Why: no panics in production code, no lossy numeric casts, no silently dropped results (D17).
 - Check: `clippy`, `ci: check-instrument` (an `#[expect]` of a print lint only in the binary's `main.rs` and in `xtask`), plus `review` (what `main.rs` prints).
 

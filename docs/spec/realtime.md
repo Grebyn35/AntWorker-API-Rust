@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`realtime` gives each signed-in client one stream of server-sent events (SSE): the caller's own events, and the events of every workspace they may receive. Delivery, filtering, replay and stream closing are the work of the hub in `platform::events` (SEC-06, SEC-17). This module owns the endpoint and the shape of what it sends.
+`realtime` gives each signed-in client one stream of server-sent events (SSE): the caller's own events, and the events of every workspace they may receive. Delivery, filtering, replay and stream closing are the work of the hub in `platform::events` (SEC-06, SEC-17). This module owns the endpoint, the shape of what it sends, and the event catalog, which documents every frame in `openapi.json`.
 
 ## Owns
 
@@ -16,7 +16,7 @@ None.
 
 | Method and path | Access | Behaviors |
 |---|---|---|
-| `GET /v1/users/me/events` | user | REALTIME-001 to REALTIME-007 |
+| `GET /v1/users/me/events` | user | REALTIME-001 to REALTIME-008 |
 
 ## Behaviors
 
@@ -29,6 +29,7 @@ None.
 | REALTIME-005 | When the hub closes a stream, the stream sends `stream.closed`, whose payload is `{"reason": <reason>}`, and ends the response: `session_ended` when the caller's session ended, `access_changed` when their memberships changed, `lagging` when the client read too slowly to keep up, `shutdown` when the instance shuts down, and `interrupted` when the replica's hub lost its connection to the database for a while. A client reconnects with `Last-Event-ID`, which a session that ended refuses with 401. | SEC-06, OPS-06, PLATFORM-017 | `realtime_005_` |
 | REALTIME-006 | A user holds at most 10 open streams on each replica. Opening another answers 409 `realtime.too_many_streams`, with no `Retry-After`, and opens nothing. | D11 | `realtime_006_` |
 | REALTIME-007 | Once the replica stops accepting connections, opening a stream answers 503 `realtime.unavailable`, with `Retry-After: 1`, and opens nothing. | OPS-06, API-07 | `realtime_007_` |
+| REALTIME-008 | `openapi.json` documents every frame the stream sends, in its event catalog: each event type that a module publishes, with its scope, the permission a workspace event requires, and the schema of its payload, and `stream.opened` and `stream.closed`. Every frame a test receives matches the catalog's entry for its type. | API-17, API-19, D8 | `realtime_008_` |
 
 ## Design
 
@@ -38,8 +39,14 @@ The handler authenticates the caller with `Principal`, through the Bearer header
 
 A browser's `EventSource` reconnects by itself when the response ends, but gives up on a response that isn't 200, such as a 401, a 409 or a 503: the client then signs in again, closes a stream it doesn't need, or opens one again after the `Retry-After`. A cap on streams is a count, not a rate, so its refusal is a conflict with the streams the user holds, with no `Retry-After`, since no window ends it; it carries the IP and user limits' headers, as every response they counted does (PLATFORM-050).
 
+### The event catalog
+
+A compatible client learns from `openapi.json` every frame the stream can send, as it learns every response of the other routes (D8). The catalog is the component `Frame`, a `oneOf` with one schema per frame type, each an object that describes the frame once a client's parser has read it: `event`, the type, as a `const`; `id`, the event's ID, where the frame has one; and `data`, a string whose `contentMediaType` is `application/json` and whose `contentSchema` is the envelope of REALTIME-002, `{"data": <payload>, "trace_id": <string or null>}`, whose payload is a component of its own, named after the payload's type, so a generated client has a type for it. An event's schema says in its description whether it is a user event, sent to its user's streams, or a workspace event, and then which permission its members need (SEC-17). `stream.opened` and `stream.closed` are entries too, with their payloads, `{"truncated": <bool>}` and `{"reason": <reason>}`, whose reasons are an `enum`.
+
+This is the shape OpenAPI 3.2 gives each item of a `text/event-stream` in its `itemSchema`. The document stays at OpenAPI 3.1, since the generators most clients are built with, such as openapi-generator and openapi-typescript, don't read a 3.2 document, and 3.1 has no field for the schema of a stream's items. So the stream's media type names `Frame` in the extension `x-itemSchema`, which moving to 3.2 renames, and every generator reads the frames' schemas among the components.
+
+The catalog comes from the code. A module declares each event in its `events.rs` with the type of its payload (platform spec, "Events and the real-time hub"), whose schema is the payload's, and registers it with its routes, so a part's events leave the document with the part (ARCH-07). `check-openapi` fails while an event that a module's `events.rs` declares is missing from the catalog. The test support checks every frame a test reads against the catalog's entry for its `event`, as it checks every response against the document (API-17), so an event whose payload drifts from its schema fails the test that receives it.
+
 ## Open design questions
 
-| Question | Settled by |
-|---|---|
-| How `openapi.json` documents the event catalog, so a compatible client knows every event type, its scope, the permission a workspace event requires, and its payload's schema, which typed payloads would give | the spec of step 2.4's second part |
+None.

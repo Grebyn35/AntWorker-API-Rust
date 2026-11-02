@@ -118,7 +118,7 @@ crates/app/
 | `invitations` | `invitations` | Invite, list, resend, cancel, accept, decline, and expiry. <!-- part: invitations --> |
 | `superadmins` | `superadmins` | The deployment's superadmins (D62): users who see every workspace's name, creation time, member count and owner, but not its content, delete any workspace, and create workspaces, which they then own, the only users who do in the provisioned shape (below). Its routes are authorized by the caller being a superadmin, never by a membership, and it records each action in the superadmin's own log, since deleting a workspace deletes the workspace's log. Its subcommand adds an account to the superadmins or removes it, which the API can't. |
 | `client_telemetry` | none | The telemetry proxy for clients, enforcing consent on the server (D7). |
-| `system` | none | The capabilities endpoint (D9), and the schema endpoints, which list the permissions and the audit actions. The health probes belong to `platform` (§4). |
+| `system` | none | The capabilities endpoint (D9), the schema endpoints, which list the permissions and the audit actions, and `seed`, which fills a development database with demo accounts and workspaces through the API's own routes (D28). The health probes belong to `platform` (§4). |
 | `platform` | `events`, `jobs`, `job_schedules`, `rate_limit_buckets`, `idempotency_records` | The mechanisms in §4. |
 
 Table naming follows the data standard.
@@ -305,7 +305,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   - `bootstrap` creates the database roles and their grants, with an administrator connection. Running it again keeps the roles and grants, and sets each role's password to the one in its URL (PLATFORM-010).
   - `serve` binds one HTTP port and runs the HTTP server, the real-time hub, the job dispatcher and the scheduler.
   - `migrate` is the one-shot migration step.
-  - `seed` loads development data.
+  - `seed` fills a development database with demo accounts and workspaces, through the API's own routes, as a client would, and refuses in any other environment ([system spec](spec/system.md#seed)).
   - The setup subcommand creates a workspace and its owner's account, each time an operator runs it, in a fork that keeps it (§5, "Workspace shapes").
   - The superadmin subcommand adds an account to the superadmins or removes it, in a fork that keeps `superadmins` (D62). `just` runs it, on a deployment's server over Secure Shell (SSH), so only someone who can reach the server can change who is a superadmin.
   - `openapi` writes the contract, `openapi.json`, which a test compares with the committed one (API-17).
@@ -345,6 +345,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | Password hashing | `argon2`, for the Argon2id that SEC-04 requires | The RustCrypto implementation, in pure Rust, which reads and writes the hashes in the string format of the Password Hashing Competition (PHC) (AUTH-014) |
 | Middleware | `tower`, `tower-http` | The concurrency limit, load shedding, timeouts, panic catching and headers that axum is built to use |
 | OpenAPI | `utoipa`, `utoipa-axum` | The document comes from the handlers' own annotations, and a route is registered with its documentation (API-14, API-17) |
+| API reference | Swagger UI, from the jsDelivr content delivery network, which the API serves in development only (D28) | The most widely used reference for OpenAPI documents, under Apache-2.0; on the API's own origin, its requests carry the session's cookies, and it needs no copy in the repository or the image (PLATFORM-075) |
 | Command line | `clap` | The binary's subcommands (ARCH-14) |
 | Container image | BuildKit, through `docker buildx`; zig, through cargo-zigbuild, which compiles both platforms' static binaries against musl on one machine; cargo-chef; cargo-auditable; distroless's static base (D43) | One build gives both platforms' images, the compiled dependencies stay cached, the scans and the software bill of materials (SBOM) see the binary's crates, and the base has no shell, package manager or C library (OPS-14, OPS-15) |
 | Allocator of the image's binary | `mimalloc`, for the musl targets only | Under musl's own allocator, a replica's memory grows with every request it serves, until the container's memory limit kills it; under mimalloc it stays flat (OPS-18) |

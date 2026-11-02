@@ -11,9 +11,12 @@ just              # lists the tasks, by group, each with what it does; those onl
 just setup        # checks the tools, and writes .env from .env.example, with generated passwords
 just dev          # starts Postgres, migrates, and runs the API, restarting it when the code changes
 just dev observe  # the same, with the observability stack (docs/operations/observability.md)
+just seed         # fills the development database with demo accounts and workspaces, and prints how to sign in
 just ci           # runs every check CI runs, building the image too
 just release      # shows the versions that can come next; `just release 1.0.0` releases main as 1.0.0 (docs/operations/release.md)
 ```
+
+`just seed` fills a database once. To fill it again, recreate the database with the commands that [CLAUDE.md](CLAUDE.md#commands) gives for editing a migration.
 
 ## Documentation
 

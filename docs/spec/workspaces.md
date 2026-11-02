@@ -73,7 +73,7 @@ The server stores no active or default workspace for a user (D3). Each request n
 
 | Question | Settled by |
 |---|---|
-| Which actor the setup subcommand's audit entries record, since the subcommand runs with no `Principal` (AUDIT-002), and with it, those of the superadmin subcommand ([architecture §9](../architecture.md#9-runtime-topology)) | the spec of the full `workspaces` module |
+| How the setup subcommand opens its unit of work, as which role (DATA-12), and which actor its audit entries record, since it runs with no `Principal` (AUDIT-002), and creates an account without a password, which no route does, so it can't send the API requests as `seed` does ([system spec](system.md#seed)); and with it, the same for the superadmin subcommand ([architecture §9](../architecture.md#9-runtime-topology)) | the spec of the full `workspaces` module |
 | How the read of every workspace that `superadmins` asks of this module, which no tenant filters, meets DATA-22 and `check-tenancy` (D62) | the spec of `superadmins`, in step 5 |
 | How the owner sets their first password in a deployment with email turned off (PLATFORM-067), where password reset can't send its code | the spec of the full `auth` module, with password reset |
 | How the owner signs in to the account the setup subcommand created, in a fork that signs in only through OAuth providers | the spec of the full `auth` module, with identity linking |

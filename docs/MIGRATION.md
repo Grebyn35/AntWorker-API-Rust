@@ -126,7 +126,6 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | From | Proposal | Decided in |
 |---|---|---|
 | Conformance review of 3ae7168 | ARCH-07: whether password sign-in is an optional part, for a fork that signs in only through OAuth providers | 5, with the full `auth` module |
-| Conformance review of 3ae7168 | DATA-12 and the platform spec's unit of work: how an operator's subcommand, such as `seed` or the setup subcommand, opens its unit of work, and as which role | 2.4, with `seed` |
 | Conformance review of b299bf2..004d477 | OPS-17: whether the reach of `BACKUP_RETENTION_DAYS` holds on a restored timeline whose closing backup failed, when retention expires the backup from before its branch while a newer full backup on the timeline the restore abandoned stays, and backups.md's "never shorten the reach" with it | 3 |
 | Conformance review of b299bf2..004d477 | The standards README's Fixing: an ID for its requirement that a fix adds or proposes a check, or says why none can cover the defect, so that a review can cite it | 3 |
 | Conformance review of 903739d..860374f | ARCH-14: a check lists each call of a database client, such as `psql`, in `deploy/`, and fails on one that the rule doesn't name, so the rule's list stays complete | 3 |
@@ -161,7 +160,6 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 0d036d0..d59e8d0 | TEST-05: its test-only routes also show a mechanism's behaviors that the API's routes show, but not on demand, such as the announcing routes, which publish many events in one unit of work, or an event that a permission no role lacks would gate | 3 |
 | Conformance review of 0d036d0..d59e8d0 | DOC-13: `check-docs` compares the platform spec's lists of telemetry names and of the metrics `platform` records with `telemetry/names.rs` and the metric declarations, which drifted apart when the hub added three metrics and a name | 3 |
 | Conformance review of 0d036d0..d59e8d0 | OPS-01: a test generated from the `Type:` lines of `.env.example` refuses each number setting just outside its range, so no range goes untested | 3 |
-| Conformance review of 0d036d0..d59e8d0 | OBS-14: a gauge of how far each hub's head trails the log's last position, with a cause alert, since `EventsDelayed` sees only the events a hub loaded | 2.4's second part, with the hub's load test |
 | Conformance review of 0d036d0..d59e8d0 | CODE-10: one term for an event's type, which the column calls `type`, Rust `name`, the specs "event type", and API-19 "named" | 3 |
 | Conformance review of 0d036d0..1ff84e6 | DATA-22: name the hub's reads by IDs from its own streams' principals, such as `access`'s memberships of them and `auth`'s sessions that last, which neither the acting user's clause nor the two exemptions cover; and the lookup of a `Last-Event-ID`'s position by the event's ID alone, which tells a caller whether an ID names an event | 3 |
 | Conformance review of 0d036d0..1ff84e6 | TEST-10: one support builder that commits an event as a unit of work does, with its position, transaction and snapshot, for the tests that insert events by hand | 3 |

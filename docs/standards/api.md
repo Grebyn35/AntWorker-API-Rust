@@ -100,7 +100,7 @@ A resource a client can edit returns an `ETag` built from its `version`. An upda
 - Check: `test`.
 
 ### API-14 Every route declares its access level in its type
-Every route except the health probes (OPS-05) is registered through one of three builders:
+Every route except the health probes (OPS-05) and the API reference that development serves (PLATFORM-075) is registered through one of three builders:
 - `public`: no authentication.
 - `user`: requires a `Principal`.
 - `workspace::<P>`: requires `Authorized<P>` for the workspace in the path, where `P` is a permission.
@@ -120,9 +120,9 @@ Every response except the health probes (OBS-15), including streams and download
 - Check: `test`.
 
 ### API-17 The OpenAPI document is generated and committed
-`openapi.json` is generated from code and committed, and a test fails if the document the binary writes differs from it. Every route under `/v1` documents its requests, responses, error codes and access level, and a response header the document lists is one the API always sends with that response. Every field typed with a domain type carries that type's limits in the schema (D25), and every string of a request body has a `maxLength`.
+`openapi.json` is generated from code and committed, and a test fails if the document the binary writes differs from it. Every route under `/v1` documents its requests, responses, error codes and access level, and a response header the document lists is one the API always sends with that response. The stream of server-sent events documents every frame it sends, in its event catalog (REALTIME-008). Every field typed with a domain type carries that type's limits in the schema (D25), and every string of a request body has a `maxLength`.
 - Why: the contract is reviewed in pull requests, and clients are built against it (D8).
-- Check: `clippy` (only the builders of API-14 register routes, each at a path its documentation names), `test` (every documented path serves, of the methods OpenAPI can document, exactly those it documents, the committed document is the one the code writes, and every request an integration test sends through the test support's typed calls and every response the in-process API gives it are checked against the document of the routes that answered it; a test of malformed input sends its body raw, unchecked), plus `ci: check-openapi` (each operation's access level and response descriptions, every reference in the document resolves, and every string of a request body has a `maxLength`), plus `review` (fields of domain types carry their limits).
+- Check: `clippy` (only the builders of API-14 register routes, each at a path its documentation names), `test` (every documented path serves, of the methods OpenAPI can document, exactly those it documents, the committed document is the one the code writes, and every request an integration test sends through the test support's typed calls, every response the in-process API gives it, and every frame of a stream it reads are checked against the document of the routes that answered it; a test of malformed input sends its body raw, unchecked), plus `ci: check-openapi` (each operation's access level and response descriptions, every reference in the document resolves, every string of a request body has a `maxLength`, and every event a module declares is in the event catalog), plus `review` (fields of domain types carry their limits).
 
 ### API-18 `/v1` only grows
 Within `/v1`, changes are additive: new routes, new optional request fields, new response fields. Removing or changing anything existing requires `/v2`.
@@ -130,9 +130,9 @@ Within `/v1`, changes are additive: new routes, new optional request fields, new
 - Check: `ci: check-openapi` (a breaking-change diff against the last final release).
 
 ### API-19 Event names and payloads
-Server-sent events (SSE) are named `<resource>.<past-tense verb>`, for example `member.removed`. A payload carries IDs and non-sensitive fields only. Clients fetch details over REST.
-- Why: events never leak data that the REST permission checks would withhold (D7).
-- Check: `review`, plus `test` (TEST-09 covers the REST side).
+Server-sent events (SSE) are named `<resource>.<past-tense verb>`, for example `member.removed`. A payload carries IDs and non-sensitive fields only, and is a type that its event declares, whose schema the event catalog documents (REALTIME-008). Clients fetch details over REST.
+- Why: events never leak data that the REST permission checks would withhold (D7), and a client knows each payload's shape from the document (D8).
+- Check: `compiler` (an event is published only with the payload type it declares), `review` (what a payload holds), plus `test` (TEST-09 covers the REST side, and REALTIME-008 the payloads' schemas).
 
 ### API-20 Lists of named resources take `search`
 A list whose items have a name or an email takes `search`, which keeps the items that contain it in one of the fields the route's documentation names, ignoring case, as the platform spec defines it (PLATFORM-060). It works on every page of the list, with the list's order and cursors (API-06).
