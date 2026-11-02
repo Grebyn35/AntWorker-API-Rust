@@ -209,7 +209,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | bd2d1fd..ec21099: as above | 2 | 13 (11, 4, 2 shared) | 5 | 2 | `stopped: no progress`: ebdfdc7 |
 | d678a43..4eedca6: decision D67, and step 2.3's first part: jobs, `mail` and `invitations`, their deployment, alerts and end-to-end scenario, and the 0BSD license | 1 | 26 (24, 8, 6 shared) | 18 | 0 | `next pass`: 364d2e9 |
 | d678a43..364d2e9: as above | 2 | 10 (9, 5, 4 shared) | 2 | 2 | `stopped: no progress`: 5bdf7a5 |
-| 317909b..259b888: step 2.3's second part: sending email in `platform`, emails in their modules, `just remove` and `check-removable`, with `invitations` as the first part | 1 | 8 (4, 4, 0 shared) | 2 | 0 | `next pass` |
+| 317909b..259b888: step 2.3's second part: sending email in `platform`, emails in their modules, `just remove` and `check-removable`, with `invitations` as the first part | 1 | 8 (4, 4, 0 shared) | 2 | 0 | `next pass`: 34b65f5 |
+| 317909b..34b65f5: as above | 2 | 3 (2, 2, 1 shared) | 1 | 1 | `stopped: no progress` |
 
 ## Decisions
 
