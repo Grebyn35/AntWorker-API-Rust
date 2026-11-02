@@ -128,11 +128,11 @@ impl Contract {
         // before any route (PLATFORM-052).
         let preflight =
             method == Method::OPTIONS && headers.contains_key(header::ACCESS_CONTROL_ALLOW_METHODS);
+        let path = path.split('?').next().unwrap_or_default();
         let reference = path == "/docs" || path.starts_with("/docs/");
         if path.starts_with("/health/") || reference || preflight {
             return;
         }
-        let path = path.split('?').next().unwrap_or_default();
         let fallbacks = &self.document["components"]["responses"];
         let response = match self.operation(method, path) {
             (_, Some(operation)) => {

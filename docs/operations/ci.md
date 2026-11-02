@@ -84,6 +84,8 @@ These pins are updated by hand, and `check-pins` checks their form:
 - the runner's version in the workflows, such as `ubuntu-24.04`;
 - in the Dockerfiles, the frontend on their first line; in the API's, the zig download with its checksums and the versions of the crates it installs; in `deploy/postgres/Dockerfile`, the versions of pgBackRest and of the certificate authorities' package.
 
+The version of Swagger UI that the API reference of development loads from jsDelivr, with the Subresource Integrity hash of each of its two files, in `crates/platform/src/http/reference.rs`, is updated by hand too: the hashes come from the files of the package that npm publishes, and the integration test of PLATFORM-075 checks that the page names that version with a hash. Pick a version at least two weeks old.
+
 ## Checks required for merging
 
 These are the jobs of `ci.yml` to require before a pull request merges: `checks`, `image`, `scan`, and the four of `verify`: `verify (linux/amd64, backups)`, `verify (linux/amd64, others)`, `verify (linux/arm64, backups)` and `verify (linux/arm64, others)`. `publish` and `release` run only on `main`, so no pull request has them.

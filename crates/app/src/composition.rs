@@ -11,7 +11,7 @@ use platform::{
     clock::SharedClock,
     config::{ConfigError, Environment, ServerConfig, Settings},
     db::Database,
-    errors::Internal,
+    errors::{self, Internal},
     events::{Connection, Hub},
     http::{Origins, Pipeline, Routes},
     jobs::Jobs,
@@ -178,10 +178,18 @@ pub fn pipeline(
     readiness: Readiness,
     service: Service,
 ) -> Pipeline {
-    let reference = (config.environment == Environment::Development)
-        .then(|| serde_json::to_string(&openapi(service)).ok())
-        .flatten()
-        .map(Arc::from);
+    let reference = if config.environment == Environment::Development {
+        match serde_json::to_string(&openapi(service)) {
+            Ok(document) => Some(Arc::from(document)),
+            // Development goes without the reference, which serves no client (ERR-11).
+            Err(error) => {
+                errors::ignore(&error, "api_reference_not_written");
+                None
+            }
+        }
+    } else {
+        None
+    };
     Pipeline {
         clock,
         max_concurrent_requests: usize::try_from(config.max_concurrent_requests)
@@ -224,7 +232,7 @@ pub struct SeedReport {
 /// Why `seed` refused, or stopped (SYSTEM-002, SYSTEM-004).
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
-pub struct SeedError(system::SeedError);
+pub struct SeedError(system::SystemError);
 
 /// Refuses `seed` unless `environment` is development, before it connects to anything
 /// (SYSTEM-002).

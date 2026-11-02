@@ -12,8 +12,10 @@
 //! platform spec's Telemetry export, under Batching).
 //!
 //! The search is a pure function, so tests cover it without Docker.
+// part: invitations
 //!
 //! `streams` measures a replica's hub instead (OPS-18): see its module.
+// end part: invitations
 
 use std::{
     io::{BufRead, BufReader},
@@ -100,7 +102,10 @@ pub fn next_rate(first: u64, steps: &[(u64, bool)]) -> Option<u64> {
 }
 
 /// Runs the load test against the API's image under test, which `just load-test` pushed: of a
-/// replica's capacity on `route`, or of its hub with `streams`.
+/// replica's capacity on `route`.
+// part: invitations
+/// With `streams`, it measures the replica's hub instead.
+// end part: invitations
 pub fn run(route: &str) -> ExitCode {
     let path = path_of(route);
     // part: invitations

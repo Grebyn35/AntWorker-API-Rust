@@ -2,14 +2,19 @@
 //! document of the running code through Swagger UI, and the document itself. Both are on the
 //! API's own origin, so the page's requests carry the session's cookies and need no CORS.
 
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use axum::{
     Router,
-    http::{HeaderValue, header},
+    http::{HeaderValue, Method, header},
     response::IntoResponse,
-    routing::get,
+    routing::{MethodRouter, get},
 };
+
+use super::{docs::QueryNames, stack};
 
 /// The page's path.
 pub(super) const PAGE: &str = "/docs";
@@ -39,7 +44,9 @@ SwaggerUIBundle({ url: "/docs/openapi.json", dom_id: "#reference", validatorUrl:
 </html>
 "##;
 
-/// `router` with the page and `document`, the OpenAPI document as JSON.
+/// `router` with the page and `document`, the OpenAPI document as JSON. Each route is in a route
+/// group, as a builder's is, so its group's timeout and body limit apply, and it refuses any query
+/// parameter (OPS-07, API-08, API-09).
 #[expect(
     clippy::disallowed_methods,
     reason = "the API reference is outside the documented routes, which the builders register \
@@ -49,7 +56,7 @@ pub(super) fn mount(router: Router, document: Arc<str>) -> Router {
     router
         .route(
             PAGE,
-            get(|| async {
+            grouped(get(|| async {
                 (
                     [(
                         header::CONTENT_TYPE,
@@ -58,11 +65,11 @@ pub(super) fn mount(router: Router, document: Arc<str>) -> Router {
                     HTML,
                 )
                     .into_response()
-            }),
+            })),
         )
         .route(
             DOCUMENT,
-            get(move || {
+            grouped(get(move || {
                 let document = document.clone();
                 async move {
                     (
@@ -74,6 +81,15 @@ pub(super) fn mount(router: Router, document: Arc<str>) -> Router {
                     )
                         .into_response()
                 }
-            }),
+            })),
         )
+}
+
+/// `route` in a route group that takes no query parameter.
+fn grouped(route: MethodRouter) -> MethodRouter {
+    let none: QueryNames = HashMap::from([
+        (Method::GET, HashSet::new()),
+        (Method::HEAD, HashSet::new()),
+    ]);
+    stack::route_group(route, none)
 }

@@ -12,9 +12,11 @@ use axum::{
     extract::ConnectInfo,
     http::{Method, Request, StatusCode, header},
 };
-use platform::config::Environment;
+use platform::{config::Environment, errors::Internal};
 use serde_json::{Value, json};
 use tower::ServiceExt;
+
+use super::error::SystemError;
 
 /// The password of every account the seed registers, which it prints, since a developer signs in
 /// as each of them in turn.
@@ -33,38 +35,6 @@ pub(crate) struct Account {
     access_token: String,
 }
 
-/// Why the seed stopped, or didn't start.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum SeedError {
-    /// `ENVIRONMENT` isn't `development` (SYSTEM-002).
-    #[error(
-        "seed runs only when ENVIRONMENT is development, since every account it registers has the \
-         password it prints"
-    )]
-    NotDevelopment,
-    /// An account it registers exists already, so the database holds its data (SYSTEM-004).
-    #[error(
-        "{0} is registered already, so this database holds the seed's data: it seeds a database \
-         once, and again only after the database is recreated"
-    )]
-    Seeded(&'static str),
-    /// The API refused one of its requests.
-    #[error("{method} {path} answered {status}: {body}")]
-    Refused {
-        /// The request's method.
-        method: Method,
-        /// The request's path.
-        path: String,
-        /// The answer's status.
-        status: StatusCode,
-        /// The answer's body.
-        body: String,
-    },
-    /// A request couldn't be built or answered, or an answer wasn't the JSON it should be.
-    #[error("{0}")]
-    Exchange(String),
-}
-
 /// What the seed created: the accounts, each with the password [`PASSWORD`], and the workspaces.
 #[derive(Debug)]
 pub(crate) struct Seeded {
@@ -76,16 +46,16 @@ pub(crate) struct Seeded {
 
 /// Refuses unless `environment` is development, so no deployment holds the seed's accounts, whose
 /// password it prints (SYSTEM-002).
-pub(crate) fn allowed(environment: Environment) -> Result<(), SeedError> {
+pub(crate) fn allowed(environment: Environment) -> Result<(), SystemError> {
     match environment {
         Environment::Development => Ok(()),
-        Environment::Test | Environment::Production => Err(SeedError::NotDevelopment),
+        Environment::Test | Environment::Production => Err(SystemError::NotDevelopment),
     }
 }
 
 /// Fills the database behind `router` with the demo data (SYSTEM-003), and stops at the first
 /// account that exists already (SYSTEM-004).
-pub(crate) async fn seed(router: Router) -> Result<Seeded, SeedError> {
+pub(crate) async fn seed(router: Router) -> Result<Seeded, SystemError> {
     let api = Api { router };
     let olivia = api.register("owner@example.com", "Olivia Owner").await?;
     let adam = api.register("admin@example.com", "Adam Admin").await?;
@@ -130,13 +100,13 @@ impl Api {
         &self,
         email: &'static str,
         name: &'static str,
-    ) -> Result<Account, SeedError> {
+    ) -> Result<Account, SystemError> {
         let body = json!({ "email": email, "password": PASSWORD, "name": name });
         let answer = match self.send(Method::POST, "/v1/users", None, Some(body)).await {
-            Err(SeedError::Refused {
+            Err(SystemError::Refused {
                 status: StatusCode::CONFLICT,
                 ..
-            }) => return Err(SeedError::Seeded(email)),
+            }) => return Err(SystemError::Seeded(email)),
             answer => answer?,
         };
         Ok(Account {
@@ -147,7 +117,7 @@ impl Api {
     }
 
     /// Creates the workspace `name`, which `owner` owns, and returns its ID (WORKSPACES-001).
-    async fn create_workspace(&self, owner: &Account, name: &str) -> Result<String, SeedError> {
+    async fn create_workspace(&self, owner: &Account, name: &str) -> Result<String, SystemError> {
         let answer = self
             .send(
                 Method::POST,
@@ -168,7 +138,7 @@ impl Api {
         workspace: &str,
         invitee: &Account,
         role: &str,
-    ) -> Result<String, SeedError> {
+    ) -> Result<String, SystemError> {
         let answer = self
             .send(
                 Method::POST,
@@ -190,7 +160,7 @@ impl Api {
         path: &str,
         account: Option<&Account>,
         body: Option<Value>,
-    ) -> Result<Value, SeedError> {
+    ) -> Result<Value, SystemError> {
         let mut request = Request::builder()
             .method(method.clone())
             .uri(path)
@@ -210,7 +180,7 @@ impl Api {
         };
         let mut request = request
             .body(body)
-            .map_err(|error| SeedError::Exchange(error.to_string()))?;
+            .map_err(|error| SystemError::Internal(Internal::new(error.to_string())))?;
         request
             .extensions_mut()
             .insert(ConnectInfo(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))));
@@ -219,13 +189,13 @@ impl Api {
             .clone()
             .oneshot(request)
             .await
-            .map_err(|error| SeedError::Exchange(error.to_string()))?;
+            .map_err(|error| SystemError::Internal(Internal::new(error.to_string())))?;
         let status = answer.status();
         let bytes = body::to_bytes(answer.into_body(), ANSWER_LIMIT)
             .await
-            .map_err(|error| SeedError::Exchange(error.to_string()))?;
+            .map_err(|error| SystemError::Internal(Internal::new(error.to_string())))?;
         if !status.is_success() {
-            return Err(SeedError::Refused {
+            return Err(SystemError::Refused {
                 method,
                 path: path.to_owned(),
                 status,
@@ -235,14 +205,16 @@ impl Api {
         if bytes.is_empty() {
             return Ok(Value::Null);
         }
-        serde_json::from_slice(&bytes).map_err(|error| SeedError::Exchange(error.to_string()))
+        serde_json::from_slice(&bytes)
+            .map_err(|error| SystemError::Internal(Internal::new(error.to_string())))
     }
 }
 
 /// The string field `field` of `answer`.
-fn text(answer: &Value, field: &str) -> Result<String, SeedError> {
-    answer[field]
-        .as_str()
-        .map(str::to_owned)
-        .ok_or_else(|| SeedError::Exchange(format!("the answer has no {field}: {answer}")))
+fn text(answer: &Value, field: &str) -> Result<String, SystemError> {
+    answer[field].as_str().map(str::to_owned).ok_or_else(|| {
+        SystemError::Internal(Internal::new(format!(
+            "the answer has no {field}: {answer}"
+        )))
+    })
 }

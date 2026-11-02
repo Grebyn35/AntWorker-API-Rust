@@ -3,7 +3,10 @@
 use http::StatusCode;
 use serde_json::{Value, json};
 
-use crate::support::{Api, Options, TestDatabase};
+use crate::support::{
+    Api, Options, TestDatabase,
+    users::{self, SignedIn},
+};
 
 #[tokio::test]
 async fn system_001_the_capabilities_list_each_feature_a_deployment_can_turn_off() {
@@ -74,17 +77,11 @@ async fn system_002_seed_refuses_outside_development_before_it_connects() {
     );
 }
 
-/// Signs in as `email` with `password`, and returns the access token.
+/// Signs in as `email` with `password`, which must succeed, and returns the access token.
 async fn sign_in(api: &Api, email: &str, password: &str) -> String {
-    let response = api
-        .post(
-            "/v1/sessions",
-            &json!({ "email": email, "password": password }),
-        )
-        .send()
-        .await;
+    let response = users::sign_in(api, email, password).await;
     assert_eq!(response.status, StatusCode::CREATED, "{}", response.json());
-    response.json()["access_token"].as_str().unwrap().to_owned()
+    SignedIn::from(&response).access
 }
 
 /// The name and the caller's role of each workspace that `token`'s caller belongs to.
@@ -165,6 +162,62 @@ async fn system_003_seed_creates_its_accounts_and_workspaces_through_the_routes(
             + workspaces(&api, &mia).await.len()]
         .map(|count| count.to_string())
     );
+}
+
+#[tokio::test]
+async fn system_003_the_subcommand_prints_the_accounts_their_password_and_the_workspaces() {
+    let database = TestDatabase::migrated().await;
+
+    let output = database
+        .run_api(&["seed"], &[("ENVIRONMENT", "development")])
+        .await;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(output.status.code(), Some(0), "{stdout}");
+    assert!(
+        stdout.contains(
+            "Seeded the database. Sign in as any of these, with the password orchard-lantern-42-violet:"
+        ),
+        "{stdout}"
+    );
+    let printed = |name: &str, value: &str| {
+        stdout.lines().any(|line| {
+            let mut words = line.split_whitespace();
+            words.next() == Some(name) && line.trim_end().ends_with(value)
+        })
+    };
+    for (email, name) in [
+        ("owner@example.com", "Olivia Owner"),
+        ("admin@example.com", "Adam Admin"),
+        ("member@example.com", "Mia Member"),
+    ] {
+        assert!(printed(email, name), "{email} in {stdout}");
+    }
+    for workspace in database
+        .owner_reads("SELECT name || '|' || id::text FROM workspaces")
+        .await
+    {
+        let (name, id) = workspace.split_once('|').unwrap();
+        let first = name.split_whitespace().next().unwrap();
+        assert!(printed(first, id), "{name} in {stdout}");
+    }
+}
+
+#[tokio::test]
+async fn system_004_the_subcommand_fails_on_a_database_it_seeded() {
+    let database = TestDatabase::migrated().await;
+    database
+        .run_api(&["seed"], &[("ENVIRONMENT", "development")])
+        .await;
+
+    let again = database
+        .run_api(&["seed"], &[("ENVIRONMENT", "development")])
+        .await;
+
+    assert_eq!(again.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&again.stdout).contains(
+        "owner@example.com is registered already, so this database holds the seed's data"
+    ));
 }
 
 #[tokio::test]

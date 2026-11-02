@@ -11,6 +11,7 @@ use crate::support::{
     Api, Options,
     api::Response,
     fixtures::{self, Gate},
+    users,
 };
 
 /// A valid inbound trace context, sampled.
@@ -426,6 +427,8 @@ async fn platform_075_development_serves_the_api_reference_of_the_running_code()
 
     let page = api.get("/docs").send().await;
     let document = api.get("/docs/openapi.json").send().await;
+    // Each is in a route group, as a builder's route is (OPS-07, API-09).
+    let queried = api.get("/docs?theme=dark").send().await;
 
     assert_eq!(page.status, StatusCode::OK);
     assert_eq!(page.header("content-type"), "text/html; charset=utf-8");
@@ -442,6 +445,7 @@ async fn platform_075_development_serves_the_api_reference_of_the_running_code()
     assert_eq!(document.status, StatusCode::OK);
     assert_eq!(document.header("content-type"), "application/json");
     assert_eq!(&document.json(), api.document());
+    problem(&queried, StatusCode::BAD_REQUEST, "request.invalid_query");
 }
 
 #[tokio::test]
@@ -492,11 +496,7 @@ async fn platform_075_the_development_settings_let_the_reference_s_requests_thro
         let registered = api
             .post(
                 "/v1/users",
-                &json!({
-                    "email": format!("reference-{n}@example.com"),
-                    "password": "plum-tractor-41-quiet",
-                    "name": "Ada",
-                }),
+                &users::registration(&format!("reference-{n}@example.com")),
             )
             .header("origin", &origin)
             .send()
