@@ -707,25 +707,6 @@ async fn invitations_009_the_limit_and_its_window_are_checked() {
 }
 
 #[tokio::test]
-async fn access_006_accepting_an_invitation_closes_the_new_member_s_streams() {
-    let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    let carol = users::register(&api, "carol@example.com").await;
-    let workspace = acme(&api, &ada, &[]).await;
-    let invitation = invite(&api, &ada, &workspace, "carol@example.com", "member")
-        .await
-        .json();
-    let mut stream = streams::connect(&api, &carol.access, None).await;
-    stream.opened().await;
-
-    let response = accept(&api, &carol, invitation["id"].as_str().unwrap()).await;
-    let (_, reason) = stream.closed().await;
-
-    assert_eq!(response.status, 200);
-    assert_eq!(reason, "access_changed");
-}
-
-#[tokio::test]
 async fn sec_17_member_joined_reaches_the_members_and_no_replay_from_before_joining() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

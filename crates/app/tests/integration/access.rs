@@ -441,3 +441,34 @@ async fn test_09_every_workspace_route_answers_every_role_as_the_matrix_says() {
     }
     assert!(checked >= 8, "only {checked} calls");
 }
+
+// part: invitations
+#[tokio::test]
+async fn access_006_accepting_an_invitation_closes_the_new_member_s_streams() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let carol = users::register(&api, "carol@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+    let invitation =
+        crate::support::invitations::invite(&api, &ada, &workspace, "carol@example.com", "member")
+            .await
+            .json();
+    let mut stream = crate::support::streams::connect(&api, &carol.access, None).await;
+    stream.opened().await;
+
+    let accepted = call(
+        &api,
+        Method::POST,
+        &format!(
+            "/v1/users/me/invitations/{}/accept",
+            invitation["id"].as_str().unwrap()
+        ),
+        &carol,
+    )
+    .await;
+    let (_, reason) = stream.closed().await;
+
+    assert_eq!(accepted.status, StatusCode::OK);
+    assert_eq!(reason, "access_changed");
+}
+// end part: invitations
