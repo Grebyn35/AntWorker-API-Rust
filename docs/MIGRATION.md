@@ -48,7 +48,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30, D44, D45, D47, D49, D50, D51, D52, D53, D54, D55, D56, D57, D59, D60 | built |
 | Grafana on an HTTPS address of its own with sign-in, and the path to a managed observability backend through the collector, with Grafana Cloud as the worked example | D19, D42 | built |
 | The command that removes an optional part, which `check-removable` runs | D29, D39 | built |
-| `just seed` and the OpenAPI UI in development | D28 | 2.4 |
+| `just seed` and the OpenAPI UI in development | D28 | built |
 | The threat model | D26 | 3 |
 | `just new-module` and the guide to adding a module | D29 | 5 |
 | `just rename`, the guide to renaming a fork, and the GitHub template repository | D29 | 6 |
@@ -80,7 +80,7 @@ Each module goes through these stages, in order:
 | `files` | FILE | | | | | |
 | `client_telemetry` | OBS | | | | | |
 | `superadmins` | none: a new part (D62) | | | | | |
-| `system` | HTTP, OPS | capabilities | capabilities | capabilities | capabilities | capabilities |
+| `system` | HTTP, OPS | capabilities, seed | capabilities, seed | capabilities, seed | capabilities, seed | capabilities |
 
 ## CI checks
 
