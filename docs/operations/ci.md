@@ -25,7 +25,7 @@ A newer push to a pull request cancels the older run. On `main`, a run that has 
 
 `just setup` writes `.env` with generated passwords, and the tests start Postgres through Compose with them, as they do on a developer's machine (TEST-11). A job that only runs the tools Compose holds runs `just env` instead, which writes `.env` alone, because Compose reads it.
 
-On a developer's machine, `just ci` runs what CI runs: `just checks`, `just check-removable`, `just image`, `just image-scan`, and `just e2e` on the machine's platform.
+On a developer's machine, `just ci` runs what CI runs: `just checks`, `just check-removable`, `just image`, `just image-scan`, and `just e2e` on the machine's platform. The end-to-end tests of the observability stack reach its services by their Compose names, which Docker's embedded DNS resolves; Docker copies the search domains of the host's `/etc/resolv.conf` into its containers, and with the search domain `.` they resolve no short name, so those tests fail on such a host until Docker's own `dns-search` setting names another.
 
 ## Checks that exist
 

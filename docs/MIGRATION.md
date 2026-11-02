@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 2.3's second part: the command that removes an optional part and `check-removable`, with `invitations` as the first removal: its spec, then its build and review. It settles the rows of [Foundation](#foundation), [CI checks](#ci-checks) and [Known gaps](#known-gaps) that name 2.3. The first part, jobs, `mail` and `invitations`, is built and reviewed through 5bdf7a5 ([Conformance reviews](#conformance-reviews)). A deployment's `settings.env` needs `EMAIL` before its next deploy, which `just server-setup` asks for, and a developer's `.env` the email settings of `.env.example`. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 2.4: the event hub and `realtime`, its spec first, ending with "removing a member closes their stream". Step 2.3 is built and reviewed: its first part through 5bdf7a5, and its second, sending email in `platform` with each module's emails in its own `emails.rs`, `just remove` and `check-removable` with `invitations` as the first part, through 500b68d ([Conformance reviews](#conformance-reviews)). A developer's `.env` needs the email settings of `.env.example`, and a deployment's `settings.env` needs `EMAIL`, which `just server-setup` asks for. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
 
 ## Build order
 
@@ -159,6 +159,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 317909b..34b65f5 | DATA-10 and the platform spec's Jobs: a release that renames or retires a queued job's kind keeps a handler of the old kind for one release, or its deploy moves the old kind's waiting rows, since a waiting job of a kind no replica holds never runs, never dead-letters, and holds `platform.job_delay` up | 3 |
 | Conformance review of 317909b..34b65f5 | DOC-13: `check-docs` also resolves a behavior's test prefix that a comment or document cites, such as `invitations_001`, as it resolves the ID in capitals | 3 |
 | Conformance review of 317909b..34b65f5 | ARCH-07: `just remove` or `check-docs` fails on a spec section that a removal leaves empty, as removing `invitations` leaves `workspaces`'s Interface, where a spec otherwise writes "None." | 3 |
+| A development machine's Docker, during step 2.3 | OPS-22: whether `just server-check` refuses a server whose `/etc/resolv.conf` names the search domain `.`, which Docker copies into containers, where no short name then resolves, as on a development machine; whether the deployment's own lookups, such as the API's of `postgres`, fail on such a server is unverified | 3 |
 
 ## Conformance reviews
 
@@ -213,7 +214,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | d678a43..4eedca6: decision D67, and step 2.3's first part: jobs, `mail` and `invitations`, their deployment, alerts and end-to-end scenario, and the 0BSD license | 1 | 26 (24, 8, 6 shared) | 18 | 0 | `next pass`: 364d2e9 |
 | d678a43..364d2e9: as above | 2 | 10 (9, 5, 4 shared) | 2 | 2 | `stopped: no progress`: 5bdf7a5 |
 | 317909b..259b888: step 2.3's second part: sending email in `platform`, emails in their modules, `just remove` and `check-removable`, with `invitations` as the first part | 1 | 8 (4, 4, 0 shared) | 2 | 0 | `next pass`: 34b65f5 |
-| 317909b..34b65f5: as above | 2 | 3 (2, 2, 1 shared) | 1 | 1 | `stopped: no progress` |
+| 317909b..34b65f5: as above | 2 | 3 (2, 2, 1 shared) | 1 | 1 | `stopped: no progress`: 500b68d |
 
 ## Decisions
 
