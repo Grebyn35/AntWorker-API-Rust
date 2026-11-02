@@ -225,7 +225,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 317909b..34b65f5: as above | 2 | 3 (2, 2, 1 shared) | 1 | 1 | `stopped: no progress`: 500b68d |
 | 0d036d0..d59e8d0: step 2.4's first part: the event hub and `realtime`, their deployment, metrics, alert and end-to-end scenario, and the fixes made before the review | 1 | 21 (20, 16, 15 shared) | 14 | 0 | `next pass`: 29a0c2c, 1ff84e6 |
 | 0d036d0..1ff84e6: as above | 2 | 15 (10, 10, 5 shared) | 8 | 5 | `stopped: no progress`: f7eb030 |
-| c619d50..92a1d55: step 2.4's second part: the event catalog, the API reference in development, `seed`, the hub's owed events, the hub's load test, and the `invitations` part's markers on them | 1 | 13 (10, 9, 6 shared) | 8 | 0 | `next pass` |
+| c619d50..92a1d55: step 2.4's second part: the event catalog, the API reference in development, `seed`, the hub's owed events, the hub's load test, and the `invitations` part's markers on them | 1 | 13 (10, 9, 6 shared) | 8 | 0 | `next pass`: efa110e |
+| c619d50..efa110e: as above | 2 | 6 (4, 5, 3 shared) | 4 | 1 | `stopped: no progress` |
 
 ## Decisions
 
