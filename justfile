@@ -81,7 +81,7 @@ ci-tools:
 [unix]
 [doc("Checks the tools and their pinned versions, and writes .env")]
 [group('develop')]
-setup: && env
+setup: && env _env-drift
     for tool in rustup git docker; do command -v "$tool" > /dev/null || { echo "just setup needs $tool" >&2; exit 1; }; done
     docker compose version > /dev/null || { echo "just setup needs Docker Compose" >&2; exit 1; }
     [ "$(just --version | head -n 1 | cut -d ' ' -f 2)" = "{{ just_version }}" ] || { echo "just setup needs just {{ just_version }}" >&2; exit 1; }
@@ -109,7 +109,7 @@ env:
 [windows]
 [doc("Checks the tools and their pinned versions, and writes .env")]
 [group('develop')]
-setup: && env
+setup: && env _env-drift
     foreach ($tool in 'rustup', 'git', 'docker') { if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "just setup needs $tool" } }
     docker compose version | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'just setup needs Docker Compose' }
     function Version($command) { try { (((& $command[0] $command[1..9] 2> $null) | Select-Object -First 1) -split ' ')[1] } catch { '' } }; if ((Version 'just', '--version') -ne '{{ just_version }}') { throw 'just setup needs just {{ just_version }}' }; if ((Version 'cargo', 'deny', '--version') -ne '{{ cargo_deny_version }}') { throw 'just setup needs cargo-deny {{ cargo_deny_version }}' }; if ((Version 'watchexec', '--version') -ne '{{ watchexec_version }}') { Write-Warning 'just dev needs watchexec {{ watchexec_version }}' }; if ((Version 'cargo', 'sqlx', '--version') -ne '{{ sqlx_cli_version }}') { Write-Warning 'just prepare needs sqlx-cli {{ sqlx_cli_version }}' }
@@ -161,7 +161,7 @@ seed: migrate
 [unix]
 [doc("Runs the API with auto-reload; `just dev observe` adds the observability stack")]
 [group('develop')]
-dev $mode="": bootstrap
+dev $mode="": _env-drift bootstrap
     case "$mode" in "") ;; observe) docker compose --profile observability up --detach --wait ;; *) echo "just dev takes nothing, or observe" >&2; exit 1 ;; esac
     {{ if mode == "observe" { "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 " } else { "" } }}watchexec --restart --shell=none --watch crates --watch migrations --exts rs,sql,toml -- just _dev-serve
 
@@ -174,8 +174,13 @@ dev $mode="": bootstrap
 [windows]
 [doc("Runs the API with auto-reload; `just dev observe` adds the observability stack")]
 [group('develop')]
-dev mode="": bootstrap
+dev mode="": _env-drift bootstrap
     if ('{{ mode }}' -eq 'observe') { docker compose --profile observability up --detach --wait; if ($LASTEXITCODE -ne 0) { throw 'the observability stack did not start' }; $env:OTEL_EXPORTER_OTLP_ENDPOINT = 'http://127.0.0.1:4318' } elseif ('{{ mode }}' -ne '') { throw 'just dev takes nothing, or observe' }; watchexec --restart --shell=none --watch crates --watch migrations --exts rs,sql,toml -- just _dev-serve
+
+# Warns of each setting of .env.example that .env lacks or sets otherwise (OPS-19): `just setup`
+# writes .env once, and later commits add settings and change development values.
+_env-drift:
+    {{ xtask }} env-drift
 
 # Applies new migrations, then serves. `just dev` runs it again whenever the code changes.
 _dev-serve:

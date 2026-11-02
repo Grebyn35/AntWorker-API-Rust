@@ -11,6 +11,7 @@ mod declarations;
 mod deploy;
 mod deps;
 mod docs;
+mod env_drift;
 mod formats;
 mod inputs;
 mod instrument;
@@ -231,6 +232,10 @@ enum Command {
         #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
         arguments: Vec<String>,
     },
+    /// Warns of each setting of `.env.example` that `.env` lacks or sets otherwise, which `just
+    /// setup` and `just dev` run (OPS-19).
+    #[command(name = "env-drift")]
+    EnvDrift,
     /// Measures one replica's capacity: the highest constant rate of requests it serves with
     /// none failed and the 99th percentile within the latency objective (OPS-18).
     #[command(name = "load-test")]
@@ -312,6 +317,7 @@ fn main() -> ExitCode {
         } => return deploy::deploy(&host, version.as_deref(), allow_restart),
         Command::Backup { host } => return deploy::backup(&host),
         Command::LoadTest { route } => return load::run(&route),
+        Command::EnvDrift => return env_drift::run(),
         Command::Mirror { platform } => return mirror::run(&platform),
         Command::Restore {
             host,
@@ -360,6 +366,7 @@ fn main() -> ExitCode {
         | Command::ServerSetup { .. }
         | Command::ServerCheck { .. }
         | Command::LoadTest { .. }
+        | Command::EnvDrift
         | Command::Mirror { .. } => Outcome::default(),
     };
     print(&outcome)
