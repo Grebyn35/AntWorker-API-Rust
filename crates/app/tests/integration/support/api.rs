@@ -124,9 +124,19 @@ pub async fn application(
     readiness: Readiness,
 ) -> (Router, Value, Jobs) {
     let (config, modules) = configuration(&options);
-    let services = app::compose(database, &config, modules, clock.clone(), readiness.clone())
+    let connection = platform::events::listen(database, clock.as_ref())
         .await
         .unwrap();
+    let services = app::compose(
+        database,
+        &config,
+        modules,
+        clock.clone(),
+        readiness.clone(),
+        connection,
+    )
+    .await
+    .unwrap();
     let pipeline = app::pipeline(&config, database, &services, clock, readiness);
     let jobs = services.jobs;
     let mut document = app::openapi(SERVICE);

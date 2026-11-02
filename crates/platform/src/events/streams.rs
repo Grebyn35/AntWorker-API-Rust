@@ -8,7 +8,7 @@ use std::{
 
 use tokio::sync::{
     mpsc::{self, error::TrySendError},
-    oneshot,
+    watch,
 };
 
 use super::{
@@ -55,7 +55,8 @@ struct Entry {
     /// user events reach the stream, which its replay covers.
     memberships: Option<Memberships>,
     queue: mpsc::Sender<Arc<Event>>,
-    closed: oneshot::Sender<Closed>,
+    /// Why the hub closed the stream, once it has.
+    closed: watch::Sender<Option<Closed>>,
 }
 
 /// The streams, and the head: the last position the hub loaded.
@@ -127,8 +128,11 @@ impl Streams {
                 reply,
             } => {
                 let head = self.activate(id, memberships);
-                // A subscription that stopped waiting has gone, and its drop removes the stream.
-                reply.send(head).unwrap_or_default();
+                match reply.send(head) {
+                    Ok(()) => {}
+                    // The subscription stopped waiting: it has gone, and so does its stream.
+                    Err(_) => self.remove(id),
+                }
             }
             Command::Unregister { id } => self.remove(id),
         }
@@ -146,7 +150,7 @@ impl Streams {
         let id = self.next;
         self.next += 1;
         let (queue, queued) = mpsc::channel(QUEUE);
-        let (closed, closing) = oneshot::channel();
+        let (closed, closing) = watch::channel(None);
         self.streams.insert(
             id,
             Entry {
@@ -258,8 +262,8 @@ impl Streams {
         if let Some(entry) = self.take(id) {
             CLOSES.add(1, [reason.reason().into(), self.database.clone().into()]);
             // The reason goes before the queue's sender, so the stream finds it once its queue
-            // ends; a stream that has gone takes neither.
-            entry.closed.send(reason).unwrap_or_default();
+            // ends.
+            entry.closed.send_replace(Some(reason));
         }
     }
 

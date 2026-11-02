@@ -5,7 +5,7 @@
 
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{
     AccessChange, CHANNEL, EVENTS_CHANNEL, log,
@@ -15,7 +15,7 @@ use super::{
 use crate::{
     authn::{Principal, SessionVerifier},
     authz::{AccessPolicy, Memberships},
-    clock::SharedClock,
+    clock::{Clock, SharedClock},
     db::{Checked, Database, Listener, Received, UnitOfWork},
     errors::{self, Internal},
     lifecycle::Readiness,
@@ -71,7 +71,7 @@ pub(crate) enum Command {
 pub(crate) struct Registered {
     pub(crate) id: StreamId,
     pub(crate) queue: mpsc::Receiver<Arc<super::Event>>,
-    pub(crate) closed: oneshot::Receiver<Closed>,
+    pub(crate) closed: watch::Receiver<Option<Closed>>,
 }
 
 /// Why `Hub::subscribe` opened no stream.
@@ -87,6 +87,31 @@ pub enum SubscribeError {
     /// A read of the subscription failed.
     #[error(transparent)]
     Internal(#[from] Internal),
+}
+
+/// The instance's own connection to the database, listening, which `main.rs` opens as a step of
+/// startup (ARCH-12) and the hub then runs on.
+pub struct Connection {
+    database: Database,
+    listener: Listener,
+}
+
+/// The instance's own connection couldn't listen.
+#[derive(Debug, thiserror::Error)]
+#[error("can't listen on the instance's own database connection: {0}")]
+pub struct ListenError(String);
+
+/// Opens the instance's own connection to `database`, outside its pool, and listens there for
+/// what commits, within a check's timeout on `clock` (OPS-21).
+pub async fn listen(database: &Database, clock: &dyn Clock) -> Result<Connection, ListenError> {
+    let mut listener = database.listener(CHANNELS);
+    match listener.check(clock).await {
+        Checked::Failed(failure) => Err(ListenError(failure)),
+        Checked::Answered | Checked::Connected => Ok(Connection {
+            database: database.clone(),
+            listener,
+        }),
+    }
 }
 
 /// The handle of the replica's hub, which `subscribe` opens streams through. Clones share the
@@ -111,11 +136,11 @@ struct Task {
 }
 
 impl Hub {
-    /// Starts the hub on `database`'s own connection, which it checks every 5 seconds and
-    /// records in `readiness`, filtering events through `policy` and re-checking every stream
-    /// through `verifier` and `policy` every `recheck`. It runs until the instance stops.
+    /// Starts the hub on `connection`, which it checks every 5 seconds and records in
+    /// `readiness`, filtering events through `policy` and re-checking every stream through
+    /// `verifier` and `policy` every `recheck`. It runs until the instance stops.
     pub fn start(
-        database: &Database,
+        connection: Connection,
         policy: Arc<dyn AccessPolicy>,
         verifier: Arc<dyn SessionVerifier>,
         readiness: Readiness,
@@ -123,20 +148,21 @@ impl Hub {
         recheck: Duration,
     ) -> Self {
         let (commands, received) = mpsc::unbounded_channel();
+        let Connection { database, listener } = connection;
         let task = Task {
             database: database.clone(),
             policy: policy.clone(),
             verifier,
             readiness,
             clock,
-            listener: database.listener(CHANNELS),
+            listener,
             streams: Streams::new(database.name()),
             reachable: true,
         };
         tokio::spawn(task.run(received, recheck));
         Self {
             commands,
-            database: database.clone(),
+            database,
             policy,
         }
     }
@@ -291,13 +317,14 @@ impl Task {
     }
 
     /// Checks the connection, records the result in readiness, and on a new connection catches
-    /// up with what committed without one (PLATFORM-073).
+    /// up with what committed without one (PLATFORM-073); until it has read its head, as it does
+    /// first, it reads it.
     async fn check(&mut self) {
         let checked = self.listener.check(self.clock.as_ref()).await;
         let failure = match &checked {
             Checked::Failed(failure) => Some(failure.clone()),
-            Checked::Answered => None,
-            Checked::Connected => self
+            Checked::Answered if self.streams.head().is_some() => None,
+            Checked::Answered | Checked::Connected => self
                 .caught_up()
                 .await
                 .err()

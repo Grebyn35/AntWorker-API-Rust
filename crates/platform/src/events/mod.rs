@@ -20,7 +20,7 @@ use crate::{
     types::{SessionId, UserId, WorkspaceId},
 };
 
-pub use hub::{Hub, SubscribeError};
+pub use hub::{Connection, Hub, ListenError, SubscribeError, listen};
 pub use subscription::{Closed, Delivery, Event, Subscription};
 
 /// The channel the signals go out on.

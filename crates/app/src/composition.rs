@@ -10,7 +10,7 @@ use platform::{
     config::{ConfigError, ServerConfig, Settings},
     db::Database,
     errors::Internal,
-    events::Hub,
+    events::{Connection, Hub},
     http::{Origins, Pipeline, Routes},
     jobs::Jobs,
     lifecycle::Readiness,
@@ -110,13 +110,14 @@ pub struct Services {
 
 /// Builds every service once, on `database`, with `server`'s settings for `platform`'s and the
 /// modules' own in `config`, mounts every module's routes, registers every job, and starts the
-/// hub, which records in `readiness` whether it reaches the database.
+/// hub on `connection`, which records in `readiness` whether it reaches the database.
 pub async fn compose(
     database: &Database,
     server: &ServerConfig,
     config: Config,
     clock: SharedClock,
     readiness: Readiness,
+    connection: Connection,
 ) -> Result<Services, Internal> {
     let mut jobs = Jobs::new(database, server.job_dead_letter_retention);
     let auth = Arc::new(auth::Auth::new(database.clone(), config.auth).await?);
@@ -133,7 +134,7 @@ pub async fn compose(
     let policy = Arc::new(access::Policy);
     let realtime = Realtime {
         hub: Hub::start(
-            database,
+            connection,
             policy.clone(),
             verifier.clone(),
             readiness,

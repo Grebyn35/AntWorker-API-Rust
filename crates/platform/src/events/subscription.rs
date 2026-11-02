@@ -3,10 +3,13 @@
 
 use std::{collections::VecDeque, sync::Arc};
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, watch};
 
 use super::hub::{Command, StreamId};
-use crate::types::{UserId, WorkspaceId};
+use crate::{
+    errors,
+    types::{UserId, WorkspaceId},
+};
 
 /// Why the hub closed a stream, which `stream.closed` names (REALTIME-005).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,7 +109,7 @@ pub struct Subscription {
     pub(crate) opened: Option<Delivery>,
     pub(crate) replay: VecDeque<Arc<Event>>,
     pub(crate) queue: mpsc::Receiver<Arc<Event>>,
-    pub(crate) closed: oneshot::Receiver<Closed>,
+    pub(crate) closed: watch::Receiver<Option<Closed>>,
     /// The last position the stream sent, or skips through: what the replay covered, or what the
     /// client already received on a replica whose hub was ahead.
     pub(crate) sent: i64,
@@ -138,7 +141,7 @@ impl Subscription {
                     self.ended = true;
                     // The hub names the reason before it lets the queue go; a hub that stopped
                     // without naming one stopped with the process.
-                    let reason = self.closed.try_recv().unwrap_or(Closed::Shutdown);
+                    let reason = self.closed.borrow().unwrap_or(Closed::Shutdown);
                     return Some(Delivery::Closed(reason));
                 }
             }
@@ -155,9 +158,10 @@ pub(crate) struct Registration {
 
 impl Drop for Registration {
     fn drop(&mut self) {
-        // A hub that has stopped holds no stream to remove.
-        self.commands
-            .send(Command::Unregister { id: self.id })
-            .unwrap_or_default();
+        // The hub's task holds its receiver while any registration holds a sender, so a send
+        // fails only once the task has ended in a panic, which leaves no stream to remove.
+        if let Err(error) = self.commands.send(Command::Unregister { id: self.id }) {
+            errors::ignore(&error, "hub_stopped");
+        }
     }
 }

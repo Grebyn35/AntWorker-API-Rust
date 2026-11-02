@@ -147,22 +147,22 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
     };
     let clock: SharedClock = Arc::new(SystemClock);
     let readiness = Readiness::new();
+    let connection = match platform::events::listen(&database, clock.as_ref()).await {
+        Ok(connection) => connection,
+        Err(error) => return failed("listener", &error),
+    };
     platform::telemetry::process::watch(clock.clone());
-    let (listener, address) = match bind(config.listen_addr).await {
-        Ok(bound) => bound,
+    let listener = match bind(config.listen_addr).await {
+        Ok(listener) => listener,
         Err(error) => return failed("listen", &error),
     };
-    tracing::info!(
-        { names::SERVER_ADDRESS } = %address.ip(),
-        { names::SERVER_PORT } = address.port(),
-        "listening"
-    );
     let services = match app::compose(
         &database,
         &config,
         modules,
         clock.clone(),
         readiness.clone(),
+        connection,
     )
     .await
     {
@@ -233,12 +233,17 @@ async fn connect(config: &ServerConfig) -> Result<Database, ExitCode> {
     Ok(database)
 }
 
-/// Binds `address`, and returns the listener with the address it bound, whose port the system
-/// chose when `address` asks for port 0.
-async fn bind(address: SocketAddr) -> std::io::Result<(TcpListener, SocketAddr)> {
+/// Binds `address`, and logs the address it bound, whose port the system chose when `address`
+/// asks for port 0.
+async fn bind(address: SocketAddr) -> std::io::Result<TcpListener> {
     let listener = TcpListener::bind(address).await?;
     let bound = listener.local_addr()?;
-    Ok((listener, bound))
+    tracing::info!(
+        { names::SERVER_ADDRESS } = %bound.ip(),
+        { names::SERVER_PORT } = bound.port(),
+        "listening"
+    );
+    Ok(listener)
 }
 
 /// Asks the instance whether it is ready (PLATFORM-044). It runs no async runtime and writes no
