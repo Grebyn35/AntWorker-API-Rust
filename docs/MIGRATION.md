@@ -214,6 +214,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | d678a43..364d2e9: as above | 2 | 10 (9, 5, 4 shared) | 2 | 2 | `stopped: no progress`: 5bdf7a5 |
 | 317909b..259b888: step 2.3's second part: sending email in `platform`, emails in their modules, `just remove` and `check-removable`, with `invitations` as the first part | 1 | 8 (4, 4, 0 shared) | 2 | 0 | `next pass`: 34b65f5 |
 | 317909b..34b65f5: as above | 2 | 3 (2, 2, 1 shared) | 1 | 1 | `stopped: no progress`: 500b68d |
+| 0d036d0..d59e8d0: step 2.4's first part: the event hub and `realtime`, their deployment, metrics, alert and end-to-end scenario, and the fixes made before the review | 1 | 21 (20, 16, 15 shared) | 14 | 0 | `next pass` |
 
 ## Decisions
 
