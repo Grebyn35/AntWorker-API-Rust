@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use super::{Api, Options, api::Response};
+use super::{Api, Options, TestDatabase, api::Response};
 
 /// A password that AUTH-003 allows.
 pub const PASSWORD: &str = "plum-tractor-41-quiet";
@@ -45,6 +45,18 @@ pub async fn register(api: &Api, email: &str) -> SignedIn {
     let response = api.post("/v1/users", &registration(email)).send().await;
     assert_eq!(response.status, 201, "{}", response.json());
     SignedIn::from(&response)
+}
+
+/// Creates an account of `email` that holds no password, as an account that a sign-in provider
+/// or the setup subcommand creates does, through the `owner` connection, so a test without the
+/// in-process API has a user too; returns its ID.
+pub async fn without_password(db: &TestDatabase, email: &str) -> String {
+    let email = email.replace('\'', "''");
+    db.owner_reads(&format!(
+        "INSERT INTO users (email, name) VALUES ('{email}', 'Ada Lovelace') RETURNING id::text"
+    ))
+    .await
+    .remove(0)
 }
 
 /// Signs `email` in with `password`, and returns the response.

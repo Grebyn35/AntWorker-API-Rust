@@ -1,0 +1,211 @@
+# The checks that `just checks` and `just check-removable` run, and `just remove`, which
+# `check-removable` runs on each copy. The justfile imports this file.
+
+[doc("Fails if the code isn't formatted")]
+[group('check')]
+fmt-check:
+    cargo fmt --all -- --check
+
+# Runs clippy with warnings as errors (CODE-03), on every target with every feature, so the
+# end-to-end tests are linted too.
+[doc("Runs clippy, with warnings as errors")]
+[group('check')]
+lint:
+    cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+# Checks dependencies: advisories, bans and sources for every target (SEC-13, SEC-14, CODE-11),
+# and licenses for each target the API is built for, the platforms a developer builds on (OPS-19)
+# and the image's (OPS-14), one at a time, as cargo-deny takes one target per run. A crate that
+# only other targets compile, such as one for WebAssembly, never reaches a build, so its license
+# doesn't matter (CODE-12).
+[doc("Checks the dependencies' advisories, bans, sources and licenses")]
+[group('check')]
+deny:
+    cargo deny --locked check advisories bans sources
+    cargo deny --locked --target x86_64-unknown-linux-gnu check licenses
+    cargo deny --locked --target aarch64-unknown-linux-gnu check licenses
+    cargo deny --locked --target x86_64-unknown-linux-musl check licenses
+    cargo deny --locked --target aarch64-unknown-linux-musl check licenses
+    cargo deny --locked --target x86_64-pc-windows-msvc check licenses
+    cargo deny --locked --target aarch64-pc-windows-msvc check licenses
+    cargo deny --locked --target x86_64-apple-darwin check licenses
+    cargo deny --locked --target aarch64-apple-darwin check licenses
+
+# Reports which spec behaviors tests prove, and fails on a test whose name doesn't start with a
+# behavior or rule ID that exists (TEST-01, DOC-10).
+[doc("Reports which spec behaviors tests prove")]
+[group('check')]
+check-test-map:
+    {{ xtask }} check-test-map
+
+# Fails on a part of openapi.json that breaks the rules for the HTTP contract (API-01, API-05,
+# API-17, API-20, ERR-02, ERR-13).
+[doc("Fails on a part of openapi.json that breaks the HTTP contract's rules")]
+[group('check')]
+check-openapi:
+    {{ xtask }} check-openapi
+
+# Fails on a log or span field name outside the list in platform::telemetry::names, a message
+# that isn't constant, an #[instrument] without skip_all, an event at any level but DEBUG, or a
+# span, in app code other than main.rs, and an exception to a print lint outside the places
+# printing is allowed (CODE-03, OBS-01, OBS-03 to OBS-06).
+[doc("Fails on logs, spans and prints that break the telemetry rules")]
+[group('check')]
+check-instrument:
+    {{ xtask }} check-instrument
+
+# Fails on a metric declared or named outside OBS-11, a catalog that differs from the
+# declarations, a dashboard or alert that reads a metric neither declared nor listed in
+# deploy/observability/metrics.yaml, a metric nothing reads, a panel title that isn't a question,
+# a dashboard that Grafana's users can change, or dashboards no overview links to all of (OBS-11
+# to OBS-13).
+[doc("Fails on metrics, dashboards and alerts that break the metric rules")]
+[group('check')]
+check-metrics:
+    {{ xtask }} check-metrics
+
+# Fails on a collector configuration whose tail sampling doesn't keep the traces OBS-08 names, a
+# managed backend's configuration that replaces that sampling, or a latency objective that differs
+# between the sampling, the alerts and the latency dashboard.
+[doc("Fails on a collector configuration that breaks the sampling rules")]
+[group('check')]
+check-telemetry-config:
+    {{ xtask }} check-telemetry-config
+
+# Fails on an alert without a severity, a runbook section or a test, then runs promtool's checks
+# and tests of the rules, with the Prometheus image that deploy/observability/compose.yaml pins
+# (OBS-14).
+[doc("Checks the alert rules, and runs their tests")]
+[group('check')]
+alert-rules:
+    {{ xtask }} alert-rules
+    docker compose --profile observability run --rm --no-deps --volume ./deploy/observability/prometheus:/rules:ro --workdir /rules --entrypoint promtool prometheus check rules rules.yaml
+    docker compose --profile observability run --rm --no-deps --volume ./deploy/observability/prometheus:/rules:ro --workdir /rules --entrypoint promtool prometheus test rules rules.test.yaml
+
+# Fails on a link, ID or named CI check that doesn't resolve, a history marker, an
+# unfinished-work marker, a document outside the documentation set, an acronym not spelled out
+# where a document first uses it, a spec, rule or tracker whose format breaks DOC-15 or DOC-16,
+# or a spec's Routes table that doesn't match openapi.json (DOC-01, DOC-07 to DOC-09, DOC-13 to
+# DOC-16).
+[doc("Fails on a document whose links, IDs or format break the rules")]
+[group('check')]
+check-docs:
+    {{ xtask }} check-docs
+
+# Fails on an action, runner, image, download, crate install or tool version that isn't pinned, a
+# toolchain other than the one rust-toolchain.toml pins, or a crate whose edition isn't the
+# workspace's 2024 (CODE-01, OPS-13).
+[doc("Fails on a tool, image, action or download that isn't pinned")]
+[group('check')]
+check-pins:
+    {{ xtask }} check-pins
+
+# Fails on a finding of shellcheck, run from the image compose.yaml pins, in a recipe of this
+# justfile that runs on Linux and macOS, or in a shell script under deploy/ (CODE-16), and on a
+# psql of such a script whose statement isn't given with -c or names a table of the product
+# schema (ARCH-14). It reads the recipes from this file, so it checks the same ones on every
+# platform.
+[doc("Runs shellcheck on the recipes and the deployment's scripts")]
+[group('check')]
+check-shell:
+    {{ xtask }} check-shell
+
+# Fails on a function, method or macro that the locked sqlx exposes and that takes SQL text,
+# outside the checked macros, and that clippy.toml doesn't ban, or on a ban of sqlx's that
+# reaches nothing (DATA-20).
+[doc("Fails on a function of sqlx that takes SQL text and that clippy.toml doesn't ban")]
+[group('check')]
+check-sql-bans:
+    {{ xtask }} check-sql-bans
+
+# Fails on sqlx in a module's routes, an HTTP type in its service, a routes type that deserializes
+# without refusing unknown fields, an infrastructure error in a service or route signature, or an
+# HTTP client built outside the places SEC-09 allows (ARCH-08, ARCH-09, API-08, API-09, ERR-04,
+# SEC-09).
+[doc("Fails on code that breaks a module's layers, or builds an HTTP client where SEC-09 forbids")]
+[group('check')]
+check-layers:
+    {{ xtask }} check-layers
+
+# Fails on a module's public submodule, code that reaches into another module's submodule, a use
+# of a module that the graph in docs/architecture.md doesn't allow, a cycle in that graph, or
+# another module's error in a module's public signatures (ARCH-04, ARCH-05, ERR-06), or a
+# dependency that its crate's code never names (CODE-11).
+[doc("Fails on a dependency between modules that the graph doesn't allow, or one no code uses")]
+[group('check')]
+check-deps:
+    {{ xtask }} check-deps
+
+# Fails on a source file before its tests, or a deploy script, over 500 lines, a module's file
+# outside ARCH-03's set or a module without its error.rs, an exception to dead_code in the API's
+# code, and a job declared outside its module's jobs.rs or with another module's kind (CODE-07,
+# ARCH-03, ERR-01, CODE-14, OPS-09).
+[doc("Fails on a file too long, or out of its place")]
+[group('check')]
+check-layout:
+    {{ xtask }} check-layout
+
+# Fails on a name, a standard column, a check constraint, a function, a foreign key, a soft
+# delete or a role's privilege in the migrations' schema that breaks the data rules, in the
+# catalog of a database that the API's own bootstrap and migrate build on the Postgres that
+# `services` starts (DATA-01, DATA-02, DATA-04, DATA-05, DATA-06, DATA-07, DATA-12, DATA-19).
+[doc("Fails on a table, constraint, index or grant of the migrations that breaks the data rules")]
+[group('check')]
+check-schema: services
+    {{ xtask }} check-schema
+
+# Fails on a marker of an optional part that is wrong, or in a Rust file isn't Rust's `//`
+# comment alone on its line, and, for each run that crates/xtask/parts.yaml lists, on a Rust file
+# that removing the run's parts leaves unparseable, or a kept line or path that names one of
+# them, removing them in memory (ARCH-07).
+[doc("Fails on a wrong marker of an optional part, or a removal that leaves broken Rust or a line or path naming the part")]
+[group('check')]
+check-parts:
+    {{ xtask }} check-parts
+
+# On a copy of the repository for each run that crates/xtask/parts.yaml lists, or for the runs
+# named, such as `personal`, removes the run's optional parts with `just remove`, then runs `just
+# checks` on the copy (ARCH-07). Each copy and its build are in target/removable/<run>/.
+[doc("Fails unless removing each workspace shape's optional parts leaves a copy that passes the checks")]
+[group('check')]
+check-removable *runs:
+    {{ xtask }} check-removable {{ runs }}
+
+# Removes the optional parts named, as a fork does before its first release to choose its
+# workspace shape (ARCH-07, architecture.md §5): it deletes the files and the marked lines of
+# each, writing "None." in each section of a spec that it empties, then the cached queries that no
+# kept code holds, updates Cargo.lock, writes openapi.json and the metric catalog again, and
+# formats the code, then fails while a kept line or path still names one. Commit what it leaves
+# once `just ci` passes.
+[doc("Removes optional parts, to choose a workspace shape")]
+[group('fork')]
+remove +parts:
+    {{ xtask }} remove {{ parts }}
+
+# Fails on a query of workspace data that names no tenant, or a table that holds no workspace data
+# and isn't listed as account or platform data (DATA-22).
+[doc("Fails on a query of workspace data that names no tenant, or a table placed nowhere")]
+[group('check')]
+check-tenancy:
+    {{ xtask }} check-tenancy
+
+# Fails on a query that names a table another module owns: the module whose name the table's
+# creating migration holds (ARCH-06).
+[doc("Fails on a query that names a table another module owns")]
+[group('check')]
+check-table-ownership:
+    {{ xtask }} check-table-ownership
+
+# Fails on a migration whose name holds no module, and on one that the newest release holds and
+# the working tree changed or deleted (DATA-09). It reads the release from git's tags.
+[doc("Fails on a migration misnamed, or changed since a release holds it")]
+[group('check')]
+check-migrations:
+    {{ xtask }} check-migrations
+
+# Fails when the query cache in .sqlx/ differs from what sqlx-cli writes from a database that the
+# migrations build (DATA-20): run `just prepare` after changing a query or a migration.
+[doc("Fails on a query cache that `just prepare` would change")]
+[group('check')]
+sqlx-check: services
+    {{ xtask }} sqlx-check

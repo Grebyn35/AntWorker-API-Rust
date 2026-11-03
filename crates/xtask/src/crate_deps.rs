@@ -116,12 +116,18 @@ fn unused(repo: &Repo, dependencies: &[Dependency]) -> Vec<Finding> {
     findings
 }
 
-/// Whether `text` holds `name` as a word of its own.
+/// Whether the code of `text`, outside its `//` comments, holds `name` as a word of its own. A
+/// string counts, since an attribute such as `#[serde(with = "time::serde::rfc3339")]` names a
+/// crate in one.
 fn names(text: &str, name: &str) -> bool {
-    text.match_indices(name).any(|(start, _)| {
-        let word = |c: char| c.is_alphanumeric() || c == '_';
-        !text[..start].ends_with(word) && !text[start + name.len()..].starts_with(word)
-    })
+    text.lines()
+        .map(|line| line.split("//").next().unwrap_or_default())
+        .any(|code| {
+            code.match_indices(name).any(|(start, _)| {
+                let word = |c: char| c.is_alphanumeric() || c == '_';
+                !code[..start].ends_with(word) && !code[start + name.len()..].starts_with(word)
+            })
+        })
 }
 
 #[cfg(test)]
@@ -153,9 +159,15 @@ mod tests {
                 "fn f() { jsonschema::validate(); }\n",
             ),
             ("crates/platform/src/lib.rs", "use old_crate::X;\n"),
+            (
+                "crates/app/src/time.rs",
+                "#[serde(with = \"time::serde::rfc3339\")]\n/// Like `described` does.\n",
+            ),
         ]);
         let dependencies = [
             dependency("serde_json", "normal"),
+            dependency("time", "normal"),
+            dependency("described", "normal"),
             dependency("old_crate", "normal"),
             dependency("jsonschema", "dev"),
             dependency("unused_dev", "dev"),
@@ -169,6 +181,8 @@ mod tests {
         assert_eq!(
             messages,
             [
+                "crates/app/Cargo.toml:1: no code of the crate names `described`, a normal \
+                 dependency: remove it (CODE-11)",
                 "crates/app/Cargo.toml:3: no code of the crate names `old_crate`, a normal \
                  dependency: remove it (CODE-11)",
                 "crates/app/Cargo.toml:6: no code of the crate names `unused_dev`, a dev \

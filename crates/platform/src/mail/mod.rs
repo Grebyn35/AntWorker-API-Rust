@@ -48,7 +48,7 @@ impl fmt::Debug for MailConfig {
 
 /// An email, rendered, to one recipient: what a module's `emails.rs` makes of an email it
 /// declares, and hands [`Mail::send`]. It is part of a job's payload, so it changes only by
-/// adding fields that may be absent (the platform spec's Jobs).
+/// adding fields that may be absent (DATA-10, the platform spec's "The job queue").
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Email {
     /// Its recipient.

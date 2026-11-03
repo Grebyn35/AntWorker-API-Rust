@@ -1,15 +1,17 @@
 //! `check-layout`: the code's files keep their places and their sizes.
-//! - A Rust file of a crate's `src/`, before its test module, and a shell script under `deploy/`
-//!   hold at most 500 lines (CODE-07). Test files, under a crate's `tests/`, aren't counted.
+//! - A Rust file of a crate's `src/`, before its test module, a shell script under `deploy/`, and
+//!   the justfile and each file it imports hold at most 500 lines (CODE-07). Test files, under a
+//!   crate's `tests/`, aren't counted.
 //! - A module's files come from ARCH-03's set, each a file or a directory of the same name, with
 //!   the three entries that architecture.md §5 gives `access`, `auth` and `system`, and its email
 //!   templates are in the directory of `crates/app/templates/` named after it (ARCH-03).
 //! - Every module has its `error.rs` (ERR-01).
-//! - No code of `platform` or `app` allows or expects the `dead_code` lint (CODE-14).
+//! - No code of `platform` or `app` allows or expects the `dead_code` lint, and no public item
+//!   of `platform` is one that only tests name (CODE-14, in `unused`).
 //! - A job is declared in its module's `jobs.rs`, or in an area of `platform`, and its kind starts
 //!   with its module's name, or `platform.` for one of `platform`'s (OPS-09).
 
-use crate::{Finding, Outcome, repo::Repo, shell};
+use crate::{Finding, Outcome, repo::Repo, shell, unused};
 
 /// The most lines a file holds (CODE-07).
 const MOST_LINES: usize = 500;
@@ -53,6 +55,10 @@ const MODULE_EXTRAS: [(&str, &str); 3] = [
 pub fn check(repo: &Repo) -> Outcome {
     let mut findings = Vec::new();
     let scripts = shell::scripts(repo);
+    let justfiles: Vec<&str> = shell::justfiles(repo)
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect();
     for file in repo.files() {
         let path = file.path.as_str();
         let in_src = path.starts_with("crates/")
@@ -72,9 +78,26 @@ pub fn check(repo: &Repo) -> Outcome {
             }
             if path.starts_with(PLATFORM) || path.starts_with(APP) {
                 let code: Vec<&str> = file.text.lines().take(lines).collect();
-                let code = code.join("\n");
-                findings.extend(dead_code(path, &code));
-                findings.extend(jobs(path, &code));
+                findings.extend(jobs(path, &code.join("\n")));
+            }
+        }
+        let tested = ["crates/platform/", "crates/app/"]
+            .iter()
+            .any(|root| path.starts_with(root));
+        if tested && path.ends_with(".rs") {
+            findings.extend(dead_code(path, &file.text));
+        }
+        if justfiles.contains(&path) {
+            let lines = file.text.lines().count();
+            if lines > MOST_LINES {
+                findings.push(Finding::new(
+                    path,
+                    MOST_LINES + 1,
+                    format!(
+                        "{lines} lines: split its tasks into more files of `just/`, which the justfile \
+                         imports, by kind (CODE-07)"
+                    ),
+                ));
             }
         }
         if scripts.contains(&file.path) {
@@ -92,6 +115,7 @@ pub fn check(repo: &Repo) -> Outcome {
         }
     }
     findings.extend(modules(repo));
+    findings.extend(unused::check(repo));
     Outcome {
         report: Vec::new(),
         findings,
@@ -169,27 +193,57 @@ fn modules(repo: &Repo) -> Vec<Finding> {
     findings
 }
 
-/// CODE-14: each line of `text` that allows or expects `dead_code`, outside comments.
+/// CODE-14: each line of `text` that allows or expects `dead_code`, outside comments, in an outer
+/// attribute or an inner one, but on a test target's module that another target's support holds,
+/// which `#[path]` names: that target, which holds the module, checks its every item.
 fn dead_code(path: &str, text: &str) -> Vec<Finding> {
+    let lines: Vec<&str> = text
+        .lines()
+        .map(|line| line.split("//").next().unwrap_or_default())
+        .collect();
+    let test_target = path.split('/').nth(2) == Some("tests");
     let mut findings = Vec::new();
-    let mut attribute = false;
-    for (index, line) in text.lines().enumerate() {
-        let code = line.split("//").next().unwrap_or_default();
-        if code.contains("#[allow(") || code.contains("#[expect(") {
-            attribute = true;
+    let mut attribute: Option<bool> = None;
+    let mut found = Vec::new();
+    for (index, code) in lines.iter().enumerate() {
+        let outer = code.contains("#[allow(") || code.contains("#[expect(");
+        if outer || code.contains("#![allow(") || code.contains("#![expect(") {
+            attribute = Some(outer);
         }
-        if attribute && code.contains("dead_code") {
-            findings.push(Finding::new(
-                path,
-                index + 1,
-                "an exception to `dead_code`: delete the unused item instead (CODE-14)",
-            ));
+        if attribute.is_some() && code.contains("dead_code") {
+            found.push(index);
         }
-        if code.contains(")]") {
-            attribute = false;
+        if code.contains(")]")
+            && let Some(outer) = attribute.take()
+        {
+            let shared = outer && test_target && shared_module(&lines[index + 1..]);
+            if !shared {
+                findings.extend(found.iter().map(|line| {
+                    Finding::new(
+                        path,
+                        line + 1,
+                        "an exception to `dead_code`: delete the unused item instead (CODE-14)",
+                    )
+                }));
+            }
+            found.clear();
         }
     }
     findings
+}
+
+/// Whether the item that `lines` start with, after its other attributes, is a module that
+/// `#[path]` takes from elsewhere.
+fn shared_module(lines: &[&str]) -> bool {
+    let mut path = false;
+    for line in lines.iter().map(|line| line.trim()) {
+        if line.starts_with("#[path") {
+            path = true;
+        } else if !line.starts_with("#[") {
+            return path && (line.starts_with("mod ") || line.starts_with("pub mod "));
+        }
+    }
+    false
 }
 
 /// OPS-09: a job of `app` is declared in its module's `jobs.rs`, and each kind starts with its
@@ -204,6 +258,13 @@ fn jobs(path: &str, text: &str) -> Vec<Finding> {
         None if path.starts_with(PLATFORM) => "platform.".to_owned(),
         None => String::new(),
     };
+    // A file of `platform` that fills the registry itself, as its sweeps do, rather than through
+    // the registry's own `periodic` and `queued`, names each kind in a literal apart from the
+    // call that registers it, so each literal that could be a kind is read as one.
+    let fills = path.starts_with(PLATFORM)
+        && (text.contains("periodic.insert(") || text.contains("queued.insert("))
+        && !text.contains("fn periodic")
+        && !text.contains("fn queued");
     let mut findings = Vec::new();
     for (index, line) in text.lines().enumerate() {
         let code = line.split("//").next().unwrap_or_default();
@@ -218,22 +279,42 @@ fn jobs(path: &str, text: &str) -> Vec<Finding> {
                 "a job is declared in its module's jobs.rs (OPS-09)",
             ));
         }
-        let kind = code
+        let declared = code
             .split_once("const KIND: &'static str = \"")
             .or_else(|| code.split_once(".periodic(\""))
             .and_then(|(_, rest)| rest.split_once('"'))
             .map(|(kind, _)| kind);
-        if let Some(kind) = kind
-            && !kind.starts_with(&prefix)
-        {
-            findings.push(Finding::new(
-                path,
-                index + 1,
-                format!("the kind `{kind}` doesn't start with `{prefix}` (OPS-09)"),
-            ));
+        let literals = if fills {
+            kind_literals(code)
+        } else {
+            Vec::new()
+        };
+        for kind in declared.into_iter().chain(literals) {
+            if !kind.starts_with(&prefix) {
+                findings.push(Finding::new(
+                    path,
+                    index + 1,
+                    format!("the kind `{kind}` doesn't start with `{prefix}` (OPS-09)"),
+                ));
+            }
         }
     }
     findings
+}
+
+/// The string literals of `code` that could be kinds: `snake_case` words joined by dots.
+fn kind_literals(code: &str) -> Vec<&str> {
+    let word = |text: &str| {
+        text.starts_with(|c: char| c.is_ascii_lowercase())
+            && text
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    };
+    code.split('"')
+        .skip(1)
+        .step_by(2)
+        .filter(|literal| literal.split('.').all(word))
+        .collect()
 }
 
 #[cfg(test)]
@@ -257,11 +338,16 @@ mod tests {
             "fn t() {}\n".repeat(600)
         );
         let script = format!("#!/bin/sh\n{}", "true\n".repeat(500));
+        let justfile = format!("import 'just/check.just'\n{}", "# a\n".repeat(499));
+        let tasks = format!("check:\n{}", "    true\n".repeat(500));
         let found = messages(&[
             ("crates/platform/src/long.rs", &long),
             ("crates/platform/src/tested.rs", &tested),
             ("crates/app/tests/integration/long.rs", &long),
             ("deploy/deploy.sh", &script),
+            ("justfile", &justfile),
+            ("just/check.just", &tasks),
+            ("just/unused.just", &tasks),
         ]);
         assert_eq!(
             found,
@@ -270,6 +356,8 @@ mod tests {
                  directory of modules with the same name (CODE-07, ARCH-03)",
                 "deploy/deploy.sh:501: 501 lines: split the script into files it sources, by \
                  task (CODE-07)",
+                "just/check.just:501: 501 lines: split its tasks into more files of `just/`, \
+                 which the justfile imports, by kind (CODE-07)",
             ]
         );
     }
@@ -302,15 +390,38 @@ mod tests {
 
     #[test]
     fn code_14_no_exception_to_dead_code() {
-        let found = messages(&[(
-            "crates/platform/src/a.rs",
-            "#[expect(\n    dead_code,\n    reason = \"later\"\n)]\nfn a() {}\n// dead_code in a comment\n",
-        )]);
+        let shared = "#[cfg(test)]\n#[expect(\n    dead_code,\n    reason = \"the other target's\"\n)]\n\
+                      #[path = \"../integration/support/mod.rs\"]\nmod support;\n";
+        let found = messages(&[
+            (
+                "crates/platform/src/a.rs",
+                "#[expect(\n    dead_code,\n    reason = \"later\"\n)]\nfn a() {}\n// dead_code in a comment\n",
+            ),
+            (
+                "crates/platform/src/b.rs",
+                "#![expect(dead_code, reason = \"later\")]\nfn b() {}\n",
+            ),
+            (
+                "crates/app/tests/integration/main.rs",
+                "#[allow(dead_code)]\nmod support;\n",
+            ),
+            ("crates/app/tests/e2e/main.rs", shared),
+            (
+                "crates/app/src/c.rs",
+                &shared.replace("mod support;", "fn c() {}"),
+            ),
+        ]);
+        let lines: Vec<&str> = found
+            .iter()
+            .map(|message| message.split(": ").next().unwrap_or_default())
+            .collect();
         assert_eq!(
-            found,
+            lines,
             [
-                "crates/platform/src/a.rs:2: an exception to `dead_code`: delete the unused item \
-              instead (CODE-14)"
+                "crates/platform/src/a.rs:2",
+                "crates/platform/src/b.rs:1",
+                "crates/app/tests/integration/main.rs:1",
+                "crates/app/src/c.rs:3",
             ]
         );
     }
@@ -331,6 +442,11 @@ mod tests {
                 "crates/platform/src/mail/mod.rs",
                 "impl Job for Delivery {\n    const KIND: &'static str = \"mail.send\";\n}\n",
             ),
+            (
+                "crates/platform/src/jobs/sweeps.rs",
+                "for (name, sweep) in [\n    (\"platform.expire\", A),\n    (\"expire_b\", B),\n    \
+                 (\"sweeps.c\", C),\n] {\n    jobs.periodic.insert(name, sweep);\n}\n",
+            ),
         ]);
         assert_eq!(
             found,
@@ -340,6 +456,10 @@ mod tests {
                 "crates/app/src/modules/things/service.rs:1: a job is declared in its module's \
                  jobs.rs (OPS-09)",
                 "crates/platform/src/mail/mod.rs:2: the kind `mail.send` doesn't start with \
+                 `platform.` (OPS-09)",
+                "crates/platform/src/jobs/sweeps.rs:3: the kind `expire_b` doesn't start with \
+                 `platform.` (OPS-09)",
+                "crates/platform/src/jobs/sweeps.rs:4: the kind `sweeps.c` doesn't start with \
                  `platform.` (OPS-09)",
             ]
         );

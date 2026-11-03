@@ -23,6 +23,8 @@ pub struct Document {
     /// The anchors of the headings whose text another heading of the document shares, which
     /// GitHub numbers in the order the headings come.
     pub repeated: BTreeSet<String>,
+    /// The line and text of each heading whose text an earlier heading of the document has.
+    pub repeated_headings: Vec<(usize, String)>,
     /// Every link.
     pub links: Vec<Link>,
     /// The prose, one entry per block, with the line the block starts on. Prose leaves out
@@ -55,7 +57,7 @@ impl Reader {
             Event::Start(Tag::Heading { .. }) => self.heading = Some(String::new()),
             Event::End(TagEnd::Heading(_)) => {
                 if let Some(heading) = self.heading.take() {
-                    self.add_anchor(&heading);
+                    self.add_anchor(&heading, line);
                 }
                 self.end_block();
             }
@@ -97,7 +99,7 @@ impl Reader {
     }
 
     /// Adds the heading's anchor. GitHub numbers repeated anchors: `notes`, `notes-1`.
-    fn add_anchor(&mut self, heading: &str) {
+    fn add_anchor(&mut self, heading: &str, line: usize) {
         let slug = slug(heading);
         let uses = self.anchor_uses.entry(slug.clone()).or_default();
         let anchor = if *uses == 0 {
@@ -108,6 +110,9 @@ impl Reader {
         if *uses > 0 {
             self.document.repeated.insert(slug);
             self.document.repeated.insert(anchor.clone());
+            self.document
+                .repeated_headings
+                .push((line, heading.to_owned()));
         }
         *uses += 1;
         self.document.anchors.insert(anchor);

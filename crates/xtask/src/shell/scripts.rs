@@ -1,10 +1,7 @@
 //! The shell scripts under `deploy/`, and what check-shell reads in them itself. A script sources
 //! a file of its own directory with a line `. "$here/<path>"`, where `here` names that directory.
 
-use crate::{
-    repo::Repo,
-    tenancy::{referenced, unquoted},
-};
+use crate::{repo::Repo, sql::referenced, tenancy::unquoted};
 
 /// Each line of `script` whose `echo` writes a value, an argument with an expansion. A server's
 /// sh, such as Ubuntu's dash, reads a backslash in echo's arguments as an escape, and `\c` ends
@@ -215,18 +212,38 @@ pub fn scope_problems(script: &str) -> Vec<(usize, String)> {
 }
 
 /// The variables that `line` assigns: each word `name=...` where a command starts, before its
-/// command word, and the `name` of `for name in`. Words are split outside quotes, and a command
-/// starts at the line's start, after `;`, `&`, `|` and `(`, and after a keyword such as `then`.
+/// command word; the `name` of `for name in`; the names that `read`, `export`, `readonly`,
+/// `local` and `unset` take, and the variable of `getopts`; and each `${name:=...}` or
+/// `${name=...}` outside single quotes. Words are split outside quotes, and a command starts at
+/// the line's start, after `;`, `&`, `|` and `(`, and after a keyword such as `then`.
 fn assigned(line: &str) -> Vec<String> {
     const KEYWORDS: [&str; 10] = [
         "if", "then", "else", "elif", "do", "while", "until", "!", "{", "time",
     ];
+    const ASSIGNING: [&str; 6] = ["read", "export", "readonly", "local", "unset", "getopts"];
+    let variable = |name: &str| {
+        name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
     let mut names = Vec::new();
     let mut command = true;
     let mut after_for = false;
+    let mut builtin: Option<(String, usize)> = None;
     for token in tokens(line) {
         if token.len() == 1 && ";&|()".contains(token.as_str()) {
             command = true;
+            builtin = None;
+            continue;
+        }
+        if let Some((name, arguments)) = &mut builtin {
+            if !token.starts_with('-') {
+                *arguments += 1;
+                let assigned = token.split('=').next().unwrap_or_default();
+                // getopts assigns its second argument; the others, each argument.
+                if (name != "getopts" || *arguments == 2) && variable(assigned) {
+                    names.push(assigned.to_owned());
+                }
+            }
             continue;
         }
         if after_for {
@@ -240,14 +257,45 @@ fn assigned(line: &str) -> Vec<String> {
         }
         if token == "for" {
             after_for = true;
+        } else if ASSIGNING.contains(&token.as_str()) {
+            builtin = Some((token, 0));
+            command = false;
         } else if let Some((name, _)) = token.split_once('=')
-            && name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && variable(name)
         {
             names.push(name.to_owned());
         } else if !KEYWORDS.contains(&token.as_str()) {
             command = false;
         }
+    }
+    names.extend(expansions(line));
+    names
+}
+
+/// The variables that `${name:=...}` and `${name=...}` assign in `line`, outside single quotes
+/// and before a comment.
+fn expansions(line: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut quoted = false;
+    let bytes = line.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\'' => quoted = !quoted,
+            b'#' if !quoted && (index == 0 || bytes[index - 1].is_ascii_whitespace()) => break,
+            b'$' if !quoted && bytes.get(index + 1) == Some(&b'{') => {
+                let rest = &line[index + 2..];
+                let end = rest
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .unwrap_or(rest.len());
+                let (name, after) = rest.split_at(end);
+                if !name.is_empty() && (after.starts_with(":=") || after.starts_with('=')) {
+                    names.push(name.to_owned());
+                }
+            }
+            _ => {}
+        }
+        index += 1;
     }
     names
 }
@@ -312,6 +360,27 @@ mod tests {
             .collect();
 
         assert_eq!(lines, [5, 6, 10]);
+    }
+
+    #[test]
+    fn code_16_a_function_s_builtins_and_expansions_assign_too() {
+        let script = "#!/bin/sh\n\
+                      state=/var/lib color=blue moment=now flag=x\n\
+                      ask() {\n\
+                      \x20   read -r state\n\
+                      \x20   export color=green\n\
+                      \x20   getopts ab flag\n\
+                      \x20   : \"${moment:=later}\"\n\
+                      \x20   printf '%s\\n' '${state:=quoted}' \"$color\" \"${flag:-x}\"\n\
+                      \x20   read -r answer\n\
+                      }\n";
+
+        let lines: Vec<usize> = scope_problems(script)
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect();
+
+        assert_eq!(lines, [3, 4, 5, 6]);
     }
 
     #[test]

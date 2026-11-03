@@ -180,12 +180,14 @@ fn shared_trigger(tables: &[&Value], bookkeeping: &[String]) -> Vec<Problem> {
     }
 }
 
-/// DATA-07: every function of the schema is a trigger function that a table's trigger runs, such
-/// as the one that maintains `updated_at` and `version`, and none runs as its owner.
+/// DATA-07: the schema's one function is the trigger function that maintains `updated_at` and
+/// `version`, which the tables' `BEFORE UPDATE` row triggers run (DATA-02), and it doesn't run
+/// as its owner.
 fn functions(catalog: &Value, tables: &[&Value]) -> Vec<Problem> {
     let triggered: Vec<&str> = tables
         .iter()
         .flat_map(|table| list(table, "triggers"))
+        .filter(|trigger| trigger["before_update_row"] == true)
         .map(|trigger| text(trigger, "function"))
         .collect();
     let mut problems = Vec::new();
@@ -195,8 +197,9 @@ fn functions(catalog: &Value, tables: &[&Value]) -> Vec<Problem> {
             problems.push((
                 name.to_owned(),
                 format!(
-                    "the function {name} isn't a trigger function that a table's trigger runs: \
-                     business rules live in Rust (DATA-07)"
+                    "the function {name} isn't the trigger function that maintains \
+                     updated_at and version, the one function the schema holds: business rules \
+                     live in Rust (DATA-07)"
                 ),
             ));
         }
@@ -568,18 +571,28 @@ mod tests {
             .as_array_mut()
             .unwrap()
             .push(json!({ "name": "close_account", "owner": "owner", "trigger": false, "security_definer": false, "public_execute": false }));
+        catalog["functions"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "name": "count_members", "owner": "owner", "trigger": true, "security_definer": false, "public_execute": false }));
+        catalog["tables"][1]["triggers"] =
+            json!([{ "function": "count_members", "before_update_row": false }]);
         let found = messages(&catalog);
         for expected in [
             "the function set_row_version is SECURITY DEFINER (DATA-07)",
-            "the function close_account isn't a trigger function that a table's trigger \
-             runs: business rules live in Rust (DATA-07)",
+            "the function close_account isn't the trigger function that maintains updated_at \
+             and version, the one function the schema holds: business rules live in Rust \
+             (DATA-07)",
+            "the function count_members isn't the trigger function that maintains updated_at \
+             and version, the one function the schema holds: business rules live in Rust \
+             (DATA-07)",
         ] {
             assert!(
                 found.iter().any(|m| m == expected),
                 "{expected} in {found:#?}"
             );
         }
-        assert_eq!(found.len(), 2, "{found:#?}");
+        assert_eq!(found.len(), 3, "{found:#?}");
     }
 
     #[test]
@@ -649,7 +662,7 @@ mod tests {
                 "rate_limit_buckets: a table of platform's bookkeeping has neither updated_at nor version (DATA-02)",
                 "audit_entries: its id isn't `id uuid PRIMARY KEY DEFAULT uuidv7()` (DATA-02)",
                 // With users' trigger gone, no trigger runs the shared function.
-                "the function set_row_version isn't a trigger function that a table's trigger runs: business rules live in Rust (DATA-07)",
+                "the function set_row_version isn't the trigger function that maintains updated_at and version, the one function the schema holds: business rules live in Rust (DATA-07)",
             ]
         );
     }

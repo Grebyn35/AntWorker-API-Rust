@@ -1,6 +1,6 @@
-//! Background jobs (the platform spec's Jobs, D13): queued jobs, which a unit of work enqueues
-//! and every replica's dispatcher runs at least once, and periodic jobs, which the replicas'
-//! schedulers run once per interval across the fleet.
+//! Background jobs (the platform spec's "Jobs" and "The job queue", D13): queued jobs, which a
+//! unit of work enqueues and every replica's dispatcher runs at least once, and periodic jobs,
+//! which the replicas' schedulers run once per interval across the fleet.
 
 mod dispatcher;
 mod runs;

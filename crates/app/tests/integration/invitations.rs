@@ -744,9 +744,9 @@ async fn sec_17_member_joined_reaches_the_members_and_no_replay_from_before_join
         assert_eq!(frame.payload()["user_id"], carol.user_id.as_str());
     }
     // Carol's joining came before Dan's membership, so his replay holds only his own.
-    let types: Vec<_> = replayed.iter().map(|frame| frame.event.clone()).collect();
+    let names: Vec<_> = replayed.iter().map(|frame| frame.event.clone()).collect();
     assert_eq!(
-        types,
+        names,
         [
             Some("member.joined".to_owned()),
             Some("membership.created".to_owned())

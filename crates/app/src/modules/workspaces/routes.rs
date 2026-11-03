@@ -12,7 +12,7 @@ use platform::{
     errors::{Internal, Problem, RequestError},
     http::{FieldErrors, Idempotent, Query, Routes},
     idempotency::IdempotencyKey,
-    lists::{self, Limit, List, Page, Search},
+    lists::{self, Cursor, Limit, List, Page, Search},
     types::{Client, UserId, WorkspaceId},
 };
 use serde::Deserialize;
@@ -101,6 +101,7 @@ pub(crate) struct ListQuery {
     #[param(value_type = Option<Limit>, inline)]
     limit: Option<String>,
     /// The `next_cursor` of the page before.
+    #[param(value_type = Option<Cursor>, inline)]
     cursor: Option<String>,
     /// Only the workspaces whose name contains this, ignoring case (API-20).
     #[param(value_type = Option<Search>, inline)]
@@ -148,6 +149,7 @@ pub(crate) struct MembersQuery {
     #[param(value_type = Option<Limit>, inline)]
     limit: Option<String>,
     /// The `next_cursor` of the page before.
+    #[param(value_type = Option<Cursor>, inline)]
     cursor: Option<String>,
     /// Only the members whose name or email contains this, ignoring case (API-20).
     #[param(value_type = Option<Search>, inline)]

@@ -5,13 +5,18 @@
 //! - no document or comment names the old codebase, and only the places DOC-04 lists point into
 //!   the inventory (DOC-04).
 //!
-//! It reads every Markdown document and every comment of a Rust file, outside the migration
-//! workspace, whose tracker and inventory record the old codebase and the code as it was.
+//! It reads every Markdown document and every comment of a Rust file but the inventory's, whose
+//! IDs are its own, for test prefixes and Rust paths; and every text file but the migration
+//! workspace's, whose tracker and inventory record the old codebase, for its name and the
+//! inventory's paths, outside a comment as well as in one.
 
 use crate::{Finding, catalog::Catalog, repo::Repo};
 
+/// The inventory, whose IDs are its own (DOC-13).
+const INVENTORY: &str = "docs/inventory/";
+
 /// The migration workspace (DOC-04).
-const WORKSPACE: [&str; 2] = ["docs/inventory/", "docs/MIGRATION.md"];
+const WORKSPACE: [&str; 2] = [INVENTORY, "docs/MIGRATION.md"];
 
 /// The places besides the workspace that may point into the inventory (DOC-04).
 const INVENTORY_POINTERS: [&str; 4] = [
@@ -31,24 +36,25 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
     let mut findings = Vec::new();
     for file in repo.files() {
         let path = file.path.as_str();
-        if WORKSPACE.iter().any(|place| path.starts_with(place)) {
+        if path.starts_with(INVENTORY) {
             continue;
         }
+        let workspace = WORKSPACE.iter().any(|place| path.starts_with(place));
         let markdown = path.ends_with(".md");
-        if !markdown && !path.ends_with(".rs") {
-            continue;
-        }
+        let rust = path.ends_with(".rs");
         for (index, line) in file.text.lines().enumerate() {
-            let text = if markdown {
-                line
-            } else {
-                match line.find("//") {
-                    Some(start) => &line[start..],
-                    None => continue,
-                }
-            };
             let mut found = |message: String| findings.push(Finding::new(path, index + 1, message));
-            for (prefix, number) in test_prefixes(text) {
+            // A Rust file's code names what it checks, such as the inventory's path; its comments
+            // describe it.
+            let comment = line.find("//").map(|start| &line[start..]);
+            let described = if markdown {
+                Some(line)
+            } else if rust {
+                comment
+            } else {
+                None
+            };
+            for (prefix, number) in described.map(test_prefixes).unwrap_or_default() {
                 let id = format!("{}-{number}", prefix.to_ascii_uppercase());
                 if catalog.knows_prefix(&prefix.to_ascii_uppercase()) && !catalog.defines(&id) {
                     found(format!(
@@ -56,7 +62,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
                     ));
                 }
             }
-            for cited in rust_paths(text) {
+            for cited in described.map(rust_paths).unwrap_or_default() {
                 let exists = rust_files
                     .iter()
                     .any(|file| *file == cited || file.ends_with(&format!("/{cited}")));
@@ -66,6 +72,12 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
                     ));
                 }
             }
+            if workspace {
+                continue;
+            }
+            let Some(text) = (if rust { comment } else { Some(line) }) else {
+                continue;
+            };
             for name in OLD_NAMES {
                 let named = text.match_indices(name).any(|(start, _)| {
                     !text[start + name.len()..]
@@ -194,8 +206,14 @@ mod tests {
             ),
             (
                 "docs/MIGRATION.md",
-                "AntWorker-API, things_005_, gone/old.rs, inventory/x.md\n",
+                "AntWorker-API, things_005_, gone/old.rs, inventory/x.md, things_001_\n",
             ),
+            ("docs/inventory/old.md", "things_007_ in old/file.rs\n"),
+            (
+                "deploy/tasks/old.sh",
+                "# As AntWorker-API did.\n. ./docs/inventory/x.sh\n",
+            ),
+            ("justfile", "# things_008_ isn't read here.\n"),
         ]);
         let catalog = Catalog::read(&repo);
 
@@ -204,13 +222,17 @@ mod tests {
             .map(|finding| format!("{}:{}", finding.path, finding.message))
             .collect();
 
-        assert_eq!(messages.len(), 5, "{messages:#?}");
+        assert_eq!(messages.len(), 9, "{messages:#?}");
         for expected in [
             "docs/guide.md:`things_002` is the test prefix of THINGS-002",
             "docs/guide.md:`events/gone.rs` names no file",
             "docs/guide.md:`AntWorker-API` names the old codebase",
             "docs/guide.md:a path into the inventory",
             "crates/app/src/lib.rs:`things_009` is the test prefix",
+            "docs/MIGRATION.md:`things_005` is the test prefix",
+            "docs/MIGRATION.md:`gone/old.rs` names no file",
+            "deploy/tasks/old.sh:`AntWorker-API` names the old codebase",
+            "deploy/tasks/old.sh:a path into the inventory",
         ] {
             assert!(
                 messages.iter().any(|message| message.starts_with(expected)),

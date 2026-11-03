@@ -34,7 +34,7 @@ A module references another module only along an edge in the graph in [architect
 ### ARCH-06 A module reads and writes only its own tables
 SQL in a module references only the tables that module owns: those its own migrations create, whose names hold the module's name (DATA-09). `platform` owns the tables of its own migrations, and code of `app` outside its modules runs no SQL. Data owned by another module comes through that module's API, using a batch read when loading a list.
 - Why: ownership stays clear, and a module's schema can change without breaking others.
-- Check: `ci: check-table-ownership` (each table a query of a `sqlx` macro names, against the module whose name the table's creating migration holds).
+- Check: `ci: check-table-ownership` (each table a query of a `sqlx` macro names, against the module whose name the table's creating migration holds, and no query in `app` outside its modules), plus `review` (a list loads another module's data in a batch read).
 
 ### ARCH-07 Optional parts are removable
 These parts are optional:
@@ -76,7 +76,7 @@ A handler in `routes.rs` extracts its inputs, receives its authorization through
 - Check: `review`.
 
 ### ARCH-11 One unit of work per operation, and the commit decides the outcome
-An operation that spans modules passes one `&mut UnitOfWork` through every call. A service never opens a second transaction for the same operation. A refused authorization is the one record written outside it: the `SecurityEventSink` records the refusal in a short transaction of its own, once the operation's has rolled back, so nothing of the refused operation commits while its refusal does (PLATFORM-025). Once the unit of work commits, the response reports what it recorded. A unit of work that recorded a security failure (PLATFORM-006) answers with that failure, such as 401 for a failed sign-in, and any other commit answers with success. Work after the commit happens only through jobs and events, so it can't turn a committed change into an error.
+An operation that spans modules passes one `&mut UnitOfWork` through every call. A service never opens a second transaction for the same operation. Two records are written outside it, each so that what happens to the operation can't undo it: a rate limit's count, which commits before the unit of work opens, so a request refused afterwards still counts (PLATFORM-026), and a refused authorization, which the `SecurityEventSink` records in a short transaction of its own, once the operation's has rolled back, so nothing of the refused operation commits while its refusal does (PLATFORM-025). Once the unit of work commits, the response reports what it recorded. A unit of work that recorded a security failure (PLATFORM-006) answers with that failure, such as 401 for a failed sign-in, and any other commit answers with success. Work after the commit happens only through jobs and events, so it can't turn a committed change into an error.
 - Why: the whole operation commits or none of it does, and the response always matches what was committed (D1, D36).
 - Check: `review`, plus `test` (PLATFORM-006).
 

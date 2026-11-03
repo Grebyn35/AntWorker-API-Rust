@@ -155,7 +155,7 @@
     {
       "type": "stat",
       "title": "Can every instance reach the database?",
-      "description": "No while any instance's own database connection failed its last check.",
+      "description": "No while any instance's listener, its own connection to the database, failed its last check.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

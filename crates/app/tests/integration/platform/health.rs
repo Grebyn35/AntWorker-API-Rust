@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use crate::support::{Api, TestDatabase, run_binary};
 
-/// How often the instance checks its own database connection.
+/// How often the instance checks the listener.
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 #[tokio::test]

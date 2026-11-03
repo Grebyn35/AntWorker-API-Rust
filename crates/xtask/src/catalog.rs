@@ -212,7 +212,7 @@ pub mod tests {
             ),
             (
                 "docs/spec/README.md",
-                "# Specs\n\n## Sections\n\n1. **Purpose.** Why it exists.\n\
+                "# Module specs\n\n## Sections\n\n1. **Purpose.** Why it exists.\n\
                  2. **Routes.** Only in a spec whose module serves routes.\n\
                  3. **Behaviors.** What it guarantees.\n\n\
                  ## Specs\n\n| Module | Spec |\n|---|---|\n| `widgets` | [widgets.md](widgets.md) |\n",

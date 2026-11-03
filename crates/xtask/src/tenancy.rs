@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 
 use proc_macro2::{Delimiter, TokenTree};
 
-use crate::{Finding, Outcome, repo::Repo, rust::Source};
+use crate::{Finding, Outcome, repo::Repo, rust::Source, sql::referenced};
 
 /// The migrations, whose tables the check places.
 const MIGRATIONS: &str = "migrations/";
@@ -339,16 +339,6 @@ pub fn sql_texts(tokens: &[TokenTree], found: &mut Vec<(String, usize)>) {
             sql_texts(&inner, found);
         }
     }
-}
-
-/// The tables that `sql` reads or writes: the names after `FROM`, `JOIN`, `INTO` and `UPDATE`.
-pub fn referenced(sql: &str) -> Vec<String> {
-    let words = words(sql);
-    words
-        .windows(2)
-        .filter(|pair| ["from", "join", "into", "update"].contains(&pair[0].0.as_str()))
-        .map(|pair| pair[1].0.clone())
-        .collect()
 }
 
 /// Whether `sql` names one of `tenants`: among the columns an `INSERT` writes, or compared with

@@ -1,5 +1,5 @@
-//! `check-shell`: shellcheck finds nothing in a recipe of the justfile that runs on Linux and
-//! macOS, or in a shell script under `deploy/`, and each directive that disables a finding stands
+//! `check-shell`: shellcheck finds nothing in a recipe of the justfile, or of a file it imports,
+//! that runs on Linux and macOS, or in a shell script under `deploy/`, and each directive that disables a finding stands
 //! on the line before the command it concerns, with a comment that states its reason. A script
 //! under `deploy/` writes a value with printf, never echo, and none of its functions assigns a
 //! variable that its top level sets (CODE-16). Each `psql` of a script under `deploy/` takes its
@@ -10,9 +10,10 @@
 //! sources written in place of the lines that source them (`scripts`), and a finding names the
 //! file and line it comes from.
 //!
-//! `just` lists only the recipes of the platform it runs on, so the check reads the justfile
-//! itself, and checks the same recipes on every platform. Each recipe becomes a script whose
-//! lines stand where they stand in the justfile, so a finding's line is the justfile's. An
+//! `just` lists only the recipes of the platform it runs on, so the check reads the justfile and
+//! the files it imports itself, and checks the same recipes on every platform. Each recipe
+//! becomes a script whose lines stand where they stand in its file, so a finding's line is the
+//! file's. An
 //! interpolation becomes a word of its own, since `just` writes its value into the line before
 //! the shell reads it. shellcheck runs from the image that `compose.yaml` pins. The check reads
 //! the directives itself, since shellcheck applies any directive it finds.
@@ -24,6 +25,7 @@ use std::{collections::BTreeMap, path::Path, process::Command};
 
 use serde_json::Value;
 
+pub use recipes::justfiles;
 pub use scripts::scripts;
 
 use crate::{
@@ -41,23 +43,27 @@ const INTERPOLATED: &str = "just_value";
 /// Runs the check.
 pub fn check(repo: &Repo) -> Outcome {
     let mut findings = Vec::new();
-    let Some(justfile) = repo.file(JUSTFILE) else {
+    let justfiles = justfiles(repo);
+    if justfiles.is_empty() {
         findings.push(Finding::new(JUSTFILE, 1, "the justfile is missing"));
         return outcome(findings);
-    };
-    let rendered = match recipes::write_recipes(&justfile.text) {
+    }
+    // Each recipe's script, by the file it comes from.
+    let rendered: BTreeMap<String, String> = match recipes::write_recipes(&justfiles) {
         Ok(rendered) => rendered,
         Err(error) => {
             findings.push(Finding::new(RENDERED, 1, error.to_string()));
             return outcome(findings);
         }
     };
-    for recipe in recipes::recipes(&justfile.text)
-        .iter()
-        .filter(|recipe| recipe.unix)
-    {
-        for (line, message) in directive_problems(&recipes::render(recipe)) {
-            findings.push(Finding::new(JUSTFILE, line, message));
+    for file in &justfiles {
+        for recipe in recipes::recipes(&file.text)
+            .iter()
+            .filter(|recipe| recipe.unix)
+        {
+            for (line, message) in directive_problems(&recipes::render(recipe)) {
+                findings.push(Finding::new(&file.path, line, message));
+            }
         }
     }
     let scripts = scripts::scripts(repo);
@@ -75,7 +81,7 @@ pub fn check(repo: &Repo) -> Outcome {
     }
     // Each script that no other sources, with the files it sources in place: its path for
     // shellcheck, and where each of its lines comes from.
-    let mut paths = rendered.clone();
+    let mut paths: Vec<String> = rendered.keys().cloned().collect();
     let mut origins: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
     let inlined_directory = format!("{RENDERED}/scripts");
     if let Err(error) = repo::empty_directory(&inlined_directory) {
@@ -103,8 +109,8 @@ pub fn check(repo: &Repo) -> Outcome {
     match shellcheck(&paths) {
         Ok(comments) => {
             for comment in comments {
-                let (path, line) = if rendered.contains(&comment.path) {
-                    (JUSTFILE.to_owned(), comment.line)
+                let (path, line) = if let Some(justfile) = rendered.get(&comment.path) {
+                    (justfile.clone(), comment.line)
                 } else if let Some(origin) = origins
                     .get(&comment.path)
                     .and_then(|origins| origins.get(comment.line.saturating_sub(1)))

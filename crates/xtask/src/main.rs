@@ -38,12 +38,14 @@ mod rust;
 mod schema;
 mod server;
 mod shell;
+mod sql;
 mod sql_bans;
 mod stack;
 mod telemetry_config;
 mod tenancy;
 mod test_map;
 mod text;
+mod unused;
 
 use std::{fmt, io, process::ExitCode};
 
@@ -127,11 +129,11 @@ enum Command {
     /// ERR-06), and on a dependency that its crate's code never names (CODE-11).
     #[command(name = "check-deps")]
     Deps,
-    /// Fails on a table, column, constraint or index of the migrations' schema that breaks the
-    /// data rules for names, standard columns, foreign keys and soft deletes, or a privilege,
-    /// owner or setting of the roles that breaks them, as the catalog of a database that the
-    /// API's own `bootstrap` and `migrate` build shows it (DATA-01, DATA-02, DATA-05, DATA-06,
-    /// DATA-12, DATA-19).
+    /// Fails on a table, column, constraint, function or index of the migrations' schema that
+    /// breaks the data rules for names, standard columns, check constraints, functions, foreign
+    /// keys and soft deletes, or a privilege, owner or setting of the roles that breaks them, as
+    /// the catalog of a database that the API's own `bootstrap` and `migrate` build shows it
+    /// (DATA-01, DATA-02, DATA-04, DATA-05, DATA-06, DATA-07, DATA-12, DATA-19).
     #[command(name = "check-schema")]
     Schema,
     /// Fails on a query, in a `sqlx` macro of `platform` or `app`, of a table with a

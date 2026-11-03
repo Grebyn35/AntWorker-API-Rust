@@ -249,6 +249,27 @@ impl ToSchema for Search {
     }
 }
 
+/// The characters of a cursor: its bytes in base64url, without padding.
+const CURSOR_CHARS: usize = (4 * CURSOR_LEN).div_ceil(3);
+
+impl PartialSchema for Cursor {
+    /// The schema of the `cursor` parameter, the text a list's `next_cursor` gives.
+    fn schema() -> RefOr<Schema> {
+        ObjectBuilder::new()
+            .schema_type(Type::String)
+            .min_length(Some(CURSOR_CHARS))
+            .max_length(Some(CURSOR_CHARS))
+            .pattern(Some("^[A-Za-z0-9_-]+$"))
+            .into()
+    }
+}
+
+impl ToSchema for Cursor {
+    fn name() -> Cow<'static, str> {
+        Cow::Borrowed("Cursor")
+    }
+}
+
 /// The sort key of an item that a timestamp orders.
 pub fn key(at: Timestamp, id: uuid::Uuid) -> Cursor {
     Cursor { at: at.at(), id }
@@ -288,6 +309,24 @@ mod tests {
         let other = route_tag("/v1/workspaces/{workspace_id}/members");
         assert_eq!(decode(&encoded, other).unwrap_err().code, "invalid");
         assert_eq!(decode("not a cursor", tag).unwrap_err().code, "invalid");
+    }
+
+    #[test]
+    fn api_17_a_cursor_s_text_has_the_length_and_characters_its_schema_documents() {
+        let cursor = Cursor {
+            at: time::OffsetDateTime::from_unix_timestamp_nanos(-1_000).unwrap(),
+            id: uuid::Uuid::max(),
+        };
+
+        let encoded = encode(cursor, route_tag("/v1/workspaces"));
+
+        assert_eq!(encoded.len(), CURSOR_CHARS);
+        assert!(
+            encoded
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
+            "{encoded}"
+        );
     }
 
     #[test]

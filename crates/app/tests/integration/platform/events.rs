@@ -490,7 +490,7 @@ async fn platform_072_a_stream_whose_client_reads_too_slowly_closes_with_lagging
     assert_eq!(before[255].payload()["n"], 256);
 }
 
-/// Cuts the API's role off the database, so the hub's connection is lost and its next check
+/// Cuts the API's role off the database, so the listener is lost and its next check
 /// fails; returns readiness's answer then; and lets the role in again after `meanwhile`, which
 /// runs as owner, so the hub connects again at its next check.
 async fn lose_the_connection(api: &Api, meanwhile: &str) -> crate::support::api::Response {
@@ -836,12 +836,7 @@ async fn obs_07_an_event_s_delivery_links_to_the_trace_that_published_it() {
             ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
         ])
         .await;
-    let user = database
-        .owner_reads(
-            "INSERT INTO users (email, name) VALUES ('u@example.com', 'U') RETURNING id::text",
-        )
-        .await
-        .remove(0);
+    let user = crate::support::users::without_password(&database, "u@example.com").await;
 
     // An event committed and notified as a unit of work's commit does it, with the trace context
     // of what published it.

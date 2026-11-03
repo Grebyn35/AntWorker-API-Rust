@@ -91,7 +91,7 @@ pub fn comment<'a>(path: &str, line: &'a str) -> Option<&'a str> {
         "//"
     } else if name.ends_with(".sql") {
         "--"
-    } else if [".toml", ".yml", ".yaml"]
+    } else if [".toml", ".yml", ".yaml", ".just"]
         .iter()
         .any(|extension| name.ends_with(extension))
         || matches!(

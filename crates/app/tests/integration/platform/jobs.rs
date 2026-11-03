@@ -506,12 +506,7 @@ async fn platform_064_the_sweeps_delete_what_nothing_reads_any_more() {
          VALUES ('\\x01', 1, now() - interval '23 hours')",
     )
     .await;
-    let user = db
-        .owner_reads(
-            "INSERT INTO users (email, name) VALUES ('u@example.com', 'U') RETURNING id::text",
-        )
-        .await
-        .remove(0);
+    let user = support::users::without_password(&db, "u@example.com").await;
     db.owner_executes(&format!(
         "INSERT INTO idempotency_records (user_id, key, fingerprint, created_at) VALUES \
          ('{user}', 'old', '\\x00', now() - interval '25 hours'), \

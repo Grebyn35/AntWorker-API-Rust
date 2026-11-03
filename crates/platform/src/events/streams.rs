@@ -114,8 +114,7 @@ impl Streams {
         }
     }
 
-    /// Closes every stream with `interrupted`, after the hub's connection was lost
-    /// (PLATFORM-073).
+    /// Closes every stream with `interrupted`, after the listener was lost (PLATFORM-073).
     pub(super) fn interrupt(&mut self) {
         let ids: Vec<StreamId> = self.streams.keys().copied().collect();
         for id in ids {

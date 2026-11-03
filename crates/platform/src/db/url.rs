@@ -38,7 +38,8 @@ impl DatabaseUrl {
         &self.database
     }
 
-    /// The same URL, connecting to `database` instead.
+    /// The same URL, connecting to `database` instead, as the tests' databases are reached.
+    #[cfg(feature = "test-support")]
     pub fn with_database(&self, database: &str) -> Self {
         Self {
             options: self.options.clone().database(database),

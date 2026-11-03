@@ -11,7 +11,7 @@ use platform::{
     errors::{Internal, Problem, RequestError},
     http::{FieldErrors, Idempotent, Query, Routes},
     idempotency::IdempotencyKey,
-    lists::{Limit, List, Page, Search},
+    lists::{Cursor, Limit, List, Page, Search},
     rate_limit::RateLimits,
     types::{Client, EmailAddress, WorkspaceId},
 };
@@ -121,6 +121,7 @@ pub(crate) struct ReceivedQuery {
     #[param(value_type = Option<Limit>, inline)]
     limit: Option<String>,
     /// The `next_cursor` of the page before.
+    #[param(value_type = Option<Cursor>, inline)]
     cursor: Option<String>,
     /// Only the invitations to workspaces whose name contains this, ignoring case (API-20).
     #[param(value_type = Option<Search>, inline)]

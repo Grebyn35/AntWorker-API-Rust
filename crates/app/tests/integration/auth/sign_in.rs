@@ -114,11 +114,7 @@ async fn auth_004_signing_in_creates_a_session() {
 async fn auth_005_every_failed_sign_in_answers_the_same_401() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    api.database()
-        .owner_executes(
-            "INSERT INTO users (email, name) VALUES ('nopassword@example.com', 'No Password')",
-        )
-        .await;
+    users::without_password(api.database(), "nopassword@example.com").await;
 
     let wrong = users::sign_in(&api, "ada@example.com", "wrong-password-123").await;
     let unknown = users::sign_in(&api, "nobody@example.com", PASSWORD).await;

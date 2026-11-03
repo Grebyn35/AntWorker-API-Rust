@@ -2,7 +2,7 @@
 //! - Each file of `migrations/` is named `<timestamp>_<module>_<description>.sql`: fourteen
 //!   digits, a module of `app` or `platform`, then a description in `snake_case`.
 //! - The newest release holds its migrations as they are: none of the files under `migrations/`
-//!   of the newest tag `v*` is changed or deleted, since `migrate` and `serve` refuse a database
+//!   of the tag `v*` of the newest version, by semantic versioning, is changed or deleted, since `migrate` and `serve` refuse a database
 //!   whose applied migration differs from its file (PLATFORM-029, PLATFORM-030). A repository
 //!   without a release, such as a fork before its first, has nothing to keep.
 //!
@@ -11,7 +11,7 @@
 use std::{path::Path, process::Command};
 
 use crate::{
-    Finding, Outcome,
+    Finding, Outcome, release,
     repo::{self, Repo},
 };
 
@@ -20,9 +20,6 @@ const MIGRATIONS: &str = "migrations/";
 
 /// The directory of `app`'s modules, whose names a migration's name may hold.
 const MODULES: &str = "crates/app/src/modules/";
-
-/// The tags of releases (OPS-14).
-const RELEASE_TAGS: &str = "v*";
 
 /// A release, with the migrations it holds: each one's path and bytes.
 pub struct Release {
@@ -126,20 +123,14 @@ fn named(path: &str, modules: &[&str]) -> bool {
         })
 }
 
-/// The newest release of the repository at `root`, by version, with its migrations, or `None`
-/// when no tag names one.
+/// The newest release of the repository at `root`, by semantic versioning's order, in which a
+/// prerelease comes before the release it leads to, with its migrations, or `None` when no tag
+/// names one. git's own version sort lists `v1.0.0-rc.1` after `v1.0.0`.
 fn newest_release(root: &Path) -> Result<Option<Release>, String> {
-    let tags = git(
-        root,
-        &["tag", "--list", RELEASE_TAGS, "--sort=-version:refname"],
-    )?;
-    let Some(tag) = String::from_utf8_lossy(&tags)
-        .lines()
-        .next()
-        .map(str::to_owned)
-    else {
+    let Some(newest) = release::releases(root)?.into_iter().max() else {
         return Ok(None);
     };
+    let tag = format!("v{newest}");
     let listing = git(
         root,
         &["ls-tree", "-r", "-z", "--name-only", &tag, "--", MIGRATIONS],
@@ -214,6 +205,46 @@ mod tests {
             outcome.report,
             ["check-migrations: no release holds a migration yet."]
         );
+    }
+
+    #[test]
+    fn data_09_the_newest_release_is_a_final_release_after_its_prereleases() {
+        // A repository of its own, under target/, which the build already ignores.
+        let directory = "target/check-migrations-test";
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(directory);
+        repo::empty_directory(directory).unwrap();
+        repo::empty_directory(&format!("{directory}/migrations")).unwrap();
+        let commit = |message: &str| {
+            let identity = ["-c", "user.name=test", "-c", "user.email=test@example.com"];
+            let args = [&identity[..], &["commit", "--quiet", "-m", message]].concat();
+            git(&root, &args).unwrap();
+        };
+        git(&root, &["init", "--quiet"]).unwrap();
+        repo::write(
+            &format!("{directory}/migrations/1_platform_a.sql"),
+            "SELECT 1;\n",
+        )
+        .unwrap();
+        git(&root, &["add", "."]).unwrap();
+        commit("first");
+        for tag in ["v1.0.0-rc.2", "v1.0.0-rc.11"] {
+            git(&root, &["tag", tag]).unwrap();
+        }
+        repo::write(
+            &format!("{directory}/migrations/2_platform_b.sql"),
+            "SELECT 2;\n",
+        )
+        .unwrap();
+        git(&root, &["add", "."]).unwrap();
+        commit("second");
+        git(&root, &["tag", "v1.0.0"]).unwrap();
+
+        let release = newest_release(&root).unwrap().unwrap();
+
+        assert_eq!(release.tag, "v1.0.0");
+        assert_eq!(release.migrations.len(), 2);
     }
 
     #[test]

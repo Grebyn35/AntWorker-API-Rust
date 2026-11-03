@@ -138,7 +138,7 @@ async fn realtime_001_a_request_without_a_session_opens_no_stream() {
 }
 
 #[tokio::test]
-async fn realtime_002_an_event_s_frame_carries_its_id_its_type_and_the_trace_of_its_publisher() {
+async fn realtime_002_an_event_s_frame_carries_its_id_its_name_and_the_trace_of_its_publisher() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let mut stream = streams::connect(&api, &ada.access, None).await;
@@ -310,9 +310,9 @@ async fn realtime_004_a_stream_that_closes_before_its_first_event_resumes_where_
     assert_eq!(opened.id.as_deref(), Some(announced[0].as_str()));
     assert!(before.is_empty(), "{before:?}");
     assert_eq!(reason, "access_changed");
-    let types: Vec<Option<String>> = replayed.into_iter().map(|frame| frame.event).collect();
+    let names: Vec<Option<String>> = replayed.into_iter().map(|frame| frame.event).collect();
     assert_eq!(
-        types,
+        names,
         [
             Some("membership.created".to_owned()),
             Some("announcement.made".to_owned())

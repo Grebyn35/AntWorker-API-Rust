@@ -1,10 +1,10 @@
 //! The justfile's recipes, each written as a script whose lines stand where they stand in the
 //! justfile, so that a finding of shellcheck names the justfile's line.
 
-use std::io;
+use std::{collections::BTreeMap, io};
 
-use super::{INTERPOLATED, RENDERED};
-use crate::repo;
+use super::{INTERPOLATED, JUSTFILE, RENDERED};
+use crate::repo::{self, File, Repo};
 
 /// A recipe of the justfile.
 #[derive(Debug, PartialEq, Eq)]
@@ -165,15 +165,31 @@ fn interpolate(line: &str) -> String {
     text
 }
 
-/// Writes the script of each recipe that runs on Linux and macOS into an empty `RENDERED`, and
-/// returns the paths it wrote, from the repository root.
-pub fn write_recipes(justfile: &str) -> io::Result<Vec<String>> {
+/// The justfile, and each file that one of its `import` lines names, such as
+/// `import 'just/check.just'`, which `just` reads as if its recipes were in the justfile.
+pub fn justfiles(repo: &Repo) -> Vec<&File> {
+    let Some(justfile) = repo.file(JUSTFILE) else {
+        return Vec::new();
+    };
+    let imported = justfile.text.lines().filter_map(|line| {
+        let path = line.strip_prefix("import ")?.trim();
+        repo.file(path.trim_matches(|c| c == '\'' || c == '"'))
+    });
+    std::iter::once(justfile).chain(imported).collect()
+}
+
+/// Writes the script of each recipe of `justfiles` that runs on Linux and macOS into an empty
+/// `RENDERED`, and returns the paths it wrote, from the repository root, each with the path of
+/// the file its recipe comes from.
+pub fn write_recipes(justfiles: &[&File]) -> io::Result<BTreeMap<String, String>> {
     repo::empty_directory(RENDERED)?;
-    let mut written = Vec::new();
-    for recipe in recipes(justfile).iter().filter(|recipe| recipe.unix) {
-        let path = format!("{RENDERED}/{}.sh", recipe.name);
-        repo::write(&path, &render(recipe))?;
-        written.push(path);
+    let mut written = BTreeMap::new();
+    for file in justfiles {
+        for recipe in recipes(&file.text).iter().filter(|recipe| recipe.unix) {
+            let path = format!("{RENDERED}/{}.sh", recipe.name);
+            repo::write(&path, &render(recipe))?;
+            written.insert(path, file.path.clone());
+        }
     }
     Ok(written)
 }

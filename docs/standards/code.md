@@ -47,14 +47,14 @@ Code in this workspace outside `platform::clock` doesn't read a clock (`Utc::now
 - Check: `clippy` (`disallowed_methods` bans the clock reads and waits of the dependencies; a dependency that brings a clock or a random number generator brings its bans with it).
 
 ### CODE-16 Shell passes shellcheck
-Every recipe of the justfile that runs on Linux and macOS, and every shell script under `deploy/`, passes shellcheck with no finding, a script together with the files it sources. A finding is disabled only by a directive on the line before the command it concerns, with a comment that states the reason. A script under `deploy/` writes a value with `printf '%s\n'`, never with `echo`, and no function of it, or of a file it sources, assigns a variable that its top level sets.
+Every recipe of the justfile and the files it imports that runs on Linux and macOS, and every shell script under `deploy/`, passes shellcheck with no finding, a script together with the files it sources. A finding is disabled only by a directive on the line before the command it concerns, with a comment that states the reason. A script under `deploy/` writes a value with `printf '%s\n'`, never with `echo`, and no function of it, or of a file it sources, assigns a variable that its top level sets.
 - Why: in shell, a quoting slip runs a different command than the one written, and a script that deploys or restores runs where a mistake costs the most (D21). A server's `sh`, such as Ubuntu's dash, reads a backslash in `echo`'s arguments as an escape, and `\c` ends its output, while the tests' server, on Alpine, writes it as it is. Every variable of `sh` is global, so a function that assigns one the top level sets changes what the rest of the script reads.
 - Check: `ci: check-shell`.
 
 ## Size
 
 ### CODE-07 Files stay under 500 lines
-A file of code holds at most 500 lines. A Rust file of a crate's `src/` counts its lines before its test module, and one over the limit is split into a directory of modules with the same name (ARCH-03); a test file, under a crate's `tests/`, isn't counted. A shell script under `deploy/` counts all its lines, and one over the limit is split into files that it sources, by task, as `deploy.sh` sources `deploy/tasks/`.
+A file of code holds at most 500 lines. A Rust file of a crate's `src/` counts its lines before its test module, and one over the limit is split into a directory of modules with the same name (ARCH-03); a test file, under a crate's `tests/`, isn't counted. A shell script under `deploy/` counts all its lines, and one over the limit is split into files that it sources, by task, as `deploy.sh` sources `deploy/tasks/`. The justfile and each file it imports count all their lines: the justfile holds the settings, the variables and the tasks that run the others, and imports the rest from `just/`, a file for each kind of task, as its groups name them.
 - Why: a file a reader can hold in mind at once, whatever its language.
 - Check: `ci: check-layout`.
 
@@ -95,9 +95,9 @@ The commit that adds a dependency says, in its message, what it is for and why t
 ## Shape
 
 ### CODE-14 No dead code, no commented-out code
-Unused items are deleted, not kept behind an exception to the `dead_code` lint. Code that has been commented out is deleted. An item of `platform`'s public API is used when code outside the tests calls it, or when the platform spec's Interface names it, since that section is the contract modules are built against, such as `JobContext`'s attempt, which a job's handler may read; any other item that only tests call is dead.
+Unused items are deleted, not kept behind an exception to the `dead_code` lint. Code that has been commented out is deleted. An item of `platform`'s public API is used when code outside the tests calls it, or when the platform spec's Interface names it, since that section is the contract modules are built against, such as `JobContext`'s attempt, which a job's handler may read. An item that only the tests use is compiled only for them, with `#[cfg(test)]` or, for the tests of other crates, the `test-support` feature (TEST-06); any other item that only tests call is dead. A test target that includes another's support module through `#[path]`, as the end-to-end tests include the integration tests', excepts `dead_code` on that module's declaration alone, with its reason, since the target the module belongs to uses all of it, and the lint checks it there.
 - Why: dead code costs reading time and implies a requirement that doesn't exist.
-- Check: `compiler` (`dead_code` denied; `app` exposes only its composition entry point publicly, so every module item is crate-visible and covered), `ci: check-layout` (no exception to `dead_code` in `platform` or `app`), plus `review` for unused public items in `platform` and for commented-out code.
+- Check: `compiler` (`dead_code` denied; `app` exposes only its composition entry point publicly, so every module item is crate-visible and covered), `ci: check-layout` (no exception to `dead_code` in the code or the tests of `platform` and `app` but on a module that `#[path]` names, and no public item of `platform`, outside what only the tests compile, that no code outside the tests names and the Interface doesn't), plus `review` for an unused public item whose name another item shares, which the check can't tell apart, and for commented-out code.
 
 ### CODE-15 Public items are documented
 Every public item in `platform`, and every item a module re-exports from `mod.rs`, has a doc comment (DOC-05).

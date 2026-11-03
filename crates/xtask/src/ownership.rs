@@ -2,7 +2,7 @@
 //! A table belongs to the module whose name its creating migration holds (DATA-09), and
 //! `platform`'s are those of its own migrations. Each query in a `sqlx` macro of a module of `app`
 //! names only its module's tables, each of `platform` only `platform`'s, and the rest of `app`
-//! names none.
+//! runs no SQL.
 //!
 //! It reads the migrations and the queries as `check-tenancy` does (`tenancy`).
 
@@ -12,7 +12,8 @@ use crate::{
     Finding, Outcome,
     repo::Repo,
     rust::{self, Source},
-    tenancy::{self, referenced, sql_texts, unquoted},
+    sql::referenced,
+    tenancy::{self, sql_texts, unquoted},
 };
 
 /// The root of `platform`'s code, all of which `platform` owns.
@@ -70,20 +71,27 @@ pub fn check(repo: &Repo) -> Outcome {
         sql_texts(&source.tokens, &mut queries);
         for (sql, line) in queries {
             checked += 1;
+            if code.is_none() {
+                findings.push(Finding::new(
+                    &file.path,
+                    line,
+                    "code of `app` outside its modules runs no SQL: a module's repository \
+                     runs it (ARCH-06)",
+                ));
+                continue;
+            }
             for table in referenced(&unquoted(&sql.to_ascii_lowercase())) {
                 let Some(owner) = owners.get(&table) else {
                     continue;
                 };
-                if code != Some(owner.as_str()) {
-                    let place = code.map_or_else(
-                        || "code outside a module".to_owned(),
-                        |code| format!("`{code}`"),
-                    );
+                if let Some(code) = code
+                    && code != owner.as_str()
+                {
                     findings.push(Finding::new(
                         &file.path,
                         line,
                         format!(
-                            "a query of {place} names `{table}`, which `{owner}` owns: data \
+                            "a query of `{code}` names `{table}`, which `{owner}` owns: data \
                              another module owns comes through that module's functions (ARCH-06)"
                         ),
                     ));
@@ -179,7 +187,11 @@ mod tests {
             ),
             (
                 "crates/app/src/composition.rs",
-                "fn f() { sqlx::query!(\"DELETE FROM jobs\"); }",
+                "fn f() { sqlx::query!(\"SELECT 1\"); }",
+            ),
+            (
+                "crates/app/src/modules/thing_tags/service.rs",
+                "fn g() { sqlx::query!(\"SELECT t.id FROM tags t, things\"); }",
             ),
         ]);
 
@@ -195,9 +207,11 @@ mod tests {
                 "crates/platform/src/jobs/repo.rs:2: a query of `platform` names `things`, which \
                  `things` owns: data another module owns comes through that module's functions \
                  (ARCH-06)",
-                "crates/app/src/composition.rs:1: a query of code outside a module names `jobs`, \
-                 which `platform` owns: data another module owns comes through that module's \
-                 functions (ARCH-06)",
+                "crates/app/src/composition.rs:1: code of `app` outside its modules runs no \
+                 SQL: a module's repository runs it (ARCH-06)",
+                "crates/app/src/modules/thing_tags/service.rs:1: a query of `thing_tags` names \
+                 `things`, which `things` owns: data another module owns comes through that \
+                 module's functions (ARCH-06)",
             ]
         );
     }

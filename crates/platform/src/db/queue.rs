@@ -1,6 +1,6 @@
 //! The job queue's statements that run outside any transaction, each committing at once: the
 //! claims of jobs and periodic jobs, the renewals of their leases, and their outcomes (the
-//! platform spec's Jobs). Every statement after a claim names the claim's ID, so a run whose
+//! platform spec's "The job queue"). Every statement after a claim names the claim's ID, so a run whose
 //! lease ran out, while another replica claimed the job, changes nothing.
 
 use std::time::Duration;

@@ -27,7 +27,7 @@ pub enum Closed {
     Lagging,
     /// The instance is shutting down (PLATFORM-038).
     Shutdown,
-    /// The hub's connection was lost, so it may have missed signals (PLATFORM-073).
+    /// The listener was lost, so the hub may have missed signals (PLATFORM-073).
     Interrupted,
 }
 

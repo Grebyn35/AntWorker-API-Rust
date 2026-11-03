@@ -2985,6 +2985,9 @@
             "name": "cursor",
             "required": false,
             "schema": {
+              "maxLength": 38,
+              "minLength": 38,
+              "pattern": "^[A-Za-z0-9_-]+$",
               "type": "string"
             }
           },
@@ -4253,6 +4256,9 @@
             "name": "cursor",
             "required": false,
             "schema": {
+              "maxLength": 38,
+              "minLength": 38,
+              "pattern": "^[A-Za-z0-9_-]+$",
               "type": "string"
             }
           },
@@ -5456,6 +5462,9 @@
             "name": "cursor",
             "required": false,
             "schema": {
+              "maxLength": 38,
+              "minLength": 38,
+              "pattern": "^[A-Za-z0-9_-]+$",
               "type": "string"
             }
           },

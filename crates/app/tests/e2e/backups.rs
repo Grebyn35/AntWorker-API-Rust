@@ -49,7 +49,7 @@ fn signal_archiver(deployment: &Deployment, signal: &str) {
 
 /// Makes Postgres reject, or accept again, the connections through its socket, which the
 /// restore's own statements use, while the replicas connect over the network. It returns once
-/// Postgres does.
+/// Postgres does, and fails the test if Postgres doesn't within a minute (TEST-07).
 fn local_connections(deployment: &Deployment, accepted: bool) {
     let (change, until) = if accepted {
         ("1d", "until")
@@ -64,7 +64,8 @@ fn local_connections(deployment: &Deployment, accepted: bool) {
         ),
     );
     deployment.server.shell_ok(
-        "docker exec -i --user postgres deployment-postgres-1 sh < /root/local-connections.sh",
+        "docker exec -i --user postgres deployment-postgres-1 timeout 60 sh \
+         < /root/local-connections.sh",
     );
 }
 

@@ -40,7 +40,8 @@ flowchart LR
 
 ```
 Cargo.toml          workspace manifest
-justfile            every task, run identically locally and in CI (D21)
+justfile            every task, run identically locally and in CI (D21), with its settings and variables
+just/               the tasks the justfile imports, a file for each kind (CODE-07)
 Dockerfile          the image (OPS-15)
 compose.yaml        the services a developer runs locally, and the images of the tools the tasks run
 crates/
@@ -355,7 +356,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | Load testing | k6 | Constant-arrival-rate scenarios measure the rate a replica serves within the latency objective (OPS-18) |
 | Backups | pgBackRest, in the reference deployment's image of the official Postgres | Continuous archiving of the write-ahead log, and point-in-time recovery from an S3-compatible bucket, encrypted, with retention (D44) |
 | Image scan | Grype | It reads both the base's packages and the crates the binary records (SEC-13) |
-| Shell linting | shellcheck | The standard linter for shell, run on the justfile's recipes and the deployment's scripts (CODE-16) |
+| Shell linting | shellcheck | The standard linter for shell, run on the recipes of the justfile and the files it imports, and the deployment's scripts (CODE-16) |
 | Registry and signing | crane, and cosign with keyless signing | crane copies and tags an image without changing its digest, so promoting it never rewrites it (OPS-14) |
 | Dependency updates | Dependabot | It reads the crates, the actions, the images of both Dockerfiles and of every Compose file, and the toolchain, and needs no app installed (OPS-13) |
 

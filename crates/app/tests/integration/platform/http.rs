@@ -155,7 +155,7 @@ async fn platform_032_a_method_the_path_does_not_serve_answers_405_with_allow() 
 
 #[tokio::test]
 async fn platform_035_an_undocumented_query_parameter_answers_400() {
-    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
+    let api = Api::new().await;
 
     let response = api.get("/v1/capabilities?verbose=true").send().await;
 
@@ -165,7 +165,12 @@ async fn platform_035_an_undocumented_query_parameter_answers_400() {
         unknown["errors"],
         serde_json::json!([{ "field": "/verbose", "code": "unknown", "message": message }])
     );
-    let response = api.get("/v1/items?limit=5&sort=name&page=2").send().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let response = api
+        .get("/v1/workspaces?limit=5&sort=name&page=2")
+        .bearer(&ada.access)
+        .send()
+        .await;
     let unknown = problem(&response, StatusCode::BAD_REQUEST, "request.invalid_query");
     assert_eq!(
         unknown["errors"],
@@ -190,9 +195,14 @@ async fn platform_035_a_head_request_is_checked_like_its_get() {
 
 #[tokio::test]
 async fn platform_035_a_documented_query_parameter_passes() {
-    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
 
-    let response = api.get("/v1/items?limit=5").send().await;
+    let response = api
+        .get("/v1/workspaces?limit=5")
+        .bearer(&ada.access)
+        .send()
+        .await;
 
     assert_eq!(response.status, StatusCode::OK);
 }

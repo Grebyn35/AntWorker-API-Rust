@@ -9,11 +9,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
-use axum::{
-    Extension, Json,
-    extract::{Query, State},
-    http::StatusCode,
-};
+use axum::{Extension, Json, extract::State, http::StatusCode};
 use platform::{
     authn::Principal,
     authz::{Authorize, Authorizer, Permission},
@@ -25,9 +21,8 @@ use platform::{
     types::{Client, EmailAddress, WorkspaceId},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use tokio::sync::Notify;
-use utoipa::{IntoParams, ToSchema};
+use utoipa::ToSchema;
 use utoipa_axum::routes;
 
 /// Holds `GET /v1/gate` until the test releases it.
@@ -59,26 +54,6 @@ async fn panics() -> StatusCode {
 #[utoipa::path(get, path = "/v1/broken", responses((status = 204, description = "Never.")))]
 async fn broken() -> Result<StatusCode, Problem<Internal>> {
     Err(Internal::new(std::io::Error::other("the disk is gone")).into())
-}
-
-/// The query of `GET /v1/items`.
-#[derive(Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-#[serde(deny_unknown_fields)]
-struct Page {
-    /// How many items.
-    limit: Option<u32>,
-}
-
-/// Takes one query parameter.
-#[utoipa::path(
-    get,
-    path = "/v1/items",
-    params(Page),
-    responses((status = 200, description = "The items.", body = Value)),
-)]
-async fn items(Query(page): Query<Page>) -> Json<Value> {
-    Json(json!({ "limit": page.limit }))
 }
 
 /// What `POST /v1/keyed` takes.
@@ -244,7 +219,6 @@ pub fn routes(held: Arc<Gate>) -> Routes {
     Routes::new()
         .public(routes!(panics), &[])
         .merge(Routes::new().public(routes!(broken), &[]))
-        .merge(Routes::new().public(routes!(items), &[]))
         .merge(Routes::new().public(routes!(gate), &[]).with_state(held))
         .merge(
             Routes::new()

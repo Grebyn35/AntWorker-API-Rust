@@ -35,6 +35,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
         .collect();
     let mut findings = catalog.findings().to_vec();
     findings.extend(links(repo, &documents));
+    findings.extend(headings(&documents));
     findings.extend(ids(repo, catalog));
     findings.extend(named_checks(repo, catalog));
     findings.extend(prose_markers(&documents));
@@ -52,6 +53,27 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
         )],
         findings,
     }
+}
+
+/// No two headings of a document outside the inventory share their text, so each anchor names
+/// one heading (DOC-13).
+fn headings(documents: &BTreeMap<&str, markdown::Document>) -> Vec<Finding> {
+    documents
+        .iter()
+        .filter(|(path, _)| !path.starts_with(INVENTORY))
+        .flat_map(|(path, document)| {
+            document.repeated_headings.iter().map(|(line, heading)| {
+                Finding::new(
+                    path,
+                    *line,
+                    format!(
+                        "an earlier heading also reads `{heading}`, so their anchors follow \
+                         their order: give each heading a text of its own (DOC-13)"
+                    ),
+                )
+            })
+        })
+        .collect()
 }
 
 /// Every link to a file of the repository resolves, and so does its anchor (DOC-13).
@@ -358,6 +380,23 @@ mod tests {
                 "README.md:2: the link to `docs/gone.md` doesn't resolve: there is no `docs/gone.md` (DOC-13)",
                 "README.md:3: the link to `docs/architecture.md#nowhere` doesn't resolve: `docs/architecture.md` has no heading whose anchor is `#nowhere` (DOC-13)",
                 "README.md:4: the link to `../elsewhere.md` doesn't resolve: it points outside the repository (DOC-13)"
+            ]
+        );
+    }
+
+    #[test]
+    fn doc_13_two_headings_of_one_text_are_reported_linked_or_not() {
+        let guide = "# Guide\n\n## Notes\n\nText.\n\n## Steps\n\n## Notes\n\n```\n## Notes\n```\n";
+        let inventory = "# Old\n\n## Notes\n\n## Notes\n";
+
+        assert_eq!(
+            findings(&[
+                ("docs/guides/guide.md", guide),
+                ("docs/inventory/old.md", inventory)
+            ]),
+            [
+                "docs/guides/guide.md:9: an earlier heading also reads `Notes`, so their anchors \
+                 follow their order: give each heading a text of its own (DOC-13)"
             ]
         );
     }

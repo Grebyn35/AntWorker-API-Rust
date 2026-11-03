@@ -21,7 +21,7 @@ use platform::telemetry::testing::{
 
 use crate::support::{Api, Options, TestDatabase, fixtures, service_name};
 
-/// How often the instance checks its own database connection.
+/// How often the instance checks the listener.
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// The requests that `points` recorded with exactly `labels`.
