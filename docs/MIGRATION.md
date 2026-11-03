@@ -232,6 +232,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | c619d50..efa110e: as above | 2 | 6 (4, 5, 3 shared) | 4 | 1 | `stopped: no progress`: cdcb2ef |
 | 06c2a30..151b5eb: the resolutions of the review before, its handoff, and the warning of a `.env` that `.env.example` has moved past | 1 | 6 (6, 4, 4 shared) | 1 | 0 | `next pass`: f6b1396 |
 | 06c2a30..f6b1396: as above | 2 | 4 (3, 3, 2 shared) | 3 | 1 | `stopped: no progress`: e955df8 |
+| 3c57546: how an optional part is removed (D73): ARCH-07, `xtask`'s parts and `parts.yaml`, `check-parts` and `check-removable`, and every marker of `invitations` | 1 | 6 (3, 3, 0 shared) | 1 | 0 | `next pass` |
 
 ## Decisions
 
