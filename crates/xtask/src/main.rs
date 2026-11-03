@@ -43,7 +43,7 @@ use std::{fmt, io, process::ExitCode};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(about = "The repository's custom CI checks, and the tasks that release, deploy and test")]
+#[command(about = "The repository's custom CI checks, and the other tasks that `just` runs")]
 struct Cli {
     #[command(subcommand)]
     command: Command,

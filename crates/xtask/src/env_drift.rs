@@ -5,8 +5,9 @@
 //! never had is one the developer chose, and draws no warning; git's history of `.env.example`
 //! tells the two apart. The generated passwords and key, whose example holds a placeholder, such
 //! as `__APP_PASSWORD__`, differ by design: one draws a warning only when `.env` lacks it. A
-//! warning names the setting and the example's value, which the repository holds anyway, and never
-//! the value in `.env`, which may be a secret. It warns and never fails.
+//! warning names the setting, with the example's value, which the repository holds anyway, unless
+//! it is a placeholder, and never the value in `.env`, which may be a secret. It warns and never
+//! fails.
 
 use std::{path::Path, process::Command, process::ExitCode};
 
@@ -39,7 +40,7 @@ pub fn drift(env: &str, example: &str, history: &str) -> Vec<String> {
             |(name, value)| match ours.iter().find(|(setting, _)| *setting == name) {
                 None if has_placeholder(value) => Some(format!(
                     "warning: .env lacks {name}, a secret that `just setup` generates for a new \
-                     .env: add one, as .env.example's comment on it says"
+                     .env: give it a random value of your own"
                 )),
                 Some(_) if has_placeholder(value) => None,
                 None => Some(format!(
@@ -60,10 +61,19 @@ pub fn drift(env: &str, example: &str, history: &str) -> Vec<String> {
 }
 
 /// The lines that the commits of the repository at `root` removed from and added to the example,
-/// with their `-` and `+`: none where git or the history isn't there.
+/// without their `-` and `+`: none where git or the history isn't there. Colors are turned off,
+/// whatever git's configuration asks, so no escape code comes before a line.
 fn history(root: &Path) -> String {
     Command::new("git")
-        .args(["log", "--format=", "--unified=0", "--patch", "--", EXAMPLE])
+        .args([
+            "log",
+            "--no-color",
+            "--format=",
+            "--unified=0",
+            "--patch",
+            "--",
+            EXAMPLE,
+        ])
         .current_dir(root)
         .output()
         .ok()

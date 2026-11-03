@@ -193,11 +193,13 @@ async fn system_003_the_subcommand_prints_the_accounts_their_password_and_the_wo
             words.next() == Some(name) && line.trim_end().ends_with(value)
         })
     };
-    for (email, name) in [
-        ("owner@example.com", "Olivia Owner"),
-        ("admin@example.com", "Adam Admin"),
-        ("member@example.com", "Mia Member"),
-    ] {
+    // Every account the seed registered, with or without the parts it keeps.
+    let accounts = database
+        .owner_reads("SELECT email || '|' || name FROM users")
+        .await;
+    assert!(accounts.len() >= 3, "{accounts:?}");
+    for account in accounts {
+        let (email, name) = account.split_once('|').unwrap();
         assert!(printed(email, name), "{email} in {stdout}");
     }
     for workspace in database
@@ -286,6 +288,23 @@ async fn system_005_seed_has_olivia_invite_adam_and_mia_who_accept_and_ian_whose
     assert_eq!(pending["items"][0]["workspace_id"], acme.as_str());
     assert_eq!(pending["items"][0]["role"], "member");
     assert_eq!(pending["items"][0]["inviter_name"], "Olivia Owner");
+    // Olivia invited each of them, at the role each holds.
+    assert_eq!(
+        api.database()
+            .owner_reads(
+                "SELECT actor.email || ' ' || target.email || ' ' || (entry.details->>'role') \
+                 FROM audit_entries entry \
+                 JOIN users actor ON actor.id = entry.actor_user_id \
+                 JOIN users target ON target.id = entry.target_user_id \
+                 WHERE entry.action = 'invitation.created' ORDER BY target.email"
+            )
+            .await,
+        [
+            "owner@example.com admin@example.com admin",
+            "owner@example.com invitee@example.com member",
+            "owner@example.com member@example.com member",
+        ]
+    );
     assert!(workspaces(&api, &ian).await.is_empty());
     assert_eq!(
         api.database()
