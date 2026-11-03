@@ -194,6 +194,15 @@ fn specs(repo: &Repo) -> Vec<Finding> {
             continue;
         };
         findings.extend(outline.findings(file));
+        for (line, heading) in markdown::empty_sections(&file.text) {
+            findings.push(Finding::new(
+                &file.path,
+                line,
+                format!(
+                    "`## {heading}` is empty: a section with nothing in it reads \"None.\" (DOC-15)"
+                ),
+            ));
+        }
         for table in markdown::tables(&file.text) {
             findings.extend(behavior_table(&file.path, &table));
         }
@@ -530,7 +539,8 @@ mod tests {
 
     #[test]
     fn doc_15_a_spec_section_that_is_unknown_out_of_order_or_missing_is_reported() {
-        let reordered = "# Spec\n\n## Behaviors\n\n## Purpose\n\n## Notes\n";
+        let reordered =
+            "# Spec\n\n## Behaviors\n\nNone.\n\n## Purpose\n\nWidgets.\n\n## Notes\n\nNone.\n";
         let short = "# Spec\n\n## Purpose\n\nGadgets.\n";
 
         assert_eq!(
@@ -539,10 +549,22 @@ mod tests {
                 ("docs/spec/gadgets.md", short)
             ]),
             [
-                "docs/spec/widgets.md:5: `## Purpose` is out of order: the spec README lists it before `## Behaviors` (DOC-15)",
-                "docs/spec/widgets.md:7: `## Notes` isn't a section the spec README lists (DOC-15)",
+                "docs/spec/widgets.md:7: `## Purpose` is out of order: the spec README lists it before `## Behaviors` (DOC-15)",
+                "docs/spec/widgets.md:11: `## Notes` isn't a section the spec README lists (DOC-15)",
                 "docs/spec/gadgets.md:1: the spec has no `## Behaviors` section (DOC-15)",
                 "docs/spec/gadgets.md:1: the spec README's index doesn't link this spec (DOC-15)"
+            ]
+        );
+    }
+
+    #[test]
+    fn doc_15_a_spec_section_with_nothing_in_it_is_reported() {
+        let spec = "# Spec\n\n## Purpose\n\nWidgets.\n\n## Behaviors\n\n\n";
+
+        assert_eq!(
+            findings(&[("docs/spec/widgets.md", spec)]),
+            [
+                "docs/spec/widgets.md:7: `## Behaviors` is empty: a section with nothing in it reads \"None.\" (DOC-15)"
             ]
         );
     }

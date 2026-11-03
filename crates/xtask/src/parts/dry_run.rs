@@ -30,12 +30,13 @@ pub fn check(repo: &Repo) -> Outcome {
         .files()
         .filter(|file| file.path.ends_with(".rs") && !is_migration(&file.path))
     {
-        for line in markers::after_code(&file.text) {
+        for line in markers::misplaced_in_rust(&file.text) {
             findings.push(Finding::new(
                 &file.path,
                 line,
-                "a marker follows code, where rustfmt can join the line to another or move the \
-                 marker onto the line before: put the part's code in a block of its own (ARCH-07)",
+                "a marker in Rust is a `//` comment alone on its line, opening or closing a block, \
+                 where rustfmt leaves it; what a part adds to a list of short elements goes in a \
+                 statement of its own (ARCH-07)",
             ));
         }
     }
@@ -233,10 +234,10 @@ mod tests {
     }
 
     #[test]
-    fn arch_07_a_run_that_removes_no_part_fails_and_one_with_nothing_left_is_skipped() {
+    fn arch_07_a_run_that_removes_no_part_fails() {
         let repo = Repo::of(&[(
             LIST,
-            "parts:\nruns:\n  - name: shop\n    parts:\n      - offers\n  - name: none\n    parts:\n",
+            "parts:\nruns:\n  - name: shop\n    parts:\n      - offers\n",
         )]);
 
         let outcome = check(&repo);
@@ -247,9 +248,16 @@ mod tests {
             .map(|finding| (finding.path.as_str(), finding.line))
             .collect();
         assert_eq!(places, [(LIST, 1)], "{:?}", outcome.findings);
-        let empty = Repo::of(&[(LIST, "parts:\nruns:\n  - name: none\n    parts:\n")]);
+    }
+
+    #[test]
+    fn arch_07_a_run_whose_parts_are_removed_already_is_skipped() {
+        let repo = Repo::of(&[(LIST, "parts:\nruns:\n  - name: none\n    parts:\n")]);
+
+        let outcome = check(&repo);
+
         assert_eq!(
-            check(&empty).report,
+            outcome.report,
             ["none: every part it removes is removed already"]
         );
     }

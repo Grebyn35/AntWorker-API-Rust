@@ -86,7 +86,7 @@ Each kind of fact has one home, listed below. A fact is written in its home as s
 - Check: `ci: check-docs` (the formats that DOC-15 and DOC-16 fix), plus `review`.
 
 ### DOC-15 Documents keep their format
-- A spec has the sections that the [spec README](../spec/README.md#sections) lists, in that order, and no others.
+- A spec has the sections that the [spec README](../spec/README.md#sections) lists, in that order, and no others, and none of them is empty: one with nothing in it reads "None.".
 - Every table of behaviors has the columns `ID`, `Behavior`, `Rules` and `Test prefix`. A behavior's ID starts with its module's name in capitals, and its test prefix is the ID in lowercase, with `_` in place of `-` and after the number, such as `workspaces_005_` for `WORKSPACES-005`.
 - The spec README's index links every spec.
 - A module's spec lists, in its Routes table, each operation that `openapi.json` documents for the module, with its access level. Each operation names its module as its first tag. Once the module is built, its Routes table lists no operation the document lacks; until then, the table is the plan.

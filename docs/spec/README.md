@@ -20,6 +20,8 @@ A spec has these sections, in this order:
 6. **Design.** How the behaviors are met, where the code alone wouldn't make it clear. The tests named in Behaviors verify it. If this section and the code disagree, the code and its tests win, and this section is corrected.
 7. **Open design questions.** Questions only building will settle, each with what will settle it: a test, or the spec of the build step that decides it. When a question is settled, its answer moves into Design or Behaviors.
 
+A section with nothing in it reads "None.", which a sentence that says why may follow, such as "None. No other module uses `system`."
+
 ## IDs
 
 A behavior's ID is the module name in capitals plus a three-digit number, such as `AUTH-004` or `WORKSPACES-002`. IDs are never reused. A spec covers the behaviors that have been built or are about to be built, and grows as its module does.

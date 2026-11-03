@@ -15,9 +15,12 @@ use std::{path::Path, process::ExitCode};
 use serde_json::Value;
 
 use crate::{
-    Finding, metrics,
+    Finding, markdown, metrics,
     repo::{self, Repo},
 };
+
+/// The specs, in each of which a section that a removal empties reads "None." (DOC-15).
+const SPECS: &str = "docs/spec/";
 
 /// The list of the optional parts and of `check-removable`'s runs, from the repository root.
 const LIST: &str = "crates/xtask/parts.yaml";
@@ -315,12 +318,44 @@ fn delete(repo: &Repo, removed: &[&Part], known: &[&str]) -> Result<(usize, usiz
         let stripped = markers::strip(&file.text, &removing, known)
             .map_err(|(line, message)| format!("{}:{line}: {message}", file.path))?;
         if let Some(text) = stripped {
+            let text = if file.path.starts_with(SPECS) && file.path.ends_with(".md") {
+                none_in_empty_sections(&text)
+            } else {
+                text
+            };
             repo::write(&file.path, &text)
                 .map_err(|error| format!("can't write {}: {error}", file.path))?;
             edited += 1;
         }
     }
     Ok((deleted.len(), edited))
+}
+
+/// `text` with "None." under each of its level-2 headings that has nothing under it, as a spec
+/// writes for a section with nothing in it (DOC-15).
+fn none_in_empty_sections(text: &str) -> String {
+    let empty: Vec<usize> = markdown::empty_sections(text)
+        .into_iter()
+        .map(|(line, _)| line)
+        .collect();
+    let mut filled = String::with_capacity(text.len());
+    let mut skipping = false;
+    for (index, line) in text.lines().enumerate() {
+        if skipping && line.trim().is_empty() {
+            continue;
+        }
+        if skipping {
+            filled.push('\n');
+            skipping = false;
+        }
+        filled.push_str(line);
+        filled.push('\n');
+        if empty.contains(&(index + 1)) {
+            filled.push_str("\nNone.\n");
+            skipping = true;
+        }
+    }
+    filled
 }
 
 /// Deletes the entries of the query cache whose query no kept code holds (DATA-20), and returns
@@ -504,11 +539,15 @@ mod tests {
             .map(|finding| (finding.path.as_str(), finding.line))
             .collect();
         assert_eq!(places, [("crates/app/tests/integration/offers.rs", 6)]);
-        assert_eq!(
-            behavior_module("client_telemetry_002_x()"),
-            Some("client_telemetry".to_owned())
-        );
-        assert_eq!(behavior_module("ops_17_a_restore()"), None);
+    }
+
+    #[test]
+    fn arch_07_a_test_s_module_is_the_words_before_its_behavior_s_number() {
+        let names = ["client_telemetry_002_x()", "ops_17_a_restore()"];
+
+        let modules: Vec<Option<String>> = names.iter().map(|name| behavior_module(name)).collect();
+
+        assert_eq!(modules, [Some("client_telemetry".to_owned()), None]);
     }
 
     #[test]
@@ -538,7 +577,20 @@ mod tests {
     }
 
     #[test]
-    fn arch_07_the_list_reads_the_parts_and_the_runs_and_an_empty_one_reads_as_none() {
+    fn arch_07_a_section_of_a_spec_that_the_removal_empties_reads_none() {
+        let text =
+            "# Spec\n\n## Interface\n\n\n## Routes\n\nA route.\n\n## Open design questions\n\n";
+
+        let filled = none_in_empty_sections(text);
+
+        assert_eq!(
+            filled,
+            "# Spec\n\n## Interface\n\nNone.\n\n## Routes\n\nA route.\n\n## Open design questions\n\nNone.\n"
+        );
+    }
+
+    #[test]
+    fn arch_07_the_list_reads_the_parts_and_the_runs() {
         let repo = Repo::of(&[(
             LIST,
             "parts:\n  - name: offers\n    module: offers\n    paths:\n      - a\n    words:\n      - offer\nruns:\n  - name: shop\n    parts:\n",
@@ -546,11 +598,20 @@ mod tests {
 
         let (parts, runs) = list(&repo).unwrap();
 
-        assert_eq!(parts.len(), 1);
-        assert_eq!(parts[0].module.as_deref(), Some("offers"));
-        assert_eq!(runs[0].name, "shop");
-        assert!(runs[0].parts.is_empty());
-        let empty = Repo::of(&[(LIST, "parts:\nruns:\n")]);
-        assert!(list(&empty).unwrap().0.is_empty());
+        let read: Vec<(&str, Option<&str>)> = parts
+            .iter()
+            .map(|part| (part.name.as_str(), part.module.as_deref()))
+            .chain(runs.iter().map(|run| (run.name.as_str(), None)))
+            .collect();
+        assert_eq!(read, [("offers", Some("offers")), ("shop", None)]);
+    }
+
+    #[test]
+    fn arch_07_an_empty_list_reads_as_no_part() {
+        let repo = Repo::of(&[(LIST, "parts:\nruns:\n")]);
+
+        let (parts, _) = list(&repo).unwrap();
+
+        assert!(parts.is_empty());
     }
 }

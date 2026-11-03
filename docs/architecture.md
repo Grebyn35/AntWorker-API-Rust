@@ -116,7 +116,7 @@ crates/app/
 | `auth` | `sessions`, `verification_codes`, `identities`, `provider_tokens`, `pending_email_changes` | Registration, sign-in with a password or OAuth, refresh, sign-out, sessions, password reset and change, email verification and change, identity linking, and re-authentication for sensitive actions. Account deletion is confirmed here, then carried out by `accounts`. One file per OAuth provider in `auth/providers/`. Implements `SessionVerifier`. |
 | `workspaces` | `workspaces`, `setup_runs` | Creating workspaces in each shape (below), updating, transferring and deleting them, the members endpoints (list, change role, remove, leave), and the workspace picture. |
 | `invitations` | `invitations` | Invite, list, resend, cancel, accept, decline, and expiry. <!-- part: invitations --> |
-| `superadmins` | `superadmins` | The deployment's superadmins (D62): users who see every workspace's name, creation time, member count and owner, but not its content, delete any workspace, and create workspaces, which they then own, the only users who do in the provisioned shape (below). Its routes are authorized by the caller being a superadmin, never by a membership, and it records each action in the superadmin's own log, since deleting a workspace deletes the workspace's log. Its subcommand adds an account to the superadmins or removes it, which the API can't. |
+| `superadmins` | `superadmins` | The deployment's superadmins (D62): users who see every workspace's name, creation time, member count and owner, but not its content, delete any workspace, and create workspaces, which they then own ([workspace shapes](#workspace-shapes)). Its routes are authorized by the caller being a superadmin, never by a membership, and it records each action in the superadmin's own log, since deleting a workspace deletes the workspace's log. Its subcommand adds an account to the superadmins or removes it, which the API can't. |
 | `client_telemetry` | none | The telemetry proxy for clients, enforcing consent on the server (D7). |
 | `system` | none | The capabilities endpoint (D9), the schema endpoints, which list the permissions and the audit actions, and `seed`, which fills a development database with demo accounts and workspaces through the API's own routes (D28). The health probes belong to `platform` (§4). |
 | `platform` | `events`, `jobs`, `job_schedules`, `rate_limit_buckets`, `idempotency_records` | The mechanisms in §4. |
@@ -144,7 +144,8 @@ The template keeps every part and serves the teams shape. <!-- part: invitations
 Registration creates no workspace, and a user who belongs to none is offered to create one (D16).
 An invited user joins only the workspace they were invited to. <!-- part: invitations -->
 Only an operator runs the setup subcommand, so keeping it changes nothing for the template's users.
-A fork may keep `superadmins` in any shape, for seeing and deleting workspaces; only in the provisioned shape is it the one part that creates them.
+A fork may keep `superadmins` in any shape, for seeing and deleting workspaces.
+In the provisioned shape, it is the one part that creates them. <!-- part: invitations -->
 A superadmin who creates a workspace becomes its owner, as a user who creates one does, and hands it over through the ordinary ownership transfer when asked.
 They set it up and invite its people first. <!-- part: invitations -->
 They see its content as a member, never as a superadmin.
@@ -385,7 +386,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Provider token | A credential from an OAuth provider, stored encrypted (SEC-02). It is revoked when the session or identity that needs it ends. |
 | Principal | The authenticated caller of a request, produced by `platform::authn` (D18). |
 | Workspace | A space whose members share its data: a team's, an organization's, or one user's own (§5). Owns workspace files and its audit log. |
-| Workspace shape | How a product uses workspaces: teams, provisioned organizations, one organization, or personal (§5). |
+| Workspace shape | How a product uses workspaces: who creates them and who joins them, which the optional parts a fork keeps decide (§5). |
 | Membership | A user's place in a workspace, with exactly one role. Owned by `access`. |
 | Owner | The one role per workspace that can transfer or delete it. A superadmin can also delete it. |
 | Superadmin | A user whom the deployment's operator made one through `just`, who sees every workspace without being a member, but not its content, and deletes any workspace (§5, D62). Not a role: roles belong to memberships. |

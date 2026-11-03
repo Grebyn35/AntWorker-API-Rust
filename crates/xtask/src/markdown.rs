@@ -147,6 +147,24 @@ pub fn sections(text: &str) -> Vec<(usize, &str)> {
         .collect()
 }
 
+/// The level-2 headings of `text` with nothing but blank lines under them, up to the next level-2
+/// heading or the end, with their lines.
+pub fn empty_sections(text: &str) -> Vec<(usize, &str)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let headings = sections(text);
+    headings
+        .iter()
+        .enumerate()
+        .filter(|(index, (line, _))| {
+            let end = headings
+                .get(index + 1)
+                .map_or(lines.len(), |(next, _)| next - 1);
+            lines[*line..end].iter().all(|line| line.trim().is_empty())
+        })
+        .map(|(_, heading)| *heading)
+        .collect()
+}
+
 /// The line of the first heading that starts with `heading`, and the lines under it, up to
 /// the next heading of any level.
 pub fn under<'a>(text: &'a str, heading: &str) -> Option<(usize, Vec<(usize, &'a str)>)> {

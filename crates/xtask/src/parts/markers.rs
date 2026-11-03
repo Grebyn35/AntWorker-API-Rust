@@ -149,13 +149,14 @@ pub fn kept<'a>(
         .collect())
 }
 
-/// The lines of Rust `text`, counted from 1, whose marker follows code, where rustfmt can join
-/// the line to another or move the marker onto the line before (ARCH-07).
-pub fn after_code(text: &str) -> Vec<usize> {
+/// The lines of Rust `text`, counted from 1, whose marker isn't Rust's `//` comment alone on its
+/// line: one after code, where rustfmt can join the line to another or move the marker onto the
+/// line before, or one in another file's syntax (ARCH-07).
+pub fn misplaced_in_rust(text: &str) -> Vec<usize> {
     text.lines()
         .enumerate()
         .filter(|(_, line)| {
-            marker(line).is_some_and(|marker| marker.syntax == "//" && !marker.alone)
+            marker(line).is_some_and(|marker| marker.syntax != "//" || !marker.alone)
         })
         .map(|(index, _)| index + 1)
         .collect()
@@ -198,32 +199,51 @@ mod tests {
     }
 
     #[test]
-    fn arch_07_a_marker_after_text_marks_its_line_and_one_alone_opens_a_block() {
-        let rust = format!("mod a; {}", mark("//", "one", ""));
-        assert_eq!(marker(&rust).unwrap().kind, Kind::Line);
-        assert_eq!(marker(&mark("    //", "one", "")).unwrap().kind, Kind::Open);
-        assert_eq!(marker(&end("#", "one", "")).unwrap().kind, Kind::Close);
-        let row = format!("| a | b {} |", mark("<!--", "one", " -->"));
-        assert_eq!(marker(&row).unwrap().kind, Kind::Line);
-        assert_eq!(marker(&mark("  %%", "one", "")).unwrap().part, "one");
+    fn arch_07_a_marker_after_text_marks_its_line_and_one_alone_opens_or_closes_a_block() {
+        let lines = [
+            format!("mod a; {}", mark("//", "one", "")),
+            format!("| a | b {} |", mark("<!--", "one", " -->")),
+            mark("    //", "one", ""),
+            mark("  %%", "two", ""),
+            end("#", "one", ""),
+        ];
+
+        let found: Vec<Option<(&str, Kind)>> = lines
+            .iter()
+            .map(|line| marker(line).map(|marker| (marker.part, marker.kind)))
+            .collect();
+
+        assert_eq!(
+            found,
+            [
+                Some(("one", Kind::Line)),
+                Some(("one", Kind::Line)),
+                Some(("one", Kind::Open)),
+                Some(("two", Kind::Open)),
+                Some(("one", Kind::Close)),
+            ]
+        );
     }
 
     #[test]
     fn arch_07_text_that_only_looks_like_a_marker_isn_t_one() {
-        for line in [
+        let lines = [
             format!("{} more", mark("//", "one", "")),
             mark("//", "<part>", ""),
             mark("<!--", "one", ""),
             format!("the first {} jobs", "part:"),
             "#[derive(Debug)]".to_owned(),
-        ] {
-            assert_eq!(marker(&line), None, "{line}");
-        }
+        ];
+
+        let found: Vec<Option<Marker<'_>>> = lines.iter().map(|line| marker(line)).collect();
+
+        assert_eq!(found, [None, None, None, None, None]);
     }
 
-    #[test]
-    fn arch_07_removing_a_part_deletes_its_lines_and_blocks_and_keeps_the_others() {
-        let text = [
+    /// Lines of the parts `one` and `two`: a line of `two` inside a block of `one`, and one after
+    /// it.
+    fn two_parts() -> String {
+        [
             "a".to_owned(),
             format!("b {}", mark("//", "one", "")),
             mark("//", "one", ""),
@@ -233,15 +253,35 @@ mod tests {
             format!("e {}", mark("//", "two", "")),
             String::new(),
         ]
-        .join("\n");
+        .join("\n")
+    }
 
-        let one = strip(&text, &["one"], &["one", "two"]).unwrap().unwrap();
-        let two = strip(&text, &["two"], &["one", "two"]).unwrap().unwrap();
+    #[test]
+    fn arch_07_removing_a_part_deletes_its_lines_and_its_blocks_with_all_they_hold() {
+        let text = two_parts();
 
-        assert_eq!(one, format!("a\ne {}\n", mark("//", "two", "")));
-        let kept: Vec<&str> = two.lines().map(|line| &line[..1]).collect();
-        assert_eq!(kept, ["a", "b", "/", "c", "/"], "{two}");
-        assert_eq!(strip("a\nb\n", &["one"], &["one"]).unwrap(), None);
+        let kept = strip(&text, &["one"], &["one", "two"]).unwrap();
+
+        assert_eq!(kept, Some(format!("a\ne {}\n", mark("//", "two", ""))));
+    }
+
+    #[test]
+    fn arch_07_removing_a_part_keeps_the_lines_and_blocks_of_another() {
+        let text = two_parts();
+
+        let kept = strip(&text, &["two"], &["one", "two"]).unwrap().unwrap();
+
+        let starts: Vec<&str> = kept.lines().map(|line| &line[..1]).collect();
+        assert_eq!(starts, ["a", "b", "/", "c", "/"], "{kept}");
+    }
+
+    #[test]
+    fn arch_07_a_file_that_holds_none_of_a_part_s_lines_is_left_as_it_is() {
+        let text = "a\nb\n";
+
+        let kept = strip(text, &["one"], &["one"]).unwrap();
+
+        assert_eq!(kept, None);
     }
 
     #[test]
@@ -252,36 +292,42 @@ mod tests {
             end("//", "one", "")
         );
 
-        assert_eq!(
-            kept(&text, &["one"], &["one"]).unwrap(),
-            [(1, "a"), (5, "c")]
-        );
-        assert_eq!(kept(&text, &[], &["one"]).unwrap().len(), 5);
+        let lines = kept(&text, &["one"], &["one"]).unwrap();
+
+        assert_eq!(lines, [(1, "a"), (5, "c")]);
     }
 
     #[test]
-    fn arch_07_a_marker_after_rust_code_fails_and_one_alone_on_its_line_doesn_t() {
+    fn arch_07_a_rust_marker_after_code_or_in_another_syntax_fails_and_one_alone_doesn_t() {
         let text = [
             format!("    1, {}", mark("//", "one", "")),
             mark("    //", "one", ""),
             "    2,".to_owned(),
             end("    //", "one", ""),
-            format!("{} {}", "# A setting.", mark("#", "one", "")),
+            format!("//! A note. {}", mark("<!--", "one", " -->")),
+            mark("#", "one", ""),
         ]
         .join("\n");
 
-        assert_eq!(after_code(&text), [1]);
+        let lines = misplaced_in_rust(&text);
+
+        assert_eq!(lines, [1, 5, 6]);
     }
 
     #[test]
-    fn arch_07_a_marker_of_no_part_or_a_block_that_never_ends_fails() {
-        let unknown = mark("#", "three", "");
-        assert_eq!(owners(&unknown, &["one"]).unwrap_err().0, 1);
-        let unclosed = format!("a\n{}\nb\n", mark("//", "one", ""));
-        assert_eq!(owners(&unclosed, &["one"]).unwrap_err().0, 2);
-        let crossed = format!("{}\n{}\n", mark("//", "one", ""), end("#", "one", ""));
-        assert_eq!(owners(&crossed, &["one"]).unwrap_err().0, 2);
-        let stray = format!("a\n{}\n", end("<!--", "one", " -->"));
-        assert_eq!(owners(&stray, &["one"]).unwrap_err().0, 2);
+    fn arch_07_a_marker_of_no_part_or_a_block_that_doesn_t_close_fails_at_its_line() {
+        let texts = [
+            mark("#", "three", ""),
+            format!("a\n{}\nb\n", mark("//", "one", "")),
+            format!("{}\n{}\n", mark("//", "one", ""), end("#", "one", "")),
+            format!("a\n{}\n", end("<!--", "one", " -->")),
+        ];
+
+        let lines: Vec<Option<usize>> = texts
+            .iter()
+            .map(|text| owners(text, &["one"]).err().map(|(line, _)| line))
+            .collect();
+
+        assert_eq!(lines, [Some(1), Some(2), Some(2), Some(2)]);
     }
 }

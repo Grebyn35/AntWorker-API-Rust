@@ -248,6 +248,9 @@ enum Command {
     LoadTest {
         /// The route: `capabilities`, `GET /v1/capabilities`, which a release's notes give, or
         /// `me`, `GET /v1/users/me` with a signed-in user's access token.
+        // part: invitations
+        /// Or `streams`, which measures the replica's hub instead (OPS-18).
+        // end part: invitations
         #[arg(default_value = "capabilities")]
         route: String,
     },
