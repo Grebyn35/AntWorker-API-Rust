@@ -99,7 +99,7 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `e2e` | built, and extended by every later step |
 | `check-layout`, `check-table-ownership`, `check-config`, `check-migrations`, `sqlx-check`, `setup-smoke` | 3 decides: built, or the rule's check changes |
 | `check-personal-data` | 5, with export and erasure in `accounts` |
-| `check-removable` | built |
+| `check-removable`, `check-parts` | built |
 | `test-migrations` | 6, with the first final release |
 | `check-rename` | 6, with `just rename` |
 
@@ -143,6 +143,8 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of bd2d1fd..ec21099 | DATA-22: its exemption for batch reads of display data by IDs from a query filtered by tenant names a match over that data too, such as `accounts::matching` and `workspaces::matching`, which return the IDs a search keeps | 3 |
 | Conformance review of bd2d1fd..ec21099 | API-10: whether a route's query type converts into the service's input through `TryFrom`, as a body's request type does, rather than the handler reading `Page`, `Search` and a filter one by one | 3 |
 | Conformance review of bd2d1fd..ec21099 | TEST-10: a check that an integration test inserts no rows into a table that a support builder arranges | 3 |
+| The owner's question at step 3's start | SYSTEM-001: whether `features` also holds each optional part that changes what a client offers, such as `invitations`, `true` while the fork keeps the part and absent once it removes it, so that one client tells the workspace shapes apart from what each API has, rather than a field that names the shape, which a fork that keeps `superadmins` in any shape, or adds a part of its own, couldn't state | 5, with the setup subcommand or `superadmins` |
+| Deciding D73 | ARCH-07: whether a fork chooses its shape with one command, which removes the parts the shape doesn't keep, then the markers of the parts it keeps, the runs, and the removal's tooling and checks, since a fork that keeps every part removes nothing, and its own code that names a kept part fails `check-parts` and `check-removable` until it carries the part's marker | 6, with `just rename` |
 | The owner's decision on second factors (D63) | Whether a second factor can be required beyond superadmins: of every user, by a setting of the deployment, or of a workspace's members, by its owner, as Slack and GitHub let an organization require it of its members | 5, with the full `auth` module |
 | Conformance review of d678a43..4eedca6 | SEC-12: a check that a route whose operation enqueues an email counts a per-action bucket first, such as `check-layers` failing a service that calls `Mail::send` under a route that takes no `RateLimits` | 3 |
 | Conformance review of d678a43..4eedca6 | OPS-09: `check-layout` fails an `impl Job`, or a call of `Jobs::queued` or `Jobs::periodic`, outside a module's `jobs.rs` and the area of `platform` that declares it, such as `platform::jobs` and `platform::mail`, and a kind that doesn't start with its module's name, or with `platform.` for a job of `platform` | 3 |
@@ -168,7 +170,6 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 0d036d0..1ff84e6 | CODE-10: one name for the instance's own connection, which the rules call the listener, the code `db::Listener` and `events::Connection`, and `startup.area` `listener` | 3 |
 | Conformance review of c619d50..efa110e | ERR-13: a test that every code of an `ErrorCode` of `app` or `platform` is in `openapi.json`, since `check-openapi` reads only the codes already there | 3 |
 | Conformance review of c619d50..efa110e | TEST-07: whether a test may wait in a loop with no bound at all, as `platform_076_`'s wait for the gauge and the waits for a hub's log line do, rather than by a timeout | 3 |
-| Building step 2.4's second part | ARCH-07: reconsider how the optional parts' code is marked for removal, since markers in Rust that formatting moved broke removing `invitations` three times in 92a1d55 | 3 |
 | A development machine's Docker, during step 2.3 | OPS-22: whether `just server-check` refuses a server whose `/etc/resolv.conf` names the search domain `.`, which Docker copies into containers, where no short name then resolves, as on a development machine; whether the deployment's own lookups, such as the API's of `postgres`, fail on such a server is unverified | 3 |
 
 ## Conformance reviews
@@ -310,3 +311,4 @@ D1 to D36 are recorded in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Late
 | D70 | An error that only a subcommand reports implements no `ErrorCode`, since no client receives it, rather than carrying a code that the OpenAPI document can't list (ERR-02, ERR-13) | accepted |
 | D71 | The API reference that development serves lives at `/docs`, outside `/v1`, and outside the document, on the API's own origin, rather than in a container beside the API or under the versioned contract (API-01, API-14, PLATFORM-075) | accepted |
 | D72 | `just setup` and `just dev` warn of a `.env` that `.env.example` has moved past: a setting it lacks, and a value the example once had and has since changed, which git's history of the example tells from a value the developer chose, rather than regenerating `.env`, whose new passwords the existing database doesn't have, or warning of every value that differs, which would warn of every deliberate choice at every run (OPS-19) | accepted |
+| D73 | Optional parts stay removable: the template keeps every part, whose code is compiled, tested and deployed as the template's own, and a fork removes the parts it doesn't keep with `just remove`, which deletes what comments in each file's own syntax mark, rather than adding parts with a command, whose code and edits to the core modules would live outside the build and go stale, or gating them with Cargo features, which only Rust code can read and which a fork would keep. A marker in Rust stands alone on its line, where rustfmt keeps it, and `check-parts` does each removal in memory in `just checks` (ARCH-07) | accepted |

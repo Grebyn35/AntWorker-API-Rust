@@ -28,7 +28,9 @@ use crate::modules::{
     accounts,
     audit,
     auth,
-    invitations::{self, Invitations}, // part: invitations
+    // part: invitations
+    invitations::{self, Invitations},
+    // end part: invitations
     realtime::{self, Realtime},
     system,
     workspaces,
@@ -41,7 +43,9 @@ pub static MIGRATIONS: Migrator = sqlx::migrate!("../../migrations");
 /// The settings of the modules, which `serve` reads before its async runtime starts (OPS-01).
 pub struct Config {
     auth: auth::Settings,
-    invitations: invitations::Settings, // part: invitations
+    // part: invitations
+    invitations: invitations::Settings,
+    // end part: invitations
     heartbeat: Duration,
 }
 
@@ -214,7 +218,9 @@ pub fn openapi(service: Service) -> OpenApi {
         auth::routes().openapi(service),
         workspaces::routes().openapi(service),
         realtime::routes().openapi(service),
-        invitations::routes().openapi(service), // part: invitations
+        // part: invitations
+        invitations::routes().openapi(service),
+        // end part: invitations
     ])
 }
 

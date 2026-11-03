@@ -9,5 +9,7 @@ mod service;
 pub(crate) use error::AccountsError;
 pub(crate) use model::{DisplayName, PublicProfile};
 pub(crate) use routes::routes;
-pub(crate) use service::profile; // part: invitations
+// part: invitations
+pub(crate) use service::profile;
+// end part: invitations
 pub(crate) use service::{Creation, create, find_by_email, matching, profiles};

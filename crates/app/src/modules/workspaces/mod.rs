@@ -8,8 +8,12 @@ mod repo;
 mod routes;
 mod service;
 
-pub(crate) use error::WorkspacesError; // part: invitations
-pub(crate) use events::{MEMBERSHIP_CREATED, MembershipCreated}; // part: invitations
-pub(crate) use model::WorkspaceName; // part: invitations
+// part: invitations
+pub(crate) use error::WorkspacesError;
+pub(crate) use events::{MEMBERSHIP_CREATED, MembershipCreated};
+pub(crate) use model::WorkspaceName;
+// end part: invitations
 pub(crate) use routes::routes;
-pub(crate) use service::{matching, names}; // part: invitations
+// part: invitations
+pub(crate) use service::{matching, names};
+// end part: invitations

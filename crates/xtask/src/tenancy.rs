@@ -42,7 +42,9 @@ const PLATFORM_DATA: [&str; 5] = [
 /// Tables of workspace data whose rows are addressed to a user by email, with that column: the
 /// user's own queries of them filter by the caller's address (DATA-22).
 const ADDRESSED: &[(&str, &str)] = &[
-    ("invitations", "email"), // part: invitations
+    // part: invitations
+    ("invitations", "email"),
+    // end part: invitations
 ];
 
 /// The tenants themselves, whose rows a query reaches by IDs that came from a query filtered by
@@ -52,7 +54,9 @@ const TENANTS: [&str; 1] = ["workspaces"];
 /// The files of scheduled jobs that span tenants, which select rows by their own criteria, such
 /// as expiry (DATA-22).
 const CROSS_TENANT: &[&str] = &[
-    "crates/app/src/modules/invitations/jobs.rs", // part: invitations
+    // part: invitations
+    "crates/app/src/modules/invitations/jobs.rs",
+    // end part: invitations
 ];
 
 /// The `sqlx` macros that take SQL text (DATA-20).

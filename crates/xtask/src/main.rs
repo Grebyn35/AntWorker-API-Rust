@@ -133,6 +133,13 @@ enum Command {
     /// themselves (DATA-22).
     #[command(name = "check-tenancy")]
     Tenancy,
+    /// Fails on a marker of an optional part that names no part, a block that no end marker
+    /// closes, a marker after Rust code, a test of another module's behavior in a file that a
+    /// part owns, and, for each run that `crates/xtask/parts.yaml` lists, on a Rust file that
+    /// removing the run's parts leaves unparseable, or a line it keeps that names one of them,
+    /// removing them in memory (ARCH-07).
+    #[command(name = "check-parts")]
+    Parts,
     /// Removes the optional parts named `parts` (ARCH-07): it deletes the files each owns whole
     /// and the lines its markers mark, then the cached queries that no kept code holds, updates
     /// `Cargo.lock`, writes `openapi.json` and the metric catalog again, and formats the code,
@@ -351,6 +358,7 @@ fn main() -> ExitCode {
         Command::Deps => deps::check(&repo),
         Command::Schema => schema::check(&repo),
         Command::Tenancy => tenancy::check(&repo),
+        Command::Parts => parts::check(&repo),
         Command::Remove { .. }
         | Command::CheckRemovable { .. }
         | Command::Release { .. }

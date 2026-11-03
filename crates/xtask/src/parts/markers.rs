@@ -132,6 +132,35 @@ pub fn owners<'a>(text: &'a str, known: &[&str]) -> Result<Vec<Vec<&'a str>>, (u
     }
 }
 
+/// The lines of `text` that removing the parts `removed` keeps, each with its number, counted from
+/// 1. Fails as [`owners`] does.
+pub fn kept<'a>(
+    text: &'a str,
+    removed: &[&str],
+    known: &[&str],
+) -> Result<Vec<(usize, &'a str)>, (usize, String)> {
+    let owners = owners(text, known)?;
+    Ok(text
+        .lines()
+        .zip(owners)
+        .enumerate()
+        .filter(|(_, (_, parts))| !parts.iter().any(|part| removed.contains(part)))
+        .map(|(index, (line, _))| (index + 1, line))
+        .collect())
+}
+
+/// The lines of Rust `text`, counted from 1, whose marker follows code, where rustfmt can join
+/// the line to another or move the marker onto the line before (ARCH-07).
+pub fn after_code(text: &str) -> Vec<usize> {
+    text.lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            marker(line).is_some_and(|marker| marker.syntax == "//" && !marker.alone)
+        })
+        .map(|(index, _)| index + 1)
+        .collect()
+}
+
 /// `text` without the lines that the parts in `removed` own, or `None` if it has none of them.
 pub fn strip(
     text: &str,
@@ -213,6 +242,35 @@ mod tests {
         let kept: Vec<&str> = two.lines().map(|line| &line[..1]).collect();
         assert_eq!(kept, ["a", "b", "/", "c", "/"], "{two}");
         assert_eq!(strip("a\nb\n", &["one"], &["one"]).unwrap(), None);
+    }
+
+    #[test]
+    fn arch_07_a_removal_keeps_the_other_lines_with_their_numbers() {
+        let text = format!(
+            "a\n{}\nb\n{}\nc\n",
+            mark("//", "one", ""),
+            end("//", "one", "")
+        );
+
+        assert_eq!(
+            kept(&text, &["one"], &["one"]).unwrap(),
+            [(1, "a"), (5, "c")]
+        );
+        assert_eq!(kept(&text, &[], &["one"]).unwrap().len(), 5);
+    }
+
+    #[test]
+    fn arch_07_a_marker_after_rust_code_fails_and_one_alone_on_its_line_doesn_t() {
+        let text = [
+            format!("    1, {}", mark("//", "one", "")),
+            mark("    //", "one", ""),
+            "    2,".to_owned(),
+            end("    //", "one", ""),
+            format!("{} {}", "# A setting.", mark("#", "one", "")),
+        ]
+        .join("\n");
+
+        assert_eq!(after_code(&text), [1]);
     }
 
     #[test]

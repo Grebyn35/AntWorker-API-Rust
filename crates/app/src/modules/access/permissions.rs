@@ -33,7 +33,9 @@ const MATRIX: &[(&str, &[Role])] = &[
     ("workspace.read", &[Role::Owner, Role::Admin, Role::Member]),
     ("members.read", &[Role::Owner, Role::Admin, Role::Member]),
     ("members.remove", &[Role::Owner, Role::Admin]),
-    ("invitations.create", &[Role::Owner, Role::Admin]), // part: invitations
+    // part: invitations
+    ("invitations.create", &[Role::Owner, Role::Admin]),
+    // end part: invitations
 ];
 
 /// Whether `role` holds the permission named `permission`: exactly when the matrix says so
@@ -73,7 +75,9 @@ mod tests {
                 "workspace.read",
                 "members.read",
                 "members.remove",
-                "invitations.create", // part: invitations
+                // part: invitations
+                "invitations.create",
+                // end part: invitations
                 "files.read",
             ]
             .into_iter()
@@ -84,7 +88,9 @@ mod tests {
             "workspace.read",
             "members.read",
             "members.remove",
-            "invitations.create", // part: invitations
+            // part: invitations
+            "invitations.create",
+            // end part: invitations
         ];
         assert_eq!(held(Role::Owner), all);
         assert_eq!(held(Role::Admin), all);

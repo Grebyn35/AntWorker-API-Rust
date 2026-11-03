@@ -19,7 +19,9 @@ pub mod announcements;
 pub mod api;
 mod contract;
 pub mod fixtures;
-pub mod invitations; // part: invitations
+// part: invitations
+pub mod invitations;
+// end part: invitations
 pub mod mailbox;
 pub mod streams;
 pub mod users;

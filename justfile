@@ -67,7 +67,7 @@ ci: checks check-removable image image-scan e2e
 # Runs the checks of the code that need neither the image nor a copy of the repository.
 [doc("Runs the checks of the code that need no image and no copy of the repository")]
 [group('check')]
-checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-schema check-tenancy
+checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-schema check-tenancy check-parts
 
 # Lists the tools `just checks` needs besides just and the toolchain, as CI's install step takes
 # them.
@@ -362,6 +362,14 @@ check-deps:
 [group('check')]
 check-schema: services
     {{ xtask }} check-schema
+
+# Fails on a marker of an optional part that is wrong or follows Rust code, and, for each run
+# that crates/xtask/parts.yaml lists, on a Rust file that removing the run's parts leaves
+# unparseable, or a kept line that names one of them, removing them in memory (ARCH-07).
+[doc("Fails on a wrong marker of an optional part, or a removal that leaves broken Rust or a line naming the part")]
+[group('check')]
+check-parts:
+    {{ xtask }} check-parts
 
 # On a copy of the repository for each run that crates/xtask/parts.yaml lists, or for the runs
 # named, such as `personal`, removes the run's optional parts with `just remove`, then runs `just

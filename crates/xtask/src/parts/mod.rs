@@ -1,10 +1,13 @@
-//! Removing an optional part, `just remove` (ARCH-07), and `check-removable`, which runs it on
-//! copies of the repository, one for each run that `parts.yaml` lists, then `just checks` on each.
+//! Removing an optional part, `just remove` (ARCH-07); `check-parts`, which runs each run's
+//! removal in memory; and `check-removable`, which runs it on copies of the repository, one for
+//! each run that `parts.yaml` lists, then `just checks` on each.
 
 mod cache;
 mod copy;
+mod dry_run;
 mod markers;
 
+pub use dry_run::check;
 pub use markers::unmarked;
 
 use std::{path::Path, process::ExitCode};
@@ -172,9 +175,17 @@ fn owned(repo: &Repo, part: &Part) -> Vec<String> {
     owned
 }
 
-/// Each line of a file that the removal kept, outside the migration's documents, that holds a
-/// word of a removed part, and each kept path that does, text or not.
-fn leftovers(repo: &Repo, removed: &[&Part]) -> Vec<Finding> {
+/// A text file that a removal kept: its path, and the lines it kept, each with its number in the
+/// file, counted from 1.
+type Kept<'a> = (&'a str, Vec<(usize, &'a str)>);
+
+/// Each of `files`' lines that a removal kept, outside the migration's documents, that holds a
+/// word of a removed part, and each of the kept `paths` that does, text or not.
+fn leftovers<'a>(
+    paths: impl Iterator<Item = &'a str>,
+    files: impl Iterator<Item = Kept<'a>>,
+    removed: &[&Part],
+) -> Vec<Finding> {
     let words: Vec<(&str, String)> = removed
         .iter()
         .flat_map(|part| {
@@ -184,7 +195,7 @@ fn leftovers(repo: &Repo, removed: &[&Part]) -> Vec<Finding> {
         })
         .collect();
     let mut findings = Vec::new();
-    for path in repo.paths().filter(|path| !is_migration(path)) {
+    for path in paths.filter(|path| !is_migration(path)) {
         for (part, word) in &words {
             if path.to_ascii_lowercase().contains(word) {
                 findings.push(Finding::new(
@@ -195,14 +206,14 @@ fn leftovers(repo: &Repo, removed: &[&Part]) -> Vec<Finding> {
             }
         }
     }
-    for file in repo.files().filter(|file| !is_migration(&file.path)) {
-        for (index, line) in file.text.lines().enumerate() {
+    for (path, lines) in files.filter(|(path, _)| !is_migration(path)) {
+        for (number, line) in lines {
             let line = line.to_ascii_lowercase();
             for (part, word) in &words {
                 if line.contains(word) {
                     findings.push(Finding::new(
-                        &file.path,
-                        index + 1,
+                        path,
+                        number,
                         format!("names `{part}`, which was removed (ARCH-07)"),
                     ));
                 }
@@ -210,6 +221,14 @@ fn leftovers(repo: &Repo, removed: &[&Part]) -> Vec<Finding> {
         }
     }
     findings
+}
+
+/// Every line of `text`, with its number, counted from 1.
+fn numbered(text: &str) -> Vec<(usize, &str)> {
+    text.lines()
+        .enumerate()
+        .map(|(index, line)| (index + 1, line))
+        .collect()
 }
 
 /// Removes the parts named `names` from the repository (ARCH-07): it deletes the files they own
@@ -262,7 +281,10 @@ pub fn remove(names: &[String]) -> ExitCode {
     }
     match Repo::load() {
         Ok(repo) => {
-            let findings = leftovers(&repo, &removed);
+            let files = repo
+                .files()
+                .map(|file| (file.path.as_str(), numbered(&file.text)));
+            let findings = leftovers(repo.paths(), files, &removed);
             if findings.is_empty() {
                 ExitCode::SUCCESS
             } else {
@@ -503,7 +525,10 @@ mod tests {
             words: vec!["offer".to_owned()],
         };
 
-        let findings = leftovers(&repo, &[&part]);
+        let files = repo
+            .files()
+            .map(|file| (file.path.as_str(), numbered(&file.text)));
+        let findings = leftovers(repo.paths(), files, &[&part]);
 
         let places: Vec<(&str, usize)> = findings
             .iter()

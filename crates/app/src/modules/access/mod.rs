@@ -8,9 +8,13 @@ mod service;
 
 pub(crate) use error::AccessError;
 pub(crate) use model::{MemberFilter, Membership, Role};
-pub(crate) use permissions::InvitationsCreate; // part: invitations
+// part: invitations
+pub(crate) use permissions::InvitationsCreate;
+// end part: invitations
 pub(crate) use permissions::{MembersRead, MembersRemove, matrix};
 pub(crate) use service::{
     Policy, Removal, add_owner, joined, member_ids, members, remove, workspace_ids,
 };
-pub(crate) use service::{add_member, is_member}; // part: invitations
+// part: invitations
+pub(crate) use service::{add_member, is_member};
+// end part: invitations

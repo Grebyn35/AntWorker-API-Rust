@@ -11,7 +11,9 @@ use platform::{
     types::{
         Client,
         UserId,
-        WorkspaceId, // part: invitations
+        // part: invitations
+        WorkspaceId,
+        // end part: invitations
     },
 };
 
