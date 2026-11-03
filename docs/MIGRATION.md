@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 3, the rule fixes: one round of rule changes from what steps 1 and 2 taught, through [Changing a rule](standards/README.md#changing-a-rule), which decides each row of [Rule proposals](#rule-proposals) that names step 3, and each check that [CI checks](#ci-checks) leaves to it, then renumbers the IDs once, as [Build order](#build-order) says. Step 2, the thin slice, is built and reviewed: its last part, step 2.4's second, through cdcb2ef ([Conformance reviews](#conformance-reviews)). A development database made before step 2.4 is recreated, as CLAUDE.md says. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
+**Next:** step 3, the rule fixes: one round of rule changes from what steps 1 and 2 taught, through [Changing a rule](standards/README.md#changing-a-rule), which decides each row of [Rule proposals](#rule-proposals) that names step 3, and each check that [CI checks](#ci-checks) leaves to it, then renumbers the IDs once, as [Build order](#build-order) says. The round began with how an optional part is removed (D73): built in 3c57546, whose message records the numbers of rules, behaviors and CI checks that the round's last commit compares with, and reviewed, stopping at pass 2, resolved in c8c7c0d ([Conformance reviews](#conformance-reviews)). A development database made before step 2.4 is recreated, as CLAUDE.md says. The trial server, which the owner allows wiping, runs 0.1.0-rc.11, with its telemetry in the owner's Grafana Cloud stack, whose notification policies reach no contact point yet. What `main` holds since rc.11 reaches it through a release only, whose deploy needs `--allow-restart`, since Caddy's and Postgres's logging and health checks changed; the first restore there after it measures the checks' waits, which backups.md's restore time leaves unmeasured. The owner releases when the trial server needs what `main` holds. Nothing waits on the owner.
 
 ## Build order
 
@@ -238,7 +238,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 06c2a30..151b5eb: the resolutions of the review before, its handoff, and the warning of a `.env` that `.env.example` has moved past | 1 | 6 (6, 4, 4 shared) | 1 | 0 | `next pass`: f6b1396 |
 | 06c2a30..f6b1396: as above | 2 | 4 (3, 3, 2 shared) | 3 | 1 | `stopped: no progress`: e955df8 |
 | 3c57546: how an optional part is removed (D73): ARCH-07, `xtask`'s parts and `parts.yaml`, `check-parts` and `check-removable`, and every marker of `invitations` | 1 | 6 (3, 3, 0 shared) | 1 | 0 | `next pass`: a4013a8 |
-| 3c57546..a4013a8: as above, with the check that no section of a spec is empty | 2 | 5 (5, 3, 3 shared) | 1 | 1 | `stopped: no progress` |
+| 3c57546..a4013a8: as above, with the check that no section of a spec is empty | 2 | 5 (5, 3, 3 shared) | 1 | 1 | `stopped: no progress`: c8c7c0d |
 
 ## Decisions
 
