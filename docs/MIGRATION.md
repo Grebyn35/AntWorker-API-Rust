@@ -41,14 +41,14 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 |---|---|---|
 | The checker tool, the conformance reviewer and the handoff skill | D23, D27 | built |
 | The request pipeline: problem responses, trace context, the middleware stack, readiness and shutdown | D8, D9, D10, D17, D20, D26 | built |
-| The capabilities endpoint and `openapi.json` | D8, D9 | built |
+| The capabilities endpoint and `openapi.json` | D8, D9, D68 | built |
 | Rate limiting: the IP, per-user and per-action limits, with the client IP taken from trusted proxies | D11 | built |
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | built |
 | The image and the delivery pipeline, with the release docs | D15, D21, D43 | built |
 | The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30, D44, D45, D47, D49, D50, D51, D52, D53, D54, D55, D56, D57, D59, D60 | built |
 | Grafana on an HTTPS address of its own with sign-in, and the path to a managed observability backend through the collector, with Grafana Cloud as the worked example | D19, D42 | built |
 | The command that removes an optional part, which `check-removable` runs | D29, D39 | built |
-| `just seed` and the OpenAPI UI in development | D28 | built |
+| `just seed` and the API reference in development | D28, D69, D71 | built |
 | The threat model | D26 | 3 |
 | `just new-module` and the guide to adding a module | D29 | 5 |
 | `just rename`, the guide to renaming a fork, and the GitHub template repository | D29 | 6 |

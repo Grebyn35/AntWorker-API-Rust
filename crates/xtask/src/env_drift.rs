@@ -4,9 +4,9 @@
 //! later commits add settings and change development values (OPS-19). A value that `.env.example`
 //! never had is one the developer chose, and draws no warning; git's history of `.env.example`
 //! tells the two apart. The generated passwords and key, whose example holds a placeholder, such
-//! as `__APP_PASSWORD__`, are left out. A warning names the setting and the example's value, which
-//! the repository holds anyway, and never the value in `.env`, which may be a secret. It warns and
-//! never fails.
+//! as `__APP_PASSWORD__`, differ by design: one draws a warning only when `.env` lacks it. A
+//! warning names the setting and the example's value, which the repository holds anyway, and never
+//! the value in `.env`, which may be a secret. It warns and never fails.
 
 use std::{path::Path, process::Command, process::ExitCode};
 
@@ -26,17 +26,22 @@ pub fn run() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// A warning for each setting that `example` has and `env` lacks, or that `env` sets to a value
-/// that `history`, the lines that commits removed from or added to the example, shows it once
-/// had, but for the settings whose example holds a placeholder.
+/// A warning for each setting that `example` has and `env` lacks, and for each that `env` sets to
+/// a value other than the example's that `history`, the lines that commits removed from or added
+/// to the example, shows the example once had; a generated secret, whose example holds a
+/// placeholder, draws one only when `env` lacks it.
 pub fn drift(env: &str, example: &str, history: &str) -> Vec<String> {
     let ours = settings(env);
     let earlier = settings(history);
     settings(example)
         .into_iter()
-        .filter(|(_, value)| !has_placeholder(value))
         .filter_map(
             |(name, value)| match ours.iter().find(|(setting, _)| *setting == name) {
+                None if has_placeholder(value) => Some(format!(
+                    "warning: .env lacks {name}, a secret that `just setup` generates for a new \
+                     .env: add one, as .env.example's comment on it says"
+                )),
+                Some(_) if has_placeholder(value) => None,
                 None => Some(format!(
                     "warning: .env lacks {name}, which .env.example sets to `{value}`: copy its \
                      line from .env.example"
@@ -155,6 +160,76 @@ mod tests {
         assert!(warnings[1].starts_with(
             "warning: .env lacks STREAM_HEARTBEAT_SECONDS, which .env.example sets to `15`"
         ));
+    }
+
+    #[test]
+    fn ops_19_a_warning_never_holds_the_env_s_value() {
+        let example = "LOG_LEVEL=info\nHMAC_KEY=__HMAC_KEY__\n";
+        let history = "LOG_LEVEL=trace\nLOG_LEVEL=info\n";
+        let env = "LOG_LEVEL=trace\n";
+
+        let warnings = drift(env, example, history);
+
+        assert_eq!(warnings.len(), 2, "{warnings:#?}");
+        assert!(warnings[0].starts_with("warning: .env sets LOG_LEVEL to an earlier value"));
+        assert!(warnings[1].starts_with("warning: .env lacks HMAC_KEY, a secret"));
+        assert!(warnings.iter().all(|warning| !warning.contains("trace")));
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test writes a repository of its own, outside any async runtime"
+    )]
+    fn ops_19_git_s_history_of_the_example_holds_its_earlier_values() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/env-drift")
+            .join(std::process::id().to_string());
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+        std::fs::create_dir_all(&root).unwrap();
+        let git = |args: &[&str]| {
+            let status = Command::new("git")
+                .args([
+                    "-c",
+                    "user.name=env-drift",
+                    "-c",
+                    "user.email=env-drift@localhost",
+                ])
+                .args(args)
+                .current_dir(&root)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        };
+        git(&["init", "--quiet"]);
+        for value in ["", "http://127.0.0.1:8080"] {
+            std::fs::write(
+                root.join(super::EXAMPLE),
+                format!("# The origins.\nCORS_ALLOWED_ORIGINS={value}\n"),
+            )
+            .unwrap();
+            git(&["add", super::EXAMPLE]);
+            git(&[
+                "commit",
+                "--quiet",
+                "--no-gpg-sign",
+                "--message=The example",
+            ]);
+        }
+
+        let history = history(&root);
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert_eq!(
+            settings(&history),
+            [
+                ("CORS_ALLOWED_ORIGINS", ""),
+                ("CORS_ALLOWED_ORIGINS", "http://127.0.0.1:8080"),
+                ("CORS_ALLOWED_ORIGINS", ""),
+            ]
+        );
     }
 
     #[test]

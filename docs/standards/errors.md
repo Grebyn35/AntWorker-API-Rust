@@ -9,14 +9,14 @@ Each module defines one error enum in `error.rs`, using `thiserror`, with varian
 - Why: a module's failure modes can be read in one place (D17).
 - Check: `ci: check-layout` (`error.rs` exists in every module that returns errors), plus `review`.
 
-### ERR-02 Every variant has a stable code and a category
+### ERR-02 Every error a route can answer has a stable code and a category
 Every variant of an error that a route can answer implements `platform::errors::ErrorCode`, which gives it:
 - A code in the form `<namespace>.<snake_case_name>`. The namespace is the module name, for example `workspaces.last_owner`. For errors `platform` raises itself, before any module runs (authentication, body limits, rate limits, load shedding, disabled features, internal errors) or in a mechanism a module calls (authorization, idempotency keys), the namespace is `request`, for example `request.rate_limited`. Once in a final release, a code never changes.
 - One category.
 
 An error that only a subcommand reports, such as `seed`'s, implements no `ErrorCode`: no client receives it, so it has no code to keep stable, and the subcommand writes its message (OPS-03).
 - Why: clients act on codes, so codes are part of the contract.
-- Check: `compiler` (the conversion to a response requires `ErrorCode`), plus `ci: check-openapi` (a changed code is a breaking diff).
+- Check: `compiler` (the conversion to a response requires `ErrorCode`), plus `ci: check-openapi` (a changed code is a breaking diff), plus `review` (an error that only a subcommand reports implements no `ErrorCode`).
 
 ### ERR-03 The category alone sets the HTTP status
 `platform` defines the categories and their statuses. A module never sets a status directly.

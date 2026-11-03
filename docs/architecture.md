@@ -46,7 +46,7 @@ compose.yaml        the services a developer runs locally, and the images of the
 crates/
   platform/         shared mechanisms, no product knowledge
   app/              feature modules, routes, composition root, the binary
-  xtask/            the custom CI checks, and the tasks that release, deploy and test
+  xtask/            the custom CI checks, and the other tasks that `just` runs
 migrations/         one ordered directory; each file name names its owning module
 deploy/             the configuration of the observability stack and of the reference deployment
 docs/
@@ -59,7 +59,7 @@ The configuration of the services the API runs beside lives under `deploy/`, so 
 
 ## 4. Crates
 
-The API has two crates. Cargo forbids `platform` from depending on `app`, so the shared mechanisms can never come to depend on a feature. The workspace's third crate, `xtask`, holds the custom CI checks, and the tasks that `just` runs to release, deploy, test and remove a fork's optional parts, and to warn of a `.env` that `.env.example` has moved past, such as `just release`, `just deploy`, `just load-test` and `just remove`, and neither API crate depends on it.
+The API has two crates. Cargo forbids `platform` from depending on `app`, so the shared mechanisms can never come to depend on a feature. The workspace's third crate, `xtask`, holds the custom CI checks and the other tasks that `just` runs, such as `just release`, `just deploy`, `just load-test` and `just remove`, and neither API crate depends on it.
 
 ### `platform`
 
@@ -289,7 +289,7 @@ Nothing runs after the response except background work driven by committed rows.
 
 Each of these has a standard in `docs/standards/` with numbered rules. This is the one-paragraph version.
 
-- **Errors (D17).** Each module has its own error enum. Every variant that a route can answer declares a stable code and a category, and the category alone sets the HTTP status. Infrastructure errors never leave their adapter. An error is logged once, where it is handled.
+- **Errors (D17).** Each module has its own error enum. Every variant of an error that a route can answer declares a stable code and a category, and the category alone sets the HTTP status. Infrastructure errors never leave their adapter. An error is logged once, where it is handled.
 - **Validation (D25).** Request types reject unknown fields and convert at the boundary into domain types that can only hold valid values. Code past the boundary accepts only those types.
 - **Authentication (D5, D18, D61, D63).** Sessions slide on refresh but have an absolute maximum lifetime. Desktop and web clients are both supported: credentials arrive in the Bearer header from a client that sets its own headers, or in an `HttpOnly` cookie from a browser, whose requests CSRF protection guards, from the origins that the CORS allowlist names. Every user may add a second factor, and every superadmin must. Revoking a session closes its streams.
 - **Authorization (D2, D62).** One permission matrix, in `access/permissions.rs`, maps roles to permissions. Every workspace route declares its permission in its type. Role rank limits who may change whom. A route of `superadmins` is authorized by the caller being a superadmin instead, and reaches no workspace's content.

@@ -285,6 +285,13 @@ async fn system_005_seed_has_olivia_invite_adam_and_mia_who_accept_and_ian_whose
     assert_eq!(pending["items"].as_array().unwrap().len(), 1);
     assert_eq!(pending["items"][0]["workspace_id"], acme.as_str());
     assert_eq!(pending["items"][0]["role"], "member");
+    assert_eq!(pending["items"][0]["inviter_name"], "Olivia Owner");
     assert!(workspaces(&api, &ian).await.is_empty());
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT name FROM users WHERE email = 'invitee@example.com'")
+            .await,
+        ["Ian Invitee"]
+    );
 }
 // end part: invitations
