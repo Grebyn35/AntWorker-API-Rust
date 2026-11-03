@@ -363,10 +363,11 @@ check-deps:
 check-schema: services
     {{ xtask }} check-schema
 
-# Fails on a marker of an optional part that is wrong or follows Rust code, and, for each run
-# that crates/xtask/parts.yaml lists, on a Rust file that removing the run's parts leaves
-# unparseable, or a kept line that names one of them, removing them in memory (ARCH-07).
-[doc("Fails on a wrong marker of an optional part, or a removal that leaves broken Rust or a line naming the part")]
+# Fails on a marker of an optional part that is wrong, or in a Rust file isn't Rust's `//`
+# comment alone on its line, and, for each run that crates/xtask/parts.yaml lists, on a Rust file
+# that removing the run's parts leaves unparseable, or a kept line or path that names one of
+# them, removing them in memory (ARCH-07).
+[doc("Fails on a wrong marker of an optional part, or a removal that leaves broken Rust or a line or path naming the part")]
 [group('check')]
 check-parts:
     {{ xtask }} check-parts
@@ -381,9 +382,10 @@ check-removable *runs:
 
 # Removes the optional parts named, as a fork does before its first release to choose its
 # workspace shape (ARCH-07, architecture.md §5): it deletes the files and the marked lines of
-# each, then the cached queries that no kept code holds, updates Cargo.lock, writes openapi.json
-# and the metric catalog again, and formats the code, then fails while a kept line still names
-# one. Commit what it leaves once `just ci` passes.
+# each, writing "None." in each section of a spec that it empties, then the cached queries that no
+# kept code holds, updates Cargo.lock, writes openapi.json and the metric catalog again, and
+# formats the code, then fails while a kept line or path still names one. Commit what it leaves
+# once `just ci` passes.
 [doc("Removes optional parts, to choose a workspace shape")]
 [group('fork')]
 remove +parts:

@@ -6,7 +6,7 @@
 
 ## Owns
 
-No tables.
+None.
 
 ## Interface
 

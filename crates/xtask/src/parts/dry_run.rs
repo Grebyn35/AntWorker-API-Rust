@@ -227,6 +227,26 @@ mod tests {
             .map(|finding| (finding.path.as_str(), finding.line))
             .collect();
         assert_eq!(places, [("src/a.rs", 5)], "{:?}", outcome.findings);
+    }
+
+    #[test]
+    fn arch_07_a_run_reports_the_files_it_deletes_and_edits() {
+        let code = format!(
+            "fn a() {{}}\n{}\nfn b() {{}}\n{}\n",
+            mark("offers"),
+            end("offers")
+        );
+        let list = list();
+        let repo = Repo::of(&[
+            (LIST, &list),
+            ("src/a.rs", &code),
+            ("src/b.rs", "fn c() {}\n"),
+            ("src/offers.rs", ""),
+            ("src/offers_more.rs", ""),
+        ]);
+
+        let outcome = check(&repo);
+
         assert_eq!(
             outcome.report,
             ["shop: removing offers deletes 2 files and edits 2"]

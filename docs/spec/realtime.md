@@ -6,7 +6,7 @@
 
 ## Owns
 
-Nothing. `platform` owns the `events` table.
+None. `platform` owns the `events` table.
 
 ## Interface
 

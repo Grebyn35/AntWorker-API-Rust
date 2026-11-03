@@ -134,16 +134,18 @@ enum Command {
     #[command(name = "check-tenancy")]
     Tenancy,
     /// Fails on a marker of an optional part that names no part, a block that no end marker
-    /// closes, a marker after Rust code, a test of another module's behavior in a file that a
-    /// part owns, and, for each run that `crates/xtask/parts.yaml` lists, on a Rust file that
-    /// removing the run's parts leaves unparseable, or a line it keeps that names one of them,
-    /// removing them in memory (ARCH-07).
+    /// closes, a marker in a Rust file that isn't Rust's `//` comment alone on its line, a test of
+    /// another module's behavior in a file that a part owns, and, for each run that
+    /// `crates/xtask/parts.yaml` lists, on a Rust file that removing the run's parts leaves
+    /// unparseable, or a line or path it keeps that names one of them, removing them in memory
+    /// (ARCH-07).
     #[command(name = "check-parts")]
     Parts,
     /// Removes the optional parts named `parts` (ARCH-07): it deletes the files each owns whole
-    /// and the lines its markers mark, then the cached queries that no kept code holds, updates
-    /// `Cargo.lock`, writes `openapi.json` and the metric catalog again, and formats the code,
-    /// then fails while a file it kept still names one of them.
+    /// and the lines its markers mark, writing "None." in each section of a spec that it empties,
+    /// then the cached queries that no kept code holds, updates `Cargo.lock`, writes
+    /// `openapi.json` and the metric catalog again, and formats the code, then fails while a file
+    /// it kept, or the path of one, still names one of them.
     Remove {
         /// The parts, such as those a workspace shape doesn't keep (architecture §5).
         #[arg(required = true)]

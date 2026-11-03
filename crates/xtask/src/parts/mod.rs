@@ -235,9 +235,10 @@ fn numbered(text: &str) -> Vec<(usize, &str)> {
 }
 
 /// Removes the parts named `names` from the repository (ARCH-07): it deletes the files they own
-/// whole and the lines their markers mark, then the cached queries that no kept code holds,
-/// updates `Cargo.lock`, writes `openapi.json` and the metric catalog again, formats the code, and
-/// fails while a file it kept still names one of them.
+/// whole and the lines their markers mark, writing "None." in each section of a spec that it
+/// empties, then the cached queries that no kept code holds, updates `Cargo.lock`, writes
+/// `openapi.json` and the metric catalog again, formats the code, and fails while a file it kept,
+/// or the path of one, still names one of them.
 pub fn remove(names: &[String]) -> ExitCode {
     let repo = match Repo::load() {
         Ok(repo) => repo,
@@ -303,7 +304,8 @@ pub fn remove(names: &[String]) -> ExitCode {
 }
 
 /// Deletes the files that the parts `removed` own whole, and the lines their markers mark in every
-/// other file, but the migration's documents; returns how many files it deleted and edited.
+/// other file, but the migration's documents, writing "None." in each section of a spec that it
+/// empties; returns how many files it deleted and edited.
 fn delete(repo: &Repo, removed: &[&Part], known: &[&str]) -> Result<(usize, usize), String> {
     let removing: Vec<&str> = removed.iter().map(|part| part.name.as_str()).collect();
     let deleted: Vec<String> = removed.iter().flat_map(|part| owned(repo, part)).collect();
@@ -318,7 +320,7 @@ fn delete(repo: &Repo, removed: &[&Part], known: &[&str]) -> Result<(usize, usiz
         let stripped = markers::strip(&file.text, &removing, known)
             .map_err(|(line, message)| format!("{}:{line}: {message}", file.path))?;
         if let Some(text) = stripped {
-            let text = if file.path.starts_with(SPECS) && file.path.ends_with(".md") {
+            let text = if is_spec(&file.path) {
                 none_in_empty_sections(&text)
             } else {
                 text
@@ -329,6 +331,12 @@ fn delete(repo: &Repo, removed: &[&Part], known: &[&str]) -> Result<(usize, usiz
         }
     }
     Ok((deleted.len(), edited))
+}
+
+/// Whether the file at `path` is a module's spec, rather than the specs' README.
+fn is_spec(path: &str) -> bool {
+    path.strip_prefix(SPECS)
+        .is_some_and(|name| name.ends_with(".md") && name != "README.md")
 }
 
 /// `text` with "None." under each of its level-2 headings that has nothing under it, as a spec
@@ -550,30 +558,52 @@ mod tests {
         assert_eq!(modules, [Some("client_telemetry".to_owned()), None]);
     }
 
-    #[test]
-    fn arch_07_a_removal_fails_on_each_line_that_still_names_the_part() {
-        let repo = Repo::of(&[
-            ("src/a.rs", "fn a() {}\n// The Offer's price.\n"),
-            ("docs/inventory/old.md", "The offers of the old API."),
-            ("src/offers_test.rs", ""),
-        ]);
-        let part = Part {
+    /// The part `offers`, which owns no file, with its word.
+    fn offer_words() -> Part {
+        Part {
             name: "offers".to_owned(),
             module: None,
             paths: Vec::new(),
             words: vec!["offer".to_owned()],
-        };
+        }
+    }
 
+    /// Where `leftovers` finds a word of `offers` in `repo`'s files and paths.
+    fn leftover_places(repo: &Repo) -> Vec<(String, usize)> {
         let files = repo
             .files()
             .map(|file| (file.path.as_str(), numbered(&file.text)));
-        let findings = leftovers(repo.paths(), files, &[&part]);
+        leftovers(repo.paths(), files, &[&offer_words()])
+            .into_iter()
+            .map(|finding| (finding.path, finding.line))
+            .collect()
+    }
 
-        let places: Vec<(&str, usize)> = findings
-            .iter()
-            .map(|finding| (finding.path.as_str(), finding.line))
-            .collect();
-        assert_eq!(places, [("src/offers_test.rs", 1), ("src/a.rs", 2)]);
+    #[test]
+    fn arch_07_a_removal_fails_on_each_kept_line_that_names_the_part() {
+        let repo = Repo::of(&[("src/a.rs", "fn a() {}\n// The Offer's price.\n")]);
+
+        let places = leftover_places(&repo);
+
+        assert_eq!(places, [("src/a.rs".to_owned(), 2)]);
+    }
+
+    #[test]
+    fn arch_07_a_removal_fails_on_each_kept_path_that_names_the_part() {
+        let repo = Repo::of(&[("src/offers_test.rs", "")]);
+
+        let places = leftover_places(&repo);
+
+        assert_eq!(places, [("src/offers_test.rs".to_owned(), 1)]);
+    }
+
+    #[test]
+    fn arch_07_a_removal_reads_no_word_in_the_migration_s_documents() {
+        let repo = Repo::of(&[("docs/inventory/old.md", "The offers of the old API.")]);
+
+        let places = leftover_places(&repo);
+
+        assert!(places.is_empty(), "{places:?}");
     }
 
     #[test]
