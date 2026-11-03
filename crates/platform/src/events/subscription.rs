@@ -74,7 +74,7 @@ impl Event {
         self.id
     }
 
-    /// The event's type, such as `member.removed` (API-19).
+    /// The event's name, such as `member.removed` (API-19).
     pub fn name(&self) -> &str {
         &self.name
     }

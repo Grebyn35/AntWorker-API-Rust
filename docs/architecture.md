@@ -66,9 +66,9 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | Area | What it provides | Decisions |
 |---|---|---|
 | `config` | Typed configuration loaded once at startup. Values are trimmed, empty means unset, `*_FILE` secret files are supported, and every failure is reported in one format. | D9, D26 |
-| `db` | One connection pool, the instance's own connection beside it, on which the hub listens and readiness checks the database, the unit of work, and the `bootstrap` and `migrate` tasks. A unit of work is one transaction, opened by the service, or with `Authorized<P>` on a workspace route, with a writer for jobs and events, and the claim of an idempotency key, whose record commits with it. Every query in it filters by tenant itself (DATA-22). | D1, D4, D12, D20, D24 |
+| `db` | One connection pool, the listener beside it, the unit of work, and the `bootstrap` and `migrate` tasks. A unit of work is one transaction, opened by the service, or with `Authorized<P>` on a workspace route, with a writer for jobs and events, and the claim of an idempotency key, whose record commits with it. Every query in it filters by tenant itself (DATA-22). | D1, D4, D12, D20, D24 |
 | `jobs` | A durable job queue with retry, backoff and dead letters, which every instance's dispatcher polls, plus a scheduler that runs each periodic job once per interval across the fleet. A job records the user or workspace it was enqueued for, and its handler filters by them. | D1, D13 |
-| `events` | The event log and the real-time hub. A unit of work publishes events, which take their positions in the log in the order their units of work commit. The hub listens on the instance's own connection, and loads each new event once and delivers it to the streams allowed to receive it (SEC-17). It also replays what a reconnecting stream missed, closes streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). | D1, D5, D20 |
+| `events` | The event log and the real-time hub. A unit of work publishes events, which take their positions in the log in the order their units of work commit. The hub listens on the listener, and loads each new event once and delivers it to the streams allowed to receive it (SEC-17). It also replays what a reconnecting stream missed, closes streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). | D1, D5, D20 |
 | `rate_limit` | The buckets that count requests in windows, in the database every replica shares: the IP and user limits that the request pipeline applies, and the per-action limits a module checks, such as sign-in's. | D11 |
 | `http` | The route builders and the OpenAPI document they produce, the middleware stack with trace context, timeouts, load shedding, cross-origin resource sharing (CORS) and the protection against cross-site request forgery (CSRF), extractors (JSON, a keyed route's JSON with its `Idempotency-Key`, path, query), and rate limiting. | D8, D10, D11, D12, D20, D61 |
 | `authn` | Reads a request's access token from the Bearer header, for clients that set their own headers, such as the desktop client, or otherwise from an `HttpOnly` cookie, for browsers. It verifies the token through the `SessionVerifier` that `auth` implements, producing a `Principal`. | D18, D61 |
@@ -192,7 +192,7 @@ modules/workspaces/
   repo.rs            SQL only (private)
   model.rs           domain types
   error.rs           the module's error enum (D17)
-  events.rs          event types it publishes
+  events.rs          events it publishes
   audit.rs           audit actions it records, and the kinds of resource they happen to
   jobs.rs            background jobs it declares (D13)
   emails.rs          emails it sends, rendered from its templates in templates/workspaces/ (D1)
@@ -321,7 +321,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 - **Telemetry in a deployment** goes to one of two places (D42):
   - The self-hosted stack, the default. Grafana answers on an HTTPS address of its own behind Caddy, and every viewer signs in; nobody views it anonymously.
   - A managed backend that accepts OTLP, such as Grafana Cloud, instead of Prometheus, Loki, Tempo, Grafana and Alertmanager. The collector still runs beside the API, keeps its receivers and processors, tail sampling among them (OBS-08), and holds the backend's credentials. It exports to the backend, and does there what the stack's Prometheus does: it scrapes its own metrics, and turns resource attributes into labels. The API's configuration is the same. Grafana Cloud is the worked example, into which the dashboards and the rules are imported. With another vendor, the telemetry arrives the same way, and a fork rebuilds the dashboards and alerts in the vendor's tools.
-- **Scaling out** means adding replicas. An instance opens at most its pool's size plus one connection of its own, for readiness and the listener, and logs that number when it starts. While a deploy runs, both colors do, and a deploy refuses replicas whose connections wouldn't fit within Postgres's, as [deploy.md](operations/deploy.md#scaling) works out (OPS-21). The listener needs a direct connection, which rules out PgBouncer in transaction mode. Under load, each replica sheds requests with 503 and `Retry-After` instead of queuing without bound (D20).
+- **Scaling out** means adding replicas. An instance opens at most its pool's size plus the listener, and logs that number when it starts. While a deploy runs, both colors do, and a deploy refuses replicas whose connections wouldn't fit within Postgres's, as [deploy.md](operations/deploy.md#scaling) works out (OPS-21). The listener needs a direct connection, which rules out PgBouncer in transaction mode. Under load, each replica sheds requests with 503 and `Retry-After` instead of queuing without bound (D20).
 - **Multiple hosts.** The image and its environment contract don't depend on a platform. The operations docs state what any platform must provide: Postgres that the replicas share, with point-in-time recovery, on a server that holds no other deployment's database, readiness checks that stop traffic before an instance drains, a grace period longer than its shutdown, and TLS and encryption at rest (OPS-20).
 
 ## 10. Technology
@@ -397,8 +397,9 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Job | Durable background work, delivered at least once (D13). |
 | Migration | One forward-only change to the schema, in a file of `migrations/`, applied by `migrate` (DATA-09). |
 | Startup | What a subcommand does before it serves: reading the configuration and running its checks. For a one-shot subcommand, such as `migrate`, its whole run. A startup failure ends the process (OPS-03). |
-| Event | A record of a change, delivered to clients over SSE and replayable after a reconnect (D5). |
+| Event | A record of a change, named `<resource>.<verb>`, such as `member.removed`, its name, which its frame's `event` carries (API-19), delivered to clients over SSE and replayable after a reconnect (D5). |
 | Stream | One client's open SSE connection. |
+| Listener | The instance's own connection to the database, outside its pool, on which the hub listens for what commits and readiness checks the database (OPS-05, OPS-21). |
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |
 | File | Stored bytes plus metadata. A user file or a workspace file, each private or public. |
 | Personal data contract | A module's export and erasure of the personal data it stores (D31). |

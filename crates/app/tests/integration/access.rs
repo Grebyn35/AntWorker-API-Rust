@@ -272,24 +272,22 @@ async fn platform_015_an_operation_that_rolls_back_publishes_nothing() {
     )
     .await;
 
-    let events = db.owner_reads("SELECT type FROM events").await;
+    let events = db.owner_reads("SELECT name FROM events").await;
     assert!(events.is_empty(), "{events:?}");
 }
 
-/// Whether a query of the test database came to wait on a lock, as the administrator sees it:
-/// other roles see only their own sessions' waits.
-async fn a_query_waits_on_a_lock(db: &TestDatabase) -> bool {
+/// Waits until a query of the test database waits on a lock, as the administrator sees it: other
+/// roles see only their own sessions' waits. The request the test sent leads there, so the wait
+/// has no bound of its own (TEST-07).
+async fn a_query_waits_on_a_lock(db: &TestDatabase) {
     let sql = format!(
-        "SELECT count(*)::text FROM pg_stat_activity          WHERE datname = '{}' AND wait_event_type = 'Lock'",
+        "SELECT count(*)::text FROM pg_stat_activity \
+         WHERE datname = '{}' AND wait_event_type = 'Lock'",
         db.name()
     );
-    for _ in 0..500 {
-        if db.admin_reads(&sql).await != ["0"] {
-            return true;
-        }
+    while db.admin_reads(&sql).await == ["0"] {
         tokio::task::yield_now().await;
     }
-    false
 }
 
 #[tokio::test]
@@ -316,10 +314,7 @@ async fn platform_024_authorization_waits_for_a_change_to_the_caller_s_membershi
         let path = format!("/v1/workspaces/{workspace}/members");
         async move { call(&api, Method::GET, &path, &member).await.status }
     });
-    assert!(
-        a_query_waits_on_a_lock(db).await,
-        "no query waited on a lock"
-    );
+    a_query_waits_on_a_lock(db).await;
     execute_on(&mut removal, "COMMIT").await;
 
     // The request waited for the removal, so it ran under the membership as it then stood.

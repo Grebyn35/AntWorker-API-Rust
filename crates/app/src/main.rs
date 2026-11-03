@@ -156,13 +156,13 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
     };
     let clock: SharedClock = Arc::new(SystemClock);
     let readiness = Readiness::new();
-    let connection = match platform::events::listen(&database, clock.as_ref()).await {
-        Ok(connection) => connection,
+    let listener = match platform::events::listen(&database, clock.as_ref()).await {
+        Ok(listener) => listener,
         Err(error) => return failed("listener", &error),
     };
     platform::telemetry::process::watch(clock.clone());
-    let listener = match bind(config.listen_addr).await {
-        Ok(listener) => listener,
+    let socket = match bind(config.listen_addr).await {
+        Ok(socket) => socket,
         Err(error) => return failed("listen", &error),
     };
     let services = match app::compose(
@@ -171,7 +171,7 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         modules,
         clock.clone(),
         readiness.clone(),
-        connection,
+        listener,
     )
     .await
     {
@@ -204,7 +204,7 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         signals.received().await;
         stop_jobs.send_replace(true);
     };
-    let served = lifecycle::serve(listener, app, readiness, clock, shutdown, signal).await;
+    let served = lifecycle::serve(socket, app, readiness, clock, shutdown, signal).await;
     if let Err(error) = jobs.await {
         tracing::error!(
             { names::EXCEPTION_MESSAGE } = platform::errors::chain(&error),
@@ -239,8 +239,8 @@ async fn seed((config, modules): (ServerConfig, app::Config)) -> ExitCode {
     };
     let clock: SharedClock = Arc::new(SystemClock);
     let readiness = Readiness::new();
-    let connection = match platform::events::listen(&database, clock.as_ref()).await {
-        Ok(connection) => connection,
+    let listener = match platform::events::listen(&database, clock.as_ref()).await {
+        Ok(listener) => listener,
         Err(error) => return failed("listener", &error),
     };
     let services = match app::compose(
@@ -249,7 +249,7 @@ async fn seed((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         modules,
         clock.clone(),
         readiness.clone(),
-        connection,
+        listener,
     )
     .await
     {

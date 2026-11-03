@@ -9,6 +9,7 @@
 //!
 //! It reads each file of `app`'s library as a token stream, with the paths its `use`
 //! declarations import (`rust`), so it finds a module's name inside macros and attributes too.
+//! The subcommand also checks the crates' dependencies (CODE-11, `crate_deps`).
 
 use std::collections::{BTreeMap, BTreeSet};
 

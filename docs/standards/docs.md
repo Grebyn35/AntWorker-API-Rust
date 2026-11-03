@@ -3,22 +3,9 @@
 ## Current state only
 
 ### DOC-01 Docs and comments describe the system as it is
-No document or comment records what changed, what something replaced, what an earlier version did, who asked for it, or when it was written. The migration workspace is the exception: the tracker records the migration's progress (DOC-16), and the inventory describes the old codebase (DOC-04).
-- Why: history goes stale, and readers need the current state, not the path to it (D27).
-- Check: `ci: check-docs` flags the common markers (`previously`, `no longer`, `used to`, `legacy`, `now uses`, and dates in comments), plus `review`.
-
-### DOC-02 Edits rewrite in place
-An edit rewrites the affected text so it reads as if it had always said that. There are no "update", "note", "refinement" or dated additions, and no struck-through text.
-- Why: an edited document must read as one coherent description.
-- Check: `review`.
-
-### DOC-03 History has three homes
-History is recorded only in:
-- git (commit messages and pull request descriptions)
-- architecture decision records (ADRs), which hold the context and reasoning behind each decision
-- `CHANGELOG.md` (release notes for forks)
-- Why: each kind of history has one place, so it never leaks into docs or code.
-- Check: `review`.
+No document or comment records what changed, what something replaced, what an earlier version did, who asked for it, or when it was written. An edit rewrites the text it affects so that it reads as if it had always said that: it adds no "update", "note" or dated paragraph, and strikes nothing through. History has its homes in DOC-14: the commit messages, the architecture decision records (ADRs) and `CHANGELOG.md`. The migration workspace is the exception: the tracker records the migration's progress (DOC-16), and the inventory describes the old codebase (DOC-04).
+- Why: history goes stale, readers need the current state, not the path to it, and an edited document must read as one description (D27).
+- Check: `ci: check-docs` flags the common markers (`previously`, `no longer`, `used to`, `legacy`, `now uses`, and dates in comments), and a path to a Rust file, such as `events/hub.rs`, that names no file of the repository, plus `review`.
 
 ## The documentation set
 
@@ -72,7 +59,8 @@ Each kind of fact has one home, listed below. A fact is written in its home as s
 | A question only building can settle | the Open design questions of the module's spec |
 | How the parts fit together, and what a term means | `docs/architecture.md` |
 | A decision between valid designs | what it settles goes into the rules and specs it settles, and its record into an ADR; while the migration runs, a row of the tracker's decisions indexes it (DOC-16) |
-| Why a change was made, and the evidence behind it | the commit message (DOC-03) |
+| Why a change was made, and the evidence behind it | the commit message, and the description of the pull request that brings it |
+| What a release changes, and what a fork ports from it | `CHANGELOG.md` (DOC-12) |
 | A working rule for Claude Code sessions | `CLAUDE.md` |
 | How to operate the system: CI, releases, deploys, backups, dashboards and alerts | `docs/operations/` |
 | How to carry out a task, such as adding a module or renaming a fork | `docs/guides/` |
@@ -113,7 +101,7 @@ An ADR has four sections: context, decision, consequences and status. After it i
 - Check: `review`.
 
 ### DOC-13 Links and IDs resolve
-Every link in the docs resolves, and every rule ID or behavior ID cited in a document, comment or test exists, except in the inventory, whose IDs are its own (DOC-04). Every CI check a rule names is listed in the table of checks in `docs/operations/ci.md`, or, while the migration runs, in the tracker's CI checks.
+Every link in the docs resolves, to one heading where it names an anchor, so no two headings of a document share their text. Every rule ID or behavior ID cited in a document, comment or test exists, and so does the ID whose test prefix a document or comment cites, such as `workspaces_001_`, except in the inventory, whose IDs are its own (DOC-04). Every CI check a rule names is listed in the table of checks in `docs/operations/ci.md`, or, while the migration runs, in the tracker's CI checks.
 - Why: a broken reference is a silent lie.
 - Check: `ci: check-docs`.
 

@@ -20,6 +20,9 @@ pub struct Link {
 pub struct Document {
     /// The anchor of every heading, as GitHub derives it from the heading's text.
     pub anchors: BTreeSet<String>,
+    /// The anchors of the headings whose text another heading of the document shares, which
+    /// GitHub numbers in the order the headings come.
+    pub repeated: BTreeSet<String>,
     /// Every link.
     pub links: Vec<Link>,
     /// The prose, one entry per block, with the line the block starts on. Prose leaves out
@@ -98,10 +101,14 @@ impl Reader {
         let slug = slug(heading);
         let uses = self.anchor_uses.entry(slug.clone()).or_default();
         let anchor = if *uses == 0 {
-            slug
+            slug.clone()
         } else {
             format!("{slug}-{uses}")
         };
+        if *uses > 0 {
+            self.document.repeated.insert(slug);
+            self.document.repeated.insert(anchor.clone());
+        }
         *uses += 1;
         self.document.anchors.insert(anchor);
     }
@@ -313,6 +320,8 @@ mod tests {
                 "title"
             ]
         );
+        let repeated: Vec<&str> = document.repeated.iter().map(String::as_str).collect();
+        assert_eq!(repeated, ["notes", "notes-1"]);
     }
 
     #[test]

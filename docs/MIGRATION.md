@@ -90,16 +90,15 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 |---|---|
 | `fmt-check`, `test`, `deny` | built |
 | `check-test-map`, `check-docs` | built |
-| `check-docs`, for the names of other codebases and the paths into the inventory (DOC-04) | 3 |
 | `check-docs`, for accepted ADRs (DOC-11) | 6, with the first ADR |
 | `check-openapi`, with list shapes, `check-instrument`, `check-layers`, `check-deps`, `check-schema`, `check-sql-bans`, `check-tenancy` | built |
 | `check-metrics`, `check-telemetry-config`, `alert-rules` | built |
 | `check-openapi`, for the breaking-change diff (API-18, ERR-02) | the first final release |
 | `check-pins`, `image-scan`, `image-rescan`, `verify-release`, `check-shell` | built |
 | `e2e` | built, and extended by every later step |
-| `check-layout`, `check-config`, `setup-smoke` | 3 decides: built, or the rule's check changes |
+| `check-config`, `setup-smoke` | 3 decides: built, or the rule's check changes |
 | `check-personal-data` | 5, with export and erasure in `accounts` |
-| `check-removable`, `check-parts`, `check-table-ownership`, `check-migrations`, `sqlx-check` | built |
+| `check-removable`, `check-parts`, `check-table-ownership`, `check-migrations`, `sqlx-check`, `check-layout` | built |
 | `test-migrations` | 6, with the first final release |
 | `check-rename` | 6, with `just rename` |
 
@@ -111,6 +110,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 |---|---|---|
 | OPS-18 | A release's capacity, which `just load-test` measures, has no release notes to go in: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 | TEST-07 | `traces::obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace` fails now and then on amd64 in CI, when nothing reaches Loki or Tempo; its output says why, from the stack's start times to the API's export errors | the fix of what its next failure shows |
+| TEST-07 | `invitations::sec_17_member_joined_reaches_the_members_and_no_replay_from_before_joining` failed once in `just test` on 2026-11-03, and passed alone five times: a stream that opened with 200 ended its response without `stream.closed`, which the route always sends before it ends; the support's `event` now names what the stream held when it ended | the fix of what its next failure shows |
 | DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 | OPS-17 | Postgres treats a segment of the log that its restore command can't fetch as the end of the archive, so a restore whose replay can't fetch one, as when the bucket stops answering, ends the replay there: a restore of the latest state, or the second replay of one to a moment, then serves the database as of that segment, naming its last commit, rather than refusing | 3 |
 | DATA-28 | No personal data contract is registered for the tables that reference a user or hold personal data, `users`, `identities`, `sessions`, `audit_entries`, `workspaces`, `workspace_memberships`, `events`, `idempotency_records`, `jobs` and `invitations`: the registry, and the export and erasure that read it, arrive with the full `accounts` module (D31) | 5 |
@@ -129,14 +129,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 |---|---|---|
 | Conformance review of 3ae7168 | ARCH-07: whether password sign-in is an optional part, for a fork that signs in only through OAuth providers | 5, with the full `auth` module |
 | Conformance review of b299bf2..004d477 | OPS-17: whether the reach of `BACKUP_RETENTION_DAYS` holds on a restored timeline whose closing backup failed, when retention expires the backup from before its branch while a newer full backup on the timeline the restore abandoned stays, and backups.md's "never shorten the reach" with it | 3 |
-| Conformance review of c5aecac..a92d7a8 | TEST-07: whether a test may act inside a window that the code under test holds open, such as the replicas' shutdown delay (PLATFORM-038) that a restore waits out before its transaction, rather than only at a state the test asks for | 3 |
 | Removing the end-to-end tests' roles lock | DATA-12, DATA-13: whether `bootstrap` names the roles after the users of `DATABASE_OWNER_URL` and `DATABASE_URL`, so that deployments, such as a staging and a production one, can share a Postgres server, which [deploy.md](operations/deploy.md#choosing-the-services) forbids. PLATFORM-009 would then check the role that `DATABASE_URL` names rather than `app`, and the first migration's grants would reach that role. If not, whether the deploy or `just server-check` refuses a managed server on which `owner` owns objects in a database other than the one the URLs name, so that the requirement is checked. | 3 |
-| The restore's fix after 97c76dc | CODE-16: `check-shell` fails on a function of a script under `deploy/` that assigns a variable the script's top level sets, since every variable of `sh` is global, and the assignment changes what the rest of the script reads | 3 |
-| Conformance review of 97c76dc..c3fb265 | TEST-07: whether a test's wait on the output of a command it runs, such as `Server::deploy_until` reading deploy.sh's output, needs a timeout of its own, or the command's own bounded waits bound it | 3 |
-| The check of the foundation before step 2.1 | CODE-07: whether a limit like its 500 lines, which counts Rust files only, applies to a script under `deploy/`, or the server's tasks move out of `sh` into a language whose variables have a scope: `deploy.sh` holds every task on the server in 1,269 lines, where every variable is global, as the CODE-16 proposal above says | 3 |
-| Conformance review of bd2d1fd..5330bf9 | CODE-10 and DATA-02: when a column keeps DATA-02's name, such as a membership's `created_at`, and the API names what it means for its resource, such as `joined_at`, which name CODE-10's one concept takes | 3 |
-| Conformance review of bd2d1fd..5330bf9 | TEST-07: whether a test may wait in a loop bounded by a count of polls, as `a_query_waits_on_a_lock` does, rather than by a timeout | 3 |
-| Conformance review of bd2d1fd..ec21099 | TEST-10: a check that an integration test inserts no rows into a table that a support builder arranges | 3 |
 | The owner's question at step 3's start | SYSTEM-001: whether `features` also holds each optional part that changes what a client offers, such as `invitations`, `true` while the fork keeps the part and absent once it removes it, so that one client tells the workspace shapes apart from what each API has, rather than a field that names the shape, which a fork that keeps `superadmins` in any shape, or adds a part of its own, couldn't state | 5, with the setup subcommand or `superadmins` |
 | Deciding D73 | ARCH-07: whether a part adds what it needs to the core modules through registration points they offer, such as its permission in the role matrix and its steps in `seed`, so that fewer of its lines are marked in their files, once step 5's parts show which of them recur | 5 |
 | Conformance review of 3c57546 | D62, architecture §5: how a superadmin who created a workspace hands it over in a fork without `invitations`, where nobody else joins it, since an ownership transfer swaps the roles of two members | 5, with `superadmins` |
@@ -144,22 +137,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 3c57546 | ARCH-07: `check-parts` also reads the tests in the files of a part without a module, such as an OAuth provider's, which it skips now | 5, with the first OAuth provider |
 | Deciding D73 | ARCH-07: whether a fork chooses its shape with one command, which removes the parts the shape doesn't keep, then the markers of the parts it keeps, the runs, and the removal's tooling and checks, since a fork that keeps every part removes nothing, and its own code that names a kept part fails `check-parts` and `check-removable` until it carries the part's marker | 6, with `just rename` |
 | The owner's decision on second factors (D63) | Whether a second factor can be required beyond superadmins: of every user, by a setting of the deployment, or of a workspace's members, by its owner, as Slack and GitHub let an organization require it of its members | 5, with the full `auth` module |
-| Conformance review of d678a43..4eedca6 | OPS-09: `check-layout` fails an `impl Job`, or a call of `Jobs::queued` or `Jobs::periodic`, outside a module's `jobs.rs` and the area of `platform` that declares it, such as `platform::jobs` and `platform::mail`, and a kind that doesn't start with its module's name, or with `platform.` for a job of `platform` | 3 |
-| Conformance review of d678a43..364d2e9 | DOC-01: `check-docs` fails a comment or a document that names a module's `.rs` file that doesn't exist | 3 |
-| Conformance review of d678a43..364d2e9 | OPS-20: whether `serve` refuses `SMTP_SECURITY=none` for a mail server off the API's server, which `deploy/settings.env.example` allows only for a relay on the server's private network | 3 |
-| Conformance review of d678a43..364d2e9 | CODE-14: whether its unused public items include those that only tests call, such as `Principal::job_scope`, `JobContext`'s `id`, `attempt` and `scope`, and `JobScope::user` and `workspace`, which the platform spec names | 3 |
-| Conformance review of 317909b..259b888 | CODE-11: a check that fails a dependency that no code of its crate uses, such as `cargo-machete`, which would also catch a dependency that only a removed part used and that carries no marker | 3 |
-| Conformance review of 317909b..259b888 | DOC-13: `check-docs` fails a link whose anchor names a heading whose text another heading of the same document shares, such as a spec's Behaviors and Design subsections of one area | 3 |
-| Conformance review of 317909b..34b65f5 | DOC-13: `check-docs` also resolves a behavior's test prefix that a comment or document cites, such as `invitations_001`, as it resolves the ID in capitals | 3 |
-| Conformance review of 0d036d0..d59e8d0 | TEST-05: its test-only routes also show a mechanism's behaviors that the API's routes show, but not on demand, such as the announcing routes, which publish many events in one unit of work, or an event that a permission no role lacks would gate | 3 |
-| Conformance review of 0d036d0..d59e8d0 | DOC-13: `check-docs` compares the platform spec's lists of telemetry names and of the metrics `platform` records with `telemetry/names.rs` and the metric declarations, which drifted apart when the hub added three metrics and a name | 3 |
-| Conformance review of 0d036d0..d59e8d0 | OPS-01: a test generated from the `Type:` lines of `.env.example` refuses each number setting just outside its range, so no range goes untested | 3 |
-| Conformance review of 0d036d0..d59e8d0 | CODE-10: one term for an event's type, which the column calls `type`, Rust `name`, the specs "event type", and API-19 "named" | 3 |
-| Conformance review of 0d036d0..1ff84e6 | TEST-10: one support builder that commits an event as a unit of work does, with its position, transaction and snapshot, for the tests that insert events by hand | 3 |
 | Conformance review of 0d036d0..1ff84e6 | OPS-21: a test that counts the instance's own connections in `pg_stat_activity` across checks that time out, by an `application_name` its connection sets | 3 |
-| Conformance review of 0d036d0..1ff84e6 | CODE-07: build `check-layout`'s count of a file's lines before step 3, since review alone let a fix push `events/hub.rs` past 500 | 3 |
-| Conformance review of 0d036d0..1ff84e6 | CODE-10: one name for the instance's own connection, which the rules call the listener, the code `db::Listener` and `events::Connection`, and `startup.area` `listener` | 3 |
-| Conformance review of c619d50..efa110e | TEST-07: whether a test may wait in a loop with no bound at all, as `platform_076_`'s wait for the gauge and the waits for a hub's log line do, rather than by a timeout | 3 |
 | A development machine's Docker, during step 2.3 | OPS-22: whether `just server-check` refuses a server whose `/etc/resolv.conf` names the search domain `.`, which Docker copies into containers, where no short name then resolves, as on a development machine; whether the deployment's own lookups, such as the API's of `postgres`, fail on such a server is unverified | 3 |
 
 ## Conformance reviews

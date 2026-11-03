@@ -160,7 +160,7 @@ async fn realtime_002_an_event_s_frame_carries_its_id_its_type_and_the_trace_of_
         .to_owned();
     let id = api
         .database()
-        .owner_reads("SELECT id::text FROM events WHERE type = 'announcement.made'")
+        .owner_reads("SELECT id::text FROM events WHERE name = 'announcement.made'")
         .await;
     assert_eq!(frame.id.as_deref(), Some(id[0].as_str()));
     assert_eq!(frame.event.as_deref(), Some("announcement.made"));

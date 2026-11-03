@@ -227,7 +227,7 @@ async fn invitations_002_inviting_a_member_answers_409_and_writes_nothing() {
         "SELECT count(*)::text FROM invitations",
         "SELECT count(*)::text FROM jobs",
         "SELECT count(*)::text FROM audit_entries WHERE action LIKE 'invitation.%'",
-        "SELECT count(*)::text FROM events WHERE type LIKE 'invitation.%'",
+        "SELECT count(*)::text FROM events WHERE name LIKE 'invitation.%'",
     ] {
         assert_eq!(db.owner_reads(written).await, ["0"], "{written}");
     }
@@ -378,7 +378,7 @@ async fn invitations_005_accepting_adds_the_caller_and_deletes_the_invitation() 
     );
     let events = db
         .owner_reads(
-            "SELECT type || ' ' || scope || ' ' || coalesce(permission, '-') || ' ' || payload::text \
+            "SELECT name || ' ' || scope || ' ' || coalesce(permission, '-') || ' ' || payload::text \
              FROM events ORDER BY created_at, id",
         )
         .await;
@@ -518,7 +518,7 @@ async fn invitations_008_an_invitee_with_an_account_receives_invitation_received
     invite(&api, &ada, &workspace, "nobody@example.com", "member").await;
 
     let events = db
-        .owner_reads("SELECT type || ' ' || user_id || ' ' || payload::text FROM events")
+        .owner_reads("SELECT name || ' ' || user_id || ' ' || payload::text FROM events")
         .await;
     let received = format!(
         "invitation.received {} {{\"workspace_id\": \"{workspace}\", \"invitation_id\": \"{}\"}}",

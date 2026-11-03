@@ -25,7 +25,7 @@ use crate::{
 };
 
 pub use catalog::{Catalogued, Entry, FrameId, StreamFrame};
-pub use hub::{Connection, Hub, ListenError, SubscribeError, listen};
+pub use hub::{Hub, ListenError, Listener, SubscribeError, listen};
 pub use subscription::{Closed, Delivery, Event, Subscription};
 
 /// The channel the signals go out on.
@@ -124,7 +124,7 @@ impl UnitOfWork {
         // (OBS-07).
         let traceparent = telemetry::traceparent(&tracing::Span::current());
         let id = sqlx::query_scalar!(
-            "INSERT INTO events (scope, user_id, workspace_id, type, permission, payload, traceparent)
+            "INSERT INTO events (scope, user_id, workspace_id, name, permission, payload, traceparent)
             VALUES ($1::text::event_scope, $2, $3, $4, $5, $6, $7)
             RETURNING id",
             scope,

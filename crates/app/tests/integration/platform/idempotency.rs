@@ -159,11 +159,11 @@ async fn platform_015_a_published_event_exists_only_if_its_unit_of_work_commits(
     let ada = users::register(&api, "ada@example.com").await;
 
     keyed(&api, &ada, &json!({ "value": "a", "fail": true }), None).await;
-    let rolled_back = api.database().owner_reads("SELECT type FROM events").await;
+    let rolled_back = api.database().owner_reads("SELECT name FROM events").await;
     keyed(&api, &ada, &json!({ "value": "a" }), None).await;
     let committed = api
         .database()
-        .owner_reads("SELECT type || ' ' || scope || ' ' || user_id FROM events")
+        .owner_reads("SELECT name || ' ' || scope || ' ' || user_id FROM events")
         .await;
 
     assert!(rolled_back.is_empty(), "{rolled_back:?}");

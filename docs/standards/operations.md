@@ -11,7 +11,7 @@ Configuration, background jobs, runtime behavior, CI, releases, deploys, backups
 - Numbers are range-checked, and unknown values for a closed set are errors.
 - Required settings have no defaults. `ENVIRONMENT` is required.
 - Why: a misconfiguration fails at startup, never in the middle of a request (D9).
-- Check: `test`.
+- Check: `test` (a test reads each whole number's range from `.env.example`, and refuses the values just outside it).
 
 ### OPS-02 Every setting earns its place and is documented
 A setting exists only if two deployments would set it differently, such as a URL, a credential, a capacity or a feature switch. A value every deployment would share is a constant in code. Every setting of the API appears in `.env.example`, and every setting of the reference deployment in `deploy/settings.env.example`, each with its type, default and meaning. Compose passes each container only the settings it reads.
@@ -32,7 +32,7 @@ A route whose feature is turned off answers the 503 problem with code `request.f
 
 ### OPS-05 Health means something
 - `GET /health/live` answers 200 while the process runs.
-- `GET /health/ready` answers 200 only while the database is reachable, the listener is connected and the instance isn't draining.
+- `GET /health/ready` answers 200 only while the database answers the listener and the instance isn't draining.
 
 The probes are answered before the rate limit, load shedding and request timeout, and they carry no trace context (OBS-15). Their body is `{"status": "<status>"}`, never a problem response (API-07).
 
@@ -66,9 +66,9 @@ Replicas share nothing except Postgres and object storage. A request can be serv
 ## Background jobs
 
 ### OPS-09 Jobs are declared once and are idempotent
-Each job is declared in its module's `jobs.rs`, or, for a job of `platform`, in the area it belongs to, as `platform::jobs` declares its sweeps and `platform::mail` the job that sends an email, and is registered in the job registry. It states its owner, its schedule or trigger, and the tables it touches. Running a job handler twice has the same effect as running it once, but for an effect outside the API that a run can't take back, such as an email's delivery: the job's spec states what a second run causes, and how its receiver recognizes the repeat.
+Each job is declared in its module's `jobs.rs`, or, for a job of `platform`, in the area it belongs to, as `platform::jobs` declares its sweeps and `platform::mail` the job that sends an email, and is registered in the job registry, under a kind `<module>.<name>`, or `platform.<name>` for one of `platform`'s. It states its owner, its schedule or trigger, and the tables it touches. Running a job handler twice has the same effect as running it once, but for an effect outside the API that a run can't take back, such as an email's delivery: the job's spec states what a second run causes, and how its receiver recognizes the repeat.
 - Why: jobs are delivered at least once (D1, D13).
-- Check: `test` (each job's test runs its handler twice).
+- Check: `ci: check-layout` (a job is declared in its module's `jobs.rs`, or in `platform`, with a kind that starts with its module's name, or `platform.`), plus `test` (each job's test runs its handler twice).
 
 ### OPS-10 Failed jobs retry, then go to a dead letter
 A failing job retries with exponential backoff and jitter, up to its maximum attempts. It then moves to a dead-letter state, which is counted in metrics and has an alert (OBS-14). A job's payload is deleted when the job succeeds. A dead-lettered job keeps its payload for a configured retention period, so it can be investigated, and then loses it.
@@ -126,7 +126,7 @@ Every connection that leaves the server the API runs on uses TLS, and verifies t
 - Check: `ci: e2e` (the proxy answers HTTP with a redirect to HTTPS, and HTTPS with HTTP Strict Transport Security (HSTS); and the Postgres image holds the certificate authorities that a bucket's certificate is checked against by default), plus `review` (what `docs/operations/deploy.md` requires of a server and its providers).
 
 ### OPS-21 The connection budget fits
-An instance opens at most `DATABASE_MAX_CONNECTIONS` pooled connections, plus one of its own for readiness and the listener, and `serve` logs that number once it connects. A deploy refuses to start replicas when every replica it would run at once, at that number each, together with the connections of the one-shot subcommands and of the backups, would exceed the connections Postgres allows.
+An instance opens at most `DATABASE_MAX_CONNECTIONS` pooled connections, plus the listener, its own connection, on which the hub listens and readiness checks the database, and `serve` logs that number once it connects. A deploy refuses to start replicas when every replica it would run at once, at that number each, together with the connections of the one-shot subcommands and of the backups, would exceed the connections Postgres allows.
 - Why: replicas can't exhaust the database's connections, even while a deploy runs two sets of them (D20).
 - Check: `test` (PLATFORM-045), plus `ci: e2e` (the refusal).
 

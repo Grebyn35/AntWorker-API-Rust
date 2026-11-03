@@ -1,4 +1,4 @@
-//! The instance's own database connection, outside the pool, on which the hub listens for what
+//! The listener: the instance's own database connection, outside the pool, on which the hub listens for what
 //! commits, and whose checks the readiness probe reports (PLATFORM-037, PLATFORM-073). A pool
 //! with every connection in use doesn't change a check's answer, so load alone never takes the
 //! instance out of rotation, though it delays the next check while the hub waits for the pool.
@@ -23,12 +23,12 @@ const CHECK_TIMEOUT: Duration = Duration::from_secs(2);
 static DATABASE_REACHABLE: Gauge<1> = Gauge::new(
     "platform.database_reachable",
     "",
-    "1 while the instance's own database connection answered its last check, 0 otherwise, by \
+    "1 while the listener answered its last check, 0 otherwise, by \
      the database's name.",
     [names::DB_NAMESPACE],
 );
 
-/// The instance's own connection, which listens on a fixed set of channels. It holds no
+/// The listener: the instance's own connection, which listens on a fixed set of channels. It holds no
 /// connection until a check opens one, and drops one that fails, so the next check opens it
 /// again and listens again.
 pub(crate) struct Listener {
@@ -71,7 +71,7 @@ impl Database {
         self.options.get_database().unwrap_or_default().to_owned()
     }
 
-    /// The instance's own connection, which listens on `channels` once a check opens it
+    /// The listener, which listens on `channels` once a check opens it
     /// (OPS-21: the one connection beside the pool).
     pub(crate) fn listener(&self, channels: &'static [&'static str]) -> Listener {
         Listener {

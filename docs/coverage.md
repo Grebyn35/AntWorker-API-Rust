@@ -97,7 +97,7 @@ Each of these gets a one-line architecture decision record (ADR) so the boundary
 - Clients, and how they are distributed, such as a desktop app's auto-updater. Each client is a separate project that uses the API's contract.
 - Kubernetes, Amazon Elastic Container Service (ECS) or Fly manifests (D20 documents the requirements).
 - An admin console, billing, and multi-region deployment. The API's part in administering a deployment is the `superadmins` module (D62), which a client may build a console on.
-- Localized server messages. Clients localize by error code and event type.
+- Localized server messages. Clients localize by error code and event name.
 
 ## Owner questions
 

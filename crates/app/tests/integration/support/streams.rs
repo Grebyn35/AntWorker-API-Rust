@@ -213,10 +213,19 @@ impl Stream {
         }
     }
 
-    /// The next frame that isn't a comment, which must come.
+    /// The next frame that isn't a comment, which must come. A response that ends first fails
+    /// the test with what the stream held of a frame it never finished, and the `id` of the
+    /// last event it sent.
     pub async fn event(&mut self) -> Frame {
         loop {
-            let frame = self.frame().await.expect("the stream ended");
+            let frame = self.frame().await;
+            assert!(
+                frame.is_some(),
+                "the stream ended without stream.closed, holding {:?} after the event {:?}",
+                self.buffer,
+                self.last_event_id
+            );
+            let frame = frame.unwrap();
             if !frame.comment {
                 return frame;
             }

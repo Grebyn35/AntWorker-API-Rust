@@ -1,4 +1,4 @@
-//! The real-time hub's handle: the instance's own connection, which `main.rs` opens, and the
+//! The real-time hub's handle: the listener, which `main.rs` opens, and the
 //! subscription of a caller's stream, which the hub's task (`task`) then serves (the platform
 //! spec's "Events and the real-time hub").
 
@@ -15,7 +15,7 @@ use crate::{
     authn::{Principal, SessionVerifier},
     authz::{AccessPolicy, Memberships},
     clock::{Clock, SharedClock},
-    db::{Checked, Database, Listener, UnitOfWork},
+    db::{self, Checked, Database, UnitOfWork},
     errors::{self, Internal},
     lifecycle::Readiness,
     types::UserId,
@@ -68,24 +68,24 @@ pub enum SubscribeError {
     Internal(#[from] Internal),
 }
 
-/// The instance's own connection to the database, listening, which `main.rs` opens as a step of
-/// startup (ARCH-12) and the hub then runs on.
-pub struct Connection {
+/// The listener: the instance's own connection to the database, outside its pool, listening,
+/// which `main.rs` opens as a step of startup (ARCH-12) and the hub then runs on.
+pub struct Listener {
     pub(super) database: Database,
-    pub(super) listener: Listener,
+    pub(super) listener: db::Listener,
     /// The last position given when it began to listen, from which the hub loads.
     pub(super) head: i64,
 }
 
-/// The instance's own connection couldn't listen.
+/// The listener couldn't listen.
 #[derive(Debug, thiserror::Error)]
-#[error("can't listen on the instance's own database connection: {0}")]
+#[error("the listener can't listen on its database connection: {0}")]
 pub struct ListenError(String);
 
-/// Opens the instance's own connection to `database`, outside its pool, and listens there for
-/// what commits, within a check's timeout on `clock` (OPS-21); then reads the last position
-/// given, so every event that commits from then on is one the hub loads.
-pub async fn listen(database: &Database, clock: &dyn Clock) -> Result<Connection, ListenError> {
+/// Opens the listener on `database`, outside its pool, and listens there for what commits, within
+/// a check's timeout on `clock` (OPS-21); then reads the last position given, so every event that
+/// commits from then on is one the hub loads.
+pub async fn listen(database: &Database, clock: &dyn Clock) -> Result<Listener, ListenError> {
     let mut listener = database.listener(CHANNELS);
     if let Checked::Failed(failure) = listener.check(clock).await {
         return Err(ListenError(failure));
@@ -93,7 +93,7 @@ pub async fn listen(database: &Database, clock: &dyn Clock) -> Result<Connection
     let failed = |error: Internal| ListenError(errors::chain(&error));
     let mut uow = database.unattributed().await.map_err(failed)?;
     let head = log::head(&mut uow).await.map_err(failed)?;
-    Ok(Connection {
+    Ok(Listener {
         database: database.clone(),
         listener,
         head,
@@ -110,11 +110,11 @@ pub struct Hub {
 }
 
 impl Hub {
-    /// Starts the hub on `connection`, which it checks every 5 seconds and records in
+    /// Starts the hub on `listener`, which it checks every 5 seconds and records in
     /// `readiness`, filtering events through `policy` and re-checking every stream through
     /// `verifier` and `policy` every `recheck`. It runs until the instance stops.
     pub fn start(
-        connection: Connection,
+        listener: Listener,
         policy: Arc<dyn AccessPolicy>,
         verifier: Arc<dyn SessionVerifier>,
         readiness: Readiness,
@@ -122,8 +122,8 @@ impl Hub {
         recheck: Duration,
     ) -> Self {
         let (commands, received) = mpsc::unbounded_channel();
-        let database = connection.database.clone();
-        let task = Task::new(connection, policy.clone(), verifier, readiness, clock);
+        let database = listener.database.clone();
+        let task = Task::new(listener, policy.clone(), verifier, readiness, clock);
         tokio::spawn(task.run(received, recheck));
         Self {
             commands,

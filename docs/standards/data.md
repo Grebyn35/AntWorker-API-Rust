@@ -63,7 +63,7 @@ Migrations live in `migrations/` and run through the sqlx migrator. Each file is
 - Check: `ci: check-migrations` (each name holds a module, and no migration that the newest release holds is changed or deleted).
 
 ### DATA-10 Expand, then contract
-A migration keeps the previous release working. A column or table is removed or renamed only after a release in which no code uses it. The jobs a release enqueues are data the next one reads: a job's kind is renamed or retired only after a release that still runs it and enqueues no more of it, and a payload keeps the fields that the previous release writes, since a waiting job whose kind no replica runs never runs and never dead-letters ([platform spec](../spec/platform.md#jobs-1)).
+A migration keeps the previous release working. A column or table is removed or renamed only after a release in which no code uses it. The jobs a release enqueues are data the next one reads: a job's kind is renamed or retired only after a release that still runs it and enqueues no more of it, and a payload keeps the fields that the previous release writes, since a waiting job whose kind no replica runs never runs and never dead-letters ([platform spec](../spec/platform.md#the-job-queue)).
 - Why: rolling deploys run old and new code against one schema, and one queue (D15).
 - Check: `review`.
 

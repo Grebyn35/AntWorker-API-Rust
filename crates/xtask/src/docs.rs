@@ -2,13 +2,15 @@
 //! comments hold no history markers (DOC-01) and no unfinished-work markers (DOC-07); every
 //! document belongs to the documentation set (DOC-08); documents spell out acronyms where they
 //! first use them (DOC-09, in `acronyms`); specs, rules, tables and the tracker keep their
-//! formats (DOC-14 to DOC-16, in `formats`); and each spec's Routes table matches `openapi.json`
-//! (DOC-15, in `routes`).
+//! formats (DOC-14 to DOC-16, in `formats`); each spec's Routes table matches `openapi.json`
+//! (DOC-15, in `routes`); and test prefixes, paths to Rust files, the old codebase's name and
+//! paths into the inventory are named only where they resolve or DOC-04 allows (`references`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    Finding, Outcome, acronyms, catalog::Catalog, formats, markdown, repo::Repo, routes, text,
+    Finding, Outcome, acronyms, catalog::Catalog, formats, markdown, references, repo::Repo,
+    routes, text,
 };
 
 /// Words that describe history instead of the current state (DOC-01).
@@ -41,6 +43,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     findings.extend(formats::check(repo));
     findings.extend(routes::check(repo));
     findings.extend(acronyms::check(repo, catalog));
+    findings.extend(references::check(repo, catalog));
     Outcome {
         report: vec![format!(
             "check-docs: {} files checked, {} of them documents.",
@@ -99,6 +102,10 @@ fn unresolved(
         Some(document) if !anchor.is_empty() && !document.anchors.contains(anchor) => Some(
             format!("`{target}` has no heading whose anchor is `#{anchor}`"),
         ),
+        Some(document) if document.repeated.contains(anchor) => Some(format!(
+            "another heading of `{target}` has the text of the one `#{anchor}` names, so the \
+             anchor follows their order: give each heading a text of its own"
+        )),
         _ => None,
     }
 }

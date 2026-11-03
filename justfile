@@ -67,7 +67,7 @@ ci: checks check-removable image image-scan e2e
 # Runs the checks of the code that need neither the image nor a copy of the repository.
 [doc("Runs the checks of the code that need no image and no copy of the repository")]
 [group('check')]
-checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-schema check-tenancy check-table-ownership check-migrations sqlx-check check-parts
+checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-layout check-schema check-tenancy check-table-ownership check-migrations sqlx-check check-parts
 
 # Lists the tools `just checks` needs besides just and the toolchain, as CI's install step takes
 # them.
@@ -355,11 +355,21 @@ check-layers:
 
 # Fails on a module's public submodule, code that reaches into another module's submodule, a use
 # of a module that the graph in docs/architecture.md doesn't allow, a cycle in that graph, or
-# another module's error in a module's public signatures (ARCH-04, ARCH-05, ERR-06).
-[doc("Fails on a dependency between modules that the graph in docs/architecture.md doesn't allow")]
+# another module's error in a module's public signatures (ARCH-04, ARCH-05, ERR-06), or a
+# dependency that its crate's code never names (CODE-11).
+[doc("Fails on a dependency between modules that the graph doesn't allow, or one no code uses")]
 [group('check')]
 check-deps:
     {{ xtask }} check-deps
+
+# Fails on a source file before its tests, or a deploy script, over 500 lines, a module's file
+# outside ARCH-03's set or a module without its error.rs, an exception to dead_code in the API's
+# code, and a job declared outside its module's jobs.rs or with another module's kind (CODE-07,
+# ARCH-03, ERR-01, CODE-14, OPS-09).
+[doc("Fails on a file too long, or out of its place")]
+[group('check')]
+check-layout:
+    {{ xtask }} check-layout
 
 # Fails on a name, a standard column, a foreign key, a soft delete or a role's privilege in the
 # migrations' schema that breaks the data rules, in the catalog of a database that the API's own

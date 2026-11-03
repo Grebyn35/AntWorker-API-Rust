@@ -29,7 +29,7 @@ None.
 | REALTIME-005 | When the hub closes a stream, the stream sends `stream.closed`, whose payload is `{"reason": <reason>}`, and ends the response: `session_ended` when the caller's session ended, `access_changed` when their memberships changed, `lagging` when the client read too slowly to keep up, `shutdown` when the instance shuts down, and `interrupted` when the replica's hub lost its connection to the database for a while. A client reconnects with `Last-Event-ID`, which a session that ended refuses with 401. | SEC-06, OPS-06, PLATFORM-017 | `realtime_005_` |
 | REALTIME-006 | A user holds at most 10 open streams on each replica. Opening another answers 409 `realtime.too_many_streams`, with no `Retry-After`, and opens nothing. | D11 | `realtime_006_` |
 | REALTIME-007 | Once the replica stops accepting connections, opening a stream answers 503 `realtime.unavailable`, with `Retry-After: 1`, and opens nothing. | OPS-06, API-07 | `realtime_007_` |
-| REALTIME-008 | `openapi.json` documents every frame the stream sends, in its event catalog: each event type that a module publishes, with its scope, the permission a workspace event requires, and the schema of its payload, and `stream.opened` and `stream.closed`. Every frame a test receives matches the catalog's entry for its type. | API-17, API-19, D8 | `realtime_008_` |
+| REALTIME-008 | `openapi.json` documents every frame the stream sends, in its event catalog: each event that a module publishes, with its scope, the permission a workspace event requires, and the schema of its payload, and `stream.opened` and `stream.closed`. Every frame a test receives matches the catalog's entry that its `event` names. | API-17, API-19, D8 | `realtime_008_` |
 
 ## Design
 

@@ -47,15 +47,15 @@ Code in this workspace outside `platform::clock` doesn't read a clock (`Utc::now
 - Check: `clippy` (`disallowed_methods` bans the clock reads and waits of the dependencies; a dependency that brings a clock or a random number generator brings its bans with it).
 
 ### CODE-16 Shell passes shellcheck
-Every recipe of the justfile that runs on Linux and macOS, and every shell script under `deploy/`, passes shellcheck with no finding. A finding is disabled only by a directive on the line before the command it concerns, with a comment that states the reason. A script under `deploy/` writes a value with `printf '%s\n'`, never with `echo`.
-- Why: in shell, a quoting slip runs a different command than the one written, and a script that deploys or restores runs where a mistake costs the most (D21). A server's `sh`, such as Ubuntu's dash, reads a backslash in `echo`'s arguments as an escape, and `\c` ends its output, while the tests' server, on Alpine, writes it as it is.
+Every recipe of the justfile that runs on Linux and macOS, and every shell script under `deploy/`, passes shellcheck with no finding, a script together with the files it sources. A finding is disabled only by a directive on the line before the command it concerns, with a comment that states the reason. A script under `deploy/` writes a value with `printf '%s\n'`, never with `echo`, and no function of it, or of a file it sources, assigns a variable that its top level sets.
+- Why: in shell, a quoting slip runs a different command than the one written, and a script that deploys or restores runs where a mistake costs the most (D21). A server's `sh`, such as Ubuntu's dash, reads a backslash in `echo`'s arguments as an escape, and `\c` ends its output, while the tests' server, on Alpine, writes it as it is. Every variable of `sh` is global, so a function that assigns one the top level sets changes what the rest of the script reads.
 - Check: `ci: check-shell`.
 
 ## Size
 
 ### CODE-07 Files stay under 500 lines
-A Rust source file over 500 lines, tests excluded, is split into a directory of modules with the same name (ARCH-03).
-- Why: a file a reader can hold in mind at once.
+A file of code holds at most 500 lines. A Rust file of a crate's `src/` counts its lines before its test module, and one over the limit is split into a directory of modules with the same name (ARCH-03); a test file, under a crate's `tests/`, isn't counted. A shell script under `deploy/` counts all its lines, and one over the limit is split into files that it sources, by task, as `deploy.sh` sources `deploy/tasks/`.
+- Why: a file a reader can hold in mind at once, whatever its language.
 - Check: `ci: check-layout`.
 
 ### CODE-08 Functions stay short
@@ -71,16 +71,16 @@ Names follow the Rust API Guidelines: `UpperCamelCase` for types and traits, `sn
 - Check: `compiler` (built-in naming lints), plus `review`.
 
 ### CODE-10 One name per concept
-A concept has the same name in code, SQL, the API and the docs: a workspace is a workspace everywhere, a member is a member. The terms are defined in the glossary in [docs/architecture.md](../architecture.md).
-- Why: two names for one thing make readers think there are two things.
+A concept has the same name in code, SQL, the API and the docs: a workspace is a workspace everywhere, a member is a member. The terms are defined in the glossary in [docs/architecture.md](../architecture.md). The standard columns of DATA-02 keep their names in every table, since they describe the row; the API names a resource's field for what it means to the resource, such as a membership's `created_at`, which is when the member joined, as `joined_at`, and the module's model maps one to the other.
+- Why: two names for one thing make readers think there are two things. A standard column named for each table's meaning would break the shared trigger and the schema checks that read the names.
 - Check: `review`.
 
 ## Dependencies
 
 ### CODE-11 Dependencies are declared once and kept minimal
-Versions live in `[workspace.dependencies]`, and each crate inherits them. Default features are turned off unless needed. Each crate turns on the features it uses of each dependency, instead of relying on another dependency to turn them on. Git and path dependencies outside the workspace are not allowed.
-- Why: one version of each crate, and a smaller build and attack surface.
-- Check: `ci: deny` (`cargo-deny` bans), plus `review`.
+Versions live in `[workspace.dependencies]`, and each crate inherits them. Default features are turned off unless needed. Each crate turns on the features it uses of each dependency, instead of relying on another dependency to turn them on. A crate declares only the dependencies its code names: a normal one in its `src/` or build script, a development one there or in its tests, and a build one in its build script. Git and path dependencies outside the workspace are not allowed.
+- Why: one version of each crate, and a smaller build and attack surface. A dependency that only a removed optional part used goes with it (ARCH-07).
+- Check: `ci: deny` (`cargo-deny` bans), `ci: check-deps` (each dependency is named in the code its kind builds), plus `review`.
 
 ### CODE-12 Dependency licenses are permissive
 `cargo-deny` allows only permissive licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, 0BSD, ISC, Zlib, Unicode-3.0. It checks every crate that a build for one of the targets `just deny` names compiles: the platforms a developer builds on, and the image's. Any other license needs a rule change.
@@ -88,16 +88,16 @@ Versions live in `[workspace.dependencies]`, and each crate inherits them. Defau
 - Check: `ci: deny`.
 
 ### CODE-13 A new dependency states its purpose
-A pull request that adds a dependency says what it is for and why the standard library or an existing dependency doesn't cover it.
+The commit that adds a dependency says, in its message, what it is for and why the standard library or an existing dependency doesn't cover it, as does a pull request that brings it.
 - Why: every dependency is code you maintain but didn't write.
 - Check: `review`.
 
 ## Shape
 
 ### CODE-14 No dead code, no commented-out code
-Unused items are deleted, not kept behind `#[allow(dead_code)]`. Code that has been commented out is deleted.
+Unused items are deleted, not kept behind an exception to the `dead_code` lint. Code that has been commented out is deleted. An item of `platform`'s public API is used when code outside the tests calls it, or when the platform spec's Interface names it, since that section is the contract modules are built against, such as `JobContext`'s attempt, which a job's handler may read; any other item that only tests call is dead.
 - Why: dead code costs reading time and implies a requirement that doesn't exist.
-- Check: `compiler` (`dead_code` denied; `app` exposes only its composition entry point publicly, so every module item is crate-visible and covered), `ci: check-layout` (no `allow(dead_code)`), plus `review` for unused public items in `platform` and for commented-out code.
+- Check: `compiler` (`dead_code` denied; `app` exposes only its composition entry point publicly, so every module item is crate-visible and covered), `ci: check-layout` (no exception to `dead_code` in `platform` or `app`), plus `review` for unused public items in `platform` and for commented-out code.
 
 ### CODE-15 Public items are documented
 Every public item in `platform`, and every item a module re-exports from `mod.rs`, has a doc comment (DOC-05).

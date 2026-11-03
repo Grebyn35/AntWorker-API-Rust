@@ -39,7 +39,7 @@ pub(super) async fn load(
     through: i64,
 ) -> Result<Vec<(Arc<Event>, f64)>, Internal> {
     let rows = sqlx::query!(
-        r#"SELECT id, user_id, workspace_id, type AS name, permission, payload, traceparent,
+        r#"SELECT id, user_id, workspace_id, name, permission, payload, traceparent,
             position AS "position!", xact::text AS xact, snapshot::text AS snapshot,
             extract(epoch FROM clock_timestamp() - created_at)::float8 AS "lag!"
         FROM events
@@ -108,15 +108,15 @@ pub(super) async fn replay(
 ) -> Result<Vec<Arc<Event>>, Internal> {
     let (workspaces, permissions, joined) = memberships.rows();
     let rows = sqlx::query!(
-        r#"SELECT id AS "id!", type AS "name!", payload AS "payload!", traceparent,
+        r#"SELECT id AS "id!", name AS "name!", payload AS "payload!", traceparent,
             position AS "position!", user_id, workspace_id, permission, xact, snapshot
         FROM (
-            SELECT id, type, payload, traceparent, position, user_id, workspace_id, permission,
+            SELECT id, name, payload, traceparent, position, user_id, workspace_id, permission,
                 xact::text AS xact, snapshot::text AS snapshot
             FROM events
             WHERE user_id = $3 AND position > $1 AND position <= $2
             UNION ALL
-            SELECT e.id, e.type, e.payload, e.traceparent, e.position, e.user_id, e.workspace_id,
+            SELECT e.id, e.name, e.payload, e.traceparent, e.position, e.user_id, e.workspace_id,
                 e.permission, e.xact::text, e.snapshot::text
             FROM unnest($4::uuid[], $5::text[], $6::text[])
                 AS m(workspace_id, permission, joined)

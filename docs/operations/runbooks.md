@@ -41,7 +41,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 ## DatabaseUnreachable
 
-**What it means.** An instance's own connection to the database stopped answering its [checks](../spec/platform.md#readiness-and-shutdown). Its readiness probe answers `database_unavailable`, so the load balancer stops sending it requests.
+**What it means.** An instance's listener, its own connection to the database, stopped answering its [checks](../spec/platform.md#readiness-and-shutdown). Its readiness probe answers `database_unavailable`, so the load balancer stops sending it requests.
 
 **Look first.** The API platform dashboard: "Can each instance reach its database?" shows whether one instance or all of them lost it. The instance's `WARN` line "the database stopped answering" holds the error.
 
@@ -89,7 +89,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 ## JobsDelayed
 
-**What it means.** A background job that is due has waited more than 10 minutes without a replica claiming it ([platform spec](../spec/platform.md#jobs)). Every email waits with it. Either no replica's dispatcher claims jobs, every replica's 4 runs are taken by long runs, or the job's kind is one that no running replica knows, as after a rollback to a release that doesn't have it.
+**What it means.** A background job that is due has waited more than 10 minutes without a replica claiming it ([platform spec](../spec/platform.md#the-job-queue)). Every email waits with it. Either no replica's dispatcher claims jobs, every replica's 4 runs are taken by long runs, or the job's kind is one that no running replica knows, as after a rollback to a release that doesn't have it.
 
 **Look first.** The API platform dashboard: "Are background jobs keeping up?" shows since when the delay grows, and "How do job runs end?" whether runs end at all. A replica that can't claim writes the `WARN` line "can't claim jobs", with the database's error.
 
@@ -97,7 +97,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 ## JobsDeadLettered
 
-**What it means.** A job failed on each of its attempts, or with a failure that every attempt would meet, and moved to the dead-letter state, where nothing retries it ([platform spec](../spec/platform.md#jobs)). For `platform.send_email`, an email didn't go out: a mail server that refused it for good, or one that didn't answer for the hours its retries span ([platform spec](../spec/platform.md#sending-email)).
+**What it means.** A job failed on each of its attempts, or with a failure that every attempt would meet, and moved to the dead-letter state, where nothing retries it ([platform spec](../spec/platform.md#the-job-queue)). For `platform.send_email`, an email didn't go out: a mail server that refused it for good, or one that didn't answer for the hours its retries span ([platform spec](../spec/platform.md#sending-email)).
 
 **Look first.** The API's `ERROR` line "job dead-lettered" names the kind and the failure. With the bundled database, this lists the dead letters, without their payloads, which hold personal data such as an email's recipient:
 
@@ -111,7 +111,7 @@ With a managed database, run the same query in the provider's console. Add `payl
 
 ## PeriodicJobFailing
 
-**What it means.** A periodic job, such as one of the hourly sweeps, failed at least twice within 3 hours. Each failed run waits for its next interval, so what it deletes stays meanwhile; nothing a request reads changes ([platform spec](../spec/platform.md#jobs)).
+**What it means.** A periodic job, such as one of the hourly sweeps, failed at least twice within 3 hours. Each failed run waits for its next interval, so what it deletes stays meanwhile; nothing a request reads changes ([platform spec](../spec/platform.md#the-job-queue)).
 
 **Look first.** The API's `WARN` line "periodic job failed, and runs again at its next interval" names the job and the failure.
 

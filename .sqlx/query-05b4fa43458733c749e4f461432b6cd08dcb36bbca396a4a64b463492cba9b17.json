@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, user_id, workspace_id, type AS name, permission, payload, traceparent,\n            position AS \"position!\", xact::text AS xact, snapshot::text AS snapshot,\n            extract(epoch FROM clock_timestamp() - created_at)::float8 AS \"lag!\"\n        FROM events\n        WHERE position > $1 AND position <= $2\n        ORDER BY position\n        LIMIT $3",
+  "query": "SELECT id, user_id, workspace_id, name, permission, payload, traceparent,\n            position AS \"position!\", xact::text AS xact, snapshot::text AS snapshot,\n            extract(epoch FROM clock_timestamp() - created_at)::float8 AS \"lag!\"\n        FROM events\n        WHERE position > $1 AND position <= $2\n        ORDER BY position\n        LIMIT $3",
   "describe": {
     "columns": [
       {
@@ -43,7 +43,7 @@
         "origin": {
           "Table": {
             "table": "events",
-            "name": "type"
+            "name": "name"
           }
         }
       },
@@ -131,5 +131,5 @@
       null
     ]
   },
-  "hash": "4e2a62c7d56a0f9e8c776376cc9a773294424f282dab199afe2ac2ad77866a1b"
+  "hash": "05b4fa43458733c749e4f461432b6cd08dcb36bbca396a4a64b463492cba9b17"
 }

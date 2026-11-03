@@ -6,6 +6,7 @@ mod acronyms;
 mod alerts;
 mod boards;
 mod catalog;
+mod crate_deps;
 mod declarations;
 mod deploy;
 mod deps;
@@ -15,6 +16,7 @@ mod formats;
 mod inputs;
 mod instrument;
 mod layers;
+mod layout;
 mod load;
 mod markdown;
 mod metrics;
@@ -27,6 +29,7 @@ mod parts;
 mod pins;
 mod promql;
 mod query_cache;
+mod references;
 mod release;
 mod repo;
 mod restore;
@@ -121,7 +124,7 @@ enum Command {
     /// Fails on a module's public submodule, code that reaches into another module's
     /// submodule, a use of a module the graph in architecture.md doesn't allow, a cycle in that
     /// graph, or another module's error in a module's public signatures (ARCH-04, ARCH-05,
-    /// ERR-06).
+    /// ERR-06), and on a dependency that its crate's code never names (CODE-11).
     #[command(name = "check-deps")]
     Deps,
     /// Fails on a table, column, constraint or index of the migrations' schema that breaks the
@@ -142,6 +145,12 @@ enum Command {
     /// module owns: the module whose name the table's creating migration holds (ARCH-06).
     #[command(name = "check-table-ownership")]
     TableOwnership,
+    /// Fails on a source file or a deploy script over 500 lines, a module's file outside
+    /// ARCH-03's set, a module without its error.rs, an exception to `dead_code`, and a job
+    /// declared outside its module's jobs.rs or with a kind of another module's (CODE-07,
+    /// ARCH-03, ERR-01, CODE-14, OPS-09).
+    #[command(name = "check-layout")]
+    Layout,
     /// Fails on a migration whose name holds no module, and on a migration that the newest
     /// release holds and the working tree changed or deleted (DATA-09).
     #[command(name = "check-migrations")]
@@ -377,10 +386,15 @@ fn main() -> ExitCode {
         Command::Shell => shell::check(&repo),
         Command::SqlBans => sql_bans::check(&repo),
         Command::Layers => layers::check(&repo),
-        Command::Deps => deps::check(&repo),
+        Command::Deps => {
+            let mut outcome = deps::check(&repo);
+            outcome.findings.extend(crate_deps::check(&repo));
+            outcome
+        }
         Command::Schema => schema::check(&repo),
         Command::Tenancy => tenancy::check(&repo),
         Command::TableOwnership => ownership::check(&repo),
+        Command::Layout => layout::check(&repo),
         Command::Migrations => migrations::check(&repo),
         Command::SqlxCheck => query_cache::check(),
         Command::Parts => parts::check(&repo),

@@ -11,6 +11,7 @@ use crate::support::{
     Api, Options,
     announcements::{self, Note, published::NOTED},
     client,
+    events::{self, Event},
     streams::{self, Stream},
     users::{self, SignedIn},
     workspaces,
@@ -67,13 +68,13 @@ async fn announce(api: &Api, user: &SignedIn, count: u32) {
     );
 }
 
-/// The type of each of the next `count` events of `stream`.
-async fn types(stream: &mut Stream, count: usize) -> Vec<String> {
-    let mut types = Vec::new();
+/// The name of each of the next `count` events of `stream`.
+async fn names(stream: &mut Stream, count: usize) -> Vec<String> {
+    let mut names = Vec::new();
     for _ in 0..count {
-        types.push(stream.event().await.event.unwrap());
+        names.push(stream.event().await.event.unwrap());
     }
-    types
+    names
 }
 
 /// The next `count` events of `stream`.
@@ -371,7 +372,7 @@ async fn workspaces_005_removing_a_member_closes_their_stream_before_the_next_ev
     assert!(before.is_empty(), "{before:?}");
     assert_eq!(reason, "access_changed");
     assert_eq!(
-        types(&mut admin, 2).await,
+        names(&mut admin, 2).await,
         ["member.removed", "announcement.posted"]
     );
 }
@@ -489,19 +490,6 @@ async fn platform_072_a_stream_whose_client_reads_too_slowly_closes_with_lagging
     assert_eq!(before[255].payload()["n"], 256);
 }
 
-/// The statement that publishes, as a commit of the API does, the events that `values`
-/// describes, each as the `(scope, user_id, workspace_id, type, permission, payload)` of a row,
-/// without notifying.
-fn unnotified(values: &str) -> String {
-    format!(
-        "INSERT INTO events (scope, user_id, workspace_id, type, permission, payload, position, \
-         xact, snapshot, created_at) SELECT scope::event_scope, user_id::uuid, workspace_id::uuid, \
-         type, permission, payload::jsonb, nextval('events_position_seq'), pg_current_xact_id(), \
-         pg_current_snapshot(), clock_timestamp() FROM (VALUES {values}) \
-         AS v(scope, user_id, workspace_id, type, permission, payload)"
-    )
-}
-
 /// Cuts the API's role off the database, so the hub's connection is lost and its next check
 /// fails; returns readiness's answer then; and lets the role in again after `meanwhile`, which
 /// runs as owner, so the hub connects again at its next check.
@@ -536,10 +524,14 @@ async fn platform_073_after_a_lost_connection_every_stream_closes_and_replays_wh
 
     let unavailable = lose_the_connection(
         &api,
-        &unnotified(&format!(
-            "('user', '{}', NULL, 'note.made', NULL, '{{\"label\": \"away\"}}')",
-            ada.user_id
-        )),
+        &events::statement(
+            &[Event::to_user(
+                &ada.user_id,
+                "note.made",
+                r#"{"label": "away"}"#,
+            )],
+            false,
+        ),
     )
     .await;
     let (before, reason) = stream.closed().await;
@@ -578,12 +570,24 @@ async fn platform_073_after_a_lost_connection_a_reconnect_leaves_out_what_access
         &api,
         &format!(
             "{}; DELETE FROM workspace_memberships WHERE workspace_id = '{workspace}'; {}",
-            unnotified(&format!(
-                "('workspace', NULL, '{workspace}', 'note.made', 'workspace.read', '{{}}')"
-            )),
-            unnotified(&format!(
-                "('workspace', NULL, '{workspace}', 'note.made', 'workspace.read', '{{}}')"
-            )),
+            events::statement(
+                &[Event::to_workspace(
+                    &workspace,
+                    "workspace.read",
+                    "note.made",
+                    "{}"
+                )],
+                false
+            ),
+            events::statement(
+                &[Event::to_workspace(
+                    &workspace,
+                    "workspace.read",
+                    "note.made",
+                    "{}"
+                )],
+                false
+            ),
         ),
     )
     .await;
@@ -673,7 +677,7 @@ async fn platform_064_the_sweep_deletes_the_events_older_than_24_hours() {
     announce(&api, &ada, 1).await;
     api.database()
         .owner_executes(&format!(
-            "INSERT INTO events (scope, user_id, type, payload, position, created_at) \
+            "INSERT INTO events (scope, user_id, name, payload, position, created_at) \
              SELECT 'user', '{}', 'note.made', '{{}}', nextval('events_position_seq'), \
              now() - interval '25 hours' FROM generate_series(1, 2500)",
             ada.user_id
@@ -684,7 +688,7 @@ async fn platform_064_the_sweep_deletes_the_events_older_than_24_hours() {
         api.run_periodic("platform.expire_events").await;
     }
 
-    let left = api.database().owner_reads("SELECT type FROM events").await;
+    let left = api.database().owner_reads("SELECT name FROM events").await;
     assert_eq!(left, ["announcement.made"]);
 }
 
@@ -815,8 +819,8 @@ async fn sec_17_member_removed_reaches_every_member_and_no_replay_from_before_jo
     let after_joining = joined.event().await;
 
     assert_eq!(removed.status, StatusCode::NO_CONTENT);
-    assert_eq!(types(&mut owner, 1).await, ["member.removed"]);
-    assert_eq!(types(&mut member, 1).await, ["member.removed"]);
+    assert_eq!(names(&mut owner, 1).await, ["member.removed"]);
+    assert_eq!(names(&mut member, 1).await, ["member.removed"]);
     // The removal from before Alan joined isn't replayed to him.
     assert_eq!(after_joining.event.as_deref(), Some("announcement.made"));
 }
@@ -842,12 +846,12 @@ async fn obs_07_an_event_s_delivery_links_to_the_trace_that_published_it() {
     // An event committed and notified as a unit of work's commit does it, with the trace context
     // of what published it.
     database
-        .owner_executes(&format!(
-            "WITH published AS (INSERT INTO events (scope, user_id, type, payload, traceparent, \
-             position, snapshot, created_at) VALUES ('user', '{user}', 'note.made', '{{}}', \
-             '00-{trace}-00f067aa0ba902b7-01', nextval('events_position_seq'), \
-             pg_current_snapshot(), clock_timestamp()) RETURNING position) \
-             SELECT pg_notify('events', position::text) FROM published"
+        .owner_executes(&events::statement(
+            &[Event {
+                traceparent: Some(&format!("00-{trace}-00f067aa0ba902b7-01")),
+                ..Event::to_user(&user, "note.made", "{}")
+            }],
+            true,
         ))
         .await;
     let received = collector
@@ -930,13 +934,13 @@ async fn platform_073_a_load_that_fails_is_tried_again_at_the_next_check() {
         held.push(api.pool().begin(&client()).await.unwrap());
     }
     api.database()
-        .owner_executes(&format!(
-            "WITH published AS (INSERT INTO events (scope, user_id, type, payload, position, \
-             xact, snapshot, created_at) VALUES ('user', '{}', 'note.made', '{{\"label\": \"loaded\"}}', \
-             nextval('events_position_seq'), pg_current_xact_id(), pg_current_snapshot(), \
-             clock_timestamp()) RETURNING position) \
-             SELECT pg_notify('events', position::text) FROM published",
-            ada.user_id
+        .owner_executes(&events::statement(
+            &[Event::to_user(
+                &ada.user_id,
+                "note.made",
+                r#"{"label": "loaded"}"#,
+            )],
+            true,
         ))
         .await;
     while !logged("the hub couldn't load events") {
@@ -970,13 +974,9 @@ async fn platform_076_the_hub_records_the_events_it_owes_while_its_loads_fail() 
         held.push(api.pool().begin(&client()).await.unwrap());
     }
     api.database()
-        .owner_executes(&format!(
-            "WITH published AS (INSERT INTO events (scope, user_id, type, payload, position, \
-             xact, snapshot, created_at) VALUES ('user', '{}', 'note.made', '{{}}', \
-             nextval('events_position_seq'), pg_current_xact_id(), pg_current_snapshot(), \
-             clock_timestamp()) RETURNING position) \
-             SELECT pg_notify('events', position::text) FROM published",
-            ada.user_id
+        .owner_executes(&events::statement(
+            &[Event::to_user(&ada.user_id, "note.made", "{}")],
+            true,
         ))
         .await;
     while unloaded() != Some(1.0) {

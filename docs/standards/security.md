@@ -124,6 +124,6 @@ The values a module records in an audit entry are IDs and non-personal fields. A
 - Check: `test` (each audit action's test asserts its stored values), plus `review`.
 
 ### SEC-17 Events reach only authorized streams
-A user event reaches only that user's streams. A workspace event reaches a stream only if its principal holds, in that workspace, the permission the event's type requires. Replay delivers an event only to members whose membership already existed when the event was created.
+A user event reaches only that user's streams. A workspace event reaches a stream only if its principal holds, in that workspace, the permission that the event requires. Replay delivers an event only to members whose membership already existed when the event was created.
 - Why: events never reveal what the REST permission checks would withhold, and new members don't receive history from before they joined (D2, D5).
-- Check: `test` (PLATFORM-016, and each event type is tested against a member with the permission, a member without it, and a member who joined after the event).
+- Check: `test` (PLATFORM-016, and each event a module declares is tested against a member with the permission, a member without it, and a member who joined after the event).

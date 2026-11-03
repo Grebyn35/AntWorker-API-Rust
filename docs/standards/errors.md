@@ -7,7 +7,7 @@ How errors are defined, how they move through the code, and how they reach the c
 ### ERR-01 One error enum per module
 Each module defines one error enum in `error.rs`, using `thiserror`, with variants named in domain terms (for example `SessionExpired` or `MemberNotFound`). A large module may group variants into nested enums inside that file.
 - Why: a module's failure modes can be read in one place (D17).
-- Check: `ci: check-layout` (`error.rs` exists in every module that returns errors), plus `review`.
+- Check: `ci: check-layout` (every module has its `error.rs`), plus `review`.
 
 ### ERR-02 Every error a route can answer has a stable code and a category
 Every variant of an error that a route can answer implements `platform::errors::ErrorCode`, which gives it:

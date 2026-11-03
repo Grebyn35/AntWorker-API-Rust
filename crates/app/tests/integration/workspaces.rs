@@ -70,7 +70,7 @@ async fn workspaces_001_creating_a_workspace_makes_the_caller_its_owner() {
     );
     let events = db
         .owner_reads(
-            "SELECT type || ' ' || scope || ' ' || user_id || ' ' || (payload->>'workspace_id')              || ' ' || (payload->>'session_id') FROM events",
+            "SELECT name || ' ' || scope || ' ' || user_id || ' ' || (payload->>'workspace_id')              || ' ' || (payload->>'session_id') FROM events",
         )
         .await;
     assert_eq!(
@@ -455,7 +455,7 @@ async fn workspaces_005_removing_a_member_deletes_their_membership_and_signals_i
     );
     let events = db
         .owner_reads(
-            "SELECT type || ' ' || scope || ' ' || workspace_id || ' ' || permission FROM events",
+            "SELECT name || ' ' || scope || ' ' || workspace_id || ' ' || permission FROM events",
         )
         .await;
     assert_eq!(

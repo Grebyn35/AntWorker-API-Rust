@@ -1,4 +1,4 @@
-//! The hub's task: one per replica, which owns the instance's own connection, listens there for
+//! The hub's task: one per replica, which owns the listener, listens there for
 //! what commits, loads each committed event once and delivers it to the streams allowed to
 //! receive it, closes the streams that an access change affects, and re-checks every stream at an
 //! interval (the platform spec's "Events and the real-time hub").
@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 
 use super::{
     AccessChange, EVENTS_CHANNEL,
-    hub::{Command, Connection, StreamId},
+    hub::{Command, Listener, StreamId},
     log,
     streams::Streams,
     subscription::Closed,
@@ -18,7 +18,7 @@ use crate::{
     authn::{Principal, SessionVerifier},
     authz::{AccessPolicy, Memberships},
     clock::SharedClock,
-    db::{Checked, Database, Listener, Received},
+    db::{self, Checked, Database, Received},
     errors::{self, Internal},
     lifecycle::Readiness,
     telemetry::{
@@ -64,7 +64,7 @@ pub(super) struct Task {
     verifier: Arc<dyn SessionVerifier>,
     readiness: Readiness,
     clock: SharedClock,
-    listener: Listener,
+    listener: db::Listener,
     streams: Streams,
     reachable: bool,
     /// The last position that a notification the hub has handled named. A load never passes it,
@@ -83,20 +83,20 @@ struct Owed {
 }
 
 impl Task {
-    /// The task on `connection`, which filters through `policy` and re-checks through `verifier`
+    /// The task on `listener`, which filters through `policy` and re-checks through `verifier`
     /// and `policy`, recording in `readiness` whether it reaches the database.
     pub(super) fn new(
-        connection: Connection,
+        listener: Listener,
         policy: Arc<dyn AccessPolicy>,
         verifier: Arc<dyn SessionVerifier>,
         readiness: Readiness,
         clock: SharedClock,
     ) -> Self {
-        let Connection {
+        let Listener {
             database,
             listener,
             head,
-        } = connection;
+        } = listener;
         Self {
             streams: Streams::new(database.name(), head),
             notified: head,

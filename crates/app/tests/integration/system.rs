@@ -162,7 +162,7 @@ async fn system_003_seed_creates_its_accounts_and_workspaces_through_the_routes(
     );
     assert_eq!(
         api.database()
-            .owner_reads("SELECT count(*)::text FROM events WHERE type = 'membership.created'")
+            .owner_reads("SELECT count(*)::text FROM events WHERE name = 'membership.created'")
             .await,
         [workspaces(&api, &olivia).await.len()
             + workspaces(&api, &adam).await.len()

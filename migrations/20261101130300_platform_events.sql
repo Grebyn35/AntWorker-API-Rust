@@ -15,7 +15,7 @@ CREATE TABLE events (
     scope event_scope NOT NULL,
     user_id uuid,
     workspace_id uuid,
-    type text NOT NULL,
+    name text NOT NULL,
     permission text,
     payload jsonb NOT NULL,
     traceparent text,
