@@ -11,7 +11,8 @@ backup() {
 
 # Starts Postgres on the data directory that a restore wrote, and waits until it has replayed the
 # log and left recovery. It returns 1 when Postgres ended the replay without reaching the moment
-# it replays to, as its log since this start says, and fails the restore when Postgres doesn't
+# it replays to, as its log since this start says, and fails the restore when Postgres couldn't
+# fetch a segment of the log from the bucket, which ends its start, when Postgres doesn't
 # become healthy, as Compose's wait would, or when its replay hasn't advanced for 10 minutes: a
 # replay of a day of changes may take longer than that, and only its end tells whether it reaches
 # the moment. Its caller tests it as a condition, where the shell ignores -e, so it checks each
@@ -40,6 +41,10 @@ recovered() {
         fi
         case $logged in
             *'recovery ended before configured recovery target was reached'*) return 1 ;;
+            *'could not restore file'*)
+                compose logs --tail 30 postgres >&2 || true
+                fail "Postgres couldn't fetch a segment of the log from the bucket, as the end of its log, above, shows with pgBackRest's error; once the bucket answers, run the restore again"
+                ;;
         esac
         case $run_state in
             'restarting '* | 'exited '* | 'dead '* | *' failing')

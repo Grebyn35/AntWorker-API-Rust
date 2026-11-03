@@ -9,6 +9,15 @@
 # failed, as the times of two files in the status directory, which the collector reads for the
 # alert on archiving that fails (OBS-14). Postgres keeps a segment, and retries it, until the
 # command exits 0.
+#
+# During a restore's replay, Postgres's restore_command runs `pgbackrest --stanza=db archive-get`.
+# Postgres takes an exit from 1 to 125 for a segment that the archive doesn't hold, which ends the
+# replay there, as the archive's end, and one above 125 for an error that ends the recovery with
+# its start (PostgreSQL's RestoreArchivedFile). pgBackRest exits 1 for a segment that the bucket
+# doesn't hold, and its error's code for one it can't fetch, such as 42 for a segment it can't
+# read, or another for a bucket that doesn't answer. So this exits 255 for every error, and a
+# replay that can't fetch a segment fails the restore, rather than ending short of what the
+# bucket holds (OPS-17).
 set -euo pipefail
 
 secrets=/run/secrets
@@ -27,6 +36,14 @@ case " $* " in
             touch "$status/archive-failed"
             exit "$code"
         fi
+        ;;
+    *" archive-get "*)
+        code=0
+        /usr/bin/pgbackrest "$@" || code=$?
+        case $code in
+            0 | 1) exit "$code" ;;
+            *) exit 255 ;;
+        esac
         ;;
     *) exec /usr/bin/pgbackrest "$@" ;;
 esac

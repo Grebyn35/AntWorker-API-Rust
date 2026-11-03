@@ -507,6 +507,59 @@ async fn ops_17_a_restore_refuses_while_the_log_doesn_t_reach_the_bucket_unless_
     );
 }
 
+/// Overwrites `segment`'s object in the stand-in bucket with bytes that aren't a segment, as a
+/// bucket that fails to give pgBackRest the segment does: pgBackRest finds the object, and fails
+/// to read it.
+fn break_in_the_bucket(deployment: &Deployment, segment: &str) {
+    deployment.server.write(
+        "/root/break-segment.sh",
+        &format!(
+            "set -e
+            for archive in $(docker exec --user postgres deployment-postgres-1 pgbackrest --stanza=db --log-level-console=error repo-ls archive/db); do
+                directory=archive/db/$archive/$(echo {segment} | cut -c 1-16)
+                name=$(docker exec --user postgres deployment-postgres-1 pgbackrest --stanza=db --log-level-console=error repo-ls \"$directory\" | grep '^{segment}-' || true)
+                if [ -n \"$name\" ]; then break; fi
+            done
+            [ -n \"$name\" ]
+            docker exec bucket sh -c \"mkdir -p /tmp/broken && echo 'not a segment' > /tmp/broken/$name && \
+                weed filer.copy /tmp/broken/$name http://localhost:8888/buckets/backups/pgbackrest/$directory/\"
+            "
+        ),
+    );
+    deployment.server.shell_ok("sh /root/break-segment.sh");
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_whose_replay_can_t_fetch_a_segment_fails_rather_than_ending_the_replay_there()
+ {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('before');",
+    );
+    archive_everything_committed(&deployment);
+    deployment.sql("INSERT INTO restore_marker VALUES ('after')");
+    let segment = deployment.sql("SELECT pg_walfile_name(pg_current_wal_lsn())");
+    archive_everything_committed(&deployment);
+    break_in_the_bucket(&deployment, &segment);
+
+    let restored = deployment.restore(None);
+    let (status, _) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/capabilities"),
+    );
+
+    assert!(!restored.status.success(), "{}", lossy(&restored));
+    assert!(
+        lossy(&restored).contains("couldn't fetch a segment of the log from the bucket"),
+        "{}",
+        lossy(&restored)
+    );
+    assert_eq!(status, 503);
+}
+
 /// The line a restore writes once its first check has passed, before the replicas stop and its
 /// transaction commits.
 const STOPPING: &str = "stopping the API and the backups";
