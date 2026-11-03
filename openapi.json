@@ -4532,9 +4532,14 @@
             "name": "Idempotency-Key",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
+              "oneOf": [
+                {
+                  "pattern": "^ *\"(?:[ !#-\\[\\]-~]|\\\\[\"\\\\]){1,255}\" *$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
               ]
             }
           }
@@ -4950,9 +4955,14 @@
             "name": "Idempotency-Key",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
+              "oneOf": [
+                {
+                  "pattern": "^ *\"(?:[ !#-\\[\\]-~]|\\\\[\"\\\\]){1,255}\" *$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
               ]
             }
           }

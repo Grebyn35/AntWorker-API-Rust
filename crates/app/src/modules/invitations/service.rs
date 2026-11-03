@@ -24,9 +24,9 @@ use super::{
 };
 use crate::modules::{
     access::{self, InvitationsCreate, Role},
-    accounts::{self, PublicProfile},
+    accounts::{self, DisplayName, PublicProfile},
     audit::{self as log, Entry},
-    workspaces,
+    workspaces::{self, WorkspaceName},
 };
 
 /// What the routes of `invitations` share: the database, the emails, how long an invitation
@@ -129,26 +129,29 @@ pub(crate) async fn invite(
 }
 
 /// The inviter's name, for the email.
-async fn inviter_name(uow: &mut UnitOfWork, inviter: UserId) -> Result<String, InvitationsError> {
+async fn inviter_name(
+    uow: &mut UnitOfWork,
+    inviter: UserId,
+) -> Result<DisplayName, InvitationsError> {
     let profile = accounts::profiles(uow, &[inviter])
         .await?
         .into_iter()
         .next();
     let profile = profile.ok_or_else(|| Internal::new("the inviter's user doesn't exist"))?;
-    Ok(profile.name.as_str().to_owned())
+    Ok(profile.name)
 }
 
 /// The name of the workspace the caller invites to, for the email.
 async fn workspace_name(
     uow: &mut UnitOfWork,
     authorized: &Authorized<InvitationsCreate>,
-) -> Result<String, InvitationsError> {
+) -> Result<WorkspaceName, InvitationsError> {
     let names = workspaces::names(uow, &[authorized.workspace_id()]).await?;
     let (_, name) = names
         .into_iter()
         .next()
         .ok_or_else(|| Internal::new("the caller's workspace doesn't exist"))?;
-    Ok(name.as_str().to_owned())
+    Ok(name)
 }
 
 /// A page of the caller's unexpired invitations in every workspace, the latest first, to the

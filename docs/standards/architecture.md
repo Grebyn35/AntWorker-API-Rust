@@ -32,9 +32,9 @@ A module references another module only along an edge in the graph in [architect
 - Check: `ci: check-deps`.
 
 ### ARCH-06 A module reads and writes only its own tables
-SQL in a module references only the tables that module owns. Data owned by another module comes through that module's API, using a batch read when loading a list.
+SQL in a module references only the tables that module owns: those its own migrations create, whose names hold the module's name (DATA-09). `platform` owns the tables of its own migrations, and code of `app` outside its modules runs no SQL. Data owned by another module comes through that module's API, using a batch read when loading a list.
 - Why: ownership stays clear, and a module's schema can change without breaking others.
-- Check: `ci: check-table-ownership` (table references in each module's SQL against the ownership list), plus `review`.
+- Check: `ci: check-table-ownership` (each table a query of a `sqlx` macro names, against the module whose name the table's creating migration holds).
 
 ### ARCH-07 Optional parts are removable
 These parts are optional:
@@ -63,7 +63,7 @@ So a line that names an optional part either exists only for it, and carries its
 ### ARCH-08 Handlers only extract, authorize, call and respond
 A handler in `routes.rs` extracts its inputs, receives its authorization through its extractor types, calls one service function, and shapes the response. It contains no SQL and no business rules.
 - Why: business rules live in exactly one layer.
-- Check: `ci: check-layers` (no `sqlx` in `routes.rs`), plus `review`.
+- Check: `ci: check-layers` (no `sqlx` in a module's routes, and no handler calls `check` on the `RateLimits` it extracts, which the service counts), plus `review`.
 
 ### ARCH-09 Services contain no HTTP types
 `service.rs` doesn't use `axum`, `http`, or request and response types.
@@ -76,7 +76,7 @@ A handler in `routes.rs` extracts its inputs, receives its authorization through
 - Check: `review`.
 
 ### ARCH-11 One unit of work per operation, and the commit decides the outcome
-An operation that spans modules passes one `&mut UnitOfWork` through every call. A service never opens a second transaction for the same operation. Once the unit of work commits, the response reports what it recorded. A unit of work that recorded a security failure (PLATFORM-006) answers with that failure, such as 401 for a failed sign-in, and any other commit answers with success. Work after the commit happens only through jobs and events, so it can't turn a committed change into an error.
+An operation that spans modules passes one `&mut UnitOfWork` through every call. A service never opens a second transaction for the same operation. A refused authorization is the one record written outside it: the `SecurityEventSink` records the refusal in a short transaction of its own, once the operation's has rolled back, so nothing of the refused operation commits while its refusal does (PLATFORM-025). Once the unit of work commits, the response reports what it recorded. A unit of work that recorded a security failure (PLATFORM-006) answers with that failure, such as 401 for a failed sign-in, and any other commit answers with success. Work after the commit happens only through jobs and events, so it can't turn a committed change into an error.
 - Why: the whole operation commits or none of it does, and the response always matches what was committed (D1, D36).
 - Check: `review`, plus `test` (PLATFORM-006).
 
@@ -97,9 +97,9 @@ No trait exists just so something can be mocked. Traits that define a behavior m
 - Check: `review`.
 
 ### ARCH-14 Application tasks are binary subcommands
-Every task that runs application logic against the database, such as bootstrap, migrate and seed, is a subcommand of the app binary. Backup and restore use pgBackRest, the reference deployment's backup tool (D44): the deployment's `backup` service takes the scheduled backups, a deploy prepares the bucket and takes the first full backup, and `just backup` and `just restore` run it on demand (OPS-17); a restore also uses `pg_isready`, to find whether Postgres runs before pgBackRest's check, and `psql`, to find whether Postgres is still replaying the log before that check, to commit a transaction that changes nothing before it stops Postgres, to ask Postgres how far its replay has come and when its recovery ends, and to ask the time of the last commit it replayed. CI checks that inspect the schema or the compiled queries also connect to the database, and so does `just prepare`, which rewrites the query cache from the migrated database (DATA-20). No other script does.
+Every task that runs application logic against the database, such as bootstrap, migrate and seed, is a subcommand of the app binary. A script reaches the database only through Postgres's own tools, for what Postgres itself does: pgBackRest, the reference deployment's backup tool, backs it up and restores it (D44, OPS-17), and a restore asks Postgres, through `pg_isready` and `psql`, whether it runs and how far its replay has come, and commits a transaction that changes nothing ([backups.md](../operations/backups.md#restoring)). No statement a script sends names a table of the product schema (DATA-01). The repository's own tools reach the database too: the CI checks that inspect the schema or the compiled queries, and `just prepare`, which rewrites the query cache from the migrated database (DATA-20).
 - Why: application tasks use the same configuration, types and checks as the server.
-- Check: `review`.
+- Check: `ci: check-shell` (each `psql` of a script under `deploy/` takes its statement with `-c`, and the statement names no table of the product schema), plus `review` (what a script asks of Postgres's tools).
 
 ### ARCH-15 The product name is renamable
 The product name and its derived forms appear only in the files that `just rename` rewrites: crate and binary names, service names, telemetry service names, and email branding. The image takes the name of the repository that publishes it, so a fork's image has the fork's name.

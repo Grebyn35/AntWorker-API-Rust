@@ -22,7 +22,7 @@ jobs:
         with:
           tool: just@1.59.0
       - id: tools
-        run: echo "tools=$(just ci-tools)" >> "$GITHUB_OUTPUT"
+        run: echo "tools=$(just advisory-tools)" >> "$GITHUB_OUTPUT"
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: ${{ steps.tools.outputs.tools }}

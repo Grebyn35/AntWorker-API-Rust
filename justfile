@@ -67,17 +67,22 @@ ci: checks check-removable image image-scan e2e
 # Runs the checks of the code that need neither the image nor a copy of the repository.
 [doc("Runs the checks of the code that need no image and no copy of the repository")]
 [group('check')]
-checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-schema check-tenancy check-parts
+checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-schema check-tenancy check-table-ownership check-migrations sqlx-check check-parts
 
 # Lists the tools `just checks` needs besides just and the toolchain, as CI's install step takes
 # them.
 [private]
 ci-tools:
+    @echo cargo-deny@{{ cargo_deny_version }},sqlx-cli@{{ sqlx_cli_version }}
+
+# Lists the tool `just deny` needs, as the daily check of advisories installs it.
+[private]
+advisory-tools:
     @echo cargo-deny@{{ cargo_deny_version }}
 
 # Prepares this machine (OPS-19): checks the tools the tasks need and their pinned versions,
 # installs the toolchain that rust-toolchain.toml pins, and writes .env. watchexec and sqlx-cli
-# only get a warning, because only `dev` and `prepare` need them.
+# only get a warning, because only `dev`, and `prepare` and `sqlx-check`, need them.
 [unix]
 [doc("Checks the tools and their pinned versions, and writes .env")]
 [group('develop')]
@@ -87,7 +92,7 @@ setup: && env _env-drift
     [ "$(just --version | head -n 1 | cut -d ' ' -f 2)" = "{{ just_version }}" ] || { echo "just setup needs just {{ just_version }}" >&2; exit 1; }
     [ "$(cargo deny --version 2> /dev/null | head -n 1 | cut -d ' ' -f 2)" = "{{ cargo_deny_version }}" ] || { echo "just setup needs cargo-deny {{ cargo_deny_version }}" >&2; exit 1; }
     [ "$(watchexec --version 2> /dev/null | head -n 1 | cut -d ' ' -f 2)" = "{{ watchexec_version }}" ] || echo "warning: just dev needs watchexec {{ watchexec_version }}" >&2
-    [ "$(cargo sqlx --version 2> /dev/null | head -n 1 | cut -d ' ' -f 2)" = "{{ sqlx_cli_version }}" ] || echo "warning: just prepare needs sqlx-cli {{ sqlx_cli_version }}" >&2
+    [ "$(cargo sqlx --version 2> /dev/null | head -n 1 | cut -d ' ' -f 2)" = "{{ sqlx_cli_version }}" ] || echo "warning: just prepare and just sqlx-check need sqlx-cli {{ sqlx_cli_version }}" >&2
     rustup show active-toolchain > /dev/null || rustup toolchain install
 
 # Writes .env from .env.example, with generated passwords, if .env doesn't exist yet. Compose
@@ -105,14 +110,14 @@ env:
 
 # Prepares this machine (OPS-19): checks the tools the tasks need and their pinned versions,
 # installs the toolchain that rust-toolchain.toml pins, and writes .env. watchexec and sqlx-cli
-# only get a warning, because only `dev` and `prepare` need them.
+# only get a warning, because only `dev`, and `prepare` and `sqlx-check`, need them.
 [windows]
 [doc("Checks the tools and their pinned versions, and writes .env")]
 [group('develop')]
 setup: && env _env-drift
     foreach ($tool in 'rustup', 'git', 'docker') { if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "just setup needs $tool" } }
     docker compose version | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'just setup needs Docker Compose' }
-    function Version($command) { try { (((& $command[0] $command[1..9] 2> $null) | Select-Object -First 1) -split ' ')[1] } catch { '' } }; if ((Version 'just', '--version') -ne '{{ just_version }}') { throw 'just setup needs just {{ just_version }}' }; if ((Version 'cargo', 'deny', '--version') -ne '{{ cargo_deny_version }}') { throw 'just setup needs cargo-deny {{ cargo_deny_version }}' }; if ((Version 'watchexec', '--version') -ne '{{ watchexec_version }}') { Write-Warning 'just dev needs watchexec {{ watchexec_version }}' }; if ((Version 'cargo', 'sqlx', '--version') -ne '{{ sqlx_cli_version }}') { Write-Warning 'just prepare needs sqlx-cli {{ sqlx_cli_version }}' }
+    function Version($command) { try { (((& $command[0] $command[1..9] 2> $null) | Select-Object -First 1) -split ' ')[1] } catch { '' } }; if ((Version 'just', '--version') -ne '{{ just_version }}') { throw 'just setup needs just {{ just_version }}' }; if ((Version 'cargo', 'deny', '--version') -ne '{{ cargo_deny_version }}') { throw 'just setup needs cargo-deny {{ cargo_deny_version }}' }; if ((Version 'watchexec', '--version') -ne '{{ watchexec_version }}') { Write-Warning 'just dev needs watchexec {{ watchexec_version }}' }; if ((Version 'cargo', 'sqlx', '--version') -ne '{{ sqlx_cli_version }}') { Write-Warning 'just prepare and just sqlx-check need sqlx-cli {{ sqlx_cli_version }}' }
     rustup show active-toolchain | Out-Null; if ($LASTEXITCODE -ne 0) { rustup toolchain install }
 
 # Writes .env from .env.example, with generated passwords, if .env doesn't exist yet. Compose
@@ -252,7 +257,7 @@ openapi:
     {{ api }} openapi openapi.json
 
 # Fails on a part of openapi.json that breaks the rules for the HTTP contract (API-01, API-05,
-# API-17, ERR-02, ERR-13).
+# API-17, API-20, ERR-02, ERR-13).
 [doc("Fails on a part of openapi.json that breaks the HTTP contract's rules")]
 [group('check')]
 check-openapi:
@@ -322,8 +327,10 @@ check-pins:
     {{ xtask }} check-pins
 
 # Fails on a finding of shellcheck, run from the image compose.yaml pins, in a recipe of this
-# justfile that runs on Linux and macOS, or in a shell script under deploy/ (CODE-16). It reads
-# the recipes from this file, so it checks the same ones on every platform.
+# justfile that runs on Linux and macOS, or in a shell script under deploy/ (CODE-16), and on a
+# psql of such a script whose statement isn't given with -c or names a table of the product
+# schema (ARCH-14). It reads the recipes from this file, so it checks the same ones on every
+# platform.
 [doc("Runs shellcheck on the recipes and the deployment's scripts")]
 [group('check')]
 check-shell:
@@ -397,6 +404,27 @@ remove +parts:
 [group('check')]
 check-tenancy:
     {{ xtask }} check-tenancy
+
+# Fails on a query that names a table another module owns: the module whose name the table's
+# creating migration holds (ARCH-06).
+[doc("Fails on a query that names a table another module owns")]
+[group('check')]
+check-table-ownership:
+    {{ xtask }} check-table-ownership
+
+# Fails on a migration whose name holds no module, and on one that the newest release holds and
+# the working tree changed or deleted (DATA-09). It reads the release from git's tags.
+[doc("Fails on a migration misnamed, or changed since a release holds it")]
+[group('check')]
+check-migrations:
+    {{ xtask }} check-migrations
+
+# Fails when the query cache in .sqlx/ differs from what sqlx-cli writes from a database that the
+# migrations build (DATA-20): run `just prepare` after changing a query or a migration.
+[doc("Fails on a query cache that `just prepare` would change")]
+[group('check')]
+sqlx-check: services
+    {{ xtask }} sqlx-check
 
 # Prints the names of the packages that the images of `repository`, such as owner/name, are in
 # the registry, separated by commas, for the workflows.

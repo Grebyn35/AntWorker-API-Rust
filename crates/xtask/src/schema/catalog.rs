@@ -1,19 +1,9 @@
-//! The catalog of a database that the production `bootstrap` and `migrate` built: a database of
-//! its own on the Postgres that `just services` runs, which `bootstrap` gives the roles and their
-//! grants, and `migrate` the migrations, run from the API binary as an operator runs them. psql
-//! reads the catalog in Postgres's container, and the database is dropped afterwards.
-
-use std::{
-    ffi::OsString,
-    path::Path,
-    process::{Command, Output},
-};
+//! The catalog of a database that the production `bootstrap` and `migrate` built
+//! (`migrated`). psql reads it in Postgres's container, and the database is dropped afterwards.
 
 use serde_json::Value;
 
-/// The settings the API binary's `bootstrap` and `migrate` read for the database, which `just`
-/// loads from `.env`.
-const URLS: [&str; 3] = ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"];
+use crate::migrated;
 
 /// The catalog, as one JSON value: the tables with their columns, their triggers and the
 /// privileges `app` holds on them, the sequences with theirs, the constraints, the indexes, the
@@ -75,6 +65,7 @@ SELECT json_build_object(
     WHERE t.relnamespace = 'public'::regnamespace),
   'functions', (SELECT coalesce(json_agg(json_build_object(
       'name', p.proname, 'owner', pg_get_userbyid(p.proowner),
+      'trigger', p.prorettype = 'trigger'::regtype, 'security_definer', p.prosecdef,
       'public_execute', EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
           WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE'))), '[]')
     FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace),
@@ -102,170 +93,9 @@ SELECT json_build_object(
       AND has_table_privilege('app', c.oid, 'SELECT, INSERT, UPDATE, DELETE'))
 )";
 
-/// The database's settings, from the environment.
-struct Settings {
-    /// The three URLs, by setting.
-    urls: Vec<(&'static str, String)>,
-    /// The database the URLs name, from which the check's database takes its name.
-    database: String,
-    /// The administrator's user, as which psql connects in the container.
-    admin: String,
-}
-
 /// Builds a database with the production `bootstrap` and `migrate`, reads its catalog, and drops
 /// it.
 pub fn read() -> Result<Value, String> {
-    let settings = settings()?;
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let name = format!("{}_schema_{}", settings.database, std::process::id());
-    psql(
-        &root,
-        &settings,
-        &settings.database,
-        &format!("CREATE DATABASE \"{name}\""),
-    )?;
-    let catalog = build_and_read(&root, &settings, &name);
-    let dropped = psql(
-        &root,
-        &settings,
-        &settings.database,
-        &format!("DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)"),
-    );
-    let catalog = catalog?;
-    dropped?;
+    let catalog = migrated::with_database("schema", |database| database.psql(QUERY))?;
     serde_json::from_str(catalog.trim()).map_err(|error| format!("the catalog isn't JSON: {error}"))
-}
-
-/// Runs `bootstrap` and `migrate` on the database `name`, then reads its catalog.
-fn build_and_read(root: &Path, settings: &Settings, name: &str) -> Result<String, String> {
-    for subcommand in ["bootstrap", "migrate"] {
-        let mut command =
-            Command::new(std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")));
-        command
-            .args([
-                "run",
-                "--locked",
-                "--quiet",
-                "--package",
-                "app",
-                "--bin",
-                "antworker-api",
-                "--",
-            ])
-            .arg(subcommand)
-            .current_dir(root);
-        for (setting, url) in &settings.urls {
-            command.env(setting, with_database(url, name));
-        }
-        let output = command
-            .output()
-            .map_err(|error| format!("can't run `{subcommand}`: {error}"))?;
-        if !output.status.success() {
-            return Err(format!("`{subcommand}` failed: {}", printed(&output)));
-        }
-    }
-    psql(root, settings, name, QUERY)
-}
-
-/// Runs `sql` with psql in the container of Compose's `postgres`, on `database`, as the
-/// administrator, and returns what it printed.
-fn psql(root: &Path, settings: &Settings, database: &str, sql: &str) -> Result<String, String> {
-    let output = Command::new("docker")
-        .args(["compose", "exec", "--no-TTY", "postgres", "psql"])
-        .args(["--no-psqlrc", "--no-align", "--tuples-only", "--quiet"])
-        .args([
-            "--set",
-            "ON_ERROR_STOP=1",
-            "--username",
-            &settings.admin,
-            "--dbname",
-            database,
-        ])
-        .args(["--command", sql])
-        .current_dir(root)
-        .output()
-        .map_err(|error| format!("can't run psql through Docker Compose: {error}"))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-    } else {
-        Err(format!(
-            "psql failed; `just services` starts Postgres: {}",
-            printed(&output)
-        ))
-    }
-}
-
-/// What a process printed, for its failure.
-fn printed(output: &Output) -> String {
-    format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stderr).trim(),
-        String::from_utf8_lossy(&output.stdout).trim()
-    )
-}
-
-/// The three URLs from the environment, the database they name and the administrator.
-fn settings() -> Result<Settings, String> {
-    let mut urls = Vec::new();
-    for setting in URLS {
-        let url = std::env::var(setting).map_err(|_| {
-            format!(
-                "{setting} isn't set: run the check through `just check-schema`, which reads .env"
-            )
-        })?;
-        urls.push((setting, url));
-    }
-    let admin = urls
-        .first()
-        .map(|(_, url)| url.as_str())
-        .unwrap_or_default();
-    let database = admin
-        .split('?')
-        .next()
-        .and_then(|url| url.rsplit_once('/'))
-        .map(|(_, database)| database.to_owned())
-        .filter(|database| !database.is_empty())
-        .ok_or("DATABASE_ADMIN_URL names no database")?;
-    let user = admin
-        .split_once("://")
-        .and_then(|(_, rest)| rest.split(['@', ':']).next())
-        .map(str::to_owned)
-        .filter(|user| !user.is_empty())
-        .ok_or("DATABASE_ADMIN_URL names no user")?;
-    Ok(Settings {
-        urls,
-        database,
-        admin: user,
-    })
-}
-
-/// `url` with its database replaced by `database`.
-fn with_database(url: &str, database: &str) -> String {
-    let (base, query) = url
-        .split_once('?')
-        .map_or((url, None), |(b, q)| (b, Some(q)));
-    let base = base
-        .rsplit_once('/')
-        .map_or(base, |(authority, _)| authority);
-    match query {
-        Some(query) => format!("{base}/{database}?{query}"),
-        None => format!("{base}/{database}"),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn data_19_the_check_s_database_replaces_the_one_each_url_names() {
-        assert_eq!(
-            with_database("postgres://app:pw@127.0.0.1:5432/api", "api_schema_7"),
-            "postgres://app:pw@127.0.0.1:5432/api_schema_7"
-        );
-        assert_eq!(
-            with_database("postgres://owner@db/api?sslmode=require", "api_schema_7"),
-            "postgres://owner@db/api_schema_7?sslmode=require"
-        );
-    }
 }

@@ -2,7 +2,13 @@
 //! defines it, and the fingerprint of its request, which a unit of work claims as its first
 //! statement and completes at its commit ([the platform spec](../../../docs/spec/platform.md#idempotency)).
 
+use std::borrow::Cow;
+
 use sha2::{Digest, Sha256};
+use utoipa::{
+    PartialSchema, ToSchema,
+    openapi::{ObjectBuilder, RefOr, Schema, Type},
+};
 
 use crate::telemetry::{metrics::Counter, names};
 
@@ -59,6 +65,23 @@ impl IdempotencyKey {
     /// The fingerprint of the request it came with.
     pub(crate) fn fingerprint(&self) -> &[u8; 32] {
         &self.fingerprint
+    }
+}
+
+/// The header's value in the document: a String of structured fields whose key holds 1 to 255
+/// characters, from space to `~`, with `"` and `\` escaped (PLATFORM-058, API-17).
+impl PartialSchema for IdempotencyKey {
+    fn schema() -> RefOr<Schema> {
+        ObjectBuilder::new()
+            .schema_type(Type::String)
+            .pattern(Some(r#"^ *"(?:[ !#-\[\]-~]|\\["\\]){1,255}" *$"#))
+            .into()
+    }
+}
+
+impl ToSchema for IdempotencyKey {
+    fn name() -> Cow<'static, str> {
+        Cow::Borrowed("IdempotencyKey")
     }
 }
 

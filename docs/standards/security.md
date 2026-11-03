@@ -48,7 +48,7 @@ A browser receives its session's tokens only as cookies that are `Secure`, `Http
 ### SEC-07 Authorization only through `access`
 Every workspace route is authorized by `Authorized<P>` (API-14), and every permission decision is made by the `access` policy. No handler or service checks roles or permissions itself.
 - Why: one place decides, so one place is audited (D2).
-- Check: `compiler` (API-14), plus `review`.
+- Check: `test` (TEST-09: every workspace route answers every role as the matrix says for the permission its builder documents, so a handler that extracts `Authorize` for another permission fails wherever the two differ), plus `review`.
 
 ### SEC-08 Role rank limits who may change whom
 A member can change or remove only members at roles below their own, and can assign only roles below their own. Each workspace has exactly one owner. Two actions are exceptions, and each has its own rule:

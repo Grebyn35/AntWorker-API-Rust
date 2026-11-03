@@ -91,4 +91,4 @@ A catch-panic layer turns any panic in a request into the ERR-08 response. In ev
 ### ERR-13 Every error code is in the catalog
 Every code appears in the generated OpenAPI document, with its category and meaning.
 - Why: client developers can see every failure they need to handle.
-- Check: `ci: check-openapi`.
+- Check: `ci: check-openapi` (every code that an `ErrorCode` of `platform` or `app` gives, outside tests, is in a route's error responses), plus `test` (every problem an integration test receives is one the document lists for its route, API-17).

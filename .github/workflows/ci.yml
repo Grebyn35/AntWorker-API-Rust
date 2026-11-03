@@ -22,7 +22,11 @@ jobs:
     # here.
     timeout-minutes: 45
     steps:
+      # check-migrations compares the migrations with those of the newest release, which a tag
+      # names (DATA-09).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-tags: true
       # just first, then the tools its tasks need, at the versions the justfile pins (OPS-13).
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:

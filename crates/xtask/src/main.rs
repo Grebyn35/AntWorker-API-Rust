@@ -18,11 +18,15 @@ mod layers;
 mod load;
 mod markdown;
 mod metrics;
+mod migrated;
+mod migrations;
 mod mirror;
 mod openapi;
+mod ownership;
 mod parts;
 mod pins;
 mod promql;
+mod query_cache;
 mod release;
 mod repo;
 mod restore;
@@ -99,7 +103,8 @@ enum Command {
     #[command(name = "check-pins")]
     Pins,
     /// Fails on a finding of shellcheck in a recipe of the justfile that runs on Linux and
-    /// macOS, or in a shell script under `deploy/` (CODE-16).
+    /// macOS, or in a shell script under `deploy/` (CODE-16), and on a `psql` of such a script
+    /// whose statement isn't given with `-c` or names a table of the product schema (ARCH-14).
     #[command(name = "check-shell")]
     Shell,
     /// Fails on a function, method or macro that the locked sqlx exposes and that takes SQL
@@ -133,6 +138,18 @@ enum Command {
     /// themselves (DATA-22).
     #[command(name = "check-tenancy")]
     Tenancy,
+    /// Fails on a query, in a `sqlx` macro of `platform` or `app`, that names a table another
+    /// module owns: the module whose name the table's creating migration holds (ARCH-06).
+    #[command(name = "check-table-ownership")]
+    TableOwnership,
+    /// Fails on a migration whose name holds no module, and on a migration that the newest
+    /// release holds and the working tree changed or deleted (DATA-09).
+    #[command(name = "check-migrations")]
+    Migrations,
+    /// Fails when the query cache in `.sqlx/` differs from what sqlx-cli writes from a database
+    /// that the migrations build (DATA-20).
+    #[command(name = "sqlx-check")]
+    SqlxCheck,
     /// Fails on a marker of an optional part that names no part, a block that no end marker
     /// closes, a marker in a Rust file that isn't Rust's `//` comment alone on its line, a test of
     /// another module's behavior in a file that a part owns, and, for each run that
@@ -363,6 +380,9 @@ fn main() -> ExitCode {
         Command::Deps => deps::check(&repo),
         Command::Schema => schema::check(&repo),
         Command::Tenancy => tenancy::check(&repo),
+        Command::TableOwnership => ownership::check(&repo),
+        Command::Migrations => migrations::check(&repo),
+        Command::SqlxCheck => query_cache::check(),
         Command::Parts => parts::check(&repo),
         Command::Remove { .. }
         | Command::CheckRemovable { .. }

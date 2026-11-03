@@ -11,6 +11,7 @@ use platform::{
     db::Database,
     errors::{Internal, Problem, RequestError},
     http::{FieldErrors, Idempotent, Query, Routes},
+    idempotency::IdempotencyKey,
     lists::{self, Limit, List, Page, Search},
     types::{Client, UserId, WorkspaceId},
 };
@@ -67,7 +68,7 @@ impl TryFrom<CreateRequest> for NewWorkspace {
     tag = "workspaces",
     request_body = CreateRequest,
     params(
-        ("Idempotency-Key" = Option<String>, Header,
+        ("Idempotency-Key" = inline(Option<IdempotencyKey>), Header,
             description = "A key of the caller's own, as a quoted string, so a retry creates nothing twice (API-12)."),
     ),
     responses(

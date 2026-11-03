@@ -70,10 +70,13 @@ const MACROS: [&str; 6] = [
 ];
 
 /// A table the migrations create, with its columns, and where it is created.
-struct Table {
-    columns: Vec<String>,
-    path: String,
-    line: usize,
+pub struct Table {
+    /// Its columns' names.
+    pub columns: Vec<String>,
+    /// The migration that creates it.
+    pub path: String,
+    /// The line of its `CREATE TABLE`.
+    pub line: usize,
 }
 
 /// Checks the migrations' tables and every query of the code.
@@ -113,7 +116,7 @@ fn check_with(repo: &Repo, addressed: &[(&str, &str)], cross_tenant: &[&str]) ->
 }
 
 /// The tables of every migration, by name.
-fn tables(repo: &Repo) -> BTreeMap<String, Table> {
+pub fn tables(repo: &Repo) -> BTreeMap<String, Table> {
     let mut tables = BTreeMap::new();
     let mut migrations: Vec<_> = repo
         .files()
@@ -310,7 +313,7 @@ fn queries(
 }
 
 /// The SQL text of each `sqlx` macro in `tokens`, at any depth, with its line.
-fn sql_texts(tokens: &[TokenTree], found: &mut Vec<(String, usize)>) {
+pub fn sql_texts(tokens: &[TokenTree], found: &mut Vec<(String, usize)>) {
     for (index, token) in tokens.iter().enumerate() {
         if let TokenTree::Group(group) = token {
             let inner: Vec<TokenTree> = group.stream().into_iter().collect();
@@ -339,7 +342,7 @@ fn sql_texts(tokens: &[TokenTree], found: &mut Vec<(String, usize)>) {
 }
 
 /// The tables that `sql` reads or writes: the names after `FROM`, `JOIN`, `INTO` and `UPDATE`.
-fn referenced(sql: &str) -> Vec<String> {
+pub fn referenced(sql: &str) -> Vec<String> {
     let words = words(sql);
     words
         .windows(2)
@@ -396,7 +399,7 @@ fn words(text: &str) -> Vec<(String, usize)> {
 }
 
 /// `sql` with the text of its quoted strings blanked, so a string never reads as a column.
-fn unquoted(sql: &str) -> String {
+pub fn unquoted(sql: &str) -> String {
     let mut quoted = false;
     sql.chars()
         .map(|c| {

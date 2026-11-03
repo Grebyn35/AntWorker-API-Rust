@@ -1,6 +1,7 @@
 //! `check-layers`: each layer of a feature module keeps to its job, and the API's code builds
 //! HTTP clients only where SEC-09 allows.
-//! - A module's routes name no `sqlx` (ARCH-08).
+//! - A module's routes name no `sqlx`, and a handler calls `check` on no `RateLimits` it
+//!   extracts: it hands them to the service, which counts the per-action limit (ARCH-08).
 //! - A module's service names no HTTP types: none of `axum`, `http` and the other crates of
 //!   HTTP, none of `platform::http` and its `Problem` response, and none of its routes' request
 //!   and response types (ARCH-09).
@@ -16,9 +17,14 @@
 
 use std::collections::BTreeSet;
 
+use syn::{
+    Expr, FnArg, Pat, PatType, Type,
+    visit::{self, Visit},
+};
+
 use crate::{
     Finding, Outcome,
-    repo::Repo,
+    repo::{File, Repo},
     rust::{self, Named, Source},
 };
 
@@ -99,6 +105,7 @@ pub fn check(repo: &Repo) -> Outcome {
             match parts.first() {
                 Some(&"routes") => {
                     findings.extend(routes(&source));
+                    findings.extend(limits_counted(file));
                     findings.extend(infrastructure_errors(&source));
                 }
                 Some(&"service") => {
@@ -152,6 +159,85 @@ fn routes(source: &Source) -> Vec<Finding> {
         }
     }
     findings
+}
+
+/// ARCH-08: a handler calls `check` on no parameter of type `RateLimits`, since the service
+/// counts a per-action limit (the platform spec's Unit of work). The compiler reports a file that
+/// doesn't parse.
+fn limits_counted(file: &File) -> Vec<Finding> {
+    let Ok(parsed) = syn::parse_file(&file.text) else {
+        return Vec::new();
+    };
+    let mut visitor = Handlers {
+        path: &file.path,
+        findings: Vec::new(),
+    };
+    visitor.visit_file(&parsed);
+    visitor.findings
+}
+
+struct Handlers<'a> {
+    path: &'a str,
+    findings: Vec<Finding>,
+}
+
+impl<'ast> Visit<'ast> for Handlers<'_> {
+    fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
+        let limits: Vec<String> = item
+            .sig
+            .inputs
+            .iter()
+            .filter_map(|input| match input {
+                FnArg::Typed(PatType { pat, ty, .. }) => match (&**pat, &**ty) {
+                    (Pat::Ident(name), Type::Path(path))
+                        if path
+                            .path
+                            .segments
+                            .last()
+                            .is_some_and(|last| last.ident == "RateLimits") =>
+                    {
+                        Some(name.ident.to_string())
+                    }
+                    _ => None,
+                },
+                FnArg::Receiver(_) => None,
+            })
+            .collect();
+        let mut calls = Checks {
+            limits: &limits,
+            lines: Vec::new(),
+        };
+        calls.visit_block(&item.block);
+        for line in calls.lines {
+            self.findings.push(Finding::new(
+                self.path,
+                line,
+                "a handler counts a per-action limit: it hands its `RateLimits` to the service, \
+                 which counts it (ARCH-08)",
+            ));
+        }
+    }
+}
+
+/// The lines where a block calls `check` on one of `limits`.
+struct Checks<'a> {
+    limits: &'a [String],
+    lines: Vec<usize>,
+}
+
+impl<'ast> Visit<'ast> for Checks<'_> {
+    fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
+        if call.method == "check"
+            && let Expr::Path(receiver) = &*call.receiver
+            && receiver
+                .path
+                .get_ident()
+                .is_some_and(|ident| self.limits.iter().any(|name| ident == name))
+        {
+            self.lines.push(call.method.span().start().line);
+        }
+        visit::visit_expr_method_call(self, call);
+    }
 }
 
 /// ARCH-09: a module's service names no HTTP types.
@@ -274,6 +360,25 @@ mod tests {
             [
                 "a module's routes use `sqlx::Row`: SQL belongs in its repository (ARCH-08)",
                 "a module's routes use `sqlx::query`: SQL belongs in its repository (ARCH-08)",
+            ]
+        );
+        assert_eq!(findings(SERVICE, code), Vec::<String>::new());
+    }
+
+    #[test]
+    fn arch_08_a_handler_hands_its_rate_limits_to_the_service() {
+        let code = r#"
+            async fn share(limits: RateLimits, errors: FieldErrors) -> Result<(), E> {
+                errors.check("/email", parse());
+                limits.check(bucket, b"key").await?;
+                service::share(&limits).await
+            }
+        "#;
+        assert_eq!(
+            findings(ROUTES, code),
+            [
+                "a handler counts a per-action limit: it hands its `RateLimits` to the service, \
+              which counts it (ARCH-08)"
             ]
         );
         assert_eq!(findings(SERVICE, code), Vec::<String>::new());

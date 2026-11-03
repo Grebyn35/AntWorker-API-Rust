@@ -35,7 +35,9 @@ pub fn check(catalog: &Value, bookkeeping: &[String]) -> Vec<Problem> {
         problems.extend(standard_columns(catalog, table, bookkeeping));
     }
     problems.extend(shared_trigger(&tables, bookkeeping));
+    problems.extend(functions(catalog, &tables));
     problems.extend(names(catalog));
+    problems.extend(value_rules(catalog));
     problems.extend(foreign_keys(catalog));
     problems.extend(grants(catalog));
     problems
@@ -176,6 +178,59 @@ fn shared_trigger(tables: &[&Value], bookkeeping: &[String]) -> Vec<Problem> {
     } else {
         Vec::new()
     }
+}
+
+/// DATA-07: every function of the schema is a trigger function that a table's trigger runs, such
+/// as the one that maintains `updated_at` and `version`, and none runs as its owner.
+fn functions(catalog: &Value, tables: &[&Value]) -> Vec<Problem> {
+    let triggered: Vec<&str> = tables
+        .iter()
+        .flat_map(|table| list(table, "triggers"))
+        .map(|trigger| text(trigger, "function"))
+        .collect();
+    let mut problems = Vec::new();
+    for function in list(catalog, "functions") {
+        let name = text(function, "name");
+        if function["trigger"] != true || !triggered.contains(&name) {
+            problems.push((
+                name.to_owned(),
+                format!(
+                    "the function {name} isn't a trigger function that a table's trigger runs: \
+                     business rules live in Rust (DATA-07)"
+                ),
+            ));
+        }
+        if function["security_definer"] == true {
+            problems.push((
+                name.to_owned(),
+                format!("the function {name} is SECURITY DEFINER (DATA-07)"),
+            ));
+        }
+    }
+    problems
+}
+
+/// DATA-04: a check constraint relates columns; one that reads a single column states a rule on
+/// its value, which lives in the value's domain type.
+fn value_rules(catalog: &Value) -> Vec<Problem> {
+    list(catalog, "constraints")
+        .filter(|constraint| constraint["type"] == "c")
+        .filter_map(
+            |constraint| match strings(constraint, "columns").as_slice() {
+                [column] => {
+                    let (name, table) = (text(constraint, "name"), text(constraint, "table"));
+                    Some((
+                        name.to_owned(),
+                        format!(
+                            "the check {name} of {table} reads {column} alone, a rule on a value, \
+                         which lives in its domain type (DATA-04)"
+                        ),
+                    ))
+                }
+                _ => None,
+            },
+        )
+        .collect()
 }
 
 /// DATA-01: constraints and indexes are named `<table>_<columns>_<kind>`, and a foreign key's
@@ -480,7 +535,7 @@ mod tests {
                 { "name": "users_lower_email_key", "table": "users", "unique": true, "partial": false, "constraint": false, "columns": [null] },
             ],
             "sequences": [{ "name": "events_position_seq", "owner": "owner", "app": ["USAGE"] }],
-            "functions": [{ "name": "set_row_version", "owner": "owner", "public_execute": false }],
+            "functions": [{ "name": "set_row_version", "owner": "owner", "trigger": true, "security_definer": false, "public_execute": false }],
             "types": [{ "name": "audit_scope", "owner": "owner" }],
             "default_function_execute": false,
             "app_settings": ["statement_timeout=30s", "idle_in_transaction_session_timeout=30s"],
@@ -503,6 +558,41 @@ mod tests {
     #[test]
     fn data_02_a_schema_that_follows_the_rules_passes() {
         assert_eq!(messages(&catalog()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn data_07_the_schema_s_only_functions_are_its_triggers() {
+        let mut catalog = catalog();
+        catalog["functions"][0]["security_definer"] = json!(true);
+        catalog["functions"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "name": "close_account", "owner": "owner", "trigger": false, "security_definer": false, "public_execute": false }));
+        let found = messages(&catalog);
+        for expected in [
+            "the function set_row_version is SECURITY DEFINER (DATA-07)",
+            "the function close_account isn't a trigger function that a table's trigger \
+             runs: business rules live in Rust (DATA-07)",
+        ] {
+            assert!(
+                found.iter().any(|m| m == expected),
+                "{expected} in {found:#?}"
+            );
+        }
+        assert_eq!(found.len(), 2, "{found:#?}");
+    }
+
+    #[test]
+    fn data_04_a_check_that_reads_one_column_fails() {
+        let mut catalog = catalog();
+        catalog["constraints"][5]["columns"] = json!(["scope"]);
+        assert!(
+            messages(&catalog).iter().any(|message| message
+                == "the check audit_entries_scope_check of audit_entries reads scope alone, a \
+                    rule on a value, which lives in its domain type (DATA-04)"),
+            "{:#?}",
+            messages(&catalog)
+        );
     }
 
     #[test]
@@ -558,6 +648,8 @@ mod tests {
                 "users: its rows are edited, so the shared trigger maintains updated_at and version before each update (DATA-02)",
                 "rate_limit_buckets: a table of platform's bookkeeping has neither updated_at nor version (DATA-02)",
                 "audit_entries: its id isn't `id uuid PRIMARY KEY DEFAULT uuidv7()` (DATA-02)",
+                // With users' trigger gone, no trigger runs the shared function.
+                "the function set_row_version isn't a trigger function that a table's trigger runs: business rules live in Rust (DATA-07)",
             ]
         );
     }

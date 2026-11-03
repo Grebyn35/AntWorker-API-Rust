@@ -1,7 +1,8 @@
-//! `check-openapi`, for lists (API-05, API-06): a success body with `items` is a list, which holds
-//! `items`, an array, and `next_cursor`, a string or `null`, both always present, and nothing
-//! else, of an operation that takes `limit` and `cursor`; an operation that takes `cursor`
-//! answers a list; and no success body is a bare array.
+//! `check-openapi`, for lists (API-05, API-06, API-20): a success body with `items` is a list,
+//! which holds `items`, an array, and `next_cursor`, a string or `null`, both always present, and
+//! nothing else, of an operation that takes `limit` and `cursor`, and `search` when its items
+//! have a name or an email; an operation that takes `cursor` answers a list; and no success body
+//! is a bare array.
 
 use serde_json::{Map, Value};
 
@@ -105,6 +106,23 @@ fn shape(document: &Value, schema: &Value, queries: &[&str], here: &str) -> Vec<
             ));
         }
     }
+    let item = resolve(document, &resolve(document, &properties["items"])["items"]);
+    let named = item["properties"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .find(|(name, _)| {
+            ["name", "email"]
+                .iter()
+                .any(|word| *name == word || name.ends_with(&format!("_{word}")))
+        });
+    if let Some((name, _)) = named
+        && !queries.contains(&"search")
+    {
+        messages.push(format!(
+            "{here}'s items have `{name}`, but it takes no `search` (API-20)"
+        ));
+    }
     messages
 }
 
@@ -162,6 +180,19 @@ mod tests {
                 "GET /v1/things answers a list without taking `cursor` (API-06)",
             ]
         );
+    }
+
+    #[test]
+    fn api_20_a_list_of_named_items_takes_search() {
+        let mut named = list();
+        named["properties"]["items"]["items"] =
+            json!({ "properties": { "id": {}, "owner_name": {} } });
+        assert_eq!(
+            messages(&named, &["limit", "cursor"]),
+            ["GET /v1/things's items have `owner_name`, but it takes no `search` (API-20)"]
+        );
+        named["properties"]["items"]["items"] = json!({ "properties": { "id": {} } });
+        assert!(messages(&named, &["limit", "cursor"]).is_empty());
     }
 
     #[test]

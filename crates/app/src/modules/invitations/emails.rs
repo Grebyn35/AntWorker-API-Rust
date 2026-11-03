@@ -4,7 +4,7 @@
 use askama::Template;
 use platform::{errors::Internal, mail::Email, types::EmailAddress};
 
-use crate::modules::access::Role;
+use crate::modules::{access::Role, accounts::DisplayName, workspaces::WorkspaceName};
 
 /// The product's name, which the email carries, and `just rename` rewrites (ARCH-15).
 const PRODUCT: &str = "AntWorker";
@@ -14,9 +14,9 @@ pub(super) struct Invitation {
     /// The invited address.
     pub(super) to: EmailAddress,
     /// The inviter's name.
-    pub(super) inviter: String,
+    pub(super) inviter: DisplayName,
     /// The workspace's name.
-    pub(super) workspace: String,
+    pub(super) workspace: WorkspaceName,
     /// The role the invitation offers.
     pub(super) role: Role,
     /// The days until the invitation expires.
@@ -28,15 +28,16 @@ impl Invitation {
     pub(super) fn render(self) -> Result<Email, Internal> {
         let values = Values {
             product: PRODUCT,
-            inviter: &self.inviter,
-            workspace: &self.workspace,
+            inviter: self.inviter.as_str(),
+            workspace: self.workspace.as_str(),
             role: &with_article(self.role.name()),
             expiry: &days(self.expires_in_days),
             to: self.to.as_str(),
         };
         let subject = format!(
             "{} invited you to {} on {PRODUCT}",
-            self.inviter, self.workspace
+            self.inviter.as_str(),
+            self.workspace.as_str()
         );
         let text = Text { email: &values }.render().map_err(Internal::new)?;
         let html = Html { email: &values }.render().map_err(Internal::new)?;
@@ -99,8 +100,8 @@ mod tests {
     fn invitation(inviter: &str, workspace: &str) -> Invitation {
         Invitation {
             to: EmailAddress::parse("alice@example.com").unwrap(),
-            inviter: inviter.to_owned(),
-            workspace: workspace.to_owned(),
+            inviter: DisplayName::parse(inviter).unwrap(),
+            workspace: WorkspaceName::parse(workspace).unwrap(),
             role: Role::Member,
             expires_in_days: 7,
         }

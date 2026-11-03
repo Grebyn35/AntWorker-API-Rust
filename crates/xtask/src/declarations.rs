@@ -269,7 +269,7 @@ impl Declarations<'_> {
 }
 
 /// Whether `attrs` hold `#[cfg(test)]`.
-fn only_tests(attrs: &[syn::Attribute]) -> bool {
+pub fn only_tests(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|attr| {
         attr.path().is_ident("cfg")
             && attr

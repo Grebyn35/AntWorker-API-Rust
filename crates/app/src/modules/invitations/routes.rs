@@ -10,6 +10,7 @@ use platform::{
     authz::Authorize,
     errors::{Internal, Problem, RequestError},
     http::{FieldErrors, Idempotent, Query, Routes},
+    idempotency::IdempotencyKey,
     lists::{Limit, List, Page, Search},
     rate_limit::RateLimits,
     types::{Client, EmailAddress, WorkspaceId},
@@ -73,7 +74,7 @@ impl TryFrom<InviteRequest> for NewInvitation {
     request_body = InviteRequest,
     params(
         ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
-        ("Idempotency-Key" = Option<String>, Header,
+        ("Idempotency-Key" = inline(Option<IdempotencyKey>), Header,
             description = "A key of the caller's own, as a quoted string, so a retry invites once (API-12)."),
     ),
     responses(

@@ -1,7 +1,9 @@
 //! `check-shell`: shellcheck finds nothing in a recipe of the justfile that runs on Linux and
 //! macOS, or in a shell script under `deploy/`, and each directive that disables a finding stands
 //! on the line before the command it concerns, with a comment that states its reason. A script
-//! under `deploy/` writes a value with printf, never echo (CODE-16).
+//! under `deploy/` writes a value with printf, never echo (CODE-16). Each `psql` of a script
+//! under `deploy/` takes its statement with `-c`, and the statement names no table of the
+//! product schema (ARCH-14).
 //!
 //! `just` lists only the recipes of the platform it runs on, so the check reads the justfile
 //! itself, and checks the same recipes on every platform. Each recipe becomes a script whose
@@ -17,6 +19,7 @@ use serde_json::Value;
 use crate::{
     Finding, Outcome,
     repo::{self, Repo},
+    tenancy::{self, referenced, unquoted},
 };
 
 const JUSTFILE: &str = "justfile";
@@ -45,11 +48,14 @@ pub fn check(repo: &Repo) -> Outcome {
         }
     }
     let scripts = scripts(repo);
+    let tables: Vec<String> = tenancy::tables(repo).into_keys().collect();
     for path in &scripts {
         let text = repo.file(path).map_or("", |file| file.text.as_str());
         for (line, message) in directive_problems(text)
             .into_iter()
             .chain(echo_problems(text))
+            .map(|(line, message)| (line, message.to_owned()))
+            .chain(psql_problems(text, &tables))
         {
             findings.push(Finding::new(path, line, message));
         }
@@ -322,6 +328,54 @@ fn echo_problems(script: &str) -> Vec<(usize, &'static str)> {
     problems
 }
 
+/// Each line of `script` whose `psql` takes no statement with `-c`, so a statement it reads from
+/// its input would go unchecked, or whose statement names one of `tables` (ARCH-14).
+fn psql_problems(script: &str, tables: &[String]) -> Vec<(usize, String)> {
+    let mut problems = Vec::new();
+    for (index, line) in script.lines().enumerate() {
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
+        for (start, _) in line.match_indices("psql") {
+            let word = !line[..start].ends_with(|c: char| c.is_alphanumeric() || c == '_')
+                && !line[start + 4..].starts_with(|c: char| c.is_alphanumeric() || c == '_');
+            if !word {
+                continue;
+            }
+            let rest = &line[start..];
+            let statement = rest.find(" -c ").and_then(|at| {
+                let argument = rest[at + 4..].trim_start();
+                let quote = argument
+                    .chars()
+                    .next()
+                    .filter(|c| *c == '\'' || *c == '"')?;
+                argument[1..].split(quote).next()
+            });
+            let Some(statement) = statement else {
+                problems.push((
+                    index + 1,
+                    "psql takes its statement with -c, where check-shell reads it (ARCH-14)"
+                        .to_owned(),
+                ));
+                continue;
+            };
+            for table in referenced(&unquoted(&statement.to_ascii_lowercase())) {
+                if tables.contains(&table) {
+                    problems.push((
+                        index + 1,
+                        format!(
+                            "a script's statement names `{table}`, a table of the product \
+                             schema: application logic runs as a subcommand of the binary \
+                             (ARCH-14)"
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    problems
+}
+
 /// The shell scripts under `deploy/`: the files named `*.sh`, and those whose shebang names a
 /// shell.
 fn scripts(repo: &Repo) -> Vec<String> {
@@ -506,6 +560,24 @@ publish repository commit:
             .collect();
 
         assert_eq!(problems, [3, 4]);
+    }
+
+    #[test]
+    fn arch_14_a_script_s_psql_names_no_table_of_the_product_schema() {
+        let script = "#!/bin/sh\n\
+                      # psql -c 'DELETE FROM users' is a comment\n\
+                      ready=$(psql -qAt -c 'SELECT pg_is_in_recovery()')\n\
+                      psql -qAt -c \"DELETE FROM sessions WHERE true\"\n\
+                      psql -qAt < cleanup.sql\n\
+                      apsql_x=1\n";
+        let tables = ["sessions".to_owned(), "users".to_owned()];
+
+        let problems: Vec<usize> = psql_problems(script, &tables)
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect();
+
+        assert_eq!(problems, [4, 5]);
     }
 
     #[test]

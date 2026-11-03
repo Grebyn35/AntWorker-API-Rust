@@ -108,11 +108,12 @@ impl Repo {
     }
 }
 
+/// The bytes of the file at `path`.
 #[expect(
     clippy::disallowed_methods,
     reason = "the checks run as a synchronous program, with no async runtime to stall"
 )]
-fn read(path: &Path) -> io::Result<Vec<u8>> {
+pub fn read(path: &Path) -> io::Result<Vec<u8>> {
     std::fs::read(path)
 }
 

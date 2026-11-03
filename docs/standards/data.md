@@ -31,9 +31,9 @@ Stored timestamps come from the database's clock in SQL, never from the applicat
 - Check: `review`.
 
 ### DATA-04 The database enforces integrity, domain types enforce values
-The schema declares keys, uniqueness, foreign keys and `NOT NULL`. Closed sets are Postgres enum types mapped to Rust enums. The rules for a value's length, format or content live only in its domain type (D25), not in `CHECK` constraints.
+The schema declares keys, uniqueness, foreign keys and `NOT NULL`. Closed sets are Postgres enum types mapped to Rust enums. The rules for a value's length, format or content live only in its domain type (D25), not in `CHECK` constraints: a `CHECK` relates columns of a row, such as a job's lease to its claim.
 - Why: each rule is defined once.
-- Check: `review`.
+- Check: `ci: check-schema` (no check constraint reads a single column), plus `review`.
 
 ### DATA-05 Foreign keys are declared and indexed
 Every reference is a declared foreign key with an explicit `ON DELETE`: `CASCADE` for children the parent owns, `RESTRICT` otherwise. Two kinds of reference are exceptions, and outlive the rows they name: an audit entry's `resource_id`, which may name a row of any table (DATA-27), and a job's `user_id` and `workspace_id`, which record whom it runs for (DATA-28). Every foreign-key column has an index.
@@ -48,7 +48,7 @@ Rows are deleted, not flagged. No table has a soft-delete column.
 ### DATA-07 No business logic in SQL
 Migrations define no stored procedures and no `SECURITY DEFINER` functions. The only function allowed is the trigger function that maintains `updated_at` and `version` (DATA-02).
 - Why: business rules are read, tested and changed in Rust (D4).
-- Check: `ci: check-migrations` (`CREATE FUNCTION` only for allowlisted names).
+- Check: `ci: check-schema` (every function of the schema is a trigger function that a table's trigger runs, and none is `SECURITY DEFINER`).
 
 ### DATA-08 The database generates IDs
 Inserts take their rows' IDs from the column default, using `RETURNING`. Application code creates no row's ID; a value that names no row, such as an email's `Message-ID`, isn't one.
@@ -58,14 +58,14 @@ Inserts take their rows' IDs from the column default, using `RETURNING`. Applica
 ## Migrations
 
 ### DATA-09 Forward-only migrations in one directory
-Migrations live in `migrations/` and run through the sqlx migrator. Each file is named `<timestamp>_<module>_<description>.sql`. A migration in a release is never edited. A migration that no release contains yet may be edited, and every database that applied it is then recreated, because `migrate` and `serve` refuse a database whose applied migration differs from its file (PLATFORM-029, PLATFORM-030). Migration files that tests use to exercise the migrator are test fixtures, not part of the product schema.
+Migrations live in `migrations/` and run through the sqlx migrator. Each file is named `<timestamp>_<module>_<description>.sql`, where the module is the one that owns what it creates (ARCH-06). A migration in a release, final or prerelease, is never edited or deleted. A migration that no release contains yet may be edited, and every database that applied it is then recreated, because `migrate` and `serve` refuse a database whose applied migration differs from its file (PLATFORM-029, PLATFORM-030). Migration files that tests use to exercise the migrator are test fixtures, not part of the product schema.
 - Why: the schema history is linear and verifiable by checksum (D15).
-- Check: `ci: check-migrations` (no applied file changed relative to the last final release).
+- Check: `ci: check-migrations` (each name holds a module, and no migration that the newest release holds is changed or deleted).
 
 ### DATA-10 Expand, then contract
-A migration keeps the previous release working. A column or table is removed or renamed only after a release in which no code uses it.
-- Why: rolling deploys run old and new code against one schema (D15).
-- Check: `ci: check-migrations` (destructive statements are flagged), plus `review`.
+A migration keeps the previous release working. A column or table is removed or renamed only after a release in which no code uses it. The jobs a release enqueues are data the next one reads: a job's kind is renamed or retired only after a release that still runs it and enqueues no more of it, and a payload keeps the fields that the previous release writes, since a waiting job whose kind no replica runs never runs and never dead-letters ([platform spec](../spec/platform.md#jobs-1)).
+- Why: rolling deploys run old and new code against one schema, and one queue (D15).
+- Check: `review`.
 
 ### DATA-11 Migrations are tested both ways
 CI applies every migration to an empty database, and applies the new migrations on top of the previous release's schema.
@@ -99,9 +99,9 @@ The server refuses to start unless it connects as the role `app`, and that role 
 ## Queries
 
 ### DATA-20 SQL is checked at compile time
-All SQL goes through the sqlx `query!`, `query_as!` and `query_scalar!` macros. The `.sqlx/` offline cache is committed, and CI builds with `SQLX_OFFLINE=true`. Optional filters are nullable parameters in a static query (`$1::text IS NULL OR action = $1`). SQL that can't be a macro query is allowed only in these places, each through an `#[expect]` that states its reason: the statements of `platform::db` that take identifiers, such as role statements; the test support (TEST-06); and a dynamic query that a module spec requires, built with `QueryBuilder`, which never concatenates input.
+All SQL goes through the sqlx `query!`, `query_as!` and `query_scalar!` macros. The `.sqlx/` offline cache is committed, and CI builds with `SQLX_OFFLINE=true`, from a cache that `just prepare` wrote after the last change to a query or a migration. Optional filters are nullable parameters in a static query (`$1::text IS NULL OR action = $1`). SQL that can't be a macro query is allowed only in these places, each through an `#[expect]` that states its reason: the statements of `platform::db` that take identifiers, such as role statements; the test support (TEST-06); and a dynamic query that a module spec requires, built with `QueryBuilder`, which never concatenates input.
 - Why: a query that doesn't match the schema doesn't compile (D24).
-- Check: `clippy` (`disallowed_methods` and `disallowed_macros` ban every function, method and macro of sqlx that takes SQL text outside the checked macros, `QueryBuilder`'s among them), `ci: check-sql-bans` (every function, method and macro that the locked sqlx exposes and that takes SQL text outside the checked macros is one that `clippy.toml` bans, so an update of sqlx can't add one unbanned), `ci: sqlx-check`, plus `review` (where an `#[expect]` allows string SQL, and where code names `sqlx::sqlx_macros`, whose `expand_query!` the checked macros expand to, so clippy can't ban it).
+- Check: `clippy` (`disallowed_methods` and `disallowed_macros` ban every function, method and macro of sqlx that takes SQL text outside the checked macros, `QueryBuilder`'s among them), `ci: check-sql-bans` (every function, method and macro that the locked sqlx exposes and that takes SQL text outside the checked macros is one that `clippy.toml` bans, so an update of sqlx can't add one unbanned), `ci: sqlx-check` (the cache is what sqlx-cli writes from a database that the migrations build), plus `review` (where an `#[expect]` allows string SQL, and where code names `sqlx::sqlx_macros`, whose `expand_query!` the checked macros expand to, so clippy can't ban it).
 
 ### DATA-21 Repositories take a unit of work
 A repository function takes `&mut UnitOfWork`, never a pool or connection. Pools, connections and transactions stay inside `platform::db`, and the test support is the one other place that names them (TEST-06).
@@ -111,15 +111,16 @@ A repository function takes `&mut UnitOfWork`, never a pool or connection. Pools
 ### DATA-22 Every query filters by tenant itself
 Tenancy is enforced by the application, and every query on user or workspace data carries its own filter (D3, D4). Data a module adds for its product lives in a workspace, in a table with a `workspace_id` (D39); a table without one holds account data, keyed by a user, such as `sessions`, or is `workspaces` itself. `platform`'s bookkeeping, such as `jobs` and `events`, is platform data whatever its columns: a job's `workspace_id` and `user_id` record whom it runs for, which its handler filters by, while the queue selects jobs by their state; an event's record whom it reaches, which the replay of a stream filters by, while the hub loads events by their position. `check-tenancy` lists the tables of each kind.
 - Workspace data is filtered by the workspace ID from the proof the operation runs under: `Authorized<P>`, or the `JobContext` of a job enqueued for a workspace. A repository function takes that ID as a parameter.
-- User data is filtered by the acting user's ID.
+- User data is filtered by the acting user's ID. The hub acts for each open stream's caller, whose memberships and sessions it reads again by their IDs (SEC-06).
 - A lookup by a presented token's hash, or of a user by an email address, goes through a unique index:
   - before sign-in, by the token or the sign-in email
   - when inviting, by the invitee's email <!-- part: invitations -->
   - in the setup subcommand, by its owner's email
 - Rows addressed to a user by an email address are filtered by the caller's email.
 
-A row ID alone never addresses tenant data. Two kinds of read are exempt:
-- batch reads of display data, such as names, by IDs that came from a query filtered by tenant in the calling module, for example a workspace's member list
+A row ID alone never addresses tenant data. These reads are exempt:
+- batch reads by IDs that came from a query filtered by tenant in the calling module: of display data, such as names, for example a workspace's member list, or of which of those IDs match a search, as `accounts::matching` and `workspaces::matching` find them (API-20)
+- the position of the event that a stream's `Last-Event-ID` names, read by the event's ID alone, so a client resumes after the last event it received even from a workspace it has since left; the replay after that position filters by tenant, and the lookup tells a caller only whether an event ID it holds names an event, which a UUIDv7's random bits keep anyone from guessing (REALTIME-004)
 - scheduled jobs that span tenants, which select rows by their own criteria, such as expiry
 - Why: there is no row-level security, so the application's filters are the only guard between tenants, and they are checked by machine and by test (D4).
 - Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, unless it belongs to a listed cross-tenant job, and every other table is listed), `test` (TEST-09 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
