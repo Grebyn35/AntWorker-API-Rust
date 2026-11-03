@@ -128,7 +128,7 @@ groups:
         labels:
           severity: page
         annotations:
-          summary: An instance's own connection to the database stopped answering its checks.
+          summary: An instance's listener, its own connection to the database, stopped answering its checks.
           runbook: docs/operations/runbooks.md#databaseunreachable
 
       - alert: ApiTelemetryMissing

@@ -103,7 +103,7 @@ tests:
               instance: a
               db_namespace: api
             exp_annotations:
-              summary: An instance's own connection to the database stopped answering its checks.
+              summary: An instance's listener, its own connection to the database, stopped answering its checks.
               runbook: docs/operations/runbooks.md#databaseunreachable
 
   # The last instance stops exporting after 3 minutes.
