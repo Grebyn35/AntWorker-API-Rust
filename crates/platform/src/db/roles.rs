@@ -6,7 +6,11 @@ use std::fmt;
 use sqlx::{AssertSqlSafe, ConnectOptions, Connection, PgConnection};
 
 use super::DatabaseUrl;
-use crate::{blocking, config::BootstrapConfig, types::Secret};
+use crate::{
+    blocking,
+    config::{BootstrapConfig, Environment},
+    types::Secret,
+};
 
 /// The role that runs migrations and owns the tables (DATA-12).
 pub(super) const OWNER: &str = "owner";
@@ -38,6 +42,14 @@ pub enum BootstrapError {
     /// The administrator connection failed.
     #[error("can't connect with DATABASE_ADMIN_URL")]
     Connect(#[source] sqlx::Error),
+    /// In production, the server holds another database that a role of the API owns or holds
+    /// a privilege on: another deployment's, whose roles a run would take over (D75).
+    #[error(
+        "the database server holds {0}, another database of the roles owner and app: a \
+         deployment's Postgres server holds its database alone, since every database on it \
+         shares the roles"
+    )]
+    SharedServer(String),
     /// A statement failed, or the connection broke.
     #[error("can't set up the roles and grants")]
     Failed(#[source] sqlx::Error),
@@ -49,13 +61,19 @@ pub enum BootstrapError {
 /// Creates or updates the roles `owner` and `app`, then grants them their privileges on the
 /// database the URLs name (PLATFORM-010). Running it again leaves the roles, their attributes
 /// and settings, and the grants as they are, and sets each role's password to the one in its
-/// URL.
+/// URL. In production, it first refuses a server that holds another database of the roles
+/// (PLATFORM-077); development and the tests keep all their databases on one server.
 pub async fn bootstrap(config: &BootstrapConfig) -> Result<(), BootstrapError> {
     let database = config.admin.database();
     if config.owner.database() != database || config.app.database() != database {
         return Err(BootstrapError::DifferentDatabases);
     }
     let mut admin = Admin::connect(&config.admin).await?;
+    if config.environment == Environment::Production
+        && let Some(other) = admin.other_database().await?
+    {
+        return Err(BootstrapError::SharedServer(other));
+    }
     admin.create_roles(&config.owner, &config.app).await?;
     admin.grant_database().await?;
     admin.close().await
@@ -126,6 +144,28 @@ impl Admin {
             app = identifier(APP),
         ))
         .await
+    }
+
+    /// The first, by name, of the server's other databases that the role `owner` or `app` owns
+    /// or holds a privilege on, as `bootstrap`'s grant of `CONNECT` gives each database it ran
+    /// on (PLATFORM-077).
+    async fn other_database(&mut self) -> Result<Option<String>, BootstrapError> {
+        sqlx::query_scalar!(
+            r#"SELECT d.datname::text AS "name!"
+               FROM pg_database d
+               WHERE d.datname <> current_database()
+                 AND (d.datdba IN (SELECT oid FROM pg_roles WHERE rolname IN ($1, $2))
+                      OR EXISTS (SELECT FROM aclexplode(d.datacl) a
+                                 JOIN pg_roles r ON r.oid = a.grantee
+                                 WHERE r.rolname IN ($1, $2)))
+               ORDER BY d.datname
+               LIMIT 1"#,
+            OWNER,
+            APP,
+        )
+        .fetch_optional(&mut self.conn)
+        .await
+        .map_err(BootstrapError::Failed)
     }
 
     /// Ends the connection.

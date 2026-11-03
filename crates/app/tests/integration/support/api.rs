@@ -19,7 +19,7 @@ use platform::{
 use serde_json::Value;
 use tower::ServiceExt;
 
-use super::{TestDatabase, contract::Contract};
+use super::{Proxy, TestDatabase, contract::Contract};
 
 /// The service the tests' OpenAPI documents name. The name and version don't affect a check.
 const SERVICE: Service = Service {
@@ -176,11 +176,21 @@ impl Api {
 
     /// The API with `options`, on `database`, such as one that a subcommand of the binary filled.
     pub async fn on(database: TestDatabase, options: Options) -> Self {
+        let pool = database.app().await;
+        Self::connected(database, pool, options).await
+    }
+
+    /// The API with `options`, on `database`, whose every connection passes through `proxy`.
+    pub async fn through(database: TestDatabase, proxy: &Proxy, options: Options) -> Self {
+        let pool = database.app_through(proxy).await;
+        Self::connected(database, pool, options).await
+    }
+
+    async fn connected(database: TestDatabase, pool: Database, options: Options) -> Self {
         telemetry::testing::install(SERVICE).unwrap();
         let database = Arc::new(database);
         let clock = Arc::new(TestClock::default());
         let readiness = Readiness::new();
-        let pool = database.app().await;
         let (router, document, jobs) =
             application(&pool, options, clock.clone(), readiness.clone()).await;
         Self {

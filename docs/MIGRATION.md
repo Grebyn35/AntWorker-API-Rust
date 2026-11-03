@@ -94,9 +94,8 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `check-openapi`, with list shapes, `check-instrument`, `check-layers`, `check-deps`, `check-schema`, `check-sql-bans`, `check-tenancy` | built |
 | `check-metrics`, `check-telemetry-config`, `alert-rules` | built |
 | `check-openapi`, for the breaking-change diff (API-18, ERR-02) | the first final release |
-| `check-pins`, `image-scan`, `image-rescan`, `verify-release`, `check-shell` | built |
+| `check-pins`, `image-scan`, `image-rescan`, `verify-release`, `check-shell`, `setup-smoke` | built |
 | `e2e` | built, and extended by every later step |
-| `check-config`, `setup-smoke` | 3 decides: built, or the rule's check changes |
 | `check-personal-data` | 5, with export and erasure in `accounts` |
 | `check-removable`, `check-parts`, `check-table-ownership`, `check-migrations`, `sqlx-check`, `check-layout` | built |
 | `test-migrations` | 6, with the first final release |
@@ -117,7 +116,6 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 | API-04 | A created workspace's `Location`, `/v1/workspaces/{id}`, names a resource that no route serves yet: reading one workspace arrives with the full module | 5, with the full `workspaces` module |
 | API-04 | A created invitation's `Location`, `/v1/workspaces/{workspace_id}/invitations/{id}`, names a resource that no route serves yet: reading one invitation arrives with the full module | 5, with the full `invitations` module |
 | OPS-17 | Backups expire by pgBackRest's rule, which reads no timelines: a full backup expires once the next full backup is `BACKUP_RETENTION_DAYS` old. After a restore that went back past a full backup, the moments of the new timeline before its first backup ends restore only from the backup the restore started from, whose next full backup lies on the abandoned timeline and is already old, so they leave the reach early, by up to most of the retention: with 28 days and weekly full backups, a restore that goes back 26 days leaves them reachable for about 4 days. backups.md's "never shorten the reach" doesn't hold for them | 3 |
-| OPS-22 | When both colors of replicas run and no deploy recorded which serves, deploy.sh tells the operator to stop one with `docker compose` on the server, a change to the services that no task makes | 3 |
 | ARCH-07 | `just remove` knows `invitations` only: users creating workspaces through `POST /v1/workspaces` isn't marked as a part, since no run of `check-removable` can remove it until a part that also creates workspaces, the setup subcommand or `superadmins`, is built | 5, with the setup subcommand or `superadmins` |
 | ARCH-07 | `invitations` owns the hub's load test, `just load-test streams`, and the sentences of OPS-18, the platform spec and release.md on it, which exist for the hub: its events are `invitation.received`, since no core module publishes an event that changes no one's access, so a fork without the part loses the hub's measurement | 5, with the first event of a core module that changes no one's access, such as one announcing a workspace's new name |
 | ARCH-07 | `askama` is a dependency that only `invitations` uses, since its emails are the only ones yet, so removing the part removes it, while architecture.md §3 and §10 and the platform spec's Emails, which describe how every module's emails are built, still name it and `crates/app/templates/` | 5, with the full `auth` module, whose emails make it a dependency of the core |
@@ -136,9 +134,6 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 3c57546 | ARCH-07: `check-parts` also reads the tests in the files of a part without a module, such as an OAuth provider's, which it skips now | 5, with the first OAuth provider |
 | Deciding D73 | ARCH-07: whether a fork chooses its shape with one command, which removes the parts the shape doesn't keep, then the markers of the parts it keeps, the runs, and the removal's tooling and checks, since a fork that keeps every part removes nothing, and its own code that names a kept part fails `check-parts` and `check-removable` until it carries the part's marker | 6, with `just rename` |
 | The owner's decision on second factors (D63) | Whether a second factor can be required beyond superadmins: of every user, by a setting of the deployment, or of a workspace's members, by its owner, as Slack and GitHub let an organization require it of its members | 5, with the full `auth` module |
-| Conformance review of 0d036d0..1ff84e6 | OPS-21: a test that counts the instance's own connections in `pg_stat_activity` across checks that time out, by an `application_name` its connection sets | 3 |
-| Deciding D75 | DATA-12, DATA-13: whether the deploy or `just server-check` refuses a managed Postgres server that holds another deployment's database, which D75 forbids, such as one on which `owner` owns a database other than the one the URLs name, so that the requirement is checked | 3 |
-| A development machine's Docker, during step 2.3 | OPS-22: whether `just server-check` refuses a server whose `/etc/resolv.conf` names the search domain `.`, which Docker copies into containers, where no short name then resolves, as on a development machine; whether the deployment's own lookups, such as the API's of `postgres`, fail on such a server is unverified | 3 |
 
 ## Conformance reviews
 

@@ -49,6 +49,24 @@ impl DatabaseUrl {
         }
     }
 
+    /// The host and the port the URL reaches, as a test's proxy forwards to them.
+    #[cfg(feature = "test-support")]
+    pub fn address(&self) -> (String, u16) {
+        (self.options.get_host().to_owned(), self.options.get_port())
+    }
+
+    /// The same URL, reaching the database through `port` on the loopback address, where a
+    /// test's proxy listens.
+    #[cfg(feature = "test-support")]
+    pub fn through(&self, port: u16) -> Self {
+        Self {
+            options: self.options.clone().host("127.0.0.1").port(port),
+            user: self.user.clone(),
+            password: self.password.clone(),
+            database: self.database.clone(),
+        }
+    }
+
     /// The options to connect with. Their `Debug` output includes the password, so they never
     /// leave `platform` (SEC-01).
     pub(crate) fn connect_options(&self) -> PgConnectOptions {

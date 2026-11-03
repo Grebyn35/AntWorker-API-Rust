@@ -25,6 +25,7 @@ pub mod invitations;
 // end part: invitations
 pub mod jobs;
 pub mod mailbox;
+pub mod proxy;
 pub mod streams;
 pub mod users;
 pub mod workspaces;
@@ -56,6 +57,7 @@ use tokio::{
 };
 
 pub use api::{Api, Options};
+pub use proxy::Proxy;
 
 /// The API binary that Cargo built for the tests.
 pub const BINARY: &str = env!("CARGO_BIN_EXE_antworker-api");
@@ -158,6 +160,7 @@ impl TestDatabase {
     /// The settings `bootstrap` reads, pointing at this database.
     pub fn bootstrap_config(&self) -> BootstrapConfig {
         BootstrapConfig {
+            environment: self.settings.environment,
             admin: self.admin_url(),
             owner: self.owner_url(),
             app: self.app_url(),
@@ -222,6 +225,17 @@ impl TestDatabase {
         Database::connect(&self.app_url(), Self::POOL_SIZE, &app::MIGRATIONS)
             .await
             .expect("connect as app")
+    }
+
+    /// The API's connections as `app`, through `proxy`.
+    pub async fn app_through(&self, proxy: &Proxy) -> Database {
+        Database::connect(
+            &self.app_url().through(proxy.port()),
+            Self::POOL_SIZE,
+            &app::MIGRATIONS,
+        )
+        .await
+        .expect("connect as app through the proxy")
     }
 
     /// A listener of the access-change signals that units of work send at commit (D35).

@@ -299,6 +299,43 @@ async fn ops_16_the_task_after_a_deploy_killed_before_its_replicas_serve_puts_ba
 }
 
 #[tokio::test]
+async fn ops_22_while_both_colors_run_and_no_deploy_recorded_which_serves_the_next_deploy_goes_on()
+{
+    let deployment = Deployment::managed(&[]);
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    // A deploy stops once both colors run, and no deploy recorded which serves, as after a first
+    // deploy that stopped before it recorded its color.
+    let stopping = deployment
+        .apply_until(&waiting_image(&deployment), "starting 2 green replicas")
+        .await;
+    deployment.server.shell_ok(
+        "timeout 120 sh -c 'until [ \"$(docker ps --quiet --filter label=com.docker.compose.service=api-green | wc -l)\" -eq 2 ]; do sleep 1; done'",
+    );
+    stopping.stop(&deployment.server, "KILL");
+    deployment
+        .server
+        .shell_ok(&format!("rm {DEPLOYMENT}/state/live"));
+
+    let status = deployment.server.deploy(&["status"]);
+    let next = deployment.apply(&deployment.api, &[]).await;
+
+    assert!(
+        lossy(&status).contains(
+            "serving: both colors, as while a deploy switches; blue served before the other started"
+        ),
+        "{}",
+        lossy(&status)
+    );
+    assert!(next.status.success(), "{}", lossy(&next));
+    assert!(
+        lossy(&next).contains("2 green replicas serve"),
+        "{}",
+        lossy(&next)
+    );
+}
+
+#[tokio::test]
 async fn ops_16_a_put_back_that_fails_says_so_and_the_next_task_puts_the_files_back() {
     let deployment = Deployment::managed(&[]);
     let first = deployment.apply(&deployment.api, &[]).await;

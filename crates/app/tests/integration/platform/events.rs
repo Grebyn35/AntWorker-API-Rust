@@ -8,7 +8,7 @@ use platform::{telemetry::testing, types::UserId};
 use serde_json::json;
 
 use crate::support::{
-    Api, Options,
+    Api, Options, Proxy,
     announcements::{self, Note, published::NOTED},
     client,
     events::{self, Event},
@@ -632,6 +632,58 @@ async fn platform_073_a_re_check_that_fails_is_tried_again_at_the_next_check() {
     let (_, reason) = stream.closed().await;
 
     assert_eq!(reason, "access_changed");
+}
+
+/// How long the listener's check waits for the database.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The instance's connections to its database, as `pg_stat_activity` lists them.
+async fn connections(api: &Api) -> usize {
+    api.database()
+        .admin_reads(&format!(
+            "SELECT pid::text FROM pg_stat_activity WHERE datname = '{}' AND usename = 'app'",
+            api.database().name()
+        ))
+        .await
+        .len()
+}
+
+#[tokio::test]
+async fn ops_21_checks_that_time_out_open_no_connection_beyond_the_pool_and_the_listener() {
+    let database = crate::support::TestDatabase::migrated().await;
+    let proxy = Proxy::to(database.app_url().address()).await;
+    let api = Api::through(database, &proxy, Options::default()).await;
+    let clock = api.clock();
+    let mut held = Vec::new();
+    for _ in 0..crate::support::TestDatabase::POOL_SIZE {
+        held.push(api.pool().begin(&client()).await.unwrap());
+    }
+    clock.sleeping(CHECK_INTERVAL).await;
+    let budget = connections(&api).await;
+
+    // The database stops answering on every connection the instance holds, but takes new ones.
+    // The first check waits out its timeout on the listener; it and the next each try to open
+    // another, while the one they dropped still waits for the database.
+    proxy.freeze();
+    clock.advance(CHECK_INTERVAL);
+    clock.sleeping(CHECK_TIMEOUT).await;
+    clock.advance(CHECK_TIMEOUT);
+    clock.sleeping(CHECK_INTERVAL).await;
+    let after_one = connections(&api).await;
+    clock.advance(CHECK_INTERVAL);
+    clock.sleeping(CHECK_INTERVAL).await;
+    let after_two = connections(&api).await;
+    let ready = api.get("/health/ready").send().await;
+    proxy.thaw();
+    drop(held);
+
+    assert_eq!(
+        budget,
+        usize::try_from(api.pool().connections()).unwrap(),
+        "every pooled connection and the listener"
+    );
+    assert_eq!((after_one, after_two), (budget, budget));
+    assert_eq!(ready.json(), json!({ "status": "database_unavailable" }));
 }
 
 #[tokio::test]

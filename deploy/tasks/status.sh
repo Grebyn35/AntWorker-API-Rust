@@ -9,7 +9,7 @@ status() {
     blue=$(running api-blue)
     green=$(running api-green)
     if [ -n "$blue" ] && [ -n "$green" ]; then
-        printf '%s\n' "serving: both colors, as while a deploy switches; the last deploy that finished left $(cat "$state/live" 2> /dev/null || echo neither) serving"
+        printf '%s\n' "serving: both colors, as while a deploy switches; $(live_color) served before the other started"
     elif [ -n "$blue" ]; then
         echo "serving: blue"
     elif [ -n "$green" ]; then

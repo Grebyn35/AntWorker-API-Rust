@@ -1,4 +1,4 @@
-use platform::db::{ConnectError, Database, DatabaseUrl, RoleProblem};
+use platform::db::{BootstrapError, ConnectError, Database, DatabaseUrl, RoleProblem};
 
 use crate::support::{TestDatabase, execute_on};
 
@@ -248,6 +248,35 @@ async fn platform_010_running_bootstrap_again_sets_each_password_from_its_url() 
     }
     db.app().await;
     assert_eq!(db.owner_reads("SELECT current_user::text").await, ["owner"]);
+}
+
+#[tokio::test]
+async fn platform_077_in_production_bootstrap_refuses_a_server_with_another_database_of_its_roles()
+{
+    let db = TestDatabase::migrated().await;
+    // Another database that bootstrap ran on, as another deployment's on the same server.
+    let other = TestDatabase::migrated().await;
+    let verifiers = "SELECT rolname || ' ' || rolpassword FROM pg_authid \
+                     WHERE rolname IN ('owner', 'app') ORDER BY rolname";
+    let production = platform::config::BootstrapConfig {
+        environment: platform::config::Environment::Production,
+        ..db.bootstrap_config()
+    };
+
+    let (before, refused, after) = db
+        .with_roles_locked(async {
+            let before = db.admin_reads(verifiers).await;
+            let refused = platform::db::bootstrap(&production).await;
+            (before, refused, db.admin_reads(verifiers).await)
+        })
+        .await;
+
+    assert!(
+        matches!(&refused, Err(BootstrapError::SharedServer(named)) if named != db.name()),
+        "{refused:?}"
+    );
+    assert_eq!(after, before, "no password changed");
+    drop(other);
 }
 
 #[tokio::test]

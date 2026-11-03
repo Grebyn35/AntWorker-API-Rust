@@ -7,10 +7,54 @@
 ci-tools:
     @echo cargo-deny@{{ cargo_deny_version }},sqlx-cli@{{ sqlx_cli_version }}
 
-# Lists the tool `just deny` needs, as the daily check of advisories installs it.
+# Lists the tool `just setup-smoke` needs besides those of `just checks`: watchexec, whose
+# command-line crate is watchexec-cli, as CI's install step takes it.
 [private]
-advisory-tools:
+smoke-tools:
+    @echo watchexec-cli@{{ watchexec_version }}
+
+# Lists the one tool `just setup` requires besides just and the toolchain, which the scheduled
+# jobs that need no other install alone: the daily check of advisories, and the weekly smoke test
+# on Windows.
+[private]
+setup-tools:
     @echo cargo-deny@{{ cargo_deny_version }}
+
+# Runs `just dev` until the API it starts answers ready, then stops it (OPS-19). CI's `checks` job
+# runs it after `just setup` and `just checks`, so a new clone's two commands run end to end; on a
+# developer's machine, `just dev` itself is this check, so `just ci` leaves it out. A failure
+# shows what `just dev` wrote.
+[linux]
+[private]
+setup-smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target
+    log=target/setup-smoke.log
+    # just, watchexec and the API in a session of their own, which the end stops whole.
+    setsid just dev > "$log" 2>&1 &
+    dev=$!
+    trap 'kill -TERM -- "-$dev" 2> /dev/null || true; wait "$dev" || true' EXIT
+    waited=0
+    until curl --silent --fail --max-time 5 --output /dev/null "http://$LISTEN_ADDR/health/ready"; do
+        # The API's build is cached by `just checks`, so ten minutes means it stopped short of
+        # serving, such as on a build error, after which watchexec waits for a change.
+        if ! kill -0 "$dev" 2> /dev/null || grep -q 'startup failed' "$log" || [ "$waited" -ge 600 ]; then
+            cat "$log" >&2
+            echo "just dev didn't serve at $LISTEN_ADDR" >&2
+            exit 1
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    echo "just dev serves at $LISTEN_ADDR"
+
+# Builds every target of the workspace (OPS-19). Windows's hosted runners can't run the Linux
+# containers that `just dev` starts, so CI runs `just setup` and this there every week.
+[windows]
+[private]
+setup-smoke:
+    cargo build --workspace --all-targets --locked
 
 [doc("Fails if the code isn't formatted")]
 [group('check')]

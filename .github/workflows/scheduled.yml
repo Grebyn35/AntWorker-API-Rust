@@ -1,5 +1,7 @@
 # Checks whose result can change without a change to the repository, such as an advisory
-# published against a locked dependency or a published image, and the registry's upkeep (OPS-12).
+# published against a locked dependency or a published image; the smoke test on Windows, whose
+# runners take twice the minutes of Linux's on a private repository; and the registry's upkeep
+# (OPS-12).
 name: scheduled
 
 on:
@@ -22,12 +24,35 @@ jobs:
         with:
           tool: just@1.59.0
       - id: tools
-        run: echo "tools=$(just advisory-tools)" >> "$GITHUB_OUTPUT"
+        run: echo "tools=$(just setup-tools)" >> "$GITHUB_OUTPUT"
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: ${{ steps.tools.outputs.tools }}
       - run: just setup
       - run: just deny
+
+  # Every Monday: `just setup` and the build on Windows, whose recipes and code for Windows
+  # nothing else runs (OPS-19). The runner's shell is PowerShell, so the steps run in its bash,
+  # as the other jobs' do; `just` still runs its recipes for Windows in PowerShell.
+  windows:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '43 4 * * 1'
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: just@1.59.0
+      - id: tools
+        run: echo "tools=$(just setup-tools)" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: ${{ steps.tools.outputs.tools }}
+      - run: just setup
+      - run: just setup-smoke
 
   # Every Monday: the published images, scanned again (SEC-13).
   images:

@@ -80,9 +80,9 @@ CI applies every migration to an empty database, and applies the new migrations 
 | `owner` | the `migrate` subcommand only | owns the tables it creates, and has `CREATE` on the schema `public`, which the database's owner keeps |
 | `app` | every request and every job, and `seed`, which sends the API's routes requests in process ([system spec](../spec/system.md#seed)) | no superuser, owns nothing, data manipulation statements (DML) only (DATA-19) |
 
-The `bootstrap` subcommand creates both roles with these attributes, grants their privileges on the database and sets the role-level timeouts (DATA-19). The privileges on the tables come from the first migration. It runs with an administrator connection: the bundled Postgres superuser, or a managed provider's admin role. Running it again keeps the roles, their attributes and the grants, and sets each role's password again from its URL.
+The `bootstrap` subcommand creates both roles with these attributes, grants their privileges on the database and sets the role-level timeouts (DATA-19). The privileges on the tables come from the first migration. It runs with an administrator connection: the bundled Postgres superuser, or a managed provider's admin role. Running it again keeps the roles, their attributes and the grants, and sets each role's password again from its URL. Roles belong to the whole Postgres server, so a deployment's server holds its database alone (D75), and in production `bootstrap` refuses a server that holds another database of the roles before it changes one.
 - Why: the running API can change data but never the schema, and holds no privilege beyond that (D4).
-- Check: `test` (PLATFORM-009, PLATFORM-010), plus `ci: check-schema` (grants).
+- Check: `test` (PLATFORM-009, PLATFORM-010, PLATFORM-077), plus `ci: check-schema` (grants).
 
 ### DATA-13 Startup refuses an unsafe role
 The server refuses to start unless it connects as the role `app`, and that role isn't a superuser, can't create databases or roles, can't start replication, doesn't bypass row-level security, owns nothing in any database of the server, and belongs to no other role.

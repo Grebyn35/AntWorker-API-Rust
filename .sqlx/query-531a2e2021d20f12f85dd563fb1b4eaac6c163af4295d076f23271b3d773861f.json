@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT d.datname::text AS \"name!\"\n               FROM pg_database d\n               WHERE d.datname <> current_database()\n                 AND (d.datdba IN (SELECT oid FROM pg_roles WHERE rolname IN ($1, $2))\n                      OR EXISTS (SELECT FROM aclexplode(d.datacl) a\n                                 JOIN pg_roles r ON r.oid = a.grantee\n                                 WHERE r.rolname IN ($1, $2)))\n               ORDER BY d.datname\n               LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Name",
+        "Name"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "531a2e2021d20f12f85dd563fb1b4eaac6c163af4295d076f23271b3d773861f"
+}

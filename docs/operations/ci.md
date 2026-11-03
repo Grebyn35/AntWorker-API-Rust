@@ -8,7 +8,7 @@ CI runs on GitHub Actions, in workflows that only orchestrate `just` tasks (OPS-
 
 | Job | Runs | Needs |
 |---|---|---|
-| `checks` | `just setup`, then `just checks`: every check of the code in the table below that needs neither the image nor a copy of the repository | |
+| `checks` | `just setup`, then `just checks`: every check of the code in the table below that needs neither the image nor a copy of the repository; then `just setup-smoke` | |
 | `removable` | On `main` only: `just setup`, then `just check-removable`, which runs `just checks` on a copy of the repository without the optional parts of each run that `crates/xtask/parts.yaml` lists (ARCH-07) | |
 | `image` | `just image`: the API's image and the reference deployment's Postgres, each built once for linux/amd64 and linux/arm64 with its software bill of materials (SBOM) and its provenance, into an image layout of the Open Container Initiative (OCI), which the later jobs download (OPS-14) | |
 | `scan` | `just image-scan`, against the digests that `image` built, on a runner of its own, so the scanner's database takes none of `verify`'s disk | `image` |
@@ -21,11 +21,12 @@ A newer push to a pull request cancels the older run. On `main`, a run that has 
 `scheduled.yml` runs every day at 05:17 UTC, every Monday at 04:43 UTC, and on demand:
 - Every day, `just deny`, so an advisory published against a locked dependency fails CI without waiting for a push (SEC-13).
 - Every Monday, `just image-rescan`, which scans `edge`, the newest final release and the newest prerelease of each image again (SEC-13).
+- Every Monday, on Windows, `just setup` and `just setup-smoke`, which there builds every target of the workspace (OPS-19): nothing else runs the recipes for Windows or the code compiled only there, and a runner on Windows takes twice the minutes of one on Linux from a private repository's allowance, so it runs weekly rather than on every push.
 - Every Monday, the registry's upkeep, in both images' packages: it deletes the tags older than [release.md](release.md#where-it-is-published) keeps them, then the images left with no tag, and the signatures of images that are gone. A pinned action does it, and keeps each platform's image of an index it keeps. If GitHub refuses the deletions, the package's settings grant the repository the Admin role under "Manage Actions access".
 
 `just setup` writes `.env` with generated passwords, and the tests start Postgres through Compose with them, as they do on a developer's machine (TEST-11). A job that only runs the tools Compose holds runs `just env` instead, which writes `.env` alone, because Compose reads it.
 
-On a developer's machine, `just ci` runs what CI runs: `just checks`, `just check-removable`, `just image`, `just image-scan`, and `just e2e` on the machine's platform. The end-to-end tests of the observability stack reach its services by their Compose names, which Docker's embedded DNS resolves; Docker copies the search domains of the host's `/etc/resolv.conf` into its containers, and with the search domain `.` they resolve no short name, so those tests fail on such a host until Docker's own `dns-search` setting names another.
+On a developer's machine, `just ci` runs what CI runs: `just checks`, `just check-removable`, `just image`, `just image-scan`, and `just e2e` on the machine's platform. It leaves out `just setup-smoke`, since the developer's own `just setup` and `just dev` are that check, and a `just dev` already running holds the address the smoke test's would take.
 
 ## Checks that exist
 
@@ -57,6 +58,7 @@ On a developer's machine, `just ci` runs what CI runs: `just checks`, `just chec
 | Removing each run's optional parts from a copy of the repository, with `just remove`, leaves no line that names one and no marker that names no part, and a copy that passes `just checks` | `check-removable` | ARCH-07 |
 | No vulnerability that has a fix and is rated high or critical, in either platform's image of either image: in its operating system packages, and in the crates and modules its binaries record | `image-scan` | SEC-13, OPS-15 |
 | The same scan, every week, of the images SEC-13 names | `image-rescan` | SEC-13 |
+| `just setup` and `just dev` run end to end on Linux: `just dev` serves until the API answers ready, and stops once it has; on Windows, `just setup` and a build of every target of the workspace | `setup-smoke` | OPS-19 |
 | The end-to-end tests, against the images built from the commit, the deploys and restores of the reference deployment among them | `e2e` | OPS-14 to OPS-17, OPS-20, OPS-21, SEC-18, and the rules and behaviors they prove (TEST-04) |
 | Each of a release's tags names the tested digest, which the run on `main` signed, with the SBOM and the provenance of both platforms | `verify-release` | OPS-14 |
 

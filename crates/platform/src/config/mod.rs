@@ -147,6 +147,9 @@ pub struct MigrateConfig {
 /// The settings `bootstrap` reads.
 #[derive(Clone, Debug)]
 pub struct BootstrapConfig {
+    /// Where the API runs: in production, `bootstrap` refuses a server that holds another
+    /// deployment's database (PLATFORM-077).
+    pub environment: Environment,
     /// An administrator's connection to the database.
     pub admin: DatabaseUrl,
     /// The role `owner`'s connection, whose password `bootstrap` sets.
@@ -381,6 +384,7 @@ where
     /// The settings for `bootstrap`.
     pub fn bootstrap(&self) -> Result<BootstrapConfig, ConfigError> {
         Ok(BootstrapConfig {
+            environment: self.required("ENVIRONMENT", "development, test or production")?,
             admin: self.database_url("DATABASE_ADMIN_URL")?,
             owner: self.database_url("DATABASE_OWNER_URL")?,
             app: self.database_url("DATABASE_URL")?,

@@ -87,12 +87,22 @@ check_secrets() {
 }
 
 # The color whose replicas serve: the one that runs, or, while both run because a deploy
-# stopped before it finished, the one the last deploy that finished recorded.
+# stopped before it finished, the one that served before that deploy started the other: the one
+# the last deploy that finished recorded, or, when none did, as after the first deploy stopped
+# before it could, the one whose replicas were created first. A deploy's two colors start
+# seconds apart at least, so their creation times differ in the second they name.
 live_color() {
     blue=$(running api-blue)
     green=$(running api-green)
     if [ -n "$blue" ] && [ -n "$green" ]; then
-        cat "$state/live" 2> /dev/null || fail "both colors run, and no deploy recorded which serves; stop one with docker compose"
+        if [ -f "$state/live" ]; then
+            cat "$state/live"
+        else
+            blue_created=$(docker inspect --format '{{ .Created }}' "$blue")
+            green_created=$(docker inspect --format '{{ .Created }}' "$green")
+            first=$(printf '%s\n' "${blue_created%%.*}" "${green_created%%.*}" | sort | head -n 1)
+            if [ "$first" = "${green_created%%.*}" ] && [ "$first" != "${blue_created%%.*}" ]; then echo green; else echo blue; fi
+        fi
     elif [ -n "$blue" ]; then
         echo blue
     elif [ -n "$green" ]; then
