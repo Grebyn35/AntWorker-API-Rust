@@ -201,6 +201,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 06c2a30..f6b1396: as above | 2 | 4 (3, 3, 2 shared) | 3 | 1 | `stopped: no progress`: e955df8 |
 | 3c57546: how an optional part is removed (D73): ARCH-07, `xtask`'s parts and `parts.yaml`, `check-parts` and `check-removable`, and every marker of `invitations` | 1 | 6 (3, 3, 0 shared) | 1 | 0 | `next pass`: a4013a8 |
 | 3c57546..a4013a8: as above, with the check that no section of a spec is empty | 2 | 5 (5, 3, 3 shared) | 1 | 1 | `stopped: no progress`: c8c7c0d |
+| 3284003..9de71a7: step 3's rule fixes after D73: the proposals of the API, ARCH, DATA, ERR and SEC rules with their checks, those of the CODE, DOC and TEST rules with `check-layout`, the split of `deploy.sh` (D74), the deleted rules, and D75 | 1 | 21 (17, 13, 9 shared) | 8 | 0 | `next pass` |
 
 ## Decisions
 
