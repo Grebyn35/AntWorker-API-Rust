@@ -46,8 +46,9 @@ jobs:
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: just@1.59.0
+      # The recipe echoes through PowerShell, whose lines end in a carriage return too.
       - id: tools
-        run: echo "tools=$(just setup-tools)" >> "$GITHUB_OUTPUT"
+        run: echo "tools=$(just setup-tools | tr -d '\r')" >> "$GITHUB_OUTPUT"
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: ${{ steps.tools.outputs.tools }}
