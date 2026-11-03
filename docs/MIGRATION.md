@@ -230,7 +230,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | c619d50..92a1d55: step 2.4's second part: the event catalog, the API reference in development, `seed`, the hub's owed events, the hub's load test, and the `invitations` part's markers on them | 1 | 13 (10, 9, 6 shared) | 8 | 0 | `next pass`: efa110e |
 | c619d50..efa110e: as above | 2 | 6 (4, 5, 3 shared) | 4 | 1 | `stopped: no progress`: cdcb2ef |
 | 06c2a30..151b5eb: the resolutions of the review before, its handoff, and the warning of a `.env` that `.env.example` has moved past | 1 | 6 (6, 4, 4 shared) | 1 | 0 | `next pass`: f6b1396 |
-| 06c2a30..f6b1396: as above | 2 | 4 (3, 3, 2 shared) | 3 | 1 | `stopped: no progress` |
+| 06c2a30..f6b1396: as above | 2 | 4 (3, 3, 2 shared) | 3 | 1 | `stopped: no progress`: e955df8 |
 
 ## Decisions
 
