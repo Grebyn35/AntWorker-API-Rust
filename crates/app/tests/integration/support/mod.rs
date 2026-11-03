@@ -23,6 +23,7 @@ pub mod fixtures;
 // part: invitations
 pub mod invitations;
 // end part: invitations
+pub mod jobs;
 pub mod mailbox;
 pub mod streams;
 pub mod users;

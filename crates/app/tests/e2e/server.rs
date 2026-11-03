@@ -52,14 +52,17 @@ impl RunningDeploy {
         self.child.wait().expect("wait for deploy.sh");
         // The processes it started may end a moment after it. One that has ended stays listed, as
         // a zombie (Z), until a parent waits for it.
-        server.shell_ok(&format!(
-            "group=$(cat {DEPLOY_GROUP}) && for attempt in $(seq 30); do \
-                 cat /proc/[0-9]*/stat 2> /dev/null \
-                     | awk -v group=\"$group\" '$5 == group && $3 != \"Z\" {{ found = 1 }} END {{ exit !found }}' \
-                     || exit 0; \
-                 sleep 1; \
-             done; exit 1"
-        ));
+        server.write(
+            "/root/deploy-ended.sh",
+            &format!(
+                "group=$(cat {DEPLOY_GROUP})\n\
+                 while cat /proc/[0-9]*/stat 2> /dev/null \\\n\
+                 \x20   | awk -v group=\"$group\" '$5 == group && $3 != \"Z\" {{ found = 1 }} END {{ exit !found }}'; do\n\
+                 \x20   sleep 1\n\
+                 done\n"
+            ),
+        );
+        server.shell_ok("timeout 60 sh /root/deploy-ended.sh");
         self.written
     }
 }
@@ -212,9 +215,9 @@ impl Server {
 
     /// What a service of the deployment's telemetry answers to `url`, such as Tempo's or Loki's
     /// API, with the request headers `headers`, once its answer holds `text`, asked from the
-    /// deployment's telemetry network every two seconds for at most three minutes: the collector
-    /// decides on a trace 15 seconds after its last span. Panics with the last answer if none
-    /// holds `text`.
+    /// deployment's telemetry network every two seconds, under a timeout of three minutes: the
+    /// collector decides on a trace 15 seconds after its last span. Panics with the last answer
+    /// if none holds `text`.
     pub fn telemetry_once_it_holds(&self, url: &str, headers: &[&str], text: &str) -> String {
         let headers: String = headers
             .iter()
@@ -227,13 +230,21 @@ impl Server {
             "--images",
             "curl",
         ]);
-        self.shell_ok(&format!(
-            "for attempt in $(seq 90); do \
-                 answer=$(docker run --rm --quiet --network deployment_telemetry {curl} --silent{headers} '{url}') || true; \
-                 case $answer in *\"{text}\"*) printf '%s' \"$answer\"; exit 0 ;; esac; \
-                 sleep 2; \
-             done; printf '%s' \"$answer\"; exit 1"
-        ))
+        self.write(
+            "/root/telemetry-answer.sh",
+            &format!(
+                "while :; do\n\
+                 \x20   answer=$(docker run --rm --quiet --network deployment_telemetry {curl} --silent{headers} '{url}') || true\n\
+                 \x20   printf '%s' \"$answer\" > /root/telemetry-answer\n\
+                 \x20   case $answer in *\"{text}\"*) exit 0 ;; esac\n\
+                 \x20   sleep 2\n\
+                 done\n"
+            ),
+        );
+        self.shell_ok(
+            "timeout 180 sh /root/telemetry-answer.sh; held=$?; \
+             cat /root/telemetry-answer 2> /dev/null; exit $held",
+        )
     }
 
     /// The IDs of the running containers of the deployment's service `service`.
@@ -392,8 +403,8 @@ impl Server {
         )]
     }
 
-    /// Waits until the stand-in managed Grafana answers its health check, for at most four
-    /// minutes.
+    /// Waits until the stand-in managed Grafana answers its health check, asking every two
+    /// seconds under a timeout of four minutes, which curl's `--retry-max-time` sets.
     fn managed_grafana_until_ready(&self) {
         let curl = compose(&[
             "--file",
@@ -407,14 +418,15 @@ impl Server {
             .inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
         self.shell_ok(&format!(
             "docker run --rm --quiet --volume /root/grafana/ca.crt:/ca.crt:ro {curl} --silent \
-                --show-error --fail --retry 120 --retry-all-errors --retry-delay 2 --cacert /ca.crt \
+                --show-error --fail --retry 1000 --retry-max-time 240 --max-time 10 --retry-all-errors \
+                --retry-delay 2 --cacert /ca.crt \
                 --output /dev/null https://{address}:3443/api/health"
         ));
     }
 
     /// Sends `method` for `path` to the stand-in managed Grafana as its administrator, with the
-    /// JSON `body` unless it is empty, once Grafana answers, and returns the answer's body.
-    /// Panics if Grafana refuses.
+    /// JSON `body` unless it is empty, once Grafana answers, asking every two seconds under a
+    /// timeout of a minute, and returns the answer's body. Panics if Grafana refuses.
     pub fn managed_grafana(&self, method: &str, path: &str, body: &str) -> String {
         let curl = compose(&[
             "--file",
@@ -435,7 +447,8 @@ impl Server {
         self.shell_ok(&format!(
             "docker run --rm --quiet --volume /root/grafana/ca.crt:/ca.crt:ro \
                 --volume /root/grafana/request.json:/request.json:ro {curl} --silent --show-error \
-                --fail-with-body --retry 30 --retry-all-errors --retry-delay 2 --cacert /ca.crt \
+                --fail-with-body --retry 1000 --retry-max-time 60 --max-time 10 --retry-all-errors \
+                --retry-delay 2 --cacert /ca.crt \
                 --user admin:admin --header 'Content-Type: application/json' --request {method} {data} \
                 https://{address}:3443{path}"
         ))

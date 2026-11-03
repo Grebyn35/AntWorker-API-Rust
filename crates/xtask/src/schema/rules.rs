@@ -5,20 +5,13 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
+use super::roles;
+
 /// A problem: the object it concerns, and what is wrong.
 pub type Problem = (String, String);
 
 /// The migrator's own table, outside the product schema (DATA-02).
-const MIGRATIONS_TABLE: &str = "_sqlx_migrations";
-
-/// The privileges `app` may hold on a table (DATA-19).
-const DML: [&str; 4] = ["DELETE", "INSERT", "SELECT", "UPDATE"];
-
-/// The tables on which `app` holds less than DML, with what it holds (DATA-19).
-const APPEND_ONLY: [(&str, [&str; 2]); 1] = [("audit_entries", ["INSERT", "SELECT"])];
-
-/// The role-level settings `app` has (DATA-19).
-const APP_SETTINGS: [&str; 2] = ["statement_timeout", "idle_in_transaction_session_timeout"];
+pub(super) const MIGRATIONS_TABLE: &str = "_sqlx_migrations";
 
 /// The soft-delete columns no table has (DATA-06).
 const SOFT_DELETES: [&str; 3] = ["deleted_at", "is_deleted", "deleted"];
@@ -35,25 +28,25 @@ pub fn check(catalog: &Value, bookkeeping: &[String]) -> Vec<Problem> {
         problems.extend(standard_columns(catalog, table, bookkeeping));
     }
     problems.extend(shared_trigger(&tables, bookkeeping));
-    problems.extend(functions(catalog, &tables));
+    problems.extend(functions(catalog, &tables, bookkeeping));
     problems.extend(names(catalog));
     problems.extend(value_rules(catalog));
     problems.extend(foreign_keys(catalog));
-    problems.extend(grants(catalog));
+    problems.extend(roles::check(catalog));
     problems
 }
 
 /// The array at `key`, as values.
-fn list<'a>(catalog: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
+pub(super) fn list<'a>(catalog: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
     catalog[key].as_array().into_iter().flatten()
 }
 
 /// The strings of the array at `key` of `value`.
-fn strings<'a>(value: &'a Value, key: &str) -> Vec<&'a str> {
+pub(super) fn strings<'a>(value: &'a Value, key: &str) -> Vec<&'a str> {
     list(value, key).filter_map(Value::as_str).collect()
 }
 
-fn text<'a>(value: &'a Value, key: &str) -> &'a str {
+pub(super) fn text<'a>(value: &'a Value, key: &str) -> &'a str {
     value[key].as_str().unwrap_or_default()
 }
 
@@ -181,11 +174,17 @@ fn shared_trigger(tables: &[&Value], bookkeeping: &[String]) -> Vec<Problem> {
 }
 
 /// DATA-07: the schema's one function is the trigger function that maintains `updated_at` and
-/// `version`, which the tables' `BEFORE UPDATE` row triggers run (DATA-02), and it doesn't run
-/// as its owner.
-fn functions(catalog: &Value, tables: &[&Value]) -> Vec<Problem> {
+/// `version`, which the `BEFORE UPDATE` row triggers of the tables outside `platform`'s
+/// bookkeeping run (DATA-02), and it doesn't run as its owner. A bookkeeping table has neither
+/// column, so a function its trigger runs is another.
+fn functions(catalog: &Value, tables: &[&Value], bookkeeping: &[String]) -> Vec<Problem> {
     let triggered: Vec<&str> = tables
         .iter()
+        .filter(|table| {
+            !bookkeeping
+                .iter()
+                .any(|name| table["name"] == name.as_str())
+        })
         .flat_map(|table| list(table, "triggers"))
         .filter(|trigger| trigger["before_update_row"] == true)
         .map(|trigger| text(trigger, "function"))
@@ -350,142 +349,6 @@ fn foreign_keys(catalog: &Value) -> Vec<Problem> {
     problems
 }
 
-/// DATA-12 and DATA-19: what `owner` and `app` hold and own, and the privileges of functions.
-fn grants(catalog: &Value) -> Vec<Problem> {
-    let mut problems = objects(catalog);
-    problems.extend(roles(catalog));
-    problems
-}
-
-/// DATA-12 and DATA-19: what `app` holds on each table, and who owns the schema's objects.
-fn objects(catalog: &Value) -> Vec<Problem> {
-    let mut problems = Vec::new();
-    let mut problem = |subject: &str, message: String| problems.push((subject.to_owned(), message));
-    for table in list(catalog, "tables") {
-        let name = text(table, "name");
-        let held = strings(table, "app");
-        if let Some((_, only)) = APPEND_ONLY
-            .iter()
-            .find(|(append_only, _)| *append_only == name)
-        {
-            if held != only {
-                problem(
-                    name,
-                    format!(
-                        "app holds {} on {name}, not only INSERT and SELECT (DATA-19)",
-                        held.join(", ")
-                    ),
-                );
-            }
-        } else if let Some(other) = held.iter().find(|privilege| !DML.contains(privilege)) {
-            problem(
-                name,
-                format!(
-                    "app holds {other} on {name}, beyond SELECT, INSERT, UPDATE and DELETE (DATA-19)"
-                ),
-            );
-        }
-        if table["owner"] != "owner" && name != MIGRATIONS_TABLE {
-            problem(
-                name,
-                format!(
-                    "{name} is owned by {}, not owner (DATA-12)",
-                    text(table, "owner")
-                ),
-            );
-        }
-    }
-    for sequence in list(catalog, "sequences") {
-        let name = text(sequence, "name");
-        if let Some(other) = strings(sequence, "app")
-            .iter()
-            .find(|privilege| **privilege != "USAGE")
-        {
-            problem(
-                name,
-                format!("app holds {other} on {name}, beyond USAGE (DATA-19)"),
-            );
-        }
-    }
-    for kind in ["types", "sequences", "functions"] {
-        for object in list(catalog, kind) {
-            let name = text(object, "name");
-            if object["owner"] != "owner" {
-                problem(
-                    name,
-                    format!(
-                        "{name} is owned by {}, not owner (DATA-12)",
-                        text(object, "owner")
-                    ),
-                );
-            }
-            if object["public_execute"] == true {
-                problem(name, format!("PUBLIC may execute {name} (DATA-19)"));
-            }
-        }
-    }
-    problems
-}
-
-/// DATA-12 and DATA-19: the roles' privileges on the schema and on functions to come, what
-/// `app` owns, and its settings.
-fn roles(catalog: &Value) -> Vec<Problem> {
-    let mut problems = Vec::new();
-    let mut problem = |subject: &str, message: String| problems.push((subject.to_owned(), message));
-    if catalog["default_function_execute"] != false {
-        problem(
-            "ALTER DEFAULT PRIVILEGES",
-            "PUBLIC may execute the functions owner creates (DATA-19)".to_owned(),
-        );
-    }
-    let settings = strings(catalog, "app_settings");
-    for setting in APP_SETTINGS {
-        if !settings
-            .iter()
-            .any(|set| set.starts_with(&format!("{setting}=")))
-        {
-            problem(
-                setting,
-                format!("app has no {setting} of its own (DATA-19)"),
-            );
-        }
-    }
-    if catalog["app_creates"] != false {
-        problem(
-            "CREATE",
-            "app may create objects in the schema public (DATA-19)".to_owned(),
-        );
-    }
-    if catalog["owner_creates"] != true {
-        problem(
-            "CREATE",
-            "owner may not create objects in the schema public (DATA-12)".to_owned(),
-        );
-    }
-    let schema_owner = text(catalog, "schema_owner");
-    if schema_owner != "pg_database_owner" && schema_owner != text(catalog, "database_owner") {
-        problem(
-            "public",
-            format!(
-                "the schema public is owned by {schema_owner}, not the database's owner (DATA-12)"
-            ),
-        );
-    }
-    for owned in strings(catalog, "app_owns") {
-        problem(
-            owned,
-            format!("app owns {owned}, and owns nothing (DATA-12)"),
-        );
-    }
-    for elsewhere in strings(catalog, "app_elsewhere") {
-        problem(
-            elsewhere,
-            format!("app holds privileges on {elsewhere}, outside the schema public (DATA-19)"),
-        );
-    }
-    problems
-}
-
 fn is_snake_case(name: &str) -> bool {
     !name.is_empty()
         && name.starts_with(|c: char| c.is_ascii_lowercase())
@@ -577,6 +440,12 @@ mod tests {
             .push(json!({ "name": "count_members", "owner": "owner", "trigger": true, "security_definer": false, "public_execute": false }));
         catalog["tables"][1]["triggers"] =
             json!([{ "function": "count_members", "before_update_row": false }]);
+        catalog["functions"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "name": "stamp_buckets", "owner": "owner", "trigger": true, "security_definer": false, "public_execute": false }));
+        catalog["tables"][2]["triggers"] =
+            json!([{ "function": "stamp_buckets", "before_update_row": true }]);
         let found = messages(&catalog);
         for expected in [
             "the function set_row_version is SECURITY DEFINER (DATA-07)",
@@ -586,13 +455,16 @@ mod tests {
             "the function count_members isn't the trigger function that maintains updated_at \
              and version, the one function the schema holds: business rules live in Rust \
              (DATA-07)",
+            "the function stamp_buckets isn't the trigger function that maintains updated_at \
+             and version, the one function the schema holds: business rules live in Rust \
+             (DATA-07)",
         ] {
             assert!(
                 found.iter().any(|m| m == expected),
                 "{expected} in {found:#?}"
             );
         }
-        assert_eq!(found.len(), 3, "{found:#?}");
+        assert_eq!(found.len(), 4, "{found:#?}");
     }
 
     #[test]

@@ -117,17 +117,47 @@ fn unused(repo: &Repo, dependencies: &[Dependency]) -> Vec<Finding> {
 }
 
 /// Whether the code of `text`, outside its `//` comments, holds `name` as a word of its own. A
-/// string counts, since an attribute such as `#[serde(with = "time::serde::rfc3339")]` names a
-/// crate in one.
+/// string counts inside an attribute, such as `#[serde(with = "time::serde::rfc3339")]`, which
+/// names a crate in one, and nowhere else, where a message such as "the time ran out" names none.
 fn names(text: &str, name: &str) -> bool {
-    text.lines()
-        .map(|line| line.split("//").next().unwrap_or_default())
-        .any(|code| {
-            code.match_indices(name).any(|(start, _)| {
-                let word = |c: char| c.is_alphanumeric() || c == '_';
-                !code[..start].ends_with(word) && !code[start + name.len()..].starts_with(word)
-            })
+    let mut depth = 0_usize;
+    text.lines().any(|line| {
+        let code = line.split("//").next().unwrap_or_default();
+        let trimmed = code.trim_start();
+        let attribute = depth > 0 || trimmed.starts_with("#[") || trimmed.starts_with("#![");
+        let read = if attribute {
+            let opened = code.matches('[').count();
+            let closed = code.matches(']').count();
+            depth = (depth + opened).saturating_sub(closed);
+            code.to_owned()
+        } else {
+            without_strings(code)
+        };
+        read.match_indices(name).any(|(start, _)| {
+            let word = |c: char| c.is_alphanumeric() || c == '_';
+            !read[..start].ends_with(word) && !read[start + name.len()..].starts_with(word)
         })
+    })
+}
+
+/// `code` with the text of its string literals blanked.
+fn without_strings(code: &str) -> String {
+    let mut quoted = false;
+    let mut escaped = false;
+    code.chars()
+        .map(|c| {
+            if quoted && !escaped && c == '"' {
+                quoted = false;
+                c
+            } else if quoted {
+                escaped = !escaped && c == '\\';
+                ' '
+            } else {
+                quoted = c == '"';
+                c
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -161,13 +191,15 @@ mod tests {
             ("crates/platform/src/lib.rs", "use old_crate::X;\n"),
             (
                 "crates/app/src/time.rs",
-                "#[serde(with = \"time::serde::rfc3339\")]\n/// Like `described` does.\n",
+                "#[serde(with = \"time::serde::rfc3339\")]\n/// Like `described` does.\n\
+                 fn f() { error!(\"the url is \\\"wrong\\\"\"); }\n",
             ),
         ]);
         let dependencies = [
             dependency("serde_json", "normal"),
             dependency("time", "normal"),
             dependency("described", "normal"),
+            dependency("url", "normal"),
             dependency("old_crate", "normal"),
             dependency("jsonschema", "dev"),
             dependency("unused_dev", "dev"),
@@ -182,6 +214,8 @@ mod tests {
             messages,
             [
                 "crates/app/Cargo.toml:1: no code of the crate names `described`, a normal \
+                 dependency: remove it (CODE-11)",
+                "crates/app/Cargo.toml:1: no code of the crate names `url`, a normal \
                  dependency: remove it (CODE-11)",
                 "crates/app/Cargo.toml:3: no code of the crate names `old_crate`, a normal \
                  dependency: remove it (CODE-11)",

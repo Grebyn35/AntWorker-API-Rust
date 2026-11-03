@@ -45,7 +45,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | Rate limiting: the IP, per-user and per-action limits, with the client IP taken from trusted proxies | D11 | built |
 | Telemetry, the observability stack and `just dev`, with the observability docs, the metric catalog and the runbooks | D10, D19, D28 | built |
 | The image and the delivery pipeline, with the release docs | D15, D21, D43 | built |
-| The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30, D44, D45, D47, D49, D50, D51, D52, D53, D54, D55, D56, D57, D59, D60 | built |
+| The reference deployment, backups and the load test, with the deploy and backup docs | D15, D20, D30, D44, D45, D47, D49, D50, D51, D52, D53, D54, D55, D56, D57, D59, D60, D74, D75 | built |
 | Grafana on an HTTPS address of its own with sign-in, and the path to a managed observability backend through the collector, with Grafana Cloud as the worked example | D19, D42 | built |
 | The command that removes an optional part, which `check-removable` runs | D29, D39 | built |
 | `just seed` and the API reference in development | D28, D69, D71 | built |
@@ -137,6 +137,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Deciding D73 | ARCH-07: whether a fork chooses its shape with one command, which removes the parts the shape doesn't keep, then the markers of the parts it keeps, the runs, and the removal's tooling and checks, since a fork that keeps every part removes nothing, and its own code that names a kept part fails `check-parts` and `check-removable` until it carries the part's marker | 6, with `just rename` |
 | The owner's decision on second factors (D63) | Whether a second factor can be required beyond superadmins: of every user, by a setting of the deployment, or of a workspace's members, by its owner, as Slack and GitHub let an organization require it of its members | 5, with the full `auth` module |
 | Conformance review of 0d036d0..1ff84e6 | OPS-21: a test that counts the instance's own connections in `pg_stat_activity` across checks that time out, by an `application_name` its connection sets | 3 |
+| Deciding D75 | DATA-12, DATA-13: whether the deploy or `just server-check` refuses a managed Postgres server that holds another deployment's database, which D75 forbids, such as one on which `owner` owns a database other than the one the URLs name, so that the requirement is checked | 3 |
 | A development machine's Docker, during step 2.3 | OPS-22: whether `just server-check` refuses a server whose `/etc/resolv.conf` names the search domain `.`, which Docker copies into containers, where no short name then resolves, as on a development machine; whether the deployment's own lookups, such as the API's of `postgres`, fail on such a server is unverified | 3 |
 
 ## Conformance reviews

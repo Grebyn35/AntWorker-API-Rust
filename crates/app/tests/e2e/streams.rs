@@ -44,13 +44,13 @@ struct Seen {
 
 /// A client of the stream, as an `EventSource` is: it reads the stream's frames, and reopens it
 /// with the last `id` it received when it ends, on a thread of its own.
-struct Listener {
+struct StreamClient {
     seen: Arc<Mutex<Seen>>,
     stop: Arc<AtomicBool>,
     thread: JoinHandle<()>,
 }
 
-impl Listener {
+impl StreamClient {
     /// Starts the client, which sends on `opened` once its first stream is open, and on
     /// `received` each member whose removal it received.
     fn start(
@@ -241,7 +241,7 @@ async fn realtime_004_a_deploy_with_an_open_stream_loses_no_event() {
 
     let (sender, receiver) = mpsc::channel();
     let (opening, opened) = mpsc::channel();
-    let listener = Listener::start(
+    let client = StreamClient::start(
         root.clone(),
         deployment.url("https", 443, "/v1/users/me/events"),
         token.clone(),
@@ -258,7 +258,7 @@ async fn realtime_004_a_deploy_with_an_open_stream_loses_no_event() {
     );
     let second = deployment.apply(&deployment.api, &[]).await;
     let removed = remover.stop();
-    let seen = listener.stop();
+    let seen = client.stop();
 
     assert!(second.status.success(), "{}", lossy(&second));
     assert!(removed.len() > AHEAD, "only {} removals", removed.len());

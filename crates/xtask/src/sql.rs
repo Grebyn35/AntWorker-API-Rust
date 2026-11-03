@@ -5,33 +5,6 @@
 /// `FROM`, `JOIN`, `INTO`, `UPDATE` and a `USING` that names no columns, past `ONLY` and a
 /// schema's name, and each further name of a `FROM` or `USING` list, after an alias.
 pub fn referenced(sql: &str) -> Vec<String> {
-    /// The words that end a table's alias, where an alias would stand.
-    const CLAUSES: [&str; 24] = [
-        "where",
-        "join",
-        "inner",
-        "left",
-        "right",
-        "full",
-        "cross",
-        "natural",
-        "on",
-        "using",
-        "group",
-        "order",
-        "limit",
-        "offset",
-        "returning",
-        "for",
-        "set",
-        "values",
-        "union",
-        "having",
-        "window",
-        "except",
-        "intersect",
-        "select",
-    ];
     let tokens = sql_tokens(sql);
     let at = |index: usize| tokens.get(index).map_or("", String::as_str);
     let mut tables = Vec::new();
@@ -43,37 +16,10 @@ pub fn referenced(sql: &str) -> Vec<String> {
             continue;
         }
         let mut next = index + 1;
-        loop {
-            if at(next) == "only" {
-                next += 1;
-            }
-            if at(next + 1) == "." {
-                next += 2;
-            }
-            let name = at(next);
-            if !name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
-                break;
-            }
-            next += 1;
-            if at(next) == "(" && token != "into" && token != "update" {
-                // A function, such as `unnest($1)`, whose rows a list may join with tables;
-                // after `INTO`, the parentheses list the columns.
-                let mut depth = 0;
-                while next < tokens.len() {
-                    depth += match at(next) {
-                        "(" => 1,
-                        ")" => -1,
-                        _ => 0,
-                    };
-                    next += 1;
-                    if depth == 0 {
-                        break;
-                    }
-                }
-            } else {
-                tables.push(name.to_owned());
-            }
-            if at(next) == "as" {
+        while let Some((table, after)) = item(&tokens, next, listed) {
+            tables.extend(table);
+            next = after;
+            if at(after) == "as" {
                 next += 1;
             }
             let alias = at(next);
@@ -87,6 +33,79 @@ pub fn referenced(sql: &str) -> Vec<String> {
         }
     }
     tables
+}
+
+/// The words that end a table's alias, where an alias would stand.
+const CLAUSES: [&str; 24] = [
+    "where",
+    "join",
+    "inner",
+    "left",
+    "right",
+    "full",
+    "cross",
+    "natural",
+    "on",
+    "using",
+    "group",
+    "order",
+    "limit",
+    "offset",
+    "returning",
+    "for",
+    "set",
+    "values",
+    "union",
+    "having",
+    "window",
+    "except",
+    "intersect",
+    "select",
+];
+
+/// The item of a table list at `start` of `tokens`, and where the tokens after it start: a table's
+/// name, past `ONLY` and a schema's name; or, in a list of `FROM` or `USING`, which `listed` says,
+/// a subquery or a function, such as `unnest($1)`, whose rows a list joins with tables, and whose
+/// own tables its own `FROM` names. `None` where no item stands. After `INTO`, parentheses list
+/// the columns.
+fn item(tokens: &[String], start: usize, listed: bool) -> Option<(Option<String>, usize)> {
+    let at = |index: usize| tokens.get(index).map_or("", String::as_str);
+    let mut next = start;
+    if at(next) == "only" {
+        next += 1;
+    }
+    if at(next + 1) == "." {
+        next += 2;
+    }
+    let name = at(next);
+    if name == "(" && listed {
+        return Some((None, past(tokens, next)));
+    }
+    if !name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
+        return None;
+    }
+    if at(next + 1) == "(" && listed {
+        return Some((None, past(tokens, next + 1)));
+    }
+    Some((Some(name.to_owned()), next + 1))
+}
+
+/// Where the tokens after the parentheses that open at `start` start.
+fn past(tokens: &[String], start: usize) -> usize {
+    let mut depth = 0;
+    let mut end = start;
+    while end < tokens.len() {
+        depth += match tokens[end].as_str() {
+            "(" => 1,
+            ")" => -1,
+            _ => 0,
+        };
+        end += 1;
+        if depth == 0 {
+            break;
+        }
+    }
+    end
 }
 
 /// The words of `sql` and its punctuation `,`, `.`, `(` and `)`, each a token of its own,
@@ -128,6 +147,10 @@ mod tests {
         assert_eq!(
             referenced(sql),
             ["users", "sessions", "workspaces", "tags", "events"]
+        );
+        assert_eq!(
+            referenced("select 1 from (select 1 from jobs) s, tags t"),
+            ["tags", "jobs"]
         );
         assert_eq!(
             referenced("delete from jobs using audit_entries a where a.id = jobs.id"),

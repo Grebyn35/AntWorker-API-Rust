@@ -685,12 +685,13 @@ async fn platform_065_a_runs_span_links_to_the_trace_that_enqueued_it() {
             "html": "<p>A linked run.</p>",
         },
     });
-    database
-        .owner_executes(&format!(
-            "INSERT INTO jobs (kind, payload, traceparent) \
-             VALUES ('platform.send_email', '{payload}', '00-{trace}-00f067aa0ba902b7-01')"
-        ))
-        .await;
+    support::jobs::enqueued(
+        &database,
+        "platform.send_email",
+        &payload,
+        &format!("00-{trace}-00f067aa0ba902b7-01"),
+    )
+    .await;
 
     let _server = database
         .serve(&[

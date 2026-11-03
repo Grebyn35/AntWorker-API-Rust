@@ -1,8 +1,7 @@
 //! Routes that only the tests serve, registered the way a module registers its own, for the
 //! behaviors of the pipeline that no route of the API shows, or that only an optional part's
-//! routes show: a request that waits, one that never ends, a panic, an internal error, a
-//! documented query parameter, a keyed operation that publishes an event, and an email sent
-//! (TEST-05).
+//! routes show: a request that waits, one that never ends, a panic, an internal error, a keyed
+//! operation that publishes an event, and an email sent (TEST-05).
 
 use std::sync::{
     Arc,

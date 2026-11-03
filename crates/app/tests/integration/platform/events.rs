@@ -17,7 +17,7 @@ use crate::support::{
     workspaces,
 };
 
-/// How often the hub checks its connection (PLATFORM-037).
+/// How often the hub checks the listener (PLATFORM-037).
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// How often the hub re-checks its streams, by default (PLATFORM-017).

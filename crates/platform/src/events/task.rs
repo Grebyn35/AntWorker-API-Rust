@@ -29,7 +29,7 @@ use crate::{
     types::UserId,
 };
 
-/// How often the hub checks its connection, for readiness (PLATFORM-037), and tries again what
+/// How often the hub checks the listener, for readiness (PLATFORM-037), and tries again what
 /// it owes (PLATFORM-073).
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 

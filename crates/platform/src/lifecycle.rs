@@ -171,8 +171,8 @@ pub(crate) async fn ready(State(readiness): State<Readiness>) -> (StatusCode, Js
 
 const READY: &str = "ready";
 
-/// Whether the instance can serve: it isn't draining, and the last check of its own database
-/// connection succeeded; and whether it has stopped accepting connections, when its streams
+/// Whether the instance can serve: it isn't draining, and the last check of the listener
+/// succeeded; and whether it has stopped accepting connections, when its streams
 /// close. Clones share the state.
 #[derive(Clone, Debug, Default)]
 pub struct Readiness {

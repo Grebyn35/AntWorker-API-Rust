@@ -151,7 +151,18 @@ impl<'ast> Visit<'ast> for Reader {
             Item::Type(item) => self.define(&item.vis, &item.ident),
             Item::Const(item) => self.define(&item.vis, &item.ident),
             Item::Static(item) => self.define(&item.vis, &item.ident),
+            // A re-export names an item without using it.
+            Item::Use(_) => return,
             Item::Impl(block) => {
+                // The type an impl block is of isn't a use of it, so read the trait it
+                // implements, the bounds of its generics and its items, and not its type.
+                if let Some((path, _)) = &block.trait_ {
+                    self.visit_path(path);
+                }
+                self.visit_generics(&block.generics);
+                for member in &block.items {
+                    self.visit_impl_item(member);
+                }
                 for member in &block.items {
                     let (attrs, vis, ident) = match member {
                         ImplItem::Fn(function) => {
@@ -172,6 +183,10 @@ impl<'ast> Visit<'ast> for Reader {
                         *self.defined.entry(ident.to_string()).or_default() += 1;
                     }
                 }
+                for attr in &block.attrs {
+                    self.visit_attribute(attr);
+                }
+                return;
             }
             _ => {}
         }
@@ -306,8 +321,7 @@ mod tests {
 
     #[test]
     fn code_14_a_public_item_that_only_tests_name_is_dead() {
-        let lib = "pub mod url;\n";
-        let url = "pub struct Url;\n\
+        let url = "pub struct Url;\npub struct Reexported;\n\
                    impl Url {\n\
                    \x20   pub fn database(&self) {}\n\
                    \x20   pub fn with_database(&self) {}\n\
@@ -320,6 +334,9 @@ mod tests {
                    \x20   fn uses() { super::Url.with_database(); }\n\
                    }\n";
         let app = "fn main() { platform::url::Url.database(); }\n";
+        let lib = "pub mod url;\npub use url::Reexported;\n\
+                   pub struct WithImpl;\nimpl WithImpl {\n    fn new() {}\n}\n\
+                   pub trait Shape {}\nimpl Shape for Url {}\n";
         let spec = "# Platform\n\n## Interface\n\n- `Url::named_by_the_interface`\n\n\
                     ## Behaviors\n\n`with_database`\n";
 
@@ -330,7 +347,14 @@ mod tests {
             (SPEC, spec),
         ]);
 
-        assert_eq!(found, ["crates/platform/src/url.rs:4: `with_database`"]);
+        assert_eq!(
+            found,
+            [
+                "crates/platform/src/lib.rs:3: `WithImpl`",
+                "crates/platform/src/url.rs:2: `Reexported`",
+                "crates/platform/src/url.rs:5: `with_database`",
+            ]
+        );
     }
 
     #[test]

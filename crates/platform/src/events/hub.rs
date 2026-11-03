@@ -79,7 +79,7 @@ pub struct Listener {
 
 /// The listener couldn't listen.
 #[derive(Debug, thiserror::Error)]
-#[error("the listener can't listen on its database connection: {0}")]
+#[error("the listener can't listen: {0}")]
 pub struct ListenError(String);
 
 /// Opens the listener on `database`, outside its pool, and listens there for what commits, within

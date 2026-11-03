@@ -5,12 +5,12 @@
 //! - no document or comment names the old codebase, and only the places DOC-04 lists point into
 //!   the inventory (DOC-04).
 //!
-//! It reads every Markdown document and every comment of a Rust file but the inventory's, whose
-//! IDs are its own, for test prefixes and Rust paths; and every text file but the migration
+//! It reads every Markdown document, and every comment of a file whose comments `text` can find,
+//! but the inventory's, whose IDs are its own, for test prefixes and Rust paths; and every text file but the migration
 //! workspace's, whose tracker and inventory record the old codebase, for its name and the
 //! inventory's paths, outside a comment as well as in one.
 
-use crate::{Finding, catalog::Catalog, repo::Repo};
+use crate::{Finding, catalog::Catalog, repo::Repo, text};
 
 /// The inventory, whose IDs are its own (DOC-13).
 const INVENTORY: &str = "docs/inventory/";
@@ -45,15 +45,9 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
         for (index, line) in file.text.lines().enumerate() {
             let mut found = |message: String| findings.push(Finding::new(path, index + 1, message));
             // A Rust file's code names what it checks, such as the inventory's path; its comments
-            // describe it.
-            let comment = line.find("//").map(|start| &line[start..]);
-            let described = if markdown {
-                Some(line)
-            } else if rust {
-                comment
-            } else {
-                None
-            };
+            // describe it, as every other file's comments do.
+            let comment = text::comment(path, line);
+            let described = if markdown { Some(line) } else { comment };
             for (prefix, number) in described.map(test_prefixes).unwrap_or_default() {
                 let id = format!("{}-{number}", prefix.to_ascii_uppercase());
                 if catalog.knows_prefix(&prefix.to_ascii_uppercase()) && !catalog.defines(&id) {
@@ -213,7 +207,10 @@ mod tests {
                 "deploy/tasks/old.sh",
                 "# As AntWorker-API did.\n. ./docs/inventory/x.sh\n",
             ),
-            ("justfile", "# things_008_ isn't read here.\n"),
+            (
+                "justfile",
+                "# things_008_ is read here, as every comment is.\n",
+            ),
         ]);
         let catalog = Catalog::read(&repo);
 
@@ -222,7 +219,7 @@ mod tests {
             .map(|finding| format!("{}:{}", finding.path, finding.message))
             .collect();
 
-        assert_eq!(messages.len(), 9, "{messages:#?}");
+        assert_eq!(messages.len(), 10, "{messages:#?}");
         for expected in [
             "docs/guide.md:`things_002` is the test prefix of THINGS-002",
             "docs/guide.md:`events/gone.rs` names no file",
@@ -233,6 +230,7 @@ mod tests {
             "docs/MIGRATION.md:`gone/old.rs` names no file",
             "deploy/tasks/old.sh:`AntWorker-API` names the old codebase",
             "deploy/tasks/old.sh:a path into the inventory",
+            "justfile:`things_008` is the test prefix",
         ] {
             assert!(
                 messages.iter().any(|message| message.starts_with(expected)),

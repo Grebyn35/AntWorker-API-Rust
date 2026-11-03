@@ -11,6 +11,7 @@
 //! the object it concerns.
 
 mod catalog;
+mod roles;
 mod rules;
 
 use crate::{Finding, Outcome, markdown, repo::Repo, text};

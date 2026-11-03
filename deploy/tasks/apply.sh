@@ -343,7 +343,7 @@ stop_unused_services() {
 # deploy` copies a release's files, and the images of the deployment's repositories that no
 # container uses and that neither the services the settings choose nor the tools name. Those are
 # the images of the releases before the previous one, of the pins a release moved, of the
-# services the settings no longer choose, and the Postgres images that a deploy pulled and kept
+# services the settings don't choose, and the Postgres images that a deploy pulled and kept
 # the running one in place of. The previous release's API image stays, which deploy.env names for
 # the color that stopped, so a rollback to it pulls nothing. An image of another repository, such
 # as one the operator pulled, stays, and Docker removes no image that a container uses. Nothing

@@ -41,7 +41,7 @@ flowchart LR
 ```
 Cargo.toml          workspace manifest
 justfile            every task, run identically locally and in CI (D21), with its settings and variables
-just/               the tasks the justfile imports, a file for each kind (CODE-07)
+just/               the tasks the justfile imports, a file for each group that `just` lists (CODE-07)
 Dockerfile          the image (OPS-15)
 compose.yaml        the services a developer runs locally, and the images of the tools the tasks run
 crates/
@@ -400,6 +400,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Startup | What a subcommand does before it serves: reading the configuration and running its checks. For a one-shot subcommand, such as `migrate`, its whole run. A startup failure ends the process (OPS-03). |
 | Event | A record of a change, named `<resource>.<verb>`, such as `member.removed`, its name, which its frame's `event` carries (API-19), delivered to clients over SSE and replayable after a reconnect (D5). |
 | Stream | One client's open SSE connection. |
+| Frame type | What one frame of a stream is, which its `event` names: an event's name, or one of the frames the stream sends of its own, such as `stream.closed`; the event catalog documents each one (API-19, REALTIME-008). |
 | Listener | The instance's own connection to the database, outside its pool, on which the hub listens for what commits and readiness checks the database (OPS-05, OPS-21). |
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |
 | File | Stored bytes plus metadata. A user file or a workspace file, each private or public. |

@@ -87,17 +87,27 @@ pub fn has_date(text: &str) -> bool {
 /// checks read. The first comment marker starts the comment, even inside a string literal.
 pub fn comment<'a>(path: &str, line: &'a str) -> Option<&'a str> {
     let name = path.rsplit('/').next().unwrap_or(path);
-    let marker = if name.ends_with(".rs") {
+    let marker = if name.ends_with(".rs") || name.ends_with(".js") {
         "//"
     } else if name.ends_with(".sql") {
         "--"
-    } else if [".toml", ".yml", ".yaml", ".just"]
-        .iter()
-        .any(|extension| name.ends_with(extension))
+    } else if [
+        ".toml",
+        ".yml",
+        ".yaml",
+        ".just",
+        ".sh",
+        ".caddy",
+        ".env.example",
+    ]
+    .iter()
+    .any(|extension| name.ends_with(extension))
         || matches!(
             name,
-            "justfile" | ".env.example" | ".gitignore" | ".gitattributes" | "Dockerfile"
+            "justfile" | ".gitignore" | ".gitattributes" | "Dockerfile" | "Caddyfile"
         )
+        // The Postgres image's scripts, which take no extension, as commands on its PATH.
+        || path.starts_with("deploy/postgres/bin/")
     {
         "#"
     } else {
@@ -164,6 +174,25 @@ mod tests {
         assert_eq!(comment("m/1.sql", "SELECT 1; -- why"), Some("-- why"));
         assert_eq!(comment("Cargo.toml", "a = 1 # why"), Some("# why"));
         assert_eq!(comment("justfile", "# why"), Some("# why"));
+        assert_eq!(comment("just/check.just", "# why"), Some("# why"));
+        assert_eq!(comment("deploy/tasks/apply.sh", "x=1 # why"), Some("# why"));
+        assert_eq!(
+            comment("deploy/postgres/bin/pgbackrest", "# why"),
+            Some("# why")
+        );
+        assert_eq!(
+            comment("deploy/settings.env.example", "# why"),
+            Some("# why")
+        );
+        assert_eq!(
+            comment("deploy/caddy/sites/api.caddy", "# why"),
+            Some("# why")
+        );
+        assert_eq!(comment("deploy/caddy/Caddyfile", "# why"), Some("# why"));
+        assert_eq!(
+            comment("crates/app/tests/load/streams.js", "f(); // why"),
+            Some("// why")
+        );
         assert_eq!(comment("docs/a.md", "# Heading"), None);
         assert_eq!(comment("src/a.rs", "let a = 1;"), None);
     }

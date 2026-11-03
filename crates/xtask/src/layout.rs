@@ -79,6 +79,7 @@ pub fn check(repo: &Repo) -> Outcome {
             if path.starts_with(PLATFORM) || path.starts_with(APP) {
                 let code: Vec<&str> = file.text.lines().take(lines).collect();
                 findings.extend(jobs(path, &code.join("\n")));
+                findings.extend(templates(path, &code));
             }
         }
         let tested = ["crates/platform/", "crates/app/"]
@@ -88,6 +89,7 @@ pub fn check(repo: &Repo) -> Outcome {
             findings.extend(dead_code(path, &file.text));
         }
         if justfiles.contains(&path) {
+            findings.extend(tasks(path, &file.text));
             let lines = file.text.lines().count();
             if lines > MOST_LINES {
                 findings.push(Finding::new(
@@ -122,13 +124,96 @@ pub fn check(repo: &Repo) -> Outcome {
     }
 }
 
+/// CODE-07: the tasks of a file that the justfile imports, `just/<group>.just`, are those of its
+/// group; and the justfile's own each run others, as dependencies or through `just`.
+fn tasks(path: &str, text: &str) -> Vec<Finding> {
+    let own = path
+        .strip_prefix("just/")
+        .and_then(|name| name.strip_suffix(".just"));
+    let lines: Vec<&str> = text.lines().collect();
+    let mut findings = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        if let Some(group) = line
+            .strip_prefix("[group('")
+            .and_then(|rest| rest.strip_suffix("')]"))
+            && own.is_some_and(|own| own != group)
+        {
+            findings.push(Finding::new(
+                path,
+                index + 1,
+                format!("a task of the group `{group}` goes in just/{group}.just (CODE-07)"),
+            ));
+        }
+        let header = line.starts_with(|c: char| c.is_ascii_lowercase() || c == '_')
+            && !line.contains(":=")
+            && !line.starts_with("import ")
+            && !line.starts_with("set ")
+            && !line.starts_with("export ");
+        let Some((_, dependencies)) = line.split_once(':').filter(|_| header && own.is_none())
+        else {
+            continue;
+        };
+        let runs = lines[index + 1..]
+            .iter()
+            .take_while(|body| body.starts_with(' '))
+            .any(|body| {
+                body.trim_start()
+                    .trim_start_matches('@')
+                    .starts_with("just ")
+            });
+        if dependencies.trim().is_empty() && !runs {
+            findings.push(Finding::new(
+                path,
+                index + 1,
+                "a task that runs no other goes in the file of `just/` named after its group \
+                 (CODE-07)",
+            ));
+        }
+    }
+    findings
+}
+
+/// ARCH-03: a module's emails render the templates of its own directory of
+/// `crates/app/templates/`.
+fn templates(path: &str, code: &[&str]) -> Vec<Finding> {
+    let Some(module) = path
+        .strip_prefix(MODULES)
+        .and_then(|rest| rest.split_once('/'))
+        .map(|(module, _)| module)
+    else {
+        return Vec::new();
+    };
+    code.iter()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let template = line.split_once("template(path = \"")?.1;
+            let directory = template
+                .split_once('/')
+                .map_or("", |(directory, _)| directory);
+            (directory != module).then(|| {
+                Finding::new(
+                    path,
+                    index + 1,
+                    format!(
+                        "`{module}` renders a template outside crates/app/templates/{module}/, \
+                         the directory of its own templates (ARCH-03)"
+                    ),
+                )
+            })
+        })
+        .collect()
+}
+
 /// The lines of `text` before its test module: a `#[cfg(test)]` line that a `mod` follows.
 fn lines_before_tests(text: &str) -> usize {
     let lines: Vec<&str> = text.lines().collect();
     lines
         .windows(2)
         .position(|pair| {
-            pair[0].trim() == "#[cfg(test)]" && pair[1].trim_start().starts_with("mod ")
+            pair[0].trim() == "#[cfg(test)]"
+                && ["mod ", "pub mod ", "pub(crate) mod "]
+                    .iter()
+                    .any(|start| pair[1].trim_start().starts_with(start))
         })
         .unwrap_or(lines.len())
 }
@@ -206,11 +291,16 @@ fn dead_code(path: &str, text: &str) -> Vec<Finding> {
     let mut attribute: Option<bool> = None;
     let mut found = Vec::new();
     for (index, code) in lines.iter().enumerate() {
-        let outer = code.contains("#[allow(") || code.contains("#[expect(");
-        if outer || code.contains("#![allow(") || code.contains("#![expect(") {
-            attribute = Some(outer);
+        // An attribute that allows or expects lints, `cfg_attr`'s among them.
+        let excepts = code.contains("allow(") || code.contains("expect(");
+        if excepts && (code.contains("#[") || code.contains("#![")) {
+            attribute = Some(code.contains("#["));
         }
-        if attribute.is_some() && code.contains("dead_code") {
+        // `unused` is the lint group that holds `dead_code`.
+        let names = code
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .any(|word| word == "dead_code" || word == "unused");
+        if attribute.is_some() && names {
             found.push(index);
         }
         if code.contains(")]")
@@ -333,13 +423,13 @@ mod tests {
     fn code_07_a_file_over_500_lines_before_its_tests_fails() {
         let long = "fn a() {}\n".repeat(501);
         let tested = format!(
-            "{}#[cfg(test)]\nmod tests {{\n{}}}\n",
+            "{}#[cfg(test)]\npub mod tests {{\n{}}}\n",
             "fn a() {}\n".repeat(500),
             "fn t() {}\n".repeat(600)
         );
         let script = format!("#!/bin/sh\n{}", "true\n".repeat(500));
         let justfile = format!("import 'just/check.just'\n{}", "# a\n".repeat(499));
-        let tasks = format!("check:\n{}", "    true\n".repeat(500));
+        let tasks = format!("[group('check')]\ncheck:\n{}", "    true\n".repeat(499));
         let found = messages(&[
             ("crates/platform/src/long.rs", &long),
             ("crates/platform/src/tested.rs", &tested),
@@ -363,6 +453,23 @@ mod tests {
     }
 
     #[test]
+    fn code_07_each_file_of_just_holds_its_group_s_tasks() {
+        let justfile = "set lazy\nimport 'just/check.just'\n\n[private]\ndefault:\n    @just --list\n\n\
+                        [group('check')]\nci: checks image\n\nlonely:\n    cargo build\n";
+        let check = "# The checks.\n\n[group('check')]\nlint:\n    cargo clippy\n\n\
+                     [group('image')]\nimage:\n    docker build .\n\n[private]\n_helper:\n    true\n";
+        let found = messages(&[("justfile", justfile), ("just/check.just", check)]);
+        assert_eq!(
+            found,
+            [
+                "justfile:11: a task that runs no other goes in the file of `just/` named after \
+                 its group (CODE-07)",
+                "just/check.just:7: a task of the group `image` goes in just/image.just (CODE-07)",
+            ]
+        );
+    }
+
+    #[test]
     fn arch_03_a_module_holds_only_its_files_and_err_01_its_error() {
         let found = messages(&[
             ("crates/app/src/modules/things/mod.rs", ""),
@@ -373,9 +480,14 @@ mod tests {
             ("crates/app/src/modules/things/permissions.rs", ""),
             ("crates/app/templates/things/email.html", ""),
             ("crates/app/templates/gone/email.html", ""),
+            (
+                "crates/app/src/modules/things/emails.rs",
+                "#[template(path = \"things/email.html\")]\n#[template(path = \"others/email.html\")]\n",
+            ),
         ]);
-        assert_eq!(found.len(), 4, "{found:#?}");
+        assert_eq!(found.len(), 5, "{found:#?}");
         for expected in [
+            "crates/app/src/modules/things/emails.rs:2: `things` renders a template outside",
             "crates/app/src/modules/things/helpers.rs:1: `helpers.rs` isn't one of a module's",
             "crates/app/src/modules/things/permissions.rs:1: `permissions.rs` isn't one of a",
             "crates/app/templates/gone/email.html:1: the templates of `gone`, which is no module",
@@ -399,7 +511,10 @@ mod tests {
             ),
             (
                 "crates/platform/src/b.rs",
-                "#![expect(dead_code, reason = \"later\")]\nfn b() {}\n",
+                "#![expect(dead_code, reason = \"later\")]\nfn b() {}\n\
+                 #[expect(unused, reason = \"later\")]\nfn d() {}\n\
+                 #[cfg_attr(test, allow(dead_code))]\nfn e() {}\n\
+                 #[expect(unused_imports, reason = \"another lint\")]\nuse x::y;\n",
             ),
             (
                 "crates/app/tests/integration/main.rs",
@@ -420,6 +535,8 @@ mod tests {
             [
                 "crates/platform/src/a.rs:2",
                 "crates/platform/src/b.rs:1",
+                "crates/platform/src/b.rs:3",
+                "crates/platform/src/b.rs:5",
                 "crates/app/tests/integration/main.rs:1",
                 "crates/app/src/c.rs:3",
             ]

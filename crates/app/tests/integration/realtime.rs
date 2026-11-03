@@ -17,7 +17,7 @@ use crate::support::{
 /// How often a stream sends a comment, by default (REALTIME-003).
 const HEARTBEAT: Duration = Duration::from_secs(15);
 
-/// How often the hub checks its connection (PLATFORM-037).
+/// How often the hub checks the listener (PLATFORM-037).
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// The API, with the announcing routes added.

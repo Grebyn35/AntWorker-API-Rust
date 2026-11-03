@@ -48,7 +48,7 @@ Rows are deleted, not flagged. No table has a soft-delete column.
 ### DATA-07 No business logic in SQL
 Migrations define no stored procedures and no `SECURITY DEFINER` functions. The only function allowed is the trigger function that maintains `updated_at` and `version` (DATA-02).
 - Why: business rules are read, tested and changed in Rust (D4).
-- Check: `ci: check-schema` (the schema's one function is the trigger function that the tables' `BEFORE UPDATE` row triggers run, and it isn't `SECURITY DEFINER`).
+- Check: `ci: check-schema` (the schema's one function is the trigger function that the `BEFORE UPDATE` row triggers of the tables outside `platform`'s bookkeeping run, and it isn't `SECURITY DEFINER`).
 
 ### DATA-08 The database generates IDs
 Inserts take their rows' IDs from the column default, using `RETURNING`. Application code creates no row's ID; a value that names no row, such as an email's `Message-ID`, isn't one.

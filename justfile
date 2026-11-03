@@ -53,9 +53,12 @@ export E2E_PLATFORM := env("E2E_PLATFORM", native_platform)
 e2e_image := "image"
 export E2E_IMAGE_NAME := e2e_image
 
-# The tasks, a file for each kind, which `just` reads as if they were here.
+# The other tasks, in a file for each group that `just` lists them in, which `just` reads as if
+# they were here (CODE-07).
 import 'just/develop.just'
+import 'just/generate.just'
 import 'just/check.just'
+import 'just/fork.just'
 import 'just/image.just'
 import 'just/release.just'
 import 'just/server.just'
@@ -75,14 +78,3 @@ ci: checks check-removable image image-scan e2e
 [doc("Runs the checks of the code that need no image and no copy of the repository")]
 [group('check')]
 checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-layout check-schema check-tenancy check-table-ownership check-migrations sqlx-check check-parts
-
-# Lists the tools `just checks` needs besides just and the toolchain, as CI's install step takes
-# them.
-[private]
-ci-tools:
-    @echo cargo-deny@{{ cargo_deny_version }},sqlx-cli@{{ sqlx_cli_version }}
-
-# Lists the tool `just deny` needs, as the daily check of advisories installs it.
-[private]
-advisory-tools:
-    @echo cargo-deny@{{ cargo_deny_version }}

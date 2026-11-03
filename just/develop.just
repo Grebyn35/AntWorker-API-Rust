@@ -1,5 +1,5 @@
-# The tasks of development: preparing a machine, running the API, its tests and its formatting,
-# and writing the files generated from the code. The justfile imports this file.
+# The tasks of development: preparing a machine, and running the API, its tests and its
+# formatting. The justfile imports this file.
 
 # Prepares this machine (OPS-19): checks the tools the tasks need and their pinned versions,
 # installs the toolchain that rust-toolchain.toml pins, and writes .env. watchexec and sqlx-cli
@@ -124,26 +124,3 @@ fmt:
 [group('develop')]
 test: services
     cargo test --workspace --locked
-
-# Rewrites the query cache in .sqlx/ from the migrated database. Run it after changing a query
-# (DATA-20). It needs the sqlx-cli of `sqlx_cli_version`: `cargo install sqlx-cli --version
-# <version> --no-default-features --features rustls,postgres --locked`.
-[doc("Rewrites the query cache in .sqlx/, after a query changes")]
-[group('generate')]
-prepare: services
-    cargo sqlx prepare --workspace -- --all-targets --locked
-
-# Writes openapi.json, the OpenAPI document of every route (API-17). Run it after changing a
-# route; a test fails while the committed document differs from the one the code writes.
-[doc("Rewrites openapi.json, after a route changes")]
-[group('generate')]
-openapi:
-    {{ api }} openapi openapi.json
-
-# Writes the metric catalog, docs/operations/metrics.md, from the metric declarations (OBS-12).
-# Run it after declaring or changing a metric; check-metrics fails while the committed catalog
-# differs.
-[doc("Rewrites the metric catalog, after a metric changes")]
-[group('generate')]
-metrics:
-    {{ xtask }} metric-catalog

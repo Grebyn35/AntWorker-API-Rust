@@ -1,7 +1,7 @@
 {
   "uid": "api-platform",
   "title": "API platform",
-  "description": "The health of each instance's mechanisms: its database connection, its panics and the errors it ignored, its refusals, and its background jobs.",
+  "description": "The health of each instance's mechanisms: its listener, its panics and the errors it ignored, its refusals, and its background jobs.",
   "tags": [
     "api"
   ],
@@ -438,7 +438,7 @@
     {
       "type": "timeseries",
       "title": "How many event streams are open?",
-      "description": "The streams open on each instance, as its hub last recorded them (PLATFORM-074). A user holds at most 10 on an instance (REALTIME-006). A deploy empties the old color's instances as the new color's fill, since every stream closes with shutdown and its client reconnects; an instance whose database connection comes back after a loss closes all of its own with interrupted, and its clients reconnect.",
+      "description": "The streams open on each instance, as its hub last recorded them (PLATFORM-074). A user holds at most 10 on an instance (REALTIME-006). A deploy empties the old color's instances as the new color's fill, since every stream closes with shutdown and its client reconnects; an instance whose listener comes back after a loss closes all of its own with interrupted, and its clients reconnect.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -478,7 +478,7 @@
     {
       "type": "timeseries",
       "title": "Why do event streams close?",
-      "description": "The streams each hub closed, by why (PLATFORM-074): session_ended and access_changed follow what users did, shutdown follows a deploy, interrupted a lost database connection (PLATFORM-073), and lagging names clients too slow to keep up with their events (PLATFORM-072).",
+      "description": "The streams each hub closed, by why (PLATFORM-074): session_ended and access_changed follow what users did, shutdown follows a deploy, interrupted a lost listener (PLATFORM-073), and lagging names clients too slow to keep up with their events (PLATFORM-072).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

@@ -1,5 +1,16 @@
-# The checks that `just checks` and `just check-removable` run, and `just remove`, which
-# `check-removable` runs on each copy. The justfile imports this file.
+# The checks that `just checks` and `just check-removable` run, and the lists of the tools they
+# need, which CI installs. The justfile imports this file.
+
+# Lists the tools `just checks` needs besides just and the toolchain, as CI's install step takes
+# them.
+[private]
+ci-tools:
+    @echo cargo-deny@{{ cargo_deny_version }},sqlx-cli@{{ sqlx_cli_version }}
+
+# Lists the tool `just deny` needs, as the daily check of advisories installs it.
+[private]
+advisory-tools:
+    @echo cargo-deny@{{ cargo_deny_version }}
 
 [doc("Fails if the code isn't formatted")]
 [group('check')]
@@ -170,17 +181,6 @@ check-parts:
 [group('check')]
 check-removable *runs:
     {{ xtask }} check-removable {{ runs }}
-
-# Removes the optional parts named, as a fork does before its first release to choose its
-# workspace shape (ARCH-07, architecture.md §5): it deletes the files and the marked lines of
-# each, writing "None." in each section of a spec that it empties, then the cached queries that no
-# kept code holds, updates Cargo.lock, writes openapi.json and the metric catalog again, and
-# formats the code, then fails while a kept line or path still names one. Commit what it leaves
-# once `just ci` passes.
-[doc("Removes optional parts, to choose a workspace shape")]
-[group('fork')]
-remove +parts:
-    {{ xtask }} remove {{ parts }}
 
 # Fails on a query of workspace data that names no tenant, or a table that holds no workspace data
 # and isn't listed as account or platform data (DATA-22).
