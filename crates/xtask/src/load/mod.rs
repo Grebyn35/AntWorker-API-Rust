@@ -204,6 +204,13 @@ fn prepare(root: &Path, image: &str) -> Result<(String, Vec<String>), String> {
     for task in ["bootstrap", "migrate"] {
         let mut args = vec!["run", "--rm", "--network", &network];
         for setting in &settings {
+            // Compose's Postgres holds the development database and the tests', which share the
+            // roles, and in production `bootstrap` refuses a server that holds another database
+            // of the roles (PLATFORM-077), so it runs as development's.
+            let setting = match (task, setting.as_str()) {
+                ("bootstrap", "ENVIRONMENT=production") => "ENVIRONMENT=development",
+                _ => setting,
+            };
             args.extend(["--env", setting]);
         }
         args.extend([image, task]);

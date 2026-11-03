@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::{
     docker::{Container, compose, docker, lossy, postgres_network},
-    image::{Image, PORT, settings},
+    image::{Image, PORT, on_the_tests_server, settings},
     support::{self, TestDatabase, http_request},
 };
 
@@ -120,7 +120,9 @@ async fn serve_with_the_stack(database: &TestDatabase) -> Container {
     let mut settings = settings(database);
     settings.push("OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318".to_owned());
     let bootstrap = database
-        .with_roles_locked(async { image.run(&network, &settings, "bootstrap") })
+        .with_roles_locked(async {
+            image.run(&network, &on_the_tests_server(&settings), "bootstrap")
+        })
         .await;
     assert!(bootstrap.status.success(), "{}", lossy(&bootstrap));
     let migrate = image.run(&network, &settings, "migrate");
@@ -212,7 +214,9 @@ async fn platform_046_serve_exports_its_resident_memory() {
     let mut settings = settings(&database);
     settings.push("OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318".to_owned());
     let bootstrap = database
-        .with_roles_locked(async { image.run(&network, &settings, "bootstrap") })
+        .with_roles_locked(async {
+            image.run(&network, &on_the_tests_server(&settings), "bootstrap")
+        })
         .await;
     assert!(bootstrap.status.success(), "{}", lossy(&bootstrap));
     let migrate = image.run(&network, &settings, "migrate");

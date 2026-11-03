@@ -82,6 +82,19 @@ pub fn settings(database: &TestDatabase) -> Vec<String> {
     settings
 }
 
+/// `settings` for `bootstrap` on the tests' Postgres server, in the test environment: the server
+/// holds every test's database, which share the roles by design, and in production `bootstrap`
+/// refuses a server that holds another database of the roles (PLATFORM-077).
+pub fn on_the_tests_server(settings: &[String]) -> Vec<String> {
+    settings
+        .iter()
+        .map(|setting| match setting.as_str() {
+            "ENVIRONMENT=production" => "ENVIRONMENT=test".to_owned(),
+            _ => setting.clone(),
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn ops_15_bootstrap_migrate_and_serve_run_from_one_image_as_a_non_root_user_on_a_read_only_root()
  {
@@ -91,7 +104,9 @@ async fn ops_15_bootstrap_migrate_and_serve_run_from_one_image_as_a_non_root_use
     let settings = settings(&database);
 
     let bootstrap = database
-        .with_roles_locked(async { image.run(&network, &settings, "bootstrap") })
+        .with_roles_locked(async {
+            image.run(&network, &on_the_tests_server(&settings), "bootstrap")
+        })
         .await;
     let migrate = image.run(&network, &settings, "migrate");
     let server = image.serve(&network, &settings);
