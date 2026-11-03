@@ -142,7 +142,7 @@ shows the last 100 lines of the logs of both colors' replicas. Name any of the d
 
 `API_REPLICAS` sets how many replicas serve, and `API_CPUS` and `API_MEMORY` what each one may use; `just load-test` measures what one replica serves under the default limits (OPS-18).
 
-Each replica opens at most `DATABASE_MAX_CONNECTIONS` pooled connections, plus one of its own for readiness and the listener, and logs that number when it starts (PLATFORM-045). While a deploy runs, both colors do, so the deploy refuses settings under which
+Each replica opens at most `DATABASE_MAX_CONNECTIONS` pooled connections, plus the listener, and logs that number when it starts (PLATFORM-045). While a deploy runs, both colors do, so the deploy refuses settings under which
 
 2 × `API_REPLICAS` × (`DATABASE_MAX_CONNECTIONS` + 1) + 1, for `migrate`
 
@@ -155,7 +155,7 @@ Each service the API depends on is bundled or a provider's, chosen by one settin
 | Setting | Values | What runs |
 |---|---|---|
 | `DATABASE` | `bundled` | Postgres and its backups, on the server ([backups.md](backups.md)) |
-| | `managed` | Nothing: the API connects to a provider's Postgres server, which must back it up with point-in-time recovery, which restores the database as it stood at any moment it reaches, as OPS-17 requires, encrypt what it stores, as OPS-20 does, and hold no other deployment's database, such as a staging one's, since deployments on one server share its roles ([platform spec](../spec/platform.md#database-roles)) |
+| | `managed` | Nothing: the API connects to a provider's Postgres server, which must back it up with point-in-time recovery, which restores the database as it stood at any moment it reaches, as OPS-17 requires, encrypt what it stores, as OPS-20 does, and hold no other deployment's database, such as a staging one's, since deployments on one server share its roles ([platform spec](../spec/platform.md#database-roles)), and a staging deployment there would share production's connections, locks, disk and administrator (D75) |
 | `TELEMETRY` | `self-hosted` | The collector, Prometheus, Loki, Tempo, Alertmanager, and Grafana at `GRAFANA_ADDRESS` |
 | | `managed` | The collector alone, which sends every signal to a managed backend, into whose Grafana each deploy imports the dashboards and the alert rules ([observability.md](observability.md#a-managed-backend)) |
 | | `off` | Nothing: the API's logs go only to its containers' output |
