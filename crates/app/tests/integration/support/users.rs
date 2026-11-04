@@ -105,6 +105,21 @@ fn set_cookie<'a>(response: &'a Response, name: &str) -> &'a str {
     set.unwrap()
 }
 
+/// The name, after `__Host-`, of the device token's cookie that `response` sets: the one of its
+/// account's email (AUTH-015).
+pub fn device_cookie(response: &Response) -> String {
+    let set = response
+        .headers("set-cookie")
+        .into_iter()
+        .find(|cookie| cookie.starts_with("__Host-device_token_"));
+    assert!(set.is_some(), "no device token's cookie");
+    set.unwrap()["__Host-".len()..]
+        .split('=')
+        .next()
+        .unwrap()
+        .to_owned()
+}
+
 /// The value of the cookie `__Host-<name>` that `response` sets.
 pub fn cookie(response: &Response, name: &str) -> String {
     let set = set_cookie(response, name);

@@ -149,29 +149,36 @@ pub(super) async fn device_token_valid(
     .await?)
 }
 
-/// Issues `user_id` the device token that hashes to `token`, for the email whose HMAC is `email`,
-/// lasting `lifetime`, in place of the user's token that hashes to `replaced`, if any, and of their
-/// expired ones, and returns when it expires (AUTH-019).
-pub(super) async fn issue_device_token(
+/// Deletes `user_id`'s expired device tokens, and the one that hashes to `token`, if any.
+pub(super) async fn end_device_tokens(
     uow: &mut UnitOfWork,
     user_id: UserId,
-    email: &[u8],
-    token: &[u8],
-    replaced: Option<&[u8]>,
-    lifetime: std::time::Duration,
-) -> Result<Timestamp, Internal> {
+    token: Option<&[u8]>,
+) -> Result<(), Internal> {
     sqlx::query!(
         "DELETE FROM device_tokens
         WHERE user_id = $1 AND (expires_at <= now() OR token_hash = $2)",
         user_id.uuid(),
-        replaced,
+        token,
     )
     .execute(uow.executor())
     .await?;
-    let expires_at = sqlx::query_scalar!(
+    Ok(())
+}
+
+/// Inserts `user_id`'s device token that hashes to `token`, for the email whose HMAC is `email`,
+/// lasting `lifetime`, and returns its ID and when it expires.
+pub(super) async fn insert_device_token(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+    email: &[u8],
+    token: &[u8],
+    lifetime: std::time::Duration,
+) -> Result<(uuid::Uuid, Timestamp), Internal> {
+    let row = sqlx::query!(
         "INSERT INTO device_tokens (user_id, email_hash, token_hash, expires_at)
         VALUES ($1, $2, $3, now() + make_interval(secs => $4::float8))
-        RETURNING expires_at",
+        RETURNING id, expires_at",
         user_id.uuid(),
         email,
         token,
@@ -179,7 +186,7 @@ pub(super) async fn issue_device_token(
     )
     .fetch_one(uow.executor())
     .await?;
-    Ok(Timestamp::from_database(expires_at))
+    Ok((row.id, Timestamp::from_database(row.expires_at)))
 }
 
 /// The session `user_id` has on `device_id`, if any (AUTH-008).

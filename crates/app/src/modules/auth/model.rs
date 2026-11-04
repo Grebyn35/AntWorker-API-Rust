@@ -248,6 +248,8 @@ pub(crate) struct Tokens {
 /// A device token, returned once, with when it expires (AUTH-019).
 #[derive(Clone)]
 pub(crate) struct DeviceToken {
+    /// Its ID, which its audit entry names.
+    pub(crate) id: uuid::Uuid,
     /// The token.
     pub(crate) token: Secret<String>,
     /// When it expires.

@@ -21,6 +21,9 @@ pub(super) const SESSION_REFRESHED: Action = Action::new("session.refreshed");
 pub(super) const SESSION_REUSE_DETECTED: Action = Action::new("session.reuse_detected");
 /// A session ended, by signing out or by a sign-in on its device (AUTH-008, AUTH-013).
 pub(super) const SESSION_ENDED: Action = Action::new("session.ended");
+/// A sign-in issued its device a device token, ending the one it used and the account's expired
+/// ones (AUTH-019).
+pub(super) const DEVICE_TOKEN_ISSUED: Action = Action::new("device_token.issued");
 
 /// A user's account.
 pub(super) const USER: Resource = Resource::new("user");
@@ -28,3 +31,5 @@ pub(super) const USER: Resource = Resource::new("user");
 pub(super) const IDENTITY: Resource = Resource::new("identity");
 /// A signed-in device or client.
 pub(super) const SESSION: Resource = Resource::new("session");
+/// The token that tells a sign-in from a device that signed in to the account before.
+pub(super) const DEVICE_TOKEN: Resource = Resource::new("device_token");

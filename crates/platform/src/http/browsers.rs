@@ -167,16 +167,22 @@ impl Cookies {
     /// The value of the session cookie `__Host-<name>`, or `None` when the request has none. A
     /// request that changes something and carries it without a listed `Origin` is refused.
     pub fn credential(&self, name: &str) -> Result<Option<&str>, RequestError> {
-        let full = format!("{HOST_PREFIX}{name}");
-        let value = self
-            .pairs
-            .iter()
-            .find(|(key, _)| *key == full)
-            .map(|(_, value)| value.as_str());
+        let value = self.value(name);
         if value.is_some() && !self.may_authenticate {
             return Err(RequestError::OriginNotAllowed);
         }
         Ok(value)
+    }
+
+    /// The value of the cookie `__Host-<name>`, which authenticates no request, such as a device
+    /// token's (AUTH-015), or `None` when the request has none. The refusal of a session cookie
+    /// without a listed `Origin` doesn't apply to it (PLATFORM-053).
+    pub fn value(&self, name: &str) -> Option<&str> {
+        let full = format!("{HOST_PREFIX}{name}");
+        self.pairs
+            .iter()
+            .find(|(key, _)| *key == full)
+            .map(|(_, value)| value.as_str())
     }
 }
 

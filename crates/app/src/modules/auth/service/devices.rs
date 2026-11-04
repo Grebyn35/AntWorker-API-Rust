@@ -1,4 +1,5 @@
-//! Device tokens: whether a sign-in's is valid for its email, and issuing the next (AUTH-019).
+//! Device tokens: whether a sign-in's is valid for its email, issuing the next, and the name of
+//! the cookie that holds a browser's (AUTH-015, AUTH-019).
 
 use platform::{
     db::UnitOfWork,
@@ -14,9 +15,17 @@ use crate::modules::auth::{model::DeviceToken, repo};
 /// The kind of the keyed hash of a device token's email.
 const DEVICE_TOKEN_EMAIL: &str = "device_token_email";
 
+/// The kind of the keyed hash that names the cookie of an email's device token.
+const DEVICE_TOKEN_COOKIE: &str = "device_token_cookie";
+
+/// How many bytes of its keyed hash a cookie's name holds: 64 bits, so that no two of the
+/// accounts a browser signs in to share a cookie.
+const COOKIE_HASH_BYTES: usize = 8;
+
 impl Auth {
-    /// The hash of the sign-in's device token, when it is valid for its email, read in a unit of
-    /// work of its own, before any limit counts the attempt (AUTH-019).
+    /// The hash of the sign-in's device token, when it is valid for its email, read before any
+    /// limit counts the attempt, since it decides which limit does, in a unit of work of its own
+    /// that writes nothing (ARCH-11, AUTH-019).
     pub(super) async fn trusted(
         &self,
         client: &Client,
@@ -35,8 +44,8 @@ impl Auth {
         Ok(valid.then_some(hash))
     }
 
-    /// Issues `user_id`'s device a device token for `email`, in place of the one that hashes to
-    /// `replaced`, if any, the token the sign-in used (AUTH-019).
+    /// Issues `user_id`'s device a device token for `email`, ending the account's expired ones,
+    /// and the one that hashes to `replaced`, if any, the token the sign-in used (AUTH-019).
     pub(super) async fn issue_device_token(
         &self,
         uow: &mut UnitOfWork,
@@ -44,16 +53,35 @@ impl Auth {
         email: &EmailAddress,
         replaced: Option<&[u8; 32]>,
     ) -> Result<DeviceToken, Internal> {
+        repo::end_device_tokens(uow, user_id, replaced.map(<[u8; 32]>::as_slice)).await?;
         let token = Secret::new(random::token()?);
-        let expires_at = repo::issue_device_token(
+        let (id, expires_at) = repo::insert_device_token(
             uow,
             user_id,
             &self.key.hash(DEVICE_TOKEN_EMAIL, email.as_str().as_bytes()),
             &sha256(token.expose().as_bytes()),
-            replaced.map(<[u8; 32]>::as_slice),
             self.settings.device_tokens,
         )
         .await?;
-        Ok(DeviceToken { token, expires_at })
+        Ok(DeviceToken {
+            id,
+            token,
+            expires_at,
+        })
+    }
+
+    /// The name of the cookie, after `__Host-`, that holds a browser's device token for `email`:
+    /// one for each account the browser signs in to, so that signing in to one leaves another's
+    /// (AUTH-015). It holds part of a keyed hash of the email, so it shows no email.
+    pub(crate) fn device_cookie(&self, email: &EmailAddress) -> String {
+        let hash = self
+            .key
+            .hash(DEVICE_TOKEN_COOKIE, email.as_str().as_bytes());
+        let hex: String = hash
+            .iter()
+            .take(COOKIE_HASH_BYTES)
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        format!("device_token_{hex}")
     }
 }

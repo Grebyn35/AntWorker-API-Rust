@@ -251,7 +251,7 @@ sequenceDiagram
    - `Principal` authenticates the caller, by the Bearer header or a browser's cookie (D18, D61).
    - The per-user rate limit, in its own short transaction, then the `Idempotency-Key` of a keyed `POST`, which the unit of work claims as its first statement, so the key's record commits or rolls back with the operation (D12).
    - The body is parsed into request types, then domain types (D25).
-   - The unit of work opens last, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one. On workspace routes, opening it produces `Authorized<P>`: inside the unit of work, the caller's membership in the workspace from the path is loaded and permission `P` checked (D2, D3). A missing membership is a 404, so the response never reveals whether the workspace exists. On other routes, the service opens it, once any per-action limit it checks has counted, such as the sign-in email's (AUTH-006).
+   - The unit of work opens last, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one. On workspace routes, opening it produces `Authorized<P>`: inside the unit of work, the caller's membership in the workspace from the path is loaded and permission `P` checked (D2, D3). A missing membership is a 404, so the response never reveals whether the workspace exists. On other routes, the service opens it, once any per-action limit it checks has counted, such as the sign-in's (AUTH-006), after a read, in a transaction of its own that writes nothing, of what decides which limit counts, such as the sign-in's device token (ARCH-11).
 4. **The handler** calls the service with domain types only.
 5. **The service** performs its writes in its unit of work, and in the same transaction records audit entries, publishes events and enqueues jobs (D1, D6). For a request with an `Idempotency-Key`, the same transaction stores the operation's result under the key (API-12). Then it commits.
 6. **The response.** The handler maps the result to the response. A module error goes through the single conversion to an RFC 9457 problem that carries the trace ID (D17).
@@ -299,7 +299,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 - **Configuration (D9).** Strict and typed, with no defaults that are unsafe in production. A disabled feature answers 503 and is advertised by the capabilities endpoint.
 - **Background jobs (D13).** Declared in one registry. A queued job runs at least once, on whichever instance claims it, with retries and a dead-letter state; a periodic job runs once per interval across the fleet. Each run holds a lease that a heartbeat renews, and shutdown is bounded.
 - **Personal data (D31).** Every module that stores personal data implements export and erasure. CI fails if any column referencing a user isn't covered by a contract.
-- **Security (D26).** Level 2 of the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) is the bar. The threat model maps each mitigation to a rule ID.
+- **Security (D26).** The bar is the one that [the security rules](standards/security.md) state, from the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) (D63). The [threat model](operations/threat-model.md) maps each mitigation to a rule ID.
 
 ## 9. Runtime topology
 
@@ -385,6 +385,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Identity | One way a user signs in: a password, or a linked OAuth provider account. A user who registered has one or more. An account an operator creates for its owner has none until the owner sets a password ([the setup subcommand](spec/workspaces.md#the-setup-subcommand)). |
 | Session | One signed-in device or client, holding an access token and a refresh token. |
 | Provider token | A credential from an OAuth provider, stored encrypted (SEC-02). It is revoked when the session or identity that needs it ends. |
+| Device token | A token that a registration or a sign-in gives the device, for the account's email, so that the device's next sign-in to that account counts only in a limit of its own, which no attempt from elsewhere fills (AUTH-019). |
 | Principal | The authenticated caller of a request, produced by `platform::authn` (D18). |
 | Workspace | A space whose members share its data: a team's, an organization's, or one user's own (§5). Owns workspace files and its audit log. |
 | Workspace shape | How a product uses workspaces: who creates them and who joins them, which the optional parts a fork keeps decide (§5). |

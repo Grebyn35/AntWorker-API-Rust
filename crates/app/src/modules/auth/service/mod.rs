@@ -207,6 +207,12 @@ impl Auth {
         let device = self
             .issue_device_token(&mut uow, user_id, &input.email, trusted.as_ref())
             .await?;
+        audit_log::record(
+            &mut uow,
+            principal.audit_scope(),
+            Entry::new(audit::DEVICE_TOKEN_ISSUED, audit::DEVICE_TOKEN, device.id),
+        )
+        .await?;
         uow.commit().await?;
         Ok((session, tokens, device))
     }

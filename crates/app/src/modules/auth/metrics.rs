@@ -18,7 +18,7 @@ pub(super) enum SignIn {
     Succeeded,
     /// The credentials matched no account (AUTH-005).
     InvalidCredentials,
-    /// The email's limit refused it (AUTH-006).
+    /// A sign-in limit refused it: one of the email's, or its device token's (AUTH-006).
     RateLimited,
 }
 

@@ -1,4 +1,5 @@
-//! Device tokens, and the sign-in limit a valid one counts in (AUTH-006, AUTH-019).
+//! Device tokens, the cookies that hold browsers', and the sign-in limit a valid one counts in
+//! (AUTH-006, AUTH-015, AUTH-019).
 
 use serde_json::json;
 
@@ -220,7 +221,8 @@ async fn auth_019_a_browser_s_sign_in_reads_its_device_token_from_its_cookie_whi
         .header("origin", WEB)
         .send()
         .await;
-    let token = users::cookie(&registered, "device_token");
+    let name = users::device_cookie(&registered);
+    let token = users::cookie(&registered, &name);
     let cookies = users::cookies(&registered);
 
     let signed_out = api
@@ -235,7 +237,7 @@ async fn auth_019_a_browser_s_sign_in_reads_its_device_token_from_its_cookie_whi
             &json!({ "email": "ada@example.com", "password": PASSWORD }),
         )
         .header("origin", WEB)
-        .header("cookie", &format!("__Host-device_token={token}"))
+        .header("cookie", &format!("__Host-{name}={token}"))
         .send()
         .await;
 
@@ -244,12 +246,127 @@ async fn auth_019_a_browser_s_sign_in_reads_its_device_token_from_its_cookie_whi
         signed_out
             .headers("set-cookie")
             .iter()
-            .all(|cookie| !cookie.starts_with("__Host-device_token=")),
+            .all(|cookie| !cookie.starts_with("__Host-device_token_")),
         "{:?}",
         signed_out.headers("set-cookie")
     );
     assert_eq!(signed_in.status, 201);
     assert_eq!(bucket(&signed_in), "sign_in_device");
     assert!(signed_in.json().get("device_token").is_none());
-    assert_ne!(users::cookie(&signed_in, "device_token"), token);
+    assert_eq!(users::device_cookie(&signed_in), name);
+    assert_ne!(users::cookie(&signed_in, &name), token);
+}
+
+#[tokio::test]
+async fn auth_019_a_sign_in_records_the_device_token_it_issues() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let issued = device_token(&users::sign_in(&api, "ada@example.com", PASSWORD).await);
+
+    // One entry: the registration's token goes in `user.registered` (AUTH-001).
+    assert_eq!(
+        api.database()
+            .owner_reads(&format!(
+                "SELECT e.user_id || ' ' || e.actor_user_id || ' ' || e.resource_type || ' ' || \
+                 (e.resource_id = d.id)::text \
+                 FROM audit_entries e LEFT JOIN device_tokens d \
+                 ON d.token_hash = sha256(convert_to('{issued}', 'UTF8')) \
+                 WHERE e.action = 'device_token.issued'"
+            ))
+            .await,
+        [format!("{0} {0} device_token true", ada.user_id)]
+    );
+}
+
+#[tokio::test]
+async fn auth_015_a_browser_keeps_a_device_token_for_each_account_it_signs_in_to() {
+    let api = users::browsers_api().await;
+    let mut names = Vec::new();
+    let mut jar = Vec::new();
+    for email in ["ada@example.com", "bob@example.com"] {
+        let registered = api
+            .post("/v1/users", &users::registration(email))
+            .header("origin", WEB)
+            .send()
+            .await;
+        assert_eq!(registered.status, 201);
+        let name = users::device_cookie(&registered);
+        jar.push(format!(
+            "__Host-{name}={}",
+            users::cookie(&registered, &name)
+        ));
+        names.push(name);
+    }
+
+    let signed_in = api
+        .post(
+            "/v1/sessions",
+            &json!({ "email": "ada@example.com", "password": PASSWORD }),
+        )
+        .header("origin", WEB)
+        .header("cookie", &jar.join("; "))
+        .send()
+        .await;
+
+    assert_ne!(
+        names[0], names[1],
+        "each account's token has a cookie of its own"
+    );
+    assert!(
+        names
+            .iter()
+            .all(|name| name.len() == "device_token_".len() + 16)
+    );
+    assert_eq!(signed_in.status, 201);
+    assert_eq!(
+        bucket(&signed_in),
+        "sign_in_device",
+        "Ada's token, after Bob's"
+    );
+    assert_eq!(users::device_cookie(&signed_in), names[0]);
+}
+
+#[tokio::test]
+async fn auth_015_a_sign_in_reads_its_email_s_cookie_when_its_body_holds_no_token_with_or_without_origin()
+ {
+    let api = users::browsers_api().await;
+    let registered = api
+        .post("/v1/users", &users::registration("ada@example.com"))
+        .header("origin", WEB)
+        .send()
+        .await;
+    let name = users::device_cookie(&registered);
+    let in_cookie = users::cookie(&registered, &name);
+    let jar = format!("__Host-{name}={in_cookie}");
+    // A second valid token, which a sign-in without `Origin` takes in its body.
+    let in_body = device_token(&users::sign_in(&api, "ada@example.com", PASSWORD).await);
+
+    let body_first = api
+        .post(
+            "/v1/sessions",
+            &json!({ "email": "ada@example.com", "password": PASSWORD, "device_token": in_body }),
+        )
+        .header("cookie", &jar)
+        .send()
+        .await;
+    let held = stored(&api, &[&in_body, &in_cookie]).await;
+    let without_origin = api
+        .post(
+            "/v1/sessions",
+            &json!({ "email": "ada@example.com", "password": PASSWORD }),
+        )
+        .header("cookie", &jar)
+        .send()
+        .await;
+
+    assert_eq!(body_first.status, 201);
+    assert_eq!(
+        held,
+        ["none", "31536000"],
+        "the body's token is read, not the cookie's"
+    );
+    assert_eq!(without_origin.status, 201, "{}", without_origin.json());
+    assert_eq!(bucket(&without_origin), "sign_in_device");
+    assert_eq!(stored(&api, &[&in_cookie]).await, ["none"]);
 }

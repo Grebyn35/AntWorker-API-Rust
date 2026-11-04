@@ -309,7 +309,7 @@ async fn auth_015_a_browser_takes_its_tokens_as_cookies_it_can_t_read() {
         assert!(
             cookie.starts_with("__Host-access_token=")
                 || cookie.starts_with("__Host-refresh_token=")
-                || cookie.starts_with("__Host-device_token=")
+                || cookie.starts_with("__Host-device_token_")
         );
         assert!(
             cookie.ends_with("; Path=/; Secure; HttpOnly; SameSite=Strict"),
@@ -352,7 +352,7 @@ async fn auth_015_a_browser_s_registration_takes_cookies_that_expire_with_their_
             "{}|{}|{}",
             expires(&response, "access_token"),
             expires(&response, "refresh_token"),
-            expires(&response, "device_token")
+            expires(&response, &users::device_cookie(&response))
         )]
     );
 }

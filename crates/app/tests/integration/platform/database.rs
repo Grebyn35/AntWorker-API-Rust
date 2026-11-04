@@ -280,6 +280,33 @@ async fn platform_077_in_production_bootstrap_refuses_a_server_with_another_data
 }
 
 #[tokio::test]
+async fn platform_077_in_production_bootstrap_refuses_a_server_with_a_database_its_role_owns() {
+    let db = TestDatabase::migrated().await;
+    // A database that `owner` owns, with no grant on it, named to come first of the server's
+    // databases, so the refusal names it.
+    let owned = format!("a077_owned_{}", std::process::id());
+    db.admin_executes(&format!("DROP DATABASE IF EXISTS \"{owned}\""))
+        .await;
+    db.admin_executes(&format!("CREATE DATABASE \"{owned}\" OWNER owner"))
+        .await;
+    let production = platform::config::BootstrapConfig {
+        environment: platform::config::Environment::Production,
+        ..db.bootstrap_config()
+    };
+
+    let refused = db
+        .with_roles_locked(platform::db::bootstrap(&production))
+        .await;
+    db.admin_executes(&format!("DROP DATABASE \"{owned}\""))
+        .await;
+
+    assert!(
+        matches!(&refused, Err(BootstrapError::SharedServer(named)) if *named == owned),
+        "{refused:?}"
+    );
+}
+
+#[tokio::test]
 async fn data_25_the_app_role_runs_read_committed_whatever_the_database_default() {
     let db = TestDatabase::migrated().await;
     db.admin_executes(&format!(

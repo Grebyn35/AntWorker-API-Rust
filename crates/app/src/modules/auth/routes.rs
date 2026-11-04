@@ -28,9 +28,6 @@ use crate::modules::accounts::DisplayName;
 /// The name of the cookie that holds a browser's refresh token, after `__Host-` (AUTH-015).
 const REFRESH_COOKIE: &str = "refresh_token";
 
-/// The name of the cookie that holds a browser's device token, after `__Host-` (AUTH-015).
-const DEVICE_COOKIE: &str = "device_token";
-
 /// Where a new session is: the session that the request's own tokens prove (AUTH-016).
 const CURRENT_SESSION: &str = "/v1/users/me/sessions/current";
 
@@ -217,8 +214,14 @@ async fn register(
     Json(request): Json<RegistrationRequest>,
 ) -> Result<Response, Problem<AuthError>> {
     let input = Registration::try_from(request).map_err(AuthError::from)?;
+    let cookie = auth.device_cookie(&input.email);
     let (session, tokens, device) = auth.register(&client, input).await?;
-    Ok(created(session, &tokens, &device, delivery(&headers))?)
+    Ok(created(
+        session,
+        &tokens,
+        (&device, &cookie),
+        delivery(&headers),
+    )?)
 }
 
 /// Signs in with an email and a password.
@@ -241,14 +244,19 @@ async fn sign_in(
     Json(request): Json<SignInRequest>,
 ) -> Result<Response, Problem<AuthError>> {
     let mut input = SignIn::try_from(request).map_err(AuthError::from)?;
+    let cookie = auth.device_cookie(&input.email);
     if input.device_token.is_none() {
         input.device_token = cookies
-            .credential(DEVICE_COOKIE)
-            .map_err(AuthError::from)?
+            .value(&cookie)
             .map(|token| Secret::new(token.to_owned()));
     }
     let (session, tokens, device) = auth.sign_in(&limits, &client, input).await?;
-    Ok(created(session, &tokens, &device, delivery(&headers))?)
+    Ok(created(
+        session,
+        &tokens,
+        (&device, &cookie),
+        delivery(&headers),
+    )?)
 }
 
 /// Gives the session a new pair of tokens.
@@ -338,11 +346,12 @@ fn delivery(headers: &HeaderMap) -> TokenDelivery {
 }
 
 /// The 201 of a new session, at `/v1/users/me/sessions/current`, with its tokens and its device
-/// token delivered as `delivery` says (AUTH-001, AUTH-004, AUTH-019).
+/// token, whose cookie is the one `device` names, delivered as `delivery` says (AUTH-001,
+/// AUTH-004, AUTH-019).
 fn created(
     session: Session,
     tokens: &Tokens,
-    device: &DeviceToken,
+    device: (&DeviceToken, &str),
     delivery: TokenDelivery,
 ) -> Result<Response, AuthError> {
     let (cookies, body) = deliver(session, tokens, Some(device), delivery)?;
@@ -356,17 +365,18 @@ fn created(
 }
 
 /// The session's response, with its tokens and `device`, if any, in it, or in the cookies
-/// returned beside it for a browser (AUTH-015).
+/// returned beside it for a browser, the device token's in the cookie that `device` names
+/// (AUTH-015).
 fn deliver(
     session: Session,
     tokens: &Tokens,
-    device: Option<&DeviceToken>,
+    device: Option<(&DeviceToken, &str)>,
     delivery: TokenDelivery,
 ) -> Result<(Vec<HeaderValue>, SessionResponse), AuthError> {
     match delivery {
         TokenDelivery::Body => Ok((
             Vec::new(),
-            SessionResponse::new(session, Some(tokens), device),
+            SessionResponse::new(session, Some(tokens), device.map(|(device, _)| device)),
         )),
         TokenDelivery::Cookie => {
             let mut cookies = vec![
@@ -381,9 +391,9 @@ fn deliver(
                     session.refresh_token_expires_at,
                 )?,
             ];
-            if let Some(device) = device {
+            if let Some((device, name)) = device {
                 cookies.push(session_cookie(
-                    DEVICE_COOKIE,
+                    name,
                     device.token.expose(),
                     device.expires_at,
                 )?);
