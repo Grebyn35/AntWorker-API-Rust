@@ -152,7 +152,8 @@ pub async fn application(
 }
 
 /// The routes under test inside the request pipeline, on a database of their own, with a test
-/// clock.
+/// clock. While it lives, a watch prints what its test logged, should the test run on for
+/// minutes (TEST-07).
 #[derive(Clone)]
 pub struct Api {
     router: Router,
@@ -162,6 +163,7 @@ pub struct Api {
     database: Arc<TestDatabase>,
     pool: Database,
     jobs: Arc<Jobs>,
+    _watch: Arc<telemetry::testing::Watch>,
 }
 
 impl Api {
@@ -202,6 +204,7 @@ impl Api {
             database,
             pool,
             jobs: Arc::new(jobs),
+            _watch: Arc::new(telemetry::testing::Watch::start()),
         }
     }
 

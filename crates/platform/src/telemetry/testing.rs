@@ -5,7 +5,13 @@ pub mod collector;
 use std::{
     collections::BTreeMap,
     io,
-    sync::{Mutex, OnceLock, PoisonError},
+    sync::{
+        Mutex, OnceLock, PoisonError,
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
+    thread::{self, ThreadId},
+    time::Duration,
 };
 
 use opentelemetry_sdk::{
@@ -21,8 +27,45 @@ use tracing_subscriber::{Layer, filter::LevelFilter, fmt::MakeWriter, layer::Sub
 use super::{Service, TelemetryError, names};
 use crate::config::Environment;
 
-/// Every line the process's logger has written.
-static LINES: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+/// Every line the process's logger has written, and the watches of the tests that run.
+static LOGGED: Mutex<Logged> = Mutex::new(Logged {
+    lines: Vec::new(),
+    watches: Vec::new(),
+});
+
+/// Numbers the watches.
+static NEXT_WATCH: AtomicU64 = AtomicU64::new(0);
+
+/// How long a test runs before its [`Watch`] prints what it logged: longer than the whole suite
+/// of integration tests takes, and well inside the time limit of CI's job.
+const PRINTED_AFTER: Duration = Duration::from_secs(300);
+
+struct Logged {
+    /// Each write of the logger, which is one line, with the thread it was written on.
+    lines: Vec<(ThreadId, String)>,
+    watches: Vec<Watched>,
+}
+
+/// The test that a [`Watch`] watches.
+struct Watched {
+    watch: u64,
+    /// The thread the test runs on, whose lines are the test's.
+    thread: ThreadId,
+    test: String,
+    /// Where the lines go once they're printed.
+    output: Box<dyn io::Write + Send>,
+    printing: bool,
+}
+
+impl Watched {
+    /// Writes `line` to the output, after the test's name.
+    fn print(&mut self, line: &str) -> io::Result<()> {
+        for line in line.lines() {
+            writeln!(self.output, "{}: {line}", self.test)?;
+        }
+        self.output.flush()
+    }
+}
 
 /// The test binaries, whose own events the tests' logger writes too.
 const TEST_BINARIES: [&str; 1] = ["integration"];
@@ -37,11 +80,12 @@ struct Installed {
 
 static INSTALLED: OnceLock<Option<Installed>> = OnceLock::new();
 
-/// Installs the API's tracer, its JSON logger at `INFO` writing into memory, and a meter whose
-/// metrics stay in memory, as the process's. Requests that tests send get the trace context the
-/// API gives them, and a test reads the lines of its own requests by their trace ID, whatever
-/// other tests run alongside. Later calls do nothing. Fails if something else installed a
-/// subscriber first.
+/// Installs the API's tracer, its JSON logger at `INFO` writing into memory, a meter whose
+/// metrics stay in memory, and the API's panic hook, as the process's. The hook then runs the
+/// test runner's, which prints a failing test's message. Requests that tests send get the trace
+/// context the API gives them, and a test reads the lines of its own requests by their trace
+/// ID, whatever other tests run alongside. Later calls do nothing. Fails if something else
+/// installed a subscriber first.
 pub fn install(service: Service) -> Result<(), TelemetryError> {
     let installed = INSTALLED.get_or_init(|| {
         let tracer = SdkTracerProvider::builder()
@@ -60,6 +104,11 @@ pub fn install(service: Service) -> Result<(), TelemetryError> {
             .build();
         opentelemetry::global::set_meter_provider(meter.clone());
         super::metrics::provided();
+        let runners = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            super::log_panic(info);
+            runners(info);
+        }));
         Some(Installed {
             _tracer: tracer,
             meter,
@@ -82,11 +131,107 @@ pub fn logged(trace_id: &str) -> Vec<Value> {
 
 /// Every line logged so far, in order.
 pub fn all_logged() -> Vec<Value> {
-    let lines = LINES.lock().unwrap_or_else(PoisonError::into_inner);
-    String::from_utf8_lossy(&lines)
-        .lines()
+    let logged = LOGGED.lock().unwrap_or_else(PoisonError::into_inner);
+    logged
+        .lines
+        .iter()
+        .flat_map(|(_, written)| written.lines())
         .filter_map(|line| serde_json::from_str(line).ok())
         .collect()
+}
+
+/// Prints what the test that starts it has logged, once the watch has lived for 5 minutes,
+/// then each line the test logs, until the watch is dropped, so that a test that never ends
+/// shows what it logged before CI's job time limit ends it (TEST-07). Each printed line starts
+/// with the test's name. A test's lines are those written on the thread the test runner runs it
+/// on, where its runtime runs its tasks, and not those of the threads that run blocking work.
+#[must_use = "the watch ends when it's dropped"]
+pub struct Watch {
+    watch: u64,
+    /// Ends the thread that waits to print, once dropped.
+    _ended: mpsc::Sender<()>,
+}
+
+impl Watch {
+    /// Watches the test that runs on this thread, printing to stderr.
+    pub fn start() -> Self {
+        Self::printing_to(PRINTED_AFTER, io::stderr())
+    }
+
+    /// Watches the test that runs on this thread, printing to `output` after `after`.
+    pub fn printing_to(after: Duration, output: impl io::Write + Send + 'static) -> Self {
+        let watch = NEXT_WATCH.fetch_add(1, Ordering::Relaxed);
+        let current = thread::current();
+        let test = current.name().unwrap_or("a test").to_owned();
+        LOGGED
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .watches
+            .push(Watched {
+                watch,
+                thread: current.id(),
+                test,
+                output: Box::new(output),
+                printing: false,
+            });
+        let (ended, waiting) = mpsc::channel::<()>();
+        thread::spawn(move || {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the watch prints a hung test's lines at a time on the real clock, \
+                          and decides no test's outcome (TEST-07)"
+            )]
+            let outcome = waiting.recv_timeout(after);
+            if outcome == Err(mpsc::RecvTimeoutError::Timeout)
+                && let Err(error) = print_logged(watch, after)
+            {
+                crate::errors::ignore(&error, "test_lines_not_printed");
+            }
+        });
+        Self {
+            watch,
+            _ended: ended,
+        }
+    }
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        LOGGED
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .watches
+            .retain(|watched| watched.watch != self.watch);
+    }
+}
+
+/// Prints what the test of `watch` has logged, unless another watch of its thread already
+/// does, and marks the watch as printing each line its test logs from now on.
+fn print_logged(watch: u64, after: Duration) -> io::Result<()> {
+    let mut logged = LOGGED.lock().unwrap_or_else(PoisonError::into_inner);
+    let Logged { lines, watches } = &mut *logged;
+    let Some(index) = watches.iter().position(|watched| watched.watch == watch) else {
+        return Ok(());
+    };
+    let thread = watches[index].thread;
+    let printed = watches
+        .iter()
+        .any(|watched| watched.thread == thread && watched.printing);
+    let watched = &mut watches[index];
+    watched.printing = true;
+    if printed {
+        return Ok(());
+    }
+    writeln!(
+        watched.output,
+        "{} has run for {} seconds; what it logged follows, then each line it logs",
+        watched.test,
+        after.as_secs()
+    )?;
+    for (_, line) in lines.iter().filter(|(written, _)| *written == thread) {
+        watched.print(line)?;
+    }
+    Ok(())
 }
 
 /// One data point of a metric: its labels, and its value. A histogram's value is the sum of what
@@ -183,17 +328,23 @@ fn points<T: Copy>(data: &MetricData<T>, value: impl Fn(T) -> f64) -> Vec<Point>
     }
 }
 
-/// Writes into [`LINES`].
+/// Writes into [`LOGGED`], and prints each line that a watch prints.
 #[derive(Clone, Copy)]
 struct Memory;
 
 impl io::Write for Memory {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        LINES
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .extend_from_slice(bytes);
-        Ok(bytes.len())
+        let thread = thread::current().id();
+        let line = String::from_utf8_lossy(bytes).into_owned();
+        let mut logged = LOGGED.lock().unwrap_or_else(PoisonError::into_inner);
+        // A line that can't be printed is still kept, and the logger reports the error.
+        let printed = logged
+            .watches
+            .iter_mut()
+            .find(|watched| watched.thread == thread && watched.printing)
+            .map_or(Ok(()), |watched| watched.print(&line));
+        logged.lines.push((thread, line));
+        printed.map(|()| bytes.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {

@@ -349,13 +349,14 @@ async fn platform_034_a_panic_leaves_its_error_line_to_the_panic_hook() {
 
     let response = api.get("/v1/panic").send().await;
 
-    // The panic hook writes the one ERROR line, which this test binary doesn't install
-    // (ERR-12); the request log writes only its completion line.
+    // The tests' telemetry installs the API's panic hook (ERR-12), whose line comes first; the
+    // request log writes only its completion line.
     let (trace, _, _) = trace_context(&response);
     let lines = testing::logged(&trace);
     let levels: Vec<&Value> = lines.iter().map(|line| &line["level"]).collect();
-    assert_eq!(levels, ["INFO"], "{lines:#?}");
-    assert_eq!(lines[0]["http.response.status_code"], 500);
+    assert_eq!(levels, ["ERROR", "INFO"], "{lines:#?}");
+    assert_eq!(lines[0]["message"], "panicked");
+    assert_eq!(lines[1]["http.response.status_code"], 500);
 }
 
 #[tokio::test]
