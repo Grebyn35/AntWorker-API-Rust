@@ -29,6 +29,7 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 - **Request bodies:** `Json<T>`, the extractor of a JSON body (PLATFORM-054), `Idempotent<T>`, which a keyed route extracts instead, the body with its request's `IdempotencyKey` (PLATFORM-058), and `FieldErrors`, which collects every field that a request type's conversion into domain types refuses (PLATFORM-056), or every query parameter (PLATFORM-035).
 - **Idempotency:** `UnitOfWork::claim` and `commit_with`, which keep an operation's result under its key (API-12).
 - **Lists:** `Query<T>`, the extractor that parses a request's query parameters into `T`, the type that documents them, from which a route reads `Page`, a list's `limit` and `cursor` (API-06), and `Search`, its `search` (API-20), and whose fields it documents with the schemas of `Limit`, `Cursor` and `Search`, which carry each parameter's limits (API-17); and `List<T>`, the body of a page of items, with its next cursor (API-05).
+- **CPU-heavy work:** `Workers`, the turns of the instance's CPU-heavy work, such as a password's hash, whose `run` runs a work on a blocking thread, inside a span of its own, once a turn is free (PLATFORM-078, Design: Workers).
 - **Tasks:** `bootstrap` and `migrate`, run by the binary's subcommands of the same names (ARCH-14).
 - **Routes:** `Routes`, through which every module registers its routes and their documentation (API-14, API-17), and its events (REALTIME-008), and `http::app`, which wraps them in the request pipeline, with the API reference in development (PLATFORM-075).
 - **Errors:** `Category`, and `Problem<E>`, the one conversion of an error into a response (ERR-07).
@@ -154,6 +155,12 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 | PLATFORM-051 | A bucket's key is an HMAC, under `HMAC_KEY`, of its kind and of what it counts, so no bucket holds an IP address, an email or a user ID. | D7, DATA-28 | `platform_051_` |
 | PLATFORM-052 | A request whose `Origin` is one that `CORS_ALLOWED_ORIGINS` lists gets the headers of cross-origin resource sharing (CORS) that let a browser read the response and send its cookies, and a preflight from it is answered before the IP limit. A request from any other origin gets no CORS header. | SEC-19, D61 | `platform_052_` |
 | PLATFORM-053 | A request whose method isn't safe answers 403 `request.origin_not_allowed` when its `Origin` is one that `CORS_ALLOWED_ORIGINS` doesn't list, or when a session cookie authenticates it and it carries no `Origin`. | SEC-19, D61 | `platform_053_` |
+
+### CPU-heavy work
+
+| ID | Behavior | Rules | Test prefix |
+|---|---|---|---|
+| PLATFORM-078 | CPU-heavy work runs at most one at once per processor the instance may use: its CPU limit, such as a container's, rounded down, or without one every processor it may run on, and at least one. More waits its turn. A work that started keeps its turn until it ends, even when its caller stopped waiting, and a caller that stops waiting, such as a request past its timeout, gives up its place, so its work never runs. | OPS-07, CODE-05 | `platform_078_` |
 
 ### Lifecycle
 
@@ -411,6 +418,12 @@ The metrics `platform` records are in the catalog, each with the file that decla
 ### Clock
 
 `Clock` is a trait with two implementations (ARCH-13): the system clock, and the test clock, which only the `test-support` feature compiles. `now` reads the time, and `sleep` waits. A test clock's `sleep` completes when the test advances the clock past its deadline (TEST-07). Every wait in the workspace goes through it (CODE-06), the readiness checks and the shutdown delay included.
+
+### Workers
+
+`main.rs` makes one `Workers` per process. `serve` and `seed` hand it to the composition root among the process's resources, which hands it to each service with CPU-heavy work, such as `auth` for its passwords' hashes, and `bootstrap` computes the roles' verifiers through it. A turn is a permit of a semaphore with one per processor, as the standard library's `available_parallelism` counts them, a container's CPU quota included. The semaphore hands its permits out in the order they were asked for. `run` waits for one inside the work's span, so a trace shows the wait, then moves the work and the permit to a blocking thread together, so the permit comes back when the work ends rather than when its caller stops waiting.
+
+A turn per processor bounds the memory: a password's hash holds 19 MiB while it runs (AUTH-014), and more hashes at once than processors would end no sooner, since each takes a processor whole. The wait has no limit of its own: the route's timeout ends it (PLATFORM-031), and the concurrency limit bounds how many requests wait (PLATFORM-020).
 
 ### Telemetry names
 

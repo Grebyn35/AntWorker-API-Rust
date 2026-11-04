@@ -1,4 +1,7 @@
-use platform::db::{BootstrapError, ConnectError, Database, DatabaseUrl, RoleProblem};
+use platform::{
+    blocking::Workers,
+    db::{BootstrapError, ConnectError, Database, DatabaseUrl, RoleProblem},
+};
 
 use crate::support::{TestDatabase, execute_on};
 
@@ -132,9 +135,12 @@ async fn platform_009_serve_refuses_a_role_other_than_app() {
 #[tokio::test]
 async fn platform_010_after_bootstrap_the_roles_have_their_attributes_and_grants() {
     let db = TestDatabase::migrated().await;
-    db.with_roles_locked(platform::db::bootstrap(&db.bootstrap_config()))
-        .await
-        .unwrap();
+    db.with_roles_locked(platform::db::bootstrap(
+        &db.bootstrap_config(),
+        &Workers::new(),
+    ))
+    .await
+    .unwrap();
 
     let mut uow = db
         .app()
@@ -193,7 +199,7 @@ async fn platform_010_bootstrap_sets_the_app_roles_timeouts() {
                  ALTER ROLE app RESET idle_in_transaction_session_timeout;",
             )
             .await;
-            platform::db::bootstrap(&db.bootstrap_config())
+            platform::db::bootstrap(&db.bootstrap_config(), &Workers::new())
                 .await
                 .unwrap();
             (
@@ -214,7 +220,7 @@ async fn platform_010_running_bootstrap_again_keeps_the_roles_and_grants() {
     let (before, after) = db
         .with_roles_locked(async {
             let before = snapshot(&db).await;
-            platform::db::bootstrap(&db.bootstrap_config())
+            platform::db::bootstrap(&db.bootstrap_config(), &Workers::new())
                 .await
                 .unwrap();
             (before, snapshot(&db).await)
@@ -234,7 +240,7 @@ async fn platform_010_running_bootstrap_again_sets_each_password_from_its_url() 
     let (before, after) = db
         .with_roles_locked(async {
             let before = db.admin_reads(verifiers).await;
-            platform::db::bootstrap(&db.bootstrap_config())
+            platform::db::bootstrap(&db.bootstrap_config(), &Workers::new())
                 .await
                 .unwrap();
             (before, db.admin_reads(verifiers).await)
@@ -266,7 +272,7 @@ async fn platform_077_in_production_bootstrap_refuses_a_server_with_another_data
     let (before, refused, after) = db
         .with_roles_locked(async {
             let before = db.admin_reads(verifiers).await;
-            let refused = platform::db::bootstrap(&production).await;
+            let refused = platform::db::bootstrap(&production, &Workers::new()).await;
             (before, refused, db.admin_reads(verifiers).await)
         })
         .await;
@@ -295,7 +301,7 @@ async fn platform_077_in_production_bootstrap_refuses_a_server_with_a_database_i
     };
 
     let refused = db
-        .with_roles_locked(platform::db::bootstrap(&production))
+        .with_roles_locked(platform::db::bootstrap(&production, &Workers::new()))
         .await;
     db.admin_executes(&format!("DROP DATABASE \"{owned}\""))
         .await;
@@ -327,9 +333,12 @@ async fn data_19_bootstrap_leaves_only_owner_able_to_create_objects_in_the_schem
     db.admin_executes("GRANT CREATE ON SCHEMA public TO PUBLIC")
         .await;
 
-    db.with_roles_locked(platform::db::bootstrap(&db.bootstrap_config()))
-        .await
-        .unwrap();
+    db.with_roles_locked(platform::db::bootstrap(
+        &db.bootstrap_config(),
+        &Workers::new(),
+    ))
+    .await
+    .unwrap();
 
     assert!(
         db.try_execute(&db.app_url(), "CREATE TABLE more (id integer)")

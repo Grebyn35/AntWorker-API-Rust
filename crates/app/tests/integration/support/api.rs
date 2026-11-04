@@ -8,6 +8,7 @@ use axum::{Router, body::Body, extract::ConnectInfo};
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
 use http_body_util::BodyExt;
 use platform::{
+    blocking::Workers,
     clock::{SharedClock, TestClock},
     config::{ConfigError, ServerConfig, Settings},
     db::Database,
@@ -128,17 +129,16 @@ pub async fn application(
     let connection = platform::events::listen(database, clock.as_ref())
         .await
         .unwrap();
-    let services = app::compose(
-        database,
-        &config,
-        modules,
-        clock.clone(),
-        readiness.clone(),
-        connection,
-    )
-    .await
-    .unwrap();
-    let pipeline = app::pipeline(&config, database, &services, clock, readiness, SERVICE);
+    let resources = app::Resources {
+        database: database.clone(),
+        clock,
+        readiness,
+        workers: Workers::new(),
+    };
+    let services = app::compose(&resources, &config, modules, connection)
+        .await
+        .unwrap();
+    let pipeline = app::pipeline(&resources, &config, &services, SERVICE);
     let jobs = services.jobs;
     let (document, routes) = match options.routes {
         Some(extra) => (

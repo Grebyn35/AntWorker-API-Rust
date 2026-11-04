@@ -84,7 +84,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `types` | Shared domain types: `Secret`, `EmailAddress`, the ID types. | D7, D25 |
 | `clock`, `random` | The injectable clock and the operating system's secure random source (CODE-06). | D23, D26 |
 | `hashing` | The hashes that stand in for secrets in the database: SHA-256 of a token, and a hash-based message authentication code (HMAC) with SHA-256, under `HMAC_KEY`, of a value short or common enough to guess, such as an email (SEC-03). | D26, D32 |
-| `blocking` | Runs CPU-heavy work, such as hashing a password, on a blocking thread and inside a span of its own (CODE-05, OBS-06). | D10 |
+| `blocking` | Runs CPU-heavy work, such as hashing a password, on a blocking thread, inside a span of its own, at most one at once per processor (CODE-05, OBS-06, OPS-07). | D10, D81 |
 | `personal_data` | The export and erasure contract that modules implement. | D31 |
 | `lifecycle` | Liveness, readiness and bounded graceful shutdown. | D9, D20 |
 

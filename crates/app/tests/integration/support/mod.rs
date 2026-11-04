@@ -45,6 +45,7 @@ use std::{
 };
 
 use platform::{
+    blocking::Workers,
     config::BootstrapConfig,
     db::{Admin, Database, DatabaseUrl, migrate, testing},
 };
@@ -428,8 +429,12 @@ pub async fn run_binary(args: &[&str], env: &[(&str, &str)]) -> Output {
 }
 
 async fn run(mut command: Command) -> Output {
-    tokio::task::spawn_blocking(move || command.output())
-        .await
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test support may block, and waits for the binary on a thread of its own"
+    )]
+    let ran = tokio::task::spawn_blocking(move || command.output());
+    ran.await
         .expect("the thread that runs the API binary")
         .expect("run the API binary")
 }
@@ -603,7 +608,7 @@ async fn template(settings: &BootstrapConfig) -> &'static str {
                 .await
                 .expect("connect as the administrator");
             roles
-                .create_roles(&settings.owner, &settings.app)
+                .create_roles(&settings.owner, &settings.app, &Workers::new())
                 .await
                 .expect("create the roles");
             roles.close().await.expect("close the connection");

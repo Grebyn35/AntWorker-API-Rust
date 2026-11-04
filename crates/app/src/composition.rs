@@ -8,6 +8,7 @@ use axum::Router;
 use platform::{
     authn::SessionVerifier,
     authz::Authorizer,
+    blocking::Workers,
     clock::SharedClock,
     config::{ConfigError, Environment, ServerConfig, Settings},
     db::Database,
@@ -124,6 +125,19 @@ impl Config {
     }
 }
 
+/// The process's resources that the services and the pipeline share, which `main.rs` opens
+/// before the services are built (ARCH-12).
+pub struct Resources {
+    /// The pool of connections as the role `app`.
+    pub database: Database,
+    /// The clock every service reads (CODE-06).
+    pub clock: SharedClock,
+    /// Whether the instance takes requests, which the hub and the shutdown change (OPS-05).
+    pub readiness: Readiness,
+    /// The turns of the CPU-heavy work, such as a password's hash (PLATFORM-078).
+    pub workers: Workers,
+}
+
 /// The services the request pipeline takes from the modules.
 pub struct Services {
     /// Every module's routes, with their state.
@@ -137,20 +151,31 @@ pub struct Services {
     pub jobs: Jobs,
 }
 
-/// Builds every service once, on `database`, with `server`'s settings for `platform`'s and the
+/// Builds every service once, on `resources`, with `server`'s settings for `platform`'s and the
 /// modules' own in `config`, mounts every module's routes, registers every job, and starts the
-/// hub on `listener`, which records in `readiness` whether it reaches the database.
+/// hub on `listener`, which records in the resources' readiness whether it reaches the database.
 pub async fn compose(
-    database: &Database,
+    resources: &Resources,
     server: &ServerConfig,
     config: Config,
-    clock: SharedClock,
-    readiness: Readiness,
     listener: Listener,
 ) -> Result<Services, Internal> {
+    let Resources {
+        database,
+        clock,
+        readiness,
+        workers,
+    } = resources;
     let mut jobs = Jobs::new(database, server.job_dead_letter_retention);
-    let auth =
-        Arc::new(auth::Auth::new(database.clone(), config.auth, server.hmac_key.clone()).await?);
+    let auth = Arc::new(
+        auth::Auth::new(
+            database.clone(),
+            config.auth,
+            server.hmac_key.clone(),
+            workers.clone(),
+        )
+        .await?,
+    );
     let mail = Mail::new(server.mail.clone(), clock.clone())?;
     mail.register(&mut jobs).map_err(Internal::new)?;
     // part: invitations
@@ -167,11 +192,11 @@ pub async fn compose(
             listener,
             policy.clone(),
             verifier.clone(),
-            readiness,
+            readiness.clone(),
             clock.clone(),
             server.stream_recheck,
         ),
-        clock,
+        clock: clock.clone(),
         heartbeat: config.heartbeat,
     };
     let routes = system::routes()
@@ -195,15 +220,13 @@ pub async fn compose(
     })
 }
 
-/// The request pipeline that `config` describes, which counts its rate limits in `database` and
-/// verifies access tokens through `services`, and which serves the API reference of `service`'s
-/// document in development (PLATFORM-075).
+/// The request pipeline that `config` describes, which counts its rate limits in the database of
+/// `resources` and verifies access tokens through `services`, and which serves the API reference
+/// of `service`'s document in development (PLATFORM-075).
 pub fn pipeline(
+    resources: &Resources,
     config: &ServerConfig,
-    database: &Database,
     services: &Services,
-    clock: SharedClock,
-    readiness: Readiness,
     service: Service,
 ) -> Pipeline {
     let reference = if config.environment == Environment::Development {
@@ -219,13 +242,13 @@ pub fn pipeline(
         None
     };
     Pipeline {
-        clock,
+        clock: resources.clock.clone(),
         max_concurrent_requests: usize::try_from(config.max_concurrent_requests)
             .unwrap_or(usize::MAX),
-        readiness,
+        readiness: resources.readiness.clone(),
         trusted_proxies: config.trusted_proxies.clone(),
         origins: Origins::new(&config.cors_allowed_origins),
-        limiter: RateLimiter::new(database.clone(), config.hmac_key.clone()),
+        limiter: RateLimiter::new(resources.database.clone(), config.hmac_key.clone()),
         rate_limits: config.rate_limits,
         verifier: services.verifier.clone(),
         authorizer: services.authorizer.clone(),

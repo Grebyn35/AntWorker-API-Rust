@@ -56,7 +56,7 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 |---|---|
 | Monitoring, alerting, tracing | D10, D19, D42 |
 | Release engineering | D15, D21, D45 |
-| Capacity, overload and load shedding | D20 |
+| Capacity, overload and load shedding | D20, D81 |
 | Background work | D13 |
 | Schema evolution | D15, D24 |
 | Backups and disaster recovery | D30, D44 |

@@ -6,7 +6,7 @@ use std::{collections::HashSet, sync::Arc};
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use platform::{
     authn::{AuditScope, BoxFuture, Principal, SessionVerifier, Unverified},
-    blocking,
+    blocking::Workers,
     db::{Database, UnitOfWork},
     errors::Internal,
     events::{self, AccessChange},
@@ -76,6 +76,8 @@ pub(crate) struct Auth {
     /// A hash of a random password, verified when a sign-in finds no password to check, so every
     /// failed sign-in costs the same (AUTH-005).
     dummy_hash: String,
+    /// What hashes and verifies passwords (AUTH-014).
+    workers: Workers,
 }
 
 impl Auth {
@@ -85,10 +87,12 @@ impl Auth {
         database: Database,
         settings: Settings,
         key: HmacKey,
+        workers: Workers,
     ) -> Result<Self, Internal> {
         let dummy = Password::generated(random::token()?);
-        let dummy_hash = hash(dummy).await?;
-        blocking::run("load_breached_passwords", model::load_breached_passwords)
+        let dummy_hash = hash(&workers, dummy).await?;
+        workers
+            .run("load_breached_passwords", model::load_breached_passwords)
             .await
             .map_err(Internal::new)?;
         Ok(Self {
@@ -96,6 +100,7 @@ impl Auth {
             settings,
             key,
             dummy_hash,
+            workers,
         })
     }
 
@@ -106,7 +111,7 @@ impl Auth {
         client: &Client,
         input: Registration,
     ) -> Result<(Session, Tokens, DeviceToken), AuthError> {
-        let password_hash = hash(input.password).await?;
+        let password_hash = hash(&self.workers, input.password).await?;
         let mut uow = self.database.begin(client).await?;
         let user_id = match accounts::create(&mut uow, &input.email, &input.name).await? {
             Creation::Created(id) => id,
@@ -174,16 +179,17 @@ impl Auth {
         }
         let mut uow = self.database.begin(client).await?;
         let Some(user_id) = accounts::find_by_email(&mut uow, &input.email).await? else {
-            verify(self.dummy_hash.clone(), input.password).await?;
+            verify(&self.workers, self.dummy_hash.clone(), input.password).await?;
             return Err(AuthError::InvalidCredentials);
         };
         // Locked for the rest of the unit of work, so two sign-ins of one user take turns, and
         // one on a device ends the session the other just started there (DATA-25).
         let Some(identity) = repo::password_identity_for_update(&mut uow, user_id).await? else {
-            verify(self.dummy_hash.clone(), input.password).await?;
+            verify(&self.workers, self.dummy_hash.clone(), input.password).await?;
             return Err(AuthError::InvalidCredentials);
         };
-        let (matches, password) = verify(identity.hash.clone(), input.password).await?;
+        let (matches, password) =
+            verify(&self.workers, identity.hash.clone(), input.password).await?;
         if !matches {
             audit_log::record(
                 &mut uow,
@@ -198,7 +204,7 @@ impl Auth {
             .replace_session(&mut uow, user_id, input.device_id.as_ref())
             .await?;
         if !identity.hash.starts_with(&self.current_parameters()) {
-            let rehashed = hash(password).await?;
+            let rehashed = hash(&self.workers, password).await?;
             repo::update_password_hash(&mut uow, user_id, identity.id, &rehashed).await?;
             audit_log::record(
                 &mut uow,
@@ -397,31 +403,37 @@ fn new_tokens() -> Result<Tokens, Internal> {
     })
 }
 
-/// The Argon2id hash of `password`, in PHC format, with a new salt, on a blocking thread
+/// The Argon2id hash of `password`, in PHC format, with a new salt, through `workers`
 /// (AUTH-014).
-async fn hash(password: Password) -> Result<String, Internal> {
+async fn hash(workers: &Workers, password: Password) -> Result<String, Internal> {
     let salt = random::bytes::<16>()?;
-    blocking::run("hash_password", move || {
-        Argon2::default()
-            .hash_password_with_salt(password.bytes(), &salt)
-            .map(|hash| hash.to_string())
-            .map_err(|error| Internal::new(error.to_string()))
-    })
-    .await
-    .map_err(Internal::new)?
+    workers
+        .run("hash_password", move || {
+            Argon2::default()
+                .hash_password_with_salt(password.bytes(), &salt)
+                .map(|hash| hash.to_string())
+                .map_err(|error| Internal::new(error.to_string()))
+        })
+        .await
+        .map_err(Internal::new)?
 }
 
-/// Whether `password` matches `stored`, on a blocking thread, with the password handed back for
-/// a rehash (AUTH-005, AUTH-014).
-async fn verify(stored: String, password: Password) -> Result<(bool, Password), Internal> {
-    blocking::run("verify_password", move || {
-        let matches = Argon2::default()
-            .verify_password(password.bytes(), stored.as_str())
-            .is_ok();
-        (matches, password)
-    })
-    .await
-    .map_err(Internal::new)
+/// Whether `password` matches `stored`, through `workers`, with the password handed back for a
+/// rehash (AUTH-005, AUTH-014).
+async fn verify(
+    workers: &Workers,
+    stored: String,
+    password: Password,
+) -> Result<(bool, Password), Internal> {
+    workers
+        .run("verify_password", move || {
+            let matches = Argon2::default()
+                .verify_password(password.bytes(), stored.as_str())
+                .is_ok();
+            (matches, password)
+        })
+        .await
+        .map_err(Internal::new)
 }
 
 /// Proves the principal of an access token for `platform::authn` (AUTH-009).

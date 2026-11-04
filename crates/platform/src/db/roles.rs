@@ -7,7 +7,7 @@ use sqlx::{AssertSqlSafe, ConnectOptions, Connection, PgConnection};
 
 use super::DatabaseUrl;
 use crate::{
-    blocking,
+    blocking::{self, Workers},
     config::{BootstrapConfig, Environment},
     types::Secret,
 };
@@ -55,15 +55,16 @@ pub enum BootstrapError {
     Failed(#[source] sqlx::Error),
     /// The thread that computes a password verifier stopped before it finished.
     #[error("can't compute a password verifier")]
-    Verifier(#[source] tokio::task::JoinError),
+    Verifier(#[source] blocking::Failed),
 }
 
 /// Creates or updates the roles `owner` and `app`, then grants them their privileges on the
 /// database the URLs name (PLATFORM-010). Running it again leaves the roles, their attributes
 /// and settings, and the grants as they are, and sets each role's password to the one in its
 /// URL. In production, it first refuses a server that holds another database of the roles
-/// (PLATFORM-077); development and the tests keep all their databases on one server.
-pub async fn bootstrap(config: &BootstrapConfig) -> Result<(), BootstrapError> {
+/// (PLATFORM-077); development and the tests keep all their databases on one server. It computes
+/// the roles' password verifiers through `workers`.
+pub async fn bootstrap(config: &BootstrapConfig, workers: &Workers) -> Result<(), BootstrapError> {
     let database = config.admin.database();
     if config.owner.database() != database || config.app.database() != database {
         return Err(BootstrapError::DifferentDatabases);
@@ -74,7 +75,9 @@ pub async fn bootstrap(config: &BootstrapConfig) -> Result<(), BootstrapError> {
     {
         return Err(BootstrapError::SharedServer(other));
     }
-    admin.create_roles(&config.owner, &config.app).await?;
+    admin
+        .create_roles(&config.owner, &config.app, workers)
+        .await?;
     admin.grant_database().await?;
     admin.close().await
 }
@@ -105,7 +108,7 @@ impl Admin {
     }
 
     /// Creates the roles `owner` and `app` with their attributes, and sets each role's password
-    /// to the one in its URL. The `app` role also gets its timeouts (DATA-19) and its isolation
+    /// to the one in its URL, computing its verifier through `workers`. The `app` role also gets its timeouts (DATA-19) and its isolation
     /// level (DATA-25). An existing role is given `LOGIN` and keeps its other attributes,
     /// because changing some of them takes a superuser, which a managed provider's admin role
     /// isn't; `serve` refuses a role whose attributes are unsafe (PLATFORM-009). Roles belong
@@ -114,9 +117,10 @@ impl Admin {
         &mut self,
         owner: &DatabaseUrl,
         app: &DatabaseUrl,
+        workers: &Workers,
     ) -> Result<(), BootstrapError> {
-        self.create_role(OWNER, owner).await?;
-        self.create_role(APP, app).await?;
+        self.create_role(OWNER, owner, workers).await?;
+        self.create_role(APP, app, workers).await?;
         self.execute(format!(
             "ALTER ROLE {app} SET statement_timeout = {statement};
              ALTER ROLE {app} SET idle_in_transaction_session_timeout = {idle};
@@ -173,7 +177,12 @@ impl Admin {
         self.conn.close().await.map_err(BootstrapError::Failed)
     }
 
-    async fn create_role(&mut self, role: &str, url: &DatabaseUrl) -> Result<(), BootstrapError> {
+    async fn create_role(
+        &mut self,
+        role: &str,
+        url: &DatabaseUrl,
+        workers: &Workers,
+    ) -> Result<(), BootstrapError> {
         let exists = sqlx::query_scalar!(
             r#"SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1) AS "exists!""#,
             role,
@@ -183,7 +192,7 @@ impl Admin {
         .map_err(BootstrapError::Failed)?;
         // The password travels as a SCRAM verifier, so the clear text never reaches the
         // server, where statement logging or pg_stat_statements could record it.
-        let verifier = verifier(url.password()).await?;
+        let verifier = verifier(workers, url.password()).await?;
         let attributes = if exists { "LOGIN" } else { ATTRIBUTES };
         let verb = if exists { "ALTER" } else { "CREATE" };
         self.execute(format!(
@@ -209,14 +218,15 @@ impl Admin {
 }
 
 /// The SCRAM-SHA-256 verifier of `password`. It hashes the password thousands of times, so it
-/// runs on a blocking thread (CODE-05).
-async fn verifier(password: &Secret<String>) -> Result<String, BootstrapError> {
+/// runs through `workers` (CODE-05).
+async fn verifier(workers: &Workers, password: &Secret<String>) -> Result<String, BootstrapError> {
     let password = password.clone();
-    blocking::run("scram verifier", move || {
-        postgres_protocol::password::scram_sha_256(password.expose().as_bytes())
-    })
-    .await
-    .map_err(BootstrapError::Verifier)
+    workers
+        .run("scram verifier", move || {
+            postgres_protocol::password::scram_sha_256(password.expose().as_bytes())
+        })
+        .await
+        .map_err(BootstrapError::Verifier)
 }
 
 /// `name` quoted as an SQL identifier.

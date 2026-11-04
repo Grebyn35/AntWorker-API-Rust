@@ -34,7 +34,7 @@ CI runs clippy with `-D warnings` and the lint set in `[workspace.lints]`. That 
 ### CODE-05 No blocking calls in async code
 Code the API runs never blocks its async runtime:
 - Blocking file I/O is banned through `disallowed-methods` in `clippy.toml`.
-- CPU-heavy work, such as password hashing, runs on a blocking thread, through the `platform` helper that moves it there and adds its span (OBS-06).
+- CPU-heavy work, such as password hashing, runs on a blocking thread, through the `platform` helper that moves it there, adds its span (OBS-06) and gives it its turn (OPS-07). No other code moves work to a blocking thread.
 - A dependency that blocks inside an async call is allowed only where the spec of the area that uses it names the call and when it runs.
 
 Tests and the test support may block, because each test runs on an async runtime of its own.

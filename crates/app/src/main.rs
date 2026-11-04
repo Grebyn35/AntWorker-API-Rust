@@ -10,6 +10,7 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use platform::{
+    blocking::Workers,
     clock::{SharedClock, SystemClock},
     config::{
         BootstrapConfig, ConfigError, Environment, HealthConfig, MigrateConfig, ServerConfig,
@@ -118,7 +119,7 @@ where
 }
 
 async fn bootstrap(config: BootstrapConfig) -> ExitCode {
-    match platform::db::bootstrap(&config).await {
+    match platform::db::bootstrap(&config, &Workers::new()).await {
         Ok(()) => {
             tracing::info!(
                 { names::DB_NAMESPACE } = config.admin.database(),
@@ -165,28 +166,24 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         Ok(socket) => socket,
         Err(error) => return failed("listen", &error),
     };
-    let services = match app::compose(
-        &database,
-        &config,
-        modules,
-        clock.clone(),
-        readiness.clone(),
-        listener,
-    )
-    .await
-    {
+    let resources = app::Resources {
+        database,
+        clock,
+        readiness,
+        workers: Workers::new(),
+    };
+    let services = match app::compose(&resources, &config, modules, listener).await {
         Ok(services) => services,
         Err(error) => return failed("services", &error),
     };
-    let pipeline = app::pipeline(
-        &config,
-        &database,
-        &services,
-        clock.clone(),
-        readiness.clone(),
-        SERVICE,
-    );
+    let pipeline = app::pipeline(&resources, &config, &services, SERVICE);
     let app = platform::http::app(services.routes, pipeline);
+    let app::Resources {
+        database,
+        clock,
+        readiness,
+        ..
+    } = resources;
     let shutdown = Shutdown {
         delay: config.shutdown_delay,
         drain: config.shutdown_drain,
@@ -238,25 +235,21 @@ async fn seed((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         Err(code) => return code,
     };
     let clock: SharedClock = Arc::new(SystemClock);
-    let readiness = Readiness::new();
     let listener = match platform::events::listen(&database, clock.as_ref()).await {
         Ok(listener) => listener,
         Err(error) => return failed("listener", &error),
     };
-    let services = match app::compose(
-        &database,
-        &config,
-        modules,
-        clock.clone(),
-        readiness.clone(),
-        listener,
-    )
-    .await
-    {
+    let resources = app::Resources {
+        database,
+        clock,
+        readiness: Readiness::new(),
+        workers: Workers::new(),
+    };
+    let services = match app::compose(&resources, &config, modules, listener).await {
         Ok(services) => services,
         Err(error) => return failed("services", &error),
     };
-    let pipeline = app::pipeline(&config, &database, &services, clock, readiness, SERVICE);
+    let pipeline = app::pipeline(&resources, &config, &services, SERVICE);
     match app::seed(platform::http::app(services.routes, pipeline)).await {
         Ok(report) => {
             print_seeded(&report);
