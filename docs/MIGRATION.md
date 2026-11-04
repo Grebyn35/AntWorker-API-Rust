@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** the rest of step 3, the rule fixes: the OPS-17 gap of the reach after a restore (Known gaps); the threat model; the deletion pass over OBS, OPS and SEC; a review of the round's part since 47d89d1; then the renumbering. 3c57546's message holds the counts the round's last commit compares with. Nothing waits on the owner. The weekly job of `scheduled.yml` on Windows (D77) hasn't run yet: once `main` holds it, run the workflow on demand, and fix what it finds. A development database made before 2e0e179 is recreated, as CLAUDE.md says. The trial server runs 0.1.0-rc.11, its Grafana Cloud stack's alerts reach no contact point yet, and the first restore after its next release, whose deploy needs `--allow-restart`, measures the checks' waits that backups.md leaves unmeasured. The owner releases when it needs `main`.
+**Next:** the rest of step 3, the rule fixes: the OPS-17 gap of the reach after a restore (Known gaps); the threat model; the deletion pass over OBS, OPS and SEC; a review of the round's part since 47d89d1; then the renumbering. 3c57546's message holds the counts the round's last commit compares with. Nothing waits on the owner. A development database made before 2e0e179 is recreated, as CLAUDE.md says. The trial server runs 0.1.0-rc.11, its Grafana Cloud stack's alerts reach no contact point yet, and the first restore after its next release, whose deploy needs `--allow-restart`, measures the checks' waits that backups.md leaves unmeasured. The owner releases when it needs `main`.
 
 ## Build order
 
