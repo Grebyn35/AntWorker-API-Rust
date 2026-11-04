@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** the last of step 3, the rule fixes: the deletion pass over the OBS, OPS and SEC rules, which deletes each rule that no code needed or that only restates another, and decides the OPS-17 proposal on a restore's failed mark (Rule proposals), with a review of its own, whose scope starts at 7081b7e, so that it covers the bound on CPU-heavy work (PLATFORM-078) too; then the renumbering of rule and behavior IDs. 3c57546's message holds the counts that the round's last commit compares with. Nothing waits on the owner. A development database made before 685ca13 is recreated, as CLAUDE.md says. The trial server runs 0.1.0-rc.11, and its Grafana Cloud stack's alerts reach no contact point yet. Its next release changes the Postgres image, so its deploy needs `--allow-restart`, and the first restore after it measures the checks' waits that backups.md leaves unmeasured. The owner releases when it needs `main`.
+**Next:** the last of step 3, the rule fixes: the deletion pass over the OBS, OPS and SEC rules, which deletes each rule that no code needed or that only restates another, with a review of its own, whose scope starts at 7081b7e, so that it covers the bound on CPU-heavy work (PLATFORM-078) too; then the renumbering of rule and behavior IDs. 3c57546's message holds the counts that the round's last commit compares with. Nothing waits on the owner. A development database made before 685ca13 is recreated, as CLAUDE.md says. The trial server runs 0.1.0-rc.11, and its Grafana Cloud stack's alerts reach no contact point yet. Its next release changes the Postgres image, so its deploy needs `--allow-restart`, and the first restore after it measures the checks' waits that backups.md leaves unmeasured. The owner releases when it needs `main`.
 
 ## Build order
 
@@ -132,7 +132,6 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 3c57546 | ARCH-07: `check-parts` also reads the tests in the files of a part without a module, such as an OAuth provider's, which it skips now | 5, with the first OAuth provider |
 | Deciding D73 | ARCH-07: whether a fork chooses its shape with one command, which removes the parts the shape doesn't keep, then the markers of the parts it keeps, the runs, and the removal's tooling and checks, since a fork that keeps every part removes nothing, and its own code that names a kept part fails `check-parts` and `check-removable` until it carries the part's marker | 6, with `just rename` |
 | The owner's decision on second factors (D63) | Whether a second factor can be required beyond superadmins: of every user, by a setting of the deployment, or of a workspace's members, by its owner, as Slack and GitHub let an organization require it of its members | 5, with the full `auth` module |
-| Conformance review of 47d89d1..a82623d | OPS-17: a restore whose mark of the full backup it starts from fails, as when the bucket stops answering after step 1's checks, starts Postgres and the replicas again and refuses, as a failed transaction of step 1 does; now it exits with them stopped and the data in place, which leaves the API down, a failure that backups.md's list leaves out | 3, with the OPS rules' deletion pass |
 
 
 ## Conformance reviews

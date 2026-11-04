@@ -657,7 +657,7 @@ async fn ops_17_a_restore_refuses_while_the_log_doesn_t_reach_the_bucket_unless_
         lossy(&refused)
     );
     assert!(
-        !lossy(&refused).contains("stopping the API and the backups"),
+        !lossy(&refused).contains("stopping the backups"),
         "{}",
         lossy(&refused)
     );
@@ -730,9 +730,9 @@ async fn ops_17_a_restore_whose_replay_can_t_fetch_a_segment_fails_rather_than_e
     assert_eq!(status, 503);
 }
 
-/// The line a restore writes once its first check has passed, before the replicas stop and its
-/// transaction commits.
-const STOPPING: &str = "stopping the API and the backups";
+/// The line a restore writes once its first check has passed and it has marked its full backup,
+/// before the replicas stop and its transaction commits.
+const STOPPING: &str = "stopping the API's replicas";
 
 /// Checks that `written`, what a restore that failed wrote, says it refused once the replicas had
 /// stopped, and that the deployment serves the database as the restore found it.
@@ -798,6 +798,39 @@ async fn ops_17_a_restore_whose_transaction_fails_once_the_replicas_stop_serves_
     local_connections(&deployment, true);
 
     served_again_and_refused(&deployment, refused, &refusal);
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_whose_mark_fails_refuses_with_the_api_serving() {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('kept');",
+    );
+
+    // A backup that the bucket doesn't hold, as when an expire removed it after the restore
+    // planned it, fails the mark as a bucket that stops answering does.
+    let refused = deployment
+        .server
+        .deploy(&["restore", "", "20000101-000000F", "1"]);
+
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains("couldn't mark the full backup 20000101-000000F"),
+        "{}",
+        lossy(&refused)
+    );
+    assert!(!lossy(&refused).contains(STOPPING), "{}", lossy(&refused));
+    assert_eq!(deployment.server.running("api-blue").len(), 2);
+    assert_eq!(deployment.server.running("backup").len(), 1);
+    let (status, _) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/capabilities"),
+    );
+    assert_eq!(status, 200);
+    assert_eq!(deployment.sql("SELECT name FROM restore_marker"), "kept");
 }
 
 #[tokio::test]
