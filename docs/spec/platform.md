@@ -417,7 +417,7 @@ The metrics `platform` records are in the catalog, each with the file that decla
 
 ### Clock
 
-`Clock` is a trait with two implementations (ARCH-13): the system clock, and the test clock, which only the `test-support` feature compiles. `now` reads the time, and `sleep` waits. A test clock's `sleep` completes when the test advances the clock past its deadline (TEST-07). Every wait in the workspace goes through it (CODE-06), the readiness checks and the shutdown delay included.
+`Clock` is a trait with two implementations (ARCH-13): the system clock, and the test clock, which only the `test-support` feature compiles. `now` reads the time, and `sleep` waits. A test clock's `sleep` completes when the test advances the clock past its deadline (TEST-07). Every wait in the workspace but the tests' watch goes through it (CODE-06), the readiness checks and the shutdown delay included.
 
 ### Workers
 

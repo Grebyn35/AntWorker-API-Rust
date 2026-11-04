@@ -811,18 +811,22 @@ async fn ops_17_a_restore_whose_mark_fails_refuses_with_the_api_serving() {
     );
 
     // A backup that the bucket doesn't hold, as when an expire removed it after the restore
-    // planned it, fails the mark as a bucket that stops answering does.
-    let refused = deployment
-        .server
-        .deploy(&["restore", "", "20000101-000000F", "1"]);
+    // planned it, fails the mark as a bucket that stops answering does, whatever the options.
+    let refusals = [&[][..], &["--allow-unarchived"][..]].map(|options| {
+        deployment
+            .server
+            .deploy(&[&["restore", "", "20000101-000000F", "1"][..], options].concat())
+    });
 
-    assert!(!refused.status.success(), "{}", lossy(&refused));
-    assert!(
-        lossy(&refused).contains("couldn't mark the full backup 20000101-000000F"),
-        "{}",
-        lossy(&refused)
-    );
-    assert!(!lossy(&refused).contains(STOPPING), "{}", lossy(&refused));
+    for refused in &refusals {
+        assert!(!refused.status.success(), "{}", lossy(refused));
+        assert!(
+            lossy(refused).contains("couldn't mark the full backup 20000101-000000F"),
+            "{}",
+            lossy(refused)
+        );
+        assert!(!lossy(refused).contains(STOPPING), "{}", lossy(refused));
+    }
     assert_eq!(deployment.server.running("api-blue").len(), 2);
     assert_eq!(deployment.server.running("backup").len(), 1);
     let (status, _) = get(

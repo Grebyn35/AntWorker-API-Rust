@@ -33,7 +33,7 @@ On a developer's machine, `just ci` runs what CI runs: `just checks`, `just chec
 | Check | `just` task | Enforces |
 |---|---|---|
 | Formatting | `fmt-check` | CODE-02 |
-| Clippy, with warnings as errors, on every target with every feature | `lint` | CODE-03 to CODE-06, CODE-08, CODE-14, CODE-15, TEST-07 (sleeps in tests), ERR-11 (results dropped with `.ok()`), API-14 and API-17 (routes registered outside `platform::http`), DATA-20 (the query functions and string-SQL executor methods outside the macros), DATA-21 (pools, connections, transactions and the listener outside `platform::db`), OBS-11 (OpenTelemetry's meters outside the declaration types) |
+| Clippy, with warnings as errors, on every target with every feature | `lint` | CODE-03 to CODE-06, CODE-08, CODE-14, CODE-15, TEST-07 (sleeps and timed waits in tests, and the system clock), ERR-11 (results dropped with `.ok()`), API-14 and API-17 (routes registered outside `platform::http`), DATA-20 (the query functions and string-SQL executor methods outside the macros), DATA-21 (pools, connections, transactions and the listener outside `platform::db`), OBS-11 (OpenTelemetry's meters outside the declaration types) |
 | Tests, against Postgres | `test` | Every behavior and rule a test proves |
 | Dependencies: advisories, bans and sources for every target, and licenses for each target the API is built for | `deny` | CODE-11, CODE-12, SEC-13, SEC-14 |
 | The map from spec behaviors to tests | `check-test-map` | TEST-01, DOC-10 |

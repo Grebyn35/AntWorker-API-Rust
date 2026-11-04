@@ -60,10 +60,8 @@ async fn platform_078_a_work_waits_while_every_turn_is_taken_and_starts_once_one
     let running = gate.take_every_turn(&workers).await;
 
     let waiting = gate.start(&workers);
-    gate.until_waiting(&workers, 1).await;
-    assert_eq!(workers.free(), 0);
     assert_eq!(
-        gate.started_yet(),
+        gate.waits_or_starts(&workers, 1).await,
         None,
         "a work waits while every turn is taken"
     );
@@ -88,7 +86,7 @@ async fn platform_078_a_work_keeps_its_turn_until_it_ends_and_a_caller_that_stop
     let running = gate.take_every_turn(&workers).await;
     let gave_up = gate.start(&workers);
     let waiting = gate.start(&workers);
-    gate.until_waiting(&workers, 2).await;
+    assert_eq!(gate.waits_or_starts(&workers, 2).await, None);
 
     // The callers of the running works and of the first waiting one stop waiting, as a request
     // past its timeout does.
@@ -98,10 +96,9 @@ async fn platform_078_a_work_keeps_its_turn_until_it_ends_and_a_caller_that_stop
     for caller in running.into_iter().chain([gave_up]) {
         assert!(caller.await.unwrap_err().is_cancelled());
     }
-    assert_eq!(workers.waiting(), 1, "the caller that stopped waiting left");
     assert_eq!(
-        workers.free(),
-        0,
+        gate.waits_or_starts(&workers, 1).await,
+        None,
         "the works whose callers stopped waiting keep their turns"
     );
     gate.end(0);
@@ -112,7 +109,6 @@ async fn platform_078_a_work_keeps_its_turn_until_it_ends_and_a_caller_that_stop
     );
     gate.end_all();
     waiting.await.unwrap();
-    assert_eq!(workers.waiting(), 0);
     assert_eq!(
         gate.started_yet(),
         None,
@@ -160,13 +156,20 @@ impl Gate {
         for _ in &callers {
             self.next_started().await;
         }
-        assert_eq!(workers.free(), 0, "every turn is taken");
         callers
     }
 
-    /// Waits until `count` callers of `workers` wait for a turn.
-    async fn until_waiting(&self, workers: &Workers, count: usize) {
-        while workers.waiting() != count {
+    /// Waits until `count` callers of `workers` wait for a turn while no turn is free, and returns
+    /// `None`, or until a work starts, and returns it. A turn that comes free while callers wait
+    /// goes to one of them, whose work then starts, so the wait ends either way.
+    async fn waits_or_starts(&mut self, workers: &Workers, count: usize) -> Option<usize> {
+        loop {
+            if let Some(work) = self.started_yet() {
+                return Some(work);
+            }
+            if workers.waiting() == count && workers.free() == 0 {
+                return None;
+            }
             tokio::task::yield_now().await;
         }
     }
