@@ -63,7 +63,7 @@ So a line that names an optional part either exists only for it, and carries its
 ### ARCH-08 Handlers only extract, authorize, call and respond
 A handler in `routes.rs` extracts its inputs, receives its authorization through its extractor types, calls one service function, and shapes the response. It contains no SQL and no business rules.
 - Why: business rules live in exactly one layer.
-- Check: `ci: check-layers` (no `sqlx` in a module's routes, and no handler calls `check` on the `RateLimits` it extracts, which the service counts), plus `review`.
+- Check: `ci: check-layers` (no `sqlx` in a module's routes, no handler calls `check` on the `RateLimits` it extracts, which the service counts, and no handler calls a second method of what its `State` extracts, or a second function of its module's `service`), plus `review`.
 
 ### ARCH-09 Services contain no HTTP types
 `service.rs` doesn't use `axum`, `http`, or request and response types.

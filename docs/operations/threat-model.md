@@ -9,7 +9,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 - **Personal data:** email addresses and names, and the client IP addresses and user agents that audit entries record (SEC-16).
 - **The audit logs:** who did what, which an attacker would want to change or erase.
 - **Secrets:** the key of every keyed hash, such as a rate-limit bucket's key (PLATFORM-051), the database roles' passwords, the password of the mail server, reached over the Simple Mail Transfer Protocol (SMTP), the backups' encryption passphrase, the bucket's key pair, and Grafana's credentials (SEC-01).
-- **The backups**, which hold all of the above, in a bucket off the server.
+- **The backups**, which hold the database, and so all of the above but the secrets, in a bucket off the server ([what is backed up](backups.md#what-is-backed-up)).
 - **The deployment's server**, its Postgres, and its observability stack.
 
 ## Trust boundaries
@@ -37,7 +37,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | Locking an account's owner out by failing their sign-ins | The sign-in limits, and the device tokens of the devices the owner signed in on (AUTH-019, [below](#sign-in-limits)) |
 | Learning which emails have accounts | One answer, after the same hashing work, for an unknown email, an account without a password and a wrong password (SEC-05, AUTH-005); registration's answer is the exception SEC-05 accepts, under the IP limit |
 | Cracking a stolen password hash | Argon2id at the parameters that the Open Worldwide Application Security Project (OWASP) recommends, rehashed when they rise (SEC-04, AUTH-014) |
-| Using a stolen session token | Tokens are random and stored only as hashes (SEC-03, AUTH-007); an access token lasts an hour, and every session has an absolute lifetime (SEC-06); a refresh token works once, and its reuse ends the session (AUTH-012); signing out ends it at once, streams included (AUTH-013) |
+| Using a stolen session token | Tokens are random and stored only as hashes (SEC-03, AUTH-007); an access token is short-lived, and every session has an absolute lifetime (SEC-06, AUTH-007); a refresh token works once, and its reuse ends the session (AUTH-012); signing out ends it at once, streams included (AUTH-013) |
 | A script on a page reading a browser's tokens | Browsers get their tokens only in `HttpOnly` cookies (SEC-19, AUTH-015) |
 | Another site's page acting with a browser's cookies | `SameSite=Strict` cookies, and the cross-site check of requests whose method isn't safe (SEC-19, PLATFORM-053); the headers of cross-origin resource sharing (CORS) only for listed origins (PLATFORM-052) |
 | Signing in with a password alone | Accepted for users, with the controls that [Second factors](#second-factors) lists; required of superadmins (D62, D63) |
@@ -118,7 +118,7 @@ Requirement 6.3.3 of ASVS asks every user to sign in with more than one factor, 
 
 **The mitigating controls,** each in its home:
 
-- Passwords: at least 8 characters, refused when breached or guessable (AUTH-003), hashed with Argon2id (SEC-04, AUTH-014).
+- Passwords: of a length that AUTH-003 bounds, refused when breached or guessable (AUTH-003), hashed with Argon2id (SEC-04, AUTH-014).
 - Guessing and lockout: the [sign-in limits](#sign-in-limits), and failures that reveal nothing (SEC-05, AUTH-005).
 - Sessions: random tokens stored as hashes (SEC-03), bounded lifetimes (SEC-06, AUTH-007), a refresh token that works once and whose reuse ends the session (AUTH-012), signing out that ends it at once (AUTH-013), and browsers' tokens in cookies no script reads (SEC-19, AUTH-015).
 - Detection: each failed sign-in of an existing account is recorded in its audit log (AUTH-005), with the client's address and user agent (AUDIT-003), as is the reuse of a refresh token (AUTH-012).

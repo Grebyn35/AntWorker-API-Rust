@@ -67,8 +67,9 @@ fn ordered(uow: &mut UnitOfWork) {
     uow.order_with_events();
 }
 
-/// Signals that `user`'s membership in `workspace` started or ended, so their streams close once
-/// the unit of work commits (ACCESS-006, D35).
+/// Signals that `user`'s membership in `workspace` started or ended, so that, once the unit of
+/// work commits, the hub closes the streams of theirs that PLATFORM-017 says a membership change
+/// closes (ACCESS-006, D35).
 async fn changed(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,

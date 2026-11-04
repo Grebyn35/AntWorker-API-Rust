@@ -1,6 +1,7 @@
 //! Events: publishing them inside a unit of work, as a row of `events` that its commit positions
 //! and notifies (D1, DATA-27, PLATFORM-071); access-change signals, the notice, at commit, that a
-//! user's access changed, so that their streams close (D35, SEC-06); the real-time hub, which
+//! user's access changed, so that the streams it affects close (D35, SEC-06, PLATFORM-017); the
+//! real-time hub, which
 //! delivers what commits to the streams allowed to receive it (SEC-17); and the event catalog,
 //! which documents each event's payload (REALTIME-008).
 
@@ -175,12 +176,14 @@ impl AccessChange {
 
 /// A signal, as the hub receives it: the change, and the ID of the transaction that made it, as
 /// `pg_current_xact_id()` gives it, which tells the hub whether a stream's memberships hold the
-/// change (PLATFORM-017).
+/// change (PLATFORM-017). A replica of the release before sends none while a deploy runs both
+/// (DATA-10), and its signal closes every stream it names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 struct Signal {
     #[serde(flatten)]
     change: AccessChange,
-    transaction: u64,
+    #[serde(default)]
+    transaction: Option<u64>,
 }
 
 /// Sends `change` on the channel, with the ID of `uow`'s transaction, when `uow` commits, and

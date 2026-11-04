@@ -167,22 +167,31 @@ impl Cookies {
     /// The value of the session cookie `__Host-<name>`, or `None` when the request has none. A
     /// request that changes something and carries it without a listed `Origin` is refused.
     pub fn credential(&self, name: &str) -> Result<Option<&str>, RequestError> {
-        let value = self.value(name);
+        let full = format!("{HOST_PREFIX}{name}");
+        let value = self
+            .pairs
+            .iter()
+            .find(|(key, _)| *key == full)
+            .map(|(_, value)| value.as_str());
         if value.is_some() && !self.may_authenticate {
             return Err(RequestError::OriginNotAllowed);
         }
         Ok(value)
     }
 
-    /// The value of the cookie `__Host-<name>`, which authenticates no request, such as a device
-    /// token's (AUTH-015), or `None` when the request has none. The refusal of a session cookie
-    /// without a listed `Origin` doesn't apply to it (PLATFORM-053).
-    pub fn value(&self, name: &str) -> Option<&str> {
-        let full = format!("{HOST_PREFIX}{name}");
+    /// The cookies `__Host-<name>` whose names start with `prefix`, each with its name after
+    /// `__Host-`, for cookies that authenticate no request, such as browsers' device tokens
+    /// (AUTH-015). The refusal of a session cookie without a listed `Origin` doesn't apply to
+    /// them (PLATFORM-053).
+    pub fn starting_with(&self, prefix: &str) -> Vec<(&str, &str)> {
         self.pairs
             .iter()
-            .find(|(key, _)| *key == full)
-            .map(|(_, value)| value.as_str())
+            .filter_map(|(key, value)| {
+                key.strip_prefix(HOST_PREFIX)
+                    .filter(|name| name.starts_with(prefix))
+                    .map(|name| (name, value.as_str()))
+            })
+            .collect()
     }
 }
 

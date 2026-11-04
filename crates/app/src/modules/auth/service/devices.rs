@@ -10,7 +10,10 @@ use platform::{
 };
 
 use super::{Auth, SignIn};
-use crate::modules::auth::{model::DeviceToken, repo};
+use crate::modules::auth::{
+    model::{DEVICE_COOKIE, DeviceToken},
+    repo,
+};
 
 /// The kind of the keyed hash of a device token's email.
 const DEVICE_TOKEN_EMAIL: &str = "device_token_email";
@@ -23,15 +26,24 @@ const DEVICE_TOKEN_COOKIE: &str = "device_token_cookie";
 const COOKIE_HASH_BYTES: usize = 8;
 
 impl Auth {
-    /// The hash of the sign-in's device token, when it is valid for its email, read before any
-    /// limit counts the attempt, since it decides which limit does, in a unit of work of its own
-    /// that writes nothing (ARCH-11, AUTH-019).
+    /// The hash of the sign-in's device token, from its body, or else from the cookie of its
+    /// email, when it is valid for the email, read before any limit counts the attempt, since it
+    /// decides which limit does, in a unit of work of its own that writes nothing (ARCH-11,
+    /// AUTH-015, AUTH-019).
     pub(super) async fn trusted(
         &self,
         client: &Client,
         input: &SignIn,
     ) -> Result<Option<[u8; 32]>, Internal> {
-        let Some(token) = &input.device_token else {
+        let cookie = self.device_cookie(&input.email);
+        let from_cookie = || {
+            input
+                .device_cookies
+                .iter()
+                .find(|(name, _)| *name == cookie)
+                .map(|(_, token)| token)
+        };
+        let Some(token) = input.device_token.as_ref().or_else(from_cookie) else {
             return Ok(None);
         };
         let hash = sha256(token.expose().as_bytes());
@@ -65,6 +77,7 @@ impl Auth {
         .await?;
         Ok(DeviceToken {
             id,
+            cookie: self.device_cookie(email),
             token,
             expires_at,
         })
@@ -73,7 +86,7 @@ impl Auth {
     /// The name of the cookie, after `__Host-`, that holds a browser's device token for `email`:
     /// one for each account the browser signs in to, so that signing in to one leaves another's
     /// (AUTH-015). It holds part of a keyed hash of the email, so it shows no email.
-    pub(crate) fn device_cookie(&self, email: &EmailAddress) -> String {
+    fn device_cookie(&self, email: &EmailAddress) -> String {
         let hash = self
             .key
             .hash(DEVICE_TOKEN_COOKIE, email.as_str().as_bytes());
@@ -82,6 +95,6 @@ impl Auth {
             .take(COOKIE_HASH_BYTES)
             .map(|byte| format!("{byte:02x}"))
             .collect();
-        format!("device_token_{hex}")
+        format!("{DEVICE_COOKIE}{hex}")
     }
 }

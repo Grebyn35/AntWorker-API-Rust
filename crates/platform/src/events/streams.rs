@@ -57,7 +57,7 @@ struct Entry {
     memberships: Option<Read>,
     /// The transactions of the membership changes signalled while the subscription read the
     /// memberships, each of which they must hold, or the stream closes once they arrive.
-    unread: Vec<u64>,
+    unread: Vec<Option<u64>>,
     queue: mpsc::Sender<Arc<Event>>,
     /// Why the hub closed the stream, once it has.
     closed: watch::Sender<Option<Closed>>,
@@ -71,9 +71,10 @@ struct Read {
 }
 
 impl Read {
-    /// Whether the memberships hold the membership change that the transaction `id` made.
-    fn holds(&self, id: u64) -> bool {
-        self.snapshot.includes(id)
+    /// Whether the memberships hold the membership change that the transaction `id` made: never
+    /// for a signal that names none, as the release before sends (DATA-10).
+    fn holds(&self, id: Option<u64>) -> bool {
+        id.is_some_and(|id| self.snapshot.includes(id))
     }
 }
 
@@ -386,7 +387,7 @@ mod tests {
     }
 
     /// The signal that `user`'s membership changed, in the transaction `transaction`.
-    fn membership_changed(user: UserId, transaction: u64) -> Signal {
+    fn membership_changed(user: UserId, transaction: Option<u64>) -> Signal {
         Signal {
             change: AccessChange::MembershipChanged {
                 user_id: user,
@@ -410,7 +411,7 @@ mod tests {
         streams.activate(before.id, Memberships::default(), snapshot("150:150:"));
         streams.activate(after.id, Memberships::default(), snapshot("140:160:145"));
 
-        streams.changed(membership_changed(ada, 150));
+        streams.changed(membership_changed(ada, Some(150)));
 
         assert_eq!(closed(&before), Some(Closed::AccessChanged));
         assert_eq!(closed(&after), None);
@@ -424,7 +425,7 @@ mod tests {
         let before = register(&mut streams, ada);
         let after = register(&mut streams, ada);
 
-        streams.changed(membership_changed(ada, 150));
+        streams.changed(membership_changed(ada, Some(150)));
         let held = streams.activate(before.id, Memberships::default(), snapshot("140:160:150"));
         let holding = streams.activate(after.id, Memberships::default(), snapshot("151:151:"));
 
@@ -432,5 +433,29 @@ mod tests {
         assert_eq!(closed(&before), Some(Closed::AccessChanged));
         assert_eq!(holding, Some(0));
         assert_eq!(closed(&after), None);
+    }
+
+    #[test]
+    fn data_10_a_membership_signal_of_the_release_before_closes_every_stream_of_its_user() {
+        let mut streams = Streams::new("api".to_owned(), 0);
+        let ada = UserId::from_uuid(uuid::Uuid::new_v4());
+        let open = register(&mut streams, ada);
+        let opening = register(&mut streams, ada);
+        streams.activate(open.id, Memberships::default(), snapshot("151:151:"));
+        // The release before sends the change alone, with no transaction.
+        let signal: Signal = serde_json::from_value(serde_json::json!({
+            "kind": "membership_changed",
+            "user_id": ada,
+            "workspace_id": WorkspaceId::from_uuid(uuid::Uuid::new_v4()),
+        }))
+        .expect("the release before's signal parses");
+
+        streams.changed(signal);
+        let activated = streams.activate(opening.id, Memberships::default(), snapshot("151:151:"));
+
+        assert_eq!(signal.transaction, None);
+        assert_eq!(closed(&open), Some(Closed::AccessChanged));
+        assert_eq!(activated, None);
+        assert_eq!(closed(&opening), Some(Closed::AccessChanged));
     }
 }

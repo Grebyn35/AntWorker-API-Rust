@@ -46,6 +46,9 @@ pub(crate) struct SignIn {
     /// The device token the client holds, if any, which counts as none unless it is valid for the
     /// email (AUTH-019).
     pub(crate) device_token: Option<Secret<String>>,
+    /// A browser's device tokens, by the names of their cookies after `__Host-`, of which the
+    /// sign-in reads its email's when `device_token` is none (AUTH-015).
+    pub(crate) device_cookies: Vec<(String, Secret<String>)>,
 }
 
 /// What `auth` takes from the deployment.

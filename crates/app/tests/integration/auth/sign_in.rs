@@ -9,7 +9,7 @@ use crate::support::{
 };
 
 #[tokio::test]
-async fn auth_001_registering_creates_the_user_their_password_and_a_session() {
+async fn auth_001_registering_creates_the_user_their_password_a_session_and_a_device_token() {
     let api = Api::new().await;
 
     let response = api
@@ -37,6 +37,15 @@ async fn auth_001_registering_creates_the_user_their_password_and_a_session() {
             .await,
         [format!("{user_id} {session_id}")]
     );
+    let device_token = body["device_token"].as_str().unwrap();
+    assert_eq!(
+        db.owner_reads(&format!(
+            "SELECT user_id::text FROM device_tokens \
+             WHERE token_hash = sha256(convert_to('{device_token}', 'UTF8'))"
+        ))
+        .await,
+        [user_id]
+    );
     assert_eq!(
         db.owner_reads(
             "SELECT action || ' ' || scope || ' ' || user_id || ' ' || actor_user_id \
@@ -60,7 +69,13 @@ async fn auth_002_registering_an_email_in_use_answers_409_and_writes_nothing() {
     assert_eq!(response.status, 409);
     assert_eq!(response.json()["code"], "auth.email_in_use");
     let db = api.database();
-    for table in ["users", "identities", "sessions", "audit_entries"] {
+    for table in [
+        "users",
+        "identities",
+        "sessions",
+        "device_tokens",
+        "audit_entries",
+    ] {
         assert_eq!(
             db.owner_reads(&format!("SELECT count(*)::text FROM {table}"))
                 .await,

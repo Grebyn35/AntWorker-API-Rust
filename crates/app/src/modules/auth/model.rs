@@ -245,11 +245,16 @@ pub(crate) struct Tokens {
     pub(crate) refresh: Secret<String>,
 }
 
+/// What the name of a browser's device token's cookie starts with, after `__Host-` (AUTH-015).
+pub(crate) const DEVICE_COOKIE: &str = "device_token_";
+
 /// A device token, returned once, with when it expires (AUTH-019).
 #[derive(Clone)]
 pub(crate) struct DeviceToken {
     /// Its ID, which its audit entry names.
     pub(crate) id: uuid::Uuid,
+    /// The name of the cookie, after `__Host-`, that holds it in a browser: its email's (AUTH-015).
+    pub(crate) cookie: String,
     /// The token.
     pub(crate) token: Secret<String>,
     /// When it expires.

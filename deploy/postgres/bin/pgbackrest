@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Runs pgBackRest with the backup bucket's credentials and the backups' encryption passphrase.
-# It reads them from the secret files that Compose mounts, so they never stand in an environment
-# that `docker inspect` shows (SEC-01). It comes before pgBackRest itself in PATH, so every run
-# goes through it: the archiving of the write-ahead log, the backups and the restores.
+# It reads them from the secret files that Compose mounts, so they stand in the environment of
+# pgBackRest's process alone, and not in the container's, which `docker inspect` shows. It comes
+# before pgBackRest itself in PATH, so every run goes through it: the archiving of the write-ahead
+# log, the backups and the restores.
 #
 # Postgres's archive_command runs `pgbackrest --stanza=db archive-push %p`, the form pgBackRest
 # checks for. For that command, this records when an archive last succeeded and when one last

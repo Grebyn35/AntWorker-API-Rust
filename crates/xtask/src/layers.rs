@@ -1,7 +1,9 @@
 //! `check-layers`: each layer of a feature module keeps to its job, and the API's code builds
 //! HTTP clients only where SEC-09 allows.
 //! - A module's routes name no `sqlx`, and a handler calls `check` on no `RateLimits` it
-//!   extracts: it hands them to the service, which counts the per-action limit (ARCH-08).
+//!   extracts: it hands them to the service, which counts the per-action limit; and it calls at
+//!   most one service function, a method of what its `State` extracts, or a function of its
+//!   module's `service` (ARCH-08).
 //! - A module's service names no HTTP types: none of `axum`, `http` and the other crates of
 //!   HTTP, none of `platform::http` and its `Problem` response, and none of its routes' request
 //!   and response types (ARCH-09).
@@ -162,8 +164,8 @@ fn routes(source: &Source) -> Vec<Finding> {
 }
 
 /// ARCH-08: a handler calls `check` on no parameter of type `RateLimits`, since the service
-/// counts a per-action limit (the platform spec's Unit of work). The compiler reports a file that
-/// doesn't parse.
+/// counts a per-action limit (the platform spec's Unit of work), and calls at most one service
+/// function. The compiler reports a file that doesn't parse.
 fn limits_counted(file: &File) -> Vec<Finding> {
     let Ok(parsed) = syn::parse_file(&file.text) else {
         return Vec::new();
@@ -203,12 +205,37 @@ impl<'ast> Visit<'ast> for Handlers<'_> {
                 FnArg::Receiver(_) => None,
             })
             .collect();
-        let mut calls = Checks {
+        let states: Vec<String> = item
+            .sig
+            .inputs
+            .iter()
+            .filter_map(|input| match input {
+                FnArg::Typed(PatType { pat, .. }) => match &**pat {
+                    Pat::TupleStruct(state)
+                        if state
+                            .path
+                            .segments
+                            .last()
+                            .is_some_and(|last| last.ident == "State") =>
+                    {
+                        match state.elems.first() {
+                            Some(Pat::Ident(name)) => Some(name.ident.to_string()),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                },
+                FnArg::Receiver(_) => None,
+            })
+            .collect();
+        let mut calls = Calls {
             limits: &limits,
-            lines: Vec::new(),
+            states: &states,
+            checks: Vec::new(),
+            services: Vec::new(),
         };
         calls.visit_block(&item.block);
-        for line in calls.lines {
+        for line in calls.checks {
             self.findings.push(Finding::new(
                 self.path,
                 line,
@@ -216,27 +243,58 @@ impl<'ast> Visit<'ast> for Handlers<'_> {
                  which counts it (ARCH-08)",
             ));
         }
+        for line in calls.services.into_iter().skip(1) {
+            self.findings.push(Finding::new(
+                self.path,
+                line,
+                "a handler calls a second service function: it calls one (ARCH-08)",
+            ));
+        }
     }
 }
 
-/// The lines where a block calls `check` on one of `limits`.
-struct Checks<'a> {
+/// The lines where a block calls `check` on one of `limits`, and those where it calls a service
+/// function: a method of one of `states`, or a function of `service`.
+struct Calls<'a> {
     limits: &'a [String],
-    lines: Vec<usize>,
+    states: &'a [String],
+    checks: Vec<usize>,
+    services: Vec<usize>,
 }
 
-impl<'ast> Visit<'ast> for Checks<'_> {
+/// Whether `expr` is the bare name of one of `names`.
+fn names_one_of(expr: &Expr, names: &[String]) -> bool {
+    matches!(expr, Expr::Path(path) if path
+        .path
+        .get_ident()
+        .is_some_and(|ident| names.iter().any(|name| ident == name)))
+}
+
+impl<'ast> Visit<'ast> for Calls<'_> {
     fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
-        if call.method == "check"
-            && let Expr::Path(receiver) = &*call.receiver
-            && receiver
-                .path
-                .get_ident()
-                .is_some_and(|ident| self.limits.iter().any(|name| ident == name))
-        {
-            self.lines.push(call.method.span().start().line);
+        let line = call.method.span().start().line;
+        if call.method == "check" && names_one_of(&call.receiver, self.limits) {
+            self.checks.push(line);
+        }
+        if names_one_of(&call.receiver, self.states) {
+            self.services.push(line);
         }
         visit::visit_expr_method_call(self, call);
+    }
+
+    fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
+        if let Expr::Path(function) = &*call.func
+            && function.path.segments.len() > 1
+            && function
+                .path
+                .segments
+                .first()
+                .is_some_and(|first| first.ident == "service")
+        {
+            self.services
+                .push(function.path.segments[0].ident.span().start().line);
+        }
+        visit::visit_expr_call(self, call);
     }
 }
 
@@ -382,6 +440,32 @@ mod tests {
             ]
         );
         assert_eq!(findings(SERVICE, code), Vec::<String>::new());
+    }
+
+    #[test]
+    fn arch_08_a_handler_calls_one_service_function() {
+        let code = r#"
+            async fn one(State(auth): State<Arc<Auth>>, Json(request): Json<R>) -> R {
+                let input = Input::try_from(request)?;
+                created(auth.sign_in(input).await?)
+            }
+            async fn two(State(auth): State<Arc<Auth>>) -> R {
+                let name = auth.cookie(&email);
+                auth.sign_in(name).await
+            }
+            async fn both(State(database): State<Database>) -> R {
+                service::me(&database).await?;
+                service::list(&database).await
+            }
+            fn helper(auth: &Auth) { auth.a(); auth.b(); }
+        "#;
+        assert_eq!(
+            findings(ROUTES, code),
+            [
+                "a handler calls a second service function: it calls one (ARCH-08)",
+                "a handler calls a second service function: it calls one (ARCH-08)",
+            ]
+        );
     }
 
     #[test]
