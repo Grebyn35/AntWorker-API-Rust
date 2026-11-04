@@ -9,12 +9,14 @@ FROM postgres:18.6@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c66
 # pgBackRest comes from the PostgreSQL Global Development Group's repository, which the official
 # image already trusts, at an exact version. ca-certificates holds the certificate authorities
 # that a bucket's certificate is checked against, unless the deployment names an authority of its
-# own (OPS-20); the official image has none.
+# own (OPS-20); the official image has none. jq reads pgBackRest's info for the retention that
+# keeps the backups restores started from (retention.jq).
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends pgbackrest=2.59.3-1.pgdg13+1 ca-certificates=20250419+deb13u1 \
+    && apt-get install --yes --no-install-recommends pgbackrest=2.59.3-1.pgdg13+1 ca-certificates=20250419+deb13u1 jq=1.7.1-6+deb13u4 \
     && rm -rf /var/lib/apt/lists/* /var/log/apt /var/log/dpkg.log /var/cache/apt/*.bin
 
 COPY pgbackrest.conf /etc/pgbackrest/pgbackrest.conf
+COPY retention.jq /usr/local/lib/pgbackrest/retention.jq
 COPY --chmod=0755 bin/ /usr/local/bin/
 # The status directory, a volume that the backups share with the collector, belongs to the user
 # that Postgres and pgBackRest run as.

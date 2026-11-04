@@ -151,6 +151,7 @@ restore() {
     compose stop postgres
     stamp=$(date -u +%Y%m%dT%H%M%SZ)
     say "restoring the database${moment:+ as it stood at $moment}; the data it replaces moves to /var/lib/postgresql/18/before-restore-$stamp"
+    say "the bucket keeps the full backup ${set%%_*}, which the restore starts from, until a backup taken after the restore is as old as the retention"
     # As root, which owns the data directory's parent. Postgres starts only after a restore that
     # succeeded: on an empty data directory, it would create an empty database. A restore starts
     # from the backup, and replays along the timeline, that the plan names
@@ -158,16 +159,24 @@ restore() {
     # replay along the latest timeline, which together miss some moments, and the latest state
     # when the newest backup is on a timeline that a restore abandoned. The latest state's plan
     # names the latest timeline, which Postgres replays along without being told.
+    #
+    # First, the backup's full backup gets the annotation `restore-<time>`, the time before any
+    # backup of the restored database starts: the moments of the restored timeline before its
+    # first backup ends replay from the backup the restore starts from, and each expire keeps it
+    # until a backup that started after that time is as old as the retention
+    # (deploy/postgres/retention.jq). It's written before the restored database starts, and so
+    # before any backup that could expire it.
     # shellcheck disable=SC2016 # The script expands its arguments itself.
     compose run --rm --no-deps --quiet-pull --user root --entrypoint sh postgres -c '
         set -e
+        gosu postgres pgbackrest --stanza=db annotate --set="${3%%_*}" --annotation="restore-$5=$5"
         mv /var/lib/postgresql/18/docker "/var/lib/postgresql/18/before-restore-$1"
         install -d -o postgres -g postgres -m 0700 /var/lib/postgresql/18/docker
         if [ -n "$2" ]; then
             gosu postgres pgbackrest --stanza=db restore --set="$3" --type=time --target="$2" --target-timeline="$4" --target-action=promote
         else
             gosu postgres pgbackrest --stanza=db restore --set="$3"
-        fi' sh "$stamp" "$moment" "$set" "$timeline"
+        fi' sh "$stamp" "$moment" "$set" "$timeline" "$(date +%s)"
     if ! recovered; then
         # Postgres ended the replay where the log that the bucket holds along the timeline ends,
         # without reaching the moment: no commit or rollback that the bucket holds follows the

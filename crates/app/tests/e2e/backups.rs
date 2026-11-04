@@ -1,13 +1,17 @@
 //! The bundled database's backups and restores (OPS-17), on a server of the tests' own, with a
 //! stand-in bucket.
 
-use std::process::Output;
+use std::{
+    io::Write,
+    process::{Command, Output, Stdio},
+};
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::{
     deployment::{Deployment, get},
     docker::lossy,
+    images::Pushed,
     server::DEPLOYMENT,
 };
 
@@ -90,6 +94,172 @@ fn undoing(restored: &Output) -> String {
         "the restore names no moment that undoes it: {output}"
     );
     named.expect("the moment").to_owned()
+}
+
+/// What the Postgres image's retention.jq prints for pgBackRest's info listing `backups`, with
+/// a retention of 28 days, at `now`: the retention of the next expire, then each full backup it
+/// keeps beyond 28 days, with the time of the restore that marked it.
+fn retention(backups: &Value, now: i64) -> String {
+    let image = Pushed::postgres();
+    let mut jq = Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "--interactive",
+            "--platform",
+            image.platform(),
+        ])
+        .args(["--entrypoint", "jq", &image.on_host()])
+        .args([
+            "--raw-output",
+            "--argjson",
+            "days",
+            "28",
+            "--argjson",
+            "now",
+        ])
+        .args([
+            &now.to_string(),
+            "--from-file",
+            "/usr/local/lib/pgbackrest/retention.jq",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run docker");
+    jq.stdin
+        .take()
+        .expect("jq's input")
+        .write_all(json!([{ "backup": backups }]).to_string().as_bytes())
+        .expect("write pgBackRest's info");
+    let output = jq.wait_with_output().expect("wait for jq");
+    assert!(output.status.success(), "{}", lossy(&output));
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+/// A backup of pgBackRest's info: `label`, of `kind`, which started and ended at the times that
+/// `run` gives, in seconds since the epoch, with the annotation of a restore at `restored`, if
+/// one marked it.
+fn backup(label: &str, kind: &str, run: (i64, i64), restored: Option<i64>) -> Value {
+    let mut backup =
+        json!({ "label": label, "type": kind, "timestamp": { "start": run.0, "stop": run.1 } });
+    if let Some(at) = restored {
+        backup["annotation"] = json!({ format!("restore-{at}"): at.to_string() });
+    }
+    backup
+}
+
+#[test]
+fn ops_17_the_retention_keeps_the_full_backup_a_restore_started_from_until_a_backup_after_the_restore_is_as_old()
+ {
+    const DAY: i64 = 86_400;
+    let now = 1_800_000_000;
+    let ago = |days: i64| now - days * DAY;
+    let older = backup("F1", "full", (ago(70), ago(70) + 60), None);
+    // The next full backup after F1 ended 40 days ago: pgBackRest keeps F1 only with a retention
+    // of 41 days.
+    let next = backup("F2", "full", (ago(40) - 60, ago(40)), None);
+    let held = |restored: i64| backup("F1", "full", (ago(70), ago(70) + 60), Some(restored));
+    // A full backup taken right after a restore, which ended `days` ago.
+    let closing = |days: i64| backup("F3", "full", (ago(days) - 60, ago(days)), None);
+
+    let unmarked = retention(&json!([older, next]), now);
+    let marked = retention(&json!([held(ago(20) - 120), next, closing(20)]), now);
+    let unbacked = retention(&json!([held(ago(35)), next]), now);
+    let released = retention(&json!([held(ago(30) - 120), next, closing(30)]), now);
+    let newest = retention(
+        &json!([
+            older,
+            backup("F2", "full", (ago(40) - 60, ago(40)), Some(ago(20)))
+        ]),
+        now,
+    );
+    let young = retention(
+        &json!([
+            held(ago(9)),
+            backup("F2", "full", (ago(10) - 60, ago(10)), None)
+        ]),
+        now,
+    );
+    let diff = retention(
+        &json!([
+            held(ago(20) - 120),
+            backup("F1_D1", "diff", (ago(60), ago(60) + 30), None),
+            next,
+            closing(20)
+        ]),
+        now,
+    );
+
+    assert_eq!(unmarked, "28");
+    assert_eq!(marked, format!("41\nF1 {}", ago(20) - 120));
+    assert_eq!(
+        unbacked,
+        format!("41\nF1 {}", ago(35)),
+        "no backup since the restore"
+    );
+    assert_eq!(
+        released, "28",
+        "a backup since the restore is older than 28 days"
+    );
+    assert_eq!(newest, "28", "no full backup follows the marked one");
+    assert_eq!(young, "28", "28 days keep the marked one");
+    assert_eq!(
+        diff,
+        format!("41\nF1 {}", ago(20) - 120),
+        "a differential backup isn't the next full one"
+    );
+}
+
+#[tokio::test]
+async fn ops_17_a_restore_marks_the_full_backup_it_starts_from_in_the_bucket() {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('early');",
+    );
+    let early = deployment.sql("SELECT now()");
+    // A full backup after the moment, which the restore goes back past.
+    let backed_up = deployment.server.deploy(&["backup"]);
+    assert!(backed_up.status.success(), "{}", lossy(&backed_up));
+    archive_everything_committed(&deployment);
+    let before = deployment.sql("SELECT extract(epoch FROM now())::bigint");
+
+    let restored = deployment.restore(Some(&early));
+
+    let after = deployment.sql("SELECT extract(epoch FROM now())::bigint");
+    assert!(restored.status.success(), "{}", lossy(&restored));
+    let backups = backups(&deployment);
+    let first = backups[0]["label"]
+        .as_str()
+        .expect("the first deploy's backup");
+    assert!(
+        lossy(&restored).contains(&format!(
+            "the bucket keeps the full backup {first}, which the restore starts from"
+        )),
+        "{}",
+        lossy(&restored)
+    );
+    let marks: Vec<(String, Value)> = backups
+        .iter()
+        .flat_map(|backup| {
+            let label = backup["label"].as_str().unwrap_or_default().to_owned();
+            backup["annotation"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(move |(key, value)| (format!("{label} {key}"), value.clone()))
+        })
+        .collect();
+    assert_eq!(marks.len(), 1, "{marks:?}");
+    let (mark, at) = &marks[0];
+    let at: i64 = at.as_str().and_then(|at| at.parse().ok()).expect("a time");
+    assert_eq!(*mark, format!("{first} restore-{at}"));
+    let (before, after): (i64, i64) = (before.parse().unwrap(), after.parse().unwrap());
+    assert!((before..=after).contains(&at), "{before} {at} {after}");
 }
 
 #[tokio::test]

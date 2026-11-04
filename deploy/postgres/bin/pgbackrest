@@ -18,6 +18,12 @@
 # read, or another for a bucket that doesn't answer. So this exits 255 for every error, and a
 # replay that can't fetch a segment fails the restore, rather than ending short of what the
 # bucket holds (OPS-17).
+#
+# For `backup`, whose end expires what the retention lets go, and for `expire`, this gives
+# pgBackRest the retention that /usr/local/lib/pgbackrest/retention.jq reads from the bucket's
+# info: BACKUP_RETENTION_DAYS, raised to keep each full backup that a restore started from until a
+# backup taken after the restore is that old, so a restore never shortens the reach (OPS-17). A
+# backup whose retention it can't read expires nothing, and the next one does.
 set -euo pipefail
 
 secrets=/run/secrets
@@ -43,6 +49,27 @@ case " $* " in
         case $code in
             0 | 1) exit "$code" ;;
             *) exit 255 ;;
+        esac
+        ;;
+    *" backup "* | *" expire "*)
+        days=${PGBACKREST_REPO1_RETENTION_FULL:?the retention in days, from BACKUP_RETENTION_DAYS}
+        if computed=$(/usr/bin/pgbackrest --stanza=db info --output=json |
+            jq -r --argjson days "$days" --argjson now "$(date +%s)" -f /usr/local/lib/pgbackrest/retention.jq); then
+            retention=${computed%%$'\n'*}
+            tail -n +2 <<< "$computed" | while read -r full restored; do
+                printf '%s\n' "keeping the full backup $full, which the restore of $(date -u -d "@$restored" '+%Y-%m-%d %H:%M:%S+00') started from, until a backup taken after that restore is $days days old" >&2
+            done
+            exec /usr/bin/pgbackrest "$@" --repo1-retention-full="$retention"
+        fi
+        case " $* " in
+            *" backup "*)
+                printf '%s\n' "couldn't read the retention that keeps the backups restores started from, with the error above, so this backup expires nothing; the next one does" >&2
+                exec /usr/bin/pgbackrest "$@" --no-expire-auto
+                ;;
+            *)
+                printf '%s\n' "couldn't read the retention that keeps the backups restores started from, with the error above, so nothing expires" >&2
+                exit 1
+                ;;
         esac
         ;;
     *) exec /usr/bin/pgbackrest "$@" ;;
