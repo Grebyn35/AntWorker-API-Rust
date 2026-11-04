@@ -113,4 +113,6 @@ What an address proves follows whether the deployment sends email (D67). The flo
 
 ## Open design questions
 
-None.
+| Question | Settled by |
+|---|---|
+| How password reset's limits, on sending its email and on checking what the email carries, keep an attacker who knows an account's email from locking its owner out of resetting, as the sign-in limits keep them from locking the owner out of signing in (AUTH-006, AUTH-019, requirement 6.1.1 of ASVS): such as counting per email and client address beside a looser count per email, and letting a device with a valid device token skip the shared count. A link that carries a token too long to guess needs no limit on checking it (SEC-12) | the full `auth` module, in step 5 |
