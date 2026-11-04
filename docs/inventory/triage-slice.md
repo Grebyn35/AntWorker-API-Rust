@@ -70,8 +70,8 @@ The old data layer's behaviors that `platform::db` replaces. The schema behavior
 | DATA-027 Transaction helpers | changed | ARCH-11, PLATFORM-024 | One `UnitOfWork`, opened by the route and committed by the service |
 | DATA-028 `_in_tx` methods re-activate context | dropped | | No row-level security (D4) |
 | DATA-029 Database error classification and HTTP mapping | changed | ERR-04, ERR-05 | A repository maps each constraint it relies on, and every other database failure is `Internal`. The status for an unreachable database comes with the HTTP errors |
-| DATA-030 Service-layer database retry | dropped | | Nothing inside the API retries a transaction: locks are taken in a consistent order, and a deadlock is a defect (DATA-25). Jobs keep their retry (OPS-10) |
-| DATA-031 Background-task retry | changed | PLATFORM-013 | Jobs retry with backoff, then move to a dead-letter state (OPS-10) |
+| DATA-030 Service-layer database retry | dropped | | Nothing inside the API retries a transaction: locks are taken in a consistent order, and a deadlock is a defect (DATA-25). Jobs keep their retry (PLATFORM-013) |
+| DATA-031 Background-task retry | changed | PLATFORM-013 | Jobs retry with backoff, then move to a dead-letter state |
 | DATA-034 Connection pool | changed | PLATFORM-009 | `DATABASE_MAX_CONNECTIONS`, 10 by default; a 5-second acquire timeout as a constant; no minimum connections |
 | DATA-036 Repository access split | dropped | | No repositories that bypass row-level security (D4, D22) |
 
@@ -137,4 +137,4 @@ The old HTTP layer's behaviors that step 2.1 replaces. Path parameters and pagin
 | HTTP-035 Rate limiter failures fail open | changed | the platform spec's Rate limits | A count that fails fails the request as an internal error: the database it couldn't reach is the one the request needs |
 | HTTP-036 Rate limits hold across instances | kept | PLATFORM-049 | |
 | HTTP-037 Email-keyed buckets never store the email | changed | PLATFORM-051, AUTH-006 | Every bucket's key is an HMAC, those of IP addresses and users too |
-| HTTP-038 Expired rate-limit windows are purged | changed | the platform spec's Rate limits | A periodic job, built with jobs in step 2.3 (OPS-11) |
+| HTTP-038 Expired rate-limit windows are purged | changed | the platform spec's Rate limits | A periodic job, built with jobs in step 2.3 (PLATFORM-014) |

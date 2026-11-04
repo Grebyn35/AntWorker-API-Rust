@@ -27,7 +27,7 @@ enum Sweep {
     IdempotencyRecords,
     /// The events older than 24 hours, which no replay reaches (REALTIME-004).
     Events,
-    /// The dead letters older than their retention (OPS-10).
+    /// The dead letters older than their retention (PLATFORM-013).
     DeadLetters(Duration),
 }
 

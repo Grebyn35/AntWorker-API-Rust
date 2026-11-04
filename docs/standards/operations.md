@@ -70,16 +70,6 @@ Each job is declared in its module's `jobs.rs`, or, for a job of `platform`, in 
 - Why: jobs are delivered at least once (D1, D13).
 - Check: `ci: check-layout` (a job is declared in its module's `jobs.rs`, or in `platform`, with a kind that starts with its module's name, or `platform.`), plus `test` (each job's test runs its handler twice).
 
-### OPS-10 Failed jobs retry, then go to a dead letter
-A failing job retries with exponential backoff and jitter, up to its maximum attempts. It then moves to a dead-letter state, which is counted in metrics and has an alert (OBS-14). A job's payload is deleted when the job succeeds. A dead-lettered job keeps its payload for a configured retention period, so it can be investigated, and then loses it.
-- Why: transient failures heal, and permanent ones are seen (D13).
-- Check: `test`.
-
-### OPS-11 Periodic jobs run once per interval across the fleet
-A periodic job claims its schedule row with `FOR UPDATE SKIP LOCKED`, and extends its lease with a heartbeat while it runs.
-- Why: N replicas don't mean N runs (D13).
-- Check: `test`.
-
 ## Build, CI and release
 
 ### OPS-12 CI calls `just`
@@ -88,7 +78,7 @@ Every CI step that builds, checks, publishes or releases runs a `just` task. The
 - Check: `review`.
 
 ### OPS-13 Everything is pinned
-The toolchain comes from `rust-toolchain.toml`, in CI and in the image's build. Actions are pinned by commit SHA, images by digest, downloads by checksum, the crates the image's build installs by exact version with `--locked`, and the runner by version. The images the tasks run are pinned in `compose.yaml`, beside the services' images, or in the reference deployment's Compose files that `compose.yaml` extends, which name the ones a server runs too. The other tools the tasks use, such as cargo-deny and watchexec, are pinned by version in the justfile: `just setup` checks them, and CI installs them from it. `just` itself is the exception: CI installs it before any task can run, so the workflows pin its version too. The packages that `just server-setup` installs on a server from apt, Docker's among them, are the distribution's current ones, as the server's other packages are, so that the system's security updates reach them; Docker's repository is trusted by its key's fingerprint, which `deploy/server-setup.sh` holds. Dependabot proposes updates to the pins it can read, and `docs/operations/ci.md` lists the ones updated by hand.
+Besides the toolchain, which CODE-01 pins, actions are pinned by commit SHA, images by digest, downloads by checksum, the crates the image's build installs by exact version with `--locked`, and the runner by version. The images the tasks run are pinned in `compose.yaml`, beside the services' images, or in the reference deployment's Compose files that `compose.yaml` extends, which name the ones a server runs too. The other tools the tasks use, such as cargo-deny and watchexec, are pinned by version in the justfile: `just setup` checks them, and CI installs them from it. `just` itself is the exception: CI installs it before any task can run, so the workflows pin its version too. The packages that `just server-setup` installs on a server from apt, Docker's among them, are the distribution's current ones, as the server's other packages are, so that the system's security updates reach them; Docker's repository is trusted by its key's fingerprint, which `deploy/server-setup.sh` holds. Dependabot proposes updates to the pins it can read, and `docs/operations/ci.md` lists the ones updated by hand.
 - Why: a build today is reproducible tomorrow, and a pin moves only in a change that CI checks (D21); a server's packages take the system's security updates (D55).
 - Check: `ci: check-pins`, plus `review` (an image or a download that a recipe or a workflow's `run:` step names, which `check-pins` doesn't read, and the list in `docs/operations/ci.md` of the pins updated by hand).
 
@@ -126,7 +116,7 @@ Every connection that leaves the server the API runs on uses TLS, and verifies t
 - Check: `ci: e2e` (the proxy answers HTTP with a redirect to HTTPS, and HTTPS with HTTP Strict Transport Security (HSTS); and the Postgres image holds the certificate authorities that a bucket's certificate is checked against by default), plus `review` (what `docs/operations/deploy.md` requires of a server and its providers).
 
 ### OPS-21 The connection budget fits
-An instance opens at most `DATABASE_MAX_CONNECTIONS` pooled connections, plus the listener, its own connection, on which the hub listens and readiness checks the database, and `serve` logs that number once it connects. A deploy refuses to start replicas when every replica it would run at once, at that number each, together with the connections of the one-shot subcommands and of the backups, would exceed the connections Postgres allows.
+An instance opens at most `DATABASE_MAX_CONNECTIONS` pooled connections, plus the listener, and `serve` logs that number once it connects. A deploy refuses to start replicas when every replica it would run at once, at that number each, together with the connections of the one-shot subcommands and of the backups, would exceed the connections Postgres allows.
 - Why: replicas can't exhaust the database's connections, even while a deploy runs two sets of them (D20).
 - Check: `test` (PLATFORM-045; and an instance whose every pooled connection is in use, while the database stops answering on the listener's, keeps to that number across the checks that time out), plus `ci: e2e` (the refusal).
 

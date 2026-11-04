@@ -64,8 +64,3 @@ A generated test runs every workspace route against every role, plus a non-membe
 Test data comes from builders in one test-support module, such as a user, a workspace with members, a session, or an event committed as a unit of work commits it. Tests don't build fixtures inline when a builder exists. A test builds inline only what no builder arranges: a row that the code never writes, which a test arranges to show what the code does when it meets one, such as a row that breaks a constraint the builder keeps, a job of a kind that no release runs, or a second copy of a job, as a second delivery runs it; a row inside a transaction the test holds open; rows whose timestamps lie in the past, for expiry (TEST-07); and the rows of an end-to-end test's own server.
 - Why: changing a fixture is a one-place change.
 - Check: `review`.
-
-### TEST-11 Local and CI runs are identical
-`just test` runs the same suites, against the same services, locally and in CI.
-- Why: "works on my machine" means it works in CI (D21).
-- Check: `ci: test`, which is `just test`.

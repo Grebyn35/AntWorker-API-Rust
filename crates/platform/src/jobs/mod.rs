@@ -69,7 +69,7 @@ pub trait Job: Serialize + DeserializeOwned + Send + 'static {
     /// The kind: `<module>.<name>` for a module's job, and `platform.<name>` for one of
     /// `platform`'s, such as `platform.send_email`.
     const KIND: &'static str;
-    /// The most attempts its runs make before it moves to the dead-letter state (OPS-10).
+    /// The most attempts its runs make before it moves to the dead-letter state (PLATFORM-013).
     const MOST_ATTEMPTS: u32 = 10;
     /// How long one run may take before it is cancelled, and fails (PLATFORM-062).
     const TIME_LIMIT: Duration = Duration::from_secs(300);
@@ -247,7 +247,7 @@ impl Jobs {
     }
 
     /// Registers `handler` as the periodic job `name`, which runs every `interval`, each run
-    /// for at most `time_limit` (OPS-11).
+    /// for at most `time_limit` (PLATFORM-014).
     pub fn periodic<F, Fut>(
         &mut self,
         name: &'static str,

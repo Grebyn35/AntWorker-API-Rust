@@ -27,7 +27,7 @@ Module code writes events only at `DEBUG`. Every `INFO`, `WARN` and `ERROR` even
 - Check: `ci: check-instrument` (the levels of events in `app`'s code outside `main.rs`), plus `review`.
 
 ### OBS-04 No personal data or secrets in telemetry
-Logs, spans and metric labels never contain personal data or secrets. The `EmailAddress` and `Secret` types redact themselves when formatted. Every `#[instrument]` uses `skip_all` and lists its fields explicitly. The reference deployment's proxy writes no field of a log line that holds personal data, and the collector keeps only the attributes of its spans whose names `platform::telemetry` lists (D53).
+Logs, spans and metric labels never contain personal data or secrets. `EmailAddress` redacts itself when formatted, as `Secret` does (SEC-01). Every `#[instrument]` uses `skip_all` and lists its fields explicitly. The reference deployment's proxy writes no field of a log line that holds personal data, and the collector keeps only the attributes of its spans whose names `platform::telemetry` lists (D53).
 - Why: telemetry is copied widely and kept for a long time (D7).
 - Check: `compiler` (the redacting types), `ci: check-instrument` (every `#[instrument]` has `skip_all`), plus `ci: e2e` (the proxy's span and log line hold no client address or user agent), plus `review`.
 

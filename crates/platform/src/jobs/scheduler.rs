@@ -1,5 +1,5 @@
 //! The scheduler, which every replica runs: it claims the periodic jobs that are due, each under
-//! a lease, so each runs once per interval across the fleet (OPS-11, PLATFORM-014).
+//! a lease, so each runs once per interval across the fleet (PLATFORM-014).
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 

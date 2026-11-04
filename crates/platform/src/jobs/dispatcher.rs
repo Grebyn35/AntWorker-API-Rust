@@ -211,7 +211,7 @@ async fn end(
 
 /// The wait before the retry that follows attempt `attempt`: a random time between half of and
 /// all of the lesser of 10 seconds times 2 to the power `attempt − 1`, and an hour, so retries
-/// spread out rather than arrive together (OPS-10).
+/// spread out rather than arrive together (PLATFORM-013).
 fn backoff(attempt: u32) -> Result<Duration, Internal> {
     let doublings = attempt.saturating_sub(1).min(16);
     let ceiling = FIRST_RETRY

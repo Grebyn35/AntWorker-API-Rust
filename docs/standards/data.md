@@ -138,7 +138,7 @@ An update made with `If-Match` includes `WHERE version = $expected`. Zero rows u
 ## Transactions
 
 ### DATA-25 Read committed, with row locks where the spec says so
-Transactions use `READ COMMITTED`. An operation whose correctness depends on rows that another request may change at the same time does one of two things, as its module spec states: it locks them with `SELECT ... FOR UPDATE`, taking locks in a consistent order, or it changes them with an update that checks what it read (DATA-24). Nothing inside the API retries a transaction. A deadlock is a defect, and surfaces as an internal error. A failed job is retried by the job system (OPS-10).
+Transactions use `READ COMMITTED`. An operation whose correctness depends on rows that another request may change at the same time does one of two things, as its module spec states: it locks them with `SELECT ... FOR UPDATE`, taking locks in a consistent order, or it changes them with an update that checks what it read (DATA-24). Nothing inside the API retries a transaction. A deadlock is a defect, and surfaces as an internal error. A failed job is retried by the job system (PLATFORM-013).
 - Why: a unit of work carries the effects of every module the operation called, so no one layer holds what it would need to re-run it. Under `READ COMMITTED` there are no serialization failures, so a deadlock means two operations took locks in different orders: a bug to fix, not to retry.
 - Check: `review`.
 
@@ -164,6 +164,6 @@ Platform bookkeeping (rate-limit buckets, idempotency records, job state) and sc
 ### DATA-28 Personal data is covered by a contract
 Every column that references a user or holds personal data (glossary) is covered by a registered personal data contract (D31). A column that holds personal data carries the column comment `personal_data`, set with `COMMENT ON COLUMN` in its migration.
 
-`platform` registers a contract for its own tables. Erasing a user deletes their idempotency records and the events scoped to them. Jobs hold no foreign keys to user data: erasing a user, or deleting a workspace, deletes the jobs enqueued for them, so no job runs for a subject that is gone. A finished job keeps no payload (OPS-10). Rate-limit buckets hold only keyed hashes and expire on their own. Export leaves these tables out, because the modules that own the data export it.
+`platform` registers a contract for its own tables. Erasing a user deletes their idempotency records and the events scoped to them. Jobs hold no foreign keys to user data: erasing a user, or deleting a workspace, deletes the jobs enqueued for them, so no job runs for a subject that is gone. A finished job keeps no payload (PLATFORM-013). Rate-limit buckets hold only keyed hashes and expire on their own. Export leaves these tables out, because the modules that own the data export it.
 - Why: export and erasure can't miss a table, including the platform's own.
 - Check: `ci: check-personal-data` (every foreign key to `users`, and every column commented `personal_data`, against the registered contracts).

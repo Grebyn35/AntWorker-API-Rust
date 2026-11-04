@@ -24,7 +24,7 @@ A newer push to a pull request cancels the older run. On `main`, a run that has 
 - Every Monday, on Windows, `just setup` and `just setup-smoke`, which there builds every target of the workspace (OPS-19): nothing else runs the recipes for Windows or the code compiled only there, and a runner on Windows takes twice the minutes of one on Linux from a private repository's allowance, so it runs weekly rather than on every push.
 - Every Monday, the registry's upkeep, in both images' packages: it deletes the tags older than [release.md](release.md#where-it-is-published) keeps them, then the images left with no tag, and the signatures of images that are gone. A pinned action does it, and keeps each platform's image of an index it keeps. If GitHub refuses the deletions, the package's settings grant the repository the Admin role under "Manage Actions access".
 
-`just setup` writes `.env` with generated passwords, and the tests start Postgres through Compose with them, as they do on a developer's machine (TEST-11). A job that only runs the tools Compose holds runs `just env` instead, which writes `.env` alone, because Compose reads it.
+`just setup` writes `.env` with generated passwords, and the tests start Postgres through Compose with them, as they do on a developer's machine (OPS-12). A job that only runs the tools Compose holds runs `just env` instead, which writes `.env` alone, because Compose reads it.
 
 On a developer's machine, `just ci` runs what CI runs: `just checks`, `just check-removable`, `just image`, `just image-scan`, and `just e2e` on the machine's platform. It leaves out `just setup-smoke`, since the developer's own `just setup` and `just dev` are that check, and a `just dev` already running holds the address the smoke test's would take.
 
@@ -34,7 +34,7 @@ On a developer's machine, `just ci` runs what CI runs: `just checks`, `just chec
 |---|---|---|
 | Formatting | `fmt-check` | CODE-02 |
 | Clippy, with warnings as errors, on every target with every feature | `lint` | CODE-03 to CODE-06, CODE-08, CODE-14, CODE-15, TEST-07 (sleeps in tests), ERR-11 (results dropped with `.ok()`), API-14 and API-17 (routes registered outside `platform::http`), DATA-20 (the query functions and string-SQL executor methods outside the macros), DATA-21 (pools, connections, transactions and the listener outside `platform::db`), OBS-11 (OpenTelemetry's meters outside the declaration types) |
-| Tests, against Postgres | `test` | TEST-11, and every behavior and rule a test proves |
+| Tests, against Postgres | `test` | Every behavior and rule a test proves |
 | Dependencies: advisories, bans and sources for every target, and licenses for each target the API is built for | `deny` | CODE-11, CODE-12, SEC-13, SEC-14 |
 | The map from spec behaviors to tests | `check-test-map` | TEST-01, DOC-10 |
 | Links, IDs, test prefixes, paths to Rust files and named CI checks resolve, and no two headings of a document share their text; no name of the old codebase, and no path into the inventory outside the places DOC-04 lists, in any file but a Rust file's code, which names what a check checks; no history or unfinished-work markers; documents only in the documentation set; acronyms spelled out where first used; specs, rules, tables and the tracker keep their format; each spec's Routes table matches `openapi.json`, and each `#[utoipa::path]` of a module tags that module | `check-docs` | DOC-01, DOC-04, DOC-07, DOC-08, DOC-09, DOC-13, DOC-14, DOC-15, DOC-16 |
