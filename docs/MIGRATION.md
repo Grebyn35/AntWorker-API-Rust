@@ -198,7 +198,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 3c57546..a4013a8: as above, with the check that no section of a spec is empty | 2 | 5 (5, 3, 3 shared) | 1 | 1 | `stopped: no progress`: c8c7c0d |
 | 3284003..9de71a7: step 3's rule fixes after D73: the proposals of the API, ARCH, DATA, ERR and SEC rules with their checks, those of the CODE, DOC and TEST rules with `check-layout`, the split of `deploy.sh` (D74), the deleted rules, and D75 | 1 | 21 (17, 13, 9 shared) | 8 | 0 | `next pass`: 897c7b3 |
 | 3284003..897c7b3: as above, with the split of the justfile | 2 | 16 (14, 8, 6 shared) | 1 | 1 | `stopped: no progress`: b1850a1 |
-| 47d89d1..d2f7ad3: step 3's part after the review of 3284003..9de71a7: OPS-02's test, `setup-smoke`, OPS-21's test, PLATFORM-077, both colors running with no record, a restore whose replay can't fetch a segment, the hub's narrower closing, the retention after a restore, the threat model, and D78 and D79 | 1 | 17 (12, 10, 5 shared) | 4 | 0 | `next pass` |
+| 47d89d1..d2f7ad3: step 3's part after the review of 3284003..9de71a7: OPS-02's test, `setup-smoke`, OPS-21's test, PLATFORM-077, both colors running with no record, a restore whose replay can't fetch a segment, the hub's narrower closing, the retention after a restore, the threat model, and D78 and D79 | 1 | 17 (12, 10, 5 shared) | 4 | 0 | `next pass`: a82623d |
+| 47d89d1..a82623d: as above, with pass 1's fixes | 2 | 8 (7, 5, 4 shared) | 2 | 1 | `stopped: no progress` |
 
 ## Decisions
 
