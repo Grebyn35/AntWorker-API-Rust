@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** the rest of step 3, the rule fixes: the OPS-17 gap of the reach after a restore (Known gaps); the threat model; the deletion pass over OBS, OPS and SEC; a review of the round's part since 47d89d1; then the renumbering. 3c57546's message holds the counts the round's last commit compares with. Nothing waits on the owner. A development database made before 2e0e179 is recreated, as CLAUDE.md says. The trial server runs 0.1.0-rc.11, its Grafana Cloud stack's alerts reach no contact point yet, and the first restore after its next release, whose deploy needs `--allow-restart`, measures the checks' waits that backups.md leaves unmeasured. The owner releases when it needs `main`.
+**Next:** the rest of step 3, the rule fixes: the TEST-07 gap of invitations' SEC-17 test, with its proposal (Rule proposals); the OPS-17 gap of the reach after a restore; the threat model; the deletion pass over OBS, OPS and SEC; a review of the round's part since 47d89d1; then the renumbering. 3c57546's message holds the counts the round's last commit compares with. Nothing waits on the owner. A development database made before 2e0e179 is recreated, as CLAUDE.md says. The trial server runs 0.1.0-rc.11, its Grafana Cloud stack's alerts reach no contact point yet, and the first restore after its next release, whose deploy needs `--allow-restart`, measures the checks' waits that backups.md leaves unmeasured. The owner releases when it needs `main`.
 
 ## Build order
 
@@ -109,7 +109,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 |---|---|---|
 | OPS-18 | A release's capacity, which `just load-test` measures, has no release notes to go in: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 | TEST-07 | `traces::obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace` fails now and then on amd64 in CI, when nothing reaches Loki or Tempo; its output says why, from the stack's start times to the API's export errors | the fix of what its next failure shows |
-| TEST-07 | `invitations::sec_17_member_joined_reaches_the_members_and_no_replay_from_before_joining` failed once in `just test` on 2026-11-03, and passed alone five times: a stream that opened with 200 ended its response without `stream.closed`, which the route always sends before it ends; the support's `event` now names what the stream held when it ended | the fix of what its next failure shows |
+| TEST-07 | `invitations::sec_17_member_joined_reaches_the_members_and_no_replay_from_before_joining` opens Dan's stream right after his acceptance commits, which races the hub: the hub closes every stream of a user whose membership changed when the signal reaches it, after the commit, as PLATFORM-017 says, so a stream that opens in between closes with `access_changed`. On CI it failed so (run 41779519222): the stream sent `stream.opened` and `stream.closed`, which the support's `event` returns as an event, so the next `event` found the response ended | 3 |
 | DOC-12 | A release has no upgrade notes: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 | DATA-28 | No personal data contract is registered for the tables that reference a user or hold personal data, `users`, `identities`, `sessions`, `audit_entries`, `workspaces`, `workspace_memberships`, `events`, `idempotency_records`, `jobs` and `invitations`: the registry, and the export and erasure that read it, arrive with the full `accounts` module (D31) | 5 |
 | API-04 | A created workspace's `Location`, `/v1/workspaces/{id}`, names a resource that no route serves yet: reading one workspace arrives with the full module | 5, with the full `workspaces` module |
@@ -133,6 +133,8 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 3c57546 | ARCH-07: `check-parts` also reads the tests in the files of a part without a module, such as an OAuth provider's, which it skips now | 5, with the first OAuth provider |
 | Deciding D73 | ARCH-07: whether a fork chooses its shape with one command, which removes the parts the shape doesn't keep, then the markers of the parts it keeps, the runs, and the removal's tooling and checks, since a fork that keeps every part removes nothing, and its own code that names a kept part fails `check-parts` and `check-removable` until it carries the part's marker | 6, with `just rename` |
 | The owner's decision on second factors (D63) | Whether a second factor can be required beyond superadmins: of every user, by a setting of the deployment, or of a workspace's members, by its owner, as Slack and GitHub let an organization require it of its members | 5, with the full `auth` module |
+| CI's run 41779519222 | PLATFORM-017: whether a membership change closes only the streams that opened before it committed, rather than every stream of its user, since one that opened after holds the change in its memberships, and closes for nothing, its client reconnecting once; and the support's `event` refusing `stream.closed`, so a test that meets it names its reason | 3 |
+
 
 ## Conformance reviews
 
