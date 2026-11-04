@@ -245,6 +245,15 @@ pub(crate) struct Tokens {
     pub(crate) refresh: Secret<String>,
 }
 
+/// A device token, returned once, with when it expires (AUTH-019).
+#[derive(Clone)]
+pub(crate) struct DeviceToken {
+    /// The token.
+    pub(crate) token: Secret<String>,
+    /// When it expires.
+    pub(crate) expires_at: Timestamp,
+}
+
 /// A session, as its client sees it.
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct Session {

@@ -1,5 +1,6 @@
-//! The SQL of `identities` and `sessions` (ARCH-10). Every expiry comes from the database's clock
-//! (DATA-03), and a session is found by a token's hash through its unique index (DATA-22).
+//! The SQL of `identities`, `sessions` and `device_tokens` (ARCH-10). Every expiry comes from the
+//! database's clock (DATA-03), and a session or a device token is found by a token's hash through
+//! its unique index (DATA-22).
 
 use platform::{
     db::UnitOfWork,
@@ -127,6 +128,58 @@ pub(super) async fn insert_session(
     .fetch_one(uow.executor())
     .await?;
     Ok(session!(row))
+}
+
+/// Whether the device token that hashes to `token` is one of the email whose HMAC is `email`, and
+/// hasn't expired (AUTH-019).
+pub(super) async fn device_token_valid(
+    uow: &mut UnitOfWork,
+    token: &[u8],
+    email: &[u8],
+) -> Result<bool, Internal> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT EXISTS (
+            SELECT 1 FROM device_tokens
+            WHERE token_hash = $1 AND email_hash = $2 AND expires_at > now()
+        ) AS "valid!""#,
+        token,
+        email,
+    )
+    .fetch_one(uow.executor())
+    .await?)
+}
+
+/// Issues `user_id` the device token that hashes to `token`, for the email whose HMAC is `email`,
+/// lasting `lifetime`, in place of the user's token that hashes to `replaced`, if any, and of their
+/// expired ones, and returns when it expires (AUTH-019).
+pub(super) async fn issue_device_token(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+    email: &[u8],
+    token: &[u8],
+    replaced: Option<&[u8]>,
+    lifetime: std::time::Duration,
+) -> Result<Timestamp, Internal> {
+    sqlx::query!(
+        "DELETE FROM device_tokens
+        WHERE user_id = $1 AND (expires_at <= now() OR token_hash = $2)",
+        user_id.uuid(),
+        replaced,
+    )
+    .execute(uow.executor())
+    .await?;
+    let expires_at = sqlx::query_scalar!(
+        "INSERT INTO device_tokens (user_id, email_hash, token_hash, expires_at)
+        VALUES ($1, $2, $3, now() + make_interval(secs => $4::float8))
+        RETURNING expires_at",
+        user_id.uuid(),
+        email,
+        token,
+        seconds(lifetime),
+    )
+    .fetch_one(uow.executor())
+    .await?;
+    Ok(Timestamp::from_database(expires_at))
 }
 
 /// The session `user_id` has on `device_id`, if any (AUTH-008).

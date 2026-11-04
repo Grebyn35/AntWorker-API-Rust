@@ -531,6 +531,8 @@ mod tests {
     }
 
     /// The answers of a new server's setup with the bundled database and the self-hosted stack.
+    /// The setup asks each setting of deploy/settings.env.example that the answers before it
+    /// call for, in the file's order, so a setting added there adds an answer here.
     const NEW_SERVER: &[&str] = &[
         // IMAGE_REPOSITORY, SOURCE, API_ADDRESS, then Enter for the rest of the settings,
         // until the bucket: TRUSTED_PROXIES, CORS_ALLOWED_ORIGINS, the two rate limits, and the
@@ -555,6 +557,7 @@ mod tests {
         "",
         "eu-1",
         "backups",
+        "",
         "",
         "",
         "",

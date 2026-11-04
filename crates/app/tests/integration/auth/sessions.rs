@@ -303,11 +303,13 @@ async fn auth_015_a_browser_takes_its_tokens_as_cookies_it_can_t_read() {
     assert!(session.get("access_token").is_none());
     assert!(session.get("refresh_token").is_none());
     let set = response.headers("set-cookie");
-    assert_eq!(set.len(), 2);
+    assert_eq!(set.len(), 3);
+    assert!(session.get("device_token").is_none());
     for cookie in set {
         assert!(
             cookie.starts_with("__Host-access_token=")
                 || cookie.starts_with("__Host-refresh_token=")
+                || cookie.starts_with("__Host-device_token=")
         );
         assert!(
             cookie.ends_with("; Path=/; Secure; HttpOnly; SameSite=Strict"),
@@ -339,15 +341,18 @@ async fn auth_015_a_browser_s_registration_takes_cookies_that_expire_with_their_
             "SELECT to_char(access_token_expires_at AT TIME ZONE 'UTC', \
              'Dy, DD Mon YYYY HH24:MI:SS \"GMT\"') || '|' || \
              to_char(refresh_token_expires_at AT TIME ZONE 'UTC', \
-             'Dy, DD Mon YYYY HH24:MI:SS \"GMT\"') FROM sessions",
+             'Dy, DD Mon YYYY HH24:MI:SS \"GMT\"') || '|' || \
+             (SELECT to_char(expires_at AT TIME ZONE 'UTC', \
+             'Dy, DD Mon YYYY HH24:MI:SS \"GMT\"') FROM device_tokens) FROM sessions",
         )
         .await;
     assert_eq!(
         stored,
         [format!(
-            "{}|{}",
+            "{}|{}|{}",
             expires(&response, "access_token"),
-            expires(&response, "refresh_token")
+            expires(&response, "refresh_token"),
+            expires(&response, "device_token")
         )]
     );
 }

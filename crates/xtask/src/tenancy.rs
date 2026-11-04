@@ -25,7 +25,7 @@ const MIGRATIONS: &str = "migrations/";
 const CODE: [&str; 2] = ["crates/platform/src/", "crates/app/src/"];
 
 /// Tables of account data, keyed by a user (DATA-22).
-const ACCOUNT_DATA: [&str; 3] = ["users", "identities", "sessions"];
+const ACCOUNT_DATA: [&str; 4] = ["users", "identities", "sessions", "device_tokens"];
 
 /// Tables of `platform`'s own bookkeeping (DATA-22). A job records the workspace and the user it
 /// runs for, which its handler filters by, but the queue's own queries select jobs by their state
@@ -429,7 +429,8 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
     fn findings(code: &str) -> Vec<String> {
         let migrations = format!(
             "{MIGRATION}CREATE TABLE users (id uuid);\nCREATE TABLE identities (id uuid);\n\
-             CREATE TABLE sessions (id uuid);\nCREATE TABLE rate_limit_buckets (id uuid);\n\
+             CREATE TABLE sessions (id uuid);\nCREATE TABLE device_tokens (id uuid);\n\
+             CREATE TABLE rate_limit_buckets (id uuid);\n\
              CREATE TABLE idempotency_records (id uuid);\nCREATE TABLE workspaces (id uuid);\n\
              CREATE TABLE jobs (id uuid, workspace_id uuid, user_id uuid);\n\
              CREATE TABLE job_schedules (id uuid);\n\
@@ -504,7 +505,7 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
     #[test]
     fn data_22_a_listed_table_that_no_migration_creates_is_found() {
         let tables = BTreeMap::new();
-        assert_eq!(placements(&tables).len(), 9);
+        assert_eq!(placements(&tables).len(), 10);
     }
 
     #[test]

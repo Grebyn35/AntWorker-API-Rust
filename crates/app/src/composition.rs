@@ -55,6 +55,9 @@ const SIGN_IN_BUCKET: &str = "sign_in";
 /// The name of the bucket of the sign-in limit of an email from every address (AUTH-006).
 const SIGN_IN_EMAIL_BUCKET: &str = "sign_in_email";
 
+/// The name of the bucket of the sign-in limit of a device token (AUTH-006).
+const SIGN_IN_DEVICE_BUCKET: &str = "sign_in_device";
+
 // part: invitations
 /// The name of the per-member limit's bucket on inviting (INVITATIONS-009).
 const INVITATION_BUCKET: &str = "invitation";
@@ -68,6 +71,7 @@ impl Config {
         F: Fn(&Path) -> io::Result<String>,
     {
         let day: u32 = 86_400;
+        let sign_in_attempts = settings.number("SIGN_IN_ATTEMPTS", 5, 1..=1_000)?;
         let sign_in_window = settings.duration("SIGN_IN_WINDOW_SECONDS", 900, 1..=day)?;
         Ok(Self {
             auth: auth::Settings {
@@ -86,7 +90,7 @@ impl Config {
                 },
                 sign_in: Bucket {
                     name: SIGN_IN_BUCKET,
-                    limit: settings.number("SIGN_IN_ATTEMPTS", 5, 1..=1_000)?,
+                    limit: sign_in_attempts,
                     window: sign_in_window,
                 },
                 sign_in_email: Bucket {
@@ -94,6 +98,16 @@ impl Config {
                     limit: settings.number("SIGN_IN_EMAIL_ATTEMPTS", 50, 1..=100_000)?,
                     window: sign_in_window,
                 },
+                sign_in_device: Bucket {
+                    name: SIGN_IN_DEVICE_BUCKET,
+                    limit: sign_in_attempts,
+                    window: sign_in_window,
+                },
+                device_tokens: settings.duration(
+                    "DEVICE_TOKEN_SECONDS",
+                    365 * day,
+                    day..=5 * 365 * day,
+                )?,
             },
             // part: invitations
             invitations: invitations::Settings {
@@ -135,7 +149,8 @@ pub async fn compose(
     listener: Listener,
 ) -> Result<Services, Internal> {
     let mut jobs = Jobs::new(database, server.job_dead_letter_retention);
-    let auth = Arc::new(auth::Auth::new(database.clone(), config.auth).await?);
+    let auth =
+        Arc::new(auth::Auth::new(database.clone(), config.auth, server.hmac_key.clone()).await?);
     let mail = Mail::new(server.mail.clone(), clock.clone())?;
     mail.register(&mut jobs).map_err(Internal::new)?;
     // part: invitations

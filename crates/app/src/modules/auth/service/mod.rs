@@ -10,17 +10,19 @@ use platform::{
     db::{Database, UnitOfWork},
     errors::Internal,
     events::{self, AccessChange},
-    hashing::sha256,
+    hashing::{HmacKey, sha256},
     random,
     rate_limit::{self, Bucket, LimitError, RateLimits},
     types::{Client, EmailAddress, Secret, SessionId, UserId},
 };
 
+mod devices;
+
 use super::{
     audit,
     error::AuthError,
     metrics,
-    model::{self, DeviceId, Lifetimes, Password, Session, Tokens},
+    model::{self, DeviceId, DeviceToken, Lifetimes, Password, Session, Tokens},
     repo,
 };
 use crate::modules::{
@@ -41,6 +43,9 @@ pub(crate) struct SignIn {
     pub(crate) email: EmailAddress,
     pub(crate) password: Password,
     pub(crate) device_id: Option<DeviceId>,
+    /// The device token the client holds, if any, which counts as none unless it is valid for the
+    /// email (AUTH-019).
+    pub(crate) device_token: Option<Secret<String>>,
 }
 
 /// What `auth` takes from the deployment.
@@ -52,12 +57,19 @@ pub(crate) struct Settings {
     /// The sign-in limit of an email from every address, which counts only the attempts that
     /// `sign_in` lets through (AUTH-006).
     pub(crate) sign_in_email: Bucket,
+    /// The sign-in limit of a device token valid for the email, in place of the other two
+    /// (AUTH-006).
+    pub(crate) sign_in_device: Bucket,
+    /// How long a device token lasts (AUTH-019).
+    pub(crate) device_tokens: std::time::Duration,
 }
 
 /// Registration, sign-in and sessions.
 pub(crate) struct Auth {
     database: Database,
     settings: Settings,
+    /// The key of the keyed hash of a device token's email (AUTH-019).
+    key: HmacKey,
     /// A hash of a random password, verified when a sign-in finds no password to check, so every
     /// failed sign-in costs the same (AUTH-005).
     dummy_hash: String,
@@ -66,7 +78,11 @@ pub(crate) struct Auth {
 impl Auth {
     /// The service, with its dummy hash computed and the breached-password list loaded now, at
     /// startup, rather than in the first request that needs them (CODE-05).
-    pub(crate) async fn new(database: Database, settings: Settings) -> Result<Self, Internal> {
+    pub(crate) async fn new(
+        database: Database,
+        settings: Settings,
+        key: HmacKey,
+    ) -> Result<Self, Internal> {
         let dummy = Password::generated(random::token()?);
         let dummy_hash = hash(dummy).await?;
         blocking::run("load_breached_passwords", model::load_breached_passwords)
@@ -75,17 +91,18 @@ impl Auth {
         Ok(Self {
             database,
             settings,
+            key,
             dummy_hash,
         })
     }
 
-    /// Registers a user with a password identity and a first session, in one unit of work
-    /// (AUTH-001, AUTH-002).
+    /// Registers a user with a password identity and a first session, in one unit of work, and
+    /// issues their device a device token (AUTH-001, AUTH-002, AUTH-019).
     pub(crate) async fn register(
         &self,
         client: &Client,
         input: Registration,
-    ) -> Result<(Session, Tokens), AuthError> {
+    ) -> Result<(Session, Tokens, DeviceToken), AuthError> {
         let password_hash = hash(input.password).await?;
         let mut uow = self.database.begin(client).await?;
         let user_id = match accounts::create(&mut uow, &input.email, &input.name).await? {
@@ -102,18 +119,21 @@ impl Auth {
             Entry::new(audit::USER_REGISTERED, audit::USER, user_id.uuid()),
         )
         .await?;
+        let device = self
+            .issue_device_token(&mut uow, user_id, &input.email, None)
+            .await?;
         uow.commit().await?;
-        Ok((session, tokens))
+        Ok((session, tokens, device))
     }
 
-    /// Signs in with an email and a password (AUTH-004 to AUTH-008), and counts how the attempt
-    /// ended in `auth.sign_ins`.
+    /// Signs in with an email and a password (AUTH-004 to AUTH-008), issuing the device a device
+    /// token (AUTH-019), and counts how the attempt ended in `auth.sign_ins`.
     pub(crate) async fn sign_in(
         &self,
         limits: &RateLimits,
         client: &Client,
         input: SignIn,
-    ) -> Result<(Session, Tokens), AuthError> {
+    ) -> Result<(Session, Tokens, DeviceToken), AuthError> {
         let result = self.attempt(limits, client, input).await;
         match &result {
             Ok(_) => metrics::sign_in(metrics::SignIn::Succeeded),
@@ -133,14 +153,22 @@ impl Auth {
         limits: &RateLimits,
         client: &Client,
         input: SignIn,
-    ) -> Result<(Session, Tokens), AuthError> {
-        // The email from the client's address first, so the count of the email from every
-        // address holds only what that limit let through, and no one address fills it. A zero
-        // byte, which no email address holds, ends the email in the first key.
-        let email = input.email.as_str().as_bytes();
-        let from_address = [email, &[0], &rate_limit::address(client.ip)].concat();
-        limits.check(self.settings.sign_in, &from_address).await?;
-        limits.check(self.settings.sign_in_email, email).await?;
+    ) -> Result<(Session, Tokens, DeviceToken), AuthError> {
+        let trusted = self.trusted(client, &input).await?;
+        match &trusted {
+            // A device token valid for the email counts only in its own limit, so no attempt from
+            // elsewhere refuses its sign-in (AUTH-006).
+            Some(token) => limits.check(self.settings.sign_in_device, token).await?,
+            // Otherwise the email from the client's address first, so the count of the email from
+            // every address holds only what that limit let through, and no one address fills it.
+            // A zero byte, which no email address holds, ends the email in the first key.
+            None => {
+                let email = input.email.as_str().as_bytes();
+                let from_address = [email, &[0], &rate_limit::address(client.ip)].concat();
+                limits.check(self.settings.sign_in, &from_address).await?;
+                limits.check(self.settings.sign_in_email, email).await?;
+            }
+        }
         let mut uow = self.database.begin(client).await?;
         let Some(user_id) = accounts::find_by_email(&mut uow, &input.email).await? else {
             verify(self.dummy_hash.clone(), input.password).await?;
@@ -176,8 +204,11 @@ impl Auth {
             )
             .await?;
         }
+        let device = self
+            .issue_device_token(&mut uow, user_id, &input.email, trusted.as_ref())
+            .await?;
         uow.commit().await?;
-        Ok((session, tokens))
+        Ok((session, tokens, device))
     }
 
     /// Starts a session of `user_id`, ending the one its device has, if any, through the full

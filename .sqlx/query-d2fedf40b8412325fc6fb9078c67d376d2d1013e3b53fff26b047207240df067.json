@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM device_tokens\n        WHERE user_id = $1 AND (expires_at <= now() OR token_hash = $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d2fedf40b8412325fc6fb9078c67d376d2d1013e3b53fff26b047207240df067"
+}

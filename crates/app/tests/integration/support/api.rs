@@ -79,6 +79,7 @@ fn environment(options: &Options) -> HashMap<String, String> {
         ("RATE_LIMIT_IP_REQUESTS", "1000000"),
         ("RATE_LIMIT_USER_REQUESTS", "1000000"),
         ("SIGN_IN_ATTEMPTS", "1000"),
+        ("SIGN_IN_EMAIL_ATTEMPTS", "100000"),
         // The emails go to the Mailpit that `just services` starts (PLATFORM-068), whose SMTP server
         // takes no TLS and no credentials.
         ("EMAIL", "smtp"),

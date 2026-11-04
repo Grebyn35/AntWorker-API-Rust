@@ -12,7 +12,7 @@ use platform::{
     errors::{Problem, RequestError},
     http::{Cookies, FieldErrors, Json, Routes, expired_cookie, session_cookie},
     rate_limit::RateLimits,
-    types::{Client, EmailAddress, SessionId, Timestamp, UserId},
+    types::{Client, EmailAddress, Secret, SessionId, Timestamp, UserId},
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -20,13 +20,16 @@ use utoipa_axum::routes;
 
 use super::{
     error::AuthError,
-    model::{DeviceId, Password, Session, TokenDelivery, Tokens},
+    model::{DeviceId, DeviceToken, Password, Session, TokenDelivery, Tokens},
     service::{Auth, Registration, SignIn},
 };
 use crate::modules::accounts::DisplayName;
 
 /// The name of the cookie that holds a browser's refresh token, after `__Host-` (AUTH-015).
 const REFRESH_COOKIE: &str = "refresh_token";
+
+/// The name of the cookie that holds a browser's device token, after `__Host-` (AUTH-015).
+const DEVICE_COOKIE: &str = "device_token";
 
 /// Where a new session is: the session that the request's own tokens prove (AUTH-016).
 const CURRENT_SESSION: &str = "/v1/users/me/sessions/current";
@@ -97,6 +100,12 @@ pub(crate) struct SignInRequest {
     #[serde(default)]
     #[schema(value_type = Option<DeviceId>)]
     device_id: Option<String>,
+    /// The device token that the account's last registration or sign-in on this device returned
+    /// (AUTH-019). A browser leaves it out, and its cookie carries it. One that isn't valid for
+    /// the email counts as none.
+    #[serde(default)]
+    #[schema(min_length = 1, max_length = 64)]
+    device_token: Option<String>,
 }
 
 impl TryFrom<SignInRequest> for SignIn {
@@ -107,6 +116,7 @@ impl TryFrom<SignInRequest> for SignIn {
         let email = errors.check("/email", EmailAddress::parse(&request.email));
         let password = errors.check("/password", Password::presented(request.password));
         let device_id = device_id(&mut errors, request.device_id.as_deref());
+        let device_token = request.device_token.map(Secret::new);
         let built = email
             .zip(password)
             .zip(device_id)
@@ -114,6 +124,7 @@ impl TryFrom<SignInRequest> for SignIn {
                 email,
                 password,
                 device_id,
+                device_token,
             });
         errors.finish(built)
     }
@@ -162,11 +173,17 @@ pub(crate) struct SessionResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(nullable = false)]
     refresh_token: Option<String>,
+    /// The device token of a registration or a sign-in, unless the tokens went in cookies, which
+    /// the client sends with its next sign-in (AUTH-019).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    device_token: Option<String>,
 }
 
 impl SessionResponse {
-    /// The response of `session`, with `tokens` in it when they go in the body.
-    fn new(session: Session, tokens: Option<&Tokens>) -> Self {
+    /// The response of `session`, with `tokens` and `device`, if any, in it when they go in the
+    /// body.
+    fn new(session: Session, tokens: Option<&Tokens>, device: Option<&DeviceToken>) -> Self {
         Self {
             id: session.id,
             user_id: session.user_id,
@@ -177,6 +194,7 @@ impl SessionResponse {
             expires_at: session.expires_at,
             access_token: tokens.map(|tokens| tokens.access.expose().clone()),
             refresh_token: tokens.map(|tokens| tokens.refresh.expose().clone()),
+            device_token: device.map(|device| device.token.expose().clone()),
         }
     }
 }
@@ -199,8 +217,8 @@ async fn register(
     Json(request): Json<RegistrationRequest>,
 ) -> Result<Response, Problem<AuthError>> {
     let input = Registration::try_from(request).map_err(AuthError::from)?;
-    let (session, tokens) = auth.register(&client, input).await?;
-    Ok(created(session, &tokens, delivery(&headers))?)
+    let (session, tokens, device) = auth.register(&client, input).await?;
+    Ok(created(session, &tokens, &device, delivery(&headers))?)
 }
 
 /// Signs in with an email and a password.
@@ -218,12 +236,19 @@ async fn sign_in(
     State(auth): State<Arc<Auth>>,
     limits: RateLimits,
     client: Client,
+    cookies: Cookies,
     headers: HeaderMap,
     Json(request): Json<SignInRequest>,
 ) -> Result<Response, Problem<AuthError>> {
-    let input = SignIn::try_from(request).map_err(AuthError::from)?;
-    let (session, tokens) = auth.sign_in(&limits, &client, input).await?;
-    Ok(created(session, &tokens, delivery(&headers))?)
+    let mut input = SignIn::try_from(request).map_err(AuthError::from)?;
+    if input.device_token.is_none() {
+        input.device_token = cookies
+            .credential(DEVICE_COOKIE)
+            .map_err(AuthError::from)?
+            .map(|token| Secret::new(token.to_owned()));
+    }
+    let (session, tokens, device) = auth.sign_in(&limits, &client, input).await?;
+    Ok(created(session, &tokens, &device, delivery(&headers))?)
 }
 
 /// Gives the session a new pair of tokens.
@@ -254,7 +279,7 @@ async fn refresh(
         },
     };
     let (session, tokens) = auth.refresh(&client, &token).await?;
-    let (cookies, body) = deliver(session, &tokens, delivery(&headers))?;
+    let (cookies, body) = deliver(session, &tokens, None, delivery(&headers))?;
     let mut response = (StatusCode::OK, axum::Json(body)).into_response();
     for cookie in cookies {
         response.headers_mut().append(header::SET_COOKIE, cookie);
@@ -312,14 +337,15 @@ fn delivery(headers: &HeaderMap) -> TokenDelivery {
     }
 }
 
-/// The 201 of a new session, at `/v1/users/me/sessions/current`, with its tokens delivered as
-/// `delivery` says (AUTH-001, AUTH-004).
+/// The 201 of a new session, at `/v1/users/me/sessions/current`, with its tokens and its device
+/// token delivered as `delivery` says (AUTH-001, AUTH-004, AUTH-019).
 fn created(
     session: Session,
     tokens: &Tokens,
+    device: &DeviceToken,
     delivery: TokenDelivery,
 ) -> Result<Response, AuthError> {
-    let (cookies, body) = deliver(session, tokens, delivery)?;
+    let (cookies, body) = deliver(session, tokens, Some(device), delivery)?;
     let mut response = (StatusCode::CREATED, axum::Json(body)).into_response();
     let headers = response.headers_mut();
     headers.insert(header::LOCATION, HeaderValue::from_static(CURRENT_SESSION));
@@ -329,17 +355,21 @@ fn created(
     Ok(response)
 }
 
-/// The session's response, with its tokens in it, or in the cookies returned beside it for a
-/// browser (AUTH-015).
+/// The session's response, with its tokens and `device`, if any, in it, or in the cookies
+/// returned beside it for a browser (AUTH-015).
 fn deliver(
     session: Session,
     tokens: &Tokens,
+    device: Option<&DeviceToken>,
     delivery: TokenDelivery,
 ) -> Result<(Vec<HeaderValue>, SessionResponse), AuthError> {
     match delivery {
-        TokenDelivery::Body => Ok((Vec::new(), SessionResponse::new(session, Some(tokens)))),
+        TokenDelivery::Body => Ok((
+            Vec::new(),
+            SessionResponse::new(session, Some(tokens), device),
+        )),
         TokenDelivery::Cookie => {
-            let cookies = vec![
+            let mut cookies = vec![
                 session_cookie(
                     ACCESS_COOKIE,
                     tokens.access.expose(),
@@ -351,7 +381,14 @@ fn deliver(
                     session.refresh_token_expires_at,
                 )?,
             ];
-            Ok((cookies, SessionResponse::new(session, None)))
+            if let Some(device) = device {
+                cookies.push(session_cookie(
+                    DEVICE_COOKIE,
+                    device.token.expose(),
+                    device.expires_at,
+                )?);
+            }
+            Ok((cookies, SessionResponse::new(session, None, None)))
         }
     }
 }

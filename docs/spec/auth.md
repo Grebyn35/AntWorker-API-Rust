@@ -10,6 +10,7 @@
 |---|---|
 | `identities` | A user's sign-in methods. `id`, `user_id`, `method`, `created_at`, `updated_at` and `version`. For a password: `method = 'password'`, and `password_hash` in the string format of the Password Hashing Competition (PHC). `(user_id, method)` is unique. |
 | `sessions` | `id`, `user_id`, `device_id` (optional), `access_token_hash`, `refresh_token_hash`, `previous_refresh_token_hash`, `created_at`, `updated_at`, `version`, `access_token_expires_at`, `refresh_token_expires_at`, `expires_at`. Each hash is a SHA-256 of a token and has a unique index. `(user_id, device_id)` is unique where `device_id` is set. |
+| `device_tokens` | `id`, `user_id`, `email_hash`, `token_hash`, `created_at`, `expires_at`. `token_hash` is a SHA-256 of the token, with a unique index; `email_hash` is the hash-based message authentication code (HMAC) under `HMAC_KEY` of the email the token was issued for (AUTH-019). Rows are never edited, and `app` may not update them (DATA-19). |
 
 ## Interface
 
@@ -21,8 +22,8 @@
 
 | Method and path | Access | Behaviors |
 |---|---|---|
-| `POST /v1/users` | public | AUTH-001 to AUTH-003, AUTH-007, AUTH-008, AUTH-015, AUTH-017 |
-| `POST /v1/sessions` | public | AUTH-004 to AUTH-008, AUTH-015, AUTH-017 |
+| `POST /v1/users` | public | AUTH-001 to AUTH-003, AUTH-007, AUTH-008, AUTH-015, AUTH-017, AUTH-019 |
+| `POST /v1/sessions` | public | AUTH-004 to AUTH-008, AUTH-015, AUTH-017, AUTH-019 |
 | `POST /v1/sessions/refresh` | public, with the refresh token as the credential | AUTH-010 to AUTH-012, AUTH-015 |
 | `GET /v1/users/me/sessions/current` | user | AUTH-016 |
 | `DELETE /v1/users/me/sessions/current` | user | AUTH-013 |
@@ -38,7 +39,7 @@ No route takes an `Idempotency-Key` (API-12).
 | AUTH-003 | A password must be 8 to 128 characters, of any characters. It is refused if it is on the breached-password list, contains a word of the context list, is one repeated character, or contains a run of 8 or more ascending or descending digits, each compared without regard to case. It isn't trimmed or changed. | D25, API-10 | `auth_003_` |
 | AUTH-004 | Signing in with a correct email and password creates a session, and answers 201 with `Location: /v1/users/me/sessions/current` and the session, as AUTH-016 reads it, with its tokens (AUTH-015). The audit entry is `session.created`. | API-04, DATA-27 | `auth_004_` |
 | AUTH-005 | An unknown email, an account without a password, and a wrong password all answer the same 401 `auth.invalid_credentials`, after the same password-hashing work. A wrong password for an existing account records `sign_in.failed` in that account's log. | SEC-05, DATA-27, PLATFORM-006 | `auth_005_` |
-| AUTH-006 | Each email allows 5 sign-in attempts per 15 minutes from each client address, an IPv6 address counted by its /64 prefix, as the IP limit counts it, and 50 per 15 minutes from every address together, which counts only the attempts that the first limit lets through, so no one address fills it. The three numbers are settings. Beyond either limit, a sign-in answers 429 `request.rate_limited` before any lookup. Every attempt is counted, whether or not the email exists. | SEC-12, API-15, PLATFORM-026 | `auth_006_` |
+| AUTH-006 | Each email allows 5 sign-in attempts per 15 minutes from each client address, an IPv6 address counted by its /64 prefix, as the IP limit counts it, and 50 per 15 minutes from every address together, which counts only the attempts that the first limit lets through, so no one address fills it. A sign-in with a device token valid for its email (AUTH-019) counts instead only in that token's own limit, 5 per 15 minutes, so no attempt from elsewhere refuses it. The three numbers are settings. Beyond its limit, a sign-in answers 429 `request.rate_limited` before it reads the account. Every attempt is counted, whether or not the email exists. | SEC-12, API-15, PLATFORM-026 | `auth_006_` |
 | AUTH-007 | A session holds two independent 256-bit random tokens, returned once and stored only as SHA-256 hashes. An access token lasts 1 hour, and a refresh token 30 days. No session outlives its absolute lifetime of 90 days. All three durations are settings. | SEC-03, SEC-06, D5 | `auth_007_` |
 | AUTH-008 | When a sign-in carries a device ID that already has a session for this user, the old session ends through the full sign-out path (AUTH-013) in the same unit of work. The sign-ins of one user take turns, so concurrent ones on one device leave it one session. Without a device ID, each sign-in creates a new session. | D5, D18, DATA-25 | `auth_008_` |
 | AUTH-009 | A protected request is authenticated by its access token: from the Bearer header, or, without an `Authorization` header, from the access cookie (AUTH-015). A missing or unknown token answers 401 `request.unauthenticated`. An expired one answers 401 `request.access_token_expired`, so the client knows to refresh. | SEC-03, D18, D61 | `auth_009_` |
@@ -47,10 +48,11 @@ No route takes an `Idempotency-Key` (API-12).
 | AUTH-012 | Presenting the previous refresh token ends the session: it is deleted, an access-change signal is sent, and `session.reuse_detected` is recorded. The response is 401 `auth.invalid_refresh_token`, the same as for an unknown or missing refresh token. | SEC-06, DATA-27 | `auth_012_` |
 | AUTH-013 | Signing out deletes the current session, sends an access-change signal that closes its streams, records `session.ended`, clears the session's cookies, and answers 204. | SEC-06, DATA-27, D35 | `auth_013_` |
 | AUTH-014 | Passwords are hashed with Argon2id, at the minimum that the Open Worldwide Application Security Project (OWASP) recommends: 19 MiB of memory, 2 iterations and 1 degree of parallelism, in PHC format, off the async runtime. A successful sign-in rehashes a password stored with other parameters, and records `password.rehashed`. | SEC-04, CODE-05, DATA-27 | `auth_014_` |
-| AUTH-015 | A registration, sign-in or refresh from a browser, a request that carries `Origin`, leaves the tokens out of the body and sets them as cookies: the access token in `__Host-access_token`, and the refresh token in `__Host-refresh_token`. Each is `Secure`, `HttpOnly` and `SameSite=Strict`, with `Path=/` and no `Domain`, and expires with its token. | SEC-19, D61 | `auth_015_` |
+| AUTH-015 | A registration, sign-in or refresh from a browser, a request that carries `Origin`, leaves the tokens out of the body and sets them as cookies: the access token in `__Host-access_token`, the refresh token in `__Host-refresh_token`, and a registration's or a sign-in's device token in `__Host-device_token`, which a sign-in reads when its body holds none. Each is `Secure`, `HttpOnly` and `SameSite=Strict`, with `Path=/` and no `Domain`, and expires with its token. | SEC-19, D61 | `auth_015_` |
 | AUTH-016 | `GET /v1/users/me/sessions/current` answers with the session that authenticated the request: its ID, its user's ID, its device ID, its creation time and its three expiry times, and no token. | API-02, DATA-22 | `auth_016_` |
 | AUTH-017 | A device ID is a string the client chooses, of 1 to 64 letters, digits, underscores and hyphens, rather than a UUID the API issues (API-11). Any other answers 400 with `invalid_device_id` at `/device_id`. | API-10, API-11 | `auth_017_` |
 | AUTH-018 | `lasting` keeps, of the sessions it is given, those that exist and whose refresh token and absolute lifetime haven't expired, whether or not their access token has. | SEC-06, D5 | `auth_018_` |
+| AUTH-019 | A registration and each successful sign-in issue the device a device token for the account's email, a 256-bit random token returned once, as AUTH-015 delivers tokens, stored only as its SHA-256 hash, and lasting `DEVICE_TOKEN_SECONDS` (1 day to 5 years, default 365 days). A sign-in brings it in its body's `device_token`. A sign-in that succeeds with a valid one ends it, as it issues the next, and ends the account's expired ones. One of another email, ended, expired or unknown counts as none, and refuses nothing. Signing out leaves it. | SEC-03, SEC-12, SEC-19 | `auth_019_` |
 
 ## Design
 
@@ -58,16 +60,16 @@ No route takes an `Idempotency-Key` (API-12).
 
 1. The password is hashed on a blocking thread, and the service opens the unit of work.
 2. `accounts::create` inserts the user, or reports that the email is in use: the unit of work rolls back, and the answer is AUTH-002.
-3. The password identity and the session are inserted, the `Principal` of the new session is built, and `user.registered` is recorded with its audit scope.
-4. The unit of work commits, and the route delivers the new session's tokens (AUTH-015).
+3. The password identity and the session are inserted, the `Principal` of the new session is built, `user.registered` is recorded with its audit scope, and the device token is issued (AUTH-019).
+4. The unit of work commits, and the route delivers the new session's tokens and the device token (AUTH-015).
 
 ### Sign-in
 
-1. The email's rate-limit buckets are counted, each in its own short transaction (AUTH-006, PLATFORM-026): the one of the email from the client's address, and then, only when that one lets the attempt through, the one of the email from every address. A bucket's key is a hash-based message authentication code (HMAC) of the normalized email (ACCOUNTS-002), so every spelling of an address shares its buckets, and in the first bucket's, of the client's address too, as the IP limit counts it (PLATFORM-048). The [threat model](../operations/threat-model.md#sign-in-limits) says how the two keep an attacker from locking an account's owner out.
+1. A device token that the sign-in brings, in its body or else in its cookie, is looked up by its hash, its email's HMAC and its expiry, in a unit of work of its own (AUTH-019). A valid one's rate-limit bucket is counted, keyed by its hash. Otherwise, the email's buckets are counted, each in its own short transaction (AUTH-006, PLATFORM-026): the one of the email from the client's address, and then, only when that one lets the attempt through, the one of the email from every address. A bucket's key is an HMAC of the normalized email (ACCOUNTS-002), so every spelling of an address shares its buckets, and in the first bucket's, of the client's address too, as the IP limit counts it (PLATFORM-048). The [threat model](../operations/threat-model.md#sign-in-limits) says how the two keep an attacker from locking an account's owner out.
 2. The service opens the unit of work. `accounts::find_by_email` returns the user's ID, if any, and the password identity is read by that user's ID and locked until the unit of work ends, so the sign-ins of one user take turns (DATA-25): of two on one device, the second ends the session the first started (AUTH-008).
 3. The password is verified on a blocking thread. When there is no user or no password identity, a dummy hash computed at startup with the same parameters is verified instead (AUTH-005).
 4. On a wrong password for an existing user, `sign_in.failed` is recorded in that account's log through `AuditScope::attempt`, and the unit of work commits and answers 401 (ARCH-11). With no user, the unit of work rolls back, and the answer is the same 401.
-5. On success, a session with the same device ID ends (AUTH-008), the new session is created, `session.created` is recorded, the password is rehashed if needed, which records `password.rehashed` (AUTH-014), and the unit of work commits.
+5. On success, a session with the same device ID ends (AUTH-008), the new session is created, `session.created` is recorded, the password is rehashed if needed, which records `password.rehashed` (AUTH-014), the next device token is issued (AUTH-019), and the unit of work commits.
 
 ### Refresh
 
@@ -92,6 +94,10 @@ The breached-password list holds at least the 3,000 most common passwords of 8 t
 ### Device IDs
 
 A client generates its device ID once per installation, such as from random bytes in base64url, and sends it with every sign-in, so a sign-in on the same installation replaces its session (AUTH-008, AUTH-017).
+
+### Device tokens
+
+A device token tells a sign-in from a device that signed in to the account before, so that attempts from elsewhere can't lock its owner out there (AUTH-006), as OWASP's "device cookies" do. A device ID can't, since its client chooses it, and anyone can send it. `device_tokens` holds each token's SHA-256 hash, with its user, the HMAC under `HMAC_KEY` of its email, with its own kind, and its expiry from the database's clock (DATA-03), so a sign-in finds whether its token is valid for its email before it reads the account, and a token that an attacker gets by signing in to their own account opens no limit of another email's. A token outlives the sessions of its device, as long as `DEVICE_TOKEN_SECONDS`, so a device that signs in again when its session ends still holds a valid one. A stolen token gives the thief its own limit's attempts, 5 every 15 minutes, until the device's next sign-in ends it, and still needs the password. A row is never edited: a successful sign-in deletes the token it used and the account's expired ones, and inserts the next, so a user holds one per device that signed in within the lifetime.
 
 ### Second factors
 

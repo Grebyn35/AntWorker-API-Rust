@@ -999,6 +999,10 @@
               }
             ]
           },
+          "device_token": {
+            "description": "The device token of a registration or a sign-in, unless the tokens went in cookies, which\nthe client sends with its next sign-in (AUTH-019).",
+            "type": "string"
+          },
           "expires_at": {
             "$ref": "#/components/schemas/Timestamp",
             "description": "When the session ends, whatever its refreshes."
@@ -1043,6 +1047,15 @@
               {
                 "type": "null"
               }
+            ]
+          },
+          "device_token": {
+            "description": "The device token that the account's last registration or sign-in on this device returned\n(AUTH-019). A browser leaves it out, and its cookie carries it. One that isn't valid for\nthe email counts as none.",
+            "maxLength": 64,
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
             ]
           },
           "email": {
