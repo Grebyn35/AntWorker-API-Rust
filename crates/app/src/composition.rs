@@ -49,8 +49,11 @@ pub struct Config {
     heartbeat: Duration,
 }
 
-/// The name of the per-email sign-in limit's bucket (AUTH-006).
+/// The name of the bucket of the sign-in limit of an email from one client address (AUTH-006).
 const SIGN_IN_BUCKET: &str = "sign_in";
+
+/// The name of the bucket of the sign-in limit of an email from every address (AUTH-006).
+const SIGN_IN_EMAIL_BUCKET: &str = "sign_in_email";
 
 // part: invitations
 /// The name of the per-member limit's bucket on inviting (INVITATIONS-009).
@@ -65,6 +68,7 @@ impl Config {
         F: Fn(&Path) -> io::Result<String>,
     {
         let day: u32 = 86_400;
+        let sign_in_window = settings.duration("SIGN_IN_WINDOW_SECONDS", 900, 1..=day)?;
         Ok(Self {
             auth: auth::Settings {
                 lifetimes: auth::Lifetimes {
@@ -83,7 +87,12 @@ impl Config {
                 sign_in: Bucket {
                     name: SIGN_IN_BUCKET,
                     limit: settings.number("SIGN_IN_ATTEMPTS", 5, 1..=1_000)?,
-                    window: settings.duration("SIGN_IN_WINDOW_SECONDS", 900, 1..=day)?,
+                    window: sign_in_window,
+                },
+                sign_in_email: Bucket {
+                    name: SIGN_IN_EMAIL_BUCKET,
+                    limit: settings.number("SIGN_IN_EMAIL_ATTEMPTS", 50, 1..=100_000)?,
+                    window: sign_in_window,
                 },
             },
             // part: invitations

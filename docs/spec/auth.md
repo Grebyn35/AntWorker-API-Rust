@@ -38,7 +38,7 @@ No route takes an `Idempotency-Key` (API-12).
 | AUTH-003 | A password must be 8 to 128 characters, of any characters. It is refused if it is on the breached-password list, contains a word of the context list, is one repeated character, or contains a run of 8 or more ascending or descending digits, each compared without regard to case. It isn't trimmed or changed. | D25, API-10 | `auth_003_` |
 | AUTH-004 | Signing in with a correct email and password creates a session, and answers 201 with `Location: /v1/users/me/sessions/current` and the session, as AUTH-016 reads it, with its tokens (AUTH-015). The audit entry is `session.created`. | API-04, DATA-27 | `auth_004_` |
 | AUTH-005 | An unknown email, an account without a password, and a wrong password all answer the same 401 `auth.invalid_credentials`, after the same password-hashing work. A wrong password for an existing account records `sign_in.failed` in that account's log. | SEC-05, DATA-27, PLATFORM-006 | `auth_005_` |
-| AUTH-006 | Each email allows 5 sign-in attempts per 15 minutes, both settings. Beyond that, a sign-in answers 429 `request.rate_limited` before any lookup. Every attempt is counted, whether or not the email exists. | SEC-12, API-15, PLATFORM-026 | `auth_006_` |
+| AUTH-006 | Each email allows 5 sign-in attempts per 15 minutes from each client address, an IPv6 address counted by its /64 prefix, as the IP limit counts it, and 50 per 15 minutes from every address together, which counts only the attempts that the first limit lets through, so no one address fills it. The three numbers are settings. Beyond either limit, a sign-in answers 429 `request.rate_limited` before any lookup. Every attempt is counted, whether or not the email exists. | SEC-12, API-15, PLATFORM-026 | `auth_006_` |
 | AUTH-007 | A session holds two independent 256-bit random tokens, returned once and stored only as SHA-256 hashes. An access token lasts 1 hour, and a refresh token 30 days. No session outlives its absolute lifetime of 90 days. All three durations are settings. | SEC-03, SEC-06, D5 | `auth_007_` |
 | AUTH-008 | When a sign-in carries a device ID that already has a session for this user, the old session ends through the full sign-out path (AUTH-013) in the same unit of work. The sign-ins of one user take turns, so concurrent ones on one device leave it one session. Without a device ID, each sign-in creates a new session. | D5, D18, DATA-25 | `auth_008_` |
 | AUTH-009 | A protected request is authenticated by its access token: from the Bearer header, or, without an `Authorization` header, from the access cookie (AUTH-015). A missing or unknown token answers 401 `request.unauthenticated`. An expired one answers 401 `request.access_token_expired`, so the client knows to refresh. | SEC-03, D18, D61 | `auth_009_` |
@@ -63,7 +63,7 @@ No route takes an `Idempotency-Key` (API-12).
 
 ### Sign-in
 
-1. The email's rate-limit bucket is counted in its own short transaction (AUTH-006, PLATFORM-026). Its key is a hash-based message authentication code (HMAC) of the normalized email (ACCOUNTS-002), so every spelling of an address shares one bucket.
+1. The email's rate-limit buckets are counted, each in its own short transaction (AUTH-006, PLATFORM-026): the one of the email from the client's address, and then, only when that one lets the attempt through, the one of the email from every address. A bucket's key is a hash-based message authentication code (HMAC) of the normalized email (ACCOUNTS-002), so every spelling of an address shares its buckets, and in the first bucket's, of the client's address too, as the IP limit counts it (PLATFORM-048). The [threat model](../operations/threat-model.md#sign-in-limits) says how the two keep an attacker from locking an account's owner out.
 2. The service opens the unit of work. `accounts::find_by_email` returns the user's ID, if any, and the password identity is read by that user's ID and locked until the unit of work ends, so the sign-ins of one user take turns (DATA-25): of two on one device, the second ends the session the first started (AUTH-008).
 3. The password is verified on a blocking thread. When there is no user or no password identity, a dummy hash computed at startup with the same parameters is verified instead (AUTH-005).
 4. On a wrong password for an existing user, `sign_in.failed` is recorded in that account's log through `AuditScope::attempt`, and the unit of work commits and answers 401 (ARCH-11). With no user, the unit of work rolls back, and the answer is the same 401.
@@ -107,6 +107,4 @@ What an address proves follows whether the deployment sends email (D67). The flo
 
 ## Open design questions
 
-| Question | Settled by |
-|---|---|
-| How the per-email sign-in limit (AUTH-006) keeps an attacker who sends 5 attempts every 15 minutes from shutting an account's owner out of signing in with their password, as requirement 6.1.1 of ASVS asks the documentation to explain: such as by counting attempts per email and client IP, beside a looser count per email | the threat model, in step 3 |
+None.

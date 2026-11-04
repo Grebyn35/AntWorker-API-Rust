@@ -2,6 +2,7 @@
 //! (PLATFORM-026, PLATFORM-048 to PLATFORM-051).
 
 use std::{
+    net::IpAddr,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -19,6 +20,17 @@ static REFUSALS: Counter<1> = Counter::new(
     "Requests that a rate limit refused, by the kind of the bucket that refused them (PLATFORM-048).",
     [names::RATE_LIMIT_BUCKET],
 );
+
+/// What a bucket counts of a client's address: an IPv4 address's bytes, with one that arrived
+/// mapped into IPv6 counted as itself, or an IPv6 address's /64 prefix, which one subscriber holds
+/// whole, so a client can't escape a limit by moving within it (PLATFORM-048). The IP limit counts
+/// it, and so does a per-action limit that counts by address, such as AUTH-006's.
+pub fn address(ip: IpAddr) -> Vec<u8> {
+    match ip.to_canonical() {
+        IpAddr::V4(address) => address.octets().to_vec(),
+        IpAddr::V6(address) => address.octets()[..8].to_vec(),
+    }
+}
 
 /// A kind of bucket: its name, which the rate-limit headers carry, and how many requests it
 /// allows in each window.
@@ -194,6 +206,22 @@ mod tests {
             count,
             resets_in: Duration::from_secs(resets_in),
         }
+    }
+
+    #[test]
+    fn platform_048_an_ipv6_client_counts_by_its_64_prefix() {
+        let first: IpAddr = "2001:db8:1:2::1".parse().unwrap();
+        let same: IpAddr = "2001:db8:1:2:ffff::9".parse().unwrap();
+        let other: IpAddr = "2001:db8:1:3::1".parse().unwrap();
+        assert_eq!(address(first), address(same));
+        assert_ne!(address(first), address(other));
+    }
+
+    #[test]
+    fn platform_051_an_ipv4_address_mapped_into_ipv6_counts_as_itself() {
+        let mapped: IpAddr = "::ffff:192.0.2.1".parse().unwrap();
+        let plain: IpAddr = "192.0.2.1".parse().unwrap();
+        assert_eq!(address(mapped), address(plain));
     }
 
     #[test]

@@ -145,26 +145,78 @@ async fn auth_005_every_failed_sign_in_answers_the_same_401() {
     assert_eq!(failures, [format!("{} none", ada.user_id)]);
 }
 
+/// Signs `email` in with [`PASSWORD`] from the client address `peer`.
+async fn sign_in_from(api: &Api, peer: &str, email: &str) -> crate::support::api::Response {
+    api.post(
+        "/v1/sessions",
+        &json!({ "email": email, "password": PASSWORD }),
+    )
+    .from(peer)
+    .send()
+    .await
+}
+
 #[tokio::test]
-async fn auth_006_each_email_allows_its_attempts_then_answers_429_before_any_lookup() {
+async fn auth_006_each_email_allows_its_attempts_from_each_address_then_answers_429_before_any_lookup()
+ {
     let api = Api::with(Options::default().set("SIGN_IN_ATTEMPTS", 2)).await;
 
-    let first = users::sign_in(&api, "nobody@example.com", PASSWORD).await;
-    let second = users::sign_in(&api, "NOBODY@example.com", PASSWORD).await;
+    let first = sign_in_from(&api, "[2001:db8:1:2::1]:50000", "nobody@example.com").await;
+    let second = sign_in_from(&api, "[2001:db8:1:2::2]:50000", "NOBODY@example.com").await;
     let padded = json!({ "email": " nobody@example.com", "password": PASSWORD });
-    let third = api.post_raw("/v1/sessions", &padded).send().await;
-    let other = users::sign_in(&api, "someone@example.com", PASSWORD).await;
+    let third = api
+        .post_raw("/v1/sessions", &padded)
+        .from("[2001:db8:1:2:ffff::9]:50000")
+        .send()
+        .await;
+    let other_email = sign_in_from(&api, "[2001:db8:1:2::1]:50000", "someone@example.com").await;
+    let other_address = sign_in_from(&api, "[2001:db8:1:3::1]:50000", "nobody@example.com").await;
 
     assert_eq!(first.status, 401);
     assert_eq!(second.status, 401);
-    assert_eq!(third.status, 429);
+    assert_eq!(third.status, 429, "the same /64");
     assert_eq!(third.json()["code"], "request.rate_limited");
     assert!(
         third
             .header("ratelimit-policy")
             .starts_with("\"sign_in\";q=2;w=900")
     );
-    assert_eq!(other.status, 401);
+    assert_eq!(other_email.status, 401);
+    assert_eq!(other_address.status, 401);
+}
+
+#[tokio::test]
+async fn auth_006_an_email_allows_its_attempts_from_every_address_together_counting_only_those_each_address_lets_through()
+ {
+    let options = Options::default()
+        .set("SIGN_IN_ATTEMPTS", 2)
+        .set("SIGN_IN_EMAIL_ATTEMPTS", 3);
+    let api = Api::with(options).await;
+    users::register(&api, "ada@example.com").await;
+
+    // The third from one address is that address's refusal, which the email's count leaves out.
+    let mut one = Vec::new();
+    for _ in 0..3 {
+        one.push(
+            sign_in_from(&api, "192.0.2.1:50000", "ada@example.com")
+                .await
+                .status,
+        );
+    }
+    let another = sign_in_from(&api, "192.0.2.2:50000", "ada@example.com").await;
+    let third = sign_in_from(&api, "192.0.2.3:50000", "ada@example.com").await;
+    let other_email = sign_in_from(&api, "192.0.2.3:50000", "grace@example.com").await;
+
+    assert_eq!(one, [201, 201, 429]);
+    assert_eq!(another.status, 201);
+    assert_eq!(third.status, 429);
+    assert_eq!(third.json()["code"], "request.rate_limited");
+    assert!(
+        third
+            .header("ratelimit-policy")
+            .starts_with("\"sign_in_email\";q=3;w=900")
+    );
+    assert_eq!(other_email.status, 401);
 }
 
 #[tokio::test]

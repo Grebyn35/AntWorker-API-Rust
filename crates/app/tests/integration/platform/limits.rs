@@ -23,7 +23,11 @@ async fn platform_026_a_count_commits_though_its_request_fails_afterwards() {
         .database()
         .owner_reads("SELECT count::text FROM rate_limit_buckets ORDER BY count")
         .await;
-    assert_eq!(counts, ["1", "1"], "the IP bucket and the email's");
+    assert_eq!(
+        counts,
+        ["1", "1", "1"],
+        "the IP's bucket, the email's from the address, and the email's"
+    );
 }
 
 #[tokio::test]
@@ -233,7 +237,11 @@ async fn platform_051_no_bucket_holds_an_ip_address_an_email_or_a_user_id() {
              FROM rate_limit_buckets",
         )
         .await;
-    assert_eq!(keys.len(), 3, "the IP's, the user's and the email's");
+    assert_eq!(
+        keys.len(),
+        4,
+        "the IP's, the user's, the email's from the address and the email's"
+    );
     for key in keys {
         assert!(key.starts_with("32 "), "{key}");
         assert!(!key.contains("198.51.100.20") && !key.contains("ada@example.com"));

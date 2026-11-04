@@ -12,7 +12,7 @@ use platform::{
     events::{self, AccessChange},
     hashing::sha256,
     random,
-    rate_limit::{Bucket, LimitError, RateLimits},
+    rate_limit::{self, Bucket, LimitError, RateLimits},
     types::{Client, EmailAddress, Secret, SessionId, UserId},
 };
 
@@ -47,8 +47,11 @@ pub(crate) struct SignIn {
 pub(crate) struct Settings {
     /// How long a session's tokens last (AUTH-007).
     pub(crate) lifetimes: Lifetimes,
-    /// The per-email sign-in limit (AUTH-006).
+    /// The sign-in limit of an email from one client address (AUTH-006).
     pub(crate) sign_in: Bucket,
+    /// The sign-in limit of an email from every address, which counts only the attempts that
+    /// `sign_in` lets through (AUTH-006).
+    pub(crate) sign_in_email: Bucket,
 }
 
 /// Registration, sign-in and sessions.
@@ -131,9 +134,13 @@ impl Auth {
         client: &Client,
         input: SignIn,
     ) -> Result<(Session, Tokens), AuthError> {
-        limits
-            .check(self.settings.sign_in, input.email.as_str().as_bytes())
-            .await?;
+        // The email from the client's address first, so the count of the email from every
+        // address holds only what that limit let through, and no one address fills it. A zero
+        // byte, which no email address holds, ends the email in the first key.
+        let email = input.email.as_str().as_bytes();
+        let from_address = [email, &[0], &rate_limit::address(client.ip)].concat();
+        limits.check(self.settings.sign_in, &from_address).await?;
+        limits.check(self.settings.sign_in_email, email).await?;
         let mut uow = self.database.begin(client).await?;
         let Some(user_id) = accounts::find_by_email(&mut uow, &input.email).await? else {
             verify(self.dummy_hash.clone(), input.password).await?;
