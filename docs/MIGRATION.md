@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** the rest of step 3, the rule fixes: the deletion pass over OBS, OPS and SEC; a review of the round's part since 47d89d1; then the renumbering. 3c57546's message holds the counts the round's last commit compares with. Nothing waits on the owner. A development database made before 2e0e179 is recreated, as CLAUDE.md says. The trial server runs 0.1.0-rc.11, its Grafana Cloud stack's alerts reach no contact point yet, and the first restore after its next release, whose deploy needs `--allow-restart`, measures the checks' waits that backups.md leaves unmeasured. The owner releases when it needs `main`.
+**Next:** the last of step 3, the rule fixes. First a conformance review of the round's part since 47d89d1, its 11 commits and four new mechanisms (the hub's narrower closing, the retention after a restore, D78 and D79) and the threat model, before more builds on them. Then the deletion pass over the OBS, OPS and SEC rules, which deletes each rule that no code needed or that only restates another, with a review of its own; then the renumbering of rule and behavior IDs. 3c57546's message holds the counts that the round's last commit compares with. Nothing waits on the owner. A development database made before 685ca13 is recreated, as CLAUDE.md says. The trial server runs 0.1.0-rc.11, and its Grafana Cloud stack's alerts reach no contact point yet. Its next release changes the Postgres image, so its deploy needs `--allow-restart`, and the first restore after it measures the checks' waits that backups.md leaves unmeasured. The owner releases when it needs `main`.
 
 ## Build order
 

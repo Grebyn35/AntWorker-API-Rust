@@ -160,8 +160,9 @@ restore() {
     # when the newest backup is on a timeline that a restore abandoned. The latest state's plan
     # names the latest timeline, which Postgres replays along without being told.
     #
-    # First, the backup's full backup gets the annotation `restore-<time>`, the time before any
-    # backup of the restored database starts: the moments of the restored timeline before its
+    # First, the backup's full backup gets the annotation `restore-<time>`, a time before any
+    # backup of the restored database starts, by the server's clock, which pgBackRest stamps the
+    # backups with too, through Postgres: the moments of the restored timeline before its
     # first backup ends replay from the backup the restore starts from, and each expire keeps it
     # until a backup that started after that time is as old as the retention
     # (deploy/postgres/retention.jq). It's written before the restored database starts, and so
