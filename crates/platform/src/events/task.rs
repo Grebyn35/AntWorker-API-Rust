@@ -8,7 +8,7 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 use super::{
-    AccessChange, EVENTS_CHANNEL,
+    EVENTS_CHANNEL, Signal,
     hub::{Command, Listener, StreamId},
     log,
     streams::Streams,
@@ -227,8 +227,8 @@ impl Task {
                 self.load_notified().await;
             }
             Received::Notification { payload, .. } => {
-                match serde_json::from_str::<AccessChange>(&payload) {
-                    Ok(change) => self.streams.changed(change),
+                match serde_json::from_str::<Signal>(&payload) {
+                    Ok(signal) => self.streams.changed(signal),
                     Err(_) => tracing::warn!("an access-change signal didn't parse"),
                 }
             }

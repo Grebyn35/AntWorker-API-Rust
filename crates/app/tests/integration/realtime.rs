@@ -441,12 +441,11 @@ async fn realtime_002_an_event_published_outside_a_trace_has_no_trace_id_and_the
     uow.commit().await.unwrap();
     let untraced = stream.event().await;
     api.readiness().stop();
-    let closing = stream.event().await;
+    let closing = stream.closing().await;
 
     assert_eq!(untraced.data, Some(json!({ "data": {}, "trace_id": null })));
     let own = stream.trace_id();
     assert_eq!(opened.data.unwrap()["trace_id"], own.as_str());
-    assert_eq!(closing.event.as_deref(), Some("stream.closed"));
     assert_eq!(closing.data.unwrap()["trace_id"], own.as_str());
 }
 

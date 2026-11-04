@@ -13,7 +13,7 @@ use super::{
 };
 use crate::{
     authn::{Principal, SessionVerifier},
-    authz::{AccessPolicy, Memberships},
+    authz::{AccessPolicy, Memberships, Snapshot},
     clock::{Clock, SharedClock},
     db::{self, Checked, Database, UnitOfWork},
     errors::{self, Internal},
@@ -35,11 +35,12 @@ pub(crate) enum Command {
         principal: Principal,
         reply: oneshot::Sender<Result<Registered, SubscribeError>>,
     },
-    /// Keeps a registered stream under its memberships, and answers with the hub's head, or
-    /// `None` when the stream has closed since it registered.
+    /// Keeps a registered stream under its memberships, read after `snapshot`, and answers with
+    /// the hub's head, or `None` when the stream has closed since it registered.
     Activate {
         id: StreamId,
         memberships: Memberships,
+        snapshot: Snapshot,
         reply: oneshot::Sender<Option<i64>>,
     },
     /// Removes a stream whose subscription was dropped.
@@ -151,11 +152,14 @@ impl Hub {
             id: registered.id,
             commands: self.commands.clone(),
         };
-        // Registered first, so a signal for the caller from now on closes the stream; then the
-        // memberships, read as they stand once it is. No pooled connection is held while the
-        // hub answers, since the hub's own reads may wait for one.
+        // Registered first, so a signal for the caller from now on reaches the stream; then the
+        // snapshot, and the memberships, read after it, so they hold every change whose
+        // transaction it holds, and the hub closes the stream for any other (PLATFORM-017). No
+        // pooled connection is held while the hub answers, since the hub's own reads may wait for
+        // one.
         let mut uow = self.database.unattributed().await?;
         let user = principal.user_id();
+        let snapshot = log::snapshot(&mut uow).await?;
         let memberships = self
             .policy
             .memberships(&mut uow, &[user])
@@ -172,6 +176,7 @@ impl Hub {
         self.send(Command::Activate {
             id: registered.id,
             memberships: memberships.clone(),
+            snapshot,
             reply,
         })?;
         let activated = head.await.map_err(|_| SubscribeError::Unavailable)?;

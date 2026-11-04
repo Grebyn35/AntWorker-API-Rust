@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT pg_notify($1, $2)",
+  "query": "SELECT pg_notify($1, ($2::jsonb\n            || jsonb_build_object('transaction', pg_current_xact_id()::text::numeric))::text)",
   "describe": {
     "columns": [
       {
@@ -13,12 +13,12 @@
     "parameters": {
       "Left": [
         "Text",
-        "Text"
+        "Jsonb"
       ]
     },
     "nullable": [
       null
     ]
   },
-  "hash": "f7599bbef8c317c1ab1a61b2bcba3c5b03855b8a536bcdf369332c567b29d92c"
+  "hash": "d1423fd46909ecb41ebf34099a4e7e2eadeb6701487c9b708092d9ba60a12fd1"
 }

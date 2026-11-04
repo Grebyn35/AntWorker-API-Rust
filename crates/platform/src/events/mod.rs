@@ -153,8 +153,9 @@ pub enum AccessChange {
         /// The session.
         session_id: SessionId,
     },
-    /// A user's membership in a workspace started or ended, so their streams close, and open
-    /// again with their memberships as they then stand (PLATFORM-017).
+    /// A user's membership in a workspace started or ended, so their streams whose memberships
+    /// don't hold it close, and open again with their memberships as they then stand
+    /// (PLATFORM-017).
     MembershipChanged {
         /// The user.
         user_id: UserId,
@@ -172,12 +173,27 @@ impl AccessChange {
     }
 }
 
-/// Sends `change` on the channel when `uow` commits, and never if it rolls back: Postgres delivers
-/// a notification only at commit (D35).
+/// A signal, as the hub receives it: the change, and the ID of the transaction that made it, as
+/// `pg_current_xact_id()` gives it, which tells the hub whether a stream's memberships hold the
+/// change (PLATFORM-017).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+struct Signal {
+    #[serde(flatten)]
+    change: AccessChange,
+    transaction: u64,
+}
+
+/// Sends `change` on the channel, with the ID of `uow`'s transaction, when `uow` commits, and
+/// never if it rolls back: Postgres delivers a notification only at commit (D35).
 pub async fn signal(uow: &mut UnitOfWork, change: AccessChange) -> Result<(), Internal> {
-    let payload = serde_json::to_string(&change).map_err(Internal::new)?;
-    sqlx::query!("SELECT pg_notify($1, $2)", CHANNEL, payload)
-        .execute(uow.executor())
-        .await?;
+    let payload = serde_json::to_value(change).map_err(Internal::new)?;
+    sqlx::query!(
+        "SELECT pg_notify($1, ($2::jsonb
+            || jsonb_build_object('transaction', pg_current_xact_id()::text::numeric))::text)",
+        CHANNEL,
+        payload,
+    )
+    .execute(uow.executor())
+    .await?;
     Ok(())
 }

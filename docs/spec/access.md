@@ -33,7 +33,7 @@
 | ACCESS-003 | A caller who isn't a member of the workspace in the path gets 404 `request.not_found`. A member without the route's permission gets 403 `request.permission_denied`. Both refusals are reported to the `SecurityEventSink`. A workspace ID that isn't a UUID names no workspace, and answers 404 `request.not_found` unrecorded. | API-14, SEC-07, DATA-27 | `access_003_` |
 | ACCESS-004 | A member acts only on members whose role ranks below their own, and assigns only roles below their own. A refusal goes through `authz::refuse`, and answers 403 `request.permission_denied`. | SEC-08, DATA-27, PLATFORM-025 | `access_004_` |
 | ACCESS-005 | `workspace_ids` returns the ID of every workspace the caller belongs to, and nothing else. | D3, DATA-22 | `access_005_` |
-| ACCESS-006 | Adding a membership and removing one each sends an access-change signal for its user and workspace in the same unit of work, which closes that user's streams once it commits. | SEC-06, D35, PLATFORM-017 | `access_006_` |
+| ACCESS-006 | Adding a membership and removing one each sends an access-change signal for its user and workspace in the same unit of work, which closes that user's streams once it commits, as PLATFORM-017 says. | SEC-06, D35, PLATFORM-017 | `access_006_` |
 | ACCESS-007 | `memberships` gives each user it is asked about every workspace they belong to, with the permissions their role holds there and the transaction that added the membership, and nothing else. | SEC-17, DATA-22 | `access_007_` |
 
 ## Design

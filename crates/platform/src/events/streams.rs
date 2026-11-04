@@ -12,13 +12,13 @@ use tokio::sync::{
 };
 
 use super::{
-    AccessChange,
+    AccessChange, Signal,
     hub::{Command, Registered, StreamId, SubscribeError},
     subscription::{Audience, Closed, Event},
 };
 use crate::{
     authn::Principal,
-    authz::Memberships,
+    authz::{Memberships, Snapshot},
     telemetry::{
         metrics::{Counter, Gauge},
         names,
@@ -51,12 +51,30 @@ static CLOSES: Counter<2> = Counter::new(
 /// A stream the hub holds.
 struct Entry {
     principal: Principal,
-    /// The caller's memberships, once the subscription has read them; until then, only their
-    /// user events reach the stream, which its replay covers.
-    memberships: Option<Memberships>,
+    /// The caller's memberships, with the snapshot they were read after, once the subscription
+    /// has read them; until then, only their user events reach the stream, which its replay
+    /// covers.
+    memberships: Option<Read>,
+    /// The transactions of the membership changes signalled while the subscription read the
+    /// memberships, each of which they must hold, or the stream closes once they arrive.
+    unread: Vec<u64>,
     queue: mpsc::Sender<Arc<Event>>,
     /// Why the hub closed the stream, once it has.
     closed: watch::Sender<Option<Closed>>,
+}
+
+/// A stream's memberships, as its subscription read them, after taking `snapshot`: they hold the
+/// change of each transaction it holds, and may hold others (PLATFORM-017).
+struct Read {
+    memberships: Memberships,
+    snapshot: Snapshot,
+}
+
+impl Read {
+    /// Whether the memberships hold the membership change that the transaction `id` made.
+    fn holds(&self, id: u64) -> bool {
+        self.snapshot.includes(id)
+    }
 }
 
 /// The streams, and the head: the last position the hub loaded.
@@ -134,9 +152,10 @@ impl Streams {
             Command::Activate {
                 id,
                 memberships,
+                snapshot,
                 reply,
             } => {
-                let head = self.activate(id, memberships);
+                let head = self.activate(id, memberships, snapshot);
                 match reply.send(head) {
                     Ok(()) => {}
                     // The subscription stopped waiting: it has gone, and so does its stream.
@@ -165,6 +184,7 @@ impl Streams {
             Entry {
                 principal,
                 memberships: None,
+                unread: Vec::new(),
                 queue,
                 closed,
             },
@@ -178,34 +198,64 @@ impl Streams {
         })
     }
 
-    /// Keeps the stream `id` under `memberships`, and gives the head, or `None` when the stream
-    /// has closed since it registered.
-    fn activate(&mut self, id: StreamId, memberships: Memberships) -> Option<i64> {
+    /// Keeps the stream `id` under `memberships`, read after `snapshot`, and gives the head, or
+    /// `None` when the stream has closed since it registered, or closes now because a membership
+    /// change signalled meanwhile isn't among those its memberships hold (PLATFORM-017).
+    fn activate(
+        &mut self,
+        id: StreamId,
+        memberships: Memberships,
+        snapshot: Snapshot,
+    ) -> Option<i64> {
+        let read = Read {
+            memberships,
+            snapshot,
+        };
         let entry = self.streams.get_mut(&id)?;
-        for workspace in memberships.workspaces() {
+        if !entry
+            .unread
+            .iter()
+            .all(|transaction| read.holds(*transaction))
+        {
+            self.close(id, Closed::AccessChanged);
+            return None;
+        }
+        for workspace in read.memberships.workspaces() {
             self.by_workspace.entry(workspace).or_default().insert(id);
         }
-        entry.memberships = Some(memberships);
+        entry.memberships = Some(read);
         Some(self.head)
     }
 
-    /// Closes the streams `change` affects: a session's, or all of a user's (PLATFORM-017).
-    pub(super) fn changed(&mut self, change: AccessChange) {
-        let Some(ids) = self.by_user.get(&change.user_id()) else {
+    /// Closes the streams `signal` affects: a session's, or each of a user's whose memberships
+    /// don't hold the membership change, and records the change for each that is still reading
+    /// its memberships (PLATFORM-017).
+    pub(super) fn changed(&mut self, signal: Signal) {
+        let Some(ids) = self.by_user.get(&signal.change.user_id()) else {
             return;
         };
-        let affected: Vec<StreamId> = ids
-            .iter()
-            .copied()
-            .filter(|id| match change {
-                AccessChange::SessionEnded { session_id, .. } => self
-                    .streams
-                    .get(id)
-                    .is_some_and(|entry| entry.principal.session_id() == session_id),
-                AccessChange::MembershipChanged { .. } => true,
-            })
-            .collect();
-        let reason = match change {
+        let mut affected = Vec::new();
+        for id in ids {
+            let Some(entry) = self.streams.get_mut(id) else {
+                continue;
+            };
+            let closes = match signal.change {
+                AccessChange::SessionEnded { session_id, .. } => {
+                    entry.principal.session_id() == session_id
+                }
+                AccessChange::MembershipChanged { .. } => match &entry.memberships {
+                    Some(read) => !read.holds(signal.transaction),
+                    None => {
+                        entry.unread.push(signal.transaction);
+                        false
+                    }
+                },
+            };
+            if closes {
+                affected.push(*id);
+            }
+        }
+        let reason = match signal.change {
             AccessChange::SessionEnded { .. } => Closed::SessionEnded,
             AccessChange::MembershipChanged { .. } => Closed::AccessChanged,
         };
@@ -231,10 +281,10 @@ impl Streams {
                         .copied()
                         .filter(|id| {
                             self.streams.get(id).is_some_and(|entry| {
-                                entry.memberships.as_ref().is_some_and(|memberships| {
+                                entry.memberships.as_ref().is_some_and(|read| {
                                     // An event that holds no snapshot reaches no member.
                                     event.committed.as_ref().is_some_and(|committed| {
-                                        memberships.admits(*workspace, permission, committed)
+                                        read.memberships.admits(*workspace, permission, committed)
                                     })
                                 })
                             })
@@ -263,8 +313,8 @@ impl Streams {
             .filter_map(|(id, entry)| {
                 entry
                     .memberships
-                    .clone()
-                    .map(|memberships| (*id, entry.principal.clone(), memberships))
+                    .as_ref()
+                    .map(|read| (*id, entry.principal.clone(), read.memberships.clone()))
             })
             .collect()
     }
@@ -293,8 +343,8 @@ impl Streams {
                 self.by_user.remove(&user);
             }
         }
-        if let Some(memberships) = &entry.memberships {
-            for workspace in memberships.workspaces() {
+        if let Some(read) = &entry.memberships {
+            for workspace in read.memberships.workspaces() {
                 if let Some(ids) = self.by_workspace.get_mut(&workspace) {
                     ids.remove(&id);
                     if ids.is_empty() {
@@ -310,5 +360,77 @@ impl Streams {
     fn counted(&self) {
         let open = u64::try_from(self.streams.len()).unwrap_or(u64::MAX);
         STREAMS.set(open, [self.database.clone().into()]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::SessionId;
+
+    /// A stream of `user`'s, registered on `streams`.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the hub keeps the principal that auth proved; the test stands in for auth"
+    )]
+    fn register(streams: &mut Streams, user: UserId) -> Registered {
+        let session = SessionId::from_uuid(uuid::Uuid::new_v4());
+        streams
+            .register(Principal::new(user, session))
+            .expect("the stream registers")
+    }
+
+    /// `snapshot` in its text form, as `pg_current_snapshot()` gives it.
+    fn snapshot(text: &str) -> Snapshot {
+        Snapshot::parse(text).expect("a snapshot")
+    }
+
+    /// The signal that `user`'s membership changed, in the transaction `transaction`.
+    fn membership_changed(user: UserId, transaction: u64) -> Signal {
+        Signal {
+            change: AccessChange::MembershipChanged {
+                user_id: user,
+                workspace_id: WorkspaceId::from_uuid(uuid::Uuid::new_v4()),
+            },
+            transaction,
+        }
+    }
+
+    fn closed(registered: &Registered) -> Option<Closed> {
+        *registered.closed.borrow()
+    }
+
+    #[test]
+    fn platform_017_a_membership_change_closes_only_the_streams_whose_memberships_don_t_hold_it() {
+        let mut streams = Streams::new("api".to_owned(), 0);
+        let ada = UserId::from_uuid(uuid::Uuid::new_v4());
+        let before = register(&mut streams, ada);
+        let after = register(&mut streams, ada);
+        // Read before the transaction 150 committed, and after.
+        streams.activate(before.id, Memberships::default(), snapshot("150:150:"));
+        streams.activate(after.id, Memberships::default(), snapshot("140:160:145"));
+
+        streams.changed(membership_changed(ada, 150));
+
+        assert_eq!(closed(&before), Some(Closed::AccessChanged));
+        assert_eq!(closed(&after), None);
+    }
+
+    #[test]
+    fn platform_017_a_change_signalled_while_a_stream_opens_closes_it_unless_its_memberships_hold_it()
+     {
+        let mut streams = Streams::new("api".to_owned(), 0);
+        let ada = UserId::from_uuid(uuid::Uuid::new_v4());
+        let before = register(&mut streams, ada);
+        let after = register(&mut streams, ada);
+
+        streams.changed(membership_changed(ada, 150));
+        let held = streams.activate(before.id, Memberships::default(), snapshot("140:160:150"));
+        let holding = streams.activate(after.id, Memberships::default(), snapshot("151:151:"));
+
+        assert_eq!(held, None);
+        assert_eq!(closed(&before), Some(Closed::AccessChanged));
+        assert_eq!(holding, Some(0));
+        assert_eq!(closed(&after), None);
     }
 }

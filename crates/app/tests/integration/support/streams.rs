@@ -216,7 +216,7 @@ impl Stream {
     /// The next frame that isn't a comment, which must come. A response that ends first fails
     /// the test with what the stream held of a frame it never finished, and the `id` of the
     /// last event it sent.
-    pub async fn event(&mut self) -> Frame {
+    async fn next(&mut self) -> Frame {
         loop {
             let frame = self.frame().await;
             assert!(
@@ -232,10 +232,32 @@ impl Stream {
         }
     }
 
+    /// The next frame that isn't a comment, which must come, and isn't `stream.closed`: a stream
+    /// that closes first fails the test with the reason it gave.
+    pub async fn event(&mut self) -> Frame {
+        let frame = self.next().await;
+        assert_ne!(
+            frame.event.as_deref(),
+            Some("stream.closed"),
+            "the stream closed with {} after the event {:?}",
+            frame.payload()["reason"],
+            self.last_event_id
+        );
+        frame
+    }
+
     /// The next frame, which must be `stream.opened`.
     pub async fn opened(&mut self) -> Frame {
         let frame = self.event().await;
         assert_eq!(frame.event.as_deref(), Some("stream.opened"), "{frame:?}");
+        frame
+    }
+
+    /// The next frame, which must be `stream.closed`, after which the response must end.
+    pub async fn closing(&mut self) -> Frame {
+        let frame = self.next().await;
+        assert_eq!(frame.event.as_deref(), Some("stream.closed"), "{frame:?}");
+        assert_eq!(self.frame().await, None, "the stream went on after closing");
         frame
     }
 
@@ -244,7 +266,7 @@ impl Stream {
     pub async fn closed(&mut self) -> (Vec<Frame>, String) {
         let mut before = Vec::new();
         loop {
-            let frame = self.event().await;
+            let frame = self.next().await;
             if frame.event.as_deref() == Some("stream.closed") {
                 let reason = frame.payload()["reason"].as_str().unwrap().to_owned();
                 assert_eq!(self.frame().await, None, "the stream went on after closing");

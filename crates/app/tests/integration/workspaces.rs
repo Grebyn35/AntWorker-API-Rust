@@ -462,11 +462,18 @@ async fn workspaces_005_removing_a_member_deletes_their_membership_and_signals_i
         events,
         [format!("member.removed workspace {workspace} members.read")]
     );
+    // The signal names its transaction, the event's.
+    let transaction: u64 = db.owner_reads("SELECT xact::text FROM events").await[0]
+        .parse()
+        .unwrap();
     assert_eq!(
         signals.received().await,
-        [
-            json!({ "kind": "membership_changed", "user_id": grace.user_id, "workspace_id": workspace })
-        ]
+        [json!({
+            "kind": "membership_changed",
+            "user_id": grace.user_id,
+            "workspace_id": workspace,
+            "transaction": transaction
+        })]
     );
 }
 

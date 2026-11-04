@@ -133,24 +133,20 @@ impl Memberships {
     }
 }
 
-/// The transactions that had committed when an event did, from the snapshot its commit took:
-/// those below `xmin`, and those below `xmax` that weren't running, as Postgres's
-/// `pg_visible_in_snapshot` reads a `pg_snapshot`, and the event's own, which a snapshot leaves
-/// out, but which commits with it.
+/// The transactions a `pg_snapshot` holds as completed: those below `xmin`, and those below `xmax`
+/// that weren't running, as Postgres's `pg_visible_in_snapshot` reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Committed {
-    own: u64,
+pub(crate) struct Snapshot {
     xmin: u64,
     xmax: u64,
     running: Vec<u64>,
 }
 
-impl Committed {
-    /// The transactions of the event whose own transaction is `own`, and whose commit took
-    /// `snapshot`, a `pg_snapshot` in its text form, `xmin:xmax:xip,...`, or `None` for text that
+impl Snapshot {
+    /// The snapshot whose text form, `xmin:xmax:xip,...`, is `text`, or `None` for text that
     /// isn't one.
-    pub(crate) fn parse(own: &str, snapshot: &str) -> Option<Self> {
-        let mut parts = snapshot.split(':');
+    pub(crate) fn parse(text: &str) -> Option<Self> {
+        let mut parts = text.split(':');
         let (Some(xmin), Some(xmax), Some(running), None) =
             (parts.next(), parts.next(), parts.next(), parts.next())
         else {
@@ -163,16 +159,39 @@ impl Committed {
             .collect::<Result<Vec<u64>, _>>()
             .ok()?;
         Some(Self {
-            own: own.parse().ok()?,
             xmin: xmin.parse().ok()?,
             xmax: xmax.parse().ok()?,
             running,
         })
     }
 
+    /// Whether the transaction `id` had completed when the snapshot was taken.
+    pub(crate) fn includes(&self, id: u64) -> bool {
+        id < self.xmin || (id < self.xmax && !self.running.contains(&id))
+    }
+}
+
+/// The transactions that had committed when an event did: those of the snapshot its commit took,
+/// and the event's own, which a snapshot leaves out, but which commits with it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Committed {
+    own: u64,
+    snapshot: Snapshot,
+}
+
+impl Committed {
+    /// The transactions of the event whose own transaction is `own`, and whose commit took
+    /// `snapshot`, a `pg_snapshot` in its text form, or `None` for text that isn't one.
+    pub(crate) fn parse(own: &str, snapshot: &str) -> Option<Self> {
+        Some(Self {
+            own: own.parse().ok()?,
+            snapshot: Snapshot::parse(snapshot)?,
+        })
+    }
+
     /// Whether the transaction `id` had committed, or is the event's own.
     fn includes(&self, id: u64) -> bool {
-        id == self.own || id < self.xmin || (id < self.xmax && !self.running.contains(&id))
+        id == self.own || self.snapshot.includes(id)
     }
 }
 

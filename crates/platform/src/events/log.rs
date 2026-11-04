@@ -1,5 +1,6 @@
 //! The hub's reads of the event log: its head, the events it loads by position, and a stream's
-//! replay (PLATFORM-057, PLATFORM-071, SEC-17). `events` is `platform`'s bookkeeping: the hub
+//! replay (PLATFORM-057, PLATFORM-071, SEC-17); and the snapshot a stream's memberships are read
+//! after (PLATFORM-017). `events` is `platform`'s bookkeeping: the hub
 //! reads it by position, and a stream's reads by its caller's ID and memberships (DATA-22).
 //!
 //! A workspace event reaches a member whose role holds its permission, and whose membership had
@@ -10,7 +11,7 @@ use std::sync::Arc;
 
 use super::subscription::{Audience, Event};
 use crate::{
-    authz::{Committed, Memberships},
+    authz::{Committed, Memberships, Snapshot},
     db::UnitOfWork,
     errors::Internal,
     types::{UserId, WorkspaceId},
@@ -29,6 +30,15 @@ pub(super) async fn head(uow: &mut UnitOfWork) -> Result<i64, Internal> {
             .fetch_one(uow.executor())
             .await?,
     )
+}
+
+/// The transactions that have completed, as the statement's own snapshot holds them: a stream's
+/// memberships, read after it, hold every change whose transaction it holds (PLATFORM-017).
+pub(super) async fn snapshot(uow: &mut UnitOfWork) -> Result<Snapshot, Internal> {
+    let text = sqlx::query_scalar!(r#"SELECT pg_current_snapshot()::text AS "snapshot!""#)
+        .fetch_one(uow.executor())
+        .await?;
+    Snapshot::parse(&text).ok_or_else(|| Internal::new("a snapshot didn't parse"))
 }
 
 /// The events after `after`, up to `through`, in the order of their positions, at most
