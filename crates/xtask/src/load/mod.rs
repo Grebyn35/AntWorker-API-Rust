@@ -18,15 +18,16 @@
 // end part: invitations
 
 use std::{
-    io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    process::{Command, ExitCode, Stdio},
+    process::{Command, ExitCode},
 };
 
 use serde_json::Value;
 
 use crate::{repo::Repo, telemetry_config};
+use replica::{healthy, image, limits, prepare};
 
+mod replica;
 // part: invitations
 mod streams;
 // end part: invitations
@@ -187,38 +188,6 @@ pub fn run(route: &str) -> ExitCode {
     outcome
 }
 
-/// Prepares Compose's Postgres for a replica of `image`, with its `bootstrap` and `migrate`, and
-/// returns the network it is on and the replica's settings.
-fn prepare(root: &Path, image: &str) -> Result<(String, Vec<String>), String> {
-    let network = docker(
-        root,
-        &[
-            "inspect",
-            "--format",
-            "{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{end}}",
-            &compose_id(root, "postgres"),
-        ],
-    )
-    .map_err(|error| format!("Postgres isn't running; run `just services`: {error}"))?;
-    let settings = settings()?;
-    for task in ["bootstrap", "migrate"] {
-        let mut args = vec!["run", "--rm", "--network", &network];
-        for setting in &settings {
-            // Compose's Postgres holds the development database and the tests', which share the
-            // roles, and in production `bootstrap` refuses a server that holds another database
-            // of the roles (PLATFORM-077), so it runs as development's.
-            let setting = match (task, setting.as_str()) {
-                ("bootstrap", "ENVIRONMENT=production") => "ENVIRONMENT=development",
-                _ => setting,
-            };
-            args.extend(["--env", setting]);
-        }
-        args.extend([image, task]);
-        docker(root, &args).map_err(|error| format!("{task} failed: {error}"))?;
-    }
-    Ok((network, settings))
-}
-
 /// The path of the route the load test can measure, by its name.
 fn path_of(route: &str) -> Option<&'static str> {
     match route {
@@ -348,118 +317,6 @@ fn step(
         .rev()
         .find_map(|line| Step::parse(line, objective_ms))
         .ok_or_else(|| format!("k6 reported no outcome: {output}"))
-}
-
-/// Waits until Docker's health check finds the container `id` healthy, following its events, as
-/// the end-to-end tests do.
-fn healthy(root: &Path, id: &str) -> Result<(), String> {
-    let created = docker(root, &["inspect", "--format", "{{.Created}}", id])?;
-    let mut events = Command::new("docker")
-        .args([
-            "events",
-            "--since",
-            &created,
-            "--filter",
-            &format!("container={id}"),
-            "--filter",
-            "event=health_status",
-            "--filter",
-            "event=die",
-            "--format",
-            "{{.Action}}",
-        ])
-        .stdout(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("can't follow the replica's events: {error}"))?;
-    let stdout = events.stdout.take().ok_or("no events")?;
-    let verdict = BufReader::new(stdout)
-        .lines()
-        .map_while(Result::ok)
-        .find(|status| status.contains("healthy") || status.trim() == "die");
-    // The events end once the verdict is read.
-    let stopped = events.kill().and_then(|()| events.wait());
-    if let Err(error) = stopped {
-        report(&format!("couldn't stop following the events: {error}"));
-    }
-    match verdict.as_deref().map(str::trim) {
-        Some("health_status: healthy") => Ok(()),
-        other => Err(format!("the replica didn't become healthy: {other:?}")),
-    }
-}
-
-/// The image for this machine's platform, of the index in target/image, which `just load-test`
-/// pushed to the registry that Compose runs, as this machine reaches it.
-fn image(root: &Path) -> Result<String, String> {
-    let index: Value = serde_json::from_str(
-        &read(&root.join("target/image/index.json"))
-            .map_err(|_| "target/image/index.json is missing; run `just image`".to_owned())?,
-    )
-    .map_err(|error| format!("target/image/index.json isn't an index: {error}"))?;
-    let index = index["manifests"][0]["digest"]
-        .as_str()
-        .ok_or("target/image/index.json names no image")?;
-    let platform = if std::env::consts::ARCH == "aarch64" {
-        "linux/arm64"
-    } else {
-        "linux/amd64"
-    };
-    let digest = docker(
-        root,
-        &[
-            "compose",
-            "run",
-            "--rm",
-            "--no-TTY",
-            "crane",
-            "digest",
-            "--insecure",
-            "--platform",
-            platform,
-            &format!("registry:5000/image@{index}"),
-        ],
-    )?;
-    let registry = docker(root, &["compose", "port", "registry", "5000"])?;
-    Ok(format!("{registry}/image@{digest}"))
-}
-
-/// The CPUs and the memory of one replica, as deploy/settings.env.example sets them by default.
-fn limits(root: &Path) -> Result<(String, String), String> {
-    let example = read(&root.join("deploy/settings.env.example"))
-        .map_err(|error| format!("can't read deploy/settings.env.example: {error}"))?;
-    let value = |name: &str| {
-        example
-            .lines()
-            .find_map(|line| line.strip_prefix(&format!("{name}=")))
-            .map(str::to_owned)
-            .ok_or(format!("deploy/settings.env.example sets no {name}"))
-    };
-    Ok((value("API_CPUS")?, value("API_MEMORY")?))
-}
-
-/// The replica's settings: the database's and the HMAC key of .env, with Compose's Postgres as
-/// `postgres`, and IP and user limits that the load, from one address and one user, never
-/// reaches, so the test measures the replica rather than the limits, while every request still
-/// counts in them.
-fn settings() -> Result<Vec<String>, String> {
-    let key = std::env::var("HMAC_KEY").map_err(|_| "HMAC_KEY is unset; run `just setup`")?;
-    // The load sends no email, so the replicas turn email off, which `serve` requires them to
-    // say (PLATFORM-069).
-    let mut settings = vec![
-        "ENVIRONMENT=production".to_owned(),
-        format!("HMAC_KEY={key}"),
-        "EMAIL=off".to_owned(),
-        "RATE_LIMIT_IP_REQUESTS=1000000".to_owned(),
-        "RATE_LIMIT_USER_REQUESTS=1000000".to_owned(),
-    ];
-    for name in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
-        let value =
-            std::env::var(name).map_err(|_| format!("{name} is unset; run `just setup`"))?;
-        let at = value.rfind('@').ok_or(format!("{name} has no host"))?;
-        let rest = &value[at + 1..];
-        let path = rest.find('/').map_or("", |slash| &rest[slash..]);
-        settings.push(format!("{name}={}@postgres:5432{path}", &value[..at]));
-    }
-    Ok(settings)
 }
 
 /// The ID of the container of Compose's service `service`.
