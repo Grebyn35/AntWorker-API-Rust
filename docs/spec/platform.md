@@ -160,7 +160,7 @@ IDs 001 to 005, 007, 008 and 033 are retired.
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
-| PLATFORM-078 | CPU-heavy work runs at most one at once per processor the instance may use: its CPU limit, such as a container's, rounded down, or without one every processor it may run on, and at least one. More waits its turn. A work that started keeps its turn until it ends, even when its caller stopped waiting, and a caller that stops waiting, such as a request past its timeout, gives up its place, so its work never runs. | OPS-07, CODE-05 | `platform_078_` |
+| PLATFORM-078 | CPU-heavy work runs at most one at once per processor the instance may use: its CPU limit, such as a container's, rounded down, or without one every processor it may run on, and at least one. More waits its turn. A work that started keeps its turn until it ends, even when its caller stopped waiting, and a caller that stops waiting, such as a request past its timeout, gives up its place, so its work never runs. `serve` logs that number as it starts. | OPS-07, CODE-05 | `platform_078_` |
 
 ### Lifecycle
 

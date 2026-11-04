@@ -9,9 +9,14 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
+#[expect(
+    clippy::disallowed_types,
+    reason = "the binary is the one place that uses the system clock (CODE-06)"
+)]
+use platform::clock::SystemClock;
 use platform::{
     blocking::Workers,
-    clock::{SharedClock, SystemClock},
+    clock::SharedClock,
     config::{
         BootstrapConfig, ConfigError, Environment, HealthConfig, MigrateConfig, ServerConfig,
         TelemetryConfig,
@@ -166,11 +171,16 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         Ok(socket) => socket,
         Err(error) => return failed("listen", &error),
     };
+    let workers = Workers::new();
+    tracing::info!(
+        { names::WORKERS_TURNS } = workers.turns(),
+        "CPU-heavy work takes turns"
+    );
     let resources = app::Resources {
         database,
         clock,
         readiness,
-        workers: Workers::new(),
+        workers,
     };
     let services = match app::compose(&resources, &config, modules, listener).await {
         Ok(services) => services,

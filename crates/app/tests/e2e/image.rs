@@ -1,6 +1,9 @@
-//! The images (OPS-14, OPS-15, OPS-20).
+//! The images (OPS-14, OPS-15, OPS-20), and the turns of CPU-heavy work in a container
+//! (PLATFORM-078).
 
 use std::process::{Command, Output};
+
+use serde_json::Value;
 
 use crate::{
     docker::{Container, lossy, postgres_network},
@@ -54,8 +57,14 @@ impl Image {
 
     /// Starts `serve` in a container of the image, with its port published on 127.0.0.1.
     pub fn serve(&self, network: &str, env: &[String]) -> Container {
+        self.serve_with(network, env, &[])
+    }
+
+    /// Starts `serve` as `serve` does, with `options` of `docker run`, such as a CPU limit.
+    pub fn serve_with(&self, network: &str, env: &[String], options: &[&str]) -> Container {
         let published = format!("127.0.0.1::{PORT}");
         let mut arguments = self.arguments(network, env);
+        arguments.extend(options);
         arguments.extend(["--publish", &published, &self.reference, "serve"]);
         Container::start(&arguments)
     }
@@ -121,6 +130,46 @@ async fn ops_15_bootstrap_migrate_and_serve_run_from_one_image_as_a_non_root_use
     assert!(capabilities.starts_with("HTTP/1.1 200 "), "{capabilities}");
     assert_eq!(server.inspect("{{.Config.User}}"), "65532:65532");
     assert_eq!(server.inspect("{{.HostConfig.ReadonlyRootfs}}"), "true");
+}
+
+#[tokio::test]
+async fn platform_078_serve_takes_a_turn_per_whole_processor_of_its_limit_or_per_processor_it_may_use_and_at_least_one()
+ {
+    let image = Image::pushed();
+    let database = TestDatabase::empty().await;
+    let network = postgres_network();
+    let settings = settings(&database);
+    let bootstrap = database
+        .with_roles_locked(async {
+            image.run(&network, &on_the_tests_server(&settings), "bootstrap")
+        })
+        .await;
+    assert!(bootstrap.status.success(), "{}", lossy(&bootstrap));
+    let migrate = image.run(&network, &settings, "migrate");
+    assert!(migrate.status.success(), "{}", lossy(&migrate));
+
+    // A limit of 1.5 processors, rounded down; one of half a processor, at least one; and no
+    // limit, on the two processors the container may run on.
+    for (options, turns) in [
+        (["--cpus", "1.5"], 1),
+        (["--cpus", "0.5"], 1),
+        (["--cpuset-cpus", "0-1"], 2),
+    ] {
+        let server = image.serve_with(&network, &settings, &options);
+        let health = server.health();
+        let logs = server.logs();
+        let logged = logs
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .find(|line| line["message"] == "CPU-heavy work takes turns");
+
+        assert_eq!(health, "healthy", "{logs}");
+        assert_eq!(
+            logged.map(|line| line["workers.turns"].clone()),
+            Some(turns.into()),
+            "{options:?}: {logs}"
+        );
+    }
 }
 
 #[test]

@@ -24,6 +24,9 @@ disallowed-methods = [
     { path = "tokio::task::spawn_blocking", reason = "CPU-heavy work runs through platform::blocking::Workers, which bounds it (CODE-05, OPS-07)" },
     { path = "tokio::runtime::Handle::spawn_blocking", reason = "CPU-heavy work runs through platform::blocking::Workers, which bounds it (CODE-05, OPS-07)" },
     { path = "tokio::task::block_in_place", reason = "CPU-heavy work runs through platform::blocking::Workers, which bounds it (CODE-05, OPS-07)" },
+    { path = "tokio::runtime::Runtime::spawn_blocking", reason = "CPU-heavy work runs through platform::blocking::Workers, which bounds it (CODE-05, OPS-07)" },
+    { path = "tokio::task::JoinSet::spawn_blocking", reason = "CPU-heavy work runs through platform::blocking::Workers, which bounds it (CODE-05, OPS-07)" },
+    { path = "tokio::task::JoinSet::spawn_blocking_on", reason = "CPU-heavy work runs through platform::blocking::Workers, which bounds it (CODE-05, OPS-07)" },
     { path = "std::fs::canonicalize", reason = "blocking file I/O stalls the async runtime (CODE-05)" },
     { path = "std::fs::copy", reason = "blocking file I/O stalls the async runtime (CODE-05)" },
     { path = "std::fs::create_dir", reason = "blocking file I/O stalls the async runtime (CODE-05)" },
@@ -143,6 +146,7 @@ disallowed-macros = [
 ]
 
 disallowed-types = [
+    { path = "platform::clock::SystemClock", reason = "only main.rs uses the system clock; other code, the tests included, waits on the clock it's given (CODE-06, TEST-07)" },
     { path = "sqlx::Pool", reason = "queries run in a unit of work, never on a pool (DATA-21)" },
     { path = "sqlx::PgPool", reason = "queries run in a unit of work, never on a pool (DATA-21)" },
     { path = "sqlx::pool::PoolOptions", reason = "only platform::db opens a pool (DATA-21)" },

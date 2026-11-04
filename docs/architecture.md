@@ -403,6 +403,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Stream | One client's open SSE connection. |
 | Frame type | What one frame of a stream is, which its `event` names: an event's name, or one of the frames the stream sends of its own, such as `stream.closed`; the event catalog documents each one (API-19, REALTIME-008). |
 | Listener | The instance's own connection to the database, outside its pool, on which the hub listens for what commits and readiness checks the database (OPS-05, OPS-21). |
+| Workers | The turns of an instance's CPU-heavy work, such as a password's hash: one per processor it may use, each held by one work at once, which `platform::blocking::Workers` hands out (PLATFORM-078). |
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |
 | File | Stored bytes plus metadata. A user file or a workspace file, each private or public. |
 | Personal data contract | A module's export and erasure of the personal data it stores (D31). |

@@ -22,7 +22,7 @@ CI runs clippy with `-D warnings` and the lint set in `[workspace.lints]`. That 
 - `let_underscore_must_use`, `let_underscore_future`, `unused_result_ok`
 - `allow_attributes`, `allow_attributes_without_reason`, so every exception to a lint is an `#[expect]` that states its reason, and fails once nothing triggers the lint
 
-`clippy.toml` allows `unwrap` and `expect` in tests only. Printing is allowed in three places: the API binary's `main.rs`, for its startup line before logging exists (OPS-03) and for the accounts that `seed` reports once it finishes (SYSTEM-003); the checks and the other tasks in `xtask`, for their output; each of these through an `#[expect]` that states its reason; and a build script, for the instructions it prints to Cargo, which clippy's print lints don't cover.
+`clippy.toml` allows `unwrap` and `expect` in tests only. Printing is allowed in four places: the API binary's `main.rs`, for its startup line before logging exists (OPS-03) and for the accounts that `seed` reports once it finishes (SYSTEM-003); the checks and the other tasks in `xtask`, for their output; each of these through an `#[expect]` that states its reason; a build script, for the instructions it prints to Cargo, which clippy's print lints don't cover; and the watch of the tests' telemetry in `platform::telemetry::testing`, which writes the lines of a test that runs on to stderr through `std::io`, which the print lints don't see either (TEST-07).
 - Why: no panics in production code, no lossy numeric casts, no silently dropped results (D17).
 - Check: `clippy`, `ci: check-instrument` (an `#[expect]` of a print lint only in the binary's `main.rs` and in `xtask`), plus `review` (what `main.rs` prints).
 
@@ -34,7 +34,7 @@ CI runs clippy with `-D warnings` and the lint set in `[workspace.lints]`. That 
 ### CODE-05 No blocking calls in async code
 Code the API runs never blocks its async runtime:
 - Blocking file I/O is banned through `disallowed-methods` in `clippy.toml`.
-- CPU-heavy work, such as password hashing, runs on a blocking thread, through the `platform` helper that moves it there, adds its span (OBS-06) and gives it its turn (OPS-07). No other code moves work to a blocking thread.
+- CPU-heavy work, such as password hashing, runs on a blocking thread, through the `platform` helper that moves it there, adds its span (OBS-06) and gives it its turn (OPS-07). No other code moves work to a blocking thread itself; file I/O goes through `tokio::fs`, which runs each call on tokio's own blocking threads.
 - A dependency that blocks inside an async call is allowed only where the spec of the area that uses it names the call and when it runs.
 
 Tests and the test support may block, because each test runs on an async runtime of its own.
@@ -42,9 +42,9 @@ Tests and the test support may block, because each test runs on an async runtime
 - Check: `clippy` (`disallowed_methods`), plus `review` for CPU-heavy work and for dependencies.
 
 ### CODE-06 Time and randomness come from `platform`
-Code in this workspace outside `platform::clock` doesn't read a clock (`Utc::now`, `SystemTime::now`, `Instant::now`, or the `elapsed` of a time it holds) or wait on one: `std::thread::sleep`, `tokio::time::sleep`, and the timed waits of threads, condition variables and channels. Every wait written in this workspace goes through the clock's `sleep`. Timeouts inside dependencies, such as the request timeout layer or an HTTP client timeout, are configured durations, not waits this rule covers. Code outside `platform` doesn't create its own random number generators.
+Code in this workspace outside `platform::clock` doesn't read a clock (`Utc::now`, `SystemTime::now`, `Instant::now`, or the `elapsed` of a time it holds) or wait on one: `std::thread::sleep`, `tokio::time::sleep`, and the timed waits of threads, condition variables and channels. Every wait written in this workspace goes through the clock's `sleep`, but for the watch of the tests' telemetry, which waits on the real time, on a thread of its own, for a test that may hold its runtime's thread forever (TEST-07). Only the binary's `main.rs` uses the system clock: every other piece of code, the tests included, waits on the clock it's given. Timeouts inside dependencies, such as the request timeout layer or an HTTP client timeout, are configured durations, not waits this rule covers. Code outside `platform` doesn't create its own random number generators.
 - Why: tests control time, and every secret comes from the operating system's secure random source (D23, SEC-03).
-- Check: `clippy` (`disallowed_methods` bans the clock reads and waits of the dependencies; a dependency that brings a clock or a random number generator brings its bans with it).
+- Check: `clippy` (`disallowed_methods` bans the clock reads and waits of the dependencies, and `disallowed_types` the system clock outside `main.rs`; a dependency that brings a clock or a random number generator brings its bans with it).
 
 ### CODE-16 Shell passes shellcheck
 Every recipe of the justfile and the files it imports that runs on Linux and macOS, and every shell script under `deploy/`, passes shellcheck with no finding, a script together with the files it sources. A finding is disabled only by a directive on the line before the command it concerns, with a comment that states the reason. A script under `deploy/` writes a value with `printf '%s\n'`, never with `echo`, and no function of it, or of a file it sources, assigns a variable that its top level sets.

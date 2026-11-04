@@ -1,14 +1,9 @@
 //! CPU-heavy work (CODE-05, OBS-06, PLATFORM-078).
 
-use std::{
-    sync::mpsc::{self, Sender},
-    thread,
-    time::Duration,
-};
+use std::sync::mpsc::{self, Sender};
 
 use platform::{
     blocking::Workers,
-    clock::{Clock, SystemClock},
     telemetry::{Service, testing},
 };
 use tokio::{
@@ -16,10 +11,6 @@ use tokio::{
     task::JoinHandle,
 };
 use tracing::Instrument;
-
-/// How long a test waits for a work that should start, and for one that shouldn't.
-const WAIT: Duration = Duration::from_secs(5);
-const ABSENT: Duration = Duration::from_millis(300);
 
 #[tokio::test]
 async fn obs_06_cpu_heavy_work_runs_on_a_blocking_thread_in_a_span_of_its_own() {
@@ -63,30 +54,29 @@ async fn obs_06_cpu_heavy_work_runs_on_a_blocking_thread_in_a_span_of_its_own() 
 }
 
 #[tokio::test]
-async fn platform_078_cpu_heavy_work_runs_at_most_one_at_once_per_processor() {
+async fn platform_078_a_work_waits_while_every_turn_is_taken_and_starts_once_one_is_free() {
     let workers = Workers::new();
-    assert_eq!(
-        workers.turns(),
-        thread::available_parallelism().unwrap().get(),
-        "one turn per processor the tests may use"
-    );
     let mut gate = Gate::new();
-    let mut running = gate.take_every_turn(&workers).await;
+    let running = gate.take_every_turn(&workers).await;
 
     let waiting = gate.start(&workers);
+    gate.until_waiting(&workers, 1).await;
+    assert_eq!(workers.free(), 0);
     assert_eq!(
-        gate.started_within(ABSENT).await,
+        gate.started_yet(),
         None,
         "a work waits while every turn is taken"
     );
     gate.end(0);
-    running.swap_remove(0).await.unwrap();
     assert_eq!(
-        gate.started_within(WAIT).await,
-        Some(workers.turns()),
+        gate.next_started().await,
+        workers.turns(),
         "the waiting work starts once a turn is free"
     );
     gate.end_all();
+    for caller in running {
+        caller.await.unwrap();
+    }
     waiting.await.unwrap();
 }
 
@@ -98,28 +88,33 @@ async fn platform_078_a_work_keeps_its_turn_until_it_ends_and_a_caller_that_stop
     let running = gate.take_every_turn(&workers).await;
     let gave_up = gate.start(&workers);
     let waiting = gate.start(&workers);
-    SystemClock.sleep(ABSENT).await;
+    gate.until_waiting(&workers, 2).await;
 
     // The callers of the running works and of the first waiting one stop waiting, as a request
     // past its timeout does.
     for caller in running.iter().chain([&gave_up]) {
         caller.abort();
     }
+    for caller in running.into_iter().chain([gave_up]) {
+        assert!(caller.await.unwrap_err().is_cancelled());
+    }
+    assert_eq!(workers.waiting(), 1, "the caller that stopped waiting left");
     assert_eq!(
-        gate.started_within(ABSENT).await,
-        None,
+        workers.free(),
+        0,
         "the works whose callers stopped waiting keep their turns"
     );
     gate.end(0);
     assert_eq!(
-        gate.started_within(WAIT).await,
-        Some(workers.turns() + 1),
+        gate.next_started().await,
+        workers.turns() + 1,
         "the turn goes to the next caller still waiting"
     );
     gate.end_all();
     waiting.await.unwrap();
+    assert_eq!(workers.waiting(), 0);
     assert_eq!(
-        gate.started_within(ABSENT).await,
+        gate.started_yet(),
         None,
         "the work of the caller that stopped waiting never ran"
     );
@@ -163,20 +158,27 @@ impl Gate {
     async fn take_every_turn(&mut self, workers: &Workers) -> Vec<JoinHandle<()>> {
         let callers: Vec<_> = (0..workers.turns()).map(|_| self.start(workers)).collect();
         for _ in &callers {
-            assert!(
-                self.started_within(WAIT).await.is_some(),
-                "a work runs while a turn is free"
-            );
+            self.next_started().await;
         }
+        assert_eq!(workers.free(), 0, "every turn is taken");
         callers
     }
 
-    /// The work that ran next, if one did within `wait`.
-    async fn started_within(&mut self, wait: Duration) -> Option<usize> {
-        tokio::select! {
-            work = self.runs.1.recv() => Some(work.expect("the gate holds a sender")),
-            () = SystemClock.sleep(wait) => None,
+    /// Waits until `count` callers of `workers` wait for a turn.
+    async fn until_waiting(&self, workers: &Workers, count: usize) {
+        while workers.waiting() != count {
+            tokio::task::yield_now().await;
         }
+    }
+
+    /// The work that runs next, once it runs.
+    async fn next_started(&mut self) -> usize {
+        self.runs.1.recv().await.expect("the gate holds a sender")
+    }
+
+    /// The work that ran since the last one the test read, if one did.
+    fn started_yet(&mut self) -> Option<usize> {
+        self.runs.1.try_recv().ok()
     }
 
     /// Ends the work numbered `work`.

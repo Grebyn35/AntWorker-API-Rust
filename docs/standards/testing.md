@@ -48,7 +48,7 @@ Tests never sleep, and act at states they observe, never after a time they guess
 
 Tests make no network calls outside the test environment. A test that fails intermittently counts as failing, and CI never retries a failed test.
 - Why: a flaky test trains everyone to ignore failures, and a wait bounded by a guess fails a correct run on a slower machine.
-- Check: `clippy` (`disallowed_methods` covers sleeps and timed waits in tests), plus `review`.
+- Check: `clippy` (`disallowed_methods` covers sleeps and timed waits in tests, and `disallowed_types` the system clock), `test` (the watch that prints a long test's lines), plus `review`.
 
 ### TEST-08 Tests assert outcomes, not internals
 Tests assert what a client or operator can observe: HTTP responses, database rows, emitted events, enqueued jobs, sent emails and audit entries. A test is laid out as arrange, act, assert, and proves one behavior.

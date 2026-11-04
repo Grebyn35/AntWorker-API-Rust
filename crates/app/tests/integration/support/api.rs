@@ -118,13 +118,15 @@ fn read(options: &Options) -> Result<(ServerConfig, app::Config), ConfigError> {
 }
 
 /// The API's application as `serve` builds it on `database`, with `options`, its document, and
-/// its jobs, which a test runs through [`Jobs::run_pending`].
+/// its jobs, which a test runs through [`Jobs::run_pending`]. It installs the tests' telemetry,
+/// which watches the test that runs the API in process, should it run on for minutes (TEST-07).
 pub async fn application(
     database: &Database,
     options: Options,
     clock: Arc<TestClock>,
     readiness: Readiness,
 ) -> (Router, Value, Jobs) {
+    telemetry::testing::install(SERVICE).unwrap();
     let (config, modules) = configuration(&options);
     let connection = platform::events::listen(database, clock.as_ref())
         .await
@@ -152,8 +154,7 @@ pub async fn application(
 }
 
 /// The routes under test inside the request pipeline, on a database of their own, with a test
-/// clock. While it lives, a watch prints what its test logged, should the test run on for
-/// minutes (TEST-07).
+/// clock.
 #[derive(Clone)]
 pub struct Api {
     router: Router,
@@ -163,7 +164,6 @@ pub struct Api {
     database: Arc<TestDatabase>,
     pool: Database,
     jobs: Arc<Jobs>,
-    _watch: Arc<telemetry::testing::Watch>,
 }
 
 impl Api {
@@ -190,7 +190,6 @@ impl Api {
     }
 
     async fn connected(database: TestDatabase, pool: Database, options: Options) -> Self {
-        telemetry::testing::install(SERVICE).unwrap();
         let database = Arc::new(database);
         let clock = Arc::new(TestClock::default());
         let readiness = Readiness::new();
@@ -204,7 +203,6 @@ impl Api {
             database,
             pool,
             jobs: Arc::new(jobs),
-            _watch: Arc::new(telemetry::testing::Watch::start()),
         }
     }
 

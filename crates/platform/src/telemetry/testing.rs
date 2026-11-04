@@ -3,6 +3,7 @@
 pub mod collector;
 
 use std::{
+    cell::RefCell,
     collections::BTreeMap,
     io,
     sync::{
@@ -80,11 +81,18 @@ struct Installed {
 
 static INSTALLED: OnceLock<Option<Installed>> = OnceLock::new();
 
+thread_local! {
+    /// The watch of the test that runs on this thread, which ends with the thread, as the test
+    /// runner runs each test on a thread of its own.
+    static WATCHED: RefCell<Option<Watch>> = const { RefCell::new(None) };
+}
+
 /// Installs the API's tracer, its JSON logger at `INFO` writing into memory, a meter whose
 /// metrics stay in memory, and the API's panic hook, as the process's. The hook then runs the
 /// test runner's, which prints a failing test's message. Requests that tests send get the trace
 /// context the API gives them, and a test reads the lines of its own requests by their trace
-/// ID, whatever other tests run alongside. Later calls do nothing. Fails if something else
+/// ID, whatever other tests run alongside. Later calls install nothing. Each call watches the
+/// test on the thread it runs on, once, until the thread ends (TEST-07). Fails if something else
 /// installed a subscriber first.
 pub fn install(service: Service) -> Result<(), TelemetryError> {
     let installed = INSTALLED.get_or_init(|| {
@@ -115,10 +123,13 @@ pub fn install(service: Service) -> Result<(), TelemetryError> {
             metrics,
         })
     });
-    installed
-        .as_ref()
-        .map(|_| ())
-        .ok_or(TelemetryError::Installed)
+    installed.as_ref().ok_or(TelemetryError::Installed)?;
+    WATCHED.with(|watched| {
+        watched
+            .borrow_mut()
+            .get_or_insert_with(|| Watch::printing_to(PRINTED_AFTER, io::stderr()));
+    });
+    Ok(())
 }
 
 /// Every line logged in the trace `trace_id`, in order.
@@ -140,11 +151,12 @@ pub fn all_logged() -> Vec<Value> {
         .collect()
 }
 
-/// Prints what the test that starts it has logged, once the watch has lived for 5 minutes,
-/// then each line the test logs, until the watch is dropped, so that a test that never ends
-/// shows what it logged before CI's job time limit ends it (TEST-07). Each printed line starts
-/// with the test's name. A test's lines are those written on the thread the test runner runs it
-/// on, where its runtime runs its tasks, and not those of the threads that run blocking work.
+/// Prints what the test that starts it has logged, once the watch has lived for a while, then
+/// each line the test logs, until the watch is dropped, so that a test that never ends shows
+/// what it logged before CI's job time limit ends it (TEST-07). [`install`] starts one for 5
+/// minutes. Each printed line starts with the test's name. A test's lines are those written on
+/// the thread the test runner runs it on, where its runtime runs its tasks, and not those of the
+/// threads that run blocking work.
 #[must_use = "the watch ends when it's dropped"]
 pub struct Watch {
     watch: u64,
@@ -153,11 +165,6 @@ pub struct Watch {
 }
 
 impl Watch {
-    /// Watches the test that runs on this thread, printing to stderr.
-    pub fn start() -> Self {
-        Self::printing_to(PRINTED_AFTER, io::stderr())
-    }
-
     /// Watches the test that runs on this thread, printing to `output` after `after`.
     pub fn printing_to(after: Duration, output: impl io::Write + Send + 'static) -> Self {
         let watch = NEXT_WATCH.fetch_add(1, Ordering::Relaxed);

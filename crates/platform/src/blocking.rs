@@ -3,6 +3,8 @@
 //! most as many at once as the instance has processors, so a burst of it takes no more memory
 //! than that many works do (OPS-07, PLATFORM-078).
 
+#[cfg(feature = "test-support")]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{error::Error, num::NonZeroUsize, sync::Arc, thread};
 
 use tokio::sync::Semaphore;
@@ -16,6 +18,9 @@ use crate::telemetry::names;
 pub struct Workers {
     turns: Arc<Semaphore>,
     count: usize,
+    /// How many callers wait for a turn, which the tests read.
+    #[cfg(feature = "test-support")]
+    waiting: Arc<AtomicUsize>,
 }
 
 impl Default for Workers {
@@ -32,12 +37,26 @@ impl Workers {
         Self {
             turns: Arc::new(Semaphore::new(count)),
             count,
+            #[cfg(feature = "test-support")]
+            waiting: Arc::default(),
         }
     }
 
     /// How many works run at once, at most.
     pub fn turns(&self) -> usize {
         self.count
+    }
+
+    /// How many callers wait for a turn now.
+    #[cfg(feature = "test-support")]
+    pub fn waiting(&self) -> usize {
+        self.waiting.load(Ordering::SeqCst)
+    }
+
+    /// How many turns no work holds now.
+    #[cfg(feature = "test-support")]
+    pub fn free(&self) -> usize {
+        self.turns.available_permits()
     }
 
     /// Runs `work` on a blocking thread once a turn is free, inside a span named `name`, a child
@@ -54,6 +73,8 @@ impl Workers {
         T: Send + 'static,
     {
         let span = tracing::info_span!("blocking", { names::OTEL_NAME } = name);
+        #[cfg(feature = "test-support")]
+        let waiting = Waiting::enter(&self.waiting);
         let turn = self
             .turns
             .clone()
@@ -61,6 +82,8 @@ impl Workers {
             .instrument(span.clone())
             .await
             .map_err(|closed| Failed(closed.into()))?;
+        #[cfg(feature = "test-support")]
+        drop(waiting);
         #[expect(
             clippy::disallowed_methods,
             reason = "Workers is the one place that moves work to a blocking thread (CODE-05)"
@@ -70,6 +93,25 @@ impl Workers {
             span.in_scope(work)
         });
         ran.await.map_err(|panicked| Failed(panicked.into()))
+    }
+}
+
+/// A caller waiting for a turn, counted until it takes one or stops waiting.
+#[cfg(feature = "test-support")]
+struct Waiting(Arc<AtomicUsize>);
+
+#[cfg(feature = "test-support")]
+impl Waiting {
+    fn enter(waiting: &Arc<AtomicUsize>) -> Self {
+        waiting.fetch_add(1, Ordering::SeqCst);
+        Self(waiting.clone())
+    }
+}
+
+#[cfg(feature = "test-support")]
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
     }
 }
 

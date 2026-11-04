@@ -1,5 +1,9 @@
 //! Time for code that measures or waits (CODE-06). Every read of the time and every wait in the
 //! workspace goes through a [`Clock`], so the tests control time (TEST-07).
+#![expect(
+    clippy::disallowed_types,
+    reason = "the system clock is defined here, and only the binary's main.rs uses it (CODE-06)"
+)]
 
 use std::{
     future::Future,

@@ -102,3 +102,5 @@ pub const STARTUP_AREA: &str = "startup.area";
 pub const MIGRATION_VERSIONS: &str = "migration.versions";
 /// The most connections to the database that an instance opens (OPS-21).
 pub const DATABASE_CONNECTIONS: &str = "database.connections";
+/// How many CPU-heavy works an instance runs at once, at most (PLATFORM-078).
+pub const WORKERS_TURNS: &str = "workers.turns";
