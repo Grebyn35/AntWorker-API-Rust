@@ -24,7 +24,7 @@ CREATE INDEX invitations_inviter_id_idx ON invitations (inviter_id);
 -- The expired invitations, for the sweep (INVITATIONS-007).
 CREATE INDEX invitations_expires_at_idx ON invitations (expires_at);
 
--- The invitee's address (DATA-28).
+-- The invitee's address (DATA-23).
 COMMENT ON COLUMN invitations.email IS 'personal_data';
 
 CREATE TRIGGER invitations_set_row_version

@@ -1,4 +1,4 @@
-//! CORS and the cross-site check (PLATFORM-052, PLATFORM-053).
+//! CORS and the cross-site check (PLATFORM-058, PLATFORM-059).
 
 use http::Method;
 use serde_json::json;
@@ -9,7 +9,7 @@ use crate::support::{
 };
 
 #[tokio::test]
-async fn platform_052_a_listed_origin_may_read_responses_and_send_its_cookies() {
+async fn platform_058_a_listed_origin_may_read_responses_and_send_its_cookies() {
     let api = browsers_api().await;
 
     let response = api
@@ -30,7 +30,7 @@ async fn platform_052_a_listed_origin_may_read_responses_and_send_its_cookies() 
 }
 
 #[tokio::test]
-async fn platform_052_a_listed_origin_s_preflight_is_answered() {
+async fn platform_058_a_listed_origin_s_preflight_is_answered() {
     let api = browsers_api().await;
 
     let response = api
@@ -56,7 +56,7 @@ async fn platform_052_a_listed_origin_s_preflight_is_answered() {
 }
 
 #[tokio::test]
-async fn platform_052_any_other_origin_gets_no_cors_header() {
+async fn platform_058_any_other_origin_gets_no_cors_header() {
     let api = browsers_api().await;
 
     let other = api
@@ -82,7 +82,7 @@ async fn platform_052_any_other_origin_gets_no_cors_header() {
 }
 
 #[tokio::test]
-async fn platform_052_a_listed_origin_s_preflight_is_answered_before_the_ip_limit() {
+async fn platform_058_a_listed_origin_s_preflight_is_answered_before_the_ip_limit() {
     let api = Api::with(
         Options::default()
             .set("CORS_ALLOWED_ORIGINS", WEB)
@@ -105,7 +105,7 @@ async fn platform_052_a_listed_origin_s_preflight_is_answered_before_the_ip_limi
 }
 
 #[tokio::test]
-async fn platform_053_a_change_from_an_unlisted_origin_answers_403() {
+async fn platform_059_a_change_from_an_unlisted_origin_answers_403() {
     let api = browsers_api().await;
     for origin in ["https://evil.example.com", "null"] {
         let response = api
@@ -128,7 +128,7 @@ async fn platform_053_a_change_from_an_unlisted_origin_answers_403() {
 }
 
 #[tokio::test]
-async fn platform_053_a_change_a_cookie_authenticates_needs_a_listed_origin() {
+async fn platform_059_a_change_a_cookie_authenticates_needs_a_listed_origin() {
     let api = browsers_api().await;
     let cookie = cookies(&browser_sign_in(&api).await);
 

@@ -216,7 +216,7 @@ impl ToSchema for DeviceId {
 }
 
 /// How a client takes its session's tokens: a browser, which every request with an `Origin`
-/// comes from, as cookies, and any other client in the body (AUTH-015, SEC-19).
+/// comes from, as cookies, and any other client in the body (AUTH-015, SEC-07).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TokenDelivery {
     /// In the response's body, for a client that sets its own headers.

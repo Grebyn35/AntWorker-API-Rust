@@ -1,5 +1,5 @@
 //! The listener: the instance's own database connection, outside the pool, on which the hub listens for what
-//! commits, and whose checks the readiness probe reports (PLATFORM-037, PLATFORM-073). A pool
+//! commits, and whose checks the readiness probe reports (PLATFORM-061, PLATFORM-033). A pool
 //! with every connection in use doesn't change a check's answer, so load alone never takes the
 //! instance out of rotation, though it delays the next check while the hub waits for the pool.
 
@@ -72,7 +72,7 @@ impl Database {
     }
 
     /// The listener, which listens on `channels` once a check opens it
-    /// (OPS-21: the one connection beside the pool).
+    /// (OPS-18: the one connection beside the pool).
     pub(crate) fn listener(&self, channels: &'static [&'static str]) -> Listener {
         Listener {
             database: self.name(),
@@ -91,7 +91,7 @@ impl Database {
 
 impl Listener {
     /// Checks the connection, or opens it and listens when it has none, within the check's
-    /// timeout, and records the result in `platform.database_reachable` (PLATFORM-043).
+    /// timeout, and records the result in `platform.database_reachable` (PLATFORM-069).
     pub(crate) async fn check(&mut self, clock: &dyn Clock) -> Checked {
         let checked = self.answer(clock).await;
         let reachable = !matches!(checked, Checked::Failed(_));
@@ -111,7 +111,7 @@ impl Listener {
             }
             // A connection that failed its check is dropped: sqlx then sends it `UNLISTEN` in a
             // task of its own, and returns it to the pool of one, which the next connection waits
-            // for, so the instance never opens a second (OPS-21).
+            // for, so the instance never opens a second (OPS-18).
             self.connection = None;
         }
         match within(clock, self.connect()).await {

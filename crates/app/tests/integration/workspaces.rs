@@ -164,7 +164,7 @@ async fn workspaces_003_lists_the_caller_s_workspaces_the_latest_joined_first() 
 }
 
 #[tokio::test]
-async fn platform_059_paging_returns_each_row_once_across_a_shared_joining_time() {
+async fn platform_046_paging_returns_each_row_once_across_a_shared_joining_time() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
@@ -202,7 +202,7 @@ async fn platform_059_paging_returns_each_row_once_across_a_shared_joining_time(
 }
 
 #[tokio::test]
-async fn platform_059_a_limit_out_of_range_and_a_cursor_of_another_route_are_refused_together() {
+async fn platform_046_a_limit_out_of_range_and_a_cursor_of_another_route_are_refused_together() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
@@ -244,7 +244,7 @@ async fn platform_059_a_limit_out_of_range_and_a_cursor_of_another_route_are_ref
 }
 
 #[tokio::test]
-async fn platform_060_a_search_matches_any_part_ignoring_case_in_every_script() {
+async fn platform_047_a_search_matches_any_part_ignoring_case_in_every_script() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
@@ -518,7 +518,7 @@ async fn workspaces_006_a_caller_can_t_remove_themselves_or_a_rank_at_or_above_t
 }
 
 #[tokio::test]
-async fn platform_059_a_page_holds_50_items_without_a_limit() {
+async fn platform_046_a_page_holds_50_items_without_a_limit() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     workspaces::member_of_many(api.database(), &ada.user_id, 51, "member").await;

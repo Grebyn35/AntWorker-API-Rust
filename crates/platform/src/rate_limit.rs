@@ -1,5 +1,5 @@
 //! Rate limits: buckets that count requests in windows, in the database that every replica shares
-//! (PLATFORM-026, PLATFORM-048 to PLATFORM-051).
+//! (PLATFORM-011, PLATFORM-054 to PLATFORM-057).
 
 use std::{
     net::IpAddr,
@@ -17,13 +17,13 @@ use crate::{
 static REFUSALS: Counter<1> = Counter::new(
     "platform.rate_limit_refusals",
     "{request}",
-    "Requests that a rate limit refused, by the kind of the bucket that refused them (PLATFORM-048).",
+    "Requests that a rate limit refused, by the kind of the bucket that refused them (PLATFORM-054).",
     [names::RATE_LIMIT_BUCKET],
 );
 
 /// What a bucket counts of a client's address: an IPv4 address's bytes, with one that arrived
 /// mapped into IPv6 counted as itself, or an IPv6 address's /64 prefix, which one subscriber holds
-/// whole, so a client can't escape a limit by moving within it (PLATFORM-048). The IP limit counts
+/// whole, so a client can't escape a limit by moving within it (PLATFORM-054). The IP limit counts
 /// it, and so does a per-action limit that counts by address, such as AUTH-006's.
 pub fn address(ip: IpAddr) -> Vec<u8> {
     match ip.to_canonical() {
@@ -36,7 +36,7 @@ pub fn address(ip: IpAddr) -> Vec<u8> {
 /// allows in each window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Bucket {
-    /// The name, such as `ip` or `sign_in` (PLATFORM-050).
+    /// The name, such as `ip` or `sign_in` (PLATFORM-056).
     pub name: &'static str,
     /// How many requests a window allows.
     pub limit: u32,
@@ -67,7 +67,7 @@ impl Count {
     }
 }
 
-/// Counts requests in buckets keyed by an HMAC of what they count (PLATFORM-051).
+/// Counts requests in buckets keyed by an HMAC of what they count (PLATFORM-057).
 #[derive(Clone)]
 pub struct RateLimiter {
     database: Database,
@@ -81,7 +81,7 @@ impl RateLimiter {
     }
 
     /// Counts one request in the bucket of `bucket`'s kind for `value`, such as a client IP's,
-    /// in one statement that commits at once (PLATFORM-026, PLATFORM-049). A request it refuses
+    /// in one statement that commits at once (PLATFORM-011, PLATFORM-055). A request it refuses
     /// is counted in `platform.rate_limit_refusals`, by the bucket's kind.
     pub async fn count(&self, bucket: Bucket, value: &[u8]) -> Result<Count, Internal> {
         let key = self.key.hash(bucket.name, value);
@@ -99,7 +99,7 @@ impl RateLimiter {
 }
 
 /// The buckets that counted one request, which the pipeline describes in the response's headers
-/// (PLATFORM-050).
+/// (PLATFORM-056).
 #[derive(Clone, Debug, Default)]
 pub struct Counted(Arc<Mutex<Vec<Count>>>);
 
@@ -111,7 +111,7 @@ impl Counted {
 
     /// The bucket that decided the response: one that refused the request if any did, and
     /// otherwise the one with the fewest requests left; of those that tie, the one whose window
-    /// ends last, so a client that waits for it waits long enough (PLATFORM-050).
+    /// ends last, so a client that waits for it waits long enough (PLATFORM-056).
     pub fn tightest(&self) -> Option<Count> {
         self.counts().iter().copied().min_by(|a, b| {
             b.refused()
@@ -145,7 +145,7 @@ impl RateLimits {
     }
 
     /// Counts the request in the bucket of `bucket`'s kind for `value`, and refuses it once the
-    /// bucket is full (PLATFORM-026).
+    /// bucket is full (PLATFORM-011).
     pub async fn check(&self, bucket: Bucket, value: &[u8]) -> Result<(), LimitError> {
         let count = self.limiter.count(bucket, value).await?;
         self.counted.push(count);
@@ -159,7 +159,7 @@ impl RateLimits {
 /// A rate limit refused the request, or couldn't count it.
 #[derive(Debug, thiserror::Error)]
 pub enum LimitError {
-    /// The bucket is full (PLATFORM-048).
+    /// The bucket is full (PLATFORM-054).
     #[error("a rate limit refused the request")]
     RateLimited,
     /// The count failed.
@@ -209,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_048_an_ipv6_client_counts_by_its_64_prefix() {
+    fn platform_054_an_ipv6_client_counts_by_its_64_prefix() {
         let first: IpAddr = "2001:db8:1:2::1".parse().unwrap();
         let same: IpAddr = "2001:db8:1:2:ffff::9".parse().unwrap();
         let other: IpAddr = "2001:db8:1:3::1".parse().unwrap();
@@ -218,14 +218,14 @@ mod tests {
     }
 
     #[test]
-    fn platform_051_an_ipv4_address_mapped_into_ipv6_counts_as_itself() {
+    fn platform_057_an_ipv4_address_mapped_into_ipv6_counts_as_itself() {
         let mapped: IpAddr = "::ffff:192.0.2.1".parse().unwrap();
         let plain: IpAddr = "192.0.2.1".parse().unwrap();
         assert_eq!(address(mapped), address(plain));
     }
 
     #[test]
-    fn platform_050_the_tightest_bucket_has_the_fewest_requests_left() {
+    fn platform_056_the_tightest_bucket_has_the_fewest_requests_left() {
         let counted = Counted::default();
         let user = Bucket {
             name: "user",
@@ -240,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_050_a_bucket_that_refused_decides_over_one_merely_full() {
+    fn platform_056_a_bucket_that_refused_decides_over_one_merely_full() {
         let counted = Counted::default();
         counted.push(count(BUCKET, 10, 600));
         counted.push(count(
@@ -255,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_050_of_two_full_buckets_the_tightest_ends_last() {
+    fn platform_056_of_two_full_buckets_the_tightest_ends_last() {
         let counted = Counted::default();
         counted.push(count(BUCKET, 11, 10));
         counted.push(count(

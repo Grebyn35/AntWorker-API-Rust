@@ -134,7 +134,7 @@ pub struct Resources {
     pub clock: SharedClock,
     /// Whether the instance takes requests, which the hub and the shutdown change (OPS-05).
     pub readiness: Readiness,
-    /// The turns of the CPU-heavy work, such as a password's hash (PLATFORM-078).
+    /// The turns of the CPU-heavy work, such as a password's hash (PLATFORM-060).
     pub workers: Workers,
 }
 
@@ -222,7 +222,7 @@ pub async fn compose(
 
 /// The request pipeline that `config` describes, which counts its rate limits in the database of
 /// `resources` and verifies access tokens through `services`, and which serves the API reference
-/// of `service`'s document in development (PLATFORM-075).
+/// of `service`'s document in development (PLATFORM-052).
 pub fn pipeline(
     resources: &Resources,
     config: &ServerConfig,
@@ -309,7 +309,7 @@ pub async fn seed(router: Router) -> Result<SeedReport, SeedError> {
 }
 
 /// The permission matrix of `access`: each permission's name, with the names of the roles that
-/// hold it, which the generated test of every workspace route reads (TEST-09).
+/// hold it, which the generated test of every workspace route reads (TEST-08).
 pub fn permissions() -> Vec<(&'static str, Vec<&'static str>)> {
     access::matrix()
 }

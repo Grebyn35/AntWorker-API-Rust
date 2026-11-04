@@ -1,5 +1,5 @@
 //! The stream of server-sent events across a deploy of the reference deployment (REALTIME-004,
-//! PLATFORM-038, OPS-16): the old replicas close their streams once their shutdown delay ends, and
+//! PLATFORM-062, OPS-14): the old replicas close their streams once their shutdown delay ends, and
 //! a client that reconnects with its `Last-Event-ID` misses no event and receives none twice.
 
 use std::{

@@ -77,11 +77,11 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **Look first.** The API platform dashboard: "How long after commit do events reach the streams?" shows since when, and "How many event streams are open?" whether streams grew with it. The Requests dashboard shows whether the database is slow for every request too. A hub whose load fails writes the `WARN` line "the hub couldn't load events", with the database's error.
 
-**What to do.** If the database is slow for everything, follow [DatabaseUnreachable](#databaseunreachable)'s look at its load. If only events are late while streams grew, the replicas hold more streams than their hubs serve: add replicas, so the streams spread over more hubs (OPS-18). The alert clears once the lag falls.
+**What to do.** If the database is slow for everything, follow [DatabaseUnreachable](#databaseunreachable)'s look at its load. If only events are late while streams grew, the replicas hold more streams than their hubs serve: add replicas, so the streams spread over more hubs (OPS-16). The alert clears once the lag falls.
 
 ## EventsStalled
 
-**What it means.** A replica's hub has heard of events that committed, but for 5 minutes it couldn't load them ([platform spec](../spec/platform.md#events-and-the-real-time-hub), PLATFORM-076). The streams on that replica receive nothing new, though their clients' requests still answer: a reload shows what the stream left out. The hub records no lag for events it doesn't load, so [EventsDelayed](#eventsdelayed) stays silent.
+**What it means.** A replica's hub has heard of events that committed, but for 5 minutes it couldn't load them ([platform spec](../spec/platform.md#events-and-the-real-time-hub), PLATFORM-035). The streams on that replica receive nothing new, though their clients' requests still answer: a reload shows what the stream left out. The hub records no lag for events it doesn't load, so [EventsDelayed](#eventsdelayed) stays silent.
 
 **Look first.** The API platform dashboard: "How many events does each hub owe its streams?" shows which replica, and since when. That replica writes the `WARN` line "the hub couldn't load events" at every check, every 5 seconds, with the database's error: a pool whose every connection is taken shows as a timeout acquiring one, and then the requests that need one fail too, which "Which routes answer with a 5xx, and with which error?" on the API requests dashboard shows.
 
@@ -119,7 +119,7 @@ With a managed database, run the same query in the provider's console. Add `payl
 
 ## BackupArchivingFailing
 
-**What it means.** The bundled Postgres failed to archive a segment of its write-ahead log to the backup bucket, and no archive has succeeded since. Postgres keeps each segment until it is archived, so its disk fills, and the latest moment a restore can reach stops advancing: losing the server now loses everything since the last archive that succeeded (OPS-17). Meanwhile a restore refuses, unless it finds Postgres not running or still replaying the log, as [Restoring](backups.md#restoring) says.
+**What it means.** The bundled Postgres failed to archive a segment of its write-ahead log to the backup bucket, and no archive has succeeded since. Postgres keeps each segment until it is archived, so its disk fills, and the latest moment a restore can reach stops advancing: losing the server now loses everything since the last archive that succeeded (OPS-15). Meanwhile a restore refuses, unless it finds Postgres not running or still replaying the log, as [Restoring](backups.md#restoring) says.
 
 **Look first.** `just logs <host> postgres` shows pgBackRest's error for each attempt, such as a key pair the bucket refuses, an endpoint that doesn't answer, or a certificate the deployment doesn't trust.
 

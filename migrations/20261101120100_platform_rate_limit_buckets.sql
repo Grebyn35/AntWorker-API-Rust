@@ -1,4 +1,4 @@
--- The rate limits' counts (PLATFORM-048 to PLATFORM-051). A bucket counts the requests of its
+-- The rate limits' counts (PLATFORM-054 to PLATFORM-057). A bucket counts the requests of its
 -- current window, which starts with the first request after the last window ended. Its key is an
 -- HMAC of its kind and of what it counts, so no row holds an IP address, an email or a user ID.
 -- Only the rate limiter changes a row, so the table has no updated_at or version (DATA-02).

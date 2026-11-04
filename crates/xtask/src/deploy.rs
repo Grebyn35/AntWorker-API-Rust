@@ -1,6 +1,6 @@
 //! `deploy`, `backup`, `restore`, `status` and `logs`, which the `just` recipes of the same names
 //! run on a developer's machine: they run the reference deployment's deploy/deploy.sh on its
-//! server over SSH (OPS-16, OPS-17, OPS-22). A deploy takes a release by its version: it refuses
+//! server over SSH (OPS-14, OPS-15, OPS-19). A deploy takes a release by its version: it refuses
 //! a version that no release has, sends the server the deployment's files from the release's tag,
 //! and runs that release's deploy.sh, which verifies the release's images before it pulls them.
 //! The other tasks run the deploy.sh of the release that the last deploy installed. The server
@@ -277,7 +277,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ops_16_a_version_that_no_release_has_is_refused_with_a_pointer_to_releases() {
+    fn ops_14_a_version_that_no_release_has_is_refused_with_a_pointer_to_releases() {
         let refused = release("1.4.0", |_| false).unwrap_err();
 
         assert!(
@@ -288,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_16_a_released_version_is_deployed_and_a_prerelease_too() {
+    fn ops_14_a_released_version_is_deployed_and_a_prerelease_too() {
         assert_eq!(
             release("1.4.0", |tag| tag == "v1.4.0").as_deref(),
             Ok("1.4.0")
@@ -300,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_16_a_version_written_as_its_tag_deploys_the_release_of_the_version() {
+    fn ops_14_a_version_written_as_its_tag_deploys_the_release_of_the_version() {
         assert_eq!(
             release("v1.4.0", |tag| tag == "v1.4.0").as_deref(),
             Ok("1.4.0")
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_16_what_isn_t_a_version_is_refused() {
+    fn ops_14_what_isn_t_a_version_is_refused() {
         for requested in ["latest", "1.4", "1.4.0.1", ""] {
             let refused = release(requested, |_| true).unwrap_err();
             assert!(
@@ -319,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_16_a_deploy_takes_the_latest_release_unless_it_names_one() {
+    fn ops_14_a_deploy_takes_the_latest_release_unless_it_names_one() {
         let releases: Vec<Version> = ["0.9.0", "1.0.0-rc.2", "1.0.0", "1.1.0-rc.1"]
             .iter()
             .filter_map(|version| version.parse().ok())
@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_16_the_files_a_deploy_sends_keep_the_line_endings_the_repository_holds() {
+    fn ops_14_the_files_a_deploy_sends_keep_the_line_endings_the_repository_holds() {
         let output = archive(&root(), "HEAD:deploy")
             .env("GIT_CONFIG_COUNT", "1")
             .env("GIT_CONFIG_KEY_0", "core.autocrlf")
@@ -355,7 +355,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_17_a_moment_reaches_the_server_s_shell_as_one_word() {
+    fn ops_15_a_moment_reaches_the_server_s_shell_as_one_word() {
         assert_eq!(quoted("2026-10-25 10:41:31+00"), "'2026-10-25 10:41:31+00'");
         assert_eq!(quoted("it's"), r"'it'\''s'");
     }

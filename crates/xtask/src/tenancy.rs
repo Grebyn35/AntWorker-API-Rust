@@ -1,5 +1,5 @@
 //! `check-tenancy`: every query of workspace data filters by its tenant itself, and every table is
-//! placed (DATA-22, D39).
+//! placed (DATA-16, D39).
 //! - A table that the migrations create with a `workspace_id` column holds workspace data. Each
 //!   query of one in the code of `platform` and `app`, in a `sqlx` macro, names its tenant: a
 //!   `workspace_id`, or for a table that also has a `user_id`, a `user_id`, compared in its
@@ -24,13 +24,13 @@ const MIGRATIONS: &str = "migrations/";
 /// The code that runs queries.
 const CODE: [&str; 2] = ["crates/platform/src/", "crates/app/src/"];
 
-/// Tables of account data, keyed by a user (DATA-22).
+/// Tables of account data, keyed by a user (DATA-16).
 const ACCOUNT_DATA: [&str; 4] = ["users", "identities", "sessions", "device_tokens"];
 
-/// Tables of `platform`'s own bookkeeping (DATA-22). A job records the workspace and the user it
+/// Tables of `platform`'s own bookkeeping (DATA-16). A job records the workspace and the user it
 /// runs for, which its handler filters by, but the queue's own queries select jobs by their state
-/// (PLATFORM-012). An event records whom it reaches, which a stream's replay filters by, but the
-/// hub loads events by their position (PLATFORM-057).
+/// (PLATFORM-013). An event records whom it reaches, which a stream's replay filters by, but the
+/// hub loads events by their position (PLATFORM-027).
 const PLATFORM_DATA: [&str; 5] = [
     "rate_limit_buckets",
     "idempotency_records",
@@ -40,7 +40,7 @@ const PLATFORM_DATA: [&str; 5] = [
 ];
 
 /// Tables of workspace data whose rows are addressed to a user by email, with that column: the
-/// user's own queries of them filter by the caller's address (DATA-22).
+/// user's own queries of them filter by the caller's address (DATA-16).
 const ADDRESSED: &[(&str, &str)] = &[
     // part: invitations
     ("invitations", "email"),
@@ -48,18 +48,18 @@ const ADDRESSED: &[(&str, &str)] = &[
 ];
 
 /// The tenants themselves, whose rows a query reaches by IDs that came from a query filtered by
-/// tenant (DATA-22).
+/// tenant (DATA-16).
 const TENANTS: [&str; 1] = ["workspaces"];
 
 /// The files of scheduled jobs that span tenants, which select rows by their own criteria, such
-/// as expiry (DATA-22).
+/// as expiry (DATA-16).
 const CROSS_TENANT: &[&str] = &[
     // part: invitations
     "crates/app/src/modules/invitations/jobs.rs",
     // end part: invitations
 ];
 
-/// The `sqlx` macros that take SQL text (DATA-20).
+/// The `sqlx` macros that take SQL text (DATA-14).
 const MACROS: [&str; 6] = [
     "query",
     "query_as",
@@ -246,7 +246,7 @@ fn placements(tables: &BTreeMap<String, Table>) -> Vec<Finding> {
                 format!(
                     "`{name}` has no `workspace_id`, and check-tenancy lists it as neither account \
                      nor platform data: data a module adds for its product lives in a workspace \
-                     (DATA-22, D39)"
+                     (DATA-16, D39)"
                 ),
             )
         })
@@ -302,7 +302,7 @@ fn queries(
                     line,
                     format!(
                         "a query of `{table}` names no {}: every query of workspace data filters \
-                         by its tenant itself (DATA-22)",
+                         by its tenant itself (DATA-16)",
                         tenants.join(" or ")
                     ),
                 ));
@@ -449,13 +449,13 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
     }
 
     #[test]
-    fn data_22_a_create_table_s_columns_are_read_past_comments_and_constraints() {
+    fn data_16_a_create_table_s_columns_are_read_past_comments_and_constraints() {
         let body = body_after(MIGRATION, 2, Some("things")).unwrap();
         assert_eq!(columns(&body), ["id", "workspace_id", "user_id", "name"]);
     }
 
     #[test]
-    fn data_22_a_query_of_workspace_data_names_its_tenant() {
+    fn data_16_a_query_of_workspace_data_names_its_tenant() {
         let code = r##"
             fn f() {
                 sqlx::query!("SELECT name FROM things WHERE workspace_id = $1", id);
@@ -469,13 +469,13 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
             [
                 "migrations/1_things.sql:10: `notes` has no `workspace_id`, and check-tenancy lists \
               it as neither account nor platform data: data a module adds for its product lives \
-              in a workspace (DATA-22, D39)"
+              in a workspace (DATA-16, D39)"
             ]
         );
     }
 
     #[test]
-    fn data_22_a_query_that_names_no_tenant_is_found() {
+    fn data_16_a_query_that_names_no_tenant_is_found() {
         let code = r#"
             fn f() {
                 let row = sqlx::query!(
@@ -503,13 +503,13 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
     }
 
     #[test]
-    fn data_22_a_listed_table_that_no_migration_creates_is_found() {
+    fn data_16_a_listed_table_that_no_migration_creates_is_found() {
         let tables = BTreeMap::new();
         assert_eq!(placements(&tables).len(), 10);
     }
 
     #[test]
-    fn data_22_platform_data_and_an_addressee_s_own_rows_name_no_workspace() {
+    fn data_16_platform_data_and_an_addressee_s_own_rows_name_no_workspace() {
         let code = r#"
             fn f() {
                 sqlx::query!("UPDATE jobs SET attempts = attempts + 1 WHERE id = $1", id);

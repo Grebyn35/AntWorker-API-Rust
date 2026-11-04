@@ -1,7 +1,7 @@
 # The tasks of development: preparing a machine, and running the API, its tests and its
 # formatting. The justfile imports this file.
 
-# Prepares this machine (OPS-19): checks the tools the tasks need and their pinned versions,
+# Prepares this machine (OPS-20): checks the tools the tasks need and their pinned versions,
 # installs the toolchain that rust-toolchain.toml pins, and writes .env. watchexec and sqlx-cli
 # only get a warning, because only `dev`, and `prepare` and `sqlx-check`, need them.
 [unix]
@@ -29,7 +29,7 @@ env:
         -e "s|__HMAC_KEY__|$(head -c 32 /dev/urandom | base64 | tr -d '\n')|g" \
         .env.example > .env
 
-# Prepares this machine (OPS-19): checks the tools the tasks need and their pinned versions,
+# Prepares this machine (OPS-20): checks the tools the tasks need and their pinned versions,
 # installs the toolchain that rust-toolchain.toml pins, and writes .env. watchexec and sqlx-cli
 # only get a warning, because only `dev`, and `prepare` and `sqlx-check`, need them.
 [windows]
@@ -80,7 +80,7 @@ run: migrate
 seed: migrate
     {{ api }} seed
 
-# Runs the API on this machine with auto-reload (OPS-19): starts Postgres and bootstraps the
+# Runs the API on this machine with auto-reload (OPS-20): starts Postgres and bootstraps the
 # database, then applies new migrations and restarts the API whenever its code or a migration
 # changes. `just dev observe` also starts the observability stack and exports the API's
 # telemetry to it; docs/operations/observability.md lists where each service answers.
@@ -91,7 +91,7 @@ dev $mode="": _env-drift bootstrap
     case "$mode" in "") ;; observe) docker compose --profile observability up --detach --wait ;; *) echo "just dev takes nothing, or observe" >&2; exit 1 ;; esac
     {{ if mode == "observe" { "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 " } else { "" } }}watchexec --restart --shell=none --watch crates --watch migrations --exts rs,sql,toml -- just _dev-serve
 
-# Runs the API on this machine with auto-reload (OPS-19): starts Postgres and bootstraps the
+# Runs the API on this machine with auto-reload (OPS-20): starts Postgres and bootstraps the
 # database, then applies new migrations and restarts the API whenever its code or a migration
 # changes. `just dev observe` also starts the observability stack and exports the API's
 # telemetry to it; docs/operations/observability.md lists where each service answers.
@@ -104,7 +104,7 @@ dev mode="": _env-drift bootstrap
     if ('{{ mode }}' -eq 'observe') { docker compose --profile observability up --detach --wait; if ($LASTEXITCODE -ne 0) { throw 'the observability stack did not start' }; $env:OTEL_EXPORTER_OTLP_ENDPOINT = 'http://127.0.0.1:4318' } elseif ('{{ mode }}' -ne '') { throw 'just dev takes nothing, or observe' }; watchexec --restart --shell=none --watch crates --watch migrations --exts rs,sql,toml -- just _dev-serve
 
 # Warns of each setting of .env.example that .env lacks, or still sets to an earlier value of the
-# example's (OPS-19): `just setup` writes .env once, and later commits add settings and change
+# example's (OPS-20): `just setup` writes .env once, and later commits add settings and change
 # development values.
 _env-drift:
     {{ xtask }} env-drift

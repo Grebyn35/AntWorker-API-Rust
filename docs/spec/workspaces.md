@@ -12,7 +12,7 @@
 
 ## Interface
 
-- `names(uow, &[WorkspaceId])`: workspace names for a batch of IDs that came from a query filtered by tenant, used by `invitations` (DATA-22). <!-- part: invitations -->
+- `names(uow, &[WorkspaceId])`: workspace names for a batch of IDs that came from a query filtered by tenant, used by `invitations` (DATA-16). <!-- part: invitations -->
 - `matching(uow, &[WorkspaceId], &Search)`: the IDs among a batch, from a query filtered by tenant, of the workspaces whose name contains the search, used by `invitations` (API-20). <!-- part: invitations -->
 - The domain type `WorkspaceName` (D25), which `invitations` uses. <!-- part: invitations -->
 
@@ -31,12 +31,12 @@
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
-| WORKSPACES-001 | Creating a workspace makes the caller its owner, in one unit of work. It answers 201 with `Location` and `{id, name, role: "owner", created_at}`. It records `workspace.created` in the workspace's log, and publishes the user event `membership.created`, which names the session that caused it, so that device can tell it already knows. | D33, API-04, DATA-27 | `workspaces_001_` |
+| WORKSPACES-001 | Creating a workspace makes the caller its owner, in one unit of work. It answers 201 with `Location` and `{id, name, role: "owner", created_at}`. It records `workspace.created` in the workspace's log, and publishes the user event `membership.created`, which names the session that caused it, so that device can tell it already knows. | D33, API-04, DATA-22 | `workspaces_001_` |
 | WORKSPACES-002 | A workspace name is trimmed, has internal whitespace collapsed to single spaces, is normalized to Unicode Normalization Form C (NFC), and must be 1 to 255 characters and not only whitespace. | D25, API-10 | `workspaces_002_` |
 | WORKSPACES-003 | `GET /v1/workspaces` lists every workspace the caller belongs to, with `{id, name, role, joined_at}`, the latest joined first, in cursor pages. Its `search` matches the name. | D3, API-05, API-06, API-20 | `workspaces_003_` |
-| WORKSPACES-004 | `GET .../members` lists the workspace's members with `{user_id, name, email, role, joined_at}`, the latest joined first, in cursor pages. Its `search` matches the name or the email, and `role` keeps the members of one role. | API-05, API-06, API-20, DATA-22 | `workspaces_004_` |
-| WORKSPACES-005 | Removing a member deletes their membership and answers 204. It records `member.removed` in the workspace's log, with the removed user as the target, and publishes the workspace event `member.removed`, which requires `members.read`. The removal's access-change signal closes the removed user's streams that PLATFORM-017 says a membership change closes, with `stream.closed` and the reason `access_changed`, before any event that commits after it reaches them (ACCESS-006). | SEC-06, SEC-08, DATA-27, D35 | `workspaces_005_` |
-| WORKSPACES-006 | A caller can't remove themselves (422 `workspaces.cannot_remove_self`), and can't remove a member of equal or higher rank (403 `request.permission_denied`, PLATFORM-025), which also protects the owner. A user ID that isn't a member answers 404 `workspaces.member_not_found`. | SEC-08, ERR-03 | `workspaces_006_` |
+| WORKSPACES-004 | `GET .../members` lists the workspace's members with `{user_id, name, email, role, joined_at}`, the latest joined first, in cursor pages. Its `search` matches the name or the email, and `role` keeps the members of one role. | API-05, API-06, API-20, DATA-16 | `workspaces_004_` |
+| WORKSPACES-005 | Removing a member deletes their membership and answers 204. It records `member.removed` in the workspace's log, with the removed user as the target, and publishes the workspace event `member.removed`, which requires `members.read`. The removal's access-change signal closes the removed user's streams that PLATFORM-031 says a membership change closes, with `stream.closed` and the reason `access_changed`, before any event that commits after it reaches them (ACCESS-006). | SEC-06, SEC-09, DATA-22, D35 | `workspaces_005_` |
+| WORKSPACES-006 | A caller can't remove themselves (422 `workspaces.cannot_remove_self`), and can't remove a member of equal or higher rank (403 `request.permission_denied`, PLATFORM-010), which also protects the owner. A user ID that isn't a member answers 404 `workspaces.member_not_found`. | SEC-09, ERR-03 | `workspaces_006_` |
 
 ## Design
 
@@ -44,7 +44,7 @@
 
 One operation creates every workspace, inside the unit of work of whatever asks for it: it inserts the `workspaces` row, calls `access::add_owner`, records `workspace.created` with the scope `Principal::founder_scope` gives, and publishes `membership.created` (D33). Each part that creates workspaces calls it. Those parts are optional (ARCH-07), and the ones a fork keeps give its product its shape ([architecture §5](../architecture.md#workspace-shapes)).
 
-Tests arrange workspaces and memberships through the `owner` connection (TEST-06), never through one of the parts, so removing a part leaves the other modules' tests passing.
+Tests arrange workspaces and memberships through the `owner` connection (TEST-05), never through one of the parts, so removing a part leaves the other modules' tests passing.
 
 ### Users creating workspaces
 
@@ -63,17 +63,17 @@ The server stores no active or default workspace for a user (D3). Each request n
 
 ### Listing the caller's workspaces
 
-`access::joined` pages the caller's memberships, filtered by their user ID, through the index on their user and joining time, and `names` gives the page's workspace names (DATA-22, DATA-23). A search first takes the IDs of every workspace the caller belongs to, from `access::workspace_ids` (ACCESS-005), and `matching` keeps those whose name contains it, so `joined` pages only those, as the platform spec's "Lists" says.
+`access::joined` pages the caller's memberships, filtered by their user ID, through the index on their user and joining time, and `names` gives the page's workspace names (DATA-16, DATA-17). A search first takes the IDs of every workspace the caller belongs to, from `access::workspace_ids` (ACCESS-005), and `matching` keeps those whose name contains it, so `joined` pages only those, as the platform spec's "Lists" says.
 
 ### Listing members
 
-`access::members` returns a page of the memberships, filtered by the workspace ID, and narrowed by a search as the access spec says ("Searching members"). `accounts::profiles` returns their names and emails in one batch call, given exactly those user IDs (ACCOUNTS-005, ARCH-06, DATA-22).
+`access::members` returns a page of the memberships, filtered by the workspace ID, and narrowed by a search as the access spec says ("Searching members"). `accounts::profiles` returns their names and emails in one batch call, given exactly those user IDs (ACCOUNTS-005, ARCH-06, DATA-16).
 
 ## Open design questions
 
 | Question | Settled by |
 |---|---|
 | How the setup subcommand opens its unit of work, as which role (DATA-12), and which actor its audit entries record, since it runs with no `Principal` (AUDIT-002), and creates an account without a password, which no route does, so it can't send the API requests as `seed` does ([system spec](system.md#seed)); and with it, the same for the superadmin subcommand ([architecture §9](../architecture.md#9-runtime-topology)) | the spec of the full `workspaces` module |
-| How the read of every workspace that `superadmins` asks of this module, which no tenant filters, meets DATA-22 and `check-tenancy` (D62) | the spec of `superadmins`, in step 5 |
-| How the owner sets their first password in a deployment with email turned off (PLATFORM-067), where password reset can't send its code | the spec of the full `auth` module, with password reset |
+| How the read of every workspace that `superadmins` asks of this module, which no tenant filters, meets DATA-16 and `check-tenancy` (D62) | the spec of `superadmins`, in step 5 |
+| How the owner sets their first password in a deployment with email turned off (PLATFORM-022), where password reset can't send its code | the spec of the full `auth` module, with password reset |
 | How the owner signs in to the account the setup subcommand created, in a fork that signs in only through OAuth providers | the spec of the full `auth` module, with identity linking |

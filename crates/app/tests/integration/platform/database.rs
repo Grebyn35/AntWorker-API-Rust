@@ -15,7 +15,7 @@ async fn assert_refused(url: &DatabaseUrl, problem: &RoleProblem) {
 }
 
 #[tokio::test]
-async fn test_06_the_api_under_test_connects_as_the_app_role() {
+async fn test_05_the_api_under_test_connects_as_the_app_role() {
     let db = TestDatabase::migrated().await;
 
     let app = db.app().await;
@@ -29,7 +29,7 @@ async fn test_06_the_api_under_test_connects_as_the_app_role() {
 }
 
 #[tokio::test]
-async fn platform_045_serve_logs_the_most_connections_the_instance_opens() {
+async fn platform_007_serve_logs_the_most_connections_the_instance_opens() {
     let db = TestDatabase::migrated().await;
 
     let server = db
@@ -47,7 +47,7 @@ async fn platform_045_serve_logs_the_most_connections_the_instance_opens() {
 }
 
 #[tokio::test]
-async fn platform_009_serve_refuses_a_role_with_power_beyond_logging_in() {
+async fn platform_001_serve_refuses_a_role_with_power_beyond_logging_in() {
     let db = TestDatabase::migrated().await;
     for (attribute, problem) in [
         ("SUPERUSER", RoleProblem::Superuser),
@@ -63,7 +63,7 @@ async fn platform_009_serve_refuses_a_role_with_power_beyond_logging_in() {
 }
 
 #[tokio::test]
-async fn platform_009_serve_refuses_a_role_that_owns_objects() {
+async fn platform_001_serve_refuses_a_role_that_owns_objects() {
     let db = TestDatabase::migrated().await;
     let (role, url) = db.role("").await;
     db.admin_executes(&format!(
@@ -75,7 +75,7 @@ async fn platform_009_serve_refuses_a_role_that_owns_objects() {
 }
 
 #[tokio::test]
-async fn platform_009_serve_refuses_a_role_that_owns_objects_in_another_database() {
+async fn platform_001_serve_refuses_a_role_that_owns_objects_in_another_database() {
     let db = TestDatabase::migrated().await;
     let other = TestDatabase::empty().await;
     let (role, url) = db.role("").await;
@@ -89,7 +89,7 @@ async fn platform_009_serve_refuses_a_role_that_owns_objects_in_another_database
 }
 
 #[tokio::test]
-async fn platform_009_serve_refuses_a_role_that_belongs_to_another_role() {
+async fn platform_001_serve_refuses_a_role_that_belongs_to_another_role() {
     let db = TestDatabase::migrated().await;
     let (role, url) = db.role("").await;
     db.admin_executes(&format!("GRANT owner TO {role}")).await;
@@ -98,7 +98,7 @@ async fn platform_009_serve_refuses_a_role_that_belongs_to_another_role() {
 }
 
 #[tokio::test]
-async fn platform_009_the_refusal_names_every_way_the_role_breaks_the_rule() {
+async fn platform_001_the_refusal_names_every_way_the_role_breaks_the_rule() {
     let db = TestDatabase::migrated().await;
     let (role, url) = db.role("CREATEDB CREATEROLE").await;
     let expected = [
@@ -120,7 +120,7 @@ async fn platform_009_the_refusal_names_every_way_the_role_breaks_the_rule() {
 }
 
 #[tokio::test]
-async fn platform_009_serve_refuses_a_role_other_than_app() {
+async fn platform_001_serve_refuses_a_role_other_than_app() {
     let db = TestDatabase::migrated().await;
     let (role, url) = db.role("").await;
 
@@ -133,7 +133,7 @@ async fn platform_009_serve_refuses_a_role_other_than_app() {
 }
 
 #[tokio::test]
-async fn platform_010_after_bootstrap_the_roles_have_their_attributes_and_grants() {
+async fn platform_002_after_bootstrap_the_roles_have_their_attributes_and_grants() {
     let db = TestDatabase::migrated().await;
     db.with_roles_locked(platform::db::bootstrap(
         &db.bootstrap_config(),
@@ -188,7 +188,7 @@ async fn platform_010_after_bootstrap_the_roles_have_their_attributes_and_grants
 }
 
 #[tokio::test]
-async fn platform_010_bootstrap_sets_the_app_roles_timeouts() {
+async fn platform_002_bootstrap_sets_the_app_roles_timeouts() {
     let db = TestDatabase::migrated().await;
     let app = db.app_url();
 
@@ -214,7 +214,7 @@ async fn platform_010_bootstrap_sets_the_app_roles_timeouts() {
 }
 
 #[tokio::test]
-async fn platform_010_running_bootstrap_again_keeps_the_roles_and_grants() {
+async fn platform_002_running_bootstrap_again_keeps_the_roles_and_grants() {
     let db = TestDatabase::migrated().await;
 
     let (before, after) = db
@@ -232,7 +232,7 @@ async fn platform_010_running_bootstrap_again_keeps_the_roles_and_grants() {
 }
 
 #[tokio::test]
-async fn platform_010_running_bootstrap_again_sets_each_password_from_its_url() {
+async fn platform_002_running_bootstrap_again_sets_each_password_from_its_url() {
     let db = TestDatabase::migrated().await;
     let verifiers = "SELECT rolname || ' ' || rolpassword FROM pg_authid \
                      WHERE rolname IN ('owner', 'app') ORDER BY rolname";
@@ -257,7 +257,7 @@ async fn platform_010_running_bootstrap_again_sets_each_password_from_its_url() 
 }
 
 #[tokio::test]
-async fn platform_077_in_production_bootstrap_refuses_a_server_with_another_database_of_its_roles()
+async fn platform_003_in_production_bootstrap_refuses_a_server_with_another_database_of_its_roles()
 {
     let db = TestDatabase::migrated().await;
     // Another database that bootstrap ran on, as another deployment's on the same server.
@@ -286,7 +286,7 @@ async fn platform_077_in_production_bootstrap_refuses_a_server_with_another_data
 }
 
 #[tokio::test]
-async fn platform_077_in_production_bootstrap_refuses_a_server_with_a_database_its_role_owns() {
+async fn platform_003_in_production_bootstrap_refuses_a_server_with_a_database_its_role_owns() {
     let db = TestDatabase::migrated().await;
     // A database that `owner` owns, with no grant on it, named to come first of the server's
     // databases, so the refusal names it.
@@ -313,7 +313,7 @@ async fn platform_077_in_production_bootstrap_refuses_a_server_with_a_database_i
 }
 
 #[tokio::test]
-async fn data_25_the_app_role_runs_read_committed_whatever_the_database_default() {
+async fn data_20_the_app_role_runs_read_committed_whatever_the_database_default() {
     let db = TestDatabase::migrated().await;
     db.admin_executes(&format!(
         "ALTER DATABASE \"{}\" SET default_transaction_isolation = 'serializable'",
@@ -427,7 +427,7 @@ async fn data_19_the_app_role_reads_and_writes_rows_and_changes_nothing_else() {
             "{refused} must be refused"
         );
     }
-    // platform_010_bootstrap_sets_the_app_roles_timeouts resets these under the roles lock.
+    // platform_002_bootstrap_sets_the_app_roles_timeouts resets these under the roles lock.
     let timeouts = db
         .with_roles_locked(async {
             (

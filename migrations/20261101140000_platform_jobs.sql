@@ -4,11 +4,11 @@
 --
 -- A job waits until its run_at, and runs while a replica holds its lease: claim_id names the
 -- claim, and lease_expires_at ends it unless a heartbeat renews it. A success deletes the row. A
--- job dead-lettered at dead_at keeps its payload until the sweep deletes it (PLATFORM-013).
+-- job dead-lettered at dead_at keeps its payload until the sweep deletes it (PLATFORM-014).
 --
--- user_id and workspace_id are the scope the job runs for (PLATFORM-012). They hold no foreign
+-- user_id and workspace_id are the scope the job runs for (PLATFORM-013). They hold no foreign
 -- keys (DATA-05): erasing a user, or deleting a workspace, deletes the jobs enqueued for them
--- (DATA-28).
+-- (DATA-23).
 CREATE TYPE job_state AS ENUM ('waiting', 'dead');
 
 CREATE TABLE jobs (
@@ -35,11 +35,11 @@ CREATE INDEX jobs_run_at_idx ON jobs (run_at) WHERE state = 'waiting';
 -- The dead letters, the oldest first, for the sweep.
 CREATE INDEX jobs_dead_at_idx ON jobs (dead_at) WHERE state = 'dead';
 
--- A payload holds what its job needs, such as an email's recipient (DATA-28).
+-- A payload holds what its job needs, such as an email's recipient (DATA-23).
 COMMENT ON COLUMN jobs.payload IS 'personal_data';
 
 -- One row per periodic job, by its name: when it runs next, and the lease of the replica running
--- it (PLATFORM-014).
+-- it (PLATFORM-015).
 CREATE TABLE job_schedules (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     name text NOT NULL,

@@ -1,5 +1,5 @@
 //! Builders of workspaces and memberships, through the `owner` connection rather than any part
-//! that creates workspaces, so removing a part leaves the other tests passing (TEST-06, the
+//! that creates workspaces, so removing a part leaves the other tests passing (TEST-05, the
 //! workspaces spec's "Creating a workspace").
 
 use super::TestDatabase;

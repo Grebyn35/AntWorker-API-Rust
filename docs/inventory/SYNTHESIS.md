@@ -82,7 +82,7 @@ The exact role set and permission matrix are decided in the `access` module spec
 - (b) RLS as a backstop for tenant isolation, with key-scoped lookups before sign-in.
 - (c) No RLS. Tenant isolation comes from the scoped repository API in D3, a CI check and tests.
 
-**Decision:** (c). Even as a backstop, RLS shaped the module design: it needed proof types, key-scoped lookups, context changes and copied names to work around it, and that made the template harder to fork. The application's own filters are the guarantee, and they are checked by machine (`check-tenancy`) and by a generated test on every workspace route (DATA-22, TEST-09). The cost: a query that forgets its workspace filter is caught by those checks, not by the database.
+**Decision:** (c). Even as a backstop, RLS shaped the module design: it needed proof types, key-scoped lookups, context changes and copied names to work around it, and that made the template harder to fork. The application's own filters are the guarantee, and they are checked by machine (`check-tenancy`) and by a generated test on every workspace route (DATA-16, TEST-08). The cost: a query that forgets its workspace filter is caught by those checks, not by the database.
 
 **Status:** accepted, option (c), on 2026-10-21.
 
@@ -459,7 +459,7 @@ This elaborates the CI part of D15.
 **Evidence:** the old API repo had no `CLAUDE.md`. Docs and comments disagree with code in every domain, and each Claude session invented its own standard.
 
 **Recommendation:**
-- A closed set of documents, each with one job. Nothing else counts as documentation. DOC-08 in `docs/standards/docs.md` holds the list:
+- A closed set of documents, each with one job. Nothing else counts as documentation. DOC-05 in `docs/standards/docs.md` holds the list:
   - `README.md`, `CLAUDE.md`, `SECURITY.md` and `CHANGELOG.md` at the root.
   - `docs/architecture.md`, including the glossary, and `docs/coverage.md`.
   - `docs/standards/`: the rules, each with an ID.

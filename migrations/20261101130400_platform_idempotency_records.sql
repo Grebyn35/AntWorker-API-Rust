@@ -1,4 +1,4 @@
--- The operations committed under an idempotency key (API-12, PLATFORM-018). The operation's own
+-- The operations committed under an idempotency key (API-12, PLATFORM-036). The operation's own
 -- unit of work inserts its row, and completes it with the result at its commit, so a row exists
 -- exactly when its operation committed. A record older than 24 hours counts as absent, and the
 -- next claim of its key replaces it. Only the claim and its commit change a row, so the table has
@@ -14,5 +14,5 @@ CREATE TABLE idempotency_records (
     CONSTRAINT idempotency_records_user_id_key_key UNIQUE (user_id, key)
 );
 
--- A result holds what its operation answered, such as a workspace's name (DATA-28).
+-- A result holds what its operation answered, such as a workspace's name (DATA-23).
 COMMENT ON COLUMN idempotency_records.result IS 'personal_data';

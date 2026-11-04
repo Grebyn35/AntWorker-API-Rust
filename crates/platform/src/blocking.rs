@@ -1,7 +1,7 @@
 //! CPU-heavy work, such as hashing a password: it runs on a blocking thread, so it never stalls
 //! the async runtime (CODE-05), inside a span of its own, so it shows in traces (OBS-06), and at
 //! most as many at once as the instance has processors, so a burst of it takes no more memory
-//! than that many works do (OPS-07, PLATFORM-078).
+//! than that many works do (OPS-07, PLATFORM-060).
 
 #[cfg(feature = "test-support")]
 use std::sync::atomic::{AtomicUsize, Ordering};

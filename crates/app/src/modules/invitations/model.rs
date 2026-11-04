@@ -19,7 +19,7 @@ pub(crate) struct NewInvitation {
 }
 
 /// An invitation to a workspace (INVITATIONS-001). `Deserialize` only reads back a stored result
-/// that an idempotency key replays (PLATFORM-018).
+/// that an idempotency key replays (PLATFORM-036).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub(crate) struct Invitation {
     /// The invitation's ID.
@@ -100,6 +100,6 @@ pub(crate) struct Settings {
     /// Its days, from 1 to 90.
     pub(crate) expiry_days: u32,
     /// The per-member limit on inviting, which bounds the emails a member's invitations send
-    /// (SEC-12).
+    /// (SEC-13).
     pub(crate) limit: Bucket,
 }

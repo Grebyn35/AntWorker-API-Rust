@@ -1,5 +1,5 @@
 #!/bin/sh
-# Sets up a server for the reference deployment, and changes its settings and secrets (OPS-22).
+# Sets up a server for the reference deployment, and changes its settings and secrets (OPS-19).
 # `just server-setup` sends deploy/ of a release, at its tag, to a temporary directory on the
 # server, and runs this script there, as the user SSH signs in as: root, or a user that may run
 # sudo without a password. With root, the deployment runs as the user deploy, which the script

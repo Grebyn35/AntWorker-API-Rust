@@ -1,5 +1,5 @@
 //! Who sent each request: its client IP, from its connection's peer or from the trusted proxies
-//! in front of the API (PLATFORM-047), and its user agent.
+//! in front of the API (PLATFORM-053), and its user agent.
 
 use std::{
     net::{IpAddr, SocketAddr},
@@ -48,7 +48,7 @@ pub(super) async fn client(
     next.run(request).await
 }
 
-/// The client IP of a request from `peer` (PLATFORM-047). Behind trusted proxies, it is the
+/// The client IP of a request from `peer` (PLATFORM-053). Behind trusted proxies, it is the
 /// rightmost address of `X-Forwarded-For` that isn't one of them: every proxy appends the address
 /// it received the request from, so only the entries on the right were written by proxies the
 /// API trusts. An IPv4 address mapped into IPv6, as a listener on `[::]` sees an IPv4 peer, is
@@ -115,7 +115,7 @@ mod tests {
     const PROXY: &str = "172.18.0.5";
 
     #[test]
-    fn platform_047_an_untrusted_peer_is_the_client_whatever_it_forwards() {
+    fn platform_053_an_untrusted_peer_is_the_client_whatever_it_forwards() {
         let ip = client_ip(
             "198.51.100.9".parse().unwrap(),
             &headers("203.0.113.1"),
@@ -125,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_047_behind_a_trusted_proxy_the_client_is_the_rightmost_untrusted_address() {
+    fn platform_053_behind_a_trusted_proxy_the_client_is_the_rightmost_untrusted_address() {
         let trusted = ranges(&["172.18.0.0/16", "192.0.2.0/24"]);
         let ip = client_ip(
             PROXY.parse().unwrap(),
@@ -136,7 +136,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_047_a_walk_that_finds_no_untrusted_address_stops_at_the_last_trusted_proxy() {
+    fn platform_053_a_walk_that_finds_no_untrusted_address_stops_at_the_last_trusted_proxy() {
         let trusted = ranges(&["172.18.0.0/16", "192.0.2.0/24"]);
         let peer: IpAddr = PROXY.parse().unwrap();
         assert_eq!(
@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_047_an_ipv4_address_mapped_into_ipv6_is_taken_as_its_ipv4_address() {
+    fn platform_053_an_ipv4_address_mapped_into_ipv6_is_taken_as_its_ipv4_address() {
         let trusted = ranges(&["172.18.0.0/16"]);
         let mapped: IpAddr = "::ffff:172.18.0.5".parse().unwrap();
 

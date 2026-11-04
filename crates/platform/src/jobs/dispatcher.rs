@@ -1,5 +1,5 @@
 //! The dispatcher, which every replica runs: it claims runnable queued jobs of the kinds its
-//! registry holds, and runs at most 4 at once (PLATFORM-061).
+//! registry holds, and runs at most 4 at once (PLATFORM-016).
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -40,7 +40,7 @@ struct Claim {
 }
 
 /// Claims and runs jobs until `stopping` turns true, then waits for the runs in flight until
-/// `deadline` passes, and releases those it then cancels (PLATFORM-063).
+/// `deadline` passes, and releases those it then cancels (PLATFORM-018).
 pub(super) async fn dispatch(
     queued: Arc<HashMap<&'static str, Queued>>,
     database: Database,
@@ -94,7 +94,7 @@ pub(super) async fn dispatch(
 }
 
 /// Runs `job` in a span of its own, linked to the span that enqueued it (OBS-07), renewing its
-/// lease while it runs and cancelling it at its time limit (PLATFORM-062), then writes its
+/// lease while it runs and cancelling it at its time limit (PLATFORM-017), then writes its
 /// outcome by its claim, so a run whose lease ran out changes nothing.
 pub(super) async fn run_job(
     queued: Queued,
@@ -172,7 +172,7 @@ async fn run(
     }
 }
 
-/// Writes the outcome of a run that ended with `result` (PLATFORM-013).
+/// Writes the outcome of a run that ended with `result` (PLATFORM-014).
 async fn end(
     queued: &Queued,
     id: Uuid,
@@ -211,7 +211,7 @@ async fn end(
 
 /// The wait before the retry that follows attempt `attempt`: a random time between half of and
 /// all of the lesser of 10 seconds times 2 to the power `attempt − 1`, and an hour, so retries
-/// spread out rather than arrive together (PLATFORM-013).
+/// spread out rather than arrive together (PLATFORM-014).
 fn backoff(attempt: u32) -> Result<Duration, Internal> {
     let doublings = attempt.saturating_sub(1).min(16);
     let ceiling = FIRST_RETRY
@@ -226,7 +226,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn platform_013_each_retry_waits_between_half_of_and_all_of_its_ceiling() {
+    fn platform_014_each_retry_waits_between_half_of_and_all_of_its_ceiling() {
         for (attempt, ceiling) in [
             (1, 10),
             (2, 20),

@@ -1,4 +1,4 @@
-//! A reference deployment on a server of the tests' own (TEST-04), whose database is managed, on
+//! A reference deployment on a server of the tests' own (TEST-03), whose database is managed, on
 //! a Postgres server of its own beside the tests' server, or bundled, with its backups in a
 //! stand-in bucket on the same server.
 
@@ -144,7 +144,7 @@ impl Deployment {
             ("DATABASE_MAX_CONNECTIONS", "2"),
             ("POSTGRES_MAX_CONNECTIONS", "100"),
             // The tests' traffic comes from one address, far faster than a client's limit allows;
-            // the integration tests cover the limit (PLATFORM-048).
+            // the integration tests cover the limit (PLATFORM-054).
             ("RATE_LIMIT_IP_REQUESTS", "1000000"),
         ]
         .iter()

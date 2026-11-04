@@ -33,7 +33,7 @@ impl<T> fmt::Debug for Secret<T> {
     }
 }
 
-/// Who sent a request: its client IP (PLATFORM-047) and its user agent, which audit entries
+/// Who sent a request: its client IP (PLATFORM-053) and its user agent, which audit entries
 /// record (AUDIT-003). Both are personal data, so `Debug` shows neither (OBS-04).
 #[derive(Clone, PartialEq, Eq)]
 pub struct Client {
@@ -169,7 +169,7 @@ impl Serialize for Timestamp {
 }
 
 /// Reads back what `Serialize` writes, such as a stored result that an idempotency key replays
-/// (PLATFORM-018), and nothing else.
+/// (PLATFORM-036), and nothing else.
 impl<'de> Deserialize<'de> for Timestamp {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let text = String::deserialize(deserializer)?;
@@ -350,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_018_a_timestamp_reads_back_what_it_writes() {
+    fn platform_036_a_timestamp_reads_back_what_it_writes() {
         let at =
             time::OffsetDateTime::from_unix_timestamp_nanos(1_793_500_000_123_456_000).unwrap();
         let written = serde_json::to_value(Timestamp::from_database(at)).unwrap();

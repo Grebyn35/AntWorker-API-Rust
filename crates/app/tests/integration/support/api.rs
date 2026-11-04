@@ -1,6 +1,6 @@
 //! The API in process, called through HTTP requests. Every response is checked against the
 //! OpenAPI document of the routes that answered it, and so is the body of every typed request
-//! (API-17, TEST-04).
+//! (API-17, TEST-03).
 
 use std::{collections::HashMap, ffi::OsString, io, net::SocketAddr, sync::Arc};
 
@@ -81,7 +81,7 @@ fn environment(options: &Options) -> HashMap<String, String> {
         ("RATE_LIMIT_USER_REQUESTS", "1000000"),
         ("SIGN_IN_ATTEMPTS", "1000"),
         ("SIGN_IN_EMAIL_ATTEMPTS", "100000"),
-        // The emails go to the Mailpit that `just services` starts (PLATFORM-068), whose SMTP server
+        // The emails go to the Mailpit that `just services` starts (PLATFORM-023), whose SMTP server
         // takes no TLS and no credentials.
         ("EMAIL", "smtp"),
         ("SMTP_HOST", "127.0.0.1"),
@@ -119,7 +119,7 @@ fn read(options: &Options) -> Result<(ServerConfig, app::Config), ConfigError> {
 
 /// The API's application as `serve` builds it on `database`, with `options`, its document, and
 /// its jobs, which a test runs through [`Jobs::run_pending`]. It installs the tests' telemetry,
-/// which watches the test that runs the API in process, should it run on for minutes (TEST-07).
+/// which watches the test that runs the API in process, should it run on for minutes (TEST-06).
 pub async fn application(
     database: &Database,
     options: Options,

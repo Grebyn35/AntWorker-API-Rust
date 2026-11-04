@@ -1,4 +1,4 @@
-//! The images under test, as the registry that Compose runs holds them (OPS-14).
+//! The images under test, as the registry that Compose runs holds them (OPS-12).
 
 use std::path::Path;
 

@@ -2,11 +2,11 @@
 //! tasks.
 //!
 //! The pool and its connections stay inside this module. Code outside it runs queries through
-//! a [`UnitOfWork`] (DATA-21). The one exception is the test support, which gets raw
+//! a [`UnitOfWork`] (DATA-15). The one exception is the test support, which gets raw
 //! connections from `testing`, compiled only with the `test-support` feature.
 #![expect(
     clippy::disallowed_types,
-    reason = "this module owns the pool, its connections and its transactions (DATA-21)"
+    reason = "this module owns the pool, its connections and its transactions (DATA-15)"
 )]
 
 mod listener;
@@ -65,7 +65,7 @@ pub enum ConnectError {
     /// A query of the startup checks failed.
     #[error("can't run the startup checks")]
     Check(#[source] sqlx::Error),
-    /// The role isn't safe to serve as (PLATFORM-009).
+    /// The role isn't safe to serve as (PLATFORM-001).
     #[error("DATABASE_URL connects as a role that can't serve: {}", describe(.0))]
     UnsafeRole(Vec<RoleProblem>),
     /// The schema doesn't match this release (PLATFORM-030).
@@ -80,7 +80,7 @@ fn describe(problems: &[RoleProblem]) -> String {
 
 impl Database {
     /// Connects as the role `app`, with up to `max_connections` connections. It refuses a role
-    /// with more power than `app` needs (PLATFORM-009), and a schema that lacks a migration in
+    /// with more power than `app` needs (PLATFORM-001), and a schema that lacks a migration in
     /// `migrations` or holds one with different content (PLATFORM-030). It never applies
     /// migrations.
     pub async fn connect(
@@ -107,7 +107,7 @@ impl Database {
     }
 
     /// The most connections the instance opens: the pool's, plus the one of its own on which the
-    /// hub listens and readiness checks the database (OPS-21).
+    /// hub listens and readiness checks the database (OPS-18).
     pub fn connections(&self) -> u32 {
         self.pool.options().get_max_connections().saturating_add(1)
     }
@@ -126,7 +126,7 @@ impl Database {
 
     /// Opens a unit of work for a job's run, which only a run's `JobContext` can ask for, as
     /// only a request's `Client` can ask for a request's. Its queries filter by the context's
-    /// scope (PLATFORM-012), and its audit entries record no client.
+    /// scope (PLATFORM-013), and its audit entries record no client.
     pub async fn for_job(&self, _context: &JobContext) -> Result<UnitOfWork, Internal> {
         self.unattributed().await
     }
@@ -146,7 +146,7 @@ impl Database {
     /// Adds one request to the rate-limit bucket keyed by `key_hash`, in one statement that
     /// commits at once, and returns the window's count and how long until the window ends. A
     /// window that has ended starts again with this request, all by the database's clock
-    /// (PLATFORM-026, PLATFORM-049).
+    /// (PLATFORM-011, PLATFORM-055).
     pub(crate) async fn count(
         &self,
         key_hash: &[u8; 32],
@@ -219,14 +219,14 @@ impl UnitOfWork {
 
     /// Makes the unit of work commit in the order of the commits that publish events, as one
     /// that publishes does, so each event's snapshot tells whether it committed after this unit
-    /// of work: an operation that adds a membership asks for it (SEC-17).
+    /// of work: an operation that adds a membership asks for it (SEC-19).
     pub fn order_with_events(&mut self) {
         self.ordered = true;
     }
 
     /// Takes the lock of the commits that publish, if the unit of work published or asked for
     /// it, positions the events it published, as its last statements, then commits
-    /// (PLATFORM-071).
+    /// (PLATFORM-028).
     async fn finish(mut self) -> Result<(), Internal> {
         let published = std::mem::take(&mut self.published);
         if self.ordered || !published.is_empty() {
@@ -241,7 +241,7 @@ impl UnitOfWork {
     }
 
     /// Claims `key` for `user`, as the unit of work's first statement, so the key's record
-    /// commits or rolls back with the operation (PLATFORM-018). With no key, or no operation
+    /// commits or rolls back with the operation (PLATFORM-036). With no key, or no operation
     /// committed under it in the last 24 hours, the operation runs. The result of the one that
     /// committed with the same fingerprint answers instead, and another fingerprint is refused
     /// with 422. A record that another unit of work holds and hasn't committed is waited on for
@@ -310,7 +310,7 @@ impl UnitOfWork {
 
     /// Commits every write the unit of work holds, with `result` kept under the idempotency key
     /// it claimed, if any, in the same transaction, so a committed operation always has its
-    /// result (PLATFORM-018).
+    /// result (PLATFORM-036).
     pub async fn commit_with<T: Serialize>(mut self, result: &T) -> Result<(), Internal> {
         if let Some((user, key)) = self.claimed.take() {
             let result = serde_json::to_value(result).map_err(Internal::new)?;
@@ -332,8 +332,8 @@ impl UnitOfWork {
 /// `snapshot` the transactions that have committed by then, and notifies the hubs on `events` with the last of them. It runs under the
 /// lock that every commit that publishes, or adds a membership, takes, in a statement of its own
 /// after the lock's, so its snapshot sees every commit before it; Postgres releases the lock once
-/// the commit is visible, so positions follow the order of the commits (PLATFORM-071), and the
-/// snapshot holds every membership that committed before the event (SEC-17). The rows were
+/// the commit is visible, so positions follow the order of the commits (PLATFORM-028), and the
+/// snapshot holds every membership that committed before the event (SEC-19). The rows were
 /// inserted before, with their foreign-key checks, so the statement waits on no row while it
 /// holds the lock.
 async fn position(tx: &mut PgConnection, published: &[uuid::Uuid]) -> Result<(), Internal> {

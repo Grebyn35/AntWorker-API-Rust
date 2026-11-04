@@ -1,4 +1,4 @@
-//! `sqlx-check`: the query cache in `.sqlx/` holds what `just prepare` would write (DATA-20), so a
+//! `sqlx-check`: the query cache in `.sqlx/` holds what `just prepare` would write (DATA-14), so a
 //! query changed, or a migration that changed what a query reads, without `just prepare`, fails
 //! here rather than building the image with the cache's stale description of a query. It runs
 //! sqlx-cli's own check against a database of its own (`migrated`), which every copy of
@@ -42,7 +42,7 @@ pub fn check() -> Outcome {
         } else {
             Err(format!(
                 "the query cache differs from what the queries and the migrations give: run \
-                 `just prepare` (DATA-20): {}",
+                 `just prepare` (DATA-14): {}",
                 migrated::printed(&output)
             ))
         }

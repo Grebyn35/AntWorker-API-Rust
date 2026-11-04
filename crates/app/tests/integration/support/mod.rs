@@ -1,4 +1,4 @@
-//! Test support (TEST-06, TEST-10).
+//! Test support (TEST-05, TEST-09).
 //!
 //! [`Api`] runs the routes in process, and checks every response, and the body of every typed
 //! request, against their OpenAPI document (API-17). A body set raw with `Call::body` is not
@@ -204,7 +204,7 @@ impl TestDatabase {
     fn api_command<V: AsRef<OsStr>>(&self, args: &[&str], env: &[(&str, V)]) -> Command {
         let mut command = Command::new(BINARY);
         // The development origins that `.env` lists are plain `http`, which every environment
-        // but development refuses (PLATFORM-052), so a test names the origins it needs.
+        // but development refuses (PLATFORM-058), so a test names the origins it needs.
         command
             .args(args)
             .env("CORS_ALLOWED_ORIGINS", "")
@@ -285,7 +285,7 @@ impl TestDatabase {
         .await;
     }
 
-    /// The first column of every row `sql` returns, read as `owner` (TEST-06), for tables a
+    /// The first column of every row `sql` returns, read as `owner` (TEST-05), for tables a
     /// test created itself.
     pub async fn owner_reads(&self, sql: &str) -> Vec<String> {
         reads(&self.owner_url(), sql).await
@@ -301,7 +301,7 @@ impl TestDatabase {
     /// fails.
     #[expect(
         clippy::disallowed_methods,
-        reason = "raw SQL arranges and reads what no unit of work may (TEST-06)"
+        reason = "raw SQL arranges and reads what no unit of work may (TEST-05)"
     )]
     pub async fn try_execute(&self, url: &DatabaseUrl, sql: &str) -> Result<(), String> {
         let mut conn = connect(url).await;
@@ -378,7 +378,7 @@ impl TestDatabase {
 impl Drop for TestDatabase {
     #[expect(
         clippy::disallowed_methods,
-        reason = "raw SQL arranges and reads what no unit of work may (TEST-06)"
+        reason = "raw SQL arranges and reads what no unit of work may (TEST-05)"
     )]
     fn drop(&mut self) {
         let admin = self.settings.admin.clone();
@@ -706,7 +706,7 @@ impl Signals {
     /// test sent caused, without waiting for one that may never come.
     #[expect(
         clippy::disallowed_methods,
-        reason = "raw SQL reads what no unit of work may (TEST-06)"
+        reason = "raw SQL reads what no unit of work may (TEST-05)"
     )]
     pub async fn received(&mut self) -> Vec<Value> {
         sqlx::raw_sql("SELECT 1")
@@ -724,7 +724,7 @@ impl Signals {
 /// The first column of every row `sql` returns, on a connection with `url`.
 #[expect(
     clippy::disallowed_methods,
-    reason = "raw SQL arranges and reads what no unit of work may (TEST-06)"
+    reason = "raw SQL arranges and reads what no unit of work may (TEST-05)"
 )]
 async fn reads(url: &DatabaseUrl, sql: &str) -> Vec<String> {
     let mut conn = connect(url).await;
@@ -743,7 +743,7 @@ async fn close(conn: PgConnection) {
 
 #[expect(
     clippy::disallowed_methods,
-    reason = "raw SQL arranges and reads what no unit of work may (TEST-06)"
+    reason = "raw SQL arranges and reads what no unit of work may (TEST-05)"
 )]
 async fn execute(conn: &mut PgConnection, sql: &str) {
     sqlx::raw_sql(AssertSqlSafe(sql.to_owned()))

@@ -168,7 +168,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn doc_13_a_listed_file_that_cant_be_read_fails_the_checks() {
+    fn doc_12_a_listed_file_that_cant_be_read_fails_the_checks() {
         let read = |path: &str| match path {
             "gone.md" => Err(io::Error::from(io::ErrorKind::NotFound)),
             "locked.md" => Err(io::Error::from(io::ErrorKind::PermissionDenied)),

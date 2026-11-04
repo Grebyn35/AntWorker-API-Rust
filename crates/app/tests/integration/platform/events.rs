@@ -1,5 +1,5 @@
 //! The real-time hub (the platform spec's "Events and the real-time hub"): who receives what, in
-//! which order, and when a stream closes, through the stream itself (TEST-08).
+//! which order, and when a stream closes, through the stream itself (TEST-07).
 
 use std::time::Duration;
 
@@ -17,10 +17,10 @@ use crate::support::{
     workspaces,
 };
 
-/// How often the hub checks the listener (PLATFORM-037).
+/// How often the hub checks the listener (PLATFORM-061).
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
-/// How often the hub re-checks its streams, by default (PLATFORM-017).
+/// How often the hub re-checks its streams, by default (PLATFORM-031).
 const RECHECK: Duration = Duration::from_secs(60);
 
 /// A note labelled `label`.
@@ -94,7 +94,7 @@ async fn opened(api: &Api, user: &SignedIn) -> Stream {
 }
 
 #[tokio::test]
-async fn platform_016_a_workspace_event_reaches_only_the_members_whose_role_holds_its_permission() {
+async fn platform_029_a_workspace_event_reaches_only_the_members_whose_role_holds_its_permission() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
@@ -146,7 +146,7 @@ async fn platform_016_a_workspace_event_reaches_only_the_members_whose_role_hold
 }
 
 #[tokio::test]
-async fn platform_016_a_replay_leaves_out_a_workspace_s_events_from_before_its_member_joined() {
+async fn platform_029_a_replay_leaves_out_a_workspace_s_events_from_before_its_member_joined() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
@@ -176,7 +176,7 @@ async fn platform_016_a_replay_leaves_out_a_workspace_s_events_from_before_its_m
 }
 
 #[tokio::test]
-async fn platform_057_each_event_is_loaded_once_whatever_the_streams_it_reaches() {
+async fn platform_027_each_event_is_loaded_once_whatever_the_streams_it_reaches() {
     let api = api().await;
     let users = [
         users::register(&api, "ada@example.com").await,
@@ -217,7 +217,7 @@ async fn platform_057_each_event_is_loaded_once_whatever_the_streams_it_reaches(
 }
 
 #[tokio::test]
-async fn platform_017_a_signal_closes_its_streams_before_any_event_that_commits_after_it() {
+async fn platform_031_a_signal_closes_its_streams_before_any_event_that_commits_after_it() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let other = users::new_session(&api, "ada@example.com").await;
@@ -240,7 +240,7 @@ async fn platform_017_a_signal_closes_its_streams_before_any_event_that_commits_
 }
 
 #[tokio::test]
-async fn platform_071_a_stream_resumes_on_another_replica_with_every_event_after_its_last() {
+async fn platform_028_a_stream_resumes_on_another_replica_with_every_event_after_its_last() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     // A second replica: another application, with a hub of its own, on the same database.
@@ -273,7 +273,7 @@ async fn platform_071_a_stream_resumes_on_another_replica_with_every_event_after
 }
 
 #[tokio::test]
-async fn platform_071_events_reach_a_stream_and_its_replay_in_the_order_their_units_of_work_commit()
+async fn platform_028_events_reach_a_stream_and_its_replay_in_the_order_their_units_of_work_commit()
 {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -316,7 +316,7 @@ async fn platform_071_events_reach_a_stream_and_its_replay_in_the_order_their_un
 }
 
 #[tokio::test]
-async fn platform_017_the_recheck_closes_a_stream_whose_membership_changed_without_a_signal() {
+async fn platform_031_the_recheck_closes_a_stream_whose_membership_changed_without_a_signal() {
     let api = api().await;
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
@@ -476,7 +476,7 @@ async fn auth_018_a_stream_outlives_its_access_token_but_not_its_session() {
 }
 
 #[tokio::test]
-async fn platform_072_a_stream_whose_client_reads_too_slowly_closes_with_lagging() {
+async fn platform_032_a_stream_whose_client_reads_too_slowly_closes_with_lagging() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let mut stream = opened(&api, &ada).await;
@@ -511,7 +511,7 @@ async fn lose_the_connection(api: &Api, meanwhile: &str) -> crate::support::api:
 }
 
 #[tokio::test]
-async fn platform_073_after_a_lost_connection_every_stream_closes_and_replays_what_committed_meanwhile()
+async fn platform_033_after_a_lost_connection_every_stream_closes_and_replays_what_committed_meanwhile()
  {
     let api = api().await;
     let clock = api.clock();
@@ -551,7 +551,7 @@ async fn platform_073_after_a_lost_connection_every_stream_closes_and_replays_wh
 }
 
 #[tokio::test]
-async fn platform_073_after_a_lost_connection_a_reconnect_leaves_out_what_access_lost_meanwhile_withholds()
+async fn platform_033_after_a_lost_connection_a_reconnect_leaves_out_what_access_lost_meanwhile_withholds()
  {
     let api = api().await;
     let clock = api.clock();
@@ -604,7 +604,7 @@ async fn platform_073_after_a_lost_connection_a_reconnect_leaves_out_what_access
 }
 
 #[tokio::test]
-async fn platform_073_a_re_check_that_fails_is_tried_again_at_the_next_check() {
+async fn platform_033_a_re_check_that_fails_is_tried_again_at_the_next_check() {
     let api = api().await;
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
@@ -649,7 +649,7 @@ async fn connections(api: &Api) -> usize {
 }
 
 #[tokio::test]
-async fn ops_21_checks_that_time_out_open_no_connection_beyond_the_pool_and_the_listener() {
+async fn ops_18_checks_that_time_out_open_no_connection_beyond_the_pool_and_the_listener() {
     let database = crate::support::TestDatabase::migrated().await;
     let proxy = Proxy::to(database.app_url().address()).await;
     let api = Api::through(database, &proxy, Options::default()).await;
@@ -687,7 +687,7 @@ async fn ops_21_checks_that_time_out_open_no_connection_beyond_the_pool_and_the_
 }
 
 #[tokio::test]
-async fn platform_074_the_hub_records_its_streams_why_it_closed_them_and_its_lag() {
+async fn platform_034_the_hub_records_its_streams_why_it_closed_them_and_its_lag() {
     let api = api().await;
     let name = api.database().name().to_owned();
     let ours = |point: &testing::Point| point.labels.get("db.namespace") == Some(&name);
@@ -723,7 +723,7 @@ async fn platform_074_the_hub_records_its_streams_why_it_closed_them_and_its_lag
 }
 
 #[tokio::test]
-async fn platform_064_the_sweep_deletes_the_events_older_than_24_hours() {
+async fn platform_019_the_sweep_deletes_the_events_older_than_24_hours() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     announce(&api, &ada, 1).await;
@@ -799,7 +799,7 @@ async fn auth_018_the_recheck_closes_a_stream_whose_session_outlived_its_lifetim
 }
 
 #[tokio::test]
-async fn platform_017_the_recheck_interval_is_a_setting_of_10_to_3600_seconds() {
+async fn platform_031_the_recheck_interval_is_a_setting_of_10_to_3600_seconds() {
     for seconds in [9, 3_601] {
         let refused = crate::support::api::refusal(
             &Options::default().set("STREAM_RECHECK_SECONDS", seconds),
@@ -831,7 +831,7 @@ async fn platform_017_the_recheck_interval_is_a_setting_of_10_to_3600_seconds() 
 }
 
 #[tokio::test]
-async fn sec_17_member_removed_reaches_every_member_and_no_replay_from_before_joining() {
+async fn sec_19_member_removed_reaches_every_member_and_no_replay_from_before_joining() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
@@ -923,7 +923,7 @@ async fn obs_07_an_event_s_delivery_links_to_the_trace_that_published_it() {
 }
 
 #[tokio::test]
-async fn platform_016_an_event_that_commits_while_its_member_joins_reaches_them_not() {
+async fn platform_029_an_event_that_commits_while_its_member_joins_reaches_them_not() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let alan = users::register(&api, "alan@example.com").await;
@@ -968,7 +968,7 @@ async fn platform_016_an_event_that_commits_while_its_member_joins_reaches_them_
 }
 
 #[tokio::test]
-async fn platform_073_a_load_that_fails_is_tried_again_at_the_next_check() {
+async fn platform_033_a_load_that_fails_is_tried_again_at_the_next_check() {
     let api = api().await;
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
@@ -1001,7 +1001,7 @@ async fn platform_073_a_load_that_fails_is_tried_again_at_the_next_check() {
 }
 
 #[tokio::test]
-async fn platform_076_the_hub_records_the_events_it_owes_while_its_loads_fail() {
+async fn platform_035_the_hub_records_the_events_it_owes_while_its_loads_fail() {
     let api = api().await;
     let clock = api.clock();
     let name = api.database().name().to_owned();

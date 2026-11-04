@@ -1,6 +1,6 @@
 //! The logging and tracing setup (OBS-01, OBS-02), the export of telemetry over OTLP
-//! (PLATFORM-039), the metric declarations (OBS-11), the trace context of the current request,
-//! and the instance's own memory (PLATFORM-046).
+//! (PLATFORM-066), the metric declarations (OBS-11), the trace context of the current request,
+//! and the instance's own memory (PLATFORM-070).
 
 mod export;
 pub mod metrics;
@@ -67,7 +67,7 @@ pub struct Telemetry {
 
 impl Telemetry {
     /// Writes out the spans, then the log records, then the metrics not yet exported, so the last
-    /// metrics count the exports just before them, and then the queued log lines (PLATFORM-042).
+    /// metrics count the exports just before them, and then the queued log lines (PLATFORM-068).
     /// The tracer and the logger each have 2 seconds, the meter the 5 seconds its SDK allows
     /// itself, and the logging thread about a second. `main` calls it last.
     pub fn finish(self) {
@@ -100,7 +100,7 @@ pub enum TelemetryError {
 }
 
 /// Installs the process-wide logger and tracer, the panic hook, and with an endpoint the export
-/// of spans, log records and metrics over OTLP (PLATFORM-039). Lines go to stdout through a
+/// of spans, log records and metrics over OTLP (PLATFORM-066). Lines go to stdout through a
 /// thread of their own (CODE-05). Call it before the async runtime starts, since the exporters'
 /// HTTP client starts a runtime of its own.
 pub fn init(service: Service, config: &TelemetryConfig) -> Result<Telemetry, TelemetryError> {
@@ -154,7 +154,7 @@ pub fn init(service: Service, config: &TelemetryConfig) -> Result<Telemetry, Tel
 }
 
 /// The exporters for the configured endpoint, with the providers that batch for them, or `None`
-/// without an endpoint, when nothing is exported (PLATFORM-039).
+/// without an endpoint, when nothing is exported (PLATFORM-066).
 fn exporting(
     service: Service,
     config: &TelemetryConfig,
@@ -353,7 +353,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn platform_039_without_the_setting_no_exporter_is_built() {
+    fn platform_066_without_the_setting_no_exporter_is_built() {
         let config = TelemetryConfig {
             environment: Environment::Production,
             level: LogLevel::Info,

@@ -23,11 +23,11 @@ pub enum Closed {
     SessionEnded,
     /// The caller's memberships changed.
     AccessChanged,
-    /// The client read too slowly to keep up (PLATFORM-072).
+    /// The client read too slowly to keep up (PLATFORM-032).
     Lagging,
-    /// The instance is shutting down (PLATFORM-038).
+    /// The instance is shutting down (PLATFORM-062).
     Shutdown,
-    /// The listener was lost, so the hub may have missed signals (PLATFORM-073).
+    /// The listener was lost, so the hub may have missed signals (PLATFORM-033).
     Interrupted,
 }
 
@@ -64,7 +64,7 @@ pub struct Event {
     pub(crate) position: i64,
     pub(crate) audience: Audience,
     /// The transactions that had committed when the event did, which a workspace event's
-    /// members' memberships must be among (SEC-17).
+    /// members' memberships must be among (SEC-19).
     pub(crate) committed: Option<Committed>,
 }
 
@@ -113,7 +113,7 @@ pub enum Delivery {
 }
 
 /// A caller's stream: the events of its replay, then those the hub delivers, each once and in
-/// the order their units of work committed (PLATFORM-071). Dropping it removes the stream from
+/// the order their units of work committed (PLATFORM-028). Dropping it removes the stream from
 /// the hub.
 #[derive(Debug)]
 pub struct Subscription {

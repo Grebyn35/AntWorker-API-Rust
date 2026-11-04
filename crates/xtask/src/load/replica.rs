@@ -30,7 +30,7 @@ pub(super) fn prepare(root: &Path, image: &str) -> Result<(String, Vec<String>),
         for setting in &settings {
             // Compose's Postgres holds the development database and the tests', which share the
             // roles, and in production `bootstrap` refuses a server that holds another database
-            // of the roles (PLATFORM-077), so it runs as development's.
+            // of the roles (PLATFORM-003), so it runs as development's.
             let setting = match (task, setting.as_str()) {
                 ("bootstrap", "ENVIRONMENT=production") => "ENVIRONMENT=development",
                 _ => setting,
@@ -136,7 +136,7 @@ pub(super) fn limits(root: &Path) -> Result<(String, String), String> {
 pub(super) fn settings() -> Result<Vec<String>, String> {
     let key = std::env::var("HMAC_KEY").map_err(|_| "HMAC_KEY is unset; run `just setup`")?;
     // The load sends no email, so the replicas turn email off, which `serve` requires them to
-    // say (PLATFORM-069).
+    // say (PLATFORM-024).
     let mut settings = vec![
         "ENVIRONMENT=production".to_owned(),
         format!("HMAC_KEY={key}"),

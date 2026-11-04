@@ -18,7 +18,7 @@ You carry out one of the two reviews of one pass. "Reviews" in `docs/standards/R
 
 ## What the code is checked against
 
-1. The rules in `docs/standards/` that apply to the code in scope. Each has an ID, such as `DATA-21`.
+1. The rules in `docs/standards/` that apply to the code in scope. Each has an ID, such as `DATA-15`.
 2. The spec of each module in scope, in `docs/spec/`. Each behavior has an ID, such as `AUTH-005`.
 3. What `docs/architecture.md` says about the code in scope.
 

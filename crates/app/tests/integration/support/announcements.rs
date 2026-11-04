@@ -1,5 +1,5 @@
 //! Routes that only the tests serve, which publish events of the tests' own, for the behaviors of
-//! the hub and the stream that no route of the API shows on demand (TEST-05): events to the
+//! the hub and the stream that no route of the API shows on demand (TEST-04): events to the
 //! caller, and events in a workspace that need a permission every role holds, or one that the
 //! `member` role lacks. With them, the event the tests publish from units of work of their own.
 

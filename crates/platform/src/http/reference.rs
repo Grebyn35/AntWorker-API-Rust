@@ -1,4 +1,4 @@
-//! The API reference that development serves (PLATFORM-075): a page that shows the OpenAPI
+//! The API reference that development serves (PLATFORM-052): a page that shows the OpenAPI
 //! document of the running code through Swagger UI, and the document itself. Both are on the
 //! API's own origin, so the page's requests carry the session's cookies and need no CORS.
 
@@ -50,7 +50,7 @@ SwaggerUIBundle({ url: "/docs/openapi.json", dom_id: "#reference", validatorUrl:
 #[expect(
     clippy::disallowed_methods,
     reason = "the API reference is outside the documented routes, which the builders register \
-              (API-14, PLATFORM-075)"
+              (API-14, PLATFORM-052)"
 )]
 pub(super) fn mount(router: Router, document: Arc<str>) -> Router {
     router

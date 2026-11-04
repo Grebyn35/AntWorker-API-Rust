@@ -1,7 +1,7 @@
 //! Routes that only the tests serve, registered the way a module registers its own, for the
 //! behaviors of the pipeline that no route of the API shows, or that only an optional part's
 //! routes show: a request that waits, one that never ends, a panic, an internal error, a keyed
-//! operation that publishes an event, and an email sent (TEST-05).
+//! operation that publishes an event, and an email sent (TEST-04).
 
 use std::sync::{
     Arc,
@@ -87,7 +87,7 @@ const KEYED_RAN: UserEvent<Ran> = UserEvent::new("keyed.ran");
 struct Ran {}
 
 /// A keyed operation, as a module's keyed route runs one: it claims the key, publishes an event
-/// to its caller, and commits with its result (PLATFORM-015, PLATFORM-018).
+/// to its caller, and commits with its result (PLATFORM-026, PLATFORM-036).
 #[utoipa::path(
     post,
     path = "/v1/keyed",
@@ -135,7 +135,7 @@ struct Mailed {
 }
 
 /// Sends an email of the tests' own to `to`, as a module's operation sends one: in its unit of
-/// work, under its caller's scope, through `mail` (PLATFORM-066).
+/// work, under its caller's scope, through `mail` (PLATFORM-021).
 #[utoipa::path(
     post,
     path = "/v1/mail",
@@ -171,7 +171,7 @@ impl Permission for Reading {
 }
 
 /// Sends an email of the tests' own to `to`, as a workspace's operation sends one: in the unit of
-/// work its proof opens, under the member's scope in the workspace (PLATFORM-012).
+/// work its proof opens, under the member's scope in the workspace (PLATFORM-013).
 #[utoipa::path(
     post,
     path = "/v1/workspaces/{workspace_id}/mail",

@@ -1,4 +1,4 @@
-//! The setup of a new server, and the check of what a deploy needs (OPS-22), on a server of the
+//! The setup of a new server, and the check of what a deploy needs (OPS-19), on a server of the
 //! tests' own. It runs deploy/server-setup.sh as root, as `just server-setup` does, with what the
 //! developer's machine would send it, and deploy.sh's check as `just server-check` does.
 
@@ -119,7 +119,7 @@ fn assert_set_up(
 }
 
 #[tokio::test]
-async fn ops_22_a_new_server_that_the_setup_prepares_passes_the_check_and_runs_a_deploy() {
+async fn ops_19_a_new_server_that_the_setup_prepares_passes_the_check_and_runs_a_deploy() {
     let (server, settings) = new_server();
     let api = Pushed::api().in_network();
     let postgres = Pushed::postgres().in_network();
@@ -199,7 +199,7 @@ fn assert_checked(output: &std::process::Output, holds: &str) {
 }
 
 #[tokio::test]
-async fn ops_22_the_check_finds_a_key_pair_the_bucket_refuses_and_a_missing_setting() {
+async fn ops_19_the_check_finds_a_key_pair_the_bucket_refuses_and_a_missing_setting() {
     let (server, settings) = new_server();
     let api = Pushed::api().in_network();
     let postgres = Pushed::postgres().in_network();

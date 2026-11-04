@@ -1,4 +1,4 @@
-//! The export of spans, log records and metrics over OTLP/HTTP (PLATFORM-039), and the counts of
+//! The export of spans, log records and metrics over OTLP/HTTP (PLATFORM-066), and the counts of
 //! what each exporter exported (OBS-10).
 
 use std::{fmt, str::FromStr, sync::Arc, time::Duration};
@@ -229,7 +229,7 @@ fn client(endpoint: &OtlpEndpoint) -> Result<reqwest::blocking::Client, ExportEr
         .map_err(|error| ExportError::Client(Box::new(error)))
 }
 
-/// TLS through rustls with its ring provider (SEC-14). The client needs it even for an `http`
+/// TLS through rustls with its ring provider (SEC-16). The client needs it even for an `http`
 /// endpoint, which trusts no certificate since it uses none. An `https` endpoint trusts the
 /// operating system's certificates, or the files that `SSL_CERT_FILE` and `SSL_CERT_DIR` name.
 fn tls(verified: bool) -> Result<rustls::ClientConfig, Box<dyn std::error::Error + Send + Sync>> {
@@ -362,7 +362,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn platform_039_each_signal_has_its_path_under_the_endpoint() {
+    fn platform_066_each_signal_has_its_path_under_the_endpoint() {
         let endpoint: OtlpEndpoint = "https://collector.internal/otlp/".parse().unwrap();
         assert_eq!(
             endpoint.signal("v1/traces"),

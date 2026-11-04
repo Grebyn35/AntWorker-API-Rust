@@ -18,12 +18,12 @@
 # doesn't hold, and its error's code for one it can't fetch, such as 42 for a segment it can't
 # read, or another for a bucket that doesn't answer. So this exits 255 for every error, and a
 # replay that can't fetch a segment fails the restore, rather than ending short of what the
-# bucket holds (OPS-17).
+# bucket holds (OPS-15).
 #
 # For `backup`, whose end expires what the retention lets go, and for `expire`, this gives
 # pgBackRest the retention that /usr/local/lib/pgbackrest/retention.jq reads from the bucket's
 # info: BACKUP_RETENTION_DAYS, raised to keep each full backup that a restore started from until a
-# backup taken after the restore is that old, so a restore never shortens the reach (OPS-17). A
+# backup taken after the restore is that old, so a restore never shortens the reach (OPS-15). A
 # backup whose retention it can't read expires nothing, and the next one does.
 set -euo pipefail
 

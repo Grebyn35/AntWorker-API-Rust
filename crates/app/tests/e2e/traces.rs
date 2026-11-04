@@ -1,7 +1,7 @@
 //! The trace-ID guarantee (D10, OBS-08), through the image and the observability stack that
 //! Compose runs: a trace ID that a response returns leads to the request's logs, and, for a
 //! request that ended in an error, to its trace. And the image's `serve`, which records its own
-//! memory, as it exports it to the stack (PLATFORM-046).
+//! memory, as it exports it to the stack (PLATFORM-070).
 
 use std::{process::Output, sync::OnceLock};
 
@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Waits until `url`, on Compose's network, answers with a body that holds `wanted`, and returns
-/// the body. The wait runs in a shell of the stack, since the test itself never sleeps (TEST-07);
+/// the body. The wait runs in a shell of the stack, since the test itself never sleeps (TEST-06);
 /// the stack takes seconds to store what it receives, and the collector waits 15 seconds before
 /// it decides to keep a trace.
 fn fetch_once_it_holds(url: &str, wanted: &str) -> Output {
@@ -206,7 +206,7 @@ async fn obs_08_the_trace_id_of_a_5xx_response_leads_to_its_logs_and_its_trace()
 }
 
 #[tokio::test]
-async fn platform_046_serve_exports_its_resident_memory() {
+async fn platform_070_serve_exports_its_resident_memory() {
     start_the_stack();
     let image = Image::pushed();
     let database = TestDatabase::empty().await;

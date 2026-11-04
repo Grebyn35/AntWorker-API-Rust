@@ -1,4 +1,4 @@
-//! The client IP and the rate limits (PLATFORM-026, PLATFORM-047 to PLATFORM-051).
+//! The client IP and the rate limits (PLATFORM-011, PLATFORM-053 to PLATFORM-057).
 
 use crate::support::{Api, Options, users};
 
@@ -13,7 +13,7 @@ async fn limited(ip: u32, user: u32) -> Api {
 }
 
 #[tokio::test]
-async fn platform_026_a_count_commits_though_its_request_fails_afterwards() {
+async fn platform_011_a_count_commits_though_its_request_fails_afterwards() {
     let api = Api::new().await;
 
     let response = users::sign_in(&api, "nobody@example.com", "wrong-password-123").await;
@@ -31,7 +31,7 @@ async fn platform_026_a_count_commits_though_its_request_fails_afterwards() {
 }
 
 #[tokio::test]
-async fn platform_047_behind_a_trusted_proxy_the_client_ip_comes_from_x_forwarded_for() {
+async fn platform_053_behind_a_trusted_proxy_the_client_ip_comes_from_x_forwarded_for() {
     let api = Api::with(
         Options::default()
             .set("TRUSTED_PROXIES", "198.51.100.0/24, 192.0.2.0/24")
@@ -65,7 +65,7 @@ async fn platform_047_behind_a_trusted_proxy_the_client_ip_comes_from_x_forwarde
 }
 
 #[tokio::test]
-async fn platform_047_an_untrusted_peer_is_the_client_whatever_it_forwards() {
+async fn platform_053_an_untrusted_peer_is_the_client_whatever_it_forwards() {
     let api = limited(1, 1_000).await;
 
     let first = api
@@ -84,7 +84,7 @@ async fn platform_047_an_untrusted_peer_is_the_client_whatever_it_forwards() {
 }
 
 #[tokio::test]
-async fn platform_048_a_client_ip_beyond_its_limit_answers_429() {
+async fn platform_054_a_client_ip_beyond_its_limit_answers_429() {
     let api = limited(2, 1_000).await;
 
     let statuses = [
@@ -106,7 +106,7 @@ async fn platform_048_a_client_ip_beyond_its_limit_answers_429() {
 }
 
 #[tokio::test]
-async fn platform_048_a_user_beyond_their_limit_answers_429() {
+async fn platform_054_a_user_beyond_their_limit_answers_429() {
     let api = limited(1_000, 2).await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
@@ -124,7 +124,7 @@ async fn platform_048_a_user_beyond_their_limit_answers_429() {
 }
 
 #[tokio::test]
-async fn platform_048_the_window_is_a_setting() {
+async fn platform_054_the_window_is_a_setting() {
     let api = Api::with(
         Options::default()
             .set("RATE_LIMIT_IP_REQUESTS", 10)
@@ -138,7 +138,7 @@ async fn platform_048_the_window_is_a_setting() {
 }
 
 #[tokio::test]
-async fn platform_019_the_probes_bypass_the_rate_limits() {
+async fn platform_038_the_probes_bypass_the_rate_limits() {
     let api = limited(1, 1_000).await;
     api.get("/v1/capabilities").send().await;
 
@@ -158,7 +158,7 @@ async fn platform_019_the_probes_bypass_the_rate_limits() {
 }
 
 #[tokio::test]
-async fn platform_049_a_window_restarts_with_the_first_request_after_it_ends() {
+async fn platform_055_a_window_restarts_with_the_first_request_after_it_ends() {
     let api = limited(1, 1_000).await;
     api.get("/v1/capabilities").send().await;
     let refused = api.get("/v1/capabilities").send().await;
@@ -181,7 +181,7 @@ async fn platform_049_a_window_restarts_with_the_first_request_after_it_ends() {
 }
 
 #[tokio::test]
-async fn platform_049_a_refused_request_counts_too() {
+async fn platform_055_a_refused_request_counts_too() {
     let api = limited(1, 1_000).await;
 
     for _ in 0..3 {
@@ -197,7 +197,7 @@ async fn platform_049_a_refused_request_counts_too() {
 }
 
 #[tokio::test]
-async fn platform_050_a_response_describes_the_bucket_with_the_fewest_requests_left() {
+async fn platform_056_a_response_describes_the_bucket_with_the_fewest_requests_left() {
     let api = limited(10, 3).await;
     let ada = users::register(&api, "ada@example.com").await;
 
@@ -211,7 +211,7 @@ async fn platform_050_a_response_describes_the_bucket_with_the_fewest_requests_l
 }
 
 #[tokio::test]
-async fn platform_050_a_429_says_how_long_to_wait() {
+async fn platform_056_a_429_says_how_long_to_wait() {
     let api = limited(1, 1_000).await;
     api.get("/v1/capabilities").send().await;
 
@@ -224,7 +224,7 @@ async fn platform_050_a_429_says_how_long_to_wait() {
 }
 
 #[tokio::test]
-async fn platform_051_no_bucket_holds_an_ip_address_an_email_or_a_user_id() {
+async fn platform_057_no_bucket_holds_an_ip_address_an_email_or_a_user_id() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     api.get("/v1/users/me").bearer(&ada.access).send().await;

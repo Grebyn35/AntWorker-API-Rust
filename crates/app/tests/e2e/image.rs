@@ -1,5 +1,5 @@
-//! The images (OPS-14, OPS-15, OPS-20), and the turns of CPU-heavy work in a container
-//! (PLATFORM-078).
+//! The images (OPS-12, OPS-13, OPS-17), and the turns of CPU-heavy work in a container
+//! (PLATFORM-060).
 
 use std::process::{Command, Output};
 
@@ -78,7 +78,7 @@ pub fn settings(database: &TestDatabase) -> Vec<String> {
         format!("LISTEN_ADDR=0.0.0.0:{PORT}"),
         // 32 bytes of 7, a key only the tests use.
         "HMAC_KEY=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=".to_owned(),
-        // No test of the image alone sends email; PLATFORM-066's sends it from a deployment.
+        // No test of the image alone sends email; PLATFORM-021's sends it from a deployment.
         "EMAIL=off".to_owned(),
     ];
     for setting in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
@@ -93,7 +93,7 @@ pub fn settings(database: &TestDatabase) -> Vec<String> {
 
 /// `settings` for `bootstrap` on the tests' Postgres server, in the test environment: the server
 /// holds every test's database, which share the roles by design, and in production `bootstrap`
-/// refuses a server that holds another database of the roles (PLATFORM-077).
+/// refuses a server that holds another database of the roles (PLATFORM-003).
 pub fn on_the_tests_server(settings: &[String]) -> Vec<String> {
     settings
         .iter()
@@ -105,7 +105,7 @@ pub fn on_the_tests_server(settings: &[String]) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn ops_15_bootstrap_migrate_and_serve_run_from_one_image_as_a_non_root_user_on_a_read_only_root()
+async fn ops_13_bootstrap_migrate_and_serve_run_from_one_image_as_a_non_root_user_on_a_read_only_root()
  {
     let image = Image::pushed();
     let database = TestDatabase::empty().await;
@@ -133,7 +133,7 @@ async fn ops_15_bootstrap_migrate_and_serve_run_from_one_image_as_a_non_root_use
 }
 
 #[tokio::test]
-async fn platform_078_serve_takes_a_turn_per_whole_processor_of_its_limit_or_per_processor_it_may_use_and_at_least_one()
+async fn platform_060_serve_takes_a_turn_per_whole_processor_of_its_limit_or_per_processor_it_may_use_and_at_least_one()
  {
     let image = Image::pushed();
     let database = TestDatabase::empty().await;
@@ -173,7 +173,7 @@ async fn platform_078_serve_takes_a_turn_per_whole_processor_of_its_limit_or_per
 }
 
 #[test]
-fn ops_20_the_postgres_image_holds_the_authorities_that_a_bucket_s_certificate_is_checked_against()
+fn ops_17_the_postgres_image_holds_the_authorities_that_a_bucket_s_certificate_is_checked_against()
 {
     let image = Pushed::postgres();
     let compose = include_str!("../../../../deploy/compose.yaml");

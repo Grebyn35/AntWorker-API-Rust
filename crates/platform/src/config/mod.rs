@@ -49,7 +49,7 @@ impl FromStr for Environment {
 }
 
 /// The most detailed log level written (OBS-03). It is never coarser than `INFO`, because
-/// every request writes its completion line at `INFO` (PLATFORM-034).
+/// every request writes its completion line at `INFO` (PLATFORM-044).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LogLevel {
     /// Errors, warnings, lifecycle events and one line per request.
@@ -88,7 +88,7 @@ pub struct TelemetryConfig {
 /// The settings `serve` reads.
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
-    /// Where the API runs, which decides whether it serves the API reference (PLATFORM-075).
+    /// Where the API runs, which decides whether it serves the API reference (PLATFORM-052).
     pub environment: Environment,
     /// The address the HTTP server binds.
     pub listen_addr: SocketAddr,
@@ -104,22 +104,22 @@ pub struct ServerConfig {
     pub shutdown_drain: Duration,
     /// The key of every keyed hash, such as a rate limit's bucket key (SEC-03).
     pub hmac_key: HmacKey,
-    /// The proxies whose `X-Forwarded-For` names the client (PLATFORM-047).
+    /// The proxies whose `X-Forwarded-For` names the client (PLATFORM-053).
     pub trusted_proxies: Vec<IpNet>,
-    /// The origins of web clients (PLATFORM-052).
+    /// The origins of web clients (PLATFORM-058).
     pub cors_allowed_origins: Vec<Origin>,
-    /// The IP and user limits (PLATFORM-048).
+    /// The IP and user limits (PLATFORM-054).
     pub rate_limits: RateLimitConfig,
     /// How long a dead-lettered job keeps its payload before the sweep deletes it
-    /// (PLATFORM-013).
+    /// (PLATFORM-014).
     pub job_dead_letter_retention: Duration,
-    /// Whether email is sent, and through which server (PLATFORM-069).
+    /// Whether email is sent, and through which server (PLATFORM-024).
     pub mail: MailConfig,
-    /// How often the hub re-checks each open stream's session and memberships (PLATFORM-017).
+    /// How often the hub re-checks each open stream's session and memberships (PLATFORM-031).
     pub stream_recheck: Duration,
 }
 
-/// The limits on the requests of one client IP, and of one user (PLATFORM-048).
+/// The limits on the requests of one client IP, and of one user (PLATFORM-054).
 #[derive(Clone, Copy, Debug)]
 pub struct RateLimitConfig {
     /// How many requests one client IP may send in a window.
@@ -148,7 +148,7 @@ pub struct MigrateConfig {
 #[derive(Clone, Debug)]
 pub struct BootstrapConfig {
     /// Where the API runs: in production, `bootstrap` refuses a server that holds another
-    /// deployment's database (PLATFORM-077).
+    /// deployment's database (PLATFORM-003).
     pub environment: Environment,
     /// An administrator's connection to the database.
     pub admin: DatabaseUrl,
@@ -531,7 +531,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_023_values_are_trimmed() {
+    fn platform_064_values_are_trimmed() {
         let config = settings(&with(&SERVER, &[("LISTEN_ADDR", " 0.0.0.0:8080\n")]), &[])
             .server()
             .unwrap();
@@ -543,7 +543,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_023_an_empty_value_counts_as_unset() {
+    fn platform_064_an_empty_value_counts_as_unset() {
         let error = settings(&[("ENVIRONMENT", "   ")], &[])
             .telemetry()
             .unwrap_err();
@@ -551,7 +551,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_023_a_missing_required_setting_is_an_error() {
+    fn platform_064_a_missing_required_setting_is_an_error() {
         let error = settings(&with(&SERVER, &[("DATABASE_URL", "")]), &[])
             .server()
             .unwrap_err();
@@ -559,7 +559,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_023_an_invalid_value_names_the_setting_and_not_the_value() {
+    fn platform_064_an_invalid_value_names_the_setting_and_not_the_value() {
         let error = settings(
             &with(&SERVER, &[("DATABASE_URL", "postgres://app@localhost/api")]),
             &[],
@@ -574,7 +574,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_023_a_file_setting_is_read_and_trimmed() {
+    fn platform_064_a_file_setting_is_read_and_trimmed() {
         let config = settings(
             &with(
                 &SERVER,
@@ -591,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_023_an_unreadable_file_names_the_file_setting() {
+    fn platform_064_an_unreadable_file_names_the_file_setting() {
         let error = settings(&with(&SERVER, &[("DATABASE_URL_FILE", "/missing")]), &[])
             .server()
             .unwrap_err();
@@ -776,7 +776,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_041_the_sdk_s_own_variables_must_be_unset() {
+    fn platform_065_the_sdk_s_own_variables_must_be_unset() {
         for name in OTEL_VARIABLES {
             for value in ["x", "", "  "] {
                 let error = settings(&[("ENVIRONMENT", "test"), (name, value)], &[])
@@ -794,7 +794,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_041_env_example_names_every_variable_that_must_be_unset() {
+    fn platform_065_env_example_names_every_variable_that_must_be_unset() {
         let example = include_str!("../../../../.env.example");
         let words: Vec<&str> = example
             .split(|c: char| !(c.is_ascii_uppercase() || c == '_'))
@@ -805,7 +805,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_041_every_variable_env_example_lists_is_refused() {
+    fn platform_065_every_variable_env_example_lists_is_refused() {
         let example = include_str!("../../../../.env.example");
         let listed: Vec<&str> = example
             .split(|c: char| !(c.is_ascii_uppercase() || c == '_'))
@@ -818,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_039_the_endpoint_is_an_http_or_https_url() {
+    fn platform_066_the_endpoint_is_an_http_or_https_url() {
         for endpoint in ["http://127.0.0.1:4318", "https://collector.internal/otlp/"] {
             let config = settings(
                 &[

@@ -1,4 +1,4 @@
-//! End-to-end tests: guarantees of the built image, which run it as an operator would (TEST-04).
+//! End-to-end tests: guarantees of the built image, which run it as an operator would (TEST-03).
 //! `just e2e` pushes the image in target/image to the registry that Compose runs, and the tests
 //! run it from there by digest, on the platform `E2E_PLATFORM` names, against the Postgres that
 //! `just services` starts, or another server of it. Only the `e2e` feature compiles them, because

@@ -1,4 +1,4 @@
-//! The plan of a restore of the reference deployment's bundled database (OPS-17): the backup it
+//! The plan of a restore of the reference deployment's bundled database (OPS-15): the backup it
 //! starts from, and the timeline it replays along. Each restore begins a timeline, which branches
 //! off an earlier one, so a database that was restored has had several timelines, and a moment
 //! belongs to the timeline that was live then: the newest one that had begun. pgBackRest picks a
@@ -351,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_17_a_moment_before_any_restore_takes_the_latest_backup_before_it() {
+    fn ops_15_a_moment_before_any_restore_takes_the_latest_backup_before_it() {
         let backups = [backup("first", 100, 1, 10), backup("second", 500, 1, 50)];
 
         assert_eq!(
@@ -369,7 +369,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_17_a_moment_that_a_restore_went_back_past_replays_its_own_timeline() {
+    fn ops_15_a_moment_that_a_restore_went_back_past_replays_its_own_timeline() {
         let (backups, timelines) = restored_once();
 
         // Between the restore's target and the time it ran, on the timeline it abandoned.
@@ -385,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_17_a_moment_before_the_closing_backup_ended_replays_the_restored_timeline() {
+    fn ops_15_a_moment_before_the_closing_backup_ended_replays_the_restored_timeline() {
         let (backups, timelines) = restored_once();
 
         // The restored timeline is live, and its closing backup hasn't ended: the backup from
@@ -402,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_17_a_moment_after_the_closing_backup_takes_it() {
+    fn ops_15_a_moment_after_the_closing_backup_takes_it() {
         let (backups, timelines) = restored_once();
 
         assert_eq!(
@@ -415,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_17_the_latest_state_starts_from_the_latest_backup_on_the_latest_timeline() {
+    fn ops_15_the_latest_state_starts_from_the_latest_backup_on_the_latest_timeline() {
         let (mut backups, timelines) = restored_once();
         let with_closing = plan(i64::MAX, &backups, &timelines);
         // Without the restore's closing backup, as when it failed: the newest backup is the one
@@ -435,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_17_the_bucket_s_records_are_read_as_pgbackrest_writes_them() {
+    fn ops_15_the_bucket_s_records_are_read_as_pgbackrest_writes_them() {
         // Records as pgBackRest wrote them for a database restored four times: one backup, and
         // two of its five history files.
         let inputs = concat!(
@@ -464,7 +464,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_17_a_moment_that_the_server_s_clock_hasn_t_reached_is_refused() {
+    fn ops_15_a_moment_that_the_server_s_clock_hasn_t_reached_is_refused() {
         // A backup that ended a minute before the server's clock reading, and moments at that
         // reading and a second after it.
         let inputs = concat!(
@@ -492,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_17_a_moment_is_read_with_its_offset_from_utc() {
+    fn ops_15_a_moment_is_read_with_its_offset_from_utc() {
         // The seconds since the epoch that each text below names, in UTC.
         let utc = 1_792_924_891;
 

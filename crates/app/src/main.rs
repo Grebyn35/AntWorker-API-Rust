@@ -91,7 +91,7 @@ fn main() -> ExitCode {
 }
 
 /// Sets up telemetry, runs `task` with its configuration on a new async runtime, then writes
-/// out the telemetry and the logs (PLATFORM-042).
+/// out the telemetry and the logs (PLATFORM-068).
 fn start<C, F>(
     telemetry: Result<TelemetryConfig, ConfigError>,
     config: Result<C, ConfigError>,
@@ -199,7 +199,7 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         drain: config.shutdown_drain,
     };
     // The jobs stop claiming when the signal arrives, and their runs end by the deadline of the
-    // requests in flight (PLATFORM-063). Should the server stop first, the sender drops, which
+    // requests in flight (PLATFORM-018). Should the server stop first, the sender drops, which
     // stops them too.
     let (stop_jobs, stopping) = watch::channel(false);
     let grace = shutdown.delay.saturating_add(shutdown.drain);
@@ -289,7 +289,7 @@ fn print_seeded(report: &app::SeedReport) {
 }
 
 /// Connects to the database, after the startup checks, and logs the most connections the
-/// instance opens (PLATFORM-045).
+/// instance opens (PLATFORM-007).
 async fn connect(config: &ServerConfig) -> Result<Database, ExitCode> {
     let database = Database::connect(
         &config.database_url,
@@ -318,7 +318,7 @@ async fn bind(address: SocketAddr) -> std::io::Result<TcpListener> {
     Ok(listener)
 }
 
-/// Asks the instance whether it is ready (PLATFORM-044). It runs no async runtime and writes no
+/// Asks the instance whether it is ready (PLATFORM-063). It runs no async runtime and writes no
 /// logs, so a health check that runs it every few seconds adds nothing to them.
 fn health(config: Result<HealthConfig, ConfigError>) -> ExitCode {
     let config = match config {

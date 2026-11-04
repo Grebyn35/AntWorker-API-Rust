@@ -12,7 +12,7 @@ use utoipa::{
 
 use crate::telemetry::{metrics::Counter, names};
 
-/// The most characters a key holds (PLATFORM-058).
+/// The most characters a key holds (PLATFORM-037).
 const KEY_MAX_CHARS: usize = 255;
 
 /// A request's idempotency key, with the fingerprint of the request it came with.
@@ -31,7 +31,7 @@ impl std::fmt::Debug for IdempotencyKey {
 impl IdempotencyKey {
     /// The key in the header's `value`, a String of structured fields (RFC 9651) of 1 to 255
     /// characters, for the request whose method, path, query and body digest are given, or
-    /// `None` when the value isn't one (PLATFORM-058).
+    /// `None` when the value isn't one (PLATFORM-037).
     pub(crate) fn parse(
         value: &[u8],
         method: &str,
@@ -69,7 +69,7 @@ impl IdempotencyKey {
 }
 
 /// The header's value in the document: a String of structured fields whose key holds 1 to 255
-/// characters, from space to `~`, with `"` and `\` escaped (PLATFORM-058, API-17).
+/// characters, from space to `~`, with `"` and `\` escaped (PLATFORM-037, API-17).
 impl PartialSchema for IdempotencyKey {
     fn schema() -> RefOr<Schema> {
         ObjectBuilder::new()
@@ -118,7 +118,7 @@ fn trim_spaces(mut value: &[u8]) -> &[u8] {
 }
 
 /// What claiming a key found: no committed operation, so this one runs, or the result of the one
-/// that committed under it (PLATFORM-018).
+/// that committed under it (PLATFORM-036).
 #[derive(Debug)]
 pub enum Claimed<T> {
     /// No operation committed under the key, or the request has none: the operation runs.
@@ -140,7 +140,7 @@ static IDEMPOTENT_REQUESTS: Counter<1> = Counter::new(
     "platform.idempotent_requests",
     "{request}",
     "Requests with an idempotency key, by how claiming it ended: new, replayed, reused or \
-     in_flight (PLATFORM-018).",
+     in_flight (PLATFORM-036).",
     [names::IDEMPOTENCY_OUTCOME],
 );
 
@@ -165,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_058_a_key_is_one_string_of_structured_fields() {
+    fn platform_037_a_key_is_one_string_of_structured_fields() {
         assert_eq!(
             key(r#""8e03978e-40d5-43e8-bc93-6894a57f9324""#).as_deref(),
             Some("8e03978e-40d5-43e8-bc93-6894a57f9324")
@@ -189,13 +189,13 @@ mod tests {
     }
 
     #[test]
-    fn platform_058_a_key_has_1_to_255_characters() {
+    fn platform_037_a_key_has_1_to_255_characters() {
         assert!(key(&format!("\"{}\"", "k".repeat(255))).is_some());
         assert!(key(&format!("\"{}\"", "k".repeat(256))).is_none());
     }
 
     #[test]
-    fn platform_018_the_fingerprint_covers_the_method_the_path_the_query_and_the_body() {
+    fn platform_036_the_fingerprint_covers_the_method_the_path_the_query_and_the_body() {
         let fingerprint = |method: &str, path: &str, query: &str, body: u8| {
             IdempotencyKey::parse(br#""k""#, method, path, query, &[body; 32])
                 .unwrap()

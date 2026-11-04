@@ -1,5 +1,5 @@
 //! The hub's streams, kept by user and by workspace, which it delivers each event to and closes
-//! (SEC-06, SEC-17).
+//! (SEC-06, SEC-19).
 
 use std::{
     collections::{HashMap, HashSet},
@@ -29,14 +29,14 @@ use crate::{
 /// The most streams one user holds open on a replica (REALTIME-006).
 const STREAMS_PER_USER: usize = 10;
 
-/// The most frames that wait to be sent to one stream before the hub closes it (PLATFORM-072).
+/// The most frames that wait to be sent to one stream before the hub closes it (PLATFORM-032).
 const QUEUE: usize = 256;
 
 static STREAMS: Gauge<1> = Gauge::new(
     "platform.streams",
     "{stream}",
     "The streams open on the replica, by the name of the database whose events its hub \
-     delivers (PLATFORM-074).",
+     delivers (PLATFORM-034).",
     [names::DB_NAMESPACE],
 );
 
@@ -44,7 +44,7 @@ static CLOSES: Counter<2> = Counter::new(
     "platform.stream_closes",
     "{stream}",
     "Streams the hub closed, by why: session_ended, access_changed, lagging, shutdown or \
-     interrupted, and by the name of the database whose events it delivers (PLATFORM-074).",
+     interrupted, and by the name of the database whose events it delivers (PLATFORM-034).",
     [names::STREAM_CLOSE_REASON, names::DB_NAMESPACE],
 );
 
@@ -64,7 +64,7 @@ struct Entry {
 }
 
 /// A stream's memberships, as its subscription read them, after taking `snapshot`: they hold the
-/// change of each transaction it holds, and may hold others (PLATFORM-017).
+/// change of each transaction it holds, and may hold others (PLATFORM-031).
 struct Read {
     memberships: Memberships,
     snapshot: Snapshot,
@@ -124,7 +124,7 @@ impl Streams {
         self.stopped
     }
 
-    /// Closes every stream with `shutdown`, and opens none from then on (PLATFORM-038).
+    /// Closes every stream with `shutdown`, and opens none from then on (PLATFORM-062).
     pub(super) fn stop(&mut self) {
         self.stopped = true;
         let ids: Vec<StreamId> = self.streams.keys().copied().collect();
@@ -133,7 +133,7 @@ impl Streams {
         }
     }
 
-    /// Closes every stream with `interrupted`, after the listener was lost (PLATFORM-073).
+    /// Closes every stream with `interrupted`, after the listener was lost (PLATFORM-033).
     pub(super) fn interrupt(&mut self) {
         let ids: Vec<StreamId> = self.streams.keys().copied().collect();
         for id in ids {
@@ -201,7 +201,7 @@ impl Streams {
 
     /// Keeps the stream `id` under `memberships`, read after `snapshot`, and gives the head, or
     /// `None` when the stream has closed since it registered, or closes now because a membership
-    /// change signalled meanwhile isn't among those its memberships hold (PLATFORM-017).
+    /// change signalled meanwhile isn't among those its memberships hold (PLATFORM-031).
     fn activate(
         &mut self,
         id: StreamId,
@@ -230,7 +230,7 @@ impl Streams {
 
     /// Closes the streams `signal` affects: a session's, or each of a user's whose memberships
     /// don't hold the membership change, and records the change for each that is still reading
-    /// its memberships (PLATFORM-017).
+    /// its memberships (PLATFORM-031).
     pub(super) fn changed(&mut self, signal: Signal) {
         let Some(ids) = self.by_user.get(&signal.change.user_id()) else {
             return;
@@ -265,8 +265,8 @@ impl Streams {
         }
     }
 
-    /// Queues `event` for each stream allowed to receive it (SEC-17), and closes each stream whose
-    /// queue is full (PLATFORM-072).
+    /// Queues `event` for each stream allowed to receive it (SEC-19), and closes each stream whose
+    /// queue is full (PLATFORM-032).
     pub(super) fn deliver(&mut self, event: &Arc<Event>) {
         let targets: Vec<StreamId> = match &event.audience {
             Audience::User(user) => self
@@ -402,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_017_a_membership_change_closes_only_the_streams_whose_memberships_don_t_hold_it() {
+    fn platform_031_a_membership_change_closes_only_the_streams_whose_memberships_don_t_hold_it() {
         let mut streams = Streams::new("api".to_owned(), 0);
         let ada = UserId::from_uuid(uuid::Uuid::new_v4());
         let before = register(&mut streams, ada);
@@ -418,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_017_a_change_signalled_while_a_stream_opens_closes_it_unless_its_memberships_hold_it()
+    fn platform_031_a_change_signalled_while_a_stream_opens_closes_it_unless_its_memberships_hold_it()
      {
         let mut streams = Streams::new("api".to_owned(), 0);
         let ada = UserId::from_uuid(uuid::Uuid::new_v4());

@@ -39,7 +39,7 @@ static RUNS: Counter<2> = Counter::new(
     "platform.job_runs",
     "{run}",
     "Job runs, by the job's kind and how each ended: succeeded, retried, dead_lettered, failed \
-     for a periodic run, or released at shutdown (PLATFORM-065).",
+     for a periodic run, or released at shutdown (PLATFORM-020).",
     [names::JOB_KIND, names::JOB_OUTCOME],
 );
 
@@ -69,14 +69,14 @@ pub trait Job: Serialize + DeserializeOwned + Send + 'static {
     /// The kind: `<module>.<name>` for a module's job, and `platform.<name>` for one of
     /// `platform`'s, such as `platform.send_email`.
     const KIND: &'static str;
-    /// The most attempts its runs make before it moves to the dead-letter state (PLATFORM-013).
+    /// The most attempts its runs make before it moves to the dead-letter state (PLATFORM-014).
     const MOST_ATTEMPTS: u32 = 10;
-    /// How long one run may take before it is cancelled, and fails (PLATFORM-062).
+    /// How long one run may take before it is cancelled, and fails (PLATFORM-017).
     const TIME_LIMIT: Duration = Duration::from_secs(300);
 }
 
 /// The user or workspace a job runs for, whose data its handler's queries filter by
-/// (PLATFORM-012). Only a proof builds one, but for the scope of no one, which only `platform`'s
+/// (PLATFORM-013). Only a proof builds one, but for the scope of no one, which only `platform`'s
 /// scheduler builds, and the tests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct JobScope {
@@ -150,7 +150,7 @@ pub enum JobFailure {
     #[error(transparent)]
     Transient(Internal),
     /// A failure that every attempt would meet, such as a recipient that the mail server
-    /// refuses: the job moves to the dead-letter state at once (PLATFORM-013).
+    /// refuses: the job moves to the dead-letter state at once (PLATFORM-014).
     #[error(transparent)]
     Permanent(Internal),
 }
@@ -202,7 +202,7 @@ pub struct Jobs {
 
 impl Jobs {
     /// The registry, holding `platform`'s sweeps of its own tables on `database`, which delete
-    /// the dead letters older than `retention` (PLATFORM-064).
+    /// the dead letters older than `retention` (PLATFORM-019).
     pub fn new(database: &Database, retention: Duration) -> Self {
         let mut jobs = Self {
             queued: HashMap::new(),
@@ -247,7 +247,7 @@ impl Jobs {
     }
 
     /// Registers `handler` as the periodic job `name`, which runs every `interval`, each run
-    /// for at most `time_limit` (PLATFORM-014).
+    /// for at most `time_limit` (PLATFORM-015).
     pub fn periodic<F, Fut>(
         &mut self,
         name: &'static str,
@@ -278,7 +278,7 @@ impl Jobs {
 
     /// Runs the dispatcher and the scheduler on `database` until `stopping` turns true, then
     /// the runs in flight until `grace` has passed, and then cancels and releases those still
-    /// going (PLATFORM-063). `serve` gives it the time it gives the requests in flight.
+    /// going (PLATFORM-018). `serve` gives it the time it gives the requests in flight.
     pub async fn run(
         self,
         database: Database,
@@ -355,7 +355,7 @@ impl Jobs {
 
 impl UnitOfWork {
     /// Enqueues `job` to run for `scope` once the unit of work commits, and never if it rolls
-    /// back (PLATFORM-011), with the trace context of the current span, which its run links to
+    /// back (PLATFORM-012), with the trace context of the current span, which its run links to
     /// (OBS-07).
     pub async fn enqueue<J: Job>(&mut self, scope: JobScope, job: &J) -> Result<(), Internal> {
         let payload = serde_json::to_value(job).map_err(Internal::new)?;
@@ -375,7 +375,7 @@ impl UnitOfWork {
     }
 }
 
-/// How a run ended (PLATFORM-065).
+/// How a run ended (PLATFORM-020).
 #[derive(Clone, Copy, Debug)]
 enum Outcome {
     Succeeded,

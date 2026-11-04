@@ -51,7 +51,7 @@ uuid.workspace = true
 
 [features]
 # Raw database connections, telemetry kept in memory, and a stand-in collector, for the test
-# support (TEST-05, TEST-06). Only the tests enable it.
+# support (TEST-04, TEST-05). Only the tests enable it.
 test-support = ["opentelemetry_sdk/testing", "dep:opentelemetry-proto", "dep:prost"]
 
 [lints]

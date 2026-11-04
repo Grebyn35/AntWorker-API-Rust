@@ -166,13 +166,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn data_20_the_bans_are_read_with_their_lines() {
+    fn data_14_the_bans_are_read_with_their_lines() {
         let config = r#"too-many-lines-threshold = 80
 
 disallowed-methods = [
     { path = "std::fs::read", reason = "blocking (CODE-05)" },
     # a comment with "quotes"
-    { path = "sqlx::query", reason = "SQL goes through the macros (DATA-20)", allow-invalid = true },
+    { path = "sqlx::query", reason = "SQL goes through the macros (DATA-14)", allow-invalid = true },
     "sqlx::raw_sql",
 ]
 

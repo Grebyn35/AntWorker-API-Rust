@@ -1,4 +1,4 @@
-//! `load-test streams`, which `just load-test streams` runs: it measures a replica's hub (OPS-18,
+//! `load-test streams`, which `just load-test streams` runs: it measures a replica's hub (OPS-16,
 //! the platform spec's "Events and the real-time hub", under Capacity). One replica of the image under test, with the
 //! reference deployment's limits on CPU and memory, holds 1,000 open streams, 10 for each of 100
 //! users, and a second replica, without limits, takes the requests that publish, as the other
@@ -467,7 +467,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ops_18_a_hub_step_passes_only_with_every_event_delivered_in_time() {
+    fn ops_16_a_hub_step_passes_only_with_every_event_delivered_in_time() {
         let passing = HubStep {
             rate: 100,
             requests: 3000,
@@ -520,7 +520,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_18_docker_s_memory_is_read_in_bytes() {
+    fn ops_16_docker_s_memory_is_read_in_bytes() {
         assert_eq!(bytes("12.5MiB"), 13_107_200.0);
         assert_eq!(bytes("512KiB"), 524_288.0);
         assert_eq!(bytes("1.5GiB"), 1_610_612_736.0);

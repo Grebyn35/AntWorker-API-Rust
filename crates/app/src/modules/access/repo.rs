@@ -1,5 +1,5 @@
 //! The SQL of `workspace_memberships` (ARCH-10). Every query filters by the workspace or the user
-//! the operation's proof names (DATA-22).
+//! the operation's proof names (DATA-16).
 
 use platform::{
     db::UnitOfWork,
@@ -55,7 +55,7 @@ pub(super) async fn insert_unless_member(
 // end part: invitations
 
 /// The role of `user` in `workspace`, if they are a member, with their row locked `FOR SHARE`
-/// until the unit of work ends, so a removal or a role change waits for it (PLATFORM-024).
+/// until the unit of work ends, so a removal or a role change waits for it (PLATFORM-009).
 pub(super) async fn role_held(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
@@ -92,7 +92,7 @@ pub(super) async fn role(
 
 /// Deletes the membership of `user` in `workspace` if their role is one of `roles`, and returns
 /// whether it did. A row whose role isn't one of them is skipped without being locked, so a
-/// removal never waits on a member it may not remove (DATA-25).
+/// removal never waits on a member it may not remove (DATA-20).
 pub(super) async fn delete_at(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
@@ -113,7 +113,7 @@ pub(super) async fn delete_at(
 }
 
 /// A page of `workspace`'s members, the latest joined first, of `role` only and among `users`
-/// only when given, read through the index on the workspace and the joining time (DATA-23).
+/// only when given, read through the index on the workspace and the joining time (DATA-17).
 pub(super) async fn members(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
@@ -169,7 +169,7 @@ pub(super) async fn member_ids(
 }
 
 /// A page of `user`'s memberships, the latest joined first, among `workspaces` only when given,
-/// read through the index on the user and the joining time (DATA-23).
+/// read through the index on the user and the joining time (DATA-17).
 pub(super) async fn joined(
     uow: &mut UnitOfWork,
     user: UserId,
@@ -222,7 +222,7 @@ pub(super) async fn workspace_ids(
 }
 
 /// Every membership of each of `users`, with its workspace, role and the transaction that added
-/// it, for the hub's streams: the IDs come from the hub's own streams' principals (DATA-22).
+/// it, for the hub's streams: the IDs come from the hub's own streams' principals (DATA-16).
 pub(super) async fn memberships_of(
     uow: &mut UnitOfWork,
     users: &[UserId],

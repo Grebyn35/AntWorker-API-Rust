@@ -325,7 +325,7 @@ async fn sign_out(
 }
 
 /// How the request's client takes its tokens: a request with an `Origin` comes from a browser,
-/// which only ever gets cookies, wherever its refresh token came from (SEC-19, AUTH-015).
+/// which only ever gets cookies, wherever its refresh token came from (SEC-07, AUTH-015).
 fn delivery(headers: &HeaderMap) -> TokenDelivery {
     if headers.contains_key(header::ORIGIN) {
         TokenDelivery::Cookie

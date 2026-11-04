@@ -223,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_22_the_example_s_choices_and_conditions_are_read_from_its_type_lines() {
+    fn ops_19_the_example_s_choices_and_conditions_are_read_from_its_type_lines() {
         let blocks = blocks(&example());
         let block = |name: &str| block_of(&blocks, name);
 
@@ -257,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_22_each_choice_comes_before_the_settings_that_depend_on_it() {
+    fn ops_19_each_choice_comes_before_the_settings_that_depend_on_it() {
         let blocks = blocks(&example());
         let position = |name: &str| {
             blocks
@@ -278,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_22_the_alertmanager_secrets_are_the_files_its_integrations_read() {
+    fn ops_19_the_alertmanager_secrets_are_the_files_its_integrations_read() {
         let config = "# - api_url_file: /etc/alertmanager-secrets/commented\n\
                       receivers:\n  - name: page\n    slack_configs:\n\
                       \x20     - api_url_file: /etc/alertmanager-secrets/slack_api_url\n\
@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_22_the_server_s_settings_file_keeps_the_example_s_text_and_the_settings_it_lacks() {
+    fn ops_19_the_server_s_settings_file_keeps_the_example_s_text_and_the_settings_it_lacks() {
         let example = "# The address.\nAPI_ADDRESS=\nAPI_REPLICAS=2\n";
         let settings = vec![
             ("API_ADDRESS".to_owned(), "api.example.com".to_owned()),

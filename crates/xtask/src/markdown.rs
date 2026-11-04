@@ -245,7 +245,7 @@ pub fn tables(text: &str) -> Vec<Table> {
     tables
 }
 
-/// The cells of a table row, trimmed (DOC-15): one pipe at each end of the row bounds it, and
+/// The cells of a table row, trimmed (DOC-08): one pipe at each end of the row bounds it, and
 /// a pipe that follows a backslash belongs to its cell.
 fn cells(row: &str) -> Vec<String> {
     let row = row.trim();
@@ -310,7 +310,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn doc_13_anchors_follow_github() {
+    fn doc_12_anchors_follow_github() {
         let document = read(
             "# Title\n\n## 4. Crates\n\n### STYLE-01 `widgets` never fail\n\n## Notes\n\n## Notes\n",
         );
@@ -330,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn doc_13_links_keep_their_line() {
+    fn doc_12_links_keep_their_line() {
         let document = read(
             "Intro.\n\nSee [the spec](spec/widgets.md#purpose) and\n[a site](https://example.com).\n",
         );
@@ -346,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn doc_15_sections_lists_and_tables_are_read_line_by_line() {
+    fn doc_08_sections_lists_and_tables_are_read_line_by_line() {
         let text = "# Doc\n\n## Sections\n\n1. **Purpose.** Why.\n10. **Notes.** Only some.\n\
                     - **Not.** An item.\n\n```\n## Code\n| not | a table |\n```\n\n\
                     ## Rows\n\n| A | B |\n|---|:-:|\n| 1 | `x` |\n\nAfter.\n";

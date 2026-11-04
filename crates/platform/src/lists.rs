@@ -1,5 +1,5 @@
-//! Lists: a page's `limit` and `cursor` (API-06, PLATFORM-059), a list's `search` (API-20,
-//! PLATFORM-060), and the body of a page of items (API-05), which a route reads from the
+//! Lists: a page's `limit` and `cursor` (API-06, PLATFORM-046), a list's `search` (API-20,
+//! PLATFORM-047), and the body of a page of items (API-05), which a route reads from the
 //! parameters of its `http::Query<T>` and hands its service.
 
 use std::borrow::Cow;
@@ -22,7 +22,7 @@ use crate::{
 const DEFAULT_LIMIT: u16 = 50;
 /// The most items a page holds (API-06).
 const MAX_LIMIT: u16 = 100;
-/// The most characters a search holds (PLATFORM-060).
+/// The most characters a search holds (PLATFORM-047).
 const SEARCH_MAX_CHARS: usize = 100;
 /// The bytes of a cursor: the tag of its route, the microseconds of its sort key, and its ID.
 const CURSOR_LEN: usize = 4 + 8 + 16;
@@ -46,7 +46,7 @@ pub struct Page {
 
 impl Page {
     /// The page of `route` that `limit` and `cursor`, the query's parameters, name, or `None`,
-    /// recording why, when `errors` refuses either (PLATFORM-059).
+    /// recording why, when `errors` refuses either (PLATFORM-046).
     pub fn read(
         route: &str,
         limit: Option<&str>,
@@ -153,7 +153,7 @@ fn decode(value: &str, tag: [u8; 4]) -> Result<Cursor, Invalid> {
 
 /// What a list's items must contain, in one of the fields its route names, ignoring case:
 /// trimmed, with each run of whitespace inside collapsed to one space, in Unicode Normalization
-/// Form C, of 1 to 100 characters (PLATFORM-060).
+/// Form C, of 1 to 100 characters (PLATFORM-047).
 #[derive(Clone, PartialEq, Eq)]
 pub struct Search(String);
 
@@ -280,7 +280,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn platform_060_a_search_is_trimmed_collapsed_and_normalized() {
+    fn platform_047_a_search_is_trimmed_collapsed_and_normalized() {
         let search = Search::parse("  Ren\u{65}\u{301}e \t Lo  ").unwrap();
         assert_eq!(search.0, "Ren\u{e9}e Lo");
         assert_eq!(Search::parse(" \t ").unwrap_err().code, "required");
@@ -292,13 +292,13 @@ mod tests {
     }
 
     #[test]
-    fn platform_060_a_search_s_wildcards_match_only_themselves() {
+    fn platform_047_a_search_s_wildcards_match_only_themselves() {
         let search = Search::parse(r"50%_a\b").unwrap();
         assert_eq!(search.pattern(), r"%50\%\_a\\b%");
     }
 
     #[test]
-    fn platform_059_a_cursor_works_only_on_the_route_that_answered_it() {
+    fn platform_046_a_cursor_works_only_on_the_route_that_answered_it() {
         let cursor = Cursor {
             at: time::OffsetDateTime::from_unix_timestamp_nanos(1_793_500_000_123_456_000).unwrap(),
             id: uuid::Uuid::from_u128(7),
@@ -330,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_059_a_limit_is_1_to_100() {
+    fn platform_046_a_limit_is_1_to_100() {
         assert_eq!(parse_limit("1"), Ok(1));
         assert_eq!(parse_limit("100"), Ok(100));
         assert_eq!(parse_limit("0").unwrap_err().code, "out_of_range");

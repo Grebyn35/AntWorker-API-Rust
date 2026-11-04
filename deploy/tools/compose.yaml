@@ -1,5 +1,5 @@
 # The images of the tools that a deploy runs on its server. crane reads the registry, and cosign
-# checks the signatures, when it verifies a release (OPS-14): compose.yaml at the root extends
+# checks the signatures, when it verifies a release (OPS-12): compose.yaml at the root extends
 # them for the release tasks, and deploy.sh reads their names from this file and runs
 # deploy/verify-release.sh before it pulls a release. curl and yq import the release's dashboards
 # and alert rules into a managed Grafana (D42), through deploy/import-grafana.sh.

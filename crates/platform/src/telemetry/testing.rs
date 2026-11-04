@@ -92,7 +92,7 @@ thread_local! {
 /// test runner's, which prints a failing test's message. Requests that tests send get the trace
 /// context the API gives them, and a test reads the lines of its own requests by their trace
 /// ID, whatever other tests run alongside. Later calls install nothing. Each call watches the
-/// test on the thread it runs on, once, until the thread ends (TEST-07). Fails if something else
+/// test on the thread it runs on, once, until the thread ends (TEST-06). Fails if something else
 /// installed a subscriber first.
 pub fn install(service: Service) -> Result<(), TelemetryError> {
     let installed = INSTALLED.get_or_init(|| {
@@ -153,7 +153,7 @@ pub fn all_logged() -> Vec<Value> {
 
 /// Prints what the test that starts it has logged, once the watch has lived for a while, then
 /// each line the test logs, until the watch is dropped, so that a test that never ends shows
-/// what it logged before CI's job time limit ends it (TEST-07). [`install`] starts one for 5
+/// what it logged before CI's job time limit ends it (TEST-06). [`install`] starts one for 5
 /// minutes. Each printed line starts with the test's name. A test's lines are those written on
 /// the thread the test runner runs it on, where its runtime runs its tasks, and not those of the
 /// threads that run blocking work.
@@ -186,7 +186,7 @@ impl Watch {
             #[expect(
                 clippy::disallowed_methods,
                 reason = "the watch prints a hung test's lines at a time on the real clock, \
-                          and decides no test's outcome (TEST-07)"
+                          and decides no test's outcome (TEST-06)"
             )]
             let outcome = waiting.recv_timeout(after);
             if outcome == Err(mpsc::RecvTimeoutError::Timeout)
@@ -254,7 +254,7 @@ pub struct Point {
 }
 
 /// Records what `read` reports as the process's memory, now and every 15 seconds after on
-/// `clock`, as `process::watch` records the kernel's report, which a test can't choose (TEST-05).
+/// `clock`, as `process::watch` records the kernel's report, which a test can't choose (TEST-04).
 pub fn watch_memory<F, Report>(clock: crate::clock::SharedClock, read: F)
 where
     F: Fn() -> Report + Send + 'static,

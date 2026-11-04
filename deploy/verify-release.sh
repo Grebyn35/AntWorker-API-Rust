@@ -1,10 +1,10 @@
 #!/bin/sh
-# Verifies a release (OPS-14): for each image named, the image tagged with the version is signed
+# Verifies a release (OPS-12): for each image named, the image tagged with the version is signed
 # by the run of ci.yml on main of the repository at the source address, and its image index holds
 # the SBOM and the provenance of both platforms. It prints each image with its digest, as
 # `<image>@<digest>`, one per line, in the order given, and fails on the first image that doesn't
 # verify. `just verify-release` runs it when CI releases a version, and the reference deployment
-# runs it before it pulls a release (OPS-16).
+# runs it before it pulls a release (OPS-14).
 #
 #   verify-release.sh <version> <source> <image>...
 #   verify-release.sh 1.4.0 https://github.com/owner/name ghcr.io/owner/name ghcr.io/owner/name-postgres

@@ -1,5 +1,5 @@
 //! `check-deps`, for the crates' dependencies: each dependency a crate of the workspace declares
-//! is named in the code that its kind builds (CODE-11), so a dependency that no code uses any
+//! is named in the code that its kind builds (CODE-12), so a dependency that no code uses any
 //! more, such as one that only a removed optional part used, fails rather than staying in the
 //! build. A normal dependency is named in the crate's `src/` or build script, a development
 //! dependency there or in its tests, examples and benches, and a build dependency in its build
@@ -107,7 +107,7 @@ fn unused(repo: &Repo, dependencies: &[Dependency]) -> Vec<Finding> {
                 &manifest,
                 line,
                 format!(
-                    "no code of the crate names `{}`, a {} dependency: remove it (CODE-11)",
+                    "no code of the crate names `{}`, a {} dependency: remove it (CODE-12)",
                     dependency.name, dependency.kind
                 ),
             ));
@@ -173,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn code_11_a_dependency_that_no_code_of_its_kind_names_fails() {
+    fn code_12_a_dependency_that_no_code_of_its_kind_names_fails() {
         let repo = Repo::of(&[
             (
                 "crates/app/Cargo.toml",
@@ -214,13 +214,13 @@ mod tests {
             messages,
             [
                 "crates/app/Cargo.toml:1: no code of the crate names `described`, a normal \
-                 dependency: remove it (CODE-11)",
+                 dependency: remove it (CODE-12)",
                 "crates/app/Cargo.toml:1: no code of the crate names `url`, a normal \
-                 dependency: remove it (CODE-11)",
+                 dependency: remove it (CODE-12)",
                 "crates/app/Cargo.toml:3: no code of the crate names `old_crate`, a normal \
-                 dependency: remove it (CODE-11)",
+                 dependency: remove it (CODE-12)",
                 "crates/app/Cargo.toml:6: no code of the crate names `unused_dev`, a dev \
-                 dependency: remove it (CODE-11)",
+                 dependency: remove it (CODE-12)",
             ]
         );
     }

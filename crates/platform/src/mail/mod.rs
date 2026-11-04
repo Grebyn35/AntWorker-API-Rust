@@ -1,12 +1,12 @@
 //! Sending email (architecture §4, the platform spec's Sending email). A module renders each email it
 //! declares in its `emails.rs` into an [`Email`], [`Mail::send`] enqueues it in the module's unit
 //! of work, and the job `platform.send_email` sends it through the mail server, never inside a request
-//! (PLATFORM-066, D1).
+//! (PLATFORM-021, D1).
 //!
 //! The job `platform.send_email` (OPS-09) is owned by this area, triggered by `Mail::send`, and touches no
 //! table but the queue's own. A run that sent the email and then stopped, before its success was written,
 //! leaves the job to run again, which sends a second copy with the same `Message-ID`, so the
-//! receiving system can recognize it (PLATFORM-070): no protocol sends an email exactly once.
+//! receiving system can recognize it (PLATFORM-025): no protocol sends an email exactly once.
 
 mod transport;
 
@@ -28,10 +28,10 @@ use crate::{
 /// How long one send may take, its connection and replies included.
 const SEND_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Whether the deployment sends email, and through which server (PLATFORM-069).
+/// Whether the deployment sends email, and through which server (PLATFORM-024).
 #[derive(Clone)]
 pub enum MailConfig {
-    /// No email is sent (PLATFORM-067).
+    /// No email is sent (PLATFORM-022).
     Off,
     /// Email is sent through this server.
     Smtp(Smtp),
@@ -69,7 +69,7 @@ impl fmt::Debug for Email {
 }
 
 /// The emails of the deployment: sent through its mail server, or none with email off
-/// (PLATFORM-067). Clones share the transport.
+/// (PLATFORM-022). Clones share the transport.
 #[derive(Clone)]
 pub struct Mail {
     sender: Option<Arc<Sender>>,
@@ -83,7 +83,7 @@ struct Sender {
 
 /// The payload of the job `platform.send_email`: the email as rendered, so a job that one release enqueued
 /// sends the same email when a replica of another runs it, and the `Message-ID` fixed when it was
-/// enqueued (PLATFORM-070).
+/// enqueued (PLATFORM-025).
 #[derive(Serialize, Deserialize)]
 struct Delivery {
     message_id: String,
@@ -92,7 +92,7 @@ struct Delivery {
 
 impl Job for Delivery {
     const KIND: &'static str = "platform.send_email";
-    /// The platform spec's Sending email says why 12 (PLATFORM-066).
+    /// The platform spec's Sending email says why 12 (PLATFORM-021).
     const MOST_ATTEMPTS: u32 = 12;
     const TIME_LIMIT: Duration = Duration::from_secs(60);
 }
@@ -112,13 +112,13 @@ impl Mail {
     }
 
     /// Whether the deployment sends email, which the capabilities endpoint reports
-    /// (PLATFORM-067).
+    /// (PLATFORM-022).
     pub fn is_on(&self) -> bool {
         self.sender.is_some()
     }
 
-    /// Enqueues `email` in `uow`, to be sent for `scope` once `uow` commits (PLATFORM-066), or
-    /// does nothing with email off (PLATFORM-067).
+    /// Enqueues `email` in `uow`, to be sent for `scope` once `uow` commits (PLATFORM-021), or
+    /// does nothing with email off (PLATFORM-022).
     pub async fn send(
         &self,
         uow: &mut UnitOfWork,
@@ -146,7 +146,7 @@ impl Mail {
     }
 
     /// Sends `delivery`. A replica with email off drops it, as one enqueued while email was on
-    /// (PLATFORM-067).
+    /// (PLATFORM-022).
     async fn deliver(&self, delivery: Delivery) -> Result<(), JobFailure> {
         let Some(sender) = &self.sender else {
             tracing::debug!("email is off, so an email enqueued while it was on is dropped");

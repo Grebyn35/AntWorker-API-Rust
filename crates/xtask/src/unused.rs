@@ -1,4 +1,4 @@
-//! `check-layout`, for CODE-14: an item of `platform`'s public API that no code outside the tests
+//! `check-layout`, for CODE-15: an item of `platform`'s public API that no code outside the tests
 //! names, and that the platform spec's Interface doesn't name either, is dead. The tests' own
 //! items, which only `#[cfg(test)]` or the `test-support` feature compiles, are the tests'.
 //!
@@ -84,7 +84,7 @@ pub fn check(repo: &Repo) -> Vec<Finding> {
                 format!(
                     "`{}` is public, but no code outside the tests names it, and the platform \
                      spec's Interface doesn't: delete it, or compile it only with the \
-                     `test-support` feature if the tests need it (CODE-14)",
+                     `test-support` feature if the tests need it (CODE-15)",
                     item.name
                 ),
             )
@@ -320,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn code_14_a_public_item_that_only_tests_name_is_dead() {
+    fn code_15_a_public_item_that_only_tests_name_is_dead() {
         let url = "pub struct Url;\npub struct Reexported;\n\
                    impl Url {\n\
                    \x20   pub fn database(&self) {}\n\
@@ -358,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn code_14_the_items_of_a_module_for_the_tests_are_the_tests() {
+    fn code_15_the_items_of_a_module_for_the_tests_are_the_tests() {
         let lib = "#[cfg(feature = \"test-support\")]\npub mod testing;\npub fn used() {}\n";
         let testing = "pub fn helper() { crate::used(); }\n";
         let inner = "pub fn nested() {}\n";

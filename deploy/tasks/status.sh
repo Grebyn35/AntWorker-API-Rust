@@ -1,4 +1,4 @@
-# What the deployment runs, and its services' logs (OPS-22).
+# What the deployment runs, and its services' logs (OPS-19).
 
 status() {
     if [ -f "$state/running" ] && ! flock -n -s "$state/running" true; then

@@ -1,5 +1,5 @@
 //! `check-sql-bans`: every function, method and macro that the locked sqlx exposes and that takes
-//! SQL text, outside the checked macros, is one that `clippy.toml` bans (DATA-20), so an update
+//! SQL text, outside the checked macros, is one that `clippy.toml` bans (DATA-14), so an update
 //! of sqlx can't add one unbanned.
 //!
 //! It reads the sources of the sqlx that the workspace depends on, where `cargo metadata` locates
@@ -84,7 +84,7 @@ fn audit(model: &Model, config: &str) -> Outcome {
     }
     Outcome {
         report: vec![format!(
-            "{} functions and methods, and {} macros, of the locked sqlx crates take SQL text (DATA-20)",
+            "{} functions and methods, and {} macros, of the locked sqlx crates take SQL text (DATA-14)",
             functions.len(),
             macro_callables.len()
         )],
@@ -108,7 +108,7 @@ fn banned(
                 CONFIG,
                 ban.line,
                 format!(
-                    "`{}` in `{}` reaches nothing in the locked sqlx crates, so it bans nothing (DATA-20)",
+                    "`{}` in `{}` reaches nothing in the locked sqlx crates, so it bans nothing (DATA-14)",
                     ban.path, list.key
                 ),
             )),
@@ -124,7 +124,7 @@ fn unbanned(callable: &Callable<'_>, taking: &str, list: &bans::List) -> Finding
         CONFIG,
         list.line,
         format!(
-            "`{}` ({}) takes SQL text {taking}, and `{}` doesn't ban it: add its path (DATA-20)",
+            "`{}` ({}) takes SQL text {taking}, and `{}` doesn't ban it: add its path (DATA-14)",
             callable.path, callable.location, list.key
         ),
     )
@@ -443,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    fn data_20_every_public_function_method_and_macro_that_takes_sql_text_needs_a_ban() {
+    fn data_14_every_public_function_method_and_macro_that_takes_sql_text_needs_a_ban() {
         let methods_line = 1;
         let macros_line = 3;
         let mut expected: Vec<(String, usize)> = TAKING_SQL
@@ -463,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn data_20_a_ban_covers_what_it_reaches_by_any_path() {
+    fn data_14_a_ban_covers_what_it_reaches_by_any_path() {
         let methods = [
             "sqlx_core::executor::Executor::execute",
             "sqlx::Executor::prepare",
@@ -484,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn data_20_a_ban_of_a_sqlx_crate_that_reaches_nothing_fails() {
+    fn data_14_a_ban_of_a_sqlx_crate_that_reaches_nothing_fails() {
         let mut methods: Vec<&str> = TAKING_SQL[..11].to_vec();
         methods.extend([
             "sqlx::Pool::begin_without",
@@ -504,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn data_20_the_check_fails_when_sqlx_s_sql_types_are_missing() {
+    fn data_14_the_check_fails_when_sqlx_s_sql_types_are_missing() {
         let mut model = model();
         if let Some(root) = model
             .crates

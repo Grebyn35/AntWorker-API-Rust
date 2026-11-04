@@ -1,4 +1,4 @@
-//! Migrations: `migrate` applies them (PLATFORM-027 to PLATFORM-029), and `serve` refuses to
+//! Migrations: `migrate` applies them (PLATFORM-004 to PLATFORM-006), and `serve` refuses to
 //! start until they are applied (PLATFORM-030).
 
 use std::fmt;
@@ -27,7 +27,7 @@ pub enum MigrateError {
     )]
     Modified(Versions),
     /// Migrations are marked `-- no-transaction`. A failure part way through one would leave
-    /// its earlier statements applied (PLATFORM-028).
+    /// its earlier statements applied (PLATFORM-005).
     #[error(
         "migrations {0} are marked to run outside a transaction; every migration runs in a \
          transaction together with its record"
@@ -62,16 +62,16 @@ impl fmt::Display for Versions {
 }
 
 /// Applies, as the role `owner`, every migration in `migrations` that the database hasn't
-/// recorded, in version order, and returns their versions (PLATFORM-027).
+/// recorded, in version order, and returns their versions (PLATFORM-004).
 ///
 /// A migration that fails leaves no trace: its changes roll back, and it isn't recorded
-/// (PLATFORM-028). Nothing is applied while `migrations` holds a migration marked
+/// (PLATFORM-005). Nothing is applied while `migrations` holds a migration marked
 /// `-- no-transaction`, or while any applied migration differs from its file. A recorded
 /// migration that `migrations` doesn't contain is ignored, so an earlier release can still run
-/// `migrate` (PLATFORM-029). Concurrent runs apply each migration once.
+/// `migrate` (PLATFORM-006). Concurrent runs apply each migration once.
 #[expect(
     clippy::disallowed_methods,
-    reason = "platform::db opens the owner's connection for migrate (DATA-21)"
+    reason = "platform::db opens the owner's connection for migrate (DATA-15)"
 )]
 pub async fn migrate(url: &DatabaseUrl, migrations: &Migrator) -> Result<Vec<i64>, MigrateError> {
     let outside: Vec<i64> = forward(migrations)

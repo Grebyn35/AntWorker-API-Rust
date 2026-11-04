@@ -1,5 +1,5 @@
 //! The runs that a dispatcher or a scheduler has in flight, each with its claim, which a shutdown
-//! waits for until its deadline, and then cancels (PLATFORM-063).
+//! waits for until its deadline, and then cancels (PLATFORM-018).
 
 use std::{collections::HashMap, future::Future};
 

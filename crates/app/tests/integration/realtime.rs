@@ -1,5 +1,5 @@
 //! The stream of server-sent events (the realtime spec), through the API's own routes, with the
-//! tests' announcing routes to publish events on demand (TEST-05).
+//! tests' announcing routes to publish events on demand (TEST-04).
 
 use std::time::Duration;
 
@@ -17,7 +17,7 @@ use crate::support::{
 /// How often a stream sends a comment, by default (REALTIME-003).
 const HEARTBEAT: Duration = Duration::from_secs(15);
 
-/// How often the hub checks the listener (PLATFORM-037).
+/// How often the hub checks the listener (PLATFORM-061).
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// The API, with the announcing routes added.

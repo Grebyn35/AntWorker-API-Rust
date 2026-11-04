@@ -1,6 +1,6 @@
 //! `mirror`, which `just e2e` runs before the end-to-end tests: it fills the cache of Docker Hub
 //! that Compose runs as `mirror` with every image the tests' servers pull from Docker Hub, for the
-//! servers' platform, so no test reaches a registry outside (TEST-07). The servers pull those
+//! servers' platform, so no test reaches a registry outside (TEST-06). The servers pull those
 //! images through the cache, and the API's and the deployment's Postgres from Compose's registry.
 //! It reads the images from the reference deployment's Compose files, the tools' that a deploy runs
 //! from deploy/tools/compose.yaml, and the stand-ins' for the bucket and the mail server from
@@ -158,7 +158,7 @@ mod tests {
     }
 
     #[test]
-    fn test_07_an_image_of_docker_hub_has_its_path_in_the_cache() {
+    fn test_06_an_image_of_docker_hub_has_its_path_in_the_cache() {
         assert_eq!(
             cached(&format!("caddy:2.11.7@{DIGEST}")),
             Some(format!("library/caddy@{DIGEST}"))
@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn test_07_the_servers_images_are_the_deployment_s_the_import_s_and_the_stand_ins() {
+    fn test_06_the_servers_images_are_the_deployment_s_the_import_s_and_the_stand_ins() {
         let repo = repo(
             &format!(
                 "services:\n  caddy:\n    image: caddy:2.11.7@{DIGEST}\n  api-blue:\n    image: ${{API_IMAGE_BLUE:?the image}}\n  cosign:\n    extends: {{ file: tools/compose.yaml, service: cosign }}\n"
@@ -205,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn test_07_an_image_the_mirror_can_t_serve_is_refused() {
+    fn test_06_an_image_the_mirror_can_t_serve_is_refused() {
         let repo = repo(
             &format!("services:\n  caddy:\n    image: ghcr.io/caddy/caddy:2@{DIGEST}\n"),
             "services: {}\n",

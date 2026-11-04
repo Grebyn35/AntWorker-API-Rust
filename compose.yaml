@@ -28,7 +28,7 @@ services:
       retries: 30
 
   # Catches every email the API sends in development and in the tests, so nothing leaves the
-  # machine (PLATFORM-068): its SMTP server listens on 1025, with no TLS and no credentials, and its
+  # machine (PLATFORM-023): its SMTP server listens on 1025, with no TLS and no credentials, and its
   # web page and API on 8025. It keeps the latest 10,000 emails, so the tests' emails stay until
   # each test has read its own.
   mailpit:
@@ -109,7 +109,7 @@ services:
 
   # A cache of Docker Hub, from which the end-to-end tests' servers pull every image that Docker
   # Hub serves. `just e2e` fills it for the servers' platform before the tests run, so no test
-  # reaches a registry outside (TEST-07). It keeps what it holds between runs.
+  # reaches a registry outside (TEST-06). It keeps what it holds between runs.
   mirror:
     profiles: [tools]
     image: registry:3.1.2@sha256:d4032d4cc323c1731c707931ecada07a53076eac38e3b61ae57533f170f2c6c3
@@ -141,25 +141,25 @@ services:
     profiles: [tools]
 
   # The server that the end-to-end tests deploy to: Docker in a container of its own, running the
-  # reference deployment as a server's Docker would (TEST-04, OPS-16).
+  # reference deployment as a server's Docker would (TEST-03, OPS-14).
   server:
     profiles: [tools]
     image: docker:29.9.2-dind@sha256:9e79b879b177fbd72c34376a3dd3d91747da5db49e1f560f76aea59561471977
 
   # The stand-in for the reference deployment's backup bucket, which the end-to-end tests run on
-  # their server: SeaweedFS, which serves the S3 protocol (OPS-17).
+  # their server: SeaweedFS, which serves the S3 protocol (OPS-15).
   bucket:
     profiles: [tools]
     image: chrislusf/seaweedfs:4.50@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
 
-  # k6, which `just load-test` runs to measure one replica's capacity (OPS-18). It reaches the
+  # k6, which `just load-test` runs to measure one replica's capacity (OPS-16). It reaches the
   # collector, on the same network, to count the spans the collector accepted.
   k6:
     profiles: [tools]
     image: grafana/k6:2.3.0@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8
 
   # shellcheck, which `just check-shell` runs on the justfile's recipes and the deployment's
-  # scripts (CODE-16).
+  # scripts (CODE-07).
   shellcheck:
     profiles: [tools]
     image: koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d

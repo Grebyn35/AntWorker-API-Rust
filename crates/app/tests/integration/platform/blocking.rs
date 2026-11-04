@@ -1,4 +1,4 @@
-//! CPU-heavy work (CODE-05, OBS-06, PLATFORM-078).
+//! CPU-heavy work (CODE-05, OBS-06, PLATFORM-060).
 
 use std::sync::mpsc::{self, Sender};
 
@@ -54,7 +54,7 @@ async fn obs_06_cpu_heavy_work_runs_on_a_blocking_thread_in_a_span_of_its_own() 
 }
 
 #[tokio::test]
-async fn platform_078_a_work_waits_while_every_turn_is_taken_and_starts_once_one_is_free() {
+async fn platform_060_a_work_waits_while_every_turn_is_taken_and_starts_once_one_is_free() {
     let workers = Workers::new();
     let mut gate = Gate::new();
     let running = gate.take_every_turn(&workers).await;
@@ -79,7 +79,7 @@ async fn platform_078_a_work_waits_while_every_turn_is_taken_and_starts_once_one
 }
 
 #[tokio::test]
-async fn platform_078_a_work_keeps_its_turn_until_it_ends_and_a_caller_that_stops_waiting_gives_up_its_place()
+async fn platform_060_a_work_keeps_its_turn_until_it_ends_and_a_caller_that_stops_waiting_gives_up_its_place()
  {
     let workers = Workers::new();
     let mut gate = Gate::new();

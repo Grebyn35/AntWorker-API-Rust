@@ -1,5 +1,5 @@
-//! `check-docs`, the formats: specs, rules and every table keep the formats DOC-15 gives
-//! them, and the tracker keeps the sections DOC-16 lists.
+//! `check-docs`, the formats: specs, rules and every table keep the formats DOC-08 gives
+//! them, and the tracker keeps the sections DOC-14 lists.
 
 use crate::{
     Finding,
@@ -15,16 +15,16 @@ const SPEC_README: &str = "docs/spec/README.md";
 /// The standards README, which lists the rule files and the kinds of check.
 const STANDARDS_README: &str = "docs/standards/README.md";
 
-/// The documentation rules, where DOC-16 lists the tracker's sections.
+/// The documentation rules, where DOC-14 lists the tracker's sections.
 const DOC_RULES: &str = "docs/standards/docs.md";
 
 /// The migration tracker.
 const TRACKER: &str = "docs/MIGRATION.md";
 
-/// The columns of a table of behaviors (DOC-15).
+/// The columns of a table of behaviors (DOC-08).
 const BEHAVIOR_COLUMNS: [&str; 4] = ["ID", "Behavior", "Rules", "Test prefix"];
 
-/// The most words the tracker's Current work may hold (DOC-16).
+/// The most words the tracker's Current work may hold (DOC-14).
 const CURRENT_WORK_WORDS: usize = 200;
 
 /// Runs the check.
@@ -38,7 +38,7 @@ pub fn check(repo: &Repo) -> Vec<Finding> {
 
 /// Every table in a document has a delimiter row under its header and a blank line after it,
 /// and every row, the delimiter row among them, has as many cells as the header, so no row has
-/// lost a cell or run into the next one (DOC-15).
+/// lost a cell or run into the next one (DOC-08).
 fn table_rows(repo: &Repo) -> Vec<Finding> {
     let mut findings = Vec::new();
     for file in repo.files().filter(|file| file.path.ends_with(".md")) {
@@ -48,13 +48,13 @@ fn table_rows(repo: &Repo) -> Vec<Finding> {
                 None => findings.push(Finding::new(
                     &file.path,
                     table.line,
-                    "the table has no delimiter row under its header (DOC-15)",
+                    "the table has no delimiter row under its header (DOC-08)",
                 )),
                 Some((line, count)) if count != header => findings.push(Finding::new(
                     &file.path,
                     line,
                     format!(
-                        "the delimiter row has {count} {}, and its table's header has {header} (DOC-15)",
+                        "the delimiter row has {count} {}, and its table's header has {header} (DOC-08)",
                         cells_noun(count)
                     ),
                 )),
@@ -66,7 +66,7 @@ fn table_rows(repo: &Repo) -> Vec<Finding> {
                         &file.path,
                         *line,
                         format!(
-                            "the row has {} {}, and its table's header has {header} (DOC-15)",
+                            "the row has {} {}, and its table's header has {header} (DOC-08)",
                             cells.len(),
                             cells_noun(cells.len())
                         ),
@@ -88,7 +88,7 @@ fn table_rows(repo: &Repo) -> Vec<Finding> {
                 findings.push(Finding::new(
                     &file.path,
                     last + 1,
-                    "a table has a blank line after it, so no line runs on into it (DOC-15)",
+                    "a table has a blank line after it, so no line runs on into it (DOC-08)",
                 ));
             }
         }
@@ -166,7 +166,7 @@ impl Outline<'_> {
 }
 
 /// Each spec has the spec README's sections, its tables of behaviors have their columns and
-/// test prefixes, and the README's index links it (DOC-15). A section whose description starts
+/// test prefixes, and the README's index links it (DOC-08). A section whose description starts
 /// with "Only" may be left out.
 fn specs(repo: &Repo) -> Vec<Finding> {
     let Some(readme) = repo.file(SPEC_README) else {
@@ -179,7 +179,7 @@ fn specs(repo: &Repo) -> Vec<Finding> {
             .collect(),
         source: "the spec README",
         document: "the spec",
-        rule: "DOC-15",
+        rule: "DOC-08",
     };
     let index = markdown::under(&readme.text, "## Specs").map_or_else(String::new, |(_, lines)| {
         lines
@@ -199,7 +199,7 @@ fn specs(repo: &Repo) -> Vec<Finding> {
                 &file.path,
                 line,
                 format!(
-                    "`## {heading}` is empty: a section with nothing in it reads \"None.\" (DOC-15)"
+                    "`## {heading}` is empty: a section with nothing in it reads \"None.\" (DOC-08)"
                 ),
             ));
         }
@@ -210,7 +210,7 @@ fn specs(repo: &Repo) -> Vec<Finding> {
             findings.push(Finding::new(
                 &file.path,
                 1,
-                "the spec README's index doesn't link this spec (DOC-15)",
+                "the spec README's index doesn't link this spec (DOC-08)",
             ));
         }
     }
@@ -219,7 +219,7 @@ fn specs(repo: &Repo) -> Vec<Finding> {
 
 /// A table whose first column is `ID`, or whose rows start with a behavior ID, is a table of
 /// behaviors: it sits in the Behaviors section, has the four columns, and each test prefix
-/// matches its ID (DOC-15). A row without the four cells is `table_rows`'s finding.
+/// matches its ID (DOC-08). A row without the four cells is `table_rows`'s finding.
 fn behavior_table(path: &str, table: &Table) -> Vec<Finding> {
     let defines_behaviors = table
         .rows
@@ -233,14 +233,14 @@ fn behavior_table(path: &str, table: &Table) -> Vec<Finding> {
         findings.push(Finding::new(
             path,
             table.line,
-            "a table of behaviors belongs in the `## Behaviors` section (DOC-15)",
+            "a table of behaviors belongs in the `## Behaviors` section (DOC-08)",
         ));
     }
     if table.header != BEHAVIOR_COLUMNS {
         findings.push(Finding::new(
             path,
             table.line,
-            "a table of behaviors has the columns ID, Behavior, Rules and Test prefix (DOC-15)",
+            "a table of behaviors has the columns ID, Behavior, Rules and Test prefix (DOC-08)",
         ));
         return findings;
     }
@@ -253,7 +253,7 @@ fn behavior_table(path: &str, table: &Table) -> Vec<Finding> {
             findings.push(Finding::new(
                 path,
                 *line,
-                format!("the test prefix of {id} is {expected} (DOC-15)"),
+                format!("the test prefix of {id} is {expected} (DOC-08)"),
             ));
         }
     }
@@ -268,7 +268,7 @@ fn is_behavior_id(cell: &str) -> bool {
 }
 
 /// Each rule file is in the standards README's table of files, and each of its rules uses the
-/// file's prefix and has the README's format (DOC-15).
+/// file's prefix and has the README's format (DOC-08).
 fn rules(repo: &Repo) -> Vec<Finding> {
     let Some(readme) = repo.file(STANDARDS_README) else {
         return Vec::new();
@@ -301,7 +301,7 @@ fn rules(repo: &Repo) -> Vec<Finding> {
             findings.push(Finding::new(
                 &file.path,
                 1,
-                format!("the standards README's table of files doesn't list `{name}` (DOC-15)"),
+                format!("the standards README's table of files doesn't list `{name}` (DOC-08)"),
             ));
         }
         for block in rule_blocks(&file.text) {
@@ -368,7 +368,7 @@ fn rule(
             path,
             block.line,
             format!(
-                "`### {}` isn't a rule heading: a rule ID, then the rule's name (DOC-15)",
+                "`### {}` isn't a rule heading: a rule ID, then the rule's name (DOC-08)",
                 block.heading
             ),
         )];
@@ -404,7 +404,7 @@ fn rule(
     }
     let mut findings: Vec<Finding> = problems
         .into_iter()
-        .map(|problem| Finding::new(path, block.line, format!("{problem} (DOC-15)")))
+        .map(|problem| Finding::new(path, block.line, format!("{problem} (DOC-08)")))
         .collect();
     if let [check] = checks.as_slice() {
         let (line, text) = block.body[*check];
@@ -413,7 +413,7 @@ fn rule(
                 path,
                 line,
                 format!(
-                    "{id}'s `Check` line doesn't start with a kind of check the standards README lists (DOC-15)"
+                    "{id}'s `Check` line doesn't start with a kind of check the standards README lists (DOC-08)"
                 ),
             ));
         }
@@ -448,21 +448,21 @@ fn starts_with_kind(check: &str, kinds: &[String]) -> bool {
     })
 }
 
-/// The tracker has the sections DOC-16 lists, in order, and its Current work holds at most
-/// `CURRENT_WORK_WORDS` words (DOC-16).
+/// The tracker has the sections DOC-14 lists, in order, and its Current work holds at most
+/// `CURRENT_WORK_WORDS` words (DOC-14).
 fn tracker(repo: &Repo) -> Vec<Finding> {
     let Some(tracker) = repo.file(TRACKER) else {
         return Vec::new();
     };
     let listed = repo
         .file(DOC_RULES)
-        .map(|rules| markdown::named_items(&rules.text, "### DOC-16"))
+        .map(|rules| markdown::named_items(&rules.text, "### DOC-14"))
         .unwrap_or_default();
     let outline = Outline {
         sections: listed.into_iter().map(|(name, _)| (name, false)).collect(),
-        source: "DOC-16",
+        source: "DOC-14",
         document: "the tracker",
-        rule: "DOC-16",
+        rule: "DOC-14",
     };
     let mut findings = outline.findings(tracker);
     let mut lines = tracker.text.lines().enumerate();
@@ -485,7 +485,7 @@ fn tracker(repo: &Repo) -> Vec<Finding> {
                 TRACKER,
                 line,
                 format!(
-                    "Current work has {words} words, and DOC-16 allows {CURRENT_WORK_WORDS} (DOC-16)"
+                    "Current work has {words} words, and DOC-14 allows {CURRENT_WORK_WORDS} (DOC-14)"
                 ),
             ));
         }
@@ -508,14 +508,14 @@ mod tests {
     }
 
     #[test]
-    fn doc_15_the_fixture_keeps_every_format() {
+    fn doc_08_the_fixture_keeps_every_format() {
         let tracker = "# Tracker\n\n## Current work\n\nNext.\n\n## Decisions\n";
 
         assert_eq!(findings(&[(TRACKER, tracker)]), Vec::<String>::new());
     }
 
     #[test]
-    fn doc_15_every_row_of_a_table_has_its_headers_cells() {
+    fn doc_08_every_row_of_a_table_has_its_headers_cells() {
         let notes = "# Notes\n\n| A | B |\n|---|---|\n| one | two |\n\
                      | three || four | five |\n| `a \\| b` | six |\n| seven |\n\
                      | eight | nine ||\n| ten | eleven \\|\n\n\
@@ -526,19 +526,19 @@ mod tests {
         assert_eq!(
             findings(&[("docs/notes.md", notes)]),
             [
-                "docs/notes.md:6: the row has 4 cells, and its table's header has 2 (DOC-15)",
-                "docs/notes.md:8: the row has 1 cell, and its table's header has 2 (DOC-15)",
-                "docs/notes.md:9: the row has 3 cells, and its table's header has 2 (DOC-15)",
-                "docs/notes.md:13: the delimiter row has 1 cell, and its table's header has 2 (DOC-15)",
-                "docs/notes.md:15: the table has no delimiter row under its header (DOC-15)",
-                "docs/notes.md:22: the row has 1 cell, and its table's header has 2 (DOC-15)",
-                "docs/notes.md:24: a table has a blank line after it, so no line runs on into it (DOC-15)"
+                "docs/notes.md:6: the row has 4 cells, and its table's header has 2 (DOC-08)",
+                "docs/notes.md:8: the row has 1 cell, and its table's header has 2 (DOC-08)",
+                "docs/notes.md:9: the row has 3 cells, and its table's header has 2 (DOC-08)",
+                "docs/notes.md:13: the delimiter row has 1 cell, and its table's header has 2 (DOC-08)",
+                "docs/notes.md:15: the table has no delimiter row under its header (DOC-08)",
+                "docs/notes.md:22: the row has 1 cell, and its table's header has 2 (DOC-08)",
+                "docs/notes.md:24: a table has a blank line after it, so no line runs on into it (DOC-08)"
             ]
         );
     }
 
     #[test]
-    fn doc_15_a_spec_section_that_is_unknown_out_of_order_or_missing_is_reported() {
+    fn doc_08_a_spec_section_that_is_unknown_out_of_order_or_missing_is_reported() {
         let reordered =
             "# Spec\n\n## Behaviors\n\nNone.\n\n## Purpose\n\nWidgets.\n\n## Notes\n\nNone.\n";
         let short = "# Spec\n\n## Purpose\n\nGadgets.\n";
@@ -549,28 +549,28 @@ mod tests {
                 ("docs/spec/gadgets.md", short)
             ]),
             [
-                "docs/spec/widgets.md:7: `## Purpose` is out of order: the spec README lists it before `## Behaviors` (DOC-15)",
-                "docs/spec/widgets.md:11: `## Notes` isn't a section the spec README lists (DOC-15)",
-                "docs/spec/gadgets.md:1: the spec has no `## Behaviors` section (DOC-15)",
-                "docs/spec/gadgets.md:1: the spec README's index doesn't link this spec (DOC-15)"
+                "docs/spec/widgets.md:7: `## Purpose` is out of order: the spec README lists it before `## Behaviors` (DOC-08)",
+                "docs/spec/widgets.md:11: `## Notes` isn't a section the spec README lists (DOC-08)",
+                "docs/spec/gadgets.md:1: the spec has no `## Behaviors` section (DOC-08)",
+                "docs/spec/gadgets.md:1: the spec README's index doesn't link this spec (DOC-08)"
             ]
         );
     }
 
     #[test]
-    fn doc_15_a_spec_section_with_nothing_in_it_is_reported() {
+    fn doc_08_a_spec_section_with_nothing_in_it_is_reported() {
         let spec = "# Spec\n\n## Purpose\n\nWidgets.\n\n## Behaviors\n\n\n";
 
         assert_eq!(
             findings(&[("docs/spec/widgets.md", spec)]),
             [
-                "docs/spec/widgets.md:7: `## Behaviors` is empty: a section with nothing in it reads \"None.\" (DOC-15)"
+                "docs/spec/widgets.md:7: `## Behaviors` is empty: a section with nothing in it reads \"None.\" (DOC-08)"
             ]
         );
     }
 
     #[test]
-    fn doc_15_a_table_of_behaviors_has_its_columns_its_section_and_matching_test_prefixes() {
+    fn doc_08_a_table_of_behaviors_has_its_columns_its_section_and_matching_test_prefixes() {
         let spec = "# Spec\n\n## Purpose\n\n\
                     | ID | Behavior |\n|---|---|\n| WIDGETS-003 | Misplaced |\n\n\
                     ## Behaviors\n\n\
@@ -581,16 +581,16 @@ mod tests {
         assert_eq!(
             findings(&[("docs/spec/widgets.md", spec)]),
             [
-                "docs/spec/widgets.md:5: a table of behaviors belongs in the `## Behaviors` section (DOC-15)",
-                "docs/spec/widgets.md:5: a table of behaviors has the columns ID, Behavior, Rules and Test prefix (DOC-15)",
-                "docs/spec/widgets.md:13: the test prefix of WIDGETS-001 is `widgets_001_` (DOC-15)",
-                "docs/spec/widgets.md:14: the test prefix of WIDGETS-002 is `widgets_002_` (DOC-15)"
+                "docs/spec/widgets.md:5: a table of behaviors belongs in the `## Behaviors` section (DOC-08)",
+                "docs/spec/widgets.md:5: a table of behaviors has the columns ID, Behavior, Rules and Test prefix (DOC-08)",
+                "docs/spec/widgets.md:13: the test prefix of WIDGETS-001 is `widgets_001_` (DOC-08)",
+                "docs/spec/widgets.md:14: the test prefix of WIDGETS-002 is `widgets_002_` (DOC-08)"
             ]
         );
     }
 
     #[test]
-    fn doc_15_a_rule_has_a_statement_then_a_why_line_then_a_check_line_that_starts_with_a_kind() {
+    fn doc_08_a_rule_has_a_statement_then_a_why_line_then_a_check_line_that_starts_with_a_kind() {
         let rules = "# Style\n\n\
                      ### STYLE-01 A rule\n- Why: a reason.\n- Check: `ci: check-style`.\n\n\
                      ### STYLE-02 Another\nThe statement.\n- Check: `review`.\n- Why: late.\n\n\
@@ -601,19 +601,19 @@ mod tests {
         assert_eq!(
             findings(&[("docs/standards/style.md", rules)]),
             [
-                "docs/standards/style.md:3: STYLE-01 has no statement before its `Why` line (DOC-15)",
-                "docs/standards/style.md:7: STYLE-02 doesn't end with its `Why` line, then its `Check` line (DOC-15)",
-                "docs/standards/style.md:15: STYLE-03's `Check` line doesn't start with a kind of check the standards README lists (DOC-15)",
-                "docs/standards/style.md:17: STYLE-04 has no `Why` line (DOC-15)",
-                "docs/standards/style.md:19: STYLE-04's `Check` line doesn't start with a kind of check the standards README lists (DOC-15)",
-                "docs/standards/style.md:21: `### Not a rule` isn't a rule heading: a rule ID, then the rule's name (DOC-15)"
+                "docs/standards/style.md:3: STYLE-01 has no statement before its `Why` line (DOC-08)",
+                "docs/standards/style.md:7: STYLE-02 doesn't end with its `Why` line, then its `Check` line (DOC-08)",
+                "docs/standards/style.md:15: STYLE-03's `Check` line doesn't start with a kind of check the standards README lists (DOC-08)",
+                "docs/standards/style.md:17: STYLE-04 has no `Why` line (DOC-08)",
+                "docs/standards/style.md:19: STYLE-04's `Check` line doesn't start with a kind of check the standards README lists (DOC-08)",
+                "docs/standards/style.md:21: `### Not a rule` isn't a rule heading: a rule ID, then the rule's name (DOC-08)"
             ]
         );
     }
 
     #[test]
-    fn doc_15_a_rule_file_is_in_the_standards_readme_and_its_rules_use_its_prefix() {
-        let misplaced = "# Style\n\n### DOC-16 Misplaced\nThe statement.\n- Why: a reason.\n- Check: `review`.\n";
+    fn doc_08_a_rule_file_is_in_the_standards_readme_and_its_rules_use_its_prefix() {
+        let misplaced = "# Style\n\n### DOC-14 Misplaced\nThe statement.\n- Why: a reason.\n- Check: `review`.\n";
         let unlisted = "# Shape\n\n### SHAPE-01 A rule\nThe statement.\n- Why: a reason.\n- Check: `review`.\n";
 
         assert_eq!(
@@ -622,32 +622,32 @@ mod tests {
                 ("docs/standards/shape.md", unlisted)
             ]),
             [
-                "docs/standards/style.md:3: DOC-16 is in `style.md`, whose rules start with STYLE- (DOC-15)",
-                "docs/standards/shape.md:1: the standards README's table of files doesn't list `shape.md` (DOC-15)"
+                "docs/standards/style.md:3: DOC-14 is in `style.md`, whose rules start with STYLE- (DOC-08)",
+                "docs/standards/shape.md:1: the standards README's table of files doesn't list `shape.md` (DOC-08)"
             ]
         );
     }
 
     #[test]
-    fn doc_16_the_tracker_has_the_sections_doc_16_lists_in_order() {
+    fn doc_14_the_tracker_has_the_sections_doc_16_lists_in_order() {
         let reordered = "# Tracker\n\n## Decisions\n\n## Current work\n\nNext.\n\n## Notes\n";
         let short = "# Tracker\n\n## Current work\n\nNext.\n";
 
         assert_eq!(
             findings(&[(TRACKER, reordered)]),
             [
-                "docs/MIGRATION.md:5: `## Current work` is out of order: DOC-16 lists it before `## Decisions` (DOC-16)",
-                "docs/MIGRATION.md:9: `## Notes` isn't a section DOC-16 lists (DOC-16)"
+                "docs/MIGRATION.md:5: `## Current work` is out of order: DOC-14 lists it before `## Decisions` (DOC-14)",
+                "docs/MIGRATION.md:9: `## Notes` isn't a section DOC-14 lists (DOC-14)"
             ]
         );
         assert_eq!(
             findings(&[(TRACKER, short)]),
-            ["docs/MIGRATION.md:1: the tracker has no `## Decisions` section (DOC-16)"]
+            ["docs/MIGRATION.md:1: the tracker has no `## Decisions` section (DOC-14)"]
         );
     }
 
     #[test]
-    fn doc_16_current_work_holds_at_most_200_words() {
+    fn doc_14_current_work_holds_at_most_200_words() {
         let tracker = |words: usize| {
             let text = format!(
                 "# Tracker\n\n## Current work\n\n{}\n\n## Decisions\n",
@@ -659,12 +659,12 @@ mod tests {
         assert_eq!(findings(&[(TRACKER, tracker(200))]), Vec::<String>::new());
         assert_eq!(
             findings(&[(TRACKER, tracker(201))]),
-            ["docs/MIGRATION.md:3: Current work has 201 words, and DOC-16 allows 200 (DOC-16)"]
+            ["docs/MIGRATION.md:3: Current work has 201 words, and DOC-14 allows 200 (DOC-14)"]
         );
     }
 
     #[test]
-    fn doc_16_current_work_counts_every_word_up_to_the_next_section() {
+    fn doc_14_current_work_counts_every_word_up_to_the_next_section() {
         let words = vec!["word"; 100].join(" ");
         let text = format!(
             "# Tracker\n\n## Current work\n\n{words}\n\n### More\n\n```\n{words}\n```\n\n## Decisions\n"
@@ -672,12 +672,12 @@ mod tests {
 
         assert_eq!(
             findings(&[(TRACKER, Box::leak(text.into_boxed_str()))]),
-            ["docs/MIGRATION.md:3: Current work has 204 words, and DOC-16 allows 200 (DOC-16)"]
+            ["docs/MIGRATION.md:3: Current work has 204 words, and DOC-14 allows 200 (DOC-14)"]
         );
     }
 
     #[test]
-    fn doc_16_a_heading_inside_a_code_block_doesnt_end_current_work() {
+    fn doc_14_a_heading_inside_a_code_block_doesnt_end_current_work() {
         let words = vec!["word"; 100].join(" ");
         let text = format!(
             "# Tracker\n\n## Current work\n\n{words}\n\n```\n## a shell comment\n{words}\n```\n\n## Decisions\n"
@@ -685,12 +685,12 @@ mod tests {
 
         assert_eq!(
             findings(&[(TRACKER, Box::leak(text.into_boxed_str()))]),
-            ["docs/MIGRATION.md:3: Current work has 206 words, and DOC-16 allows 200 (DOC-16)"]
+            ["docs/MIGRATION.md:3: Current work has 206 words, and DOC-14 allows 200 (DOC-14)"]
         );
     }
 
     #[test]
-    fn doc_15_every_table_that_defines_behaviors_has_their_columns() {
+    fn doc_08_every_table_that_defines_behaviors_has_their_columns() {
         let spec = "# Spec\n\n## Purpose\n\nWidgets.\n\n## Behaviors\n\n\
                     | Id | Behavior |\n|---|---|\n| WIDGETS-001 | One |\n\n\
                     | ID | Behavior | Rules | Test prefix |\n|---|---|---|---|\n| WIDGETS-002 | Two |\n";
@@ -698,21 +698,21 @@ mod tests {
         assert_eq!(
             findings(&[("docs/spec/widgets.md", spec)]),
             [
-                "docs/spec/widgets.md:9: a table of behaviors has the columns ID, Behavior, Rules and Test prefix (DOC-15)",
-                "docs/spec/widgets.md:15: the row has 2 cells, and its table's header has 4 (DOC-15)"
+                "docs/spec/widgets.md:9: a table of behaviors has the columns ID, Behavior, Rules and Test prefix (DOC-08)",
+                "docs/spec/widgets.md:15: the row has 2 cells, and its table's header has 4 (DOC-08)"
             ]
         );
     }
 
     #[test]
-    fn doc_15_a_rule_heading_names_the_rule() {
+    fn doc_08_a_rule_heading_names_the_rule() {
         let rules =
             "# Style\n\n### STYLE-01\nThe statement.\n- Why: a reason.\n- Check: `review`.\n";
 
         assert_eq!(
             findings(&[("docs/standards/style.md", rules)]),
             [
-                "docs/standards/style.md:3: the heading of STYLE-01 has no name after the ID (DOC-15)"
+                "docs/standards/style.md:3: the heading of STYLE-01 has no name after the ID (DOC-08)"
             ]
         );
     }

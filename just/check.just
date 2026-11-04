@@ -20,7 +20,7 @@ smoke-tools:
 setup-tools:
     @echo cargo-deny@{{ cargo_deny_version }}
 
-# Runs `just dev` until the API it starts answers ready, then stops it (OPS-19). CI's `checks` job
+# Runs `just dev` until the API it starts answers ready, then stops it (OPS-20). CI's `checks` job
 # runs it after `just setup` and `just checks`, so a new clone's two commands run end to end; on a
 # developer's machine, `just dev` itself is this check, so `just ci` leaves it out. A failure
 # shows what `just dev` wrote.
@@ -49,7 +49,7 @@ setup-smoke:
     done
     echo "just dev serves at $LISTEN_ADDR"
 
-# Builds every target of the workspace (OPS-19). Windows's hosted runners can't run the Linux
+# Builds every target of the workspace (OPS-20). Windows's hosted runners can't run the Linux
 # containers that `just dev` starts, so CI runs `just setup` and this there every week.
 [windows]
 [private]
@@ -68,11 +68,11 @@ fmt-check:
 lint:
     cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
-# Checks dependencies: advisories, bans and sources for every target (SEC-13, SEC-14, CODE-11),
-# and licenses for each target the API is built for, the platforms a developer builds on (OPS-19)
-# and the image's (OPS-14), one at a time, as cargo-deny takes one target per run. A crate that
+# Checks dependencies: advisories, bans and sources for every target (SEC-15, SEC-16, CODE-12),
+# and licenses for each target the API is built for, the platforms a developer builds on (OPS-20)
+# and the image's (OPS-12), one at a time, as cargo-deny takes one target per run. A crate that
 # only other targets compile, such as one for WebAssembly, never reaches a build, so its license
-# doesn't matter (CODE-12).
+# doesn't matter (CODE-13).
 [doc("Checks the dependencies' advisories, bans, sources and licenses")]
 [group('check')]
 deny:
@@ -87,7 +87,7 @@ deny:
     cargo deny --locked --target aarch64-apple-darwin check licenses
 
 # Reports which spec behaviors tests prove, and fails on a test whose name doesn't start with a
-# behavior or rule ID that exists (TEST-01, DOC-10).
+# behavior or rule ID that exists (TEST-01, DOC-09).
 [doc("Reports which spec behaviors tests prove")]
 [group('check')]
 check-test-map:
@@ -139,9 +139,9 @@ alert-rules:
 
 # Fails on a link, ID or named CI check that doesn't resolve, a history marker, an
 # unfinished-work marker, a document outside the documentation set, an acronym not spelled out
-# where a document first uses it, a spec, rule or tracker whose format breaks DOC-15 or DOC-16,
-# or a spec's Routes table that doesn't match openapi.json (DOC-01, DOC-07 to DOC-09, DOC-13 to
-# DOC-16).
+# where a document first uses it, a spec, rule or tracker whose format breaks DOC-08 or DOC-14,
+# or a spec's Routes table that doesn't match openapi.json (DOC-01, DOC-04 to DOC-06, DOC-12 to
+# DOC-14).
 [doc("Fails on a document whose links, IDs or format break the rules")]
 [group('check')]
 check-docs:
@@ -149,14 +149,14 @@ check-docs:
 
 # Fails on an action, runner, image, download, crate install or tool version that isn't pinned, a
 # toolchain other than the one rust-toolchain.toml pins, or a crate whose edition isn't the
-# workspace's 2024 (CODE-01, OPS-13).
+# workspace's 2024 (CODE-01, OPS-11).
 [doc("Fails on a tool, image, action or download that isn't pinned")]
 [group('check')]
 check-pins:
     {{ xtask }} check-pins
 
 # Fails on a finding of shellcheck, run from the image compose.yaml pins, in a recipe of this
-# justfile that runs on Linux and macOS, or in a shell script under deploy/ (CODE-16), and on a
+# justfile that runs on Linux and macOS, or in a shell script under deploy/ (CODE-07), and on a
 # psql of such a script whose statement isn't given with -c or names a table of the product
 # schema (ARCH-14). It reads the recipes from this file, so it checks the same ones on every
 # platform.
@@ -167,7 +167,7 @@ check-shell:
 
 # Fails on a function, method or macro that the locked sqlx exposes and that takes SQL text,
 # outside the checked macros, and that clippy.toml doesn't ban, or on a ban of sqlx's that
-# reaches nothing (DATA-20).
+# reaches nothing (DATA-14).
 [doc("Fails on a function of sqlx that takes SQL text and that clippy.toml doesn't ban")]
 [group('check')]
 check-sql-bans:
@@ -175,9 +175,9 @@ check-sql-bans:
 
 # Fails on sqlx in a module's routes, an HTTP type in its service, a routes type that deserializes
 # without refusing unknown fields, an infrastructure error in a service or route signature, or an
-# HTTP client built outside the places SEC-09 allows (ARCH-08, ARCH-09, API-08, API-09, ERR-04,
-# SEC-09).
-[doc("Fails on code that breaks a module's layers, or builds an HTTP client where SEC-09 forbids")]
+# HTTP client built outside the places SEC-10 allows (ARCH-08, ARCH-09, API-08, API-09, ERR-04,
+# SEC-10).
+[doc("Fails on code that breaks a module's layers, or builds an HTTP client where SEC-10 forbids")]
 [group('check')]
 check-layers:
     {{ xtask }} check-layers
@@ -185,7 +185,7 @@ check-layers:
 # Fails on a module's public submodule, code that reaches into another module's submodule, a use
 # of a module that the graph in docs/architecture.md doesn't allow, a cycle in that graph, or
 # another module's error in a module's public signatures (ARCH-04, ARCH-05, ERR-06), or a
-# dependency that its crate's code never names (CODE-11).
+# dependency that its crate's code never names (CODE-12).
 [doc("Fails on a dependency between modules that the graph doesn't allow, or one no code uses")]
 [group('check')]
 check-deps:
@@ -193,8 +193,8 @@ check-deps:
 
 # Fails on a source file before its tests, or a deploy script, over 500 lines, a module's file
 # outside ARCH-03's set or a module without its error.rs, an exception to dead_code in the API's
-# code, and a job declared outside its module's jobs.rs or with another module's kind (CODE-07,
-# ARCH-03, ERR-01, CODE-14, OPS-09).
+# code, and a job declared outside its module's jobs.rs or with another module's kind (CODE-08,
+# ARCH-03, ERR-01, CODE-15, OPS-09).
 [doc("Fails on a file too long, or out of its place")]
 [group('check')]
 check-layout:
@@ -227,7 +227,7 @@ check-removable *runs:
     {{ xtask }} check-removable {{ runs }}
 
 # Fails on a query of workspace data that names no tenant, or a table that holds no workspace data
-# and isn't listed as account or platform data (DATA-22).
+# and isn't listed as account or platform data (DATA-16).
 [doc("Fails on a query of workspace data that names no tenant, or a table placed nowhere")]
 [group('check')]
 check-tenancy:
@@ -248,7 +248,7 @@ check-migrations:
     {{ xtask }} check-migrations
 
 # Fails when the query cache in .sqlx/ differs from what sqlx-cli writes from a database that the
-# migrations build (DATA-20): run `just prepare` after changing a query or a migration.
+# migrations build (DATA-14): run `just prepare` after changing a query or a migration.
 [doc("Fails on a query cache that `just prepare` would change")]
 [group('check')]
 sqlx-check: services

@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::{deployment::Deployment, docker::lossy};
 
 #[tokio::test]
-async fn platform_066_the_deployed_api_sends_an_email_through_its_mail_server() {
+async fn platform_021_the_deployed_api_sends_an_email_through_its_mail_server() {
     let deployment = Deployment::managed(&[]);
     let mail = deployment.server.start_mail_server();
     let mail: Vec<(&str, &str)> = mail

@@ -6,7 +6,7 @@
 //! The first recording after telemetry is set up creates the instrument from the process's meter
 //! provider. A recording before then is lost: an instrument created earlier would stay tied to no
 //! provider for the life of the process, so a test's metrics would depend on the order tests run
-//! in (TEST-07). Without telemetry export, the provider records nothing.
+//! in (TEST-06). Without telemetry export, the provider records nothing.
 
 use std::sync::{
     OnceLock,
@@ -234,7 +234,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_07_a_recording_before_telemetry_is_set_up_leaves_no_instrument() {
+    fn test_06_a_recording_before_telemetry_is_set_up_leaves_no_instrument() {
         static EARLY: Counter<0> = Counter::new("platform.early", "{event}", "Early.", []);
 
         EARLY.add(1, []);

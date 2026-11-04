@@ -1,4 +1,4 @@
-//! The bundled database's backups and restores (OPS-17), on a server of the tests' own, with a
+//! The bundled database's backups and restores (OPS-15), on a server of the tests' own, with a
 //! stand-in bucket.
 
 use std::{
@@ -53,7 +53,7 @@ fn signal_archiver(deployment: &Deployment, signal: &str) {
 
 /// Makes Postgres reject, or accept again, the connections through its socket, which the
 /// restore's own statements use, while the replicas connect over the network. It returns once
-/// Postgres does, and fails the test if Postgres doesn't within a minute (TEST-07).
+/// Postgres does, and fails the test if Postgres doesn't within a minute (TEST-06).
 fn local_connections(deployment: &Deployment, accepted: bool) {
     let (change, until) = if accepted {
         ("1d", "until")
@@ -151,7 +151,7 @@ fn backup(label: &str, kind: &str, run: (i64, i64), restored: Option<i64>) -> Va
 }
 
 #[test]
-fn ops_17_the_retention_keeps_the_full_backup_a_restore_started_from_until_a_backup_after_the_restore_is_as_old()
+fn ops_15_the_retention_keeps_the_full_backup_a_restore_started_from_until_a_backup_after_the_restore_is_as_old()
  {
     const DAY: i64 = 86_400;
     let now = 1_800_000_000;
@@ -213,7 +213,7 @@ fn ops_17_the_retention_keeps_the_full_backup_a_restore_started_from_until_a_bac
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_marks_the_full_backup_it_starts_from_in_the_bucket() {
+async fn ops_15_a_restore_marks_the_full_backup_it_starts_from_in_the_bucket() {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -263,7 +263,7 @@ async fn ops_17_a_restore_marks_the_full_backup_it_starts_from_in_the_bucket() {
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_recovers_the_database_as_it_stood_at_a_moment() {
+async fn ops_15_a_restore_recovers_the_database_as_it_stood_at_a_moment() {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -307,7 +307,7 @@ async fn ops_17_a_restore_recovers_the_database_as_it_stood_at_a_moment() {
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_reaches_a_moment_after_the_last_change() {
+async fn ops_15_a_restore_reaches_a_moment_after_the_last_change() {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -326,7 +326,7 @@ async fn ops_17_a_restore_reaches_a_moment_after_the_last_change() {
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_to_the_moment_an_earlier_restore_names_undoes_it() {
+async fn ops_15_a_restore_to_the_moment_an_earlier_restore_names_undoes_it() {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -355,7 +355,7 @@ async fn ops_17_a_restore_to_the_moment_an_earlier_restore_names_undoes_it() {
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
+async fn ops_15_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -397,7 +397,7 @@ async fn ops_17_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_reaches_a_moment_that_an_earlier_restore_went_back_past() {
+async fn ops_15_a_restore_reaches_a_moment_that_an_earlier_restore_went_back_past() {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -428,7 +428,7 @@ async fn ops_17_a_restore_reaches_a_moment_that_an_earlier_restore_went_back_pas
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_reaches_a_moment_after_an_earlier_restore() {
+async fn ops_15_a_restore_reaches_a_moment_after_an_earlier_restore() {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -487,7 +487,7 @@ async fn restored_with_no_backup_on_its_timeline() -> Deployment {
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_reaches_a_moment_on_a_restored_timeline_before_its_first_backup() {
+async fn ops_15_a_restore_reaches_a_moment_on_a_restored_timeline_before_its_first_backup() {
     let deployment = restored_with_no_backup_on_its_timeline().await;
     deployment.sql("INSERT INTO restore_marker VALUES ('after')");
     let after = deployment.sql("SELECT now()");
@@ -504,7 +504,7 @@ async fn ops_17_a_restore_reaches_a_moment_on_a_restored_timeline_before_its_fir
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_of_the_latest_state_starts_from_a_backup_on_the_latest_timeline() {
+async fn ops_15_a_restore_of_the_latest_state_starts_from_a_backup_on_the_latest_timeline() {
     let deployment = restored_with_no_backup_on_its_timeline().await;
     deployment.sql("INSERT INTO restore_marker VALUES ('after')");
     archive_everything_committed(&deployment);
@@ -557,7 +557,7 @@ async fn lost_and_new_server(backed_up: bool) -> (Deployment, Deployment) {
 }
 
 #[tokio::test]
-async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucket_holds() {
+async fn ops_15_a_new_server_serves_only_once_it_restores_the_database_its_bucket_holds() {
     let (_lost, new) = lost_and_new_server(false).await;
 
     let refused = new.apply(&new.api, &[]).await;
@@ -591,7 +591,7 @@ async fn ops_17_a_new_server_serves_only_once_it_restores_the_database_its_bucke
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_on_a_new_server_reaches_a_moment_after_the_last_archived_change_and_names_no_moment_that_undoes_it()
+async fn ops_15_a_restore_on_a_new_server_reaches_a_moment_after_the_last_archived_change_and_names_no_moment_that_undoes_it()
  {
     // With a backup after the lost server's last change, so the replay from it finds no commit.
     let (_lost, new) = lost_and_new_server(true).await;
@@ -627,7 +627,7 @@ async fn ops_17_a_restore_on_a_new_server_reaches_a_moment_after_the_last_archiv
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_refuses_while_the_log_doesn_t_reach_the_bucket_unless_allowed() {
+async fn ops_15_a_restore_refuses_while_the_log_doesn_t_reach_the_bucket_unless_allowed() {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -700,7 +700,7 @@ fn break_in_the_bucket(deployment: &Deployment, segment: &str) {
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_whose_replay_can_t_fetch_a_segment_fails_rather_than_ending_the_replay_there()
+async fn ops_15_a_restore_whose_replay_can_t_fetch_a_segment_fails_rather_than_ending_the_replay_there()
  {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
@@ -755,7 +755,7 @@ fn served_again_and_refused(deployment: &Deployment, succeeded: bool, written: &
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_whose_log_stops_reaching_the_bucket_once_the_replicas_stop_serves_again_and_refuses_unless_allowed()
+async fn ops_15_a_restore_whose_log_stops_reaching_the_bucket_once_the_replicas_stop_serves_again_and_refuses_unless_allowed()
  {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
@@ -782,7 +782,7 @@ async fn ops_17_a_restore_whose_log_stops_reaching_the_bucket_once_the_replicas_
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_whose_transaction_fails_once_the_replicas_stop_serves_again_and_refuses()
+async fn ops_15_a_restore_whose_transaction_fails_once_the_replicas_stop_serves_again_and_refuses()
 {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
@@ -801,7 +801,7 @@ async fn ops_17_a_restore_whose_transaction_fails_once_the_replicas_stop_serves_
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_whose_mark_fails_refuses_with_the_api_serving() {
+async fn ops_15_a_restore_whose_mark_fails_refuses_with_the_api_serving() {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -838,7 +838,7 @@ async fn ops_17_a_restore_whose_mark_fails_refuses_with_the_api_serving() {
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_finds_its_postgres_while_a_one_off_of_the_service_runs() {
+async fn ops_15_a_restore_finds_its_postgres_while_a_one_off_of_the_service_runs() {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -873,7 +873,7 @@ async fn ops_17_a_restore_finds_its_postgres_while_a_one_off_of_the_service_runs
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_that_finds_postgres_replaying_the_log_restores_without_a_check() {
+async fn ops_15_a_restore_that_finds_postgres_replaying_the_log_restores_without_a_check() {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -905,7 +905,7 @@ async fn ops_17_a_restore_that_finds_postgres_replaying_the_log_restores_without
 }
 
 #[tokio::test]
-async fn ops_17_a_restore_after_a_failed_deploy_migrates_with_the_live_release() {
+async fn ops_15_a_restore_after_a_failed_deploy_migrates_with_the_live_release() {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));

@@ -1,4 +1,4 @@
-//! Health probes and readiness (OPS-05), the probe that `health` sends (PLATFORM-044), the
+//! Health probes and readiness (OPS-05), the probe that `health` sends (PLATFORM-063), the
 //! bounded shutdown (OPS-06), and the startup-failure format (OPS-03).
 
 use std::{
@@ -80,7 +80,7 @@ pub enum ProbeError {
 }
 
 /// Asks the instance whose `serve` binds `listen_addr` whether it is ready, with
-/// `GET /health/ready`, and succeeds only when it answers 200 (PLATFORM-044). An unspecified
+/// `GET /health/ready`, and succeeds only when it answers 200 (PLATFORM-063). An unspecified
 /// address, such as `0.0.0.0`, is asked on the loopback address of its family, where an
 /// instance that binds it also listens. It blocks, so the binary calls it with no async runtime.
 pub fn probe(listen_addr: SocketAddr) -> Result<(), ProbeError> {
@@ -158,7 +158,7 @@ pub(crate) async fn live() -> Json<ProbeStatus> {
 }
 
 /// `GET /health/ready`: 200 while the instance can serve, and 503 with the reason otherwise
-/// (PLATFORM-037).
+/// (PLATFORM-061).
 pub(crate) async fn ready(State(readiness): State<Readiness>) -> (StatusCode, Json<ProbeStatus>) {
     let status = readiness.status();
     let code = if status == READY {
@@ -198,7 +198,7 @@ impl Readiness {
     }
 
     /// Records that the server stops accepting connections, once the shutdown delay has passed,
-    /// so the hub closes its streams (PLATFORM-038).
+    /// so the hub closes its streams (PLATFORM-062).
     pub fn stop(&self) {
         self.state.stopping.send_replace(true);
     }
@@ -284,7 +284,7 @@ pub struct Shutdown {
     pub drain: Duration,
 }
 
-/// Serves `app` on `listener` until `signal` completes, then shuts down (PLATFORM-038):
+/// Serves `app` on `listener` until `signal` completes, then shuts down (PLATFORM-062):
 /// readiness turns to `draining`, the server keeps serving for the delay, stops accepting
 /// connections and has the hub close the open streams, and waits for the requests in flight
 /// until the drain deadline. A request still
@@ -299,7 +299,7 @@ pub async fn serve(
 ) -> io::Result<()> {
     let stop = Arc::new(Notify::new());
     let stopped = stop.clone();
-    // Each request carries its connection's peer, from which its client IP comes (PLATFORM-047).
+    // Each request carries its connection's peer, from which its client IP comes (PLATFORM-053).
     let app = app.into_make_service_with_connect_info::<SocketAddr>();
     let server =
         axum::serve(listener, app).with_graceful_shutdown(async move { stopped.notified().await });
@@ -417,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_044_an_unspecified_address_is_probed_on_the_loopback_address_of_its_family() {
+    fn platform_063_an_unspecified_address_is_probed_on_the_loopback_address_of_its_family() {
         for (listen, probed) in [
             ("0.0.0.0:8080", "127.0.0.1:8080"),
             ("[::]:8080", "[::1]:8080"),
@@ -433,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_044_an_answer_is_read_as_its_status_code_and_its_body() {
+    fn platform_063_an_answer_is_read_as_its_status_code_and_its_body() {
         let answer = b"HTTP/1.1 503 Service Unavailable\r\ncontent-length: 21\r\n\r\n{\"status\":\"draining\"}";
 
         assert_eq!(

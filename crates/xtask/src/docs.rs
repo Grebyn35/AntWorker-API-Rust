@@ -1,10 +1,10 @@
-//! `check-docs`: links, IDs and the CI checks the rules name all resolve (DOC-13); prose and
-//! comments hold no history markers (DOC-01) and no unfinished-work markers (DOC-07); every
-//! document belongs to the documentation set (DOC-08); documents spell out acronyms where they
-//! first use them (DOC-09, in `acronyms`); specs, rules, tables and the tracker keep their
-//! formats (DOC-14 to DOC-16, in `formats`); each spec's Routes table matches `openapi.json`
-//! (DOC-15, in `routes`); and test prefixes, paths to Rust files, the old codebase's name and
-//! paths into the inventory are named only where they resolve or DOC-04 allows (`references`).
+//! `check-docs`: links, IDs and the CI checks the rules name all resolve (DOC-12); prose and
+//! comments hold no history markers (DOC-01) and no unfinished-work markers (DOC-04); every
+//! document belongs to the documentation set (DOC-05); documents spell out acronyms where they
+//! first use them (DOC-06, in `acronyms`); specs, rules, tables and the tracker keep their
+//! formats (DOC-07, DOC-08 and DOC-14, in `formats`); each spec's Routes table matches `openapi.json`
+//! (DOC-08, in `routes`); and test prefixes, paths to Rust files, the old codebase's name and
+//! paths into the inventory are named only where they resolve or DOC-13 allows (`references`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -16,14 +16,14 @@ use crate::{
 /// Words that describe history instead of the current state (DOC-01).
 const HISTORY: [&str; 5] = ["previously", "no longer", "used to", "legacy", "now uses"];
 
-/// Words that mark unfinished work (DOC-07).
+/// Words that mark unfinished work (DOC-04).
 pub const UNFINISHED: [&str; 3] = ["TODO", "FIXME", "XXX"];
 
-/// The migration workspace's inventory (DOC-04), which numbers its entries with IDs of its own.
+/// The migration workspace's inventory (DOC-13), which numbers its entries with IDs of its own.
 /// No ID, marker or comment in it is checked.
 const INVENTORY: &str = "docs/inventory/";
 
-/// The migration tracker, the other part of the migration workspace (DOC-04).
+/// The migration tracker, the other part of the migration workspace (DOC-13).
 const TRACKER: &str = "docs/MIGRATION.md";
 
 /// Runs the check.
@@ -56,7 +56,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
 }
 
 /// No two headings of a document outside the inventory share their text, so each anchor names
-/// one heading (DOC-13).
+/// one heading (DOC-12).
 fn headings(documents: &BTreeMap<&str, markdown::Document>) -> Vec<Finding> {
     documents
         .iter()
@@ -68,7 +68,7 @@ fn headings(documents: &BTreeMap<&str, markdown::Document>) -> Vec<Finding> {
                     *line,
                     format!(
                         "an earlier heading also reads `{heading}`, so their anchors follow \
-                         their order: give each heading a text of its own (DOC-13)"
+                         their order: give each heading a text of its own (DOC-12)"
                     ),
                 )
             })
@@ -76,7 +76,7 @@ fn headings(documents: &BTreeMap<&str, markdown::Document>) -> Vec<Finding> {
         .collect()
 }
 
-/// Every link to a file of the repository resolves, and so does its anchor (DOC-13).
+/// Every link to a file of the repository resolves, and so does its anchor (DOC-12).
 fn links(repo: &Repo, documents: &BTreeMap<&str, markdown::Document>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (path, document) in documents {
@@ -86,7 +86,7 @@ fn links(repo: &Repo, documents: &BTreeMap<&str, markdown::Document>) -> Vec<Fin
                     path,
                     link.line,
                     format!(
-                        "the link to `{}` doesn't resolve: {problem} (DOC-13)",
+                        "the link to `{}` doesn't resolve: {problem} (DOC-12)",
                         link.destination
                     ),
                 ));
@@ -150,7 +150,7 @@ fn join(directory: &str, relative: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
-/// Every rule or behavior ID cited outside the inventory exists (DOC-13). A token whose prefix
+/// Every rule or behavior ID cited outside the inventory exists (DOC-12). A token whose prefix
 /// no rule or module uses, such as `SHA-256`, isn't an ID.
 fn ids(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
     let mut findings = Vec::new();
@@ -167,7 +167,7 @@ fn ids(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
                     findings.push(Finding::new(
                         &file.path,
                         index + 1,
-                        format!("{id} isn't a rule or behavior ID that exists (DOC-13)"),
+                        format!("{id} isn't a rule or behavior ID that exists (DOC-12)"),
                     ));
                 }
             }
@@ -178,7 +178,7 @@ fn ids(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
 
 /// Every CI check a rule names is listed: in the task column of the table of checks in
 /// `docs/operations/ci.md` once it is built, and in the first column of the tracker's table of
-/// CI checks until then (DOC-13).
+/// CI checks until then (DOC-12).
 fn named_checks(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
     let mut listed = BTreeSet::new();
     if let Some(ci) = repo.file("docs/operations/ci.md") {
@@ -200,7 +200,7 @@ fn named_checks(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
                 &check.path,
                 check.line,
                 format!(
-                    "`ci: {}` names a check that neither docs/operations/ci.md nor the CI checks in {TRACKER} list (DOC-13)",
+                    "`ci: {}` names a check that neither docs/operations/ci.md nor the CI checks in {TRACKER} list (DOC-12)",
                     check.name
                 ),
             )
@@ -229,7 +229,7 @@ fn column(text: &str, section: &str, chooses: impl Fn(&str) -> bool) -> Vec<Stri
 }
 
 /// Prose outside the inventory holds no history markers (DOC-01) and no unfinished-work markers
-/// (DOC-07). Code spans and code blocks aren't prose, so a document can name a marker in one.
+/// (DOC-04). Code spans and code blocks aren't prose, so a document can name a marker in one.
 fn prose_markers(documents: &BTreeMap<&str, markdown::Document>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (path, document) in documents {
@@ -244,7 +244,7 @@ fn prose_markers(documents: &BTreeMap<&str, markdown::Document>) -> Vec<Finding>
     findings
 }
 
-/// Comments hold no history markers or dates (DOC-01), and no unfinished-work markers (DOC-07).
+/// Comments hold no history markers or dates (DOC-01), and no unfinished-work markers (DOC-04).
 fn comment_markers(repo: &Repo) -> Vec<Finding> {
     let mut findings = Vec::new();
     for file in repo.files() {
@@ -288,13 +288,13 @@ fn unfinished(path: &str, line: usize, text: &str) -> Vec<Finding> {
             Finding::new(
                 path,
                 line,
-                format!("\"{word}\" marks unfinished work; track the work as an issue (DOC-07)"),
+                format!("\"{word}\" marks unfinished work; track the work as an issue (DOC-04)"),
             )
         })
         .collect()
 }
 
-/// Every Markdown file belongs to the documentation set (DOC-08).
+/// Every Markdown file belongs to the documentation set (DOC-05).
 fn locations(repo: &Repo) -> Vec<Finding> {
     repo.files()
         .filter(|file| file.path.ends_with(".md") && !in_documentation_set(&file.path))
@@ -302,20 +302,20 @@ fn locations(repo: &Repo) -> Vec<Finding> {
             Finding::new(
                 &file.path,
                 1,
-                "this document is outside the documentation set (DOC-08)",
+                "this document is outside the documentation set (DOC-05)",
             )
         })
         .collect()
 }
 
-/// Whether DOC-09's check of acronyms reads the document at `path`: the documentation set
+/// Whether DOC-06's check of acronyms reads the document at `path`: the documentation set
 /// outside the migration workspace.
 pub fn checks_acronyms(path: &str) -> bool {
     in_documentation_set(path) && !path.starts_with(INVENTORY) && path != TRACKER
 }
 
-/// Whether `path` belongs to the documentation set (DOC-08), or to the migration workspace
-/// (DOC-04).
+/// Whether `path` belongs to the documentation set (DOC-05), or to the migration workspace
+/// (DOC-13).
 fn in_documentation_set(path: &str) -> bool {
     const FILES: [&str; 7] = [
         "README.md",
@@ -362,12 +362,12 @@ mod tests {
     }
 
     #[test]
-    fn doc_13_the_fixture_has_no_problems() {
+    fn doc_12_the_fixture_has_no_problems() {
         assert_eq!(findings(&[]), Vec::<String>::new());
     }
 
     #[test]
-    fn doc_13_a_link_to_a_missing_file_or_anchor_is_reported() {
+    fn doc_12_a_link_to_a_missing_file_or_anchor_is_reported() {
         let readme = "[spec](docs/spec/widgets.md) [ok](docs/architecture.md#what-each-module-owns)\n\
                       [gone](docs/gone.md)\n\
                       [anchor](docs/architecture.md#nowhere)\n\
@@ -377,15 +377,15 @@ mod tests {
         assert_eq!(
             findings(&[("README.md", readme)]),
             [
-                "README.md:2: the link to `docs/gone.md` doesn't resolve: there is no `docs/gone.md` (DOC-13)",
-                "README.md:3: the link to `docs/architecture.md#nowhere` doesn't resolve: `docs/architecture.md` has no heading whose anchor is `#nowhere` (DOC-13)",
-                "README.md:4: the link to `../elsewhere.md` doesn't resolve: it points outside the repository (DOC-13)"
+                "README.md:2: the link to `docs/gone.md` doesn't resolve: there is no `docs/gone.md` (DOC-12)",
+                "README.md:3: the link to `docs/architecture.md#nowhere` doesn't resolve: `docs/architecture.md` has no heading whose anchor is `#nowhere` (DOC-12)",
+                "README.md:4: the link to `../elsewhere.md` doesn't resolve: it points outside the repository (DOC-12)"
             ]
         );
     }
 
     #[test]
-    fn doc_13_two_headings_of_one_text_are_reported_linked_or_not() {
+    fn doc_12_two_headings_of_one_text_are_reported_linked_or_not() {
         let guide = "# Guide\n\n## Notes\n\nText.\n\n## Steps\n\n## Notes\n\n```\n## Notes\n```\n";
         let inventory = "# Old\n\n## Notes\n\n## Notes\n";
 
@@ -396,28 +396,28 @@ mod tests {
             ]),
             [
                 "docs/guides/guide.md:9: an earlier heading also reads `Notes`, so their anchors \
-                 follow their order: give each heading a text of its own (DOC-13)"
+                 follow their order: give each heading a text of its own (DOC-12)"
             ]
         );
     }
 
     #[test]
-    fn doc_13_an_id_that_doesnt_exist_is_reported() {
+    fn doc_12_an_id_that_doesnt_exist_is_reported() {
         let source = "/// Proves WIDGETS-001 and STYLE-01, but not WIDGETS-007, GADGETS-001 or STYLE-99.\n\
                       /// SHA-256 isn't an ID.\n";
 
         assert_eq!(
             findings(&[("crates/widgets/src/lib.rs", source)]),
             [
-                "crates/widgets/src/lib.rs:1: WIDGETS-007 isn't a rule or behavior ID that exists (DOC-13)",
-                "crates/widgets/src/lib.rs:1: GADGETS-001 isn't a rule or behavior ID that exists (DOC-13)",
-                "crates/widgets/src/lib.rs:1: STYLE-99 isn't a rule or behavior ID that exists (DOC-13)"
+                "crates/widgets/src/lib.rs:1: WIDGETS-007 isn't a rule or behavior ID that exists (DOC-12)",
+                "crates/widgets/src/lib.rs:1: GADGETS-001 isn't a rule or behavior ID that exists (DOC-12)",
+                "crates/widgets/src/lib.rs:1: STYLE-99 isn't a rule or behavior ID that exists (DOC-12)"
             ]
         );
     }
 
     #[test]
-    fn doc_13_a_named_check_that_no_list_includes_is_reported() {
+    fn doc_12_a_named_check_that_no_list_includes_is_reported() {
         let rules = "# Style\n\n### STYLE-01 A rule\nThe statement.\n- Why: a reason.\n\
                      - Check: `ci: check-shape`, `ci: check-style` and `ci: check-later`.\n";
         let ci = "# CI\n\nThe prose names `check-shape`, which lists nothing.\n\n\
@@ -433,7 +433,7 @@ mod tests {
         ]);
 
         assert!(
-            found.contains(&"docs/standards/style.md:6: `ci: check-shape` names a check that neither docs/operations/ci.md nor the CI checks in docs/MIGRATION.md list (DOC-13)".to_owned()),
+            found.contains(&"docs/standards/style.md:6: `ci: check-shape` names a check that neither docs/operations/ci.md nor the CI checks in docs/MIGRATION.md list (DOC-12)".to_owned()),
             "{found:?}"
         );
         assert!(
@@ -465,7 +465,7 @@ mod tests {
     }
 
     #[test]
-    fn doc_07_unfinished_work_markers_are_reported() {
+    fn doc_04_unfinished_work_markers_are_reported() {
         // The markers are split, so this file doesn't contain them.
         let prose = concat!("# Notes\n\nFinish this ", "TO", "DO.\n");
         let script = concat!("run: ok # ", "FIX", "ME later\n");
@@ -476,22 +476,22 @@ mod tests {
                 concat!(
                     "docs/guides/notes.md:3: \"",
                     "TO",
-                    "DO\" marks unfinished work; track the work as an issue (DOC-07)"
+                    "DO\" marks unfinished work; track the work as an issue (DOC-04)"
                 ),
                 concat!(
                     "ci.yml:1: \"",
                     "FIX",
-                    "ME\" marks unfinished work; track the work as an issue (DOC-07)"
+                    "ME\" marks unfinished work; track the work as an issue (DOC-04)"
                 )
             ]
         );
     }
 
     #[test]
-    fn doc_08_a_document_outside_the_documentation_set_is_reported() {
+    fn doc_05_a_document_outside_the_documentation_set_is_reported() {
         assert_eq!(
             findings(&[("crates/widgets/NOTES.md", "# Notes\n")]),
-            ["crates/widgets/NOTES.md:1: this document is outside the documentation set (DOC-08)"]
+            ["crates/widgets/NOTES.md:1: this document is outside the documentation set (DOC-05)"]
         );
     }
 }

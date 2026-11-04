@@ -55,7 +55,7 @@ const GROUP_BODY_LIMIT: usize = 64 * 1024;
 const RETRY_AFTER_SECONDS: &str = "1";
 
 /// The method of a request whose method HTTP's specifications don't define, and the error type
-/// of a 5xx whose error the request log doesn't know (PLATFORM-040).
+/// of a 5xx whose error the request log doesn't know (PLATFORM-067).
 const OTHER: &str = "_OTHER";
 
 static REQUEST_DURATION: Histogram<4> = Histogram::new(
@@ -78,7 +78,7 @@ static REQUEST_DURATION: Histogram<4> = Histogram::new(
     ],
 );
 
-/// The security headers on every response, health probes included (SEC-11).
+/// The security headers on every response, health probes included (SEC-12).
 pub(super) fn security_headers(router: Router) -> Router {
     router.layer(
         ServiceBuilder::new()
@@ -150,7 +150,7 @@ where
 }
 
 /// Opens the request's server span, as the child of a valid inbound `traceparent`, and writes
-/// the span's trace context into `server-timing` (PLATFORM-022, API-16).
+/// the span's trace context into `server-timing` (PLATFORM-041, API-16).
 async fn trace(request: Request, next: Next) -> Response {
     let parent = TraceContextPropagator::new().extract(&Headers(request.headers()));
     let method = method_name(request.method());
@@ -209,9 +209,9 @@ async fn trace(request: Request, next: Next) -> Response {
 struct PanicLogged;
 
 /// Writes one `INFO` line when the request completes, and before it the `ERROR` line of a 5xx
-/// with its cause chain, unless the 5xx answers a panic (PLATFORM-034). It records the request's
+/// with its cause chain, unless the 5xx answers a panic (PLATFORM-044). It records the request's
 /// duration, and gives a 5xx's error code to the metric and the request's span as `error.type`
-/// (PLATFORM-040).
+/// (PLATFORM-067).
 async fn log(State(clock): State<SharedClock>, request: Request, next: Next) -> Response {
     let start = clock.now();
     let method = method_name(request.method());
@@ -283,7 +283,7 @@ fn panicked(_payload: Box<dyn Any + Send + 'static>) -> Response {
 }
 
 /// Answers a request that load shedding refused with the 503 problem and `Retry-After`
-/// (PLATFORM-020).
+/// (PLATFORM-039).
 async fn overloaded(error: BoxError) -> Response {
     if error.is::<tower::load_shed::error::Overloaded>() {
         retry_later(RequestError::Overloaded)
@@ -293,7 +293,7 @@ async fn overloaded(error: BoxError) -> Response {
 }
 
 /// Answers a request past its route group's timeout with the 503 problem and `Retry-After`
-/// (PLATFORM-031).
+/// (PLATFORM-042).
 async fn timed_out(error: BoxError) -> Response {
     if error.is::<tower::timeout::error::Elapsed>() {
         retry_later(RequestError::TimedOut)
@@ -313,7 +313,7 @@ fn retry_later(error: RequestError) -> Response {
 }
 
 /// Refuses a body whose declared length is over the route group's limit before reading it, and
-/// limits what an extractor reads of any other body (PLATFORM-036).
+/// limits what an extractor reads of any other body (PLATFORM-048).
 async fn body_limit(request: Request, next: Next) -> Response {
     let declared = request.headers().get(header::CONTENT_LENGTH).map(|length| {
         length
@@ -329,7 +329,7 @@ async fn body_limit(request: Request, next: Next) -> Response {
     next.run(request).await
 }
 
-/// Refuses query parameters that the route's documentation doesn't list (PLATFORM-035). `HEAD`
+/// Refuses query parameters that the route's documentation doesn't list (PLATFORM-045). `HEAD`
 /// takes the parameters of the `GET` that serves it, and a method the route doesn't serve
 /// passes, so the router answers it with 405.
 async fn query(State(queries): State<Arc<QueryNames>>, request: Request, next: Next) -> Response {

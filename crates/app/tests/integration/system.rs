@@ -47,7 +47,7 @@ async fn system_002_seed_refuses_outside_development_before_it_connects() {
         .run_api(&["seed"], &[("ENVIRONMENT", "test")])
         .await;
 
-    // Production logs JSON lines, and the tests' environment readable text (PLATFORM-034).
+    // Production logs JSON lines, and the tests' environment readable text (PLATFORM-044).
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&output.stdout);
     let failure = stdout
@@ -102,7 +102,7 @@ async fn workspaces(api: &Api, token: &str) -> Vec<(String, String)> {
     workspaces
 }
 
-/// Runs the binary's `seed` in development on `database`, which must succeed (TEST-04), and
+/// Runs the binary's `seed` in development on `database`, which must succeed (TEST-03), and
 /// returns the password it printed.
 async fn seed(database: &TestDatabase) -> String {
     let output = database

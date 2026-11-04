@@ -48,7 +48,7 @@ fn problem(response: &Response, status: StatusCode, code: &str) -> Value {
 }
 
 #[tokio::test]
-async fn platform_021_a_path_that_does_not_exist_answers_a_not_found_problem() {
+async fn platform_040_a_path_that_does_not_exist_answers_a_not_found_problem() {
     let api = Api::new().await;
 
     let response = api.get("/v1/nothing-here").send().await;
@@ -59,7 +59,7 @@ async fn platform_021_a_path_that_does_not_exist_answers_a_not_found_problem() {
 }
 
 #[tokio::test]
-async fn platform_021_an_internal_error_answers_the_fixed_problem_and_nothing_else() {
+async fn platform_040_an_internal_error_answers_the_fixed_problem_and_nothing_else() {
     let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
 
     let response = api.get("/v1/broken").send().await;
@@ -76,7 +76,7 @@ async fn platform_021_an_internal_error_answers_the_fixed_problem_and_nothing_el
 }
 
 #[tokio::test]
-async fn platform_022_every_response_carries_its_trace_context() {
+async fn platform_041_every_response_carries_its_trace_context() {
     let api = Api::new().await;
 
     for path in ["/v1/capabilities", "/v1/nothing-here"] {
@@ -91,7 +91,7 @@ async fn platform_022_every_response_carries_its_trace_context() {
 }
 
 #[tokio::test]
-async fn platform_022_a_valid_traceparent_continues_its_trace() {
+async fn platform_041_a_valid_traceparent_continues_its_trace() {
     let api = Api::new().await;
 
     let response = api
@@ -109,7 +109,7 @@ async fn platform_022_a_valid_traceparent_continues_its_trace() {
 }
 
 #[tokio::test]
-async fn platform_022_an_unsampled_traceparent_is_still_sampled() {
+async fn platform_041_an_unsampled_traceparent_is_still_sampled() {
     let api = Api::new().await;
     let unsampled = TRACEPARENT.replace("-01", "-00");
 
@@ -125,7 +125,7 @@ async fn platform_022_an_unsampled_traceparent_is_still_sampled() {
 }
 
 #[tokio::test]
-async fn platform_022_an_invalid_traceparent_starts_a_new_trace() {
+async fn platform_041_an_invalid_traceparent_starts_a_new_trace() {
     let api = Api::new().await;
 
     let response = api
@@ -140,7 +140,7 @@ async fn platform_022_an_invalid_traceparent_starts_a_new_trace() {
 }
 
 #[tokio::test]
-async fn platform_032_a_method_the_path_does_not_serve_answers_405_with_allow() {
+async fn platform_043_a_method_the_path_does_not_serve_answers_405_with_allow() {
     let api = Api::new().await;
 
     let response = api.request(Method::POST, "/v1/capabilities").send().await;
@@ -154,7 +154,7 @@ async fn platform_032_a_method_the_path_does_not_serve_answers_405_with_allow() 
 }
 
 #[tokio::test]
-async fn platform_035_an_undocumented_query_parameter_answers_400() {
+async fn platform_045_an_undocumented_query_parameter_answers_400() {
     let api = Api::new().await;
 
     let response = api.get("/v1/capabilities?verbose=true").send().await;
@@ -182,7 +182,7 @@ async fn platform_035_an_undocumented_query_parameter_answers_400() {
 }
 
 #[tokio::test]
-async fn platform_035_a_head_request_is_checked_like_its_get() {
+async fn platform_045_a_head_request_is_checked_like_its_get() {
     let api = Api::new().await;
 
     let response = api
@@ -194,7 +194,7 @@ async fn platform_035_a_head_request_is_checked_like_its_get() {
 }
 
 #[tokio::test]
-async fn platform_035_a_documented_query_parameter_passes() {
+async fn platform_045_a_documented_query_parameter_passes() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
 
@@ -208,7 +208,7 @@ async fn platform_035_a_documented_query_parameter_passes() {
 }
 
 #[tokio::test]
-async fn platform_036_a_body_over_the_limit_answers_413_before_it_is_read() {
+async fn platform_048_a_body_over_the_limit_answers_413_before_it_is_read() {
     let api = Api::new().await;
     let limit = 64 * 1024;
 
@@ -234,7 +234,7 @@ async fn platform_036_a_body_over_the_limit_answers_413_before_it_is_read() {
 }
 
 #[tokio::test]
-async fn platform_031_a_request_past_its_timeout_answers_503() {
+async fn platform_042_a_request_past_its_timeout_answers_503() {
     let gate = Arc::new(Gate::default());
     let api = Api::with(Options::routes(fixtures::routes(gate.clone()))).await;
     let entered = gate.entered.notified();
@@ -258,7 +258,7 @@ async fn platform_031_a_request_past_its_timeout_answers_503() {
 }
 
 #[tokio::test]
-async fn platform_020_a_request_beyond_the_limit_answers_503_with_retry_after() {
+async fn platform_039_a_request_beyond_the_limit_answers_503_with_retry_after() {
     let gate = Arc::new(Gate::default());
     let api = Api::with(
         Options::routes(fixtures::routes(gate.clone())).set("MAX_CONCURRENT_REQUESTS", 1),
@@ -286,7 +286,7 @@ async fn platform_020_a_request_beyond_the_limit_answers_503_with_retry_after() 
 }
 
 #[tokio::test]
-async fn platform_019_the_probes_bypass_load_shedding_and_answer_a_plain_status() {
+async fn platform_038_the_probes_bypass_load_shedding_and_answer_a_plain_status() {
     let gate = Arc::new(Gate::default());
     let api = Api::with(
         Options::routes(fixtures::routes(gate.clone())).set("MAX_CONCURRENT_REQUESTS", 1),
@@ -314,7 +314,7 @@ async fn platform_019_the_probes_bypass_load_shedding_and_answer_a_plain_status(
 }
 
 #[tokio::test]
-async fn platform_019_the_probes_bypass_the_route_groups_body_limit() {
+async fn platform_038_the_probes_bypass_the_route_groups_body_limit() {
     let api = Api::new().await;
     let over = 64 * 1024 + 1;
 
@@ -344,7 +344,7 @@ async fn err_12_a_panic_answers_the_internal_problem() {
 }
 
 #[tokio::test]
-async fn platform_034_a_panic_leaves_its_error_line_to_the_panic_hook() {
+async fn platform_044_a_panic_leaves_its_error_line_to_the_panic_hook() {
     let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
 
     let response = api.get("/v1/panic").send().await;
@@ -360,7 +360,7 @@ async fn platform_034_a_panic_leaves_its_error_line_to_the_panic_hook() {
 }
 
 #[tokio::test]
-async fn sec_11_every_response_carries_the_security_headers() {
+async fn sec_12_every_response_carries_the_security_headers() {
     let api = Api::new().await;
 
     for path in [
@@ -382,7 +382,7 @@ async fn sec_11_every_response_carries_the_security_headers() {
 }
 
 #[tokio::test]
-async fn platform_034_a_request_writes_one_completion_line() {
+async fn platform_044_a_request_writes_one_completion_line() {
     let api = Api::new().await;
 
     let response = api.get("/v1/capabilities").send().await;
@@ -400,7 +400,7 @@ async fn platform_034_a_request_writes_one_completion_line() {
 }
 
 #[tokio::test]
-async fn platform_034_a_4xx_writes_nothing_above_info() {
+async fn platform_044_a_4xx_writes_nothing_above_info() {
     let api = Api::new().await;
 
     let response = api.get("/v1/nothing-here").send().await;
@@ -414,7 +414,7 @@ async fn platform_034_a_4xx_writes_nothing_above_info() {
 }
 
 #[tokio::test]
-async fn platform_034_a_5xx_writes_one_error_line_with_its_cause_chain() {
+async fn platform_044_a_5xx_writes_one_error_line_with_its_cause_chain() {
     let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
 
     let response = api.get("/v1/broken").send().await;
@@ -433,7 +433,7 @@ async fn platform_034_a_5xx_writes_one_error_line_with_its_cause_chain() {
 }
 
 #[tokio::test]
-async fn platform_075_development_serves_the_api_reference_of_the_running_code() {
+async fn platform_052_development_serves_the_api_reference_of_the_running_code() {
     let api = Api::with(Options::default().set("ENVIRONMENT", "development")).await;
 
     let page = api.get("/docs").send().await;
@@ -460,7 +460,7 @@ async fn platform_075_development_serves_the_api_reference_of_the_running_code()
 }
 
 #[tokio::test]
-async fn platform_075_any_other_environment_answers_the_reference_s_paths_with_404() {
+async fn platform_052_any_other_environment_answers_the_reference_s_paths_with_404() {
     let api = Api::new().await;
 
     for path in ["/docs", "/docs/openapi.json"] {
@@ -471,7 +471,7 @@ async fn platform_075_any_other_environment_answers_the_reference_s_paths_with_4
 }
 
 #[tokio::test]
-async fn platform_075_the_development_settings_let_the_reference_s_requests_through_the_cross_site_check()
+async fn platform_052_the_development_settings_let_the_reference_s_requests_through_the_cross_site_check()
  {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let example = tokio::fs::read_to_string(format!("{root}/.env.example"))

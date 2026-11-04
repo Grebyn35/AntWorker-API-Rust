@@ -1,5 +1,5 @@
 //! The scheduler, which every replica runs: it claims the periodic jobs that are due, each under
-//! a lease, so each runs once per interval across the fleet (PLATFORM-014).
+//! a lease, so each runs once per interval across the fleet (PLATFORM-015).
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -27,7 +27,7 @@ struct Claim {
 }
 
 /// Runs the periodic jobs as they fall due until `stopping` turns true, then waits for the runs
-/// in flight until `deadline` passes, and releases those it then cancels (PLATFORM-063).
+/// in flight until `deadline` passes, and releases those it then cancels (PLATFORM-018).
 pub(super) async fn schedule(
     periodic: Arc<HashMap<&'static str, Periodic>>,
     database: Database,

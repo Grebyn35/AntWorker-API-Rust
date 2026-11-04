@@ -170,7 +170,7 @@ async fn access_003_a_workspace_id_that_isn_t_a_uuid_answers_404_and_records_not
 }
 
 #[tokio::test]
-async fn data_25_a_removal_waits_on_no_member_it_may_not_remove() {
+async fn data_20_a_removal_waits_on_no_member_it_may_not_remove() {
     let api = Api::new().await;
     let owner = users::register(&api, "owner@example.com").await;
     let first = users::register(&api, "first@example.com").await;
@@ -228,7 +228,7 @@ async fn access_004_a_member_acts_only_on_members_below_their_rank() {
 }
 
 #[tokio::test]
-async fn platform_025_a_rank_refusal_records_itself_and_rolls_the_operation_back() {
+async fn platform_010_a_rank_refusal_records_itself_and_rolls_the_operation_back() {
     let api = Api::new().await;
     let owner = users::register(&api, "owner@example.com").await;
     let admin = users::register(&api, "admin@example.com").await;
@@ -256,7 +256,7 @@ async fn platform_025_a_rank_refusal_records_itself_and_rolls_the_operation_back
 }
 
 #[tokio::test]
-async fn platform_015_an_operation_that_rolls_back_publishes_nothing() {
+async fn platform_026_an_operation_that_rolls_back_publishes_nothing() {
     let api = Api::new().await;
     let owner = users::register(&api, "owner@example.com").await;
     let admin = users::register(&api, "admin@example.com").await;
@@ -278,7 +278,7 @@ async fn platform_015_an_operation_that_rolls_back_publishes_nothing() {
 
 /// Waits until a query of the test database waits on a lock, as the administrator sees it: other
 /// roles see only their own sessions' waits. The request the test sent leads there, so the wait
-/// has no bound of its own (TEST-07).
+/// has no bound of its own (TEST-06).
 async fn a_query_waits_on_a_lock(db: &TestDatabase) {
     let sql = format!(
         "SELECT count(*)::text FROM pg_stat_activity \
@@ -291,7 +291,7 @@ async fn a_query_waits_on_a_lock(db: &TestDatabase) {
 }
 
 #[tokio::test]
-async fn platform_024_authorization_waits_for_a_change_to_the_caller_s_membership() {
+async fn platform_009_authorization_waits_for_a_change_to_the_caller_s_membership() {
     let api = Api::new().await;
     let owner = users::register(&api, "owner@example.com").await;
     let member = users::register(&api, "member@example.com").await;
@@ -330,7 +330,7 @@ struct Fixture {
 }
 
 /// The fixture of each workspace route, by its method and path. A route without one fails the
-/// test, so every new workspace route joins it (TEST-09).
+/// test, so every new workspace route joins it (TEST-08).
 fn fixture(method: &str, template: &str) -> Option<Fixture> {
     Some(match (method, template) {
         ("get", "/v1/workspaces/{workspace_id}/members") => Fixture {
@@ -356,7 +356,7 @@ fn fixture(method: &str, template: &str) -> Option<Fixture> {
 }
 
 #[tokio::test]
-async fn test_09_every_workspace_route_answers_every_role_as_the_matrix_says() {
+async fn test_08_every_workspace_route_answers_every_role_as_the_matrix_says() {
     let api = Api::new().await;
     let db = api.database();
     let mut callers = Vec::new();
@@ -386,7 +386,7 @@ async fn test_09_every_workspace_route_answers_every_role_as_the_matrix_says() {
             let fixture = fixture(method, template);
             assert!(
                 fixture.is_some(),
-                "{method} {template} has no fixture in TEST-09's test"
+                "{method} {template} has no fixture in TEST-08's test"
             );
             let fixture = fixture.unwrap();
             let method = Method::from_bytes(method.to_ascii_uppercase().as_bytes()).unwrap();
@@ -423,7 +423,7 @@ async fn test_09_every_workspace_route_answers_every_role_as_the_matrix_says() {
                 checked += 1;
             }
             if template.contains("{user_id}") {
-                // A member of another workspace the caller belongs to names nobody here (DATA-22).
+                // A member of another workspace the caller belongs to names nobody here (DATA-16).
                 let (_, owner) = &callers[0];
                 let here = workspaces::arrange(db, "Here", &[(&owner.user_id, "owner")]).await;
                 let there = workspaces::arrange(db, "There", &[(&owner.user_id, "owner")]).await;

@@ -72,7 +72,7 @@ fn trace_of_a_request_no_replica_answers(deployment: &Deployment) -> String {
 }
 
 #[tokio::test]
-async fn sec_18_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer_in() {
+async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer_in() {
     // The bundled database, and a stack that a later deploy adds, after one that ran without it.
     let deployment = Deployment::bundled(&[]);
     let without = deployment.apply(&deployment.api, &[]).await;
@@ -179,7 +179,7 @@ async fn obs_14_the_backups_the_server_s_memory_and_the_collector_report_what_th
 }
 
 #[tokio::test]
-async fn ops_16_a_deploy_installs_the_release_s_alert_rules_and_prometheus_reads_them() {
+async fn ops_14_a_deploy_installs_the_release_s_alert_rules_and_prometheus_reads_them() {
     let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
@@ -422,7 +422,7 @@ async fn obs_13_a_deploy_waits_for_a_managed_grafana_that_is_still_loading() {
 }
 
 #[tokio::test]
-async fn ops_22_the_check_waits_for_a_managed_grafana_that_is_still_loading() {
+async fn ops_19_the_check_waits_for_a_managed_grafana_that_is_still_loading() {
     let deployment = behind_a_loading_grafana().await;
     release_dashboards(&deployment);
     deployment.server.managed_grafana_loads();

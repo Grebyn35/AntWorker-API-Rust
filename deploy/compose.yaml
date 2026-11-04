@@ -9,7 +9,7 @@
 name: deployment
 
 # Every container's log, which `just logs` reads, in Docker's `local` driver: at most five files
-# of 20 MB each, the four older ones compressed, so no log grows without bound (OPS-16). Docker's
+# of 20 MB each, the four older ones compressed, so no log grows without bound (OPS-14). Docker's
 # default driver never rotates its file.
 x-logging: &logging
   driver: local
@@ -38,7 +38,7 @@ x-api: &api
     SHUTDOWN_DELAY_SECONDS: "5"
     SHUTDOWN_DRAIN_SECONDS: "10"
     # Only the deployment's own containers reach a replica, on its private networks, so every
-    # private peer is Caddy, and the proxies Caddy trusts are trusted too (PLATFORM-047).
+    # private peer is Caddy, and the proxies Caddy trusts are trusted too (PLATFORM-053).
     TRUSTED_PROXIES: "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7, ${TRUSTED_PROXIES:-}"
     CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
     RATE_LIMIT_IP_REQUESTS: ${RATE_LIMIT_IP_REQUESTS:-600}
@@ -56,7 +56,7 @@ x-api: &api
     SMTP_SECURITY: ${SMTP_SECURITY:-}
     SMTP_PORT: ${SMTP_PORT:-}
     SMTP_USERNAME: ${SMTP_USERNAME:-}
-    # Empty, as deploy.sh writes it when no answer gave one, it counts as unset (PLATFORM-023).
+    # Empty, as deploy.sh writes it when no answer gave one, it counts as unset (PLATFORM-064).
     SMTP_PASSWORD_FILE: /run/secrets/smtp_password
     EMAIL_FROM: ${EMAIL_FROM:-}
     # part: invitations
@@ -194,7 +194,7 @@ services:
     secrets: [database_owner_url]
     networks: [data, telemetry]
 
-  # The bundled Postgres, which archives its write-ahead log to the backup bucket (OPS-17). Only
+  # The bundled Postgres, which archives its write-ahead log to the backup bucket (OPS-15). Only
   # the network `data` reaches it.
   postgres:
     image: ${POSTGRES_IMAGE:?the Postgres image, in state/deploy.env}

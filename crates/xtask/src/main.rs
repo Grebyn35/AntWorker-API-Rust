@@ -1,5 +1,5 @@
 //! The repository's custom CI checks, and the other tasks that `just` runs.
-//! Each subcommand runs as a `just` task (OPS-12), and the API crates never depend on this one
+//! Each subcommand runs as a `just` task (OPS-10), and the API crates never depend on this one
 //! (ARCH-01).
 
 mod acronyms;
@@ -61,14 +61,14 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Reports which spec behaviors tests prove, and fails on a test whose name doesn't start
-    /// with a behavior or rule ID that exists (TEST-01, DOC-10).
+    /// with a behavior or rule ID that exists (TEST-01, DOC-09).
     #[command(name = "check-test-map")]
     TestMap,
     /// Fails on a link, ID or named CI check that doesn't resolve, a history marker, an
     /// unfinished-work marker, a document outside the documentation set, an acronym not spelled
-    /// out where a document first uses it, a spec, rule or tracker whose format breaks DOC-15 or
-    /// DOC-16, or a spec's Routes table that doesn't match `openapi.json` (DOC-01, DOC-07 to
-    /// DOC-09, DOC-13 to DOC-16).
+    /// out where a document first uses it, a spec, rule or tracker whose format breaks DOC-08 or
+    /// DOC-14, or a spec's Routes table that doesn't match `openapi.json` (DOC-01, DOC-04 to
+    /// DOC-08, DOC-12, DOC-14).
     #[command(name = "check-docs")]
     Docs,
     /// Fails on a part of the committed `openapi.json` that breaks the rules for the HTTP
@@ -104,29 +104,29 @@ enum Command {
     AlertRules,
     /// Fails on an action, runner, image, download, crate install or tool version that isn't
     /// pinned, a toolchain other than the one `rust-toolchain.toml` pins, or a crate whose
-    /// edition isn't the workspace's 2024 (CODE-01, OPS-13).
+    /// edition isn't the workspace's 2024 (CODE-01, OPS-11).
     #[command(name = "check-pins")]
     Pins,
     /// Fails on a finding of shellcheck in a recipe of the justfile that runs on Linux and
-    /// macOS, or in a shell script under `deploy/` (CODE-16), and on a `psql` of such a script
+    /// macOS, or in a shell script under `deploy/` (CODE-07), and on a `psql` of such a script
     /// whose statement isn't given with `-c` or names a table of the product schema (ARCH-14).
     #[command(name = "check-shell")]
     Shell,
     /// Fails on a function, method or macro that the locked sqlx exposes and that takes SQL
     /// text, outside the checked macros, and that `clippy.toml` doesn't ban, or on a ban of
-    /// sqlx's that reaches nothing (DATA-20).
+    /// sqlx's that reaches nothing (DATA-14).
     #[command(name = "check-sql-bans")]
     SqlBans,
     /// Fails on `sqlx` in a module's routes, an HTTP type in its service, a routes type that
     /// deserializes without refusing unknown fields, an infrastructure error in a service or
-    /// route signature, or an HTTP client built outside the places SEC-09 allows (ARCH-08,
-    /// ARCH-09, API-08, API-09, ERR-04, SEC-09).
+    /// route signature, or an HTTP client built outside the places SEC-10 allows (ARCH-08,
+    /// ARCH-09, API-08, API-09, ERR-04, SEC-10).
     #[command(name = "check-layers")]
     Layers,
     /// Fails on a module's public submodule, code that reaches into another module's
     /// submodule, a use of a module the graph in architecture.md doesn't allow, a cycle in that
     /// graph, or another module's error in a module's public signatures (ARCH-04, ARCH-05,
-    /// ERR-06), and on a dependency that its crate's code never names (CODE-11).
+    /// ERR-06), and on a dependency that its crate's code never names (CODE-12).
     #[command(name = "check-deps")]
     Deps,
     /// Fails on a table, column, constraint, function or index of the migrations' schema that
@@ -140,7 +140,7 @@ enum Command {
     /// `workspace_id` that names neither its `workspace_id` nor, for a table with one, its
     /// `user_id`, outside a listed job that spans tenants, and on a table without a
     /// `workspace_id` that isn't listed as account or platform data or as the workspaces
-    /// themselves (DATA-22).
+    /// themselves (DATA-16).
     #[command(name = "check-tenancy")]
     Tenancy,
     /// Fails on a query, in a `sqlx` macro of `platform` or `app`, that names a table another
@@ -149,8 +149,8 @@ enum Command {
     TableOwnership,
     /// Fails on a source file or a deploy script over 500 lines, a module's file outside
     /// ARCH-03's set, a module without its error.rs, an exception to `dead_code`, and a job
-    /// declared outside its module's jobs.rs or with a kind of another module's (CODE-07,
-    /// ARCH-03, ERR-01, CODE-14, OPS-09).
+    /// declared outside its module's jobs.rs or with a kind of another module's (CODE-08,
+    /// ARCH-03, ERR-01, CODE-15, OPS-09).
     #[command(name = "check-layout")]
     Layout,
     /// Fails on a migration whose name holds no module, and on a migration that the newest
@@ -158,7 +158,7 @@ enum Command {
     #[command(name = "check-migrations")]
     Migrations,
     /// Fails when the query cache in `.sqlx/` differs from what sqlx-cli writes from a database
-    /// that the migrations build (DATA-20).
+    /// that the migrations build (DATA-14).
     #[command(name = "sqlx-check")]
     SqlxCheck,
     /// Fails on a marker of an optional part that names no part, a block that no end marker
@@ -188,7 +188,7 @@ enum Command {
     },
     /// Sets the app's version to `version` on `main`, commits it and pushes it, after it checks
     /// that `version` can be released from `main` as it is. The run on `main` that passes with
-    /// the version releases it (OPS-14). Without a version, it shows the versions that can come
+    /// the version releases it (OPS-12). Without a version, it shows the versions that can come
     /// next, and changes nothing.
     Release {
         /// The version, such as 1.4.0, or 1.4.0-rc.1 for a prerelease; without one, the task
@@ -196,7 +196,7 @@ enum Command {
         version: Option<String>,
     },
     /// Deploys the release `version`, or the latest release, to the reference deployment that SSH
-    /// reaches at `host` (OPS-16).
+    /// reaches at `host` (OPS-14).
     Deploy {
         /// The server, as SSH names it: user@address, or a Host of ~/.ssh/config.
         host: String,
@@ -207,13 +207,13 @@ enum Command {
         #[arg(long)]
         allow_restart: bool,
     },
-    /// Takes a full base backup of the bundled database of the deployment at `host` (OPS-17).
+    /// Takes a full base backup of the bundled database of the deployment at `host` (OPS-15).
     Backup {
         /// The server, as SSH names it.
         host: String,
     },
     /// Restores the bundled database of the deployment at `host`, as it stood at `moment`, or at
-    /// the latest moment its backups hold (OPS-17).
+    /// the latest moment its backups hold (OPS-15).
     Restore {
         /// The server, as SSH names it.
         host: String,
@@ -226,7 +226,7 @@ enum Command {
     },
     /// Prints the backup and the timeline of a restore to `moment`, or to the latest state, from
     /// what the backup bucket records, which deploy.sh's `restore-inputs` printed to standard
-    /// input, as `just restore` plans one (OPS-17). The end-to-end tests run it, as they run
+    /// input, as `just restore` plans one (OPS-15). The end-to-end tests run it, as they run
     /// deploy.sh without `just`.
     #[command(name = "restore-plan", hide = true)]
     RestorePlan {
@@ -235,14 +235,14 @@ enum Command {
         moment: Option<String>,
     },
     /// Shows the state of the deployment at `host`: which color serves, its containers, its
-    /// backups, and the server's free disk and memory (OPS-22).
+    /// backups, and the server's free disk and memory (OPS-19).
     Status {
         /// The server, as SSH names it.
         host: String,
     },
     /// Sets up the server that SSH reaches at `host`, as root or a user that may run sudo without
     /// a password: installs Docker, prepares the deployment's user, and writes the settings and
-    /// the secrets it asks for (OPS-22). Run again, it changes them.
+    /// the secrets it asks for (OPS-19). Run again, it changes them.
     #[command(name = "server-setup")]
     ServerSetup {
         /// The server, as SSH names it.
@@ -251,7 +251,7 @@ enum Command {
         version: Option<String>,
     },
     /// Checks what a deploy of the release `version`, or of the latest release, to the
-    /// deployment at `host` needs, and changes nothing (OPS-22).
+    /// deployment at `host` needs, and changes nothing (OPS-19).
     #[command(name = "server-check")]
     ServerCheck {
         /// The server, as SSH names it, as the user that runs the deployment.
@@ -259,7 +259,7 @@ enum Command {
         /// The release's version, such as 1.4.0.
         version: Option<String>,
     },
-    /// Shows the last lines of the logs of the deployment's services at `host` (OPS-22).
+    /// Shows the last lines of the logs of the deployment's services at `host` (OPS-19).
     Logs {
         /// The server, as SSH names it.
         host: String,
@@ -269,35 +269,35 @@ enum Command {
         arguments: Vec<String>,
     },
     /// Warns of each setting of `.env.example` that `.env` lacks, or still sets to an earlier
-    /// value of the example's, which `just setup` and `just dev` run (OPS-19).
+    /// value of the example's, which `just setup` and `just dev` run (OPS-20).
     #[command(name = "env-drift")]
     EnvDrift,
     /// Measures one replica's capacity: the highest constant rate of requests it serves with
-    /// none failed and the 99th percentile within the latency objective (OPS-18).
+    /// none failed and the 99th percentile within the latency objective (OPS-16).
     #[command(name = "load-test")]
     LoadTest {
         /// The route: `capabilities`, `GET /v1/capabilities`, which a release's notes give, or
         /// `me`, `GET /v1/users/me` with a signed-in user's access token.
         // part: invitations
-        /// Or `streams`, which measures the replica's hub instead (OPS-18).
+        /// Or `streams`, which measures the replica's hub instead (OPS-16).
         // end part: invitations
         #[arg(default_value = "capabilities")]
         route: String,
     },
     /// Fills the cache of Docker Hub that Compose runs with the images the end-to-end tests'
-    /// servers pull, for `platform`, such as linux/amd64 (TEST-07).
+    /// servers pull, for `platform`, such as linux/amd64 (TEST-06).
     Mirror {
         /// The servers' platform.
         platform: String,
     },
     /// Prints an identifier of the files under `directory` as they stand in the working tree,
-    /// which an image built from them carries (OPS-16).
+    /// which an image built from them carries (OPS-14).
     Inputs {
         /// The directory, as a path from the repository root.
         directory: String,
     },
     /// Fails unless `version` can be a new release after the repository's release tags. CI runs
-    /// it before it releases a version (OPS-14).
+    /// it before it releases a version (OPS-12).
     #[command(name = "release-check")]
     ReleaseCheck {
         /// The version that `crates/app/Cargo.toml` sets.
@@ -478,7 +478,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_16_a_deploy_s_version_is_optional_and_its_option_stays_an_option() {
+    fn ops_14_a_deploy_s_version_is_optional_and_its_option_stays_an_option() {
         assert_eq!(deploy(&[]), Some((None, false)));
         assert_eq!(deploy(&["--allow-restart"]), Some((None, true)));
         assert_eq!(deploy(&["1.4.0"]), Some((Some("1.4.0".to_owned()), false)));
@@ -503,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_17_a_restore_s_moment_is_optional_and_its_option_stays_an_option() {
+    fn ops_15_a_restore_s_moment_is_optional_and_its_option_stays_an_option() {
         let moment = "2026-10-25 10:41:31+00";
         assert_eq!(restore(&[""]), Some((Some(String::new()), false)));
         assert_eq!(restore(&["--allow-unarchived"]), Some((None, true)));

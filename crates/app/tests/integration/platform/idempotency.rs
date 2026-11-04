@@ -31,7 +31,7 @@ async fn keyed(
 }
 
 #[tokio::test]
-async fn platform_018_a_retry_with_the_key_answers_the_first_result_and_runs_nothing() {
+async fn platform_036_a_retry_with_the_key_answers_the_first_result_and_runs_nothing() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let body = json!({ "value": "a" });
@@ -51,7 +51,7 @@ async fn platform_018_a_retry_with_the_key_answers_the_first_result_and_runs_not
 }
 
 #[tokio::test]
-async fn platform_018_the_key_with_another_request_answers_422() {
+async fn platform_036_the_key_with_another_request_answers_422() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     keyed(&api, &ada, &json!({ "value": "a" }), Some("\"k-1\"")).await;
@@ -63,7 +63,7 @@ async fn platform_018_the_key_with_another_request_answers_422() {
 }
 
 #[tokio::test]
-async fn platform_018_a_key_whose_first_request_hasn_t_committed_answers_409_then_runs() {
+async fn platform_036_a_key_whose_first_request_hasn_t_committed_answers_409_then_runs() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
@@ -90,7 +90,7 @@ async fn platform_018_a_key_whose_first_request_hasn_t_committed_answers_409_the
 }
 
 #[tokio::test]
-async fn platform_018_an_operation_that_rolled_back_leaves_no_record_so_its_retry_runs() {
+async fn platform_036_an_operation_that_rolled_back_leaves_no_record_so_its_retry_runs() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
 
@@ -119,7 +119,7 @@ async fn platform_018_an_operation_that_rolled_back_leaves_no_record_so_its_retr
 }
 
 #[tokio::test]
-async fn platform_018_a_record_older_than_24_hours_counts_as_absent() {
+async fn platform_036_a_record_older_than_24_hours_counts_as_absent() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     keyed(&api, &ada, &json!({ "value": "a" }), Some("\"k-1\"")).await;
@@ -134,7 +134,7 @@ async fn platform_018_a_record_older_than_24_hours_counts_as_absent() {
 }
 
 #[tokio::test]
-async fn platform_058_a_malformed_key_answers_400_and_keys_are_per_user() {
+async fn platform_037_a_malformed_key_answers_400_and_keys_are_per_user() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
@@ -154,7 +154,7 @@ async fn platform_058_a_malformed_key_answers_400_and_keys_are_per_user() {
 }
 
 #[tokio::test]
-async fn platform_015_a_published_event_exists_only_if_its_unit_of_work_commits() {
+async fn platform_026_a_published_event_exists_only_if_its_unit_of_work_commits() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
 

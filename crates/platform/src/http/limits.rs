@@ -1,5 +1,5 @@
 //! The IP limit every request but the health probes passes, before authentication, and the
-//! rate-limit headers of every response the limits counted (PLATFORM-048, PLATFORM-050).
+//! rate-limit headers of every response the limits counted (PLATFORM-054, PLATFORM-056).
 
 use std::{sync::Arc, time::Duration};
 
@@ -130,7 +130,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn platform_050_retry_after_rounds_up() {
+    fn platform_056_retry_after_rounds_up() {
         assert_eq!(seconds(Duration::from_millis(1)), 1);
         assert_eq!(seconds(Duration::from_secs(41)), 41);
         assert_eq!(seconds(Duration::from_millis(41_200)), 42);

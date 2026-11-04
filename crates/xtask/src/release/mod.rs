@@ -1,6 +1,6 @@
 //! `release`, which `just release <version>` runs: it sets the app's version on `main`, commits it
 //! as the request to release it, and pushes it. The run on `main` that passes with that version
-//! releases it (OPS-14). Without a version, it shows the versions that can come next.
+//! releases it (OPS-12). Without a version, it shows the versions that can come next.
 //! `release-check`, which that run calls first, fails on a version that can't be released.
 //!
 //! The decisions are pure functions of what git reports, so tests cover them without a
@@ -440,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_a_version_is_x_y_z_or_a_numbered_prerelease() {
+    fn ops_12_a_version_is_x_y_z_or_a_numbered_prerelease() {
         assert_eq!(v("1.4.0").to_string(), "1.4.0");
         assert_eq!(v("v1.4.0-rc.2").to_string(), "1.4.0-rc.2");
         for invalid in [
@@ -457,7 +457,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_a_prerelease_comes_before_its_release() {
+    fn ops_12_a_prerelease_comes_before_its_release() {
         let mut versions = [v("1.0.0"), v("1.0.0-rc.10"), v("0.9.9"), v("1.0.0-rc.2")];
         versions.sort();
         let sorted: Vec<String> = versions.iter().map(ToString::to_string).collect();
@@ -466,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_a_release_starts_only_from_a_clean_main_that_holds_github_s_commits() {
+    fn ops_12_a_release_starts_only_from_a_clean_main_that_holds_github_s_commits() {
         type Change = fn(&mut State);
         let cases: [(Change, &str); 3] = [
             (
@@ -491,7 +491,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_commits_that_github_lacks_go_out_with_the_release_in_one_run() {
+    fn ops_12_commits_that_github_lacks_go_out_with_the_release_in_one_run() {
         let state = State {
             ahead: 2,
             ..ready()
@@ -501,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_the_refusal_names_each_file_that_isn_t_committed() {
+    fn ops_12_the_refusal_names_each_file_that_isn_t_committed() {
         assert_eq!(
             changed_files(" M README.md\nM  justfile\n?? notes.txt"),
             ["README.md", "justfile", "notes.txt"]
@@ -509,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_a_version_released_or_below_the_latest_is_refused_with_the_next_ones() {
+    fn ops_12_a_version_released_or_below_the_latest_is_refused_with_the_next_ones() {
         for requested in ["1.1.0", "1.0.5", "1.1.0-rc.1"] {
             let refused = refusal(&ready(), v(requested)).unwrap();
 
@@ -523,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_after_a_prerelease_the_next_patch_is_its_release() {
+    fn ops_12_after_a_prerelease_the_next_patch_is_its_release() {
         let refused = version_refusal(&[v("2.0.0-rc.1")], v("1.9.0")).unwrap();
 
         assert!(refused.contains("`just release 2.0.0`"), "{refused}");
@@ -532,7 +532,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_a_release_needs_a_change_since_the_latest() {
+    fn ops_12_a_release_needs_a_change_since_the_latest() {
         let state = State {
             commits_since_latest: Some(0),
             ..ready()
@@ -545,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_a_version_waiting_for_its_run_is_not_asked_for_again() {
+    fn ops_12_a_version_waiting_for_its_run_is_not_asked_for_again() {
         let state = State {
             current: v("1.2.0"),
             pending: true,
@@ -559,7 +559,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_a_version_that_no_release_commit_asked_for_can_be_released() {
+    fn ops_12_a_version_that_no_release_commit_asked_for_can_be_released() {
         // A repository made from the template holds the template's version, and none of its tags.
         let state = State {
             releases: Vec::new(),
@@ -574,7 +574,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_a_request_merged_through_a_pull_request_still_asks_for_its_release() {
+    fn ops_12_a_request_merged_through_a_pull_request_still_asks_for_its_release() {
         let version = v("1.4.0");
 
         assert!(asks_for("Release 1.4.0", version));
@@ -591,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_without_a_version_the_task_shows_the_versions_that_can_come_next() {
+    fn ops_12_without_a_version_the_task_shows_the_versions_that_can_come_next() {
         let after_a_release = overview(&ready());
         let after_a_prerelease = overview(&State {
             releases: vec![v("1.2.0-rc.3")],
@@ -614,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_without_a_version_the_task_shows_what_waits_and_when_nothing_changed() {
+    fn ops_12_without_a_version_the_task_shows_what_waits_and_when_nothing_changed() {
         let unchanged = State {
             commits_since_latest: Some(0),
             ..ready()
@@ -644,7 +644,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_the_first_release_can_be_any_version() {
+    fn ops_12_the_first_release_can_be_any_version() {
         let state = State {
             releases: Vec::new(),
             current: v("0.1.0"),
@@ -656,7 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_14_the_version_changes_in_the_manifest_the_lock_file_and_openapi_json() {
+    fn ops_12_the_version_changes_in_the_manifest_the_lock_file_and_openapi_json() {
         let (old, new) = (v("0.1.0"), v("1.0.0"));
         let manifest = "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition.workspace = true\n";
         let lock = "[[package]]\nname = \"ahash\"\nversion = \"0.1.0\"\n\n[[package]]\nname = \"app\"\nversion = \"0.1.0\"\n";

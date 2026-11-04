@@ -1,4 +1,4 @@
-//! A stand-in for the OpenTelemetry Collector (TEST-05): an OTLP/HTTP receiver on a free port of
+//! A stand-in for the OpenTelemetry Collector (TEST-04): an OTLP/HTTP receiver on a free port of
 //! 127.0.0.1 that keeps every request it receives, decoded. It runs on the async runtime that
 //! starts it, and stops when it is dropped.
 

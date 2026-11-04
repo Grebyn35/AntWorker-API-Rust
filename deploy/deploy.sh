@@ -1,8 +1,8 @@
 #!/bin/sh
 # The reference deployment's tasks on its server (D45): deploys a release with no downtime
-# (OPS-16), and with a managed backend, imports its dashboards and alert rules into the backend's
+# (OPS-14), and with a managed backend, imports its dashboards and alert rules into the backend's
 # Grafana through import-grafana.sh (D42), takes and restores the bundled database's backups
-# (OPS-17), and shows the deployment's state and its services' logs (OPS-22). `just deploy`,
+# (OPS-15), and shows the deployment's state and its services' logs (OPS-19). `just deploy`,
 # `just backup`, `just restore`, `just status` and `just logs` run it over SSH from a developer's
 # machine; docs/operations/deploy.md describes the deployment. Each task's code is a file of
 # tasks/, which this script sources.
@@ -62,7 +62,7 @@ deployment=$(cd "$DEPLOYMENT" && pwd)
 state=$deployment/state
 project=deployment
 
-# Each task's code, a file of tasks/ that shares this script's variables (CODE-07).
+# Each task's code, a file of tasks/ that shares this script's variables (CODE-08).
 . "$here/tasks/common.sh"
 . "$here/tasks/apply.sh"
 . "$here/tasks/backups.sh"

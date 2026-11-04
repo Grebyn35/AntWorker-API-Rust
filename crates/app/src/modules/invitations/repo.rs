@@ -1,6 +1,6 @@
 //! The SQL of `invitations` (ARCH-10), but the expiry sweep's, which `jobs.rs` holds. A
 //! workspace's invitations are filtered by the workspace from the proof, and an invitee's by the
-//! caller's address (DATA-22).
+//! caller's address (DATA-16).
 
 use platform::{
     db::UnitOfWork,
@@ -107,7 +107,7 @@ pub(super) async fn workspace_ids(
 }
 
 /// The invitation `id`, if it is addressed to `email`, locked until the unit of work ends, so two
-/// acceptances of it take turns (DATA-25), with whether it expired, by the database's clock.
+/// acceptances of it take turns (DATA-20), with whether it expired, by the database's clock.
 pub(super) async fn find(
     uow: &mut UnitOfWork,
     id: uuid::Uuid,

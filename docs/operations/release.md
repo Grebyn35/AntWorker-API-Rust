@@ -12,7 +12,7 @@ Each run of CI on `main` that passes publishes its commit: the commit's images g
   - the major version, as from 1.5.0 to 2.0.0, for a change that makes a fork, a client or a deployment change something to upgrade, such as a setting that is removed.
 - **A prerelease**, such as 1.5.0-rc.1, is a release to try before the final release of its number. It comes before 1.5.0, and the next prerelease of the same number is 1.5.0-rc.2. Only a final release fixes the API's contract and migrations ([architecture.md](../architecture.md#11-glossary)).
 - **A tag** is a name that git gives one commit for good. The release of 1.4.0 tags its commit `v1.4.0`, so anyone can find exactly the code of that release. CI creates the tag; nobody runs git's tag commands.
-- **The release's images** are the images CI tested for that commit, which the registry then also tags `1.4.0`, signed: the API's, and the reference deployment's Postgres. Nothing is rebuilt (OPS-14).
+- **The release's images** are the images CI tested for that commit, which the registry then also tags `1.4.0`, signed: the API's, and the reference deployment's Postgres. Nothing is rebuilt (OPS-12).
 
 ## When to release
 
@@ -20,7 +20,7 @@ Release when `main` holds changes you want deployed. Release a fix as soon as it
 
 ## Before you release
 
-Measure what one replica of the release serves, since a release that serves less needs more replicas (OPS-18). On your machine, with `main` checked out:
+Measure what one replica of the release serves, since a release that serves less needs more replicas (OPS-16). On your machine, with `main` checked out:
 
 ```
 just image
@@ -71,14 +71,14 @@ The tag comes last, so a version that has a tag is released completely, with its
 
 ## The images
 
-The API's image holds the API's binary, built static against musl for linux/amd64 and linux/arm64, on distroless's static base, which holds the operating system's certificate store, time zone data and the unprivileged user 65532, and no shell, package manager or C library (OPS-15).
+The API's image holds the API's binary, built static against musl for linux/amd64 and linux/arm64, on distroless's static base, which holds the operating system's certificate store, time zone data and the unprivileged user 65532, and no shell, package manager or C library (OPS-13).
 - Its entry point is the binary, and its default command is `serve`. Every other subcommand runs from the same image, such as `docker run <image> migrate`, with the settings that `.env.example` lists in its environment.
 - Only `openapi` writes a file, the one it is given, so the image runs with a read-only root filesystem, and `openapi` writes to a mounted directory.
-- Its health check runs the `health` subcommand, which succeeds only while `serve` answers 200 on `/health/ready` at `LISTEN_ADDR` (PLATFORM-044). While the instance starts, checks run often and their failures don't count, so it is healthy soon after it is ready; after that, a few failures in a row make it unhealthy. The `HEALTHCHECK` in the Dockerfile sets the intervals and the counts.
+- Its health check runs the `health` subcommand, which succeeds only while `serve` answers 200 on `/health/ready` at `LISTEN_ADDR` (PLATFORM-063). While the instance starts, checks run often and their failures don't count, so it is healthy soon after it is ready; after that, a few failures in a row make it unhealthy. The `HEALTHCHECK` in the Dockerfile sets the intervals and the counts.
 - Its labels name the app's version, as `org.opencontainers.image.version`, and the commit it was built from, as `org.opencontainers.image.revision`.
 - Its image index holds a software bill of materials (SBOM) for each platform, in the format of the Software Package Data Exchange (SPDX), which lists the base's packages and the crates the binary records. It also holds the provenance of each platform's image, in the format of Supply-chain Levels for Software Artifacts (SLSA), which records how BuildKit built it.
 
-The reference deployment's Postgres image is the official Postgres image, pinned by digest, with pgBackRest at an exact version, which archives the write-ahead log and takes the backups (D44, OPS-17). It carries the same labels as the API's image, and `build.inputs`, an identifier of the files it is built from, so a deploy restarts Postgres only when a release brings an image built from other files (OPS-16). Its index holds the same SBOM and provenance.
+The reference deployment's Postgres image is the official Postgres image, pinned by digest, with pgBackRest at an exact version, which archives the write-ahead log and takes the backups (D44, OPS-15). It carries the same labels as the API's image, and `build.inputs`, an identifier of the files it is built from, so a deploy restarts Postgres only when a release brings an image built from other files (OPS-14). Its index holds the same SBOM and provenance.
 
 `just image` builds both, into `target/image` and `target/image-postgres`, `just image-scan` scans them, and `just e2e` runs the end-to-end tests against them.
 

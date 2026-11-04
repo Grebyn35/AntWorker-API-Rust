@@ -1,4 +1,4 @@
-//! A request's query parameters, parsed into the type that documents them (API-09, PLATFORM-035).
+//! A request's query parameters, parsed into the type that documents them (API-09, PLATFORM-045).
 
 use axum::{
     extract::{FromRequestParts, MatchedPath},
@@ -18,7 +18,7 @@ pub(crate) fn parameter_pointer(name: &str) -> String {
 /// the type whose `#[into_params(parameter_in = Query)]` documents the route's parameters, with
 /// `#[serde(deny_unknown_fields)]`, and each field an `Option<String>`, which the route reads into
 /// domain types. The route group has already refused a name its documentation doesn't list
-/// (PLATFORM-035). A name given more than once keeps its last value.
+/// (PLATFORM-045). A name given more than once keeps its last value.
 #[derive(Debug)]
 pub struct Query<T> {
     params: T,

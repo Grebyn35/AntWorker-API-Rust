@@ -32,7 +32,7 @@ use crate::modules::{
 
 /// Creates a workspace that the caller owns, in a unit of work of its own, which claims `key`
 /// first, so a retry with the same key and request answers the same workspace (WORKSPACES-001,
-/// PLATFORM-018).
+/// PLATFORM-036).
 pub(crate) async fn create(
     database: &Database,
     client: &Client,
@@ -128,7 +128,7 @@ pub(crate) async fn list(
 
 // part: invitations
 /// The names of the workspaces `ids` names, which came from a query filtered by tenant, such as
-/// an invitee's invitations (DATA-22).
+/// an invitee's invitations (DATA-16).
 pub(crate) async fn names(
     uow: &mut UnitOfWork,
     ids: &[WorkspaceId],

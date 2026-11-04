@@ -84,7 +84,7 @@ pub struct Listener {
 pub struct ListenError(String);
 
 /// Opens the listener on `database`, outside its pool, and listens there for what commits, within
-/// a check's timeout on `clock` (OPS-21); then reads the last position given, so every event that
+/// a check's timeout on `clock` (OPS-18); then reads the last position given, so every event that
 /// commits from then on is one the hub loads.
 pub async fn listen(database: &Database, clock: &dyn Clock) -> Result<Listener, ListenError> {
     let mut listener = database.listener(CHANNELS);
@@ -134,7 +134,7 @@ impl Hub {
     }
 
     /// Opens `principal`'s stream, which resumes after the event `last_event_id` names, or,
-    /// without one, starts with what commits next (PLATFORM-071, REALTIME-004).
+    /// without one, starts with what commits next (PLATFORM-028, REALTIME-004).
     pub async fn subscribe(
         &self,
         principal: &Principal,
@@ -154,7 +154,7 @@ impl Hub {
         };
         // Registered first, so a signal for the caller from now on reaches the stream; then the
         // snapshot, and the memberships, read after it, so they hold every change whose
-        // transaction it holds, and the hub closes the stream for any other (PLATFORM-017). No
+        // transaction it holds, and the hub closes the stream for any other (PLATFORM-031). No
         // pooled connection is held while the hub answers, since the hub's own reads may wait for
         // one.
         let mut uow = self.database.unattributed().await?;

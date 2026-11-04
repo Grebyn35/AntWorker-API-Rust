@@ -590,7 +590,7 @@ mod tests {
     ];
 
     #[test]
-    fn ops_22_a_new_server_is_asked_for_what_the_bundled_database_and_its_stack_need() {
+    fn ops_19_a_new_server_is_asked_for_what_the_bundled_database_and_its_stack_need() {
         let state = State {
             user: "deploy".to_owned(),
             ..State::default()
@@ -658,7 +658,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_22_a_server_that_was_set_up_keeps_what_each_empty_answer_leaves() {
+    fn ops_19_a_server_that_was_set_up_keeps_what_each_empty_answer_leaves() {
         let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
                     API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=off\n\
                     FORK_SETTING=kept\n";
@@ -703,7 +703,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_22_email_through_a_mail_server_with_a_user_name_is_asked_for_its_password() {
+    fn ops_19_email_through_a_mail_server_with_a_user_name_is_asked_for_its_password() {
         let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
                     API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=smtp\n\
                     SMTP_HOST=smtp.example.com\nSMTP_USERNAME=api\n\
@@ -742,7 +742,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_22_the_self_hosted_stack_is_asked_for_each_credential_its_alert_integrations_read() {
+    fn ops_19_the_self_hosted_stack_is_asked_for_each_credential_its_alert_integrations_read() {
         let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
                     API_ADDRESS=api.example.com\nGRAFANA_ADDRESS=grafana.example.com\n\
                     DATABASE=managed\nTELEMETRY=self-hosted\nEMAIL=off\n";
@@ -789,7 +789,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_22_a_choice_that_isn_t_listed_and_an_empty_required_setting_are_asked_again() {
+    fn ops_19_a_choice_that_isn_t_listed_and_an_empty_required_setting_are_asked_again() {
         let state = State {
             user: "deploy".to_owned(),
             ..State::default()
@@ -829,7 +829,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_22_the_server_is_sent_each_value_in_base64_on_a_line_of_its_own() {
+    fn ops_19_the_server_is_sent_each_value_in_base64_on_a_line_of_its_own() {
         let setup = Setup {
             settings: "API_ADDRESS=api.example.com\n".to_owned(),
             secrets: vec![("backup_s3_key".to_owned(), "a b\nc".to_owned())],
@@ -858,7 +858,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_22_the_registry_and_the_defaults_come_from_the_repository_s_names() {
+    fn ops_19_the_registry_and_the_defaults_come_from_the_repository_s_names() {
         assert_eq!(registry_of("ghcr.io/owner/name"), "ghcr.io");
         assert_eq!(registry_of("registry:5000/image"), "registry:5000");
         assert_eq!(registry_of("owner/name"), "docker.io");

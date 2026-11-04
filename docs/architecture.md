@@ -41,8 +41,8 @@ flowchart LR
 ```
 Cargo.toml          workspace manifest
 justfile            every task, run identically locally and in CI (D21), with its settings and variables
-just/               the tasks the justfile imports, a file for each group that `just` lists (CODE-07)
-Dockerfile          the image (OPS-15)
+just/               the tasks the justfile imports, a file for each group that `just` lists (CODE-08)
+Dockerfile          the image (OPS-13)
 compose.yaml        the services a developer runs locally, and the images of the tools the tasks run
 crates/
   platform/         shared mechanisms, no product knowledge
@@ -67,9 +67,9 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | Area | What it provides | Decisions |
 |---|---|---|
 | `config` | Typed configuration loaded once at startup. Values are trimmed, empty means unset, `*_FILE` secret files are supported, and every failure is reported in one format. | D9, D26 |
-| `db` | One connection pool, the listener beside it, the unit of work, and the `bootstrap` and `migrate` tasks. A unit of work is one transaction, opened by the service, or with `Authorized<P>` on a workspace route, with a writer for jobs and events, and the claim of an idempotency key, whose record commits with it. Every query in it filters by tenant itself (DATA-22). | D1, D4, D12, D20, D24 |
+| `db` | One connection pool, the listener beside it, the unit of work, and the `bootstrap` and `migrate` tasks. A unit of work is one transaction, opened by the service, or with `Authorized<P>` on a workspace route, with a writer for jobs and events, and the claim of an idempotency key, whose record commits with it. Every query in it filters by tenant itself (DATA-16). | D1, D4, D12, D20, D24 |
 | `jobs` | A durable job queue with retry, backoff and dead letters, which every instance's dispatcher polls, plus a scheduler that runs each periodic job once per interval across the fleet. A job records the user or workspace it was enqueued for, and its handler filters by them. | D1, D13 |
-| `events` | The event log and the real-time hub. A unit of work publishes events, which take their positions in the log in the order their units of work commit. The hub listens on the listener, and loads each new event once and delivers it to the streams allowed to receive it (SEC-17). It also replays what a reconnecting stream missed, closes streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). | D1, D5, D20 |
+| `events` | The event log and the real-time hub. A unit of work publishes events, which take their positions in the log in the order their units of work commit. The hub listens on the listener, and loads each new event once and delivers it to the streams allowed to receive it (SEC-19). It also replays what a reconnecting stream missed, closes streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). | D1, D5, D20 |
 | `rate_limit` | The buckets that count requests in windows, in the database every replica shares: the IP and user limits that the request pipeline applies, and the per-action limits a module checks, such as sign-in's. | D11 |
 | `http` | The route builders and the OpenAPI document they produce, the middleware stack with trace context, timeouts, load shedding, cross-origin resource sharing (CORS) and the protection against cross-site request forgery (CSRF), extractors (JSON, a keyed route's JSON with its `Idempotency-Key`, path, query), and rate limiting. | D8, D10, D11, D12, D20, D61 |
 | `authn` | Reads a request's access token from the Bearer header, for clients that set their own headers, such as the desktop client, or otherwise from an `HttpOnly` cookie, for browsers. It verifies the token through the `SessionVerifier` that `auth` implements, producing a `Principal`. | D18, D61 |
@@ -80,7 +80,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `telemetry` | The logging and tracing setup, the export of spans, logs and metrics over the OpenTelemetry Protocol (OTLP), the list of telemetry names, and the metric declarations. | D10, D19 |
 | `storage` | An object storage client. | D1, D14 |
 | `mail` | Sending email: `Mail` enqueues a module's rendered email in a unit of work, and the job `platform.send_email` sends it through the SMTP transport, which the email settings configure, with a client span for each send. Each module's emails, and their templates, live in the module (§5). | D1, D9 |
-| `outbound` | The only HTTP clients: one for URLs from configuration, and one for URLs supplied by third parties, with protection against server-side request forgery (SSRF) (SEC-09). | D26 |
+| `outbound` | The only HTTP clients: one for URLs from configuration, and one for URLs supplied by third parties, with protection against server-side request forgery (SSRF) (SEC-10). | D26 |
 | `types` | Shared domain types: `Secret`, `EmailAddress`, the ID types. | D7, D25 |
 | `clock`, `random` | The injectable clock and the operating system's secure random source (CODE-06). | D23, D26 |
 | `hashing` | The hashes that stand in for secrets in the database: SHA-256 of a token, and a hash-based message authentication code (HMAC) with SHA-256, under `HMAC_KEY`, of a value short or common enough to guess, such as an email (SEC-03). | D26, D32 |
@@ -96,7 +96,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 crates/app/
   src/
     main.rs            the subcommands (§9)
-    lib.rs             the crate root: makes public only the composition root's entry points (CODE-14)
+    lib.rs             the crate root: makes public only the composition root's entry points (CODE-15)
     composition.rs     the composition root: builds every service once at startup and mounts every module's routes
     modules/           one directory per module (§5)
   templates/           each module's email templates, in a directory named after the module
@@ -151,7 +151,7 @@ A superadmin who creates a workspace becomes its owner, as a user who creates on
 They set it up and invite its people first. <!-- part: invitations -->
 They see its content as a member, never as a superadmin.
 How each part creates a workspace is in the [workspaces spec](spec/workspaces.md#creating-a-workspace).
-In every shape, the same authorization and the same tenancy checks guard the data (DATA-22, TEST-09).
+In every shape, the same authorization and the same tenancy checks guard the data (DATA-16, TEST-08).
 
 ### Dependencies
 
@@ -208,7 +208,7 @@ The layers have strict jobs (ARCH-08 to ARCH-10):
 - **Services** contain no HTTP types.
 - **Repositories** contain no rules.
 
-A module that outgrows a file splits it into a directory with the same name, such as `service/` (ARCH-03, CODE-07).
+A module that outgrows a file splits it into a directory with the same name, such as `service/` (ARCH-03, CODE-08).
 
 A trait that abstracts a dependency either inverts a dependency the crate or module graph forbids, as the four traits above do, or covers an external system with more than one implementation, such as object storage, email transport or the clock (ARCH-13). Nothing gets a trait just so it can be mocked, because tests run against the real database (D23).
 
@@ -235,12 +235,12 @@ sequenceDiagram
 ```
 
 1. **Caddy** terminates TLS, opens the request's trace, and forwards the request to a replica whose readiness check passes. While none passes, Caddy answers itself, with the 503 problem `request.unavailable` (OPS-05, D53).
-2. **Platform middleware**, outermost first. The security headers wrap every response (SEC-11). The health probes are answered inside them, before the rest of the stack (OPS-05):
+2. **Platform middleware**, outermost first. The security headers wrap every response (SEC-12). The health probes are answered inside them, before the rest of the stack (OPS-05):
    - the security headers
    - trace context: the request's server span, and the trace-ID response header (D10)
    - the request log: one line when the request completes, and the error line of a 5xx (OBS-03, ERR-10)
    - panic catching (ERR-12)
-   - the client: its IP, from the trusted proxies' header, and its user agent (PLATFORM-047)
+   - the client: its IP, from the trusted proxies' header, and its user agent (PLATFORM-053)
    - CORS for the listed web origins (D61)
    - concurrency limit with load shedding (D20)
    - pre-authentication IP rate limit (D11)
@@ -266,10 +266,10 @@ Nothing runs after the response except background work driven by committed rows.
 - **Database roles:**
   - `owner` runs migrations and owns the tables. It is never used at runtime.
   - `app` serves every request and runs every job. It can read and change data, but not the schema, and it is never a superuser (DATA-12, DATA-13).
-- **Tenancy is enforced by the application (D4).** There is no row-level security. Every query on tenant data filters by tenant itself (DATA-22): workspace data by the workspace ID from `Authorized<P>` or a job's recorded scope, and user data by the caller's ID. Three things keep that true:
+- **Tenancy is enforced by the application (D4).** There is no row-level security. Every query on tenant data filters by tenant itself (DATA-16): workspace data by the workspace ID from `Authorized<P>` or a job's recorded scope, and user data by the caller's ID. Three things keep that true:
   - Repository functions for workspace data take the workspace ID as a parameter.
-  - A CI check fails any query on a workspace table that doesn't filter by `workspace_id`, or by `user_id` on a table that also has one (DATA-22).
-  - A generated test sends every workspace route an ID from another workspace the caller belongs to (TEST-09).
+  - A CI check fails any query on a workspace table that doesn't filter by `workspace_id`, or by `user_id` on a table that also has one (DATA-16).
+  - A generated test sends every workspace route an ID from another workspace the caller belongs to (TEST-08).
 - **No business logic lives in SQL**, and there are no stored procedures or `SECURITY DEFINER` functions (DATA-07).
 - **What the role can't protect against.** A compromised API process can read and change anything `app` can. The defenses for that case are:
   - The database is not reachable from outside the private network.
@@ -304,26 +304,26 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 ## 9. Runtime topology
 
 - **The binary** has these subcommands:
-  - `bootstrap` creates the database roles and their grants, with an administrator connection. Running it again keeps the roles and grants, and sets each role's password to the one in its URL (PLATFORM-010).
+  - `bootstrap` creates the database roles and their grants, with an administrator connection. Running it again keeps the roles and grants, and sets each role's password to the one in its URL (PLATFORM-002).
   - `serve` binds one HTTP port and runs the HTTP server, the real-time hub, the job dispatcher and the scheduler.
   - `migrate` is the one-shot migration step.
   - `seed` fills a development database with demo accounts and workspaces, through the API's own routes, as a client would, and refuses in any other environment ([system spec](spec/system.md#seed)).
   - The setup subcommand creates a workspace and its owner's account, each time an operator runs it, in a fork that keeps it (§5, "Workspace shapes").
   - The superadmin subcommand adds an account to the superadmins or removes it, in a fork that keeps `superadmins` (D62). `just` runs it, on a deployment's server over Secure Shell (SSH), so only someone who can reach the server can change who is a superadmin.
   - `openapi` writes the contract, `openapi.json`, which a test compares with the committed one (API-17).
-  - `health` asks the instance whether it is ready, for the image's health check (PLATFORM-044).
+  - `health` asks the instance whether it is ready, for the image's health check (PLATFORM-063).
 - **The single-host reference deployment** runs on one Linux server, in Docker Compose (D15, D20, D45):
-  - Caddy terminates TLS for the API's address and Grafana's, with certificates it obtains through the Automatic Certificate Management Environment (ACME), and sets HTTP Strict Transport Security (HSTS) (SEC-11). It sets `X-Forwarded-For` from the connection, or keeps the one a configured trusted proxy sends, such as a content delivery network in front of the server (SEC-12). It balances requests across the replicas its own health checks find ready (OPS-05).
+  - Caddy terminates TLS for the API's address and Grafana's, with certificates it obtains through the Automatic Certificate Management Environment (ACME), and sets HTTP Strict Transport Security (HSTS) (SEC-12). It sets `X-Forwarded-For` from the connection, or keeps the one a configured trusted proxy sends, such as a content delivery network in front of the server (SEC-13). It balances requests across the replicas its own health checks find ready (OPS-05).
   - The API runs in two colors, blue and green, of N replicas each, every replica with the deployment's limits on CPU and memory. Caddy names every replica of both colors and checks each one's readiness, so a replica that isn't running fails its check and gets no request. Between deploys, one color runs.
-  - The bundled Postgres runs from an image that the pipeline builds beside the API's: the official image with pgBackRest (D44). Only the deployment's private network reaches it. It archives its write-ahead log continuously, and takes scheduled base backups, encrypted, to an S3-compatible bucket off the server (OPS-17).
+  - The bundled Postgres runs from an image that the pipeline builds beside the API's: the official image with pgBackRest (D44). Only the deployment's private network reaches it. It archives its write-ahead log continuously, and takes scheduled base backups, encrypted, to an S3-compatible bucket off the server (OPS-15).
   - Telemetry goes where D42 says, below.
-  - Each service the API depends on is bundled or a provider's, and one setting of the deployment chooses which, with no file to edit: the deployment then runs only the services that choice needs, and the API's settings change only in the addresses and credentials they hold. The database is the bundled Postgres, or a managed one, whose provider then gives the point-in-time recovery (OPS-17). Telemetry goes to the self-hosted stack or to a managed backend (D42). Object storage for files joins the deployment with the `files` module (step 5), which offers the same choice; any S3-compatible provider serves it. The backup bucket is always a provider's, since a backup on the server it protects doesn't survive losing that server.
-- **A deploy** takes a release by its version, the latest release's unless the developer names one. `just deploy`, on a developer's machine, refuses a version that no release has, with a pointer to [release.md](operations/release.md), so a developer who deploys learns there that a release comes first. It verifies the release's images as `verify-release` does, and gives the server only what the release published: the images, which the server pulls by digest, and the deployment's files from the release's tag, never a checkout of the repository. On the server, the deploy runs `bootstrap` and `migrate`, starts the idle color, waits until Caddy finds every new replica ready, then stops the live color, whose replicas drain (OPS-06), and removes what earlier deploys left and nothing uses: the other releases' files, and their images but the previous release's API image, which stays for a rollback, so the server's disk doesn't fill with them, while every container's log is capped (D57). A new replica that doesn't become ready rolls the deploy back: the deploy removes the idle color, and the live one never stopped (OPS-16). Migrations follow expand and contract, so both colors work during the switch (DATA-10). Postgres and Caddy each run once, so restarting one interrupts requests for a few seconds, and a deploy restarts them only when the operator allows it. One deploy runs at a time, so two `bootstrap` runs never overlap.
+  - Each service the API depends on is bundled or a provider's, and one setting of the deployment chooses which, with no file to edit: the deployment then runs only the services that choice needs, and the API's settings change only in the addresses and credentials they hold. The database is the bundled Postgres, or a managed one, whose provider then gives the point-in-time recovery (OPS-15). Telemetry goes to the self-hosted stack or to a managed backend (D42). Object storage for files joins the deployment with the `files` module (step 5), which offers the same choice; any S3-compatible provider serves it. The backup bucket is always a provider's, since a backup on the server it protects doesn't survive losing that server.
+- **A deploy** takes a release by its version, the latest release's unless the developer names one. `just deploy`, on a developer's machine, refuses a version that no release has, with a pointer to [release.md](operations/release.md), so a developer who deploys learns there that a release comes first. It verifies the release's images as `verify-release` does, and gives the server only what the release published: the images, which the server pulls by digest, and the deployment's files from the release's tag, never a checkout of the repository. On the server, the deploy runs `bootstrap` and `migrate`, starts the idle color, waits until Caddy finds every new replica ready, then stops the live color, whose replicas drain (OPS-06), and removes what earlier deploys left and nothing uses: the other releases' files, and their images but the previous release's API image, which stays for a rollback, so the server's disk doesn't fill with them, while every container's log is capped (D57). A new replica that doesn't become ready rolls the deploy back: the deploy removes the idle color, and the live one never stopped (OPS-14). Migrations follow expand and contract, so both colors work during the switch (DATA-10). Postgres and Caddy each run once, so restarting one interrupts requests for a few seconds, and a deploy restarts them only when the operator allows it. One deploy runs at a time, so two `bootstrap` runs never overlap.
 - **Telemetry in a deployment** goes to one of two places (D42):
   - The self-hosted stack, the default. Grafana answers on an HTTPS address of its own behind Caddy, and every viewer signs in; nobody views it anonymously.
   - A managed backend that accepts OTLP, such as Grafana Cloud, instead of Prometheus, Loki, Tempo, Grafana and Alertmanager. The collector still runs beside the API, keeps its receivers and processors, tail sampling among them (OBS-08), and holds the backend's credentials. It exports to the backend, and does there what the stack's Prometheus does: it scrapes its own metrics, and turns resource attributes into labels. The API's configuration is the same. Grafana Cloud is the worked example, into which the dashboards and the rules are imported. With another vendor, the telemetry arrives the same way, and a fork rebuilds the dashboards and alerts in the vendor's tools.
-- **Scaling out** means adding replicas. An instance opens at most its pool's size plus the listener, and logs that number when it starts. While a deploy runs, both colors do, and a deploy refuses replicas whose connections wouldn't fit within Postgres's, as [deploy.md](operations/deploy.md#scaling) works out (OPS-21). The listener needs a direct connection, which rules out PgBouncer in transaction mode. Under load, each replica sheds requests with 503 and `Retry-After` instead of queuing without bound (D20).
-- **Multiple hosts.** The image and its environment contract don't depend on a platform. The operations docs state what any platform must provide: Postgres that the replicas share, with point-in-time recovery, on a server that holds no other deployment's database, readiness checks that stop traffic before an instance drains, a grace period longer than its shutdown, and TLS and encryption at rest (OPS-20).
+- **Scaling out** means adding replicas. An instance opens at most its pool's size plus the listener, and logs that number when it starts. While a deploy runs, both colors do, and a deploy refuses replicas whose connections wouldn't fit within Postgres's, as [deploy.md](operations/deploy.md#scaling) works out (OPS-18). The listener needs a direct connection, which rules out PgBouncer in transaction mode. Under load, each replica sheds requests with 503 and `Retry-After` instead of queuing without bound (D20).
+- **Multiple hosts.** The image and its environment contract don't depend on a platform. The operations docs state what any platform must provide: Postgres that the replicas share, with point-in-time recovery, on a server that holds no other deployment's database, readiness checks that stop traffic before an instance drains, a grace period longer than its shutdown, and TLS and encryption at rest (OPS-17).
 
 ## 10. Technology
 
@@ -340,25 +340,25 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | Logging | `tracing`, `tracing-subscriber`, with `json-subscriber` for JSON lines and `tracing-appender` for the logging thread | The ecosystem standard; `json-subscriber` puts the trace context and the service's fields at the top level of a line (OBS-02, OBS-05) |
 | Trace context | `opentelemetry`, `opentelemetry_sdk`, `tracing-opentelemetry` | The standard bridge from `tracing` spans to OpenTelemetry (D10, D19) |
 | Telemetry names | `opentelemetry-semantic-conventions` | The conventions' names, checked at compile time (OBS-05) |
-| Email | `lettre` over SMTP, with `rustls` on `ring`, and `askama` templates; Mailpit catches development email (D28) | Async SMTP with pooled connections and the system's certificates (SEC-14, D38); templates checked against their values at compile time, with HTML escaped ([platform spec](spec/platform.md#sending-email)) |
+| Email | `lettre` over SMTP, with `rustls` on `ring`, and `askama` templates; Mailpit catches development email (D28) | Async SMTP with pooled connections and the system's certificates (SEC-16, D38); templates checked against their values at compile time, with HTML escaped ([platform spec](spec/platform.md#sending-email)) |
 | Telemetry export | `opentelemetry-otlp` over HTTP with protobuf bodies, through a blocking `reqwest` client on `rustls` with its ring provider, and `opentelemetry-appender-tracing` for log records | The protocol's default transport; the client runs on a thread of its own, so an export never needs the async runtime (D10, D19) |
 | Observability stack | the OpenTelemetry Collector's contrib distribution, Prometheus, Loki, Tempo, Grafana and Alertmanager | D19's stack, configured once under `deploy/observability/` for development and production |
 | Auto-reload | watchexec | `just dev` restarts the API when its code changes, on Windows, macOS and Linux (D28) |
 | Password hashing | `argon2`, for the Argon2id that SEC-04 requires | The RustCrypto implementation, in pure Rust, which reads and writes the hashes in the string format of the Password Hashing Competition (PHC) (AUTH-014) |
 | Middleware | `tower`, `tower-http` | The concurrency limit, load shedding, timeouts, panic catching and headers that axum is built to use |
 | OpenAPI | `utoipa`, `utoipa-axum` | The document comes from the handlers' own annotations, and a route is registered with its documentation (API-14, API-17) |
-| API reference | Swagger UI, from the jsDelivr content delivery network, which the API serves in development only (D28) | The most widely used reference for OpenAPI documents, under Apache-2.0; on the API's own origin, its requests carry the session's cookies, and it needs no copy in the repository or the image (PLATFORM-075) |
+| API reference | Swagger UI, from the jsDelivr content delivery network, which the API serves in development only (D28) | The most widely used reference for OpenAPI documents, under Apache-2.0; on the API's own origin, its requests carry the session's cookies, and it needs no copy in the repository or the image (PLATFORM-052) |
 | Command line | `clap` | The binary's subcommands (ARCH-14) |
-| Container image | BuildKit, through `docker buildx`; zig, through cargo-zigbuild, which compiles both platforms' static binaries against musl on one machine; cargo-chef; cargo-auditable; distroless's static base (D43) | One build gives both platforms' images, the compiled dependencies stay cached, the scans and the software bill of materials (SBOM) see the binary's crates, and the base has no shell, package manager or C library (OPS-14, OPS-15) |
-| Allocator of the image's binary | `mimalloc`, for the musl targets only | Under musl's own allocator, a replica's memory grows with every request it serves, until the container's memory limit kills it; under mimalloc it stays flat (OPS-18) |
-| Reverse proxy and TLS | Caddy | It obtains and renews certificates through the ACME protocol on its own, and checks the replicas' readiness before it sends them requests (OPS-16, OPS-20) |
-| Deployment | Docker Compose on one server, set up by `deploy/server-setup.sh` and driven by `deploy/deploy.sh`, scripts for any shell of the Portable Operating System Interface (POSIX), which `just server-setup`, `just server-check`, `just deploy`, `just backup`, `just restore`, `just status` and `just logs` run over Secure Shell (SSH) from a developer's machine (OPS-22) | The server needs only Docker, which the setup installs; the release's files and its signed images are all a deploy takes, with no agent and no checkout on the server (D45, D51) |
-| Load testing | k6 | Constant-arrival-rate scenarios measure the rate a replica serves within the latency objective (OPS-18) |
+| Container image | BuildKit, through `docker buildx`; zig, through cargo-zigbuild, which compiles both platforms' static binaries against musl on one machine; cargo-chef; cargo-auditable; distroless's static base (D43) | One build gives both platforms' images, the compiled dependencies stay cached, the scans and the software bill of materials (SBOM) see the binary's crates, and the base has no shell, package manager or C library (OPS-12, OPS-13) |
+| Allocator of the image's binary | `mimalloc`, for the musl targets only | Under musl's own allocator, a replica's memory grows with every request it serves, until the container's memory limit kills it; under mimalloc it stays flat (OPS-16) |
+| Reverse proxy and TLS | Caddy | It obtains and renews certificates through the ACME protocol on its own, and checks the replicas' readiness before it sends them requests (OPS-14, OPS-17) |
+| Deployment | Docker Compose on one server, set up by `deploy/server-setup.sh` and driven by `deploy/deploy.sh`, scripts for any shell of the Portable Operating System Interface (POSIX), which `just server-setup`, `just server-check`, `just deploy`, `just backup`, `just restore`, `just status` and `just logs` run over Secure Shell (SSH) from a developer's machine (OPS-19) | The server needs only Docker, which the setup installs; the release's files and its signed images are all a deploy takes, with no agent and no checkout on the server (D45, D51) |
+| Load testing | k6 | Constant-arrival-rate scenarios measure the rate a replica serves within the latency objective (OPS-16) |
 | Backups | pgBackRest, in the reference deployment's image of the official Postgres | Continuous archiving of the write-ahead log, and point-in-time recovery from an S3-compatible bucket, encrypted, with retention (D44) |
-| Image scan | Grype | It reads both the base's packages and the crates the binary records (SEC-13) |
-| Shell linting | shellcheck | The standard linter for shell, run on the recipes of the justfile and the files it imports, and the deployment's scripts (CODE-16) |
-| Registry and signing | crane, and cosign with keyless signing | crane copies and tags an image without changing its digest, so promoting it never rewrites it (OPS-14) |
-| Dependency updates | Dependabot | It reads the crates, the actions, the images of both Dockerfiles and of every Compose file, and the toolchain, and needs no app installed (OPS-13) |
+| Image scan | Grype | It reads both the base's packages and the crates the binary records (SEC-15) |
+| Shell linting | shellcheck | The standard linter for shell, run on the recipes of the justfile and the files it imports, and the deployment's scripts (CODE-07) |
+| Registry and signing | crane, and cosign with keyless signing | crane copies and tags an image without changing its digest, so promoting it never rewrites it (OPS-12) |
+| Dependency updates | Dependabot | It reads the crates, the actions, the images of both Dockerfiles and of every Compose file, and the toolchain, and needs no app installed (OPS-11) |
 
 ### Starting points
 
@@ -377,7 +377,7 @@ Exact versions are pinned in `Cargo.toml`.
 
 ## 11. Glossary
 
-Each concept has one name, used the same way in code, SQL, the API and the docs (CODE-10).
+Each concept has one name, used the same way in code, SQL, the API and the docs (CODE-11).
 
 | Term | Meaning |
 |---|---|
@@ -402,17 +402,17 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Event | A record of a change, named `<resource>.<verb>`, such as `member.removed`, its name, which its frame's `event` carries (API-19), delivered to clients over SSE and replayable after a reconnect (D5). |
 | Stream | One client's open SSE connection. |
 | Frame type | What one frame of a stream is, which its `event` names: an event's name, or one of the frames the stream sends of its own, such as `stream.closed`; the event catalog documents each one (API-19, REALTIME-008). |
-| Listener | The instance's own connection to the database, outside its pool, on which the hub listens for what commits and readiness checks the database (OPS-05, OPS-21). |
-| Workers | The turns of an instance's CPU-heavy work, such as a password's hash: one per processor it may use, each held by one work at once, which `platform::blocking::Workers` hands out (PLATFORM-078). |
+| Listener | The instance's own connection to the database, outside its pool, on which the hub listens for what commits and readiness checks the database (OPS-05, OPS-18). |
+| Workers | The turns of an instance's CPU-heavy work, such as a password's hash: one per processor it may use, each held by one work at once, which `platform::blocking::Workers` hands out (PLATFORM-060). |
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |
 | File | Stored bytes plus metadata. A user file or a workspace file, each private or public. |
 | Personal data contract | A module's export and erasure of the personal data it stores (D31). |
-| Release | A version that `just release` asked for, which a run of CI on `main` then signed and tagged `v<version>` (OPS-14). A final release is `X.Y.Z`. A prerelease, `X.Y.Z-rc.N`, comes before the final release of the same number, and is a version to try: a final release fixes the HTTP contract, the error codes and the applied migrations (API-18, ERR-02, DATA-09), and a prerelease doesn't. |
+| Release | A version that `just release` asked for, which a run of CI on `main` then signed and tagged `v<version>` (OPS-12). A final release is `X.Y.Z`. A prerelease, `X.Y.Z-rc.N`, comes before the final release of the same number, and is a version to try: a final release fixes the HTTP contract, the error codes and the applied migrations (API-18, ERR-02, DATA-09), and a prerelease doesn't. |
 | Digest | The hash of an image's content, which names exactly that image. A tag can move to another image; a digest can't. |
 | Image index | The list in a registry that names one image's version for each platform, with each one's SBOM and provenance. A multi-platform image's digest is its index's. |
 | Capability | A feature that a deployment can turn off, which the capabilities endpoint lists with whether it is on (D9). |
 | Trace ID | The identifier, returned with every response except the health probes, that leads to a request's logs, and to its trace whenever the request ended in an error (D10). |
 | Personal data | In these documents: information that identifies a person directly, such as email addresses, names, avatars, IP addresses, user agents, file names and text a user writes. User and workspace IDs are pseudonymous. The General Data Protection Regulation (GDPR) still counts them as personal data, so export and erasure cover them (D31), but they may appear in telemetry and audit entries. |
-| Point-in-time recovery | A restore of a database as it stood at any moment its backups reach, from a base backup and the write-ahead log archived after it: what the reference deployment's bundled Postgres provides, and what it requires of a managed one (OPS-17). |
+| Point-in-time recovery | A restore of a database as it stood at any moment its backups reach, from a base backup and the write-ahead log archived after it: what the reference deployment's bundled Postgres provides, and what it requires of a managed one (OPS-15). |
 
-The documents assume a developer knows these acronyms, and don't spell them out (DOC-09): API, CI, CPU, DNS, HTML, HTTP, HTTPS, ID, IP, JSON, REST, RFC, SDK, SQL, TCP, TLS, UI, URL, UTC and UUID. These names are written in capitals, and aren't acronyms to spell out: AES, BSD, CDLA, GCM, IETF, ISC, MIT, QEMU, README, S3, SHA, SIGINT, SIGKILL, SIGTERM, SOC and W3C.
+The documents assume a developer knows these acronyms, and don't spell them out (DOC-06): API, CI, CPU, DNS, HTML, HTTP, HTTPS, ID, IP, JSON, REST, RFC, SDK, SQL, TCP, TLS, UI, URL, UTC and UUID. These names are written in capitals, and aren't acronyms to spell out: AES, BSD, CDLA, GCM, IETF, ISC, MIT, QEMU, README, S3, SHA, SIGINT, SIGKILL, SIGTERM, SOC and W3C.

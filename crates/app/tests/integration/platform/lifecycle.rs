@@ -80,7 +80,7 @@ async fn hold(running: &Running) -> JoinHandle<io::Result<String>> {
 }
 
 #[tokio::test]
-async fn platform_038_the_server_drains_then_stops() {
+async fn platform_062_the_server_drains_then_stops() {
     let running = start().await;
     let held = hold(&running).await;
 
@@ -114,7 +114,7 @@ async fn platform_038_the_server_drains_then_stops() {
 }
 
 #[tokio::test]
-async fn platform_038_serve_returns_at_the_drain_deadline() {
+async fn platform_062_serve_returns_at_the_drain_deadline() {
     let running = start().await;
     let _held = hold(&running).await;
 
@@ -164,7 +164,7 @@ async fn open_stream(address: SocketAddr, token: &str) -> TcpStream {
 }
 
 #[tokio::test]
-async fn platform_038_once_the_delay_ends_serve_closes_the_open_streams_with_shutdown() {
+async fn platform_062_once_the_delay_ends_serve_closes_the_open_streams_with_shutdown() {
     let running = start().await;
     let token = access_token(running.address).await;
     let mut stream = open_stream(running.address, &token).await;

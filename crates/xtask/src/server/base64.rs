@@ -59,7 +59,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ops_22_base64_matches_the_standard_s_examples() {
+    fn ops_19_base64_matches_the_standard_s_examples() {
         for (bytes, text) in [
             (&b""[..], ""),
             (b"f", "Zg=="),

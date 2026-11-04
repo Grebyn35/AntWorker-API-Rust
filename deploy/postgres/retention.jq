@@ -1,4 +1,4 @@
-# The retention, in days, of the next expire of the bundled database's backups (OPS-17), from
+# The retention, in days, of the next expire of the bundled database's backups (OPS-15), from
 # pgBackRest's info in JSON: the deployment's BACKUP_RETENTION_DAYS, `$days`, raised to keep each
 # full backup that a restore started from until a backup that started after the restore ended
 # `$days` days before `$now`, in seconds since the epoch. The moments of a restored timeline before

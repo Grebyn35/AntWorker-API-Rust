@@ -23,7 +23,7 @@ fn owned_by_owner(tables: &[&str]) -> Vec<(String, String)> {
 }
 
 #[tokio::test]
-async fn platform_027_migrate_applies_every_migration_in_order_as_the_owner() {
+async fn platform_004_migrate_applies_every_migration_in_order_as_the_owner() {
     let db = TestDatabase::empty().await;
 
     let applied = migrate(&db.owner_url(), &TWO_TABLES).await.unwrap();
@@ -34,7 +34,7 @@ async fn platform_027_migrate_applies_every_migration_in_order_as_the_owner() {
 }
 
 #[tokio::test]
-async fn platform_027_running_migrate_again_applies_nothing() {
+async fn platform_004_running_migrate_again_applies_nothing() {
     let db = TestDatabase::empty().await;
     migrate(&db.owner_url(), &TWO_TABLES).await.unwrap();
 
@@ -45,7 +45,7 @@ async fn platform_027_running_migrate_again_applies_nothing() {
 }
 
 #[tokio::test]
-async fn platform_027_concurrent_runs_apply_each_migration_once() {
+async fn platform_004_concurrent_runs_apply_each_migration_once() {
     let db = TestDatabase::empty().await;
     let url = db.owner_url();
 
@@ -58,7 +58,7 @@ async fn platform_027_concurrent_runs_apply_each_migration_once() {
 }
 
 #[tokio::test]
-async fn platform_027_migrate_refuses_a_role_other_than_owner() {
+async fn platform_004_migrate_refuses_a_role_other_than_owner() {
     let db = TestDatabase::empty().await;
 
     let refused = migrate(&db.app_url(), &TWO_TABLES).await.err();
@@ -71,7 +71,7 @@ async fn platform_027_migrate_refuses_a_role_other_than_owner() {
 }
 
 #[tokio::test]
-async fn platform_028_a_failing_migration_leaves_no_trace() {
+async fn platform_005_a_failing_migration_leaves_no_trace() {
     let db = TestDatabase::empty().await;
 
     let failed = migrate(&db.owner_url(), &SECOND_FAILS).await.err();
@@ -85,7 +85,7 @@ async fn platform_028_a_failing_migration_leaves_no_trace() {
 }
 
 #[tokio::test]
-async fn platform_028_migrate_refuses_a_migration_that_runs_outside_a_transaction() {
+async fn platform_005_migrate_refuses_a_migration_that_runs_outside_a_transaction() {
     let db = TestDatabase::empty().await;
 
     let refused = migrate(&db.owner_url(), &NO_TRANSACTION).await.err();
@@ -98,7 +98,7 @@ async fn platform_028_migrate_refuses_a_migration_that_runs_outside_a_transactio
 }
 
 #[tokio::test]
-async fn platform_029_migrate_applies_nothing_while_an_applied_migration_differs_from_its_file() {
+async fn platform_006_migrate_applies_nothing_while_an_applied_migration_differs_from_its_file() {
     let db = TestDatabase::empty().await;
     migrate(&db.owner_url(), &FIRST_TABLE).await.unwrap();
 
@@ -113,7 +113,7 @@ async fn platform_029_migrate_applies_nothing_while_an_applied_migration_differs
 }
 
 #[tokio::test]
-async fn platform_029_an_earlier_release_ignores_migrations_it_doesnt_contain() {
+async fn platform_006_an_earlier_release_ignores_migrations_it_doesnt_contain() {
     let db = TestDatabase::empty().await;
     migrate(&db.owner_url(), &TWO_TABLES).await.unwrap();
 

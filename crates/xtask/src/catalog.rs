@@ -130,7 +130,7 @@ impl Catalog {
                 self.findings.push(Finding::new(
                     &file.path,
                     index + 1,
-                    format!("{id} is in the spec of `{module}`, whose IDs start with {expected}- (DOC-15)"),
+                    format!("{id} is in the spec of `{module}`, whose IDs start with {expected}- (DOC-08)"),
                 ));
             }
             if self.define(token.prefix, &id, &file.path, index + 1) {
@@ -154,7 +154,7 @@ impl Catalog {
             self.findings.push(Finding::new(
                 path,
                 line,
-                format!("{id} is defined more than once (DOC-13)"),
+                format!("{id} is defined more than once (DOC-12)"),
             ));
         }
         new
@@ -206,7 +206,7 @@ pub mod tests {
             ),
             (
                 "docs/standards/docs.md",
-                "# Docs\n\n### DOC-16 The tracker\nIts sections:\n\
+                "# Docs\n\n### DOC-14 The tracker\nIts sections:\n\
                  1. **Current work.** The next step.\n2. **Decisions.** The index.\n\
                  - Why: a reason.\n- Check: `review`.\n",
             ),
@@ -246,7 +246,7 @@ pub mod tests {
     }
 
     #[test]
-    fn doc_13_ids_come_from_rule_headings_and_spec_tables() {
+    fn doc_12_ids_come_from_rule_headings_and_spec_tables() {
         let catalog = Catalog::read(&Repo::of(&fixture()));
 
         assert!(catalog.defines("STYLE-01"));
@@ -274,18 +274,18 @@ pub mod tests {
     }
 
     #[test]
-    fn doc_13_an_id_defined_twice_is_reported() {
+    fn doc_12_an_id_defined_twice_is_reported() {
         assert_eq!(
             messages("| GADGETS-001 | One |\n| GADGETS-001 | Again |\n"),
-            ["GADGETS-001 is defined more than once (DOC-13)"]
+            ["GADGETS-001 is defined more than once (DOC-12)"]
         );
     }
 
     #[test]
-    fn doc_15_a_behavior_in_another_modules_spec_is_reported() {
+    fn doc_08_a_behavior_in_another_modules_spec_is_reported() {
         assert_eq!(
             messages("| WIDGETS-009 | Misplaced |\n"),
-            ["WIDGETS-009 is in the spec of `gadgets`, whose IDs start with GADGETS- (DOC-15)"]
+            ["WIDGETS-009 is in the spec of `gadgets`, whose IDs start with GADGETS- (DOC-08)"]
         );
     }
 }

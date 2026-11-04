@@ -12,7 +12,7 @@
 	servers {
 		# The addresses whose X-Forwarded-For Caddy keeps, such as a content delivery network in
 		# front of the server. From any other client, Caddy replaces the header with the
-		# connection's address (SEC-12).
+		# connection's address (SEC-13).
 		trusted_proxies static {$TRUSTED_PROXIES}
 		timeouts {
 			read_header 10s

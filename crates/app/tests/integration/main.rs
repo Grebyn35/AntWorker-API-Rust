@@ -1,4 +1,4 @@
-//! Integration tests: behaviors through the API's real code, against real Postgres (TEST-04).
+//! Integration tests: behaviors through the API's real code, against real Postgres (TEST-03).
 //! They form one test binary, so the test support compiles once and is shared.
 //!
 //! `cfg(test)` always holds here; it marks the helpers as test code, where clippy allows

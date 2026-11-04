@@ -1,9 +1,9 @@
 //! `check-docs`, for what documents and comments name besides links and IDs:
 //! - a behavior's or rule's test prefix, such as `workspaces_001`, names an ID that exists
-//!   (DOC-13);
+//!   (DOC-12);
 //! - a path to a Rust file, such as `events/hub.rs`, names a file that exists (DOC-01);
-//! - no document or comment names the old codebase, and only the places DOC-04 lists point into
-//!   the inventory (DOC-04).
+//! - no document or comment names the old codebase, and only the places DOC-13 lists point into
+//!   the inventory (DOC-13).
 //!
 //! It reads every Markdown document, and every comment of a file whose comments `text` can find,
 //! but the inventory's, whose IDs are its own, for test prefixes and Rust paths; and every text file but the migration
@@ -12,13 +12,13 @@
 
 use crate::{Finding, catalog::Catalog, repo::Repo, text};
 
-/// The inventory, whose IDs are its own (DOC-13).
+/// The inventory, whose IDs are its own (DOC-12).
 const INVENTORY: &str = "docs/inventory/";
 
-/// The migration workspace (DOC-04).
+/// The migration workspace (DOC-13).
 const WORKSPACE: [&str; 2] = [INVENTORY, "docs/MIGRATION.md"];
 
-/// The places besides the workspace that may point into the inventory (DOC-04).
+/// The places besides the workspace that may point into the inventory (DOC-13).
 const INVENTORY_POINTERS: [&str; 4] = [
     "CLAUDE.md",
     ".claude/skills/conformance-review/SKILL.md",
@@ -26,7 +26,7 @@ const INVENTORY_POINTERS: [&str; 4] = [
     "docs/standards/docs.md",
 ];
 
-/// The names of the codebases this one replaces (DOC-04).
+/// The names of the codebases this one replaces (DOC-13).
 const OLD_NAMES: [&str; 1] = ["AntWorker-API"];
 
 /// Every test prefix, Rust path, old name and inventory path that the documents and comments name
@@ -52,7 +52,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
                 let id = format!("{}-{number}", prefix.to_ascii_uppercase());
                 if catalog.knows_prefix(&prefix.to_ascii_uppercase()) && !catalog.defines(&id) {
                     found(format!(
-                        "`{prefix}_{number}` is the test prefix of {id}, which doesn't exist (DOC-13)"
+                        "`{prefix}_{number}` is the test prefix of {id}, which doesn't exist (DOC-12)"
                     ));
                 }
             }
@@ -79,13 +79,13 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
                 });
                 if named {
                     found(format!(
-                        "`{name}` names the old codebase, which a fork never saw (DOC-04)"
+                        "`{name}` names the old codebase, which a fork never saw (DOC-13)"
                     ));
                 }
             }
             if text.contains("inventory/") && !INVENTORY_POINTERS.contains(&path) {
                 found(
-                    "a path into the inventory, which only the places DOC-04 lists hold (DOC-04)"
+                    "a path into the inventory, which only the places DOC-13 lists hold (DOC-13)"
                         .to_owned(),
                 );
             }
@@ -161,7 +161,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn doc_13_a_test_prefix_is_read_with_its_number() {
+    fn doc_12_a_test_prefix_is_read_with_its_number() {
         assert_eq!(
             test_prefixes("see `workspaces_001_` and data_19, not sha_256x or a_1"),
             [
@@ -184,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn doc_04_and_doc_13_documents_and_comments_name_what_exists() {
+    fn doc_13_and_doc_13_documents_and_comments_name_what_exists() {
         let repo = Repo::of(&[
             ("docs/spec/things.md", "| ID |\n|---|\n| THINGS-001 |\n"),
             ("crates/platform/src/events/hub.rs", "// The hub.\n"),

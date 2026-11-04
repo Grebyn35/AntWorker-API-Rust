@@ -1,5 +1,5 @@
 -- Signed-in devices and clients (the auth spec). Each token is stored only as its SHA-256 hash,
--- which a request's token is looked up by (AUTH-007, DATA-22). A device has at most one session
+-- which a request's token is looked up by (AUTH-007, DATA-16). A device has at most one session
 -- per user (AUTH-008).
 CREATE TABLE sessions (
     id uuid PRIMARY KEY DEFAULT uuidv7(),

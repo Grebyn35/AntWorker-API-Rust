@@ -139,7 +139,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn data_20_the_sqlx_the_workspace_depends_on_is_found_with_its_features() {
+    fn data_14_the_sqlx_the_workspace_depends_on_is_found_with_its_features() {
         let metadata = serde_json::json!({
             "packages": [
                 {"id": "app", "name": "app", "manifest_path": "/w/app/Cargo.toml",

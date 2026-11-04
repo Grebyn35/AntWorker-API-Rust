@@ -220,7 +220,7 @@ publish repository commit:
 ";
 
     #[test]
-    fn code_16_the_recipes_are_read_from_the_justfile_with_the_platforms_they_run_on() {
+    fn code_07_the_recipes_are_read_from_the_justfile_with_the_platforms_they_run_on() {
         let found = recipes(JUSTFILE);
 
         let summary: Vec<(&str, bool, usize)> = found
@@ -239,7 +239,7 @@ publish repository commit:
     }
 
     #[test]
-    fn code_16_a_rendered_recipe_keeps_each_line_where_the_justfile_holds_it() {
+    fn code_07_a_rendered_recipe_keeps_each_line_where_the_justfile_holds_it() {
         let found = recipes(JUSTFILE);
 
         let fmt = render(&found[0]);
@@ -257,7 +257,7 @@ publish repository commit:
     }
 
     #[test]
-    fn code_16_a_rendered_recipe_declares_the_parameters_it_exports() {
+    fn code_07_a_rendered_recipe_declares_the_parameters_it_exports() {
         let found = recipes(concat!(
             "x:\n",
             "    true\n",
@@ -274,7 +274,7 @@ publish repository commit:
     }
 
     #[test]
-    fn code_16_an_interpolation_becomes_one_word() {
+    fn code_07_an_interpolation_becomes_one_word() {
         assert_eq!(
             interpolate("{{ if a == \"b\" { \"X=1 \" } else { \"\" } }}watchexec \"{{ c }}\""),
             "just_valuewatchexec \"just_value\""
@@ -282,7 +282,7 @@ publish repository commit:
     }
 
     #[test]
-    fn code_16_settings_and_assignments_are_not_recipes() {
+    fn code_07_settings_and_assignments_are_not_recipes() {
         assert_eq!(
             recipe_name("set windows-shell := [\"powershell.exe\"]"),
             None

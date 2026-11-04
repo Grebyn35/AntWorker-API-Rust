@@ -29,8 +29,8 @@ use crate::{
     types::UserId,
 };
 
-/// How often the hub checks the listener, for readiness (PLATFORM-037), and tries again what
-/// it owes (PLATFORM-073).
+/// How often the hub checks the listener, for readiness (PLATFORM-061), and tries again what
+/// it owes (PLATFORM-033).
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// The most streams and users one query of the re-check reads.
@@ -41,7 +41,7 @@ static DELIVERY_LAG: Histogram<1> = Histogram::new(
     "s",
     "How long after its unit of work committed each event was loaded by a replica's hub, which \
      delivers it to its streams at once, by the name of the database whose events it delivers \
-     (PLATFORM-074).",
+     (PLATFORM-034).",
     [names::DB_NAMESPACE],
     &[
         0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0,
@@ -53,7 +53,7 @@ static UNLOADED: Gauge<1> = Gauge::new(
     "{event}",
     "The events a replica's hub owes its streams: the positions after the last event it loaded, up \
      to the last that a notification it handled named, by the name of the database whose events \
-     it delivers. It stays above 0 while the hub's loads fail (PLATFORM-076).",
+     it delivers. It stays above 0 while the hub's loads fail (PLATFORM-035).",
     [names::DB_NAMESPACE],
 );
 
@@ -73,7 +73,7 @@ pub(super) struct Task {
     owed: Owed,
 }
 
-/// What failed, and the hub tries again at every check (PLATFORM-073).
+/// What failed, and the hub tries again at every check (PLATFORM-033).
 #[derive(Clone, Copy, Debug, Default)]
 struct Owed {
     /// The events up to the last position a notification named.
@@ -145,7 +145,7 @@ impl Task {
     }
 
     /// Checks the connection and records the result in readiness, which follows the connection
-    /// alone (PLATFORM-037). On a new connection, the notifications sent without one are lost,
+    /// alone (PLATFORM-061). On a new connection, the notifications sent without one are lost,
     /// so the hub closes every stream; otherwise it tries again what it owes.
     async fn check(&mut self) {
         match self.listener.check(self.clock.as_ref()).await {
@@ -179,7 +179,7 @@ impl Task {
     /// After a new connection: the signals sent without one are lost, and no one can tell where
     /// they fell among the events, so every stream closes with `interrupted`, and its client's
     /// reconnect replays what committed meanwhile with its access as it then stands
-    /// (PLATFORM-073). The head then moves to the log's, since no stream is left to deliver the
+    /// (PLATFORM-033). The head then moves to the log's, since no stream is left to deliver the
     /// events in between to.
     async fn reconnected(&mut self) {
         self.streams.interrupt();
@@ -256,7 +256,7 @@ impl Task {
     }
 
     /// Records the positions the hub owes its streams, from its head up to the last position a
-    /// notification it handled named (PLATFORM-076).
+    /// notification it handled named (PLATFORM-035).
     fn record_unloaded(&self) {
         let owed = self.notified.saturating_sub(self.streams.head()).max(0);
         UNLOADED.set(
@@ -294,7 +294,7 @@ impl Task {
     }
 
     /// Closes the streams whose session stopped lasting, or whose caller's memberships changed
-    /// (PLATFORM-017), or owes the re-check, so the next check makes it.
+    /// (PLATFORM-031), or owes the re-check, so the next check makes it.
     async fn recheck(&mut self) {
         let open = self.streams.open();
         for batch in open.chunks(RECHECK_BATCH) {

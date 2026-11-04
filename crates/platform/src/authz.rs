@@ -1,7 +1,7 @@
 //! Authorization: the proof `Authorized<P>` that the caller is a member of the workspace in the
 //! path and holds permission `P`, which the `AccessPolicy` that `access` implements decides
-//! inside the request's unit of work (D2, PLATFORM-024), and the report of every refusal to the
-//! `SecurityEventSink` that `audit` implements (ACCESS-003, PLATFORM-025).
+//! inside the request's unit of work (D2, PLATFORM-009), and the report of every refusal to the
+//! `SecurityEventSink` that `audit` implements (ACCESS-003, PLATFORM-010).
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -50,7 +50,7 @@ pub enum Decision {
 pub trait AccessPolicy: Send + Sync {
     /// Whether `user` holds `permission` in `workspace`, read inside `uow`. A member's row stays
     /// locked until `uow` ends, so the operation runs under the role it was authorized with
-    /// (PLATFORM-024).
+    /// (PLATFORM-009).
     fn authorize<'a>(
         &'a self,
         uow: &'a mut UnitOfWork,
@@ -60,7 +60,7 @@ pub trait AccessPolicy: Send + Sync {
     ) -> BoxFuture<'a, Result<Decision, Internal>>;
 
     /// The memberships of each of `users`, read inside `uow`, for the hub's streams: a user who
-    /// belongs to no workspace may be left out (SEC-17).
+    /// belongs to no workspace may be left out (SEC-19).
     fn memberships<'a>(
         &'a self,
         uow: &'a mut UnitOfWork,
@@ -71,7 +71,7 @@ pub trait AccessPolicy: Send + Sync {
 /// The workspaces a user belongs to, each with the names of the permissions their role holds
 /// there and the transaction that added them, which `AccessPolicy::memberships` reads for the
 /// hub, so a stream receives only the workspace events its caller may, and of those only the ones
-/// that committed after their membership did (SEC-17).
+/// that committed after their membership did (SEC-19).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Memberships {
     workspaces: BTreeMap<WorkspaceId, Membership>,
@@ -195,7 +195,7 @@ impl Committed {
     }
 }
 
-/// A refused request, as the `SecurityEventSink` records it (DATA-27).
+/// A refused request, as the `SecurityEventSink` records it (DATA-22).
 #[derive(Clone, Debug)]
 pub struct Refusal {
     user_id: UserId,
@@ -312,7 +312,7 @@ impl<P: Permission, S: Send + Sync> FromRequestParts<S> for Authorize<P> {
 
 impl<P: Permission> Authorize<P> {
     /// The authenticated caller, before anything authorizes them, such as for a per-action
-    /// limit that counts before the unit of work opens (PLATFORM-026).
+    /// limit that counts before the unit of work opens (PLATFORM-011).
     pub fn principal(&self) -> &Principal {
         &self.principal
     }
@@ -320,7 +320,7 @@ impl<P: Permission> Authorize<P> {
     /// Opens the request's unit of work and authorizes the caller inside it: the open unit of
     /// work with the proof, or 404 `request.not_found` for a caller who isn't a member and 403
     /// `request.permission_denied` for a member without `P`, each recorded first (ACCESS-003,
-    /// PLATFORM-024).
+    /// PLATFORM-009).
     pub async fn open(self) -> Result<(UnitOfWork, Authorized<P>), PlatformError> {
         let Some(workspace_id) = self.workspace_id else {
             return Err(RequestError::NotFound.into());
@@ -402,15 +402,15 @@ impl<P: Permission> Authorized<P> {
     }
 
     /// The scope of a job this member's operation enqueues: the workspace, and the member
-    /// (PLATFORM-012).
+    /// (PLATFORM-013).
     pub fn job_scope(&self) -> JobScope {
         JobScope::proven(Some(self.principal.user_id()), Some(self.workspace_id))
     }
 }
 
 /// Refuses an operation that found its member may not act on another member of the same or a
-/// higher rank (SEC-08): rolls `uow` back, records the refusal, and answers 403
-/// `request.permission_denied` (PLATFORM-025).
+/// higher rank (SEC-09): rolls `uow` back, records the refusal, and answers 403
+/// `request.permission_denied` (PLATFORM-010).
 pub async fn refuse<P: Permission>(uow: UnitOfWork, authorized: &Authorized<P>) -> PlatformError {
     drop(uow);
     let refusal = Refusal {
@@ -427,7 +427,7 @@ pub async fn refuse<P: Permission>(uow: UnitOfWork, authorized: &Authorized<P>) 
 }
 
 /// Records `refusal` and counts it. A refusal the sink can't record fails the request, so none
-/// goes unrecorded (DATA-27).
+/// goes unrecorded (DATA-22).
 async fn report(
     sink: &dyn SecurityEventSink,
     refusal: &Refusal,

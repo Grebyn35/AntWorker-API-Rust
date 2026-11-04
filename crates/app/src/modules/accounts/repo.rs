@@ -29,7 +29,7 @@ pub(super) async fn insert(
     Ok(id.map(UserId::from_uuid))
 }
 
-/// The ID of the user with `email`, through its unique index (DATA-22).
+/// The ID of the user with `email`, through its unique index (DATA-16).
 pub(super) async fn find_by_email(
     uow: &mut UnitOfWork,
     email: &EmailAddress,
@@ -40,7 +40,7 @@ pub(super) async fn find_by_email(
     Ok(id.map(UserId::from_uuid))
 }
 
-/// The record of the user `id`, filtered by the acting user's own ID (DATA-22).
+/// The record of the user `id`, filtered by the acting user's own ID (DATA-16).
 pub(super) async fn profile(uow: &mut UnitOfWork, id: UserId) -> Result<Option<Profile>, Internal> {
     let row = sqlx::query!(
         "SELECT id, email, name, email_verified FROM users WHERE id = $1",
@@ -56,7 +56,7 @@ pub(super) async fn profile(uow: &mut UnitOfWork, id: UserId) -> Result<Option<P
     }))
 }
 
-/// The names and emails of `ids`, which came from a query filtered by tenant (DATA-22).
+/// The names and emails of `ids`, which came from a query filtered by tenant (DATA-16).
 pub(super) async fn profiles(
     uow: &mut UnitOfWork,
     ids: &[UserId],
@@ -76,7 +76,7 @@ pub(super) async fn profiles(
 }
 
 /// The IDs among `ids`, which came from a query filtered by tenant, of the users whose name or
-/// email contains `search`, ignoring case in every script (DATA-22, PLATFORM-060).
+/// email contains `search`, ignoring case in every script (DATA-16, PLATFORM-047).
 pub(super) async fn matching(
     uow: &mut UnitOfWork,
     ids: &[UserId],

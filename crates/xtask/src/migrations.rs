@@ -3,7 +3,7 @@
 //!   digits, a module of `app` or `platform`, then a description in `snake_case`.
 //! - The newest release holds its migrations as they are: none of the files under `migrations/`
 //!   of the tag `v*` of the newest version, by semantic versioning, is changed or deleted, since `migrate` and `serve` refuse a database
-//!   whose applied migration differs from its file (PLATFORM-029, PLATFORM-030). A repository
+//!   whose applied migration differs from its file (PLATFORM-006, PLATFORM-030). A repository
 //!   without a release, such as a fork before its first, has nothing to keep.
 //!
 //! It reads the newest release from git's tags, so a checkout needs them: CI's fetches them.

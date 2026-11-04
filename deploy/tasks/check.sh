@@ -1,4 +1,4 @@
-# What a deploy needs, which `just server-check` checks (OPS-22).
+# What a deploy needs, which `just server-check` checks (OPS-19).
 
 # The lines that `check` writes: a check that passed, one that failed, which fails `check`, and
 # what it can't see.
@@ -9,7 +9,7 @@ failed() {
 }
 noted() { printf '%s\n' "check: note  $*"; }
 
-# Checks what a deploy needs (OPS-22): with one argument, of the release <version>, which it
+# Checks what a deploy needs (OPS-19): with one argument, of the release <version>, which it
 # verifies first, as a deploy does; with two, of the API's image and the Postgres image. It reads
 # the settings and the secrets as a deploy does, and refuses what a deploy would refuse.
 check() {
@@ -35,7 +35,7 @@ check() {
     if problem=$( (read_settings && check_connections) 2>&1 > /dev/null); then
         read_settings
         settled=yes
-        passed "the settings in $deployment/settings.env, and the connections they open (OPS-21)"
+        passed "the settings in $deployment/settings.env, and the connections they open (OPS-18)"
     else
         failed "${problem#deploy: }"
     fi

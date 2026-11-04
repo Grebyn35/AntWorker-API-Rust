@@ -3,7 +3,7 @@
 # fails its check, so the replicas of the color that isn't live get no request (D45). While no
 # replica can answer, Caddy answers itself, with the API's problem (D53).
 {$API_ADDRESS} {
-	# HTTP Strict Transport Security: browsers reach the API over HTTPS only (SEC-11, OPS-20).
+	# HTTP Strict Transport Security: browsers reach the API over HTTPS only (SEC-12, OPS-17).
 	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	header -Server
 
@@ -61,7 +61,7 @@
 	# No replica answered, such as while a restore runs: the API's 503 problem, whose trace ID
 	# leads to this request's span, marked as an error, and its log line (OPS-05, D10). Its code
 	# and title are platform::errors::RequestError::Unavailable's, and its headers those the API
-	# sets on every response (SEC-11) and on every response but the probes (API-16). A probe gets
+	# sets on every response (SEC-12) and on every response but the probes (API-16). A probe gets
 	# a bare 503, as the API answers probes (API-07).
 	handle_errors 502 503 504 {
 		header Strict-Transport-Security "max-age=31536000; includeSubDomains"

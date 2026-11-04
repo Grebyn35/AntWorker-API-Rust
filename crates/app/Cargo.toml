@@ -15,7 +15,7 @@ path = "tests/e2e/main.rs"
 required-features = ["e2e"]
 
 [features]
-# Compiles the end-to-end tests, which need a built image (TEST-04). `just e2e` turns it on, and
+# Compiles the end-to-end tests, which need a built image (TEST-03). `just e2e` turns it on, and
 # so does `just lint`, which lints every feature.
 e2e = []
 

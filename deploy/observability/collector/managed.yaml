@@ -38,7 +38,7 @@ exporters:
     endpoint: ${env:MANAGED_OTLP_ENDPOINT}
     auth:
       authenticator: basicauth/managed
-    # Empty, the operating system's certificate authorities (OPS-20).
+    # Empty, the operating system's certificate authorities (OPS-17).
     tls:
       ca_file: ${env:MANAGED_OTLP_CA_FILE}
 

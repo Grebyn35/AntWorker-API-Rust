@@ -74,7 +74,7 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Testing strategy | D23 |
 | API contract | D8, D68, D71 |
 | Naming, formatting, comments, file and function size | CODE, DOC |
-| Dependency policy, Rust edition and toolchain | CODE-01, CODE-11 to CODE-13, D21 |
+| Dependency policy, Rust edition and toolchain | CODE-01, CODE-12 to CODE-14, D21 |
 
 ## Template concerns
 
@@ -103,4 +103,4 @@ Each of these gets a one-line architecture decision record (ADR) so the boundary
 
 | ID | Question |
 |---|---|
-| Q1 | Which license does the template ship under? Deferred: it blocks the first public release, not the build. Until then the repository stays private, and `cargo-deny` allows only permissive dependency licenses (CODE-12), so selling the template and open-sourcing it both stay possible. |
+| Q1 | Which license does the template ship under? Deferred: it blocks the first public release, not the build. Until then the repository stays private, and `cargo-deny` allows only permissive dependency licenses (CODE-13), so selling the template and open-sourcing it both stay possible. |

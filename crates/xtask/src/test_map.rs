@@ -1,5 +1,5 @@
 //! `check-test-map`: every test's name starts with a behavior or rule ID that exists
-//! (TEST-01), and the report shows which behaviors tests prove (DOC-10).
+//! (TEST-01), and the report shows which behaviors tests prove (DOC-09).
 //!
 //! While `docs/MIGRATION.md` exists, specs are written ahead of their code, so a behavior that
 //! no test proves is reported. Once the migration closes, it fails the check.
@@ -38,7 +38,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
                 Finding::new(
                     &behavior.path,
                     behavior.line,
-                    format!("no test proves {} (DOC-10)", behavior.id),
+                    format!("no test proves {} (DOC-09)", behavior.id),
                 )
             }));
         }
@@ -205,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn doc_10_the_report_shows_which_behaviors_tests_prove() {
+    fn doc_09_the_report_shows_which_behaviors_tests_prove() {
         let outcome = run(&[("crates/widgets/src/lib.rs", TESTS), (TRACKER, "")]);
 
         let widgets = format!("  WIDGETS{}1 of 2  unproven: WIDGETS-002", " ".repeat(14));
@@ -219,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn doc_10_an_unproven_behavior_fails_once_the_migration_closes() {
+    fn doc_09_an_unproven_behavior_fails_once_the_migration_closes() {
         let during = run(&[(TRACKER, "")]);
         let after = run(&[]);
 
@@ -228,8 +228,8 @@ mod tests {
         assert_eq!(
             findings,
             [
-                "docs/spec/widgets.md:11: no test proves WIDGETS-001 (DOC-10)",
-                "docs/spec/widgets.md:12: no test proves WIDGETS-002 (DOC-10)"
+                "docs/spec/widgets.md:11: no test proves WIDGETS-001 (DOC-09)",
+                "docs/spec/widgets.md:12: no test proves WIDGETS-002 (DOC-09)"
             ]
         );
     }

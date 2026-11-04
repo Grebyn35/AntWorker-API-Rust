@@ -1,8 +1,8 @@
 //! Events: publishing them inside a unit of work, as a row of `events` that its commit positions
-//! and notifies (D1, DATA-27, PLATFORM-071); access-change signals, the notice, at commit, that a
-//! user's access changed, so that the streams it affects close (D35, SEC-06, PLATFORM-017); the
+//! and notifies (D1, DATA-22, PLATFORM-028); access-change signals, the notice, at commit, that a
+//! user's access changed, so that the streams it affects close (D35, SEC-06, PLATFORM-031); the
 //! real-time hub, which
-//! delivers what commits to the streams allowed to receive it (SEC-17); and the event catalog,
+//! delivers what commits to the streams allowed to receive it (SEC-19); and the event catalog,
 //! which documents each event's payload (REALTIME-008).
 
 pub(crate) mod catalog;
@@ -36,7 +36,7 @@ const CHANNEL: &str = "access_changed";
 pub(crate) const EVENTS_CHANNEL: &str = "events";
 
 /// The key of the transaction-level advisory lock under which a commit positions its events
-/// (PLATFORM-071): the bytes of `events`.
+/// (PLATFORM-028): the bytes of `events`.
 pub(crate) const POSITION_LOCK: i64 = 0x6576_656e_7473;
 
 /// An event that goes to one user's streams, such as `membership.created`, with a payload of
@@ -59,7 +59,7 @@ impl<T: Serialize + ToSchema> UserEvent<T> {
 }
 
 /// An event that goes to the streams of a workspace's members who hold permission `P`, such as
-/// `member.removed` (SEC-17), with a payload of type `T`, which the event catalog documents
+/// `member.removed` (SEC-19), with a payload of type `T`, which the event catalog documents
 /// (API-19, REALTIME-008). Each module declares its own in its `events.rs`, the one place clippy
 /// lets build one.
 #[derive(Debug)]
@@ -82,8 +82,8 @@ impl<P: Permission, T: Serialize + ToSchema> WorkspaceEvent<P, T> {
 
 impl UnitOfWork {
     /// Publishes `event` to `user`'s streams with `payload`, of the type the event declares
-    /// (API-19), when the unit of work commits, and never if it rolls back (PLATFORM-015). Its
-    /// commit gives the event its position (PLATFORM-071).
+    /// (API-19), when the unit of work commits, and never if it rolls back (PLATFORM-026). Its
+    /// commit gives the event its position (PLATFORM-028).
     pub async fn publish_to_user<T: Serialize + ToSchema>(
         &mut self,
         event: &UserEvent<T>,
@@ -96,7 +96,7 @@ impl UnitOfWork {
 
     /// Publishes `event` to the streams of `workspace`'s members who hold its permission, with
     /// `payload`, of the type the event declares (API-19), when the unit of work commits, and
-    /// never if it rolls back (PLATFORM-015).
+    /// never if it rolls back (PLATFORM-026).
     pub async fn publish_to_workspace<P: Permission, T: Serialize + ToSchema>(
         &mut self,
         event: &WorkspaceEvent<P, T>,
@@ -156,7 +156,7 @@ pub enum AccessChange {
     },
     /// A user's membership in a workspace started or ended, so their streams whose memberships
     /// don't hold it close, and open again with their memberships as they then stand
-    /// (PLATFORM-017).
+    /// (PLATFORM-031).
     MembershipChanged {
         /// The user.
         user_id: UserId,
@@ -176,7 +176,7 @@ impl AccessChange {
 
 /// A signal, as the hub receives it: the change, and the ID of the transaction that made it, as
 /// `pg_current_xact_id()` gives it, which tells the hub whether a stream's memberships hold the
-/// change (PLATFORM-017). A replica of the release before sends none while a deploy runs both
+/// change (PLATFORM-031). A replica of the release before sends none while a deploy runs both
 /// (DATA-10), and its signal closes every stream it names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 struct Signal {

@@ -1,5 +1,5 @@
 //! The SQL of `workspaces` (ARCH-10). A workspace is read only by IDs that came from a query
-//! filtered by tenant (DATA-22).
+//! filtered by tenant (DATA-16).
 
 use platform::{
     db::UnitOfWork,
@@ -48,7 +48,7 @@ pub(super) async fn names(
 }
 
 /// The IDs among `ids`, which came from a query filtered by tenant, of the workspaces whose name
-/// contains `search`, ignoring case in every script (PLATFORM-060).
+/// contains `search`, ignoring case in every script (PLATFORM-047).
 pub(super) async fn matching(
     uow: &mut UnitOfWork,
     ids: &[WorkspaceId],

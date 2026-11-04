@@ -1,4 +1,4 @@
-# Every task, run the same way locally and in CI (OPS-12).
+# Every task, run the same way locally and in CI (OPS-10).
 
 set dotenv-load
 # A variable is evaluated only when a recipe uses it, so reading an image's name from Compose
@@ -6,14 +6,14 @@ set dotenv-load
 set lazy
 set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 
-# Builds check queries against the committed cache in .sqlx/, as CI does (DATA-20).
+# Builds check queries against the committed cache in .sqlx/, as CI does (DATA-14).
 export SQLX_OFFLINE := "true"
 
 api := "cargo run --locked --package app --bin antworker-api --"
 xtask := "cargo run --locked --quiet --package xtask --"
 
 # The versions of the tools the tasks use besides the Rust toolchain, which rust-toolchain.toml
-# pins (OPS-13). `just setup` checks them, and CI installs the ones `just checks` needs, which
+# pins (OPS-11). `just setup` checks them, and CI installs the ones `just checks` needs, which
 # `just ci-tools` lists. CI installs `just` itself before any task can run, so its workflows pin
 # the same version. sqlx-cli matches the sqlx in Cargo.lock.
 just_version := "1.59.0"
@@ -42,7 +42,7 @@ image_cache := env("IMAGE_CACHE", "")
 image_cache_from := if image_cache == "" { "" } else { "--cache-from type=local,src=" + image_cache }
 image_cache_to := if image_cache == "" { "" } else if env("IMAGE_CACHE_WRITE", "true") == "true" { "--cache-to type=local,mode=max,dest=" + image_cache + "-new" } else { "" }
 # The commit the image is built from, which its label names, and an identifier of the files the
-# Postgres image is built from, which its label `build.inputs` carries (OPS-16).
+# Postgres image is built from, which its label `build.inputs` carries (OPS-14).
 image_revision := `git rev-parse HEAD`
 postgres_inputs := `cargo run --locked --quiet --package xtask -- inputs deploy/postgres`
 # This machine's platform, on which `just e2e` runs the images unless E2E_PLATFORM names another,
@@ -54,7 +54,7 @@ e2e_image := "image"
 export E2E_IMAGE_NAME := e2e_image
 
 # The other tasks, in a file for each group that `just` lists them in, which `just` reads as if
-# they were here (CODE-07).
+# they were here (CODE-08).
 import 'just/develop.just'
 import 'just/generate.just'
 import 'just/check.just'

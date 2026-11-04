@@ -1,5 +1,5 @@
 //! `check-docs`, the routes: each module's spec lists, in its Routes table, the operations that
-//! `openapi.json` documents for the module, with their access levels (DOC-15). Once the module
+//! `openapi.json` documents for the module, with their access levels (DOC-08). Once the module
 //! is built, it lists no others: until then, its spec is the plan for routes it doesn't serve
 //! yet. An operation names its module as its first tag, and the `#[utoipa::path]` of each
 //! operation under `crates/app/src/modules/<module>/` gives the tag `<module>`.
@@ -74,19 +74,19 @@ pub fn check(repo: &Repo) -> Vec<Finding> {
                 match documented.remove(&(method.to_owned(), path.to_owned())) {
                     None if !built => {}
                     None => findings.push(finding(format!(
-                        "`{route}` isn't an operation of {DOCUMENT} (DOC-15)"
+                        "`{route}` isn't an operation of {DOCUMENT} (DOC-08)"
                     ))),
                     Some(operation) => {
                         if operation.module != module {
                             findings.push(finding(format!(
-                                "`{route}` belongs to `{}` in {DOCUMENT}, not to this spec (DOC-15)",
+                                "`{route}` belongs to `{}` in {DOCUMENT}, not to this spec (DOC-08)",
                                 operation.module
                             )));
                         }
                         let access = access_level(cells.get(1).map_or("", String::as_str));
                         if access != operation.access {
                             findings.push(finding(format!(
-                                "`{route}` is `{}` in {DOCUMENT}, not `{access}` (DOC-15)",
+                                "`{route}` is `{}` in {DOCUMENT}, not `{access}` (DOC-08)",
                                 operation.access
                             )));
                         }
@@ -99,14 +99,14 @@ pub fn check(repo: &Repo) -> Vec<Finding> {
         findings.push(Finding::new(
             &format!("{SPECS}{}.md", operation.module),
             1,
-            format!("the Routes table doesn't list `{method} {path}`, which {DOCUMENT} documents (DOC-15)"),
+            format!("the Routes table doesn't list `{method} {path}`, which {DOCUMENT} documents (DOC-08)"),
         ));
     }
     findings
 }
 
 /// The `tag` of each `#[utoipa::path]` under `crates/app/src/modules/<module>/` is `<module>`, so
-/// each operation names the module that serves it as its first tag (DOC-15). An operation with
+/// each operation names the module that serves it as its first tag (DOC-08). An operation with
 /// `tags = [...]` names its first tag first.
 fn tags(repo: &Repo) -> Vec<Finding> {
     let mut findings = Vec::new();
@@ -129,7 +129,7 @@ fn tags(repo: &Repo) -> Vec<Finding> {
                     &file.path,
                     line,
                     format!(
-                        "this operation of `{module}` {found}, where its tag is `{module}` (DOC-15)"
+                        "this operation of `{module}` {found}, where its tag is `{module}` (DOC-08)"
                     ),
                 ));
             }
@@ -233,7 +233,7 @@ fn operations(
                     DOCUMENT,
                     text::line_of(text, &format!("\"{path}\"")),
                     format!(
-                        "`{method} {path}` names no module with a spec as its first tag (DOC-15)"
+                        "`{method} {path}` names no module with a spec as its first tag (DOC-08)"
                     ),
                 )),
             }
@@ -278,16 +278,16 @@ mod tests {
     }
 
     #[test]
-    fn doc_15_specs_that_list_their_operations_pass() {
+    fn doc_08_specs_that_list_their_operations_pass() {
         let system = routes(
-            "| `GET /health/live` | public, before the stack | PLATFORM-019 |\n| `GET /v1/capabilities` | `public` | SYSTEM-001 |",
+            "| `GET /health/live` | public, before the stack | PLATFORM-038 |\n| `GET /v1/capabilities` | `public` | SYSTEM-001 |",
         );
         let workspaces = routes("| `POST /v1/workspaces` | `user` | WORKSPACES-001 |");
         assert_eq!(findings(&system, &workspaces), Vec::<String>::new());
     }
 
     #[test]
-    fn doc_15_an_unbuilt_module_s_spec_may_plan_routes_the_document_lacks() {
+    fn doc_08_an_unbuilt_module_s_spec_may_plan_routes_the_document_lacks() {
         let workspaces = routes(
             "| `POST /v1/workspaces` | `user` | WORKSPACES-001 |\n| `GET /v1/workspaces` | `user` | WORKSPACES-003 |",
         );
@@ -296,7 +296,7 @@ mod tests {
     }
 
     #[test]
-    fn doc_15_an_operation_names_a_module_with_a_spec_as_its_first_tag() {
+    fn doc_08_an_operation_names_a_module_with_a_spec_as_its_first_tag() {
         let document =
             r#"{"paths": {"/v1/things": {"get": {"tags": ["things"], "x-access": "public"}}}}"#;
         let repo = Repo::of(&[(DOCUMENT, document)]);
@@ -306,23 +306,23 @@ mod tests {
             .collect();
         assert_eq!(
             found,
-            ["`GET /v1/things` names no module with a spec as its first tag (DOC-15)"]
+            ["`GET /v1/things` names no module with a spec as its first tag (DOC-08)"]
         );
     }
 
     #[test]
-    fn doc_15_a_spec_lists_each_operation_of_its_module() {
+    fn doc_08_a_spec_lists_each_operation_of_its_module() {
         let workspaces = routes("| `POST /v1/workspaces` | `user` | WORKSPACES-001 |");
         assert_eq!(
             findings("## Purpose\n", &workspaces),
             [
-                "the Routes table doesn't list `GET /v1/capabilities`, which openapi.json documents (DOC-15)"
+                "the Routes table doesn't list `GET /v1/capabilities`, which openapi.json documents (DOC-08)"
             ]
         );
     }
 
     #[test]
-    fn doc_15_each_operation_under_a_module_tags_the_module() {
+    fn doc_08_each_operation_under_a_module_tags_the_module() {
         let code = r#"
             #[utoipa::path(get, path = "/v1/users/me", tag = "accounts")]
             async fn me() {}
@@ -345,12 +345,12 @@ mod tests {
             [
                 (
                     4,
-                    "this operation of `accounts` has the tag `auth`, where its tag is `accounts` (DOC-15)"
+                    "this operation of `accounts` has the tag `auth`, where its tag is `accounts` (DOC-08)"
                         .to_owned()
                 ),
                 (
                     9,
-                    "this operation of `accounts` names no tag, where its tag is `accounts` (DOC-15)"
+                    "this operation of `accounts` names no tag, where its tag is `accounts` (DOC-08)"
                         .to_owned()
                 ),
             ]
@@ -358,16 +358,16 @@ mod tests {
     }
 
     #[test]
-    fn doc_15_a_listed_route_matches_the_document() {
+    fn doc_08_a_listed_route_matches_the_document() {
         let system = routes(
             "| `GET /v1/capabilities` | `user` | SYSTEM-001 |\n| `DELETE /v1/capabilities` | `public` | SYSTEM-001 |\n| `POST /v1/workspaces` | `user` | SYSTEM-001 |",
         );
         assert_eq!(
             findings(&system, "## Purpose\n"),
             [
-                "`GET /v1/capabilities` is `public` in openapi.json, not `user` (DOC-15)",
-                "`DELETE /v1/capabilities` isn't an operation of openapi.json (DOC-15)",
-                "`POST /v1/workspaces` belongs to `workspaces` in openapi.json, not to this spec (DOC-15)",
+                "`GET /v1/capabilities` is `public` in openapi.json, not `user` (DOC-08)",
+                "`DELETE /v1/capabilities` isn't an operation of openapi.json (DOC-08)",
+                "`POST /v1/workspaces` belongs to `workspaces` in openapi.json, not to this spec (DOC-08)",
             ]
         );
     }

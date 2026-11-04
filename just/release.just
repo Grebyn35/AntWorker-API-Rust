@@ -3,7 +3,7 @@
 
 # Pushes each image in target to the registry as sha-<commit>, under the name of `repository`,
 # such as owner/name, or that name with `-postgres` for the Postgres image, and moves `edge` to it
-# while the commit is still the head of main (OPS-14). CI runs it on main, once every check has
+# while the commit is still the head of main (OPS-12). CI runs it on main, once every check has
 # passed, after a `docker login` to the registry.
 [unix]
 [private]
@@ -31,7 +31,7 @@ publish repository commit:
         echo "{{ commit }} is no longer the head of main, so edge stays where it is"
     fi
 
-# Releases main as `version`, X.Y.Z, or X.Y.Z-rc.N for a prerelease (OPS-14): checks that main can
+# Releases main as `version`, X.Y.Z, or X.Y.Z-rc.N for a prerelease (OPS-12): checks that main can
 # release it, sets the app's version to it, commits, and pushes main, with its commits that
 # GitHub's lacks. The run on main that passes with that version releases it. Without a version,
 # it shows the latest release, what has changed since, and the versions that can come next, and
@@ -42,7 +42,7 @@ release version="":
     {{ xtask }} release {{ version }}
 
 # Releases the app's version from the images this run on main published for `commit`, if a commit
-# since the latest release asks for it and no release has it yet (OPS-14): gives each image the
+# since the latest release asks for it and no release has it yet (OPS-12): gives each image the
 # version's tag, signs it, verifies the release, and only then tags the commit v<version>. The
 # request is the commit `just release` makes, whose subject is "Release <version>". `repository`
 # is the GitHub repository, such as owner/name, and `source` its address. CI runs it on main once
@@ -94,8 +94,8 @@ release-image repository commit source:
 
 # Fails unless each image of `repository`, such as owner/name, tagged `version` is signed by the
 # run on main of the repository at `source`, with the SBOM and the provenance of both platforms,
-# and prints each one's digest (OPS-14). It runs deploy/verify-release.sh, which the reference
-# deployment's deploy also runs before it pulls a release (OPS-16).
+# and prints each one's digest (OPS-12). It runs deploy/verify-release.sh, which the reference
+# deployment's deploy also runs before it pulls a release (OPS-14).
 [unix]
 [doc("Verifies a release's images, signatures, SBOMs and provenance")]
 [group('release')]
@@ -105,7 +105,7 @@ verify-release repository version source:
 
 # Scans the published images of `repository`, such as owner/name, again: `edge`, the newest final
 # release and the newest prerelease of each image, for vulnerabilities published since they were
-# tested (SEC-13). The scheduled workflow runs it every week, after a `docker login`.
+# tested (SEC-15). The scheduled workflow runs it every week, after a `docker login`.
 [unix]
 [private]
 image-rescan repository:

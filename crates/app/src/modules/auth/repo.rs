@@ -1,6 +1,6 @@
 //! The SQL of `identities`, `sessions` and `device_tokens` (ARCH-10). Every expiry comes from the
 //! database's clock (DATA-03), and a session or a device token is found by a token's hash through
-//! its unique index (DATA-22).
+//! its unique index (DATA-16).
 
 use platform::{
     db::UnitOfWork,
@@ -60,7 +60,7 @@ pub(super) async fn insert_password_identity(
 }
 
 /// The password identity of `user_id`, locked until the unit of work ends, so the sign-ins of
-/// one user take turns (DATA-25).
+/// one user take turns (DATA-20).
 pub(super) async fn password_identity_for_update(
     uow: &mut UnitOfWork,
     user_id: UserId,

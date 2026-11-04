@@ -124,8 +124,8 @@ impl Contract {
         body: &[u8],
     ) {
         // OpenAPI describes neither the health probes (OPS-05), nor the API reference that
-        // development serves (PLATFORM-075), nor a CORS preflight, which the CORS layer answers
-        // before any route (PLATFORM-052).
+        // development serves (PLATFORM-052), nor a CORS preflight, which the CORS layer answers
+        // before any route (PLATFORM-058).
         let preflight =
             method == Method::OPTIONS && headers.contains_key(header::ACCESS_CONTROL_ALLOW_METHODS);
         let path = path.split('?').next().unwrap_or_default();

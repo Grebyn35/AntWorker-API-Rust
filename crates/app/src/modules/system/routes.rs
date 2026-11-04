@@ -17,7 +17,7 @@ pub(crate) struct Capabilities {
 /// Each feature a deployment can turn off, and whether it is on.
 #[derive(Clone, Copy, Debug, Serialize, ToSchema)]
 pub(crate) struct Features {
-    /// Whether the deployment sends email (PLATFORM-067). While it is off, a client hides what
+    /// Whether the deployment sends email (PLATFORM-022). While it is off, a client hides what
     /// needs email, such as a way to reset a password.
     pub(crate) email: bool,
 }

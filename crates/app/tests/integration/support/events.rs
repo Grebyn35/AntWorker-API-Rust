@@ -1,5 +1,5 @@
 //! Events that a test commits as a unit of work commits them, without the API: each with the next
-//! position, the transaction's ID and snapshot, and the commit's time (PLATFORM-071), and, unless
+//! position, the transaction's ID and snapshot, and the commit's time (PLATFORM-028), and, unless
 //! the test leaves the hub to find them, the notification that names each position.
 
 /// Whom an event reaches.

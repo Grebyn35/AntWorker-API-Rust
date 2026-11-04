@@ -1,6 +1,6 @@
-//! `platform`'s sweeps of its own tables (PLATFORM-064): periodic jobs that each delete, every
+//! `platform`'s sweeps of its own tables (PLATFORM-019): periodic jobs that each delete, every
 //! hour, the rows that nothing reads any more, in batches of at most 1,000 rows, a transaction
-//! each. Scheduled maintenance isn't audited (DATA-27).
+//! each. Scheduled maintenance isn't audited (DATA-22).
 
 use std::time::Duration;
 
@@ -20,14 +20,14 @@ const BATCH: i64 = 1_000;
 #[derive(Clone, Copy, Debug)]
 enum Sweep {
     /// The rate-limit buckets whose window started more than a day ago, the longest window any
-    /// limit allows, so none it deletes still counts (PLATFORM-049).
+    /// limit allows, so none it deletes still counts (PLATFORM-055).
     RateLimitBuckets,
     /// The idempotency records older than 24 hours, which a claim treats as absent
-    /// (PLATFORM-018).
+    /// (PLATFORM-036).
     IdempotencyRecords,
     /// The events older than 24 hours, which no replay reaches (REALTIME-004).
     Events,
-    /// The dead letters older than their retention (PLATFORM-013).
+    /// The dead letters older than their retention (PLATFORM-014).
     DeadLetters(Duration),
 }
 

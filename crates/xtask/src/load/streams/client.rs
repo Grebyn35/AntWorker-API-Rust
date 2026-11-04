@@ -193,7 +193,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ops_18_a_chunked_stream_s_frames_are_read_as_a_client_s_parser_reads_them() {
+    fn ops_16_a_chunked_stream_s_frames_are_read_as_a_client_s_parser_reads_them() {
         // Chunks that split frames anywhere, as a server's writes may, with a heartbeat between.
         let chunks = [
             "event: stream.opened\ndata: {}\n\n",

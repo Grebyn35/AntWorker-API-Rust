@@ -1,5 +1,5 @@
-//! The export of telemetry over OTLP (PLATFORM-039, PLATFORM-042, OBS-10), and the metrics the
-//! pipeline and the readiness check record (PLATFORM-040, PLATFORM-043, OBS-15).
+//! The export of telemetry over OTLP (PLATFORM-066, PLATFORM-068, OBS-10), and the metrics the
+//! pipeline and the readiness check record (PLATFORM-067, PLATFORM-069, OBS-15).
 
 use std::{
     collections::BTreeMap,
@@ -82,7 +82,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 #[tokio::test]
-async fn platform_040_a_request_records_its_method_route_and_status() {
+async fn platform_067_a_request_records_its_method_route_and_status() {
     let api = Api::new().await;
     let labels = [
         ("http.request.method", "GET"),
@@ -98,7 +98,7 @@ async fn platform_040_a_request_records_its_method_route_and_status() {
 }
 
 #[tokio::test]
-async fn platform_040_a_5xx_records_its_error_code_as_its_error_type() {
+async fn platform_067_a_5xx_records_its_error_code_as_its_error_type() {
     let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
     let labels = [
         ("http.request.method", "GET"),
@@ -115,7 +115,7 @@ async fn platform_040_a_5xx_records_its_error_code_as_its_error_type() {
 }
 
 #[tokio::test]
-async fn platform_040_a_method_http_doesn_t_define_is_other() {
+async fn platform_067_a_method_http_doesn_t_define_is_other() {
     let api = Api::new().await;
     let other = |points: &[Point]| -> u64 {
         points
@@ -148,7 +148,7 @@ async fn platform_040_a_method_http_doesn_t_define_is_other() {
 }
 
 #[tokio::test]
-async fn platform_040_a_request_no_route_matched_records_no_route() {
+async fn platform_067_a_request_no_route_matched_records_no_route() {
     let api = Api::new().await;
     // Exactly these labels: no `http.route`, and no `error.type` on a 4xx.
     let labels = [
@@ -164,7 +164,7 @@ async fn platform_040_a_request_no_route_matched_records_no_route() {
 }
 
 #[tokio::test]
-async fn platform_040_a_request_records_how_long_it_took() {
+async fn platform_067_a_request_records_how_long_it_took() {
     let gate = Arc::new(fixtures::Gate::default());
     let api = Api::with(
         Options::routes(fixtures::routes(gate.clone())).set("MAX_CONCURRENT_REQUESTS", 100),
@@ -193,7 +193,7 @@ async fn platform_040_a_request_records_how_long_it_took() {
 }
 
 #[tokio::test]
-async fn platform_040_patch_is_a_method_http_defines() {
+async fn platform_067_patch_is_a_method_http_defines() {
     let api = Api::new().await;
     let labels = [
         ("http.request.method", "PATCH"),
@@ -229,7 +229,7 @@ async fn obs_15_the_health_probes_record_no_request_metric() {
 }
 
 #[tokio::test]
-async fn platform_046_the_resident_memory_is_recorded_at_once_and_every_15_seconds_after() {
+async fn platform_070_the_resident_memory_is_recorded_at_once_and_every_15_seconds_after() {
     let api = Api::new().await;
     let clock = api.clock();
     // The kernel's report, which grows by a megabyte at each reading.
@@ -260,7 +260,7 @@ async fn platform_046_the_resident_memory_is_recorded_at_once_and_every_15_secon
 }
 
 #[tokio::test]
-async fn platform_043_the_database_gauge_follows_each_check() {
+async fn platform_069_the_database_gauge_follows_each_check() {
     let api = Api::new().await;
     let database = api.database();
     let clock = api.clock();
@@ -294,7 +294,7 @@ async fn platform_043_the_database_gauge_follows_each_check() {
 }
 
 #[tokio::test]
-async fn platform_039_serve_exports_its_spans_and_log_records_with_their_trace_context() {
+async fn platform_066_serve_exports_its_spans_and_log_records_with_their_trace_context() {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
     let endpoint = collector.endpoint();
@@ -380,7 +380,7 @@ async fn platform_039_serve_exports_its_spans_and_log_records_with_their_trace_c
 }
 
 #[tokio::test]
-async fn platform_040_a_method_http_doesn_t_define_is_other_in_the_span() {
+async fn platform_067_a_method_http_doesn_t_define_is_other_in_the_span() {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
     let endpoint = collector.endpoint();
@@ -422,7 +422,7 @@ async fn platform_040_a_method_http_doesn_t_define_is_other_in_the_span() {
 }
 
 #[tokio::test]
-async fn platform_042_a_subcommand_writes_out_its_telemetry_before_it_exits() {
+async fn platform_068_a_subcommand_writes_out_its_telemetry_before_it_exits() {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
 
@@ -453,7 +453,7 @@ async fn platform_042_a_subcommand_writes_out_its_telemetry_before_it_exits() {
 }
 
 #[tokio::test]
-async fn platform_039_each_process_exports_as_an_instance_of_its_own() {
+async fn platform_066_each_process_exports_as_an_instance_of_its_own() {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
     let env = [
@@ -486,7 +486,7 @@ async fn platform_039_each_process_exports_as_an_instance_of_its_own() {
 }
 
 #[tokio::test]
-async fn platform_042_a_subcommand_writes_out_its_spans_before_it_exits() {
+async fn platform_068_a_subcommand_writes_out_its_spans_before_it_exits() {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
 
@@ -512,7 +512,7 @@ async fn platform_042_a_subcommand_writes_out_its_spans_before_it_exits() {
 }
 
 #[tokio::test]
-async fn platform_042_the_last_metrics_count_the_exports_that_failed() {
+async fn platform_068_the_last_metrics_count_the_exports_that_failed() {
     let collector = Collector::refusing_logs().await.unwrap();
     let database = TestDatabase::migrated().await;
 

@@ -64,7 +64,7 @@ pub(crate) async fn profile(
 }
 
 /// The names and emails of exactly the users `ids` names, which came from a query filtered by
-/// tenant, such as a workspace's member list (ACCOUNTS-005, DATA-22).
+/// tenant, such as a workspace's member list (ACCOUNTS-005, DATA-16).
 pub(crate) async fn profiles(
     uow: &mut UnitOfWork,
     ids: &[UserId],

@@ -58,7 +58,7 @@ A review runs in passes over its whole scope. Each pass is two independent revie
 ### Fixing
 
 - A fix rewrites the whole group of rules a finding touches, so they stay coherent with each other. It never patches a single sentence in isolation.
-- A fix writes each fact in its home, and nowhere else (DOC-14).
+- A fix writes each fact in its home, and nowhere else (DOC-07).
 - A fix for a defect that a check could have caught also adds that check, such as a clippy ban or a test, or proposes it. The next pass then doesn't have to look for that kind of defect again. A fix that neither adds nor proposes a check states, in the finding's resolution, why no check can cover the defect.
 - A fix adds a new rule only when a `must-fix` finding requires one. Any other "missing rule" finding becomes a proposal, as in [Changing a rule](#changing-a-rule).
 
@@ -85,7 +85,7 @@ The changed items are then checked one by one. The documents never state somethi
 2. Decide it:
    - The owner decides a change to what the API guarantees: a capability, a guarantee that a rule or a behavior states, the security bar, the handling of personal data, or the licenses dependencies may use.
    - The developer making the change decides any other change, such as how code is written, tested, checked or documented, or new wording that keeps a rule's meaning. The commit message gives the reason.
-3. Apply an accepted change in the commit that accepts it: rewrite the rule, and every spec and document it affects (DOC-14). Built code that doesn't follow the new rule yet is recorded as a known gap, with the step that brings it in line (DOC-07). No document goes on stating a rule that has been replaced.
+3. Apply an accepted change in the commit that accepts it: rewrite the rule, and every spec and document it affects (DOC-07). Built code that doesn't follow the new rule yet is recorded as a known gap, with the step that brings it in line (DOC-04). No document goes on stating a rule that has been replaced.
 4. A change that reverses a decision gets a new ADR that supersedes the old one.
 
 A proposal that isn't decided at once waits with the step that decides it: the next step that builds or changes code the rule covers, because that step has the evidence.

@@ -33,7 +33,7 @@ pub struct Smtp {
     pub(crate) security: Security,
     /// The user name and password, if the server asks for them.
     pub(crate) credentials: Option<(String, Secret<String>)>,
-    /// The sender of every email (PLATFORM-070).
+    /// The sender of every email (PLATFORM-025).
     pub(crate) from: Mailbox,
 }
 
@@ -107,9 +107,9 @@ impl Transport {
         self.from.email.domain()
     }
 
-    /// Sends `email` from the sender, with `message_id` (PLATFORM-070), in a client span of its
+    /// Sends `email` from the sender, with `message_id` (PLATFORM-025), in a client span of its
     /// own (OBS-06). A reply from 500 to 599 fails permanently; any other failure may pass on
-    /// another attempt (PLATFORM-066).
+    /// another attempt (PLATFORM-021).
     pub(super) async fn send(&self, message_id: String, email: Email) -> Result<(), JobFailure> {
         let span = tracing::info_span!(
             "smtp",

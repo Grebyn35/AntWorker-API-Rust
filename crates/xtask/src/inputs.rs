@@ -1,6 +1,6 @@
 //! `inputs`: an identifier of the files under a directory, as they stand in the working tree.
 //! The same files, with the same contents, give the same identifier on any machine, so the image
-//! built from them carries it, and a deploy can tell an image built from other files (OPS-16).
+//! built from them carries it, and a deploy can tell an image built from other files (OPS-14).
 //! git computes it: the hash of each file's contents, then the hash of the list of paths with
 //! their hashes.
 
@@ -102,7 +102,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ops_16_the_same_files_give_the_same_identifier_and_others_another() {
+    fn ops_14_the_same_files_give_the_same_identifier_and_others_another() {
         let postgres = identify("deploy/postgres").unwrap();
 
         assert_eq!(identify("deploy/postgres").unwrap(), postgres);

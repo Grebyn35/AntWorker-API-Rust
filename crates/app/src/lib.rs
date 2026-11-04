@@ -1,5 +1,5 @@
 //! The API's feature modules and its composition root. Only the composition entry points are
-//! public, so every module item is crate-visible (CODE-14).
+//! public, so every module item is crate-visible (CODE-15).
 
 mod composition;
 mod modules;

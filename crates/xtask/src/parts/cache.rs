@@ -1,4 +1,4 @@
-//! The entries of the query cache (DATA-20) that a removal leaves behind: those whose query no
+//! The entries of the query cache (DATA-14) that a removal leaves behind: those whose query no
 //! code it kept holds, such as a marked function's in another module (ARCH-07).
 
 use std::collections::HashSet;

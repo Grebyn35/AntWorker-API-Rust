@@ -143,7 +143,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn doc_13_id_shaped_tokens_stand_as_words() {
+    fn doc_12_id_shaped_tokens_stand_as_words() {
         let line = "See WIDGETS-001, STYLE-21 and SHA-256, not xWIDGETS-002, WIDGETS-003x or W_-4.";
         let ids: Vec<String> = id_tokens(line).iter().map(Token::id).collect();
         assert_eq!(ids, ["WIDGETS-001", "STYLE-21", "SHA-256"]);

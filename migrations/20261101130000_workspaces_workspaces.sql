@@ -12,5 +12,5 @@ CREATE TRIGGER workspaces_set_row_version
 BEFORE UPDATE ON workspaces
 FOR EACH ROW EXECUTE FUNCTION set_row_version();
 
--- A workspace's name is text a user writes, such as a person's name (DATA-28).
+-- A workspace's name is text a user writes, such as a person's name (DATA-23).
 COMMENT ON COLUMN workspaces.name IS 'personal_data';

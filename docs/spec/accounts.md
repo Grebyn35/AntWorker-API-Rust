@@ -8,7 +8,7 @@
 
 | Table | Holds |
 |---|---|
-| `users` | `id`, `email`, `name`, `email_verified`, `created_at`, `updated_at`, `version`. `email` holds the normalized address and has the unique index `users_email_key`. `email` and `name` are personal data (DATA-28). |
+| `users` | `id`, `email`, `name`, `email_verified`, `created_at`, `updated_at`, `version`. `email` holds the normalized address and has the unique index `users_email_key`. `email` and `name` are personal data (DATA-23). |
 
 ## Interface
 
@@ -16,7 +16,7 @@
 - `find_by_email(uow, &EmailAddress)`: the ID of the user with this email, if there is one. `auth` uses it to sign in.
   `invitations` uses it to find an invitee's account. <!-- part: invitations -->
 - `profile(uow, &Principal)`: the caller's own `id`, `email`, `name` and `email_verified`. <!-- part: invitations -->
-- `profiles(uow, &[UserId])`: names and emails for a batch of users. Callers pass only IDs that came from a query filtered by tenant, such as a workspace's member list (DATA-22).
+- `profiles(uow, &[UserId])`: names and emails for a batch of users. Callers pass only IDs that came from a query filtered by tenant, such as a workspace's member list (DATA-16).
 - `matching(uow, &[UserId], &Search)`: the IDs among a batch, passed under the same terms, of the users whose name or email contains the search (API-20).
 - The domain type `DisplayName` (D25). `EmailAddress` is in `platform::types`.
 - The personal data contract for `users`, registered with the composition root (D31).
@@ -31,12 +31,12 @@
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
-| ACCOUNTS-001 | `GET /v1/users/me` returns the caller's own `id`, `email`, `name` and `email_verified`, and nothing about any other user. | API-05, DATA-22 | `accounts_001_` |
+| ACCOUNTS-001 | `GET /v1/users/me` returns the caller's own `id`, `email`, `name` and `email_verified`, and nothing about any other user. | API-05, DATA-16 | `accounts_001_` |
 | ACCOUNTS-002 | An email address is trimmed and lowercased, must be 1 to 254 characters, and must be a valid email address as the HTML standard defines one for `<input type="email">`. | D25, API-10 | `accounts_002_` |
 | ACCOUNTS-003 | A display name is trimmed, has internal whitespace collapsed to single spaces, is normalized to Unicode Normalization Form C (NFC), and must be 1 to 100 characters and not only whitespace. | D25, API-10 | `accounts_003_` |
 | ACCOUNTS-004 | No two users have the same email. A second insert is refused by the unique index, and `create` reports that the email is in use, which its caller answers with a code of its own, such as `auth.email_in_use` (AUTH-002). | DATA-05, ERR-05 | `accounts_004_` |
-| ACCOUNTS-005 | `profiles` returns exactly the requested users. | DATA-22 | `accounts_005_` |
-| ACCOUNTS-006 | `matching` returns exactly the requested users whose name or email contains the search, ignoring case. | DATA-22, API-20 | `accounts_006_` |
+| ACCOUNTS-005 | `profiles` returns exactly the requested users. | DATA-16 | `accounts_005_` |
+| ACCOUNTS-006 | `matching` returns exactly the requested users whose name or email contains the search, ignoring case. | DATA-16, API-20 | `accounts_006_` |
 
 ## Design
 

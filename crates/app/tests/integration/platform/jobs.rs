@@ -158,7 +158,7 @@ fn start(
 }
 
 #[tokio::test]
-async fn platform_011_a_job_exists_only_if_its_unit_of_work_commits() {
+async fn platform_012_a_job_exists_only_if_its_unit_of_work_commits() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let mut rolled_back = database.begin(&support::client()).await.unwrap();
@@ -180,7 +180,7 @@ async fn platform_011_a_job_exists_only_if_its_unit_of_work_commits() {
 }
 
 #[tokio::test]
-async fn platform_012_a_job_runs_with_the_scope_of_the_proof_that_enqueued_it() {
+async fn platform_013_a_job_runs_with_the_scope_of_the_proof_that_enqueued_it() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let (steering, _starts) = Steering::new(&[]);
@@ -204,7 +204,7 @@ async fn platform_012_a_job_runs_with_the_scope_of_the_proof_that_enqueued_it() 
 }
 
 #[tokio::test]
-async fn platform_013_a_failing_job_retries_with_backoff_then_moves_to_the_dead_letter_state() {
+async fn platform_014_a_failing_job_retries_with_backoff_then_moves_to_the_dead_letter_state() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let (steering, _starts) = Steering::new(&[Act::Fail, Act::Fail, Act::Fail]);
@@ -248,7 +248,7 @@ async fn platform_013_a_failing_job_retries_with_backoff_then_moves_to_the_dead_
 }
 
 #[tokio::test]
-async fn platform_013_a_permanent_failure_moves_the_job_to_the_dead_letter_state_at_once() {
+async fn platform_014_a_permanent_failure_moves_the_job_to_the_dead_letter_state_at_once() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let (steering, _starts) = Steering::new(&[Act::FailForGood]);
@@ -265,7 +265,7 @@ async fn platform_013_a_permanent_failure_moves_the_job_to_the_dead_letter_state
 }
 
 #[tokio::test]
-async fn platform_013_a_succeeded_job_keeps_no_row() {
+async fn platform_014_a_succeeded_job_keeps_no_row() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let (steering, _starts) = Steering::new(&[Act::Succeed]);
@@ -309,7 +309,7 @@ fn periodic_registry(
 }
 
 #[tokio::test]
-async fn platform_014_a_periodic_job_runs_once_per_interval_across_replicas_and_a_long_run_keeps_its_lease()
+async fn platform_015_a_periodic_job_runs_once_per_interval_across_replicas_and_a_long_run_keeps_its_lease()
  {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
@@ -366,7 +366,7 @@ async fn platform_014_a_periodic_job_runs_once_per_interval_across_replicas_and_
 }
 
 #[tokio::test]
-async fn platform_061_a_replica_runs_at_most_4_jobs_at_once_and_claims_only_kinds_it_holds() {
+async fn platform_016_a_replica_runs_at_most_4_jobs_at_once_and_claims_only_kinds_it_holds() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let (steering, mut starts) = Steering::new(&[Act::Wait; 5]);
@@ -408,7 +408,7 @@ async fn platform_061_a_replica_runs_at_most_4_jobs_at_once_and_claims_only_kind
 }
 
 #[tokio::test]
-async fn platform_062_a_run_that_passes_its_time_limit_is_cancelled_and_fails() {
+async fn platform_017_a_run_that_passes_its_time_limit_is_cancelled_and_fails() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let (steering, _starts) = Steering::new(&[]);
@@ -435,7 +435,7 @@ async fn platform_062_a_run_that_passes_its_time_limit_is_cancelled_and_fails() 
 }
 
 #[tokio::test]
-async fn platform_062_a_job_whose_lease_ran_out_runs_again_and_the_stale_run_changes_nothing() {
+async fn platform_017_a_job_whose_lease_ran_out_runs_again_and_the_stale_run_changes_nothing() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let (stale, mut stale_starts) = Steering::new(&[Act::Wait]);
@@ -464,7 +464,7 @@ async fn platform_062_a_job_whose_lease_ran_out_runs_again_and_the_stale_run_cha
 }
 
 #[tokio::test]
-async fn platform_063_at_shutdown_nothing_more_is_claimed_and_runs_still_going_are_released() {
+async fn platform_018_at_shutdown_nothing_more_is_claimed_and_runs_still_going_are_released() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let (steering, mut starts) = Steering::new(&[Act::Wait]);
@@ -490,7 +490,7 @@ async fn platform_063_at_shutdown_nothing_more_is_claimed_and_runs_still_going_a
 }
 
 #[tokio::test]
-async fn platform_064_the_sweeps_delete_what_nothing_reads_any_more() {
+async fn platform_019_the_sweeps_delete_what_nothing_reads_any_more() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let (steering, _starts) = Steering::new(&[]);
@@ -548,7 +548,7 @@ async fn platform_064_the_sweeps_delete_what_nothing_reads_any_more() {
 }
 
 #[tokio::test]
-async fn platform_013_a_dead_letter_keeps_its_payload_for_the_retention_serve_reads() {
+async fn platform_014_a_dead_letter_keeps_its_payload_for_the_retention_serve_reads() {
     for (retention, kept) in [(None, vec!["13 days"]), (Some(1), vec![])] {
         let mut options = Options::default();
         if let Some(days) = retention {
@@ -572,7 +572,7 @@ async fn platform_013_a_dead_letter_keeps_its_payload_for_the_retention_serve_re
 }
 
 #[tokio::test]
-async fn platform_013_the_retention_takes_1_to_365_days() {
+async fn platform_014_the_retention_takes_1_to_365_days() {
     for days in [0, 366] {
         let refused = crate::support::api::refusal(
             &Options::default().set("JOB_DEAD_LETTER_RETENTION_DAYS", days),
@@ -586,7 +586,7 @@ async fn platform_013_the_retention_takes_1_to_365_days() {
 }
 
 #[tokio::test]
-async fn platform_062_a_job_whose_last_attempt_s_replica_stopped_moves_to_the_dead_letter_state() {
+async fn platform_017_a_job_whose_last_attempt_s_replica_stopped_moves_to_the_dead_letter_state() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let (steering, _starts) = Steering::new(&[]);
@@ -615,7 +615,7 @@ async fn platform_062_a_job_whose_last_attempt_s_replica_stopped_moves_to_the_de
 }
 
 #[tokio::test]
-async fn platform_063_a_run_in_flight_goes_on_after_the_signal_until_it_ends() {
+async fn platform_018_a_run_in_flight_goes_on_after_the_signal_until_it_ends() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let (steering, mut starts) = Steering::new(&[Act::Wait]);
@@ -642,7 +642,7 @@ impl Job for Counted {
 }
 
 #[tokio::test]
-async fn platform_065_each_run_is_counted_by_its_kind_and_outcome() {
+async fn platform_020_each_run_is_counted_by_its_kind_and_outcome() {
     testing::install(Service {
         name: "api",
         version: "0.0.0",
@@ -671,7 +671,7 @@ async fn platform_065_each_run_is_counted_by_its_kind_and_outcome() {
 }
 
 #[tokio::test]
-async fn platform_065_a_runs_span_links_to_the_trace_that_enqueued_it() {
+async fn platform_020_a_runs_span_links_to_the_trace_that_enqueued_it() {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
     let to = mailbox::address("linked");

@@ -18,7 +18,7 @@ const NAME_MAX_CHARS: usize = 255;
 /// A workspace's name: trimmed, with each run of whitespace inside collapsed to one space, in
 /// Unicode Normalization Form C, of 1 to 255 characters (WORKSPACES-002). A name can hold a
 /// person's name, so `Debug` doesn't show it (OBS-04). `Deserialize` only reads back a stored
-/// result that an idempotency key replays (PLATFORM-018), which held a parsed name.
+/// result that an idempotency key replays (PLATFORM-036), which held a parsed name.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub(crate) struct WorkspaceName(String);

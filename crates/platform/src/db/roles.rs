@@ -1,5 +1,5 @@
-//! The two database roles: `bootstrap` creates them (PLATFORM-010), and `serve` checks the
-//! role it connects as (PLATFORM-009).
+//! The two database roles: `bootstrap` creates them (PLATFORM-002), and `serve` checks the
+//! role it connects as (PLATFORM-001).
 
 use std::fmt;
 
@@ -25,7 +25,7 @@ const STATEMENT_TIMEOUT: &str = "30s";
 /// unit of work holds its locks (DATA-19).
 const IDLE_IN_TRANSACTION_TIMEOUT: &str = "15s";
 
-/// The isolation level of every transaction of the `app` role (DATA-25). Set on the role, it
+/// The isolation level of every transaction of the `app` role (DATA-20). Set on the role, it
 /// holds whatever the server or the database defaults to.
 const ISOLATION: &str = "read committed";
 
@@ -59,10 +59,10 @@ pub enum BootstrapError {
 }
 
 /// Creates or updates the roles `owner` and `app`, then grants them their privileges on the
-/// database the URLs name (PLATFORM-010). Running it again leaves the roles, their attributes
+/// database the URLs name (PLATFORM-002). Running it again leaves the roles, their attributes
 /// and settings, and the grants as they are, and sets each role's password to the one in its
 /// URL. In production, it first refuses a server that holds another database of the roles
-/// (PLATFORM-077); development and the tests keep all their databases on one server. It computes
+/// (PLATFORM-003); development and the tests keep all their databases on one server. It computes
 /// the roles' password verifiers through `workers`.
 pub async fn bootstrap(config: &BootstrapConfig, workers: &Workers) -> Result<(), BootstrapError> {
     let database = config.admin.database();
@@ -94,7 +94,7 @@ impl Admin {
     /// because they carry password verifiers (OBS-04).
     #[expect(
         clippy::disallowed_methods,
-        reason = "platform::db opens the administrator's connection (DATA-21)"
+        reason = "platform::db opens the administrator's connection (DATA-15)"
     )]
     pub async fn connect(url: &DatabaseUrl) -> Result<Self, BootstrapError> {
         let options = url.connect_options().disable_statement_logging();
@@ -109,9 +109,9 @@ impl Admin {
 
     /// Creates the roles `owner` and `app` with their attributes, and sets each role's password
     /// to the one in its URL, computing its verifier through `workers`. The `app` role also gets its timeouts (DATA-19) and its isolation
-    /// level (DATA-25). An existing role is given `LOGIN` and keeps its other attributes,
+    /// level (DATA-20). An existing role is given `LOGIN` and keeps its other attributes,
     /// because changing some of them takes a superuser, which a managed provider's admin role
-    /// isn't; `serve` refuses a role whose attributes are unsafe (PLATFORM-009). Roles belong
+    /// isn't; `serve` refuses a role whose attributes are unsafe (PLATFORM-001). Roles belong
     /// to the whole server, not to one database.
     pub async fn create_roles(
         &mut self,
@@ -152,7 +152,7 @@ impl Admin {
 
     /// The first, by name, of the server's other databases that the role `owner` or `app` owns
     /// or holds a privilege on, as `bootstrap`'s grant of `CONNECT` gives each database it ran
-    /// on (PLATFORM-077).
+    /// on (PLATFORM-003).
     async fn other_database(&mut self) -> Result<Option<String>, BootstrapError> {
         sqlx::query_scalar!(
             r#"SELECT d.datname::text AS "name!"
@@ -239,7 +239,7 @@ fn literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
-/// Why the connected role is unsafe for serving (PLATFORM-009).
+/// Why the connected role is unsafe for serving (PLATFORM-001).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RoleProblem {
     /// The role isn't `app`, so the grants in the migrations don't apply to it.
@@ -328,7 +328,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn data_20_dynamic_identifiers_and_literals_are_quoted() {
+    fn data_14_dynamic_identifiers_and_literals_are_quoted() {
         assert_eq!(identifier(r#"we"ird"#), r#""we""ird""#);
         assert_eq!(literal("it's"), "'it''s'");
     }

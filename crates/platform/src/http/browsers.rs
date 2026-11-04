@@ -1,6 +1,6 @@
 //! What browsers need: cross-origin resource sharing (CORS) for the listed origins of web
-//! clients, the cross-site check, and session cookies that no script can read (SEC-19,
-//! PLATFORM-052, PLATFORM-053).
+//! clients, the cross-site check, and session cookies that no script can read (SEC-07,
+//! PLATFORM-058, PLATFORM-059).
 
 use std::sync::Arc;
 
@@ -32,7 +32,7 @@ const EXPOSED_HEADERS: &str =
 const PREFLIGHT_MAX_AGE: &str = "600";
 
 /// The prefix of every session cookie, which makes a browser refuse the cookie unless it is
-/// `Secure`, has `Path=/`, and names no `Domain` (SEC-19).
+/// `Secure`, has `Path=/`, and names no `Domain` (SEC-07).
 const HOST_PREFIX: &str = "__Host-";
 
 /// The origins that `CORS_ALLOWED_ORIGINS` lists.
@@ -66,7 +66,7 @@ impl Origins {
 }
 
 /// Answers a preflight from a listed origin, and lets a browser read every response to one and
-/// send its cookies (PLATFORM-052). With no origin listed, it adds nothing.
+/// send its cookies (PLATFORM-058). With no origin listed, it adds nothing.
 pub(super) async fn cors(State(origins): State<Origins>, request: Request, next: Next) -> Response {
     if origins.0.is_empty() {
         return next.run(request).await;
@@ -125,7 +125,7 @@ fn preflight(origin: &HeaderValue) -> Response {
     response
 }
 
-/// Refuses a request that changes something from an origin that isn't listed (PLATFORM-053). A
+/// Refuses a request that changes something from an origin that isn't listed (PLATFORM-059). A
 /// browser sends `Origin` with every such request, and only a browser sends it, so a client that
 /// sets its own headers is never refused here.
 pub(super) async fn cross_site(
@@ -144,7 +144,7 @@ pub(super) async fn cross_site(
 }
 
 /// The request's cookies. A session cookie authenticates a request that changes something only
-/// when the request comes from a listed origin (PLATFORM-053).
+/// when the request comes from a listed origin (PLATFORM-059).
 pub struct Cookies {
     pairs: Vec<(String, String)>,
     may_authenticate: bool,
@@ -182,7 +182,7 @@ impl Cookies {
     /// The cookies `__Host-<name>` whose names start with `prefix`, each with its name after
     /// `__Host-`, for cookies that authenticate no request, such as browsers' device tokens
     /// (AUTH-015). The refusal of a session cookie without a listed `Origin` doesn't apply to
-    /// them (PLATFORM-053).
+    /// them (PLATFORM-059).
     pub fn starting_with(&self, prefix: &str) -> Vec<(&str, &str)> {
         self.pairs
             .iter()
@@ -231,7 +231,7 @@ fn pairs(headers: &HeaderMap) -> Vec<(String, String)> {
 
 /// The `Set-Cookie` value of the session cookie `__Host-<name>`, holding `value` until
 /// `expires`, when its token expires: `Secure`, `HttpOnly`, `SameSite=Strict`, `Path=/` and no
-/// `Domain` (SEC-19).
+/// `Domain` (SEC-07).
 pub fn session_cookie(
     name: &str,
     value: &str,
@@ -295,7 +295,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sec_19_a_session_cookie_is_secure_http_only_strict_and_host_only() {
+    fn sec_07_a_session_cookie_is_secure_http_only_strict_and_host_only() {
         let expires = Timestamp::from_database(
             time::OffsetDateTime::from_unix_timestamp(1_793_500_000).unwrap(),
         );

@@ -183,7 +183,7 @@ impl Auth {
             return Err(AuthError::InvalidCredentials);
         };
         // Locked for the rest of the unit of work, so two sign-ins of one user take turns, and
-        // one on a device ends the session the other just started there (DATA-25).
+        // one on a device ends the session the other just started there (DATA-20).
         let Some(identity) = repo::password_identity_for_update(&mut uow, user_id).await? else {
             verify(&self.workers, self.dummy_hash.clone(), input.password).await?;
             return Err(AuthError::InvalidCredentials);

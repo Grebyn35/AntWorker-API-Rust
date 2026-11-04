@@ -124,7 +124,7 @@ mod tests {
     }
 
     #[test]
-    fn data_20_items_count_unless_the_locked_features_rule_them_out() {
+    fn data_14_items_count_unless_the_locked_features_rule_them_out() {
         assert!(is_active(r#"#[cfg(feature = "postgres")]"#));
         assert!(!is_active(r#"#[cfg(feature = "mysql")]"#));
         assert!(is_active(
@@ -140,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn data_20_an_item_of_some_platform_or_profile_counts() {
+    fn data_14_an_item_of_some_platform_or_profile_counts() {
         assert!(is_active("#[cfg(unix)]"));
         assert!(is_active("#[cfg(not(unix))]"));
         assert!(is_active(r#"#[cfg(target_os = "windows")]"#));

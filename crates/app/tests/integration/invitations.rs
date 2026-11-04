@@ -707,7 +707,7 @@ async fn invitations_009_the_limit_and_its_window_are_checked() {
 }
 
 #[tokio::test]
-async fn sec_17_member_joined_reaches_the_members_and_no_replay_from_before_joining() {
+async fn sec_19_member_joined_reaches_the_members_and_no_replay_from_before_joining() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;

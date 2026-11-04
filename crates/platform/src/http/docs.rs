@@ -45,15 +45,15 @@ pub(super) const IDEMPOTENCY_KEY: &str = "idempotency-key";
 enum Place {
     /// On every operation: the route's own pipeline answers it.
     Every,
-    /// On every operation whose method isn't safe: the cross-site check answers it (PLATFORM-053).
+    /// On every operation whose method isn't safe: the cross-site check answers it (PLATFORM-059).
     Unsafe,
     /// On every operation that authenticates its caller (AUTH-009).
     Authenticated,
-    /// On every operation that takes a body (PLATFORM-054, PLATFORM-056).
+    /// On every operation that takes a body (PLATFORM-049, PLATFORM-051).
     Body,
     /// On every operation of a workspace route, which authorization guards (ACCESS-003).
     Workspace,
-    /// On every operation that takes an `Idempotency-Key` (PLATFORM-018, PLATFORM-058).
+    /// On every operation that takes an `Idempotency-Key` (PLATFORM-036, PLATFORM-037).
     Keyed,
     /// Among the components' responses: the router answers it when no operation matches.
     Fallback,
@@ -116,9 +116,9 @@ fn answers(error: &RequestError, method: &Method, access: Access, operation: &Op
 }
 
 /// Documents each operation's access level as the extension `x-access`, a workspace route's
-/// permission as `x-permission`, which TEST-09's generated test reads, the problems the
+/// permission as `x-permission`, which TEST-08's generated test reads, the problems the
 /// pipeline can answer on it, and the rate-limit headers of every response the limiter passes
-/// back through (PLATFORM-050). A route that documents its own response for one of those
+/// back through (PLATFORM-056). A route that documents its own response for one of those
 /// statuses keeps it, and lists the pipeline's codes in it itself (ERR-13). Returns the query
 /// parameters that each method accepts, `HEAD` taking those of the `GET` that serves it.
 pub(super) fn document(paths: &mut Paths, access: Access, errors: &[&dyn ErrorCode]) -> QueryNames {
@@ -150,7 +150,7 @@ pub(super) fn document(paths: &mut Paths, access: Access, errors: &[&dyn ErrorCo
 
 /// Adds the rate-limit headers to each of `operation`'s responses but the 5xx: a request that
 /// load shedding refuses never reaches the limiter, and a panic never passes back through it
-/// (PLATFORM-050).
+/// (PLATFORM-056).
 fn rate_limit_headers(operation: &mut Operation) {
     for (status, response) in &mut operation.responses.responses {
         if status.starts_with('5') {

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 
-# The API's image (OPS-15). `just image` builds it for linux/amd64 and linux/arm64 (OPS-14):
+# The API's image (OPS-13). `just image` builds it for linux/amd64 and linux/arm64 (OPS-12):
 # the binary for both is compiled once, on the platform of the machine that builds, and each
 # platform's image copies its own. docs/operations/release.md describes the image.
 
@@ -49,7 +49,7 @@ ARG TARGETARCH
 COPY --from=build /out/$TARGETARCH/antworker-api /usr/local/bin/antworker-api
 USER 65532:65532
 # health waits up to 3 seconds for the connection, and up to 3 for each read of the answer
-# (PLATFORM-044); a check that runs past its 5-second timeout fails. A one-shot subcommand, such
+# (PLATFORM-063); a check that runs past its 5-second timeout fails. A one-shot subcommand, such
 # as migrate, serves nothing, so its checks fail; the start period keeps a short run from being
 # marked unhealthy.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --start-interval=1s --retries=3 \

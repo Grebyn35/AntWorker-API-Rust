@@ -25,7 +25,7 @@ pub fn echo_problems(script: &str) -> Vec<(usize, &'static str)> {
         if writes_value {
             problems.push((
                 index + 1,
-                "echo writes a value, whose backslashes a server's sh reads as escapes; write it with printf '%s\\n' (CODE-16)",
+                "echo writes a value, whose backslashes a server's sh reads as escapes; write it with printf '%s\\n' (CODE-07)",
             ));
         }
     }
@@ -159,7 +159,7 @@ pub fn inline(repo: &Repo, path: &str) -> Inlined {
 
 /// Each line, counted from 0, where a function of `script` assigns a variable that the script's
 /// top level sets: every variable of sh is global, so the assignment changes what the rest of
-/// the script reads (CODE-16). A function is `name() {` at the margin, to the next `}` there.
+/// the script reads (CODE-07). A function is `name() {` at the margin, to the next `}` there.
 pub fn scope_problems(script: &str) -> Vec<(usize, String)> {
     let mut top = Vec::new();
     let mut functions = Vec::new();
@@ -204,7 +204,7 @@ pub fn scope_problems(script: &str) -> Vec<(usize, String)> {
                 index,
                 format!(
                     "the function {name} assigns {variable}, which the script's top level sets: \
-                     every variable of sh is global, so a function names its own apart (CODE-16)"
+                     every variable of sh is global, so a function names its own apart (CODE-07)"
                 ),
             )
         })
@@ -341,7 +341,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn code_16_a_function_names_its_variables_apart_from_the_top_level() {
+    fn code_07_a_function_names_its_variables_apart_from_the_top_level() {
         let script = "#!/bin/sh\n\
                       state=/var/lib\n\
                       for color in blue green; do :; done\n\
@@ -363,7 +363,7 @@ mod tests {
     }
 
     #[test]
-    fn code_16_a_function_s_builtins_and_expansions_assign_too() {
+    fn code_07_a_function_s_builtins_and_expansions_assign_too() {
         let script = "#!/bin/sh\n\
                       state=/var/lib color=blue moment=now flag=x\n\
                       ask() {\n\
@@ -384,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn code_16_a_script_is_checked_with_the_files_it_sources_in_place() {
+    fn code_07_a_script_is_checked_with_the_files_it_sources_in_place() {
         let repo = Repo::of(&[
             (
                 "deploy/deploy.sh",
@@ -422,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn code_16_a_deploy_script_writes_a_value_with_printf() {
+    fn code_07_a_deploy_script_writes_a_value_with_printf() {
         let script = "#!/bin/sh\n\
             # echo \"$commented\"\n\
             echo \"$answer\" >&2\n\

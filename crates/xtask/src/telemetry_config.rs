@@ -496,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_18_the_load_test_measures_against_the_latency_policy_s_threshold() {
+    fn ops_16_the_load_test_measures_against_the_latency_policy_s_threshold() {
         let repo = Repo::of(&[(stack::COLLECTOR, &collector(POLICIES))]);
         let without = Repo::of(&[(stack::COLLECTOR, &collector(""))]);
 

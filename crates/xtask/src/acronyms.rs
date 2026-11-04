@@ -1,7 +1,7 @@
 //! `check-docs`, the acronyms: a document spells out each acronym where it first uses it, unless
 //! the glossary lists it among those a developer is assumed to know, or among the names written
-//! in capitals (DOC-09). The migration workspace isn't checked, as DOC-09's Check line says, and
-//! a marker of unfinished work is DOC-07's to report.
+//! in capitals (DOC-06). The migration workspace isn't checked, as DOC-06's Check line says, and
+//! a marker of unfinished work is DOC-04's to report.
 //!
 //! An acronym counts as spelled out when its first use stands alone in parentheses, as in "the
 //! Simple Mail Transfer Protocol (SMTP)", or when it, or the hyphenated name it starts, comes
@@ -36,7 +36,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
             None => findings.push(Finding::new(
                 GLOSSARY,
                 1,
-                format!("the glossary has no sentence that starts \"{opening}\" (DOC-09)"),
+                format!("the glossary has no sentence that starts \"{opening}\" (DOC-06)"),
             )),
         }
     }
@@ -93,7 +93,7 @@ fn first_uses(path: &str, text: &str, known: &BTreeSet<String>, catalog: &Catalo
                     path,
                     line_number,
                     format!(
-                        "{acronym} isn't spelled out where the document first uses it, and the glossary doesn't list it (DOC-09)"
+                        "{acronym} isn't spelled out where the document first uses it, and the glossary doesn't list it (DOC-06)"
                     ),
                 ));
             }
@@ -186,19 +186,19 @@ mod tests {
     }
 
     #[test]
-    fn doc_09_spelled_out_and_listed_acronyms_pass() {
+    fn doc_06_spelled_out_and_listed_acronyms_pass() {
         let document = "Email goes over the Simple Mail Transfer Protocol (SMTP), then SMTP again.\nADRs (architecture decision records), and an HTTP API. SHA-256 is a name, and SCRAM-SHA-256 (Salted Challenge Response Authentication Mechanism) is spelled out. See [the inventory](inventory/SYNTHESIS.md) and `ERROR`. D12 and Q1 are IDs, and so is factor IV.\n";
         assert_eq!(findings(document), Vec::<String>::new());
     }
 
     #[test]
-    fn doc_09_an_acronym_not_spelled_out_where_first_used_fails() {
+    fn doc_06_an_acronym_not_spelled_out_where_first_used_fails() {
         let document = "SSE streams events. Server-sent events (SSE) come later.\nIt reads claims (from OIDC providers), then OIDC again.\n";
         assert_eq!(
             findings(document),
             [
-                "SSE isn't spelled out where the document first uses it, and the glossary doesn't list it (DOC-09)",
-                "OIDC isn't spelled out where the document first uses it, and the glossary doesn't list it (DOC-09)",
+                "SSE isn't spelled out where the document first uses it, and the glossary doesn't list it (DOC-06)",
+                "OIDC isn't spelled out where the document first uses it, and the glossary doesn't list it (DOC-06)",
             ]
         );
     }

@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_22_the_setup_ends_with_the_ssh_host_that_spares_the_other_tasks_the_address() {
+    fn ops_19_the_setup_ends_with_the_ssh_host_that_spares_the_other_tasks_the_address() {
         let as_root = reaching(
             "root@203.0.113.7",
             &resolved("203.0.113.7", "22", "root"),

@@ -7,7 +7,7 @@ use platform::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// A member's role, from the highest rank to the lowest (ACCESS-001, SEC-08).
+/// A member's role, from the highest rank to the lowest (ACCESS-001, SEC-09).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Role {
@@ -57,7 +57,7 @@ impl Role {
         }
     }
 
-    /// Whether a member at this role may act on a member at `other` (SEC-08).
+    /// Whether a member at this role may act on a member at `other` (SEC-09).
     pub(crate) fn outranks(self, other: Self) -> bool {
         self.rank() > other.rank()
     }

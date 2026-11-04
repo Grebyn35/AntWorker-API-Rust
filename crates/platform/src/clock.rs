@@ -1,5 +1,5 @@
 //! Time for code that measures or waits (CODE-06). Every read of the time and every wait in the
-//! workspace but the tests' watch goes through a [`Clock`], so the tests control time (TEST-07).
+//! workspace but the tests' watch goes through a [`Clock`], so the tests control time (TEST-06).
 #![expect(
     clippy::disallowed_types,
     reason = "the system clock is defined here, and only the binary's main.rs uses it (CODE-06)"
@@ -175,7 +175,7 @@ mod testing {
         use super::*;
 
         #[tokio::test]
-        async fn test_07_a_sleep_completes_when_the_clock_reaches_its_deadline() {
+        async fn test_06_a_sleep_completes_when_the_clock_reaches_its_deadline() {
             let clock = Arc::new(TestClock::default());
             let start = clock.now();
             let sleeper = tokio::spawn(clock.sleep(Duration::from_secs(5)));
@@ -191,7 +191,7 @@ mod testing {
         }
 
         #[tokio::test]
-        async fn test_07_a_sleep_of_nothing_completes_at_once() {
+        async fn test_06_a_sleep_of_nothing_completes_at_once() {
             let clock = TestClock::default();
             clock.sleep(Duration::ZERO).await;
         }

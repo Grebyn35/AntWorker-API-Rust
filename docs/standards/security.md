@@ -36,21 +36,21 @@ Access tokens are short-lived. Refresh tokens rotate on every use, and reuse is 
 
 When a session is revoked, a user is deleted, a membership is removed or a role changes, the affected open streams are closed or re-filtered as soon as the change commits. If that signal is missed, they are closed or re-filtered within the configured re-check interval, 60 seconds by default. [The platform spec](../spec/platform.md#events-and-the-real-time-hub) describes the mechanism.
 - Why: a stolen token has a limited life, and lost access ends at once, or within the re-check interval in the worst case (D5, D35).
-- Check: `test` (PLATFORM-017, and one test per kind of access change).
+- Check: `test` (PLATFORM-031, and one test per kind of access change).
 
-### SEC-19 Browsers hold tokens only in cookies they can't read, for listed origins
-A browser receives its session's tokens only as cookies that are `Secure`, `HttpOnly` and `SameSite=Strict`, named with the `__Host-` prefix (AUTH-015). A request whose method isn't safe (RFC 9110: `GET`, `HEAD`, `OPTIONS` and `TRACE` are) is served only when it carries no `Origin` or one of the origins that `CORS_ALLOWED_ORIGINS` lists, and, when a session cookie authenticates it, only when it carries a listed one (PLATFORM-053). Only a listed origin gets the headers of cross-origin resource sharing (CORS) that let a browser read a response, or send its cookies (PLATFORM-052).
+### SEC-07 Browsers hold tokens only in cookies they can't read, for listed origins
+A browser receives its session's tokens only as cookies that are `Secure`, `HttpOnly` and `SameSite=Strict`, named with the `__Host-` prefix (AUTH-015). A request whose method isn't safe (RFC 9110: `GET`, `HEAD`, `OPTIONS` and `TRACE` are) is served only when it carries no `Origin` or one of the origins that `CORS_ALLOWED_ORIGINS` lists, and, when a session cookie authenticates it, only when it carries a listed one (PLATFORM-059). Only a listed origin gets the headers of cross-origin resource sharing (CORS) that let a browser read a response, or send its cookies (PLATFORM-058).
 - Why: no script on a page can read a token, and no other site can make a browser act with one, which is cross-site request forgery (CSRF) (D61).
 - Check: `test`.
 
 ## Authorization
 
-### SEC-07 Authorization only through `access`
+### SEC-08 Authorization only through `access`
 Every workspace route is authorized by `Authorized<P>` (API-14), and every permission decision is made by the `access` policy. No handler or service checks roles or permissions itself.
 - Why: one place decides, so one place is audited (D2).
-- Check: `test` (TEST-09: every workspace route answers every role as the matrix says for the permission its builder documents, so a handler that extracts `Authorize` for another permission fails wherever the two differ), plus `review`.
+- Check: `test` (TEST-08: every workspace route answers every role as the matrix says for the permission its builder documents, so a handler that extracts `Authorize` for another permission fails wherever the two differ), plus `review`.
 
-### SEC-08 Role rank limits who may change whom
+### SEC-09 Role rank limits who may change whom
 A member can change or remove only members at roles below their own, and can assign only roles below their own. Each workspace has exactly one owner. Two actions are exceptions, and each has its own rule:
 - **Transfer.** The owner transfers ownership to a member who holds the admin role. The two swap roles: that member becomes the owner, and the former owner becomes an admin (D2).
 - **Leave.** Any member except the owner may leave, which removes their own membership. The owner must transfer ownership before leaving.
@@ -59,8 +59,8 @@ A member can change or remove only members at roles below their own, and can ass
 
 ## Requests and responses
 
-### SEC-09 Outbound requests go through one of two clients
-All outbound HTTP that application code makes uses one of the two clients in `platform::outbound`. The object storage and telemetry adapters use their libraries' own clients, with endpoints from configuration. The probe that the `health` subcommand sends to the instance's own address (PLATFORM-044) reaches no other service, so neither client applies to it.
+### SEC-10 Outbound requests go through one of two clients
+All outbound HTTP that application code makes uses one of the two clients in `platform::outbound`. The object storage and telemetry adapters use their libraries' own clients, with endpoints from configuration. The probe that the `health` subcommand sends to the instance's own address (PLATFORM-063) reaches no other service, so neither client applies to it.
 - The configured client calls URLs that come from configuration, such as OAuth endpoints. It requires HTTPS, unless the environment is development or test.
 - The untrusted client calls URLs that come from a third party, such as an OAuth avatar. It:
   - allows HTTPS only
@@ -72,7 +72,7 @@ In the test environment only, the untrusted client accepts one configured loopba
 - Why: no server-side request forgery, while every path stays testable (D26).
 - Check: `ci: check-layers` (no other HTTP client is built, apart from the probe of the `health` subcommand), plus `test` (including a test that the loopback setting is refused outside the test environment).
 
-### SEC-10 Uploaded content can't run in a browser
+### SEC-11 Uploaded content can't run in a browser
 Stored files are served with:
 - `X-Content-Type-Options: nosniff`
 - `Content-Security-Policy: sandbox`
@@ -82,48 +82,48 @@ Public files never expose their original file name (D7).
 - Why: an uploaded file can't execute as a page from the API's origin.
 - Check: `test`.
 
-### SEC-11 Security headers on every response
+### SEC-12 Security headers on every response
 Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. Authenticated responses carry `Cache-Control: no-store`, except public files. The reverse proxy in front of the API terminates TLS and sets HTTP Strict Transport Security (HSTS).
 - Why: browser-level defenses are on by default.
 - Check: `test`.
 
-### SEC-12 Rate limits protect every route
+### SEC-13 Rate limits protect every route
 An IP limit applies to every route except the health probes, before authentication. A per-user limit applies after it. Per-action limits apply to every action that checks a password or a verification code, or sends an email (D11); the tokens of SEC-03 are too long to guess, so a check of one needs no limit of its own. Every check of a user's current password goes through one `auth` function and shares one bucket per user. The client IP is taken from `X-Forwarded-For` only when the request comes from a configured trusted proxy.
 - Why: brute force and abuse are bounded, and the IP can't be spoofed.
 - Check: `test`.
 
-### SEC-18 A server exposes only the API and a Grafana that signs viewers in
+### SEC-14 A server exposes only the API and a Grafana that signs viewers in
 The reference deployment publishes only Caddy's ports, 80 and 443. Caddy serves the API's address and, with the self-hosted observability stack, Grafana's, where every viewer signs in: Grafana admits no anonymous viewer and no one who signs themselves up. Postgres, the collector and the rest of the stack answer only on the deployment's private networks.
 - Why: the database holds everything, and the dashboards, logs and traces show how the system is used (D26, D42).
 - Check: `ci: e2e`.
 
 ## Supply chain
 
-### SEC-13 Advisories block the build
+### SEC-15 Advisories block the build
 `cargo-deny` fails CI on any RustSec advisory affecting a dependency. Image scans fail CI on fixable critical or high vulnerabilities, in the image's operating system packages and in the crates its binary records: the scan of the image each pipeline run builds, and a weekly scan of the published `edge`, the newest final release and the newest prerelease.
 - Why: known vulnerabilities never ship (D21).
 - Check: `ci: deny`, plus `ci: image-scan` and `ci: image-rescan`.
 
-### SEC-14 Only vetted cryptography
-Cryptography comes from the RustCrypto crates (`aes-gcm`, `hmac`, `sha2`, `argon2`) and from `rustls` with its `ring` provider. This codebase builds no primitive or construction of its own. Crates that implement the Postgres protocol may build its standard constructions from those crates' primitives: the database driver's SCRAM-SHA-256 (Salted Challenge Response Authentication Mechanism) sign-in, and the password verifier that `bootstrap` computes with `postgres-protocol` (PLATFORM-010).
+### SEC-16 Only vetted cryptography
+Cryptography comes from the RustCrypto crates (`aes-gcm`, `hmac`, `sha2`, `argon2`) and from `rustls` with its `ring` provider. This codebase builds no primitive or construction of its own. Crates that implement the Postgres protocol may build its standard constructions from those crates' primitives: the database driver's SCRAM-SHA-256 (Salted Challenge Response Authentication Mechanism) sign-in, and the password verifier that `bootstrap` computes with `postgres-protocol` (PLATFORM-002).
 - Why: cryptography is easy to get subtly wrong, so it comes from vetted crates, and a protocol's standard construction is safer in its driver than rebuilt here. The `ring` provider builds on every supported platform without extra toolchains.
 - Check: `ci: deny` (bans `openssl`, `native-tls` and `aws-lc-rs`), plus `review`.
 
 ## Disclosure
 
-### SEC-15 Vulnerabilities have a reporting path
-`SECURITY.md` states how to report a vulnerability and what response to expect. Each security fix is marked in `CHANGELOG.md` (DOC-12).
+### SEC-17 Vulnerabilities have a reporting path
+`SECURITY.md` states how to report a vulnerability and what response to expect. Each security fix is marked in `CHANGELOG.md` (DOC-11).
 - Why: forks and users learn about fixes they need to port.
 - Check: `review`.
 
 ## Privacy
 
-### SEC-16 Audit entries hold no plain personal data, except IP address and user agent
+### SEC-18 Audit entries hold no plain personal data, except IP address and user agent
 The values a module records in an audit entry are IDs and non-personal fields. An email appears only as a keyed hash. IP address and user agent are stored, but can be read only with the permission `access` defines for them (D2, D6). Erasing an account anonymizes its entries (D31).
 - Why: the audit log is kept longer than most data and read by more people (D6, D7).
 - Check: `test` (each audit action's test asserts its stored values), plus `review`.
 
-### SEC-17 Events reach only authorized streams
+### SEC-19 Events reach only authorized streams
 A user event reaches only that user's streams. A workspace event reaches a stream only if its principal holds, in that workspace, the permission that the event requires. Replay delivers an event only to members whose membership already existed when the event was created.
 - Why: events never reveal what the REST permission checks would withhold, and new members don't receive history from before they joined (D2, D5).
-- Check: `test` (PLATFORM-016, with events that only the tests publish, proves how user and workspace events reach streams; each workspace event a module declares is tested against a member with its permission, a member without it while some role lacks it, and a member who joined after the event; and each user event a module declares is tested to name the user it is for, as the test of the behavior that publishes it reads its row).
+- Check: `test` (PLATFORM-029, with events that only the tests publish, proves how user and workspace events reach streams; each workspace event a module declares is tested against a member with its permission, a member without it while some role lacks it, and a member who joined after the event; and each user event a module declares is tested to name the user it is for, as the test of the behavior that publishes it reads its row).

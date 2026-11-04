@@ -59,7 +59,7 @@ impl Principal {
         }
     }
 
-    /// The scope of a job this caller's operation enqueues: their own (PLATFORM-012).
+    /// The scope of a job this caller's operation enqueues: their own (PLATFORM-013).
     pub fn job_scope(&self) -> JobScope {
         JobScope::proven(Some(self.user_id), None)
     }
@@ -174,7 +174,7 @@ pub trait SessionVerifier: Send + Sync {
 pub struct Authenticator {
     /// The verifier of access tokens.
     pub verifier: Arc<dyn SessionVerifier>,
-    /// The bucket of each user's requests (PLATFORM-048).
+    /// The bucket of each user's requests (PLATFORM-054).
     pub user_bucket: Bucket,
 }
 

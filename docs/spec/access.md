@@ -22,7 +22,7 @@
 - `member_ids(uow, &Authorized<MembersRead>)`: the user IDs of every member of the workspace, which a search of the members hands `accounts` (Design: Searching members).
 - `joined(uow, &Principal, Option<&[WorkspaceId]>, &Page)`: a page of the caller's own memberships, the latest joined first, kept to the given workspaces when a search named them, for listing the caller's workspaces.
 - `workspace_ids(uow, &Principal)`: the ID of every workspace the caller belongs to (ACCESS-005), which a search of the caller's workspaces hands `workspaces`.
-- `Role::outranks(role)`: compares two roles (SEC-08).
+- `Role::outranks(role)`: compares two roles (SEC-09).
 
 ## Behaviors
 
@@ -30,11 +30,11 @@
 |---|---|---|---|
 | ACCESS-001 | Each membership holds exactly one role: `owner`, `admin` or `member`. Each workspace has exactly one owner. | D2 | `access_001_` |
 | ACCESS-002 | A role grants exactly the permissions the matrix gives it, and nothing else. | D2 | `access_002_` |
-| ACCESS-003 | A caller who isn't a member of the workspace in the path gets 404 `request.not_found`. A member without the route's permission gets 403 `request.permission_denied`. Both refusals are reported to the `SecurityEventSink`. A workspace ID that isn't a UUID names no workspace, and answers 404 `request.not_found` unrecorded. | API-14, SEC-07, DATA-27 | `access_003_` |
-| ACCESS-004 | A member acts only on members whose role ranks below their own, and assigns only roles below their own. A refusal goes through `authz::refuse`, and answers 403 `request.permission_denied`. | SEC-08, DATA-27, PLATFORM-025 | `access_004_` |
-| ACCESS-005 | `workspace_ids` returns the ID of every workspace the caller belongs to, and nothing else. | D3, DATA-22 | `access_005_` |
-| ACCESS-006 | Adding a membership and removing one each sends an access-change signal for its user and workspace in the same unit of work, which, once it commits, closes the streams of that user that PLATFORM-017 says a membership change closes. | SEC-06, D35, PLATFORM-017 | `access_006_` |
-| ACCESS-007 | `memberships` gives each user it is asked about every workspace they belong to, with the permissions their role holds there and the transaction that added the membership, and nothing else. | SEC-17, DATA-22 | `access_007_` |
+| ACCESS-003 | A caller who isn't a member of the workspace in the path gets 404 `request.not_found`. A member without the route's permission gets 403 `request.permission_denied`. Both refusals are reported to the `SecurityEventSink`. A workspace ID that isn't a UUID names no workspace, and answers 404 `request.not_found` unrecorded. | API-14, SEC-08, DATA-22 | `access_003_` |
+| ACCESS-004 | A member acts only on members whose role ranks below their own, and assigns only roles below their own. A refusal goes through `authz::refuse`, and answers 403 `request.permission_denied`. | SEC-09, DATA-22, PLATFORM-010 | `access_004_` |
+| ACCESS-005 | `workspace_ids` returns the ID of every workspace the caller belongs to, and nothing else. | D3, DATA-16 | `access_005_` |
+| ACCESS-006 | Adding a membership and removing one each sends an access-change signal for its user and workspace in the same unit of work, which, once it commits, closes the streams of that user that PLATFORM-031 says a membership change closes. | SEC-06, D35, PLATFORM-031 | `access_006_` |
+| ACCESS-007 | `memberships` gives each user it is asked about every workspace they belong to, with the permissions their role holds there and the transaction that added the membership, and nothing else. | SEC-19, DATA-16 | `access_007_` |
 
 ## Design
 
@@ -53,7 +53,7 @@ The matrix lives in `access/permissions.rs` as one table, so adding a permission
 
 ### Removing a member
 
-The delete itself checks the rank: it deletes the membership only where its role ranks below the caller's (DATA-24, DATA-25). A row whose role doesn't qualify is skipped without being locked, so a removal never waits on a member it may not remove, and two members who each try to remove the other can't wait on each other: at most one outranks the other. When nothing was deleted, a read without a lock tells a member it outranked nobody from a user who isn't a member (ACCESS-004, WORKSPACES-006).
+The delete itself checks the rank: it deletes the membership only where its role ranks below the caller's (DATA-18, DATA-20). A row whose role doesn't qualify is skipped without being locked, so a removal never waits on a member it may not remove, and two members who each try to remove the other can't wait on each other: at most one outranks the other. When nothing was deleted, a read without a lock tells a member it outranked nobody from a user who isn't a member (ACCESS-004, WORKSPACES-006).
 
 ### Signals
 
@@ -61,7 +61,7 @@ The functions that add or remove a membership send its signal themselves, so no 
 
 ### Memberships for the hub
 
-`AccessPolicy::memberships` reads the memberships of the users it is given, filtered by their IDs, which came from the hub's own streams' principals (DATA-22), through the index on the members' user, with the transaction that added each, and turns each role into the names of its permissions from the matrix, so `platform`, which holds no roles, filters events by permission names alone (ARCH-02).
+`AccessPolicy::memberships` reads the memberships of the users it is given, filtered by their IDs, which came from the hub's own streams' principals (DATA-16), through the index on the members' user, with the transaction that added each, and turns each role into the names of its permissions from the matrix, so `platform`, which holds no roles, filters events by permission names alone (ARCH-02).
 
 ### Uniqueness of the owner
 
@@ -69,11 +69,11 @@ A partial unique index on `workspace_memberships (workspace_id) WHERE role = 'ow
 
 ### Policy
 
-`AccessPolicy::authorize` runs inside the request's unit of work (PLATFORM-024). It reads the caller's membership row by workspace ID and user ID, `FOR SHARE`, and answers not a member, a member without the permission, or the member's role (platform spec, "Refusals"). `Authorized<P>` carries the role by its name, which `access` reads back into its `Role`, so `platform` holds no roles of its own (ARCH-02).
+`AccessPolicy::authorize` runs inside the request's unit of work (PLATFORM-009). It reads the caller's membership row by workspace ID and user ID, `FOR SHARE`, and answers not a member, a member without the permission, or the member's role (platform spec, "Refusals"). `Authorized<P>` carries the role by its name, which `access` reads back into its `Role`, so `platform` holds no roles of its own (ARCH-02).
 
 ### Searching members
 
-The members' names and emails belong to `accounts`, and their memberships to `access`, so no one query joins them (ARCH-06). A search takes three: `member_ids` reads the workspace's members, `accounts::matching` keeps those whose name or email contains the search, and `members` pages the memberships of the users it kept. Each query filters by tenant itself: the first and the third by the workspace from the proof, and the second by IDs that came from the first (DATA-22). A list without a search skips the first two.
+The members' names and emails belong to `accounts`, and their memberships to `access`, so no one query joins them (ARCH-06). A search takes three: `member_ids` reads the workspace's members, `accounts::matching` keeps those whose name or email contains the search, and `members` pages the memberships of the users it kept. Each query filters by tenant itself: the first and the third by the workspace from the proof, and the second by IDs that came from the first (DATA-16). A list without a search skips the first two.
 
 ## Open design questions
 

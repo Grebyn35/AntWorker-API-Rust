@@ -48,7 +48,7 @@ pub(crate) struct Entry {
     pub(crate) resource_id: Option<uuid::Uuid>,
     /// The user it happened to, when it isn't the actor.
     pub(crate) target: Option<UserId>,
-    /// IDs and non-personal fields only (SEC-16).
+    /// IDs and non-personal fields only (SEC-18).
     pub(crate) details: serde_json::Value,
 }
 

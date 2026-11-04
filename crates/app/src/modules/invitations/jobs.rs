@@ -1,7 +1,7 @@
 //! The periodic job `invitations.expire` (OPS-09, INVITATIONS-007): owned by `invitations`, run
 //! every hour, and touching `invitations` alone. It spans every workspace by nature, so it
-//! selects invitations by expiry alone, which `check-tenancy` lets this file alone do (DATA-22).
-//! Scheduled maintenance isn't audited (DATA-27). A second run finds nothing more to delete.
+//! selects invitations by expiry alone, which `check-tenancy` lets this file alone do (DATA-16).
+//! Scheduled maintenance isn't audited (DATA-22). A second run finds nothing more to delete.
 
 use std::time::Duration;
 

@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-tags: true
-      # just first, then the tools its tasks need, at the versions the justfile pins (OPS-13).
+      # just first, then the tools its tasks need, at the versions the justfile pins (OPS-11).
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: just@1.59.0
@@ -60,7 +60,7 @@ jobs:
       - run: just setup
       - run: just check-removable
 
-  # The images, each built once for both platforms (OPS-14).
+  # The images, each built once for both platforms (OPS-12).
   image:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -92,7 +92,7 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # The digests the image job built, scanned for vulnerabilities (SEC-13), on a runner of its own,
+  # The digests the image job built, scanned for vulnerabilities (SEC-15), on a runner of its own,
   # so the scanner's database takes none of the end-to-end tests' disk.
   scan:
     needs: image
@@ -110,8 +110,8 @@ jobs:
           path: target
       - run: just image-scan
 
-  # The digests the image job built, booted on each platform with the end-to-end tests (OPS-14,
-  # OPS-15), each on a runner of that platform. Each platform's tests are split between two jobs
+  # The digests the image job built, booted on each platform with the end-to-end tests (OPS-12,
+  # OPS-13), each on a runner of that platform. Each platform's tests are split between two jobs
   # that run side by side, as docs/operations/ci.md says: one runs the tests whose names hold
   # `backups::`, and the other, with `--skip backups::`, every other test, so each test runs in
   # exactly one job of its platform.
@@ -198,7 +198,7 @@ jobs:
           COMMIT: ${{ github.sha }}
 
   # The version that `just release` asked for, released once a commit with it passes every check,
-  # if no release has it yet (OPS-14). This job creates its tag.
+  # if no release has it yet (OPS-12). This job creates its tag.
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: publish

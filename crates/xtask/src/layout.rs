@@ -1,19 +1,19 @@
 //! `check-layout`: the code's files keep their places and their sizes.
 //! - A Rust file of a crate's `src/`, before its test module, a shell script under `deploy/`, and
-//!   the justfile and each file it imports hold at most 500 lines (CODE-07). Test files, under a
+//!   the justfile and each file it imports hold at most 500 lines (CODE-08). Test files, under a
 //!   crate's `tests/`, aren't counted.
 //! - A module's files come from ARCH-03's set, each a file or a directory of the same name, with
 //!   the three entries that architecture.md §5 gives `access`, `auth` and `system`, and its email
 //!   templates are in the directory of `crates/app/templates/` named after it (ARCH-03).
 //! - Every module has its `error.rs` (ERR-01).
 //! - No code of `platform` or `app` allows or expects the `dead_code` lint, and no public item
-//!   of `platform` is one that only tests name (CODE-14, in `unused`).
+//!   of `platform` is one that only tests name (CODE-15, in `unused`).
 //! - A job is declared in its module's `jobs.rs`, or in an area of `platform`, and its kind starts
 //!   with its module's name, or `platform.` for one of `platform`'s (OPS-09).
 
 use crate::{Finding, Outcome, repo::Repo, shell, unused};
 
-/// The most lines a file holds (CODE-07).
+/// The most lines a file holds (CODE-08).
 const MOST_LINES: usize = 500;
 
 /// The directory of `app`'s modules.
@@ -72,7 +72,7 @@ pub fn check(repo: &Repo) -> Outcome {
                     MOST_LINES + 1,
                     format!(
                         "{lines} lines before its tests: split it into a directory of modules \
-                         with the same name (CODE-07, ARCH-03)"
+                         with the same name (CODE-08, ARCH-03)"
                     ),
                 ));
             }
@@ -97,7 +97,7 @@ pub fn check(repo: &Repo) -> Outcome {
                     MOST_LINES + 1,
                     format!(
                         "{lines} lines: split its tasks into more files of `just/`, which the justfile \
-                         imports, by kind (CODE-07)"
+                         imports, by kind (CODE-08)"
                     ),
                 ));
             }
@@ -110,7 +110,7 @@ pub fn check(repo: &Repo) -> Outcome {
                     MOST_LINES + 1,
                     format!(
                         "{lines} lines: split the script into files it sources, by task \
-                         (CODE-07)"
+                         (CODE-08)"
                     ),
                 ));
             }
@@ -124,7 +124,7 @@ pub fn check(repo: &Repo) -> Outcome {
     }
 }
 
-/// CODE-07: the tasks of a file that the justfile imports, `just/<group>.just`, are those of its
+/// CODE-08: the tasks of a file that the justfile imports, `just/<group>.just`, are those of its
 /// group; and the justfile's own each run others, as dependencies or through `just`.
 fn tasks(path: &str, text: &str) -> Vec<Finding> {
     let own = path
@@ -141,7 +141,7 @@ fn tasks(path: &str, text: &str) -> Vec<Finding> {
             findings.push(Finding::new(
                 path,
                 index + 1,
-                format!("a task of the group `{group}` goes in just/{group}.just (CODE-07)"),
+                format!("a task of the group `{group}` goes in just/{group}.just (CODE-08)"),
             ));
         }
         let header = line.starts_with(|c: char| c.is_ascii_lowercase() || c == '_')
@@ -166,7 +166,7 @@ fn tasks(path: &str, text: &str) -> Vec<Finding> {
                 path,
                 index + 1,
                 "a task that runs no other goes in the file of `just/` named after its group \
-                 (CODE-07)",
+                 (CODE-08)",
             ));
         }
     }
@@ -278,7 +278,7 @@ fn modules(repo: &Repo) -> Vec<Finding> {
     findings
 }
 
-/// CODE-14: each line of `text` that allows or expects `dead_code`, outside comments, in an outer
+/// CODE-15: each line of `text` that allows or expects `dead_code`, outside comments, in an outer
 /// attribute or an inner one, but on a test target's module that another target's support holds,
 /// which `#[path]` names: that target, which holds the module, checks its every item.
 fn dead_code(path: &str, text: &str) -> Vec<Finding> {
@@ -312,7 +312,7 @@ fn dead_code(path: &str, text: &str) -> Vec<Finding> {
                     Finding::new(
                         path,
                         line + 1,
-                        "an exception to `dead_code`: delete the unused item instead (CODE-14)",
+                        "an exception to `dead_code`: delete the unused item instead (CODE-15)",
                     )
                 }));
             }
@@ -420,7 +420,7 @@ mod tests {
     }
 
     #[test]
-    fn code_07_a_file_over_500_lines_before_its_tests_fails() {
+    fn code_08_a_file_over_500_lines_before_its_tests_fails() {
         let long = "fn a() {}\n".repeat(501);
         let tested = format!(
             "{}#[cfg(test)]\npub mod tests {{\n{}}}\n",
@@ -443,17 +443,17 @@ mod tests {
             found,
             [
                 "crates/platform/src/long.rs:501: 501 lines before its tests: split it into a \
-                 directory of modules with the same name (CODE-07, ARCH-03)",
+                 directory of modules with the same name (CODE-08, ARCH-03)",
                 "deploy/deploy.sh:501: 501 lines: split the script into files it sources, by \
-                 task (CODE-07)",
+                 task (CODE-08)",
                 "just/check.just:501: 501 lines: split its tasks into more files of `just/`, \
-                 which the justfile imports, by kind (CODE-07)",
+                 which the justfile imports, by kind (CODE-08)",
             ]
         );
     }
 
     #[test]
-    fn code_07_each_file_of_just_holds_its_group_s_tasks() {
+    fn code_08_each_file_of_just_holds_its_group_s_tasks() {
         let justfile = "set lazy\nimport 'just/check.just'\n\n[private]\ndefault:\n    @just --list\n\n\
                         [group('check')]\nci: checks image\n\nlonely:\n    cargo build\n";
         let check = "# The checks.\n\n[group('check')]\nlint:\n    cargo clippy\n\n\
@@ -463,8 +463,8 @@ mod tests {
             found,
             [
                 "justfile:11: a task that runs no other goes in the file of `just/` named after \
-                 its group (CODE-07)",
-                "just/check.just:7: a task of the group `image` goes in just/image.just (CODE-07)",
+                 its group (CODE-08)",
+                "just/check.just:7: a task of the group `image` goes in just/image.just (CODE-08)",
             ]
         );
     }
@@ -501,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn code_14_no_exception_to_dead_code() {
+    fn code_15_no_exception_to_dead_code() {
         let shared = "#[cfg(test)]\n#[expect(\n    dead_code,\n    reason = \"the other target's\"\n)]\n\
                       #[path = \"../integration/support/mod.rs\"]\nmod support;\n";
         let found = messages(&[

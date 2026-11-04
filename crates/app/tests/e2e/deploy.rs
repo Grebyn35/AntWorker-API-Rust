@@ -1,4 +1,4 @@
-//! Deploys of the reference deployment (OPS-16, OPS-20, OPS-21), and its status and logs (OPS-22),
+//! Deploys of the reference deployment (OPS-14, OPS-17, OPS-18), and its status and logs (OPS-19),
 //! on a server of the tests' own, with a managed database on a Postgres server of its own, or the
 //! bundled one where a test says so.
 
@@ -13,7 +13,7 @@ use crate::{
 };
 
 #[tokio::test]
-async fn ops_16_a_deploy_replaces_every_replica_while_every_request_succeeds() {
+async fn ops_14_a_deploy_replaces_every_replica_while_every_request_succeeds() {
     let deployment = Deployment::managed(&[]);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
@@ -34,7 +34,7 @@ async fn ops_16_a_deploy_replaces_every_replica_while_every_request_succeeds() {
 }
 
 #[tokio::test]
-async fn ops_16_a_release_whose_replicas_never_become_ready_is_removed_while_the_live_ones_serve() {
+async fn ops_14_a_release_whose_replicas_never_become_ready_is_removed_while_the_live_ones_serve() {
     let deployment = Deployment::managed(&[]);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
@@ -85,7 +85,7 @@ async fn ops_16_a_release_whose_replicas_never_become_ready_is_removed_while_the
 }
 
 #[tokio::test]
-async fn ops_16_a_deploy_restarts_the_proxy_only_when_the_operator_allows_it() {
+async fn ops_14_a_deploy_restarts_the_proxy_only_when_the_operator_allows_it() {
     let deployment = Deployment::managed(&[]);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
@@ -114,7 +114,7 @@ async fn ops_16_a_deploy_restarts_the_proxy_only_when_the_operator_allows_it() {
 }
 
 #[tokio::test]
-async fn ops_21_a_deploy_refuses_replicas_whose_connections_would_not_fit() {
+async fn ops_18_a_deploy_refuses_replicas_whose_connections_would_not_fit() {
     let deployment = Deployment::managed(&[("DATABASE_MAX_CONNECTIONS", "40")]);
 
     let refused = deployment.apply(&deployment.api, &[]).await;
@@ -201,7 +201,7 @@ async fn ops_05_while_no_replica_runs_the_proxy_answers_at_once_with_the_api_s_5
 }
 
 #[tokio::test]
-async fn ops_20_the_proxy_answers_http_with_a_redirect_to_https_and_https_with_hsts() {
+async fn ops_17_the_proxy_answers_http_with_a_redirect_to_https_and_https_with_hsts() {
     let deployment = Deployment::managed(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -225,7 +225,7 @@ async fn ops_20_the_proxy_answers_http_with_a_redirect_to_https_and_https_with_h
 }
 
 #[tokio::test]
-async fn ops_16_a_deploy_refuses_to_run_while_another_deploy_backup_or_restore_runs() {
+async fn ops_14_a_deploy_refuses_to_run_while_another_deploy_backup_or_restore_runs() {
     let deployment = Deployment::managed(&[]);
     // A task that runs: a process that holds the locks a task holds.
     deployment.server.shell_ok(&format!(
@@ -255,7 +255,7 @@ async fn ops_16_a_deploy_refuses_to_run_while_another_deploy_backup_or_restore_r
 }
 
 #[tokio::test]
-async fn ops_16_the_task_after_a_deploy_killed_before_its_replicas_serve_puts_back_its_files() {
+async fn ops_14_the_task_after_a_deploy_killed_before_its_replicas_serve_puts_back_its_files() {
     let deployment = Deployment::managed(&[]);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
@@ -299,7 +299,7 @@ async fn ops_16_the_task_after_a_deploy_killed_before_its_replicas_serve_puts_ba
 }
 
 #[tokio::test]
-async fn ops_22_while_both_colors_run_and_no_deploy_recorded_which_serves_the_next_deploy_goes_on()
+async fn ops_19_while_both_colors_run_and_no_deploy_recorded_which_serves_the_next_deploy_goes_on()
 {
     let deployment = Deployment::managed(&[]);
     let first = deployment.apply(&deployment.api, &[]).await;
@@ -336,7 +336,7 @@ async fn ops_22_while_both_colors_run_and_no_deploy_recorded_which_serves_the_ne
 }
 
 #[tokio::test]
-async fn ops_16_a_put_back_that_fails_says_so_and_the_next_task_puts_the_files_back() {
+async fn ops_14_a_put_back_that_fails_says_so_and_the_next_task_puts_the_files_back() {
     let deployment = Deployment::managed(&[]);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
@@ -385,7 +385,7 @@ async fn ops_16_a_put_back_that_fails_says_so_and_the_next_task_puts_the_files_b
 }
 
 #[tokio::test]
-async fn ops_16_a_deploy_that_ends_once_its_replicas_serve_keeps_its_files() {
+async fn ops_14_a_deploy_that_ends_once_its_replicas_serve_keeps_its_files() {
     let deployment = Deployment::managed(&[]);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
@@ -434,7 +434,7 @@ fn waiting_image(deployment: &Deployment) -> String {
 }
 
 #[tokio::test]
-async fn ops_16_a_deploy_removes_the_images_and_the_release_files_that_nothing_uses() {
+async fn ops_14_a_deploy_removes_the_images_and_the_release_files_that_nothing_uses() {
     let deployment = Deployment::managed(&[]);
     // Three releases of one repository, as the API's are, and an image of another.
     let releases: Vec<String> = ["first", "second", "third"]
@@ -487,7 +487,7 @@ async fn ops_16_a_deploy_removes_the_images_and_the_release_files_that_nothing_u
 }
 
 #[tokio::test]
-async fn ops_16_every_container_of_a_deployment_keeps_a_capped_log() {
+async fn ops_14_every_container_of_a_deployment_keeps_a_capped_log() {
     // The bundled database and the self-hosted stack, which run the most services.
     let deployment = Deployment::bundled(&[("TELEMETRY", "self-hosted")]);
 
@@ -515,7 +515,7 @@ async fn ops_16_every_container_of_a_deployment_keeps_a_capped_log() {
 }
 
 #[tokio::test]
-async fn ops_16_a_deploy_stops_the_services_that_the_settings_no_longer_choose() {
+async fn ops_14_a_deploy_stops_the_services_that_the_settings_no_longer_choose() {
     let deployment = Deployment::managed(&[]);
     let backend = deployment.server.start_otlp_backend();
     let mut managed = vec![("TELEMETRY", "managed")];
@@ -547,7 +547,7 @@ async fn ops_16_a_deploy_stops_the_services_that_the_settings_no_longer_choose()
 }
 
 #[tokio::test]
-async fn ops_16_a_deploy_refuses_an_option_it_doesn_t_know() {
+async fn ops_14_a_deploy_refuses_an_option_it_doesn_t_know() {
     let deployment = Deployment::managed(&[]);
 
     let refused = deployment
@@ -564,7 +564,7 @@ async fn ops_16_a_deploy_refuses_an_option_it_doesn_t_know() {
 }
 
 #[tokio::test]
-async fn ops_16_a_deploy_restarts_the_bundled_database_only_for_other_files_and_with_consent() {
+async fn ops_14_a_deploy_restarts_the_bundled_database_only_for_other_files_and_with_consent() {
     let deployment = Deployment::bundled(&[]);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
@@ -609,7 +609,7 @@ async fn ops_16_a_deploy_restarts_the_bundled_database_only_for_other_files_and_
 }
 
 #[tokio::test]
-async fn ops_16_a_deploy_gives_the_bundled_database_its_own_secrets_once_the_settings_choose_it() {
+async fn ops_14_a_deploy_gives_the_bundled_database_its_own_secrets_once_the_settings_choose_it() {
     let deployment = Deployment::managed(&[]);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
@@ -641,7 +641,7 @@ async fn ops_16_a_deploy_gives_the_bundled_database_its_own_secrets_once_the_set
 }
 
 #[tokio::test]
-async fn ops_16_a_deploy_refuses_a_managed_database_while_its_urls_name_the_bundled_one() {
+async fn ops_14_a_deploy_refuses_a_managed_database_while_its_urls_name_the_bundled_one() {
     let deployment = Deployment::bundled(&[]);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
@@ -659,7 +659,7 @@ async fn ops_16_a_deploy_refuses_a_managed_database_while_its_urls_name_the_bund
 }
 
 #[tokio::test]
-async fn ops_16_a_deploy_that_leaves_the_bundled_database_stops_it_and_its_backups_status() {
+async fn ops_14_a_deploy_that_leaves_the_bundled_database_stops_it_and_its_backups_status() {
     let deployment = Deployment::managed(&[]);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
@@ -697,7 +697,7 @@ async fn ops_16_a_deploy_that_leaves_the_bundled_database_stops_it_and_its_backu
 }
 
 #[tokio::test]
-async fn ops_22_status_shows_what_serves_and_the_backups_and_logs_show_the_services_output() {
+async fn ops_19_status_shows_what_serves_and_the_backups_and_logs_show_the_services_output() {
     // With the self-hosted stack, whose images, unlike the API's and Caddy's, carry no version
     // label.
     let deployment = Deployment::bundled(&[("TELEMETRY", "self-hosted")]);
@@ -773,7 +773,7 @@ async fn ops_22_status_shows_what_serves_and_the_backups_and_logs_show_the_servi
 }
 
 #[tokio::test]
-async fn ops_22_status_shows_the_data_a_restore_moved_aside_while_postgres_doesn_t_run() {
+async fn ops_19_status_shows_the_data_a_restore_moved_aside_while_postgres_doesn_t_run() {
     // A managed database, as after DATABASE left `bundled`, with the volume the bundled one left,
     // which holds what a restore moved aside; no Postgres runs.
     let deployment = Deployment::managed(&[]);

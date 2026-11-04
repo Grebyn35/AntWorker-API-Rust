@@ -45,7 +45,7 @@ running() {
         --filter status=running | head -n 1
 }
 
-# One deploy, backup or restore at a time (OPS-16). A task takes the lock state/lock, and refuses
+# One deploy, backup or restore at a time (OPS-14). A task takes the lock state/lock, and refuses
 # while another task holds it, then holds state/running, which `status` looks at: status takes that
 # one for an instant, which delays a task rather than refusing it. The kernel releases both once the
 # last of the task's processes ends, however it ends, so no lock outlives its task.
@@ -249,12 +249,12 @@ read_settings() {
             profiles="$profiles --profile managed-telemetry"
             case $(setting MANAGED_OTLP_ENDPOINT) in
                 https://?*) ;;
-                *) fail "MANAGED_OTLP_ENDPOINT is the managed backend's https URL, with TELEMETRY=managed (OPS-20)" ;;
+                *) fail "MANAGED_OTLP_ENDPOINT is the managed backend's https URL, with TELEMETRY=managed (OPS-17)" ;;
             esac
             if [ -z "$(setting MANAGED_OTLP_USER)" ]; then fail "MANAGED_OTLP_USER is required with TELEMETRY=managed"; fi
             case $(setting MANAGED_GRAFANA_URL) in
                 '' | https://?*) ;;
-                *) fail "MANAGED_GRAFANA_URL is the managed Grafana's https URL, or empty (OPS-20)" ;;
+                *) fail "MANAGED_GRAFANA_URL is the managed Grafana's https URL, or empty (OPS-17)" ;;
             esac
             ;;
         off) ;;
@@ -263,7 +263,7 @@ read_settings() {
 }
 
 # Fails unless the connections of both colors' replicas and of migrate fit within what Postgres
-# allows the roles that aren't superusers, as docs/operations/deploy.md's Scaling says (OPS-21).
+# allows the roles that aren't superusers, as docs/operations/deploy.md's Scaling says (OPS-18).
 check_connections() {
     needed=$((2 * replicas * (pool + 1) + 1))
     allowed=$((connections - 3))

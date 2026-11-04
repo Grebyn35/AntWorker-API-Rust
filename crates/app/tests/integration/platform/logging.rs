@@ -1,4 +1,4 @@
-//! The logging setup (OBS-02, OBS-05), and the watch that prints a long test's lines (TEST-07).
+//! The logging setup (OBS-02, OBS-05), and the watch that prints a long test's lines (TEST-06).
 
 use std::{
     io,
@@ -96,7 +96,7 @@ impl io::Write for Printed {
 }
 
 #[test]
-fn test_07_a_watch_prints_its_test_s_lines_then_each_line_it_logs_until_it_ends() {
+fn test_06_a_watch_prints_its_test_s_lines_then_each_line_it_logs_until_it_ends() {
     testing::install(SERVICE).unwrap();
     let test = std::thread::current().name().unwrap().to_owned();
     tracing::info!("logged before the watch printed");

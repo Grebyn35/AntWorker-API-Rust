@@ -91,7 +91,7 @@ impl<P: Permission, T: Serialize + ToSchema> Catalogued for WorkspaceEvent<P, T>
             self.name,
             Cow::Owned(format!(
                 "`{}`, a workspace event: it reaches the streams of the workspace's members who \
-                 hold `{}` (SEC-17).",
+                 hold `{}` (SEC-19).",
                 self.name,
                 P::NAME
             )),

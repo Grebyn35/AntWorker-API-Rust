@@ -1,4 +1,4 @@
-// One step of the load test (OPS-18): requests to one replica of the API at a constant rate,
+// One step of the load test (OPS-16): requests to one replica of the API at a constant rate,
 // which `just load-test` runs at rising rates to find the replica's capacity. k6 runs it, and
 // prints the step's outcome as one JSON line, which the task reads.
 //

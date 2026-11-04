@@ -19,13 +19,13 @@ use crate::{
     repo::{self, Repo},
 };
 
-/// The specs, in each of which a section that a removal empties reads "None." (DOC-15).
+/// The specs, in each of which a section that a removal empties reads "None." (DOC-08).
 const SPECS: &str = "docs/spec/";
 
 /// The list of the optional parts and of `check-removable`'s runs, from the repository root.
 const LIST: &str = "crates/xtask/parts.yaml";
 
-/// The migration workspace (DOC-04), which the migration's close deletes, so a removal neither
+/// The migration workspace (DOC-13), which the migration's close deletes, so a removal neither
 /// edits it nor reads it (ARCH-07).
 const MIGRATION: [&str; 2] = ["docs/inventory/", "docs/MIGRATION.md"];
 
@@ -125,7 +125,7 @@ fn validate(repo: &Repo, parts: &[Part]) -> Vec<Finding> {
                         format!(
                             "a test of `{other}`'s behavior is in a file that `{}` owns, so \
                              removing the part would remove it: move it, or prove the behavior \
-                             without the part (TEST-05)",
+                             without the part (TEST-04)",
                             part.name
                         ),
                     ));
@@ -340,7 +340,7 @@ fn is_spec(path: &str) -> bool {
 }
 
 /// `text` with "None." under each of its level-2 headings that has nothing under it, as a spec
-/// writes for a section with nothing in it (DOC-15).
+/// writes for a section with nothing in it (DOC-08).
 fn none_in_empty_sections(text: &str) -> String {
     let empty: Vec<usize> = markdown::empty_sections(text)
         .into_iter()
@@ -366,7 +366,7 @@ fn none_in_empty_sections(text: &str) -> String {
     filled
 }
 
-/// Deletes the entries of the query cache whose query no kept code holds (DATA-20), and returns
+/// Deletes the entries of the query cache whose query no kept code holds (DATA-14), and returns
 /// how many it deleted.
 fn prune_cache() -> Result<usize, String> {
     let repo = Repo::load().map_err(|error| format!("can't read the repository: {error}"))?;
@@ -534,7 +534,7 @@ mod tests {
     fn arch_07_a_test_of_another_module_s_behavior_in_a_part_s_file_fails() {
         let tests = "#[tokio::test]\nasync fn offers_001_an_offer_is_made() {}\n\
                      #[test]\nfn arch_07_a_rule() {}\n\
-                     #[tokio::test]\nasync fn platform_012_a_job_runs_for_its_scope() {}\n";
+                     #[tokio::test]\nasync fn platform_013_a_job_runs_for_its_scope() {}\n";
         let repo = Repo::of(&[
             (LIST, "parts:\n"),
             ("crates/app/tests/integration/offers.rs", tests),
@@ -551,7 +551,7 @@ mod tests {
 
     #[test]
     fn arch_07_a_test_s_module_is_the_words_before_its_behavior_s_number() {
-        let names = ["client_telemetry_002_x()", "ops_17_a_restore()"];
+        let names = ["client_telemetry_002_x()", "ops_15_a_restore()"];
 
         let modules: Vec<Option<String>> = names.iter().map(|name| behavior_module(name)).collect();
 

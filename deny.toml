@@ -5,12 +5,12 @@ all-features = true
 version = 2
 yanked = "deny"
 # Every advisory fails the check, whether it affects a direct dependency or a transitive one
-# (SEC-13).
+# (SEC-15).
 unmaintained = "all"
 unsound = "all"
 
-# `just deny` checks licenses for each target the API is built for (CODE-12), and advisories,
-# bans and sources for every target (SEC-13).
+# `just deny` checks licenses for each target the API is built for (CODE-13), and advisories,
+# bans and sources for every target (SEC-15).
 [licenses]
 version = 2
 confidence-threshold = 0.93
@@ -31,11 +31,11 @@ multiple-versions = "warn"
 wildcards = "deny"
 allow-wildcard-paths = true
 deny = [
-    { name = "openssl", reason = "cryptography comes from RustCrypto and rustls with ring (SEC-14)" },
-    { name = "openssl-sys", reason = "cryptography comes from RustCrypto and rustls with ring (SEC-14)" },
-    { name = "native-tls", reason = "cryptography comes from RustCrypto and rustls with ring (SEC-14)" },
-    { name = "aws-lc-rs", reason = "rustls uses the ring provider (SEC-14)" },
-    { name = "aws-lc-sys", reason = "rustls uses the ring provider (SEC-14)" },
+    { name = "openssl", reason = "cryptography comes from RustCrypto and rustls with ring (SEC-16)" },
+    { name = "openssl-sys", reason = "cryptography comes from RustCrypto and rustls with ring (SEC-16)" },
+    { name = "native-tls", reason = "cryptography comes from RustCrypto and rustls with ring (SEC-16)" },
+    { name = "aws-lc-rs", reason = "rustls uses the ring provider (SEC-16)" },
+    { name = "aws-lc-sys", reason = "rustls uses the ring provider (SEC-16)" },
 ]
 
 [sources]

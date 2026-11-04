@@ -52,7 +52,7 @@ impl Invitations {
 /// Invites `input.email` to the caller's workspace, once the caller's bucket has counted the
 /// request (INVITATIONS-009), in the unit of work `authorize` opens, which claims `key` first, so
 /// a retry with the same key and request answers the same invitation (INVITATIONS-001 to
-/// INVITATIONS-003, INVITATIONS-008, PLATFORM-018).
+/// INVITATIONS-003, INVITATIONS-008, PLATFORM-036).
 pub(crate) async fn invite(
     limits: &RateLimits,
     authorize: Authorize<InvitationsCreate>,
@@ -62,7 +62,7 @@ pub(crate) async fn invite(
 ) -> Result<Invited, InvitationsError> {
     let inviter = authorize.principal().user_id();
     // Counted before the unit of work opens, so a request refused afterwards still counts
-    // (PLATFORM-026).
+    // (PLATFORM-011).
     limits
         .check(invitations.settings.limit, inviter.uuid().as_bytes())
         .await?;

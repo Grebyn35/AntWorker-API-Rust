@@ -1,6 +1,6 @@
 # Backups
 
-The reference deployment's bundled Postgres is backed up continuously, to a bucket off its server, so that losing the server loses at most about a minute of data, and a restore can return the database to any moment before a mistake (D44, OPS-17). This document says what is backed up, the recovery targets, what the bucket needs, how to take a backup and restore one, and what to keep off the server. With a managed database, its provider backs it up instead ([below](#a-managed-database)). [deploy.md](deploy.md) describes the deployment.
+The reference deployment's bundled Postgres is backed up continuously, to a bucket off its server, so that losing the server loses at most about a minute of data, and a restore can return the database to any moment before a mistake (D44, OPS-15). This document says what is backed up, the recovery targets, what the bucket needs, how to take a backup and restore one, and what to keep off the server. With a managed database, its provider backs it up instead ([below](#a-managed-database)). [deploy.md](deploy.md) describes the deployment.
 
 ## What is backed up
 
@@ -11,7 +11,7 @@ pgBackRest, in the release's Postgres image, backs up the bundled database in tw
 
 A restore starts from a base backup that ended before the moment it restores to, the latest on the timeline the database had then, as [Restoring](#restoring) says, and replays the archived log up to that moment. The bucket keeps the backups and the log that reach back `BACKUP_RETENTION_DAYS` days: a full backup expires only once a newer one is that old, so the full backups that `just backup` and the restores take never shorten the reach. That rule, pgBackRest's, reads no timelines, which a restore that went back past a full backup needs: the moments of the restored timeline before its first backup ends replay from the backup the restore started from, whose next full backup lies on the timeline the restore abandoned, and may be most of the retention old already. So a restore marks the full backup it starts from in the bucket, with the annotation `restore-<time>`, where it outlives the server, and each backup and expire keeps that backup, and the log after it, until a backup taken after the restore is `BACKUP_RETENTION_DAYS` old: the `pgbackrest` wrapper raises the retention it gives pgBackRest as far as that takes, and names each backup it keeps so.
 
-pgBackRest compresses everything with zstd, and encrypts it with AES-256 before it leaves the server, with the passphrase in `secrets/backup_cipher_pass` (OPS-20). The bucket's provider sees nothing it can read.
+pgBackRest compresses everything with zstd, and encrypts it with AES-256 before it leaves the server, with the passphrase in `secrets/backup_cipher_pass` (OPS-17). The bucket's provider sees nothing it can read.
 
 The backups don't hold the deployment's settings and secrets, which the next sections say to keep elsewhere, nor the observability stack's metrics, logs and traces, which a new server starts without. Caddy obtains new certificates on its own.
 
@@ -59,7 +59,7 @@ Each restore begins a timeline, Postgres's name for a history of the database th
 4. It runs `migrate` with the live release, and starts the live replicas again.
 5. It takes a full backup of the restored database while the API serves, as the scheduled backups do, so a later restore starts from the restored database's timeline; Postgres archives what the replicas write meanwhile. If that backup fails, the restore says so, with the API serving: take one with `just backup`.
 
-CI runs each restore that OPS-17 names.
+CI runs each restore that OPS-15 names.
 
 A restore that went back too far, or shouldn't have run, is undone by another once it has named a moment: the backups still reach every moment that it went back past, up to the moment its transaction of step 1 began, and a restore to that moment returns the database to how the restore found it. Once the second check of step 1 passes, the restore names that moment, and names it again once it has restored the database:
 
@@ -88,7 +88,7 @@ Putting the data back by hand is for a restore whose database didn't start only:
 
 ### Restoring onto a new server
 
-After losing the server, set up a new one with `just server-setup`, as [deploy.md](deploy.md#setting-up-a-server) says, answering with the lost server's settings, its bucket's key pair, and its copies of `backup_cipher_pass` and `postgres_password`, which the restored database keeps, and deploy the release that ran. The deploy stops before its replicas start, because the new server's database, which Postgres has just created empty, isn't the one whose backups the bucket holds: pgBackRest refuses it. Then run `just restore` without a moment, and `just deploy` again. CI does the same, on a new server of its own set up from a lost one's settings, secrets and bucket, and checks that the first deploy stops before any replica starts, and that the deploy after the restore serves the lost server's data (OPS-17).
+After losing the server, set up a new one with `just server-setup`, as [deploy.md](deploy.md#setting-up-a-server) says, answering with the lost server's settings, its bucket's key pair, and its copies of `backup_cipher_pass` and `postgres_password`, which the restored database keeps, and deploy the release that ran. The deploy stops before its replicas start, because the new server's database, which Postgres has just created empty, isn't the one whose backups the bucket holds: pgBackRest refuses it. Then run `just restore` without a moment, and `just deploy` again. CI does the same, on a new server of its own set up from a lost one's settings, secrets and bucket, and checks that the first deploy stops before any replica starts, and that the deploy after the restore serves the lost server's data (OPS-15).
 
 ## What to keep off the server
 
@@ -107,4 +107,4 @@ Two alerts watch the backups, from the times that the `pgbackrest` wrapper and t
 
 ## A managed database
 
-With `DATABASE=managed`, the deployment runs no Postgres, and backs nothing up. The provider must provide point-in-time recovery, for as long as you need to reach back, which every major provider offers, such as Amazon Relational Database Service (RDS), Google Cloud SQL, Azure Database for PostgreSQL and Neon (OPS-17). It must also encrypt what it stores (OPS-20): where a provider makes that a choice, such as when an RDS instance is created, choose it. A provider restores into a new database, with a new address: give its URLs to `just server-setup`, and deploy again.
+With `DATABASE=managed`, the deployment runs no Postgres, and backs nothing up. The provider must provide point-in-time recovery, for as long as you need to reach back, which every major provider offers, such as Amazon Relational Database Service (RDS), Google Cloud SQL, Azure Database for PostgreSQL and Neon (OPS-15). It must also encrypt what it stores (OPS-17): where a provider makes that a choice, such as when an RDS instance is created, choose it. A provider restores into a new database, with a new address: give its URLs to `just server-setup`, and deploy again.

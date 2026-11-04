@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Takes the scheduled base backups (OPS-17), every day at BACKUP_HOUR o'clock UTC: a full backup
+# Takes the scheduled base backups (OPS-15), every day at BACKUP_HOUR o'clock UTC: a full backup
 # on Sundays, and a differential one, of what changed since the last full backup, on the other
 # days. Each backup that succeeds sets the time of the file `backup-completed` in the status
 # directory, which the collector reads for the alert on backups that stop (OBS-14). The write-ahead

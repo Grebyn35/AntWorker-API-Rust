@@ -1,6 +1,6 @@
-//! Request bodies: the JSON extractor (PLATFORM-054, PLATFORM-055), with the idempotency key of a
-//! keyed route (PLATFORM-058), and the collection of every
-//! field that a request type's conversion into domain types refuses (PLATFORM-056, API-10).
+//! Request bodies: the JSON extractor (PLATFORM-049, PLATFORM-050), with the idempotency key of a
+//! keyed route (PLATFORM-037), and the collection of every
+//! field that a request type's conversion into domain types refuses (PLATFORM-051, API-10).
 
 use axum::{
     body::Bytes,
@@ -37,7 +37,7 @@ where
 }
 
 /// The JSON body of a route that accepts an `Idempotency-Key` (API-12), and the request's key, if
-/// it sent one, with the fingerprint of its method, path, query and body (PLATFORM-018).
+/// it sent one, with the fingerprint of its method, path, query and body (PLATFORM-036).
 #[derive(Debug)]
 pub struct Idempotent<T> {
     /// The body, parsed as [`Json`] parses it.
@@ -74,7 +74,7 @@ where
 }
 
 /// The body of `request`, which must be sent as JSON, read up to its route's limit
-/// (PLATFORM-054, PLATFORM-055).
+/// (PLATFORM-049, PLATFORM-050).
 async fn read(request: Request) -> Result<Bytes, Problem<RequestError>> {
     if !is_json(request.headers().get(header::CONTENT_TYPE)) {
         return Err(Problem(RequestError::InvalidBody(BodyFault::ContentType)));
@@ -86,7 +86,7 @@ async fn read(request: Request) -> Result<Bytes, Problem<RequestError>> {
     }
 }
 
-/// `bytes` parsed into `T`, or the field the parser failed at (PLATFORM-054).
+/// `bytes` parsed into `T`, or the field the parser failed at (PLATFORM-049).
 fn parse<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Problem<RequestError>> {
     let deserializer = &mut serde_json::Deserializer::from_slice(bytes);
     serde_path_to_error::deserialize(deserializer).map_err(|error| {
@@ -170,7 +170,7 @@ impl FieldErrors {
     }
 
     /// `value`, which the checked fields built, unless a field was refused: then the 400
-    /// `request.invalid_fields` that names every refused field (PLATFORM-056).
+    /// `request.invalid_fields` that names every refused field (PLATFORM-051).
     pub fn finish<T>(self, value: Option<T>) -> Result<T, RequestError> {
         match value {
             Some(value) if self.0.is_empty() => Ok(value),
@@ -179,7 +179,7 @@ impl FieldErrors {
     }
 
     /// `value`, which the checked query parameters built, unless one was refused: then the 400
-    /// `request.invalid_query` that names every refused parameter (PLATFORM-035).
+    /// `request.invalid_query` that names every refused parameter (PLATFORM-045).
     pub fn finish_query<T>(self, value: Option<T>) -> Result<T, RequestError> {
         match value {
             Some(value) if self.0.is_empty() => Ok(value),
@@ -193,7 +193,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn platform_054_a_body_must_be_sent_as_json() {
+    fn platform_049_a_body_must_be_sent_as_json() {
         let header = |value: &'static str| axum::http::HeaderValue::from_static(value);
         assert!(is_json(Some(&header("application/json"))));
         assert!(is_json(Some(&header("Application/JSON; charset=UTF-8"))));
@@ -204,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_056_every_refused_field_is_named() {
+    fn platform_051_every_refused_field_is_named() {
         let mut errors = FieldErrors::new();
         let first = errors.check("/a", Err::<u8, _>(Invalid::new("too_long", "Too long.")));
         let second = errors.check("/b", Ok::<_, Invalid>(2));
@@ -221,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_054_a_pointer_escapes_its_segments() {
+    fn platform_049_a_pointer_escapes_its_segments() {
         assert_eq!(escape("a/b~c"), "a~1b~0c");
     }
 }

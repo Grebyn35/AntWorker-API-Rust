@@ -1,4 +1,4 @@
-//! `load-test`, which `just load-test` runs: it measures one replica's capacity (OPS-18). It runs
+//! `load-test`, which `just load-test` runs: it measures one replica's capacity (OPS-16). It runs
 //! one replica of the API's image under test, with the reference deployment's limits on CPU and
 //! memory for a replica, against Compose's Postgres, with its telemetry exported to Compose's
 //! collector. Then k6 sends it requests at constant rates, raising the rate until a step fails,
@@ -14,7 +14,7 @@
 //! The search is a pure function, so tests cover it without Docker.
 // part: invitations
 //!
-//! `streams` measures a replica's hub instead (OPS-18): see its module.
+//! `streams` measures a replica's hub instead (OPS-16): see its module.
 // end part: invitations
 
 use std::{
@@ -377,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_18_the_rate_doubles_until_a_step_fails_then_the_gap_halves_to_a_tenth() {
+    fn ops_16_the_rate_doubles_until_a_step_fails_then_the_gap_halves_to_a_tenth() {
         let mut steps = Vec::new();
         let mut tried = Vec::new();
         // A replica that serves up to 1,000 requests a second.
@@ -396,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_18_a_step_fails_on_a_failed_or_dropped_request_or_a_slow_99th_percentile() {
+    fn ops_16_a_step_fails_on_a_failed_or_dropped_request_or_a_slow_99th_percentile() {
         let passing = step(400, true);
         let slow = Step {
             p99_ms: 501.0,
@@ -418,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_18_k6_s_outcome_line_is_read() {
+    fn ops_16_k6_s_outcome_line_is_read() {
         let line =
             r#"{"rate":400,"requests":12000,"failed":0,"dropped":0,"p99_ms":8.25,"spans":12000}"#;
 

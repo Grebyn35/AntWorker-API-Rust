@@ -1,4 +1,4 @@
-# A deploy (OPS-16): the secrets the deployment generates, the colors of replicas and the
+# A deploy (OPS-14): the secrets the deployment generates, the colors of replicas and the
 # rollback, the backups a deploy prepares, the services its settings choose, the import into a
 # managed Grafana, what a deploy removes, and the release's verification.
 
@@ -33,7 +33,7 @@ write_secrets() {
         say "wrote the bundled database's passwords to $secrets"
     fi
     # The key of the API's keyed hashes, 32 random bytes in base64, written once: a new key starts
-    # every rate-limit bucket afresh (PLATFORM-051).
+    # every rate-limit bucket afresh (PLATFORM-057).
     if [ ! -s "$secrets/hmac_key" ]; then
         head -c 32 /dev/urandom | base64 | tr -d '\n' > "$secrets/hmac_key"
         say "wrote the API's HMAC key to $secrets/hmac_key"
@@ -209,7 +209,7 @@ apply() {
     for image in "$api_image" "$postgres_image"; do
         case $image in
             *@sha256:*) ;;
-            *) fail "$image isn't named by its digest, such as name@sha256:... (OPS-13)" ;;
+            *) fail "$image isn't named by its digest, such as name@sha256:... (OPS-11)" ;;
         esac
     done
     lock
@@ -349,7 +349,7 @@ stop_unused_services() {
 }
 
 # Removes what earlier deploys left and nothing uses, once a deploy's replicas serve, so the disk
-# doesn't fill with them (OPS-16): the files of every other release in releases/, where `just
+# doesn't fill with them (OPS-14): the files of every other release in releases/, where `just
 # deploy` copies a release's files, and the images of the deployment's repositories that no
 # container uses and that neither the services the settings choose nor the tools name. Those are
 # the images of the releases before the previous one, of the pins a release moved, of the

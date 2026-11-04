@@ -1,5 +1,5 @@
 //! `server-setup` and `server-check`, which the `just` recipes of the same names run on a
-//! developer's machine (OPS-22). Both send deploy/ at the tag of a release, the latest unless one
+//! developer's machine (OPS-19). Both send deploy/ at the tag of a release, the latest unless one
 //! is named, to a temporary directory on the server over SSH, as a deploy of that release runs
 //! its files. `server-setup` asks for the settings and the secrets that
 //! the settings' choices need, then runs deploy/server-setup.sh, which installs Docker, prepares

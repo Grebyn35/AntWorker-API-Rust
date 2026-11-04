@@ -16,7 +16,7 @@ use crate::support::{Api, TestDatabase, run_binary};
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 #[tokio::test]
-async fn platform_019_the_live_probe_answers_alive() {
+async fn platform_038_the_live_probe_answers_alive() {
     let api = Api::new().await;
 
     let response = api.get("/health/live").send().await;
@@ -26,7 +26,7 @@ async fn platform_019_the_live_probe_answers_alive() {
 }
 
 #[tokio::test]
-async fn platform_037_a_draining_instance_is_not_ready() {
+async fn platform_061_a_draining_instance_is_not_ready() {
     let api = Api::new().await;
     api.readiness().drain();
 
@@ -37,7 +37,7 @@ async fn platform_037_a_draining_instance_is_not_ready() {
 }
 
 #[tokio::test]
-async fn platform_037_readiness_follows_the_instance_s_own_database_connection() {
+async fn platform_061_readiness_follows_the_instance_s_own_database_connection() {
     let api = Api::new().await;
     let database = api.database();
     let clock = api.clock();
@@ -71,7 +71,7 @@ async fn platform_037_readiness_follows_the_instance_s_own_database_connection()
 }
 
 #[tokio::test]
-async fn platform_037_a_pool_with_every_connection_in_use_stays_ready() {
+async fn platform_061_a_pool_with_every_connection_in_use_stays_ready() {
     let api = Api::new().await;
     let clock = api.clock();
     let pool = api.pool();
@@ -109,7 +109,7 @@ fn failure(output: &Output) -> Value {
 }
 
 #[tokio::test]
-async fn platform_044_health_exits_0_while_the_instance_is_ready() {
+async fn platform_063_health_exits_0_while_the_instance_is_ready() {
     let database = TestDatabase::migrated().await;
     let server = database.serve(&[("ENVIRONMENT", "production")]).await;
 
@@ -126,7 +126,7 @@ async fn platform_044_health_exits_0_while_the_instance_is_ready() {
 }
 
 #[tokio::test]
-async fn platform_044_health_exits_1_and_names_the_answer_while_the_instance_isn_t_ready() {
+async fn platform_063_health_exits_1_and_names_the_answer_while_the_instance_isn_t_ready() {
     let database = TestDatabase::migrated().await;
     let mut server = database.serve(&[("ENVIRONMENT", "production")]).await;
     // Nothing can connect as app any more, and its open connections end.
@@ -144,7 +144,7 @@ async fn platform_044_health_exits_1_and_names_the_answer_while_the_instance_isn
 }
 
 #[tokio::test]
-async fn platform_044_health_exits_1_when_no_instance_listens() {
+async fn platform_063_health_exits_1_when_no_instance_listens() {
     let free = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = free.local_addr().unwrap();
     drop(free);
@@ -160,7 +160,7 @@ async fn platform_044_health_exits_1_when_no_instance_listens() {
 }
 
 #[tokio::test]
-async fn platform_044_health_exits_1_when_the_instance_doesn_t_answer_within_3_seconds() {
+async fn platform_063_health_exits_1_when_the_instance_doesn_t_answer_within_3_seconds() {
     // The system accepts connections into the listener's backlog, and nothing ever answers
     // them, as with a process that has stopped responding.
     let silent = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -176,7 +176,7 @@ async fn platform_044_health_exits_1_when_the_instance_doesn_t_answer_within_3_s
 }
 
 #[tokio::test]
-async fn platform_044_health_exits_1_when_the_answer_isn_t_http() {
+async fn platform_063_health_exits_1_when_the_answer_isn_t_http() {
     // A server of another protocol on the address, which answers and hangs up.
     let other = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = other.local_addr().unwrap();

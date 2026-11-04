@@ -22,7 +22,7 @@ Every JSON log line carries `service.name`, `service.version` and `deployment.en
 | `INFO` | Lifecycle events, plus exactly one completion line per request (method, route, status, duration) |
 | `DEBUG` | Diagnostics, off in production |
 
-Module code writes events only at `DEBUG`. Every `INFO`, `WARN` and `ERROR` event comes from `platform` or the binary's `main.rs`. A business event that matters is an audit entry (DATA-27), not a log line.
+Module code writes events only at `DEBUG`. Every `INFO`, `WARN` and `ERROR` event comes from `platform` or the binary's `main.rs`. A business event that matters is an audit entry (DATA-22), not a log line.
 - Why: a level tells the reader what to do, and every request has at least one log line (D10). When the mechanisms write every event above `DEBUG`, each kind of event is written once, in one shape.
 - Check: `ci: check-instrument` (the levels of events in `app`'s code outside `main.rs`), plus `review`.
 
@@ -34,7 +34,7 @@ Logs, spans and metric labels never contain personal data or secrets. `EmailAddr
 ### OBS-05 Telemetry names come from one list
 Every field name in logs and spans, and every metric label name, comes from the list in `platform::telemetry`, and code uses no other name. The list declares no field for personal data or secrets (OBS-04).
 - A name is OpenTelemetry's wherever a semantic convention names the same thing, such as `http.request.method` or `http.route`. The list pins the conventions' version.
-- Any other name is `<term>.<property>` in lowercase, using the glossary's term for the concept (CODE-10), and never starts with a namespace the conventions define. Where the conventions use the term with another meaning, the owning module's name goes first: `auth.session.id`, since OpenTelemetry's `session` is a client application's session, and `realtime.event.id`, since its `event` names log records.
+- Any other name is `<term>.<property>` in lowercase, using the glossary's term for the concept (CODE-11), and never starts with a namespace the conventions define. Where the conventions use the term with another meaning, the owning module's name goes first: `auth.session.id`, since OpenTelemetry's `session` is a client application's session, and `realtime.event.id`, since its `event` names log records.
 - `trace_id` and `span_id` are top-level fields, as OpenTelemetry names trace context in JSON logs.
 - `otel.name` and `otel.kind`, which the bridge from `tracing` to OpenTelemetry reads to name a span and set its kind, are the bridge's own fields, and the only names in a namespace the conventions define. No JSON log line carries them; the readable text of development shows them with the span they belong to.
 - Why: standard names work with standard dashboards and tools, and one list keeps each name the same in every log, span and metric (D19).

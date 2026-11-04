@@ -1,5 +1,5 @@
 //! Sending email from jobs (the platform spec's Sending email), with an email of the tests' own, which
-//! the fixture `POST /v1/mail` sends (TEST-05).
+//! the fixture `POST /v1/mail` sends (TEST-04).
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -93,7 +93,7 @@ async fn refusing_server() -> SocketAddr {
 }
 
 #[tokio::test]
-async fn platform_066_a_request_only_enqueues_its_email_and_a_job_sends_it() {
+async fn platform_021_a_request_only_enqueues_its_email_and_a_job_sends_it() {
     let (api, ada) = api(Options::default()).await;
     let to = mailbox::address("enqueued");
 
@@ -117,7 +117,7 @@ async fn platform_066_a_request_only_enqueues_its_email_and_a_job_sends_it() {
 }
 
 #[tokio::test]
-async fn platform_066_a_failed_send_is_retried_with_backoff_then_dead_lettered() {
+async fn platform_021_a_failed_send_is_retried_with_backoff_then_dead_lettered() {
     let options = Options::default().set("SMTP_PORT", closed().await.port());
     let (api, ada) = api(options).await;
     send(&api, &ada, "bob@example.com").await;
@@ -147,7 +147,7 @@ async fn platform_066_a_failed_send_is_retried_with_backoff_then_dead_lettered()
 }
 
 #[tokio::test]
-async fn platform_066_a_permanent_rejection_dead_letters_at_once_without_the_servers_text() {
+async fn platform_021_a_permanent_rejection_dead_letters_at_once_without_the_servers_text() {
     let server = refusing_server().await;
     let (api, ada) = api(Options::default().set("SMTP_PORT", server.port())).await;
     send(&api, &ada, "bob@example.com").await;
@@ -159,7 +159,7 @@ async fn platform_066_a_permanent_rejection_dead_letters_at_once_without_the_ser
 }
 
 #[tokio::test]
-async fn platform_012_a_job_runs_for_its_workspace_scope_after_its_member_loses_their_role() {
+async fn platform_013_a_job_runs_for_its_workspace_scope_after_its_member_loses_their_role() {
     let (api, ada) = api(Options::default()).await;
     let bob = users::register(&api, "bob@example.com").await;
     let db = api.database();
@@ -198,7 +198,7 @@ async fn platform_012_a_job_runs_for_its_workspace_scope_after_its_member_loses_
 }
 
 #[tokio::test]
-async fn platform_067_with_email_off_nothing_is_enqueued_and_the_capabilities_say_so() {
+async fn platform_022_with_email_off_nothing_is_enqueued_and_the_capabilities_say_so() {
     let (api, ada) = api(Options::default().set("EMAIL", "off")).await;
 
     send(&api, &ada, "bob@example.com").await;
@@ -209,7 +209,7 @@ async fn platform_067_with_email_off_nothing_is_enqueued_and_the_capabilities_sa
 }
 
 #[tokio::test]
-async fn platform_067_a_replica_with_email_off_drops_a_job_enqueued_while_email_was_on() {
+async fn platform_022_a_replica_with_email_off_drops_a_job_enqueued_while_email_was_on() {
     let (api, ada) = api(Options::default()).await;
     let to = mailbox::address("dropped");
     send(&api, &ada, &to).await;
@@ -232,7 +232,7 @@ async fn platform_067_a_replica_with_email_off_drops_a_job_enqueued_while_email_
 }
 
 #[tokio::test]
-async fn platform_068_in_development_every_email_reaches_the_mail_catcher_on_the_machine() {
+async fn platform_023_in_development_every_email_reaches_the_mail_catcher_on_the_machine() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let example = tokio::fs::read_to_string(format!("{root}/.env.example"))
         .await
@@ -259,7 +259,7 @@ async fn platform_068_in_development_every_email_reaches_the_mail_catcher_on_the
 }
 
 #[tokio::test]
-async fn platform_070_every_email_comes_from_email_from_with_the_message_id_fixed_when_enqueued() {
+async fn platform_025_every_email_comes_from_email_from_with_the_message_id_fixed_when_enqueued() {
     let closed = closed().await;
     let (api, ada) = api(Options::default()).await;
     let to = mailbox::address("identified");
@@ -292,7 +292,7 @@ async fn platform_070_every_email_comes_from_email_from_with_the_message_id_fixe
 }
 
 #[tokio::test]
-async fn platform_070_a_second_run_of_a_mail_job_sends_a_copy_with_the_same_message_id() {
+async fn platform_025_a_second_run_of_a_mail_job_sends_a_copy_with_the_same_message_id() {
     let (api, ada) = api(Options::default()).await;
     let to = mailbox::address("copied");
     send(&api, &ada, &to).await;

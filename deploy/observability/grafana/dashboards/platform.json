@@ -198,7 +198,7 @@
     {
       "type": "timeseries",
       "title": "Which rate limits refuse requests?",
-      "description": "Requests refused with 429 in the last 5 minutes, by the kind of the bucket that refused them: ip, user, or a per-action limit such as sign_in (PLATFORM-048).",
+      "description": "Requests refused with 429 in the last 5 minutes, by the kind of the bucket that refused them: ip, user, or a per-action limit such as sign_in (PLATFORM-054).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -278,7 +278,7 @@
     {
       "type": "timeseries",
       "title": "How do requests with an idempotency key end?",
-      "description": "Requests with an Idempotency-Key in the last 5 minutes, by how claiming the key ended: new, replayed, which answered a committed result again, reused, which answered 422, or in_flight, which answered 409 (PLATFORM-018). Many in_flight are clients retrying before their first request ends.",
+      "description": "Requests with an Idempotency-Key in the last 5 minutes, by how claiming the key ended: new, replayed, which answered a committed result again, reused, which answered 422, or in_flight, which answered 409 (PLATFORM-036). Many in_flight are clients retrying before their first request ends.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -318,7 +318,7 @@
     {
       "type": "timeseries",
       "title": "Are background jobs keeping up?",
-      "description": "How long the longest-waiting runnable job has waited past its time to run, as each instance last recorded it (PLATFORM-065). It stays near 0 while the dispatchers keep up; JobsDelayed pages when it passes 10 minutes for 5.",
+      "description": "How long the longest-waiting runnable job has waited past its time to run, as each instance last recorded it (PLATFORM-020). It stays near 0 while the dispatchers keep up; JobsDelayed pages when it passes 10 minutes for 5.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -358,7 +358,7 @@
     {
       "type": "timeseries",
       "title": "How do job runs end?",
-      "description": "Job runs in the last 5 minutes, by kind and how each ended: succeeded, retried, dead_lettered, failed for a periodic job, or released at shutdown (PLATFORM-065).",
+      "description": "Job runs in the last 5 minutes, by kind and how each ended: succeeded, retried, dead_lettered, failed for a periodic job, or released at shutdown (PLATFORM-020).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -438,7 +438,7 @@
     {
       "type": "timeseries",
       "title": "How many event streams are open?",
-      "description": "The streams open on each instance, as its hub last recorded them (PLATFORM-074). A user holds at most 10 on an instance (REALTIME-006). A deploy empties the old color's instances as the new color's fill, since every stream closes with shutdown and its client reconnects; an instance whose listener comes back after a loss closes all of its own with interrupted, and its clients reconnect.",
+      "description": "The streams open on each instance, as its hub last recorded them (PLATFORM-034). A user holds at most 10 on an instance (REALTIME-006). A deploy empties the old color's instances as the new color's fill, since every stream closes with shutdown and its client reconnects; an instance whose listener comes back after a loss closes all of its own with interrupted, and its clients reconnect.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -478,7 +478,7 @@
     {
       "type": "timeseries",
       "title": "Why do event streams close?",
-      "description": "The streams each hub closed, by why (PLATFORM-074): session_ended and access_changed follow what users did, shutdown follows a deploy, interrupted a lost listener (PLATFORM-073), and lagging names clients too slow to keep up with their events (PLATFORM-072).",
+      "description": "The streams each hub closed, by why (PLATFORM-034): session_ended and access_changed follow what users did, shutdown follows a deploy, interrupted a lost listener (PLATFORM-033), and lagging names clients too slow to keep up with their events (PLATFORM-032).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -518,7 +518,7 @@
     {
       "type": "timeseries",
       "title": "How long after commit do events reach the streams?",
-      "description": "The time from an event's commit to its delivery by a hub, the median and the 99th percentile (PLATFORM-074). EventsDelayed opens a ticket when the 99th percentile passes 5 seconds for 10 minutes.",
+      "description": "The time from an event's commit to its delivery by a hub, the median and the 99th percentile (PLATFORM-034). EventsDelayed opens a ticket when the 99th percentile passes 5 seconds for 10 minutes.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -567,7 +567,7 @@
     {
       "type": "timeseries",
       "title": "How many events does each hub owe its streams?",
-      "description": "The events each instance's hub has heard of but not yet loaded, as it last recorded them: when it starts, after each load, and after it reconnects (PLATFORM-076). It reads 0 after every load that succeeds; one that stays above 0 means the hub's loads fail, and its streams receive nothing new, which EventsStalled alerts on.",
+      "description": "The events each instance's hub has heard of but not yet loaded, as it last recorded them: when it starts, after each load, and after it reconnects (PLATFORM-035). It reads 0 after every load that succeeds; one that stays above 0 means the hub's loads fail, and its streams receive nothing new, which EventsStalled alerts on.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

@@ -1,5 +1,5 @@
 //! The instance's own memory, which `serve` records every 15 seconds in `process.memory.usage`
-//! (PLATFORM-046), so a dashboard shows a replica whose memory only grows. The resident set comes
+//! (PLATFORM-070), so a dashboard shows a replica whose memory only grows. The resident set comes
 //! from the kernel's report of the process, `/proc/self/status`, so it is recorded on Linux only.
 
 use std::time::Duration;
@@ -28,7 +28,7 @@ pub fn watch(clock: SharedClock) {
 }
 
 /// Records what `read` reports, in bytes, now and every interval after: the kernel's report of the
-/// process, or, in tests, a fake of it, since tests choose no memory the kernel reports (TEST-05).
+/// process, or, in tests, a fake of it, since tests choose no memory the kernel reports (TEST-04).
 pub(crate) fn watch_reading<F, Report>(clock: SharedClock, read: F)
 where
     F: Fn() -> Report + Send + 'static,
@@ -68,7 +68,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn platform_046_the_resident_set_is_read_from_the_kernel_s_report() {
+    fn platform_070_the_resident_set_is_read_from_the_kernel_s_report() {
         let status =
             "Name:\tantworker-api\nVmPeak:\t  30000 kB\nVmRSS:\t   12345 kB\nThreads:\t8\n";
 

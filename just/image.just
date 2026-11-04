@@ -8,10 +8,10 @@ image-packages repository:
     @echo {{ lowercase(file_name(repository)) }},{{ lowercase(file_name(repository)) }}-postgres
 
 # Builds each image once for linux/amd64 and linux/arm64, with its software bill of materials
-# (SBOM) and provenance, into an OCI image layout (OPS-14, OPS-15): the API's into target/image,
+# (SBOM) and provenance, into an OCI image layout (OPS-12, OPS-13): the API's into target/image,
 # and the reference deployment's Postgres into target/image-postgres (D44). The Postgres image
 # carries an identifier of the files it is built from as `build.inputs`, so a deploy restarts
-# Postgres only for an image built from other files (OPS-16). With IMAGE_CACHE naming a directory,
+# Postgres only for an image built from other files (OPS-14). With IMAGE_CACHE naming a directory,
 # BuildKit reads its cache for the API's image from there, and replaces it with the cache of this
 # build unless IMAGE_CACHE_WRITE is false. While the two platforms write the layer they share,
 # buildx can print "ref ... locked" errors: they are retries, and the exit status says whether the
@@ -55,7 +55,7 @@ _image-cache:
     if ('{{ image_cache }}' -and (Test-Path '{{ image_cache }}-new')) { Remove-Item -Recurse -Force '{{ image_cache }}' -ErrorAction SilentlyContinue; Move-Item '{{ image_cache }}-new' '{{ image_cache }}' }
 
 # Fails on a vulnerability that has a fix and is rated high or critical, in each platform's image
-# of each image in target (SEC-13). The scanner reads the operating system's packages and the
+# of each image in target (SEC-15). The scanner reads the operating system's packages and the
 # crates the binary records.
 [doc("Scans the images in target/ for vulnerabilities that have a fix")]
 [group('image')]
@@ -66,10 +66,10 @@ image-scan:
     docker compose run --rm grype oci-dir:/image-postgres --platform linux/arm64 --only-fixed --fail-on high
 
 # Runs the end-to-end tests against the images in target, on the platform E2E_PLATFORM, which is
-# this machine's unless the environment names another (TEST-04). The tests run the images from the
+# this machine's unless the environment names another (TEST-03). The tests run the images from the
 # registry that Compose runs, against the Postgres that `just services` starts. Every other image
 # the tests pull is fetched first: this machine's, and, through the mirror, their servers', which
-# run on this machine's platform, so no test reaches a registry outside (TEST-07). The arguments go
+# run on this machine's platform, so no test reaches a registry outside (TEST-06). The arguments go
 # to the test harness: names run only the tests whose names hold one of them, such as
 # `just e2e obs_13`, and `--skip` leaves out those whose names hold the name after it, as CI's
 # jobs do. A name with a slash is refused: it would be a platform, which matches no test, so the
@@ -85,7 +85,7 @@ e2e *tests: services
     {{ xtask }} mirror {{ native_platform }}
     cargo test --locked --package app --features e2e --test e2e -- {{ tests }}
 
-# Measures one replica's capacity, for the release notes (OPS-18): runs the API's image in
+# Measures one replica's capacity, for the release notes (OPS-16): runs the API's image in
 # target/image, on this machine's platform, with the reference deployment's limits on CPU and
 # memory for a replica, and sends it requests at rising constant rates through k6, from the image
 # that compose.yaml pins. It prints each step, then the highest rate served with none failed and

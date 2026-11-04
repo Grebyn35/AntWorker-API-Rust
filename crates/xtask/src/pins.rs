@@ -1,4 +1,4 @@
-//! `check-pins`: everything a build or a check uses is pinned (OPS-13), and the toolchain and the
+//! `check-pins`: everything a build or a check uses is pinned (OPS-11), and the toolchain and the
 //! edition are the ones `rust-toolchain.toml` and the workspace name (CODE-01).
 
 use crate::{Finding, Outcome, repo::Repo};
@@ -70,7 +70,7 @@ fn justfile(repo: &Repo, findings: &mut Vec<Finding>) -> Option<String> {
             findings.push(Finding::new(
                 JUSTFILE,
                 number,
-                format!("{name} is an exact version, such as 1.2.3 (OPS-13)"),
+                format!("{name} is an exact version, such as 1.2.3 (OPS-11)"),
             ));
         }
         if name == "just_version" {
@@ -107,7 +107,7 @@ fn workflow_pins(path: &str, text: &str, just_version: Option<&str>, findings: &
                     path,
                     number,
                     format!(
-                        "the runner {runner} is a versioned label, such as ubuntu-24.04 (OPS-13)"
+                        "the runner {runner} is a versioned label, such as ubuntu-24.04 (OPS-11)"
                     ),
                 ));
             }
@@ -117,7 +117,7 @@ fn workflow_pins(path: &str, text: &str, just_version: Option<&str>, findings: &
                 findings.push(Finding::new(
                     path,
                     number,
-                    format!("the image {image} is pinned by digest (OPS-13)"),
+                    format!("the image {image} is pinned by digest (OPS-11)"),
                 ));
             }
         } else if let Some(version) =
@@ -127,7 +127,7 @@ fn workflow_pins(path: &str, text: &str, just_version: Option<&str>, findings: &
             findings.push(Finding::new(
                 path,
                 number,
-                format!("just@{version} differs from the justfile's just_version (OPS-13)"),
+                format!("just@{version} differs from the justfile's just_version (OPS-11)"),
             ));
         }
         if line.contains("rustup") || line.contains("cargo +") {
@@ -160,7 +160,7 @@ impl Job {
         Some(Finding::new(
             path,
             number,
-            "the job's matrix names each runner as `runner:`, a versioned label (OPS-13)",
+            "the job's matrix names each runner as `runner:`, a versioned label (OPS-11)",
         ))
     }
 }
@@ -180,14 +180,14 @@ fn action_problem(action: &str) -> Option<String> {
     }
     if let Some(image) = action.strip_prefix("docker://") {
         return (!has_digest(image))
-            .then(|| format!("the image {image} is pinned by digest (OPS-13)"));
+            .then(|| format!("the image {image} is pinned by digest (OPS-11)"));
     }
     let pinned = action
         .rsplit_once('@')
         .is_some_and(|(_, sha)| sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit()));
     if !pinned {
         return Some(format!(
-            "the action {action} is pinned by the SHA of a commit (OPS-13)"
+            "the action {action} is pinned by the SHA of a commit (OPS-11)"
         ));
     }
     let name = action.split('@').next().unwrap_or_default();
@@ -210,7 +210,7 @@ fn compose_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
             findings.push(Finding::new(
                 path,
                 number,
-                format!("the image {image} is pinned by digest (OPS-13)"),
+                format!("the image {image} is pinned by digest (OPS-11)"),
             ));
         }
     }
@@ -229,7 +229,7 @@ fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
                 findings.push(Finding::new(
                     path,
                     number,
-                    format!("the frontend {frontend} is pinned by digest (OPS-13)"),
+                    format!("the frontend {frontend} is pinned by digest (OPS-11)"),
                 ));
             }
         }
@@ -246,7 +246,7 @@ fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
                     findings.push(Finding::new(
                         path,
                         number,
-                        format!("the image {image} is pinned by digest (OPS-13)"),
+                        format!("the image {image} is pinned by digest (OPS-11)"),
                     ));
                 }
                 if let (Some(as_), Some(stage)) = (rest.next(), rest.next())
@@ -267,7 +267,7 @@ fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
                     findings.push(Finding::new(
                         path,
                         number,
-                        "a download is pinned by its checksum, with --checksum=sha256: (OPS-13)",
+                        "a download is pinned by its checksum, with --checksum=sha256: (OPS-11)",
                     ));
                 }
             }
@@ -281,7 +281,7 @@ fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
         findings.push(Finding::new(
             path,
             1,
-            "the first line pins the Dockerfile frontend, with `# syntax=` and a digest (OPS-13)",
+            "the first line pins the Dockerfile frontend, with `# syntax=` and a digest (OPS-11)",
         ));
     }
 }
@@ -292,7 +292,7 @@ fn command_problems(line: &str, words: &[&str]) -> Vec<String> {
     let mut problems: Vec<String> = cargo_install_problem(words).into_iter().collect();
     for package in unpinned_packages(words) {
         problems.push(format!(
-            "the package {package} is pinned by version, as {package}=<version> (OPS-13)"
+            "the package {package} is pinned by version, as {package}=<version> (OPS-11)"
         ));
     }
     if line.contains("cargo +") || words.windows(3).any(toolchain_named) {
@@ -357,7 +357,7 @@ fn cargo_install_problem(words: &[&str]) -> Option<String> {
     if !locked {
         problems.push("cargo install takes --locked".to_owned());
     }
-    (!problems.is_empty()).then(|| format!("{} (OPS-13)", problems.join("; ")))
+    (!problems.is_empty()).then(|| format!("{} (OPS-11)", problems.join("; ")))
 }
 
 /// Whether three words are `rustup toolchain install <toolchain>` or `rustup default
@@ -524,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_13_every_dockerfile_and_compose_file_is_checked() {
+    fn ops_11_every_dockerfile_and_compose_file_is_checked() {
         let dockerfile = findings_with(
             "deploy/postgres/Dockerfile",
             "# syntax=docker/dockerfile:1\nFROM postgres:18.6\n",
@@ -537,18 +537,18 @@ mod tests {
         assert_eq!(
             dockerfile,
             [
-                "deploy/postgres/Dockerfile:1: the frontend docker/dockerfile:1 is pinned by digest (OPS-13)",
-                "deploy/postgres/Dockerfile:2: the image postgres:18.6 is pinned by digest (OPS-13)",
+                "deploy/postgres/Dockerfile:1: the frontend docker/dockerfile:1 is pinned by digest (OPS-11)",
+                "deploy/postgres/Dockerfile:2: the image postgres:18.6 is pinned by digest (OPS-11)",
             ]
         );
         assert_eq!(
             compose,
-            ["deploy/compose.yaml:3: the image caddy:2.11.7 is pinned by digest (OPS-13)"]
+            ["deploy/compose.yaml:3: the image caddy:2.11.7 is pinned by digest (OPS-11)"]
         );
     }
 
     #[test]
-    fn ops_13_a_compose_image_from_a_required_variable_passes_and_one_with_a_default_fails() {
+    fn ops_11_a_compose_image_from_a_required_variable_passes_and_one_with_a_default_fails() {
         let findings = findings_with(
             "deploy/compose.yaml",
             "services:\n  a:\n    image: ${API_IMAGE:?the image, from the deploy}\n  b:\n    image: ${OTHER}\n  c:\n    image: ${FALLBACK:-postgres:18}\n",
@@ -557,13 +557,13 @@ mod tests {
         assert_eq!(
             findings,
             [
-                "deploy/compose.yaml:7: the image ${FALLBACK:-postgres:18} is pinned by digest (OPS-13)"
+                "deploy/compose.yaml:7: the image ${FALLBACK:-postgres:18} is pinned by digest (OPS-11)"
             ]
         );
     }
 
     #[test]
-    fn ops_13_a_package_the_image_installs_is_pinned_by_version() {
+    fn ops_11_a_package_the_image_installs_is_pinned_by_version() {
         let findings = findings_with(
             "deploy/postgres/Dockerfile",
             &format!(
@@ -574,13 +574,13 @@ mod tests {
         assert_eq!(
             findings,
             [
-                "deploy/postgres/Dockerfile:3: the package curl is pinned by version, as curl=<version> (OPS-13)"
+                "deploy/postgres/Dockerfile:3: the package curl is pinned by version, as curl=<version> (OPS-11)"
             ]
         );
     }
 
     #[test]
-    fn ops_13_a_pinned_repository_passes() {
+    fn ops_11_a_pinned_repository_passes() {
         let files = pinned();
         let files: Vec<(&str, &str)> = files
             .iter()
@@ -591,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_13_an_action_is_pinned_by_a_commit_s_sha() {
+    fn ops_11_an_action_is_pinned_by_a_commit_s_sha() {
         let findings = findings_with(
             ".github/workflows/ci.yml",
             "jobs:\n  a:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v7\n      - uses: ./local\n",
@@ -600,13 +600,13 @@ mod tests {
         assert_eq!(
             findings,
             [
-                ".github/workflows/ci.yml:5: the action actions/checkout@v7 is pinned by the SHA of a commit (OPS-13)"
+                ".github/workflows/ci.yml:5: the action actions/checkout@v7 is pinned by the SHA of a commit (OPS-11)"
             ]
         );
     }
 
     #[test]
-    fn ops_13_an_image_a_workflow_names_is_pinned_by_digest() {
+    fn ops_11_an_image_a_workflow_names_is_pinned_by_digest() {
         let findings = findings_with(
             ".github/workflows/ci.yml",
             "jobs:
@@ -620,12 +620,12 @@ mod tests {
 
         assert_eq!(
             findings,
-            [".github/workflows/ci.yml:6: the image postgres:18 is pinned by digest (OPS-13)"]
+            [".github/workflows/ci.yml:6: the image postgres:18 is pinned by digest (OPS-11)"]
         );
     }
 
     #[test]
-    fn ops_13_a_runner_is_a_versioned_label() {
+    fn ops_11_a_runner_is_a_versioned_label() {
         for runner in ["ubuntu-latest", "${{ matrix.os }}", "self-hosted"] {
             let findings = findings_with(
                 ".github/workflows/ci.yml",
@@ -638,7 +638,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_13_a_runner_that_a_matrix_names_is_a_versioned_label() {
+    fn ops_11_a_runner_that_a_matrix_names_is_a_versioned_label() {
         let workflow = |arm: &str| {
             format!(
                 "jobs:\n  a:\n    runs-on: ${{{{ matrix.runner }}}}\n    strategy:\n      matrix:\n        include:\n          - platform: linux/amd64\n            runner: ubuntu-24.04\n          - platform: linux/arm64\n            runner: {arm}\n"
@@ -657,7 +657,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_13_a_job_that_runs_on_its_matrix_s_runner_names_one_in_its_matrix() {
+    fn ops_11_a_job_that_runs_on_its_matrix_s_runner_names_one_in_its_matrix() {
         let workflow = "jobs:\n  named:\n    runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        include:\n          - runner: ubuntu-24.04\n  unnamed:\n    runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        platform: [linux/amd64]\n";
 
         let findings = findings_with(".github/workflows/ci.yml", workflow);
@@ -670,7 +670,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_13_the_workflows_install_the_justfile_s_version_of_just() {
+    fn ops_11_the_workflows_install_the_justfile_s_version_of_just() {
         let findings = findings_with(
             ".github/workflows/ci.yml",
             &format!(
@@ -681,13 +681,13 @@ mod tests {
         assert_eq!(
             findings,
             [
-                ".github/workflows/ci.yml:7: just@1.58.0 differs from the justfile's just_version (OPS-13)"
+                ".github/workflows/ci.yml:7: just@1.58.0 differs from the justfile's just_version (OPS-11)"
             ]
         );
     }
 
     #[test]
-    fn ops_13_an_image_is_pinned_by_digest() {
+    fn ops_11_an_image_is_pinned_by_digest() {
         let compose = findings_with(
             COMPOSE,
             "services:\n  postgres:\n    image: postgres:18.6\n",
@@ -701,20 +701,20 @@ mod tests {
 
         assert_eq!(
             compose,
-            ["compose.yaml:3: the image postgres:18.6 is pinned by digest (OPS-13)"]
+            ["compose.yaml:3: the image postgres:18.6 is pinned by digest (OPS-11)"]
         );
         assert_eq!(
             dockerfile,
             [
-                "Dockerfile:1: the frontend docker/dockerfile:1 is pinned by digest (OPS-13)",
-                "Dockerfile:2: the image alpine:3.24 is pinned by digest (OPS-13)",
-                "Dockerfile:4: the image missing-$BUILDARCH is pinned by digest (OPS-13)",
+                "Dockerfile:1: the frontend docker/dockerfile:1 is pinned by digest (OPS-11)",
+                "Dockerfile:2: the image alpine:3.24 is pinned by digest (OPS-11)",
+                "Dockerfile:4: the image missing-$BUILDARCH is pinned by digest (OPS-11)",
             ]
         );
     }
 
     #[test]
-    fn ops_13_a_download_is_pinned_by_its_checksum_and_a_crate_by_its_version() {
+    fn ops_11_a_download_is_pinned_by_its_checksum_and_a_crate_by_its_version() {
         let findings = findings_with(
             DOCKERFILE,
             &format!(
@@ -725,15 +725,15 @@ mod tests {
         assert_eq!(
             findings,
             [
-                "Dockerfile:2: a download is pinned by its checksum, with --checksum=sha256: (OPS-13)",
-                "Dockerfile:3: cargo-chef@0.1 names an exact version, as name@1.2.3; cargo install takes --locked (OPS-13)",
-                "Dockerfile:4: cargo-zigbuild names an exact version, as name@1.2.3 (OPS-13)",
+                "Dockerfile:2: a download is pinned by its checksum, with --checksum=sha256: (OPS-11)",
+                "Dockerfile:3: cargo-chef@0.1 names an exact version, as name@1.2.3; cargo install takes --locked (OPS-11)",
+                "Dockerfile:4: cargo-zigbuild names an exact version, as name@1.2.3 (OPS-11)",
             ]
         );
     }
 
     #[test]
-    fn ops_13_the_justfile_pins_each_tool_to_an_exact_version() {
+    fn ops_11_the_justfile_pins_each_tool_to_an_exact_version() {
         let findings = findings_with(
             JUSTFILE,
             "just_version := \"1.59.0\"\nwatchexec_version := \"2\"\n",
@@ -741,7 +741,7 @@ mod tests {
 
         assert_eq!(
             findings,
-            ["justfile:2: watchexec_version is an exact version, such as 1.2.3 (OPS-13)"]
+            ["justfile:2: watchexec_version is an exact version, such as 1.2.3 (OPS-11)"]
         );
     }
 

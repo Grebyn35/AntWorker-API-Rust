@@ -1,7 +1,7 @@
 //! `env-drift`, which `just setup` and `just dev` run: it warns of each setting that
 //! `.env.example` has and `.env` lacks, and of each that `.env` still sets to a value that
 //! `.env.example` once had and has since changed, since `just setup` writes `.env` only once, and
-//! later commits add settings and change development values (OPS-19). A value that `.env.example`
+//! later commits add settings and change development values (OPS-20). A value that `.env.example`
 //! never had is one the developer chose, and draws no warning; git's history of `.env.example`
 //! tells the two apart. The generated passwords and key, whose example holds a placeholder, such
 //! as `__APP_PASSWORD__`, differ by design: one draws a warning only when `.env` lacks it. A
@@ -144,7 +144,7 @@ mod tests {
                            LOG_LEVEL=info\n";
 
     #[test]
-    fn ops_19_a_env_written_from_the_example_draws_no_warning() {
+    fn ops_20_a_env_written_from_the_example_draws_no_warning() {
         let env = EXAMPLE
             .replace("__HMAC_KEY__", "c2VjcmV0")
             .replace("__APP_PASSWORD__", "0f3a");
@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_19_a_missing_setting_and_an_earlier_default_draw_warnings_without_the_env_s_value() {
+    fn ops_20_a_missing_setting_and_an_earlier_default_draw_warnings_without_the_env_s_value() {
         let env = "ENVIRONMENT=development\n\
                    CORS_ALLOWED_ORIGINS=\n\
                    LOG_LEVEL=info\n\
@@ -173,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_19_a_warning_never_holds_the_env_s_value() {
+    fn ops_20_a_warning_never_holds_the_env_s_value() {
         let example = "LOG_LEVEL=info\nHMAC_KEY=__HMAC_KEY__\n";
         let history = "LOG_LEVEL=trace\nLOG_LEVEL=info\n";
         let env = "LOG_LEVEL=trace\n";
@@ -191,7 +191,7 @@ mod tests {
         clippy::disallowed_methods,
         reason = "the test writes a repository of its own, outside any async runtime"
     )]
-    fn ops_19_git_s_history_of_the_example_holds_its_earlier_values() {
+    fn ops_20_git_s_history_of_the_example_holds_its_earlier_values() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../target/env-drift")
             .join(std::process::id().to_string());
@@ -243,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_19_a_value_the_developer_chose_draws_no_warning() {
+    fn ops_20_a_value_the_developer_chose_draws_no_warning() {
         let env = "ENVIRONMENT=development\n\
                    CORS_ALLOWED_ORIGINS=http://localhost:3000\n\
                    STREAM_HEARTBEAT_SECONDS=16\n\

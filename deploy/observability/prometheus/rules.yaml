@@ -178,7 +178,7 @@ groups:
           runbook: docs/operations/runbooks.md#eventsdelayed
 
       # A hub that hears of events but can't load them records no lag, so EventsDelayed never
-      # sees it; the events it owes stay above 0 (PLATFORM-076).
+      # sees it; the events it owes stay above 0 (PLATFORM-035).
       - alert: EventsStalled
         expr: max by (instance) (platform_events_unloaded) > 0
         for: 5m

@@ -195,11 +195,11 @@ pub struct Pipeline {
     pub max_concurrent_requests: usize,
     /// What the readiness probe reports (OPS-05).
     pub readiness: Readiness,
-    /// The proxies whose `X-Forwarded-For` names the client (PLATFORM-047).
+    /// The proxies whose `X-Forwarded-For` names the client (PLATFORM-053).
     pub trusted_proxies: Vec<IpNet>,
-    /// The origins of web clients (PLATFORM-052).
+    /// The origins of web clients (PLATFORM-058).
     pub origins: Origins,
-    /// The limiter of every rate limit (PLATFORM-048).
+    /// The limiter of every rate limit (PLATFORM-054).
     pub limiter: RateLimiter,
     /// The IP and user limits.
     pub rate_limits: RateLimitConfig,
@@ -208,19 +208,19 @@ pub struct Pipeline {
     /// What authorizes workspace routes, with the policy `access` implements (ARCH-13).
     pub authorizer: Authorizer,
     /// The OpenAPI document, as JSON, which the API reference shows: only in development
-    /// (PLATFORM-075).
+    /// (PLATFORM-052).
     pub reference: Option<Arc<str>>,
 }
 
-/// The bucket of each client IP's requests (PLATFORM-048).
+/// The bucket of each client IP's requests (PLATFORM-054).
 const IP_BUCKET: &str = "ip";
 
-/// The bucket of each user's requests (PLATFORM-048).
+/// The bucket of each user's requests (PLATFORM-054).
 const USER_BUCKET: &str = "user";
 
 /// The application: every module's routes inside the middleware stack, the fallbacks, the API
-/// reference when the pipeline holds the document, in development (PLATFORM-075), and the health
-/// probes, answered before the stack (OPS-05). The security headers wrap them all (SEC-11).
+/// reference when the pipeline holds the document, in development (PLATFORM-052), and the health
+/// probes, answered before the stack (OPS-05). The security headers wrap them all (SEC-12).
 #[expect(
     clippy::disallowed_methods,
     reason = "the builders are the one place that registers routes (API-14, API-17)"

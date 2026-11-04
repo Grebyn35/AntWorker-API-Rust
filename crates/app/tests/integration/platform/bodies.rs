@@ -1,4 +1,4 @@
-//! Request bodies (PLATFORM-054 to PLATFORM-056).
+//! Request bodies (PLATFORM-049 to PLATFORM-051).
 
 use http::Method;
 use serde_json::json;
@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::support::{Api, api::Response, users};
 
 #[tokio::test]
-async fn platform_054_a_body_that_isn_t_the_route_s_json_answers_400() {
+async fn platform_049_a_body_that_isn_t_the_route_s_json_answers_400() {
     let api = Api::new().await;
     let valid = users::registration("ada@example.com").to_string();
     for (content_type, body, field) in [
@@ -39,7 +39,7 @@ async fn platform_054_a_body_that_isn_t_the_route_s_json_answers_400() {
 }
 
 #[tokio::test]
-async fn platform_055_a_body_that_grows_past_the_limit_answers_413() {
+async fn platform_050_a_body_that_grows_past_the_limit_answers_413() {
     let api = Api::new().await;
     let name = "a".repeat(70 * 1024);
     let body = json!({ "email": "ada@example.com", "password": users::PASSWORD, "name": name });
@@ -74,7 +74,7 @@ fn named(response: &Response) -> Vec<(String, String)> {
 }
 
 #[tokio::test]
-async fn platform_056_every_field_its_domain_type_refuses_is_named() {
+async fn platform_051_every_field_its_domain_type_refuses_is_named() {
     let api = Api::new().await;
     let body = json!({ "email": "nope", "password": "short", "name": " ", "device_id": "bad id" });
 
@@ -93,7 +93,7 @@ async fn platform_056_every_field_its_domain_type_refuses_is_named() {
 }
 
 #[tokio::test]
-async fn platform_056_every_field_a_sign_in_refuses_is_named() {
+async fn platform_051_every_field_a_sign_in_refuses_is_named() {
     let api = Api::new().await;
     let body = json!({ "email": "nope", "password": "", "device_id": "bad id" });
 

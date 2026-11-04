@@ -1,11 +1,11 @@
 //! The hub's reads of the event log: its head, the events it loads by position, and a stream's
-//! replay (PLATFORM-057, PLATFORM-071, SEC-17); and the snapshot a stream's memberships are read
-//! after (PLATFORM-017). `events` is `platform`'s bookkeeping: the hub
-//! reads it by position, and a stream's reads by its caller's ID and memberships (DATA-22).
+//! replay (PLATFORM-027, PLATFORM-028, SEC-19); and the snapshot a stream's memberships are read
+//! after (PLATFORM-031). `events` is `platform`'s bookkeeping: the hub
+//! reads it by position, and a stream's reads by its caller's ID and memberships (DATA-16).
 //!
 //! A workspace event reaches a member whose role holds its permission, and whose membership had
 //! committed when the event did: the transaction that added the membership is the event's own, or
-//! among those its commit's snapshot holds, as `pg_visible_in_snapshot` reads it (SEC-17).
+//! among those its commit's snapshot holds, as `pg_visible_in_snapshot` reads it (SEC-19).
 
 use std::sync::Arc;
 
@@ -33,7 +33,7 @@ pub(super) async fn head(uow: &mut UnitOfWork) -> Result<i64, Internal> {
 }
 
 /// The transactions that have completed, as the statement's own snapshot holds them: a stream's
-/// memberships, read after it, hold every change whose transaction it holds (PLATFORM-017).
+/// memberships, read after it, hold every change whose transaction it holds (PLATFORM-031).
 pub(super) async fn snapshot(uow: &mut UnitOfWork) -> Result<Snapshot, Internal> {
     let text = sqlx::query_scalar!(r#"SELECT pg_current_snapshot()::text AS "snapshot!""#)
         .fetch_one(uow.executor())
@@ -107,7 +107,7 @@ pub(super) async fn position(
 
 /// The events after `after`, up to `through`, that `user` with `memberships` may receive, in
 /// order: their own, and those of each of their workspaces whose permission their role holds
-/// there, committed after their membership (SEC-17). At most [`REPLAY_LIMIT`] and one more, which
+/// there, committed after their membership (SEC-19). At most [`REPLAY_LIMIT`] and one more, which
 /// tells that the replay would be cut short.
 pub(super) async fn replay(
     uow: &mut UnitOfWork,

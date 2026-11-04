@@ -1,4 +1,4 @@
-# The bundled database's backups and restores (OPS-17): a backup on demand, a restore to a
+# The bundled database's backups and restores (OPS-15): a backup on demand, a restore to a
 # moment or to the latest state, and what a restore plans from.
 
 backup() {

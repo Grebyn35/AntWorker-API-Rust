@@ -5,7 +5,7 @@ The HTTP contract every route follows. The generated OpenAPI document is the aut
 ## Paths and methods
 
 ### API-01 Paths are versioned, plural and lowercase
-Every route lives under `/v1`, except the health probes `/health/live` and `/health/ready` (OPS-05), which load balancers call without a version, and the API reference that development serves at `/docs` (PLATFORM-075), which no client is built against. Collections are plural nouns, and segments of more than one word use kebab-case (`/data-exports`). Path parameters are named `{<resource>_id}`.
+Every route lives under `/v1`, except the health probes `/health/live` and `/health/ready` (OPS-05), which load balancers call without a version, and the API reference that development serves at `/docs` (PLATFORM-052), which no client is built against. Collections are plural nouns, and segments of more than one word use kebab-case (`/data-exports`). Path parameters are named `{<resource>_id}`.
 - Why: a path reads as a predictable address for a resource (D8).
 - Check: `ci: check-openapi` (a path lint over the committed document).
 
@@ -44,7 +44,7 @@ A success body is the resource object, with no envelope. A list is `{"items": [.
 
 ### API-06 Lists use opaque cursors
 Every list is paginated by keyset. `limit` defaults to 50 and is capped at 100. `cursor` is an opaque base64url string that encodes the full sort key, with the row's ID as the tiebreaker. Lists move forward only, unless a module spec defines backward paging for a route.
-- Why: pages stay stable while rows are added, and no row is skipped or repeated (D8, DATA-23).
+- Why: pages stay stable while rows are added, and no row is skipped or repeated (D8, DATA-17).
 - Check: `ci: check-openapi` (a list takes `limit` and `cursor`), plus `test` (each list has a test that pages across rows sharing a timestamp).
 
 ### API-07 Errors are RFC 9457 problems
@@ -92,7 +92,7 @@ Timestamps are RFC 3339 in UTC with a `Z` suffix, at microsecond precision. IDs 
 
 [The platform spec](../spec/platform.md#idempotency) describes the mechanism.
 - Why: clients can safely retry creates, and a committed change can never run twice (D12).
-- Check: `test` (PLATFORM-018).
+- Check: `test` (PLATFORM-036).
 
 ### API-13 Editable resources support optimistic concurrency
 A resource a client can edit returns an `ETag` built from its `version`. An update carrying `If-Match` with a stale ETag fails with 412. An update without `If-Match` applies as sent.
@@ -100,14 +100,14 @@ A resource a client can edit returns an `ETag` built from its `version`. An upda
 - Check: `test`.
 
 ### API-14 Every route declares its access level in its type
-Every route except the health probes (OPS-05) and the API reference that development serves (PLATFORM-075) is registered through one of three builders:
+Every route except the health probes (OPS-05) and the API reference that development serves (PLATFORM-052) is registered through one of three builders:
 - `public`: no authentication.
 - `user`: requires a `Principal`.
 - `workspace::<P>`: requires `Authorized<P>` for the workspace in the path, where `P` is a permission.
 
 A caller who isn't a member of the workspace gets 404. A member without permission `P` gets 403.
 - Why: no route can forget authentication or authorization, and non-members learn nothing (D2, D3).
-- Check: `clippy` (`disallowed_methods` bans the routing methods of axum and utoipa-axum outside `platform::http`), plus `test`: a generated test calls every `user` route without a credential and expects 401, and TEST-09 covers the `workspace` routes.
+- Check: `clippy` (`disallowed_methods` bans the routing methods of axum and utoipa-axum outside `platform::http`), plus `test`: a generated test calls every `user` route without a credential and expects 401, and TEST-08 covers the `workspace` routes.
 
 ### API-15 Rate limits are visible
 Rate-limited responses carry the `RateLimit` and `RateLimit-Policy` headers of the IETF's draft-ietf-httpapi-ratelimit-headers-11, which isn't an RFC yet. Each holds one item, for the bucket that decided the response, named by the bucket's kind: `RateLimit-Policy: "ip";q=600;w=60` gives its quota and window in seconds, and `RateLimit: "ip";r=598;t=41` the requests left and the seconds until the window ends. A 429 also carries `Retry-After`.
@@ -132,9 +132,9 @@ Within `/v1`, changes are additive: new routes, new optional request fields, new
 ### API-19 Event names and payloads
 Server-sent events (SSE) are named `<resource>.<past-tense verb>`, for example `member.removed`. A payload carries IDs and non-sensitive fields only, and is a type that its event declares, whose schema the event catalog documents (REALTIME-008). Clients fetch details over REST.
 - Why: events never leak data that the REST permission checks would withhold (D7), and a client knows each payload's shape from the document (D8).
-- Check: `compiler` (an event is published only with the payload type it declares), `ci: check-openapi` (each frame type's shape, `<resource>.<verb>` in `snake_case`), `review` (the verb's tense, and what a payload holds), plus `test` (TEST-09 covers the REST side, and REALTIME-008 the payloads' schemas).
+- Check: `compiler` (an event is published only with the payload type it declares), `ci: check-openapi` (each frame type's shape, `<resource>.<verb>` in `snake_case`), `review` (the verb's tense, and what a payload holds), plus `test` (TEST-08 covers the REST side, and REALTIME-008 the payloads' schemas).
 
 ### API-20 Lists of named resources take `search`
-A list whose items have a name or an email takes `search`, which keeps the items that contain it in one of the fields the route's documentation names, ignoring case, as the platform spec defines it (PLATFORM-060). It works on every page of the list, with the list's order and cursors (API-06).
+A list whose items have a name or an email takes `search`, which keeps the items that contain it in one of the fields the route's documentation names, ignoring case, as the platform spec defines it (PLATFORM-047). It works on every page of the list, with the list's order and cursors (API-06).
 - Why: a client finds an item among many in one way on every list, and a fork's lists take the same parameter as the template's.
 - Check: `ci: check-openapi` (a list whose items have a property named `name` or `email`, or ending in `_name` or `_email`, takes `search`), plus `test` (each list's search has a test that pages through matches), plus `review` (a list of named resources whose names the check doesn't recognize).

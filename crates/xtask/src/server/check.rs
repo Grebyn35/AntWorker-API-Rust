@@ -175,7 +175,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ops_22_an_address_that_points_elsewhere_or_nowhere_fails_the_check() {
+    fn ops_19_an_address_that_points_elsewhere_or_nowhere_fails_the_check() {
         let server: Vec<IpAddr> = vec!["203.0.113.7".parse().unwrap()];
         let elsewhere: Vec<IpAddr> = vec!["198.51.100.1".parse().unwrap()];
 
@@ -194,7 +194,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_22_a_port_that_answers_or_refuses_passes_and_one_that_doesn_t_answer_fails() {
+    fn ops_19_a_port_that_answers_or_refuses_passes_and_one_that_doesn_t_answer_fails() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let open = listener.local_addr().unwrap();
         let address = SocketAddr::from(([127, 0, 0, 1], 443));

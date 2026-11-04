@@ -15,13 +15,13 @@ pub enum RequestError {
     #[error("the path doesn't serve the method")]
     MethodNotAllowed,
     /// The query holds parameters that the route's documentation doesn't list, or values the
-    /// route refuses, each named by its JSON Pointer among the parameters (API-09, PLATFORM-035).
+    /// route refuses, each named by its JSON Pointer among the parameters (API-09, PLATFORM-045).
     #[error("the query holds parameters the route doesn't take")]
     InvalidQuery(Vec<FieldError>),
-    /// The body isn't the JSON its route takes (PLATFORM-054).
+    /// The body isn't the JSON its route takes (PLATFORM-049).
     #[error("the body isn't the JSON the route takes")]
     InvalidBody(BodyFault),
-    /// Fields of the body that their domain types refused (PLATFORM-056).
+    /// Fields of the body that their domain types refused (PLATFORM-051).
     #[error("fields of the request failed validation")]
     InvalidFields(Vec<FieldError>),
     /// The body is larger than the route's limit (API-08).
@@ -34,7 +34,7 @@ pub enum RequestError {
     #[error("the access token has expired")]
     AccessTokenExpired,
     /// A request that changes something comes from an origin that isn't listed, or a cookie
-    /// authenticates it and it names no origin (PLATFORM-053).
+    /// authenticates it and it names no origin (PLATFORM-059).
     #[error("the request's origin isn't allowed")]
     OriginNotAllowed,
     /// A member lacks the route's permission, or acts on a member of equal or higher rank
@@ -42,16 +42,16 @@ pub enum RequestError {
     #[error("the caller's role doesn't allow the request")]
     PermissionDenied,
     /// The `Idempotency-Key` isn't a string of structured fields of 1 to 255 characters
-    /// (PLATFORM-058).
+    /// (PLATFORM-037).
     #[error("the idempotency key isn't valid")]
     InvalidIdempotencyKey,
-    /// The key came with another request before (PLATFORM-018).
+    /// The key came with another request before (PLATFORM-036).
     #[error("the idempotency key was used for another request")]
     IdempotencyKeyReused,
-    /// The key's first request hasn't committed or rolled back yet (PLATFORM-018).
+    /// The key's first request hasn't committed or rolled back yet (PLATFORM-036).
     #[error("the idempotency key's first request is still running")]
     IdempotencyKeyInFlight,
-    /// A rate limit's bucket is full (PLATFORM-048).
+    /// A rate limit's bucket is full (PLATFORM-054).
     #[error("a rate limit refused the request")]
     RateLimited,
     /// The request ran past its timeout (OPS-07).
@@ -70,7 +70,7 @@ pub enum RequestError {
     Panicked,
 }
 
-/// Why a body isn't the JSON its route takes (PLATFORM-054).
+/// Why a body isn't the JSON its route takes (PLATFORM-049).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BodyFault {
     /// The request's `Content-Type` isn't `application/json`.

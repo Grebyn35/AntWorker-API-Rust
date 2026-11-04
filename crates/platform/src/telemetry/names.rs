@@ -78,29 +78,29 @@ pub const WORKSPACE_ID: &str = "workspace.id";
 
 /// How long a request took, in seconds.
 pub const REQUEST_DURATION: &str = "request.duration";
-/// Why authorization refused a request: `not_member`, `permission` or `rank` (PLATFORM-025).
+/// Why authorization refused a request: `not_member`, `permission` or `rank` (PLATFORM-010).
 pub const AUTHORIZATION_REASON: &str = "authorization.reason";
-/// How a keyed request's claim of its key ended, such as `new` or `replayed` (PLATFORM-018).
+/// How a keyed request's claim of its key ended, such as `new` or `replayed` (PLATFORM-036).
 pub const IDEMPOTENCY_OUTCOME: &str = "idempotency.outcome";
-/// The kind of a rate limit's bucket, such as `ip` or `sign_in` (PLATFORM-050).
+/// The kind of a rate limit's bucket, such as `ip` or `sign_in` (PLATFORM-056).
 pub const RATE_LIMIT_BUCKET: &str = "rate_limit.bucket";
 /// How a sign-in ended, such as `succeeded` or `invalid_credentials` (AUTH-004, AUTH-005).
 pub const AUTH_OUTCOME: &str = "auth.outcome";
-/// A job's kind, or a periodic job's name, such as `platform.send_email` (PLATFORM-065).
+/// A job's kind, or a periodic job's name, such as `platform.send_email` (PLATFORM-020).
 pub const JOB_KIND: &str = "job.kind";
 /// A queued job's ID, or the claim of a periodic job's run.
 pub const JOB_ID: &str = "job.id";
 /// Which attempt of its job a run is, from 1.
 pub const JOB_ATTEMPT: &str = "job.attempt";
-/// How a job's run ended, such as `succeeded` or `retried` (PLATFORM-065).
+/// How a job's run ended, such as `succeeded` or `retried` (PLATFORM-020).
 pub const JOB_OUTCOME: &str = "job.outcome";
-/// Why the hub closed a stream, such as `access_changed` (PLATFORM-074).
+/// Why the hub closed a stream, such as `access_changed` (PLATFORM-034).
 pub const STREAM_CLOSE_REASON: &str = "stream.close_reason";
 /// The part of startup that failed, such as `database` or `listen` (OPS-03).
 pub const STARTUP_AREA: &str = "startup.area";
 /// The migration versions `migrate` applied.
 pub const MIGRATION_VERSIONS: &str = "migration.versions";
-/// The most connections to the database that an instance opens (OPS-21).
+/// The most connections to the database that an instance opens (OPS-18).
 pub const DATABASE_CONNECTIONS: &str = "database.connections";
-/// How many CPU-heavy works an instance runs at once, at most (PLATFORM-078).
+/// How many CPU-heavy works an instance runs at once, at most (PLATFORM-060).
 pub const WORKERS_TURNS: &str = "workers.turns";

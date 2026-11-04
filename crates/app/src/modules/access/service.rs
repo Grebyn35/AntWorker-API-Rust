@@ -62,13 +62,13 @@ impl AccessPolicy for Policy {
 }
 
 /// Makes the unit of work that adds a membership commit in the order of the commits that
-/// publish events, so each event tells whether the membership had committed before it (SEC-17).
+/// publish events, so each event tells whether the membership had committed before it (SEC-19).
 fn ordered(uow: &mut UnitOfWork) {
     uow.order_with_events();
 }
 
 /// Signals that `user`'s membership in `workspace` started or ended, so that, once the unit of
-/// work commits, the hub closes the streams of theirs that PLATFORM-017 says a membership change
+/// work commits, the hub closes the streams of theirs that PLATFORM-031 says a membership change
 /// closes (ACCESS-006, D35).
 async fn changed(
     uow: &mut UnitOfWork,
@@ -93,7 +93,7 @@ pub(crate) enum Removal {
     /// The user isn't a member of the workspace.
     NotMember,
     /// The member ranks the same as the caller, or higher, so nothing changed: the caller refuses
-    /// the operation through `authz::refuse` (PLATFORM-025).
+    /// the operation through `authz::refuse` (PLATFORM-010).
     Outranked,
 }
 
@@ -139,7 +139,7 @@ pub(crate) async fn is_member(
 
 /// Removes `user` from the caller's workspace, if the caller outranks them (ACCESS-004). The
 /// delete itself checks the rank, so it locks the member's row only when it may remove them, and
-/// no two removals wait on each other's rows: no two members each outrank the other (DATA-25).
+/// no two removals wait on each other's rows: no two members each outrank the other (DATA-20).
 pub(crate) async fn remove(
     uow: &mut UnitOfWork,
     authorized: &Authorized<MembersRemove>,

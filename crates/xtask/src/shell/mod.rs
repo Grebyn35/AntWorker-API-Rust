@@ -2,7 +2,7 @@
 //! that runs on Linux and macOS, or in a shell script under `deploy/`, and each directive that disables a finding stands
 //! on the line before the command it concerns, with a comment that states its reason. A script
 //! under `deploy/` writes a value with printf, never echo, and none of its functions assigns a
-//! variable that its top level sets (CODE-16). Each `psql` of a script under `deploy/` takes its
+//! variable that its top level sets (CODE-07). Each `psql` of a script under `deploy/` takes its
 //! statement with `-c`, and the statement names no table of the product schema (ARCH-14).
 //!
 //! shellcheck reports nothing in a file that a script sources, and finds the script's variables
@@ -134,7 +134,7 @@ fn outcome(findings: Vec<Finding>) -> Outcome {
     }
 }
 
-/// The directives of `script` that disable a finding where CODE-16 doesn't allow it, each with its
+/// The directives of `script` that disable a finding where CODE-07 doesn't allow it, each with its
 /// line, counted from 1: one before the script's first command, which shellcheck applies to the
 /// whole script; one with no command on the line after it; and one with no comment after it that
 /// states its reason.
@@ -153,14 +153,14 @@ fn directive_problems(script: &str) -> Vec<(usize, &'static str)> {
         if !commanded {
             problems.push((
                 index + 1,
-                "the directive comes before the script's first command, so it disables the finding in the whole script (CODE-16)",
+                "the directive comes before the script's first command, so it disables the finding in the whole script (CODE-07)",
             ));
         }
         let next = lines.get(index + 1).map_or("", |line| line.trim_start());
         if next.is_empty() || next.starts_with('#') {
             problems.push((
                 index + 1,
-                "the directive stands on the line before the command it concerns (CODE-16)",
+                "the directive stands on the line before the command it concerns (CODE-07)",
             ));
         }
         if !directive
@@ -169,7 +169,7 @@ fn directive_problems(script: &str) -> Vec<(usize, &'static str)> {
         {
             problems.push((
                 index + 1,
-                "the directive states its reason in a comment after it, as `# shellcheck disable=SC2086 # why` (CODE-16)",
+                "the directive states its reason in a comment after it, as `# shellcheck disable=SC2086 # why` (CODE-07)",
             ));
         }
     }
@@ -230,7 +230,7 @@ fn comments(json: &str) -> Result<Vec<Comment>, String> {
                 .and_then(|line| usize::try_from(line).ok())
                 .unwrap_or(1),
             message: format!(
-                "SC{} ({}): {} (CODE-16)",
+                "SC{} ({}): {} (CODE-07)",
                 comment["code"],
                 comment["level"].as_str().unwrap_or_default(),
                 comment["message"].as_str().unwrap_or_default()
@@ -244,14 +244,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn code_16_a_directive_before_a_command_of_its_own_with_its_reason_passes() {
+    fn code_07_a_directive_before_a_command_of_its_own_with_its_reason_passes() {
         let script = "#!/bin/sh\nset -eu\nf() {\n    # shellcheck disable=SC2086 # $a holds one word per option.\n    ls $a\n}\n";
 
         assert_eq!(directive_problems(script), []);
     }
 
     #[test]
-    fn code_16_a_directive_for_the_whole_script_apart_from_its_command_or_without_a_reason_fails() {
+    fn code_07_a_directive_for_the_whole_script_apart_from_its_command_or_without_a_reason_fails() {
         let whole = "#!/bin/sh\n# shellcheck disable=SC2086 # every word splits.\nls $a\n";
         let apart = "#!/bin/sh\nset -eu\n# shellcheck disable=SC2086 # $a splits.\n\nls $a\n";
         let unexplained = "#!/bin/sh\nset -eu\n# shellcheck disable=SC2086\nls $a\n";
@@ -269,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn code_16_shellcheck_s_comments_become_findings() {
+    fn code_07_shellcheck_s_comments_become_findings() {
         let json = r#"{"comments":[{"file":"deploy/deploy.sh","line":7,"endLine":7,"column":3,"endColumn":9,"level":"warning","code":2086,"message":"Double quote to prevent globbing and word splitting.","fix":null}]}"#;
 
         assert_eq!(
@@ -277,7 +277,7 @@ mod tests {
             [Comment {
                 path: "deploy/deploy.sh".to_owned(),
                 line: 7,
-                message: "SC2086 (warning): Double quote to prevent globbing and word splitting. (CODE-16)".to_owned(),
+                message: "SC2086 (warning): Double quote to prevent globbing and word splitting. (CODE-07)".to_owned(),
             }]
         );
     }

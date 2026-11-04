@@ -10,7 +10,7 @@ use url::{Host, Url};
 use super::Environment;
 use crate::hashing::{self, HmacKey};
 
-/// The origin of a web client, such as `https://app.example.com` (PLATFORM-052): a scheme, a
+/// The origin of a web client, such as `https://app.example.com` (PLATFORM-058): a scheme, a
 /// host and a port, as a browser sends it in `Origin`.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Origin(String);
@@ -64,7 +64,7 @@ pub(super) fn origins(value: &str, environment: Environment) -> Option<Vec<Origi
 }
 
 /// The addresses and ranges in `value`, separated by commas or spaces, such as
-/// `172.18.0.0/16, 203.0.113.7`, or `None` if one is neither (PLATFORM-047). An empty item adds
+/// `172.18.0.0/16, 203.0.113.7`, or `None` if one is neither (PLATFORM-053). An empty item adds
 /// nothing, so a deployment can append a list that may be empty, such as the one its proxy
 /// takes, separated by spaces.
 pub(super) fn proxies(value: &str) -> Option<Vec<IpNet>> {
@@ -96,7 +96,7 @@ mod tests {
     }
 
     #[test]
-    fn sec_19_an_origin_names_https_and_nothing_but_the_origin() {
+    fn sec_07_an_origin_names_https_and_nothing_but_the_origin() {
         let production = Environment::Production;
         assert_eq!(
             origin("https://App.Example.com:443/", production).as_deref(),
@@ -120,7 +120,7 @@ mod tests {
     }
 
     #[test]
-    fn sec_19_plain_http_is_an_origin_only_on_a_loopback_host_in_development() {
+    fn sec_07_plain_http_is_an_origin_only_on_a_loopback_host_in_development() {
         let development = Environment::Development;
         assert!(origin("http://localhost:5173", development).is_some());
         assert!(origin("http://127.0.0.1:5173", development).is_some());
@@ -130,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_047_trusted_proxies_are_addresses_or_ranges() {
+    fn platform_053_trusted_proxies_are_addresses_or_ranges() {
         let parsed = proxies("172.18.0.0/16, 203.0.113.7,2001:db8::/32, 198.51.100.0/24 ").unwrap();
         assert_eq!(parsed.len(), 4);
         assert!(proxies("172.18.0.0/16, proxy.example.com").is_none());

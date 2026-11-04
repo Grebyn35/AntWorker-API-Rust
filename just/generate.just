@@ -2,7 +2,7 @@
 # OpenAPI document and the metric catalog. The justfile imports this file.
 
 # Rewrites the query cache in .sqlx/ from the migrated database. Run it after changing a query
-# (DATA-20). It needs the sqlx-cli of `sqlx_cli_version`: `cargo install sqlx-cli --version
+# (DATA-14). It needs the sqlx-cli of `sqlx_cli_version`: `cargo install sqlx-cli --version
 # <version> --no-default-features --features rustls,postgres --locked`.
 [doc("Rewrites the query cache in .sqlx/, after a query changes")]
 [group('generate')]

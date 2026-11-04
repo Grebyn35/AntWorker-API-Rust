@@ -447,7 +447,7 @@ async fn auth_017_a_device_id_is_1_to_64_letters_digits_underscores_and_hyphens(
 }
 
 #[tokio::test]
-async fn platform_006_a_failed_sign_in_commits_its_record_then_answers_401() {
+async fn platform_008_a_failed_sign_in_commits_its_record_then_answers_401() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
 

@@ -1,5 +1,5 @@
 //! The measured replica's streams, each read on a thread of its own, and what they received
-//! (OPS-18).
+//! (OPS-16).
 
 use std::{
     collections::HashSet,
@@ -28,7 +28,7 @@ pub(super) struct Streams {
 
 /// Opens 10 streams for each of `tokens`' users on the hub at `address`, each read on a thread of
 /// its own, one after another, as clients connect over time rather than all at once, which the
-/// concurrency limit would shed (PLATFORM-020), and returns once every one has sent
+/// concurrency limit would shed (PLATFORM-039), and returns once every one has sent
 /// `stream.opened`. A stream that the replica doesn't answer ends at its socket's timeout, so each
 /// one tells.
 pub(super) fn open_streams(address: &str, tokens: &[String]) -> Result<Streams, String> {
@@ -117,7 +117,7 @@ mod tests {
     }
 
     #[test]
-    fn ops_18_a_user_s_streams_must_receive_the_same_events_once_each_in_order() {
+    fn ops_16_a_user_s_streams_must_receive_the_same_events_once_each_in_order() {
         let same = vec![ids(&["a", "b"]); STREAMS_PER_USER];
         let mut missing = same.clone();
         missing[3] = ids(&["a"]);

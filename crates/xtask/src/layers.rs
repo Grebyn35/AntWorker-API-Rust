@@ -1,5 +1,5 @@
 //! `check-layers`: each layer of a feature module keeps to its job, and the API's code builds
-//! HTTP clients only where SEC-09 allows.
+//! HTTP clients only where SEC-10 allows.
 //! - A module's routes name no `sqlx`, and a handler calls `check` on no `RateLimits` it
 //!   extracts: it hands them to the service, which counts the per-action limit; and it calls at
 //!   most one service function, a method of what its `State` extracts, or a function of its
@@ -13,7 +13,7 @@
 //!   another system, such as `sqlx::Error` (ERR-04).
 //! - The code of `platform` and `app` names an HTTP client library, or a TCP stream through
 //!   which it could write HTTP itself, only in `platform::outbound`, the object storage and
-//!   telemetry adapters, and the health subcommand's probe (SEC-09).
+//!   telemetry adapters, and the health subcommand's probe (SEC-10).
 //!
 //! It reads each file as a token stream, with the paths its `use` declarations import (`rust`).
 
@@ -60,7 +60,7 @@ const INFRASTRUCTURE: [&str; 12] = [
     "opentelemetry_otlp",
 ];
 
-/// The libraries whose only job is to make HTTP requests (SEC-09).
+/// The libraries whose only job is to make HTTP requests (SEC-10).
 const HTTP_CLIENTS: [&str; 7] = [
     "reqwest",
     "ureq",
@@ -71,10 +71,10 @@ const HTTP_CLIENTS: [&str; 7] = [
     "awc",
 ];
 
-/// The code the API runs, which SEC-09 covers.
+/// The code the API runs, which SEC-10 covers.
 const CODE: [&str; 2] = ["crates/platform/src/", "crates/app/src/"];
 
-/// Where SEC-09 allows an HTTP client: the two clients of `platform::outbound`, and the object
+/// Where SEC-10 allows an HTTP client: the two clients of `platform::outbound`, and the object
 /// storage and telemetry adapters, which use their libraries' own clients.
 const CLIENTS_ALLOWED: [&str; 5] = [
     "crates/platform/src/outbound.rs",
@@ -85,7 +85,7 @@ const CLIENTS_ALLOWED: [&str; 5] = [
 ];
 
 /// The health subcommand's probe, which writes its request to the instance's own address over
-/// TCP itself (SEC-09).
+/// TCP itself (SEC-10).
 const PROBE: &str = "crates/platform/src/lifecycle.rs";
 
 /// Checks every Rust file of `platform` and `app`.
@@ -351,7 +351,7 @@ fn infrastructure_errors(source: &Source) -> Vec<Finding> {
     findings
 }
 
-/// SEC-09: an HTTP client library, or a TCP stream, named outside the places that may build an
+/// SEC-10: an HTTP client library, or a TCP stream, named outside the places that may build an
 /// HTTP client.
 fn clients(source: &Source) -> Vec<Finding> {
     if CLIENTS_ALLOWED
@@ -374,7 +374,7 @@ fn clients(source: &Source) -> Vec<Finding> {
                 source.path,
                 line,
                 format!(
-                    "`{}` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters and the health probe (SEC-09)",
+                    "`{}` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters and the health probe (SEC-10)",
                     path.join("::")
                 ),
             ));
@@ -537,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn sec_09_http_clients_are_built_only_where_sec_09_allows() {
+    fn sec_10_http_clients_are_built_only_where_sec_09_allows() {
         let code = r#"
             use std::net::TcpStream;
             fn f() { let client = reqwest::Client::builder(); }
@@ -545,8 +545,8 @@ mod tests {
         assert_eq!(
             findings("crates/app/src/modules/auth/providers/google.rs", code),
             [
-                "`std::net::TcpStream` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters and the health probe (SEC-09)",
-                "`reqwest::Client::builder` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters and the health probe (SEC-09)",
+                "`std::net::TcpStream` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters and the health probe (SEC-10)",
+                "`reqwest::Client::builder` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters and the health probe (SEC-10)",
             ]
         );
         assert_eq!(
@@ -560,7 +560,7 @@ mod tests {
         assert_eq!(
             findings(PROBE, code),
             [
-                "`reqwest::Client::builder` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters and the health probe (SEC-09)"
+                "`reqwest::Client::builder` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters and the health probe (SEC-10)"
             ]
         );
         assert_eq!(
