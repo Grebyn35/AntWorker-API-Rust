@@ -3,7 +3,7 @@
 //! request that ended in an error, to its trace. And the image's `serve`, which records its own
 //! memory, as it exports it to the stack (PLATFORM-046).
 
-use std::process::Output;
+use std::{process::Output, sync::OnceLock};
 
 use serde_json::Value;
 
@@ -102,19 +102,29 @@ fn why_nothing_arrived(server: &Container) -> String {
     )
 }
 
+/// Starts the observability stack, once for every test of the process: Compose's `up` from two
+/// tests at once, while the stack's containers don't exist yet, has each create a container of
+/// the same name, and the second fails.
+fn start_the_stack() {
+    static STARTED: OnceLock<()> = OnceLock::new();
+    STARTED.get_or_init(|| {
+        compose(&[
+            "--profile",
+            "observability",
+            "up",
+            "--detach",
+            "--wait",
+            "collector",
+            "loki",
+            "tempo",
+            "prometheus",
+        ]);
+    });
+}
+
 /// A replica of the image, exporting to the stack that Compose runs, on `database`.
 async fn serve_with_the_stack(database: &TestDatabase) -> Container {
-    compose(&[
-        "--profile",
-        "observability",
-        "up",
-        "--detach",
-        "--wait",
-        "collector",
-        "loki",
-        "tempo",
-        "prometheus",
-    ]);
+    start_the_stack();
     let image = Image::pushed();
     let network = postgres_network();
     let mut settings = settings(database);
@@ -197,17 +207,7 @@ async fn obs_08_the_trace_id_of_a_5xx_response_leads_to_its_logs_and_its_trace()
 
 #[tokio::test]
 async fn platform_046_serve_exports_its_resident_memory() {
-    compose(&[
-        "--profile",
-        "observability",
-        "up",
-        "--detach",
-        "--wait",
-        "collector",
-        "loki",
-        "tempo",
-        "prometheus",
-    ]);
+    start_the_stack();
     let image = Image::pushed();
     let database = TestDatabase::empty().await;
     let network = postgres_network();
