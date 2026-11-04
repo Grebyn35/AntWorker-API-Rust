@@ -200,7 +200,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 3284003..897c7b3: as above, with the split of the justfile | 2 | 16 (14, 8, 6 shared) | 1 | 1 | `stopped: no progress`: b1850a1 |
 | 47d89d1..d2f7ad3: step 3's part after the review of 3284003..9de71a7: OPS-02's test, `setup-smoke`, OPS-21's test, PLATFORM-077, both colors running with no record, a restore whose replay can't fetch a segment, the hub's narrower closing, the retention after a restore, the threat model, and D78 and D79 | 1 | 17 (12, 10, 5 shared) | 4 | 0 | `next pass`: a82623d |
 | 47d89d1..a82623d: as above, with pass 1's fixes | 2 | 8 (7, 5, 4 shared) | 2 | 1 | `stopped: no progress`: 9e26742 |
-| 7081b7e..4d86521: the end of step 3's rule fixes before the renumbering: the bound on CPU-heavy work (PLATFORM-078), the observability stack once per end-to-end process, the watch that prints a long test's lines (TEST-07), the restore's mark before the replicas stop (OPS-17), and the deletion pass over the OBS, OPS and SEC rules | 1 | 10 (9, 3, 2 shared) | 4 | 0 | `next pass` |
+| 7081b7e..4d86521: the end of step 3's rule fixes before the renumbering: the bound on CPU-heavy work (PLATFORM-078), the observability stack once per end-to-end process, the watch that prints a long test's lines (TEST-07), the restore's mark before the replicas stop (OPS-17), and the deletion pass over the OBS, OPS and SEC rules | 1 | 10 (9, 3, 2 shared) | 4 | 0 | `next pass`: f9931fd |
+| 7081b7e..f9931fd: as above, with pass 1's fixes | 2 | 5 (4, 1, 0 shared) | 1 | 1 | `stopped: no progress` |
 
 ## Decisions
 
