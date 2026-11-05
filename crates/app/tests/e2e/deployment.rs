@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::{
-        Arc, OnceLock,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
@@ -16,7 +16,6 @@ use std::{
 
 use rustls::pki_types::{CertificateDer, pem::PemObject};
 use serde_json::Value;
-use tokio::sync::{Semaphore, SemaphorePermit};
 
 use crate::{
     docker::{Container, compose, docker, lossy, postgres_network},
@@ -42,11 +41,6 @@ fn xtask() -> PathBuf {
         .join(format!("xtask{}", std::env::consts::EXE_SUFFIX))
 }
 
-/// How many deployments of the suite run the self-hosted stack at once: one. Each server pulls
-/// the stack's images into a store of its own, of the size docs/operations/ci.md gives, so one
-/// at a time bounds the disk the suite takes, which a CI runner is short of.
-static STACKS: Semaphore = Semaphore::const_new(1);
-
 /// A deployment on a server of its own.
 pub struct Deployment {
     pub server: Server,
@@ -61,9 +55,6 @@ pub struct Deployment {
     base: Vec<(String, String)>,
     /// Whether the settings that `set` last wrote run the self-hosted stack.
     runs_stack: AtomicBool,
-    /// Its share of `STACKS`, from its first deploy that runs the stack. Declared after `server`,
-    /// so it is released once the server and its store are gone.
-    stack: OnceLock<SemaphorePermit<'static>>,
 }
 
 impl Deployment {
@@ -91,7 +82,11 @@ impl Deployment {
     /// A deployment whose database is the bundled Postgres, which backs up to a stand-in bucket
     /// on the same server, with the tests' settings and `changes`.
     pub fn bundled(changes: &[(&str, &str)]) -> Self {
-        let server = Server::start();
+        Self::bundled_on(Server::start(), changes)
+    }
+
+    /// A deployment whose database is the bundled Postgres, as `bundled` makes one, on `server`.
+    pub fn bundled_on(server: Server, changes: &[(&str, &str)]) -> Self {
         let bucket = server.start_bucket();
         let mut kind = vec![("DATABASE".to_owned(), "bundled".to_owned())];
         kind.extend(bucket);
@@ -102,19 +97,18 @@ impl Deployment {
         Self::on(server, None, &kind, changes)
     }
 
-    /// A deployment of this one's kind on a new server, set up as backups.md says after losing a
-    /// server: with this one's settings, and the copies of its secrets and of the bucket's
-    /// authority, so it backs up to this one's bucket. The database must be bundled.
-    pub fn on_a_new_server(&self) -> Self {
+    /// A deployment of this one's kind on `server`, a new one, set up as backups.md says after
+    /// losing a server: with this one's settings, and the copies of its secrets and of the
+    /// bucket's authority, so it backs up to this one's bucket. The database must be bundled.
+    pub fn on_a_new_server(&self, server: Server) -> Self {
         assert!(self.database.is_none(), "a bundled database");
         let deployment = Self {
-            server: Server::start(),
+            server,
             api: self.api.clone(),
             postgres: self.postgres.clone(),
             database: None,
             base: self.base.clone(),
             runs_stack: AtomicBool::new(false),
-            stack: OnceLock::new(),
         };
         deployment.set(&[]);
         self.server
@@ -159,7 +153,6 @@ impl Deployment {
             database,
             base,
             runs_stack: AtomicBool::new(false),
-            stack: OnceLock::new(),
         };
         deployment.set(changes);
         deployment
@@ -185,7 +178,7 @@ impl Deployment {
     }
 
     /// Deploys `api`, the API's image, with `options`. A deploy that runs the self-hosted stack
-    /// first waits for a share of `STACKS`.
+    /// first waits for the heavy turn (memory.rs).
     pub async fn apply(&self, api: &str, options: &[&str]) -> Output {
         self.apply_images(api, &self.postgres, options).await
     }
@@ -193,7 +186,7 @@ impl Deployment {
     /// Deploys `api`, the API's image, and `postgres`, the deployment's Postgres image, with
     /// `options`, as `apply` does.
     pub async fn apply_images(&self, api: &str, postgres: &str, options: &[&str]) -> Output {
-        self.share_stacks().await;
+        self.take_the_heavy_turn().await;
         let mut args = vec!["apply", api, postgres];
         args.extend(options);
         self.server.deploy(&args)
@@ -202,18 +195,15 @@ impl Deployment {
     /// Starts a deploy of `api`, the API's image, as `apply` does, and returns once it writes a
     /// line that contains `line`, for the test to stop it there.
     pub async fn apply_until(&self, api: &str, line: &str) -> RunningDeploy {
-        self.share_stacks().await;
+        self.take_the_heavy_turn().await;
         self.server
             .deploy_until(&["apply", api, &self.postgres], line)
     }
 
-    /// Waits for a share of `STACKS`, once the settings run the self-hosted stack.
-    async fn share_stacks(&self) {
-        if self.runs_stack.load(Ordering::Relaxed) && self.stack.get().is_none() {
-            let permit = STACKS.acquire().await.expect("STACKS stays open");
-            self.stack
-                .set(permit)
-                .expect("one share for each deployment");
+    /// Waits for the heavy turn, once the settings run the self-hosted stack.
+    async fn take_the_heavy_turn(&self) {
+        if self.runs_stack.load(Ordering::Relaxed) {
+            self.server.take_the_heavy_turn().await;
         }
     }
 
@@ -473,7 +463,7 @@ pub fn streaming_client(root: &str, timeout: Duration) -> reqwest::blocking::Cli
 /// Starts the server of a managed database: another server of Compose's Postgres, for the reason
 /// docs/operations/ci.md gives. It runs the service's image with its command and environment, and
 /// its health check's test, interval, timeout and retries, joins its network, and keeps its data
-/// in a volume of its own, which goes with it.
+/// in memory, as the servers keep their stores (D84), which goes with it.
 fn database_server() -> Container {
     let config: Value = serde_json::from_str(&compose(&["config", "--format", "json", "postgres"]))
         .expect("Compose's configuration");
@@ -488,7 +478,12 @@ fn database_server() -> Container {
         .collect();
     let (form, check) = test.split_first().expect("a health check");
     assert_eq!(form, "CMD", "a health check that names its program");
-    let mut args = vec!["--network".to_owned(), postgres_network()];
+    let mut args = vec![
+        "--mount".to_owned(),
+        "type=tmpfs,destination=/var/lib/postgresql".to_owned(),
+        "--network".to_owned(),
+        postgres_network(),
+    ];
     for (name, value) in service["environment"]
         .as_object()
         .expect("Postgres's environment")

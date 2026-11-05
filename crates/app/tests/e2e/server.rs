@@ -9,9 +9,15 @@ use std::{
     net::SocketAddr,
     path::Path,
     process::{Child, ChildStdout, Command, Output, Stdio},
+    sync::OnceLock,
 };
 
-use crate::docker::{Container, compose, docker, lossy, postgres_network};
+use tokio::sync::SemaphorePermit;
+
+use crate::{
+    docker::{Container, compose, docker, lossy, postgres_network},
+    memory::{self, Turn},
+};
 
 /// Where the server holds the release's deployment files, as `just deploy` copies them.
 const RELEASE: &str = "/root/release";
@@ -22,6 +28,12 @@ const DEPLOY_GROUP: &str = "/root/deploy-group";
 
 pub struct Server {
     container: Container,
+    /// Its share of the servers' memory, which holds its store, or none where the stores are on
+    /// disk. Declared after `container`, as `heavy` is, so both are given back once the
+    /// container is gone.
+    share: Option<Turn>,
+    /// The heavy turn, once its telemetry runs on it (memory.rs).
+    heavy: OnceLock<SemaphorePermit<'static>>,
 }
 
 /// A deploy that `Server::deploy_until` started and that still runs.
@@ -73,21 +85,61 @@ impl Drop for Server {
     /// kernel end every process of every container at once before the server's own process can
     /// exit, which on a busy machine takes longer than Docker waits for a container to exit after
     /// its kill, and the removal fails with "did not receive an exit event".
+    ///
+    /// A test whose server Docker ended for taking more memory than its limit fails, if nothing
+    /// failed it already.
     fn drop(&mut self) {
         let _removed = Command::new("docker")
             .args(["exec", self.container.id(), "sh", "-c"])
             .arg("docker ps --all --quiet | xargs -r docker rm --force --volumes > /dev/null")
             .output();
+        if let Some(reason) = self.ended_for_memory() {
+            // A test that panicked already reports its own failure, which a second panic would
+            // abort; the output of the command that failed then says why (`explained`).
+            assert!(std::thread::panicking(), "{reason}");
+        }
     }
 }
 
 impl Server {
     /// Starts a server, waits until its Docker answers, and copies the repository's deployment
-    /// files to it.
+    /// files to it. Where the servers keep their stores in memory, it first waits for a share.
     pub fn start() -> Self {
+        Self::with_share(memory::shares().map(|shares| shares.take(1)))
+    }
+
+    /// Starts two servers, as `start` does, with both their shares taken at once, for a test
+    /// whose second server runs beside its first.
+    pub fn start_two() -> (Self, Self) {
+        match memory::shares().map(|shares| shares.take(2)) {
+            Some(shares) => {
+                let (first, second) = shares.split_one();
+                (
+                    Self::with_share(Some(first)),
+                    Self::with_share(Some(second)),
+                )
+            }
+            None => (Self::with_share(None), Self::with_share(None)),
+        }
+    }
+
+    fn with_share(share: Option<Turn>) -> Self {
         let image = compose(&["config", "--images", "server"]);
         let network = postgres_network();
-        let container = Container::start(&[
+        let limit = format!("{}m", memory::SHARE_MIB);
+        let mut args = Vec::new();
+        if share.is_some() {
+            // No swap either: what the store holds stays in memory.
+            args.extend([
+                "--memory",
+                &limit,
+                "--memory-swap",
+                &limit,
+                "--mount",
+                "type=tmpfs,destination=/var/lib/docker",
+            ]);
+        }
+        args.extend([
             "--privileged",
             "--network",
             &network,
@@ -118,6 +170,7 @@ impl Server {
             "--insecure-registry=registry:5000",
             "--registry-mirror=http://mirror:5000",
         ]);
+        let container = Container::start(&args);
         assert_eq!(container.health(), "healthy", "{}", container.logs());
         let deploy = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../deploy/.");
         docker(&[
@@ -125,7 +178,36 @@ impl Server {
             &deploy.to_string_lossy(),
             &format!("{}:{RELEASE}", container.id()),
         ]);
-        Self { container }
+        Self {
+            container,
+            share,
+            heavy: OnceLock::new(),
+        }
+    }
+
+    /// Waits for the heavy turn, unless the server holds it already, and raises its memory
+    /// limit by the turn's reserve (memory.rs). Its test then holds no other turn it waits on.
+    pub async fn take_the_heavy_turn(&self) {
+        if self.heavy.get().is_some() {
+            return;
+        }
+        let turn = memory::HEAVY
+            .acquire()
+            .await
+            .expect("the heavy turn stays open");
+        if self.share.is_some() {
+            let limit = format!("{}m", memory::SHARE_MIB + memory::HEAVY_MIB);
+            docker(&[
+                "update",
+                "--memory",
+                &limit,
+                "--memory-swap",
+                &limit,
+                self.container.id(),
+            ]);
+        }
+        let held = self.heavy.set(turn);
+        assert!(held.is_ok(), "the server takes the heavy turn once");
     }
 
     /// Writes `contents` to the file at `path` on the server.
@@ -151,10 +233,42 @@ impl Server {
 
     /// Runs `command` in the server's shell.
     pub fn shell(&self, command: &str) -> Output {
-        Command::new("docker")
-            .args(["exec", self.container.id(), "sh", "-c", command])
+        self.explained(
+            Command::new("docker")
+                .args(["exec", self.container.id(), "sh", "-c", command])
+                .output()
+                .expect("run docker exec"),
+        )
+    }
+
+    /// `output`, with a line added to what it wrote on stderr when it failed because Docker
+    /// ended the server for taking more than its memory limit.
+    fn explained(&self, mut output: Output) -> Output {
+        if !output.status.success()
+            && let Some(reason) = self.ended_for_memory()
+        {
+            output.stderr.extend(format!("\n{reason}").bytes());
+        }
+        output
+    }
+
+    /// Why Docker ended the server, if it ended it for taking more than its memory limit.
+    fn ended_for_memory(&self) -> Option<String> {
+        let ended = Command::new("docker")
+            .args([
+                "inspect",
+                "--format",
+                "{{.State.OOMKilled}} {{.HostConfig.Memory}}",
+            ])
+            .arg(self.container.id())
             .output()
-            .expect("run docker exec")
+            .ok()?;
+        let ended = String::from_utf8_lossy(&ended.stdout);
+        let limit = ended.trim().strip_prefix("true ")?;
+        Some(format!(
+            "Docker ended the server for taking more than its limit of {limit} bytes of memory, \
+             which crates/app/tests/e2e/memory.rs sets (D84)"
+        ))
     }
 
     /// Runs `command` in the server's shell, and returns what it wrote on stdout, trimmed. Panics
@@ -167,12 +281,14 @@ impl Server {
 
     /// Runs the release's deploy.sh with `args`, as `just deploy` does.
     pub fn deploy(&self, args: &[&str]) -> Output {
-        Command::new("docker")
-            .args(["exec", "--env", &format!("DEPLOYMENT={DEPLOYMENT}")])
-            .args([self.container.id(), "sh", &format!("{RELEASE}/deploy.sh")])
-            .args(args)
-            .output()
-            .expect("run deploy.sh")
+        self.explained(
+            Command::new("docker")
+                .args(["exec", "--env", &format!("DEPLOYMENT={DEPLOYMENT}")])
+                .args([self.container.id(), "sh", &format!("{RELEASE}/deploy.sh")])
+                .args(args)
+                .output()
+                .expect("run deploy.sh"),
+        )
     }
 
     /// Starts the release's deploy.sh with `args`, as `deploy` does, and returns once it writes a
@@ -351,8 +467,10 @@ impl Server {
     /// certificate from an authority of the test's own, which the deployment trusts as
     /// certs/managed-grafana-ca.crt, and with data sources under Grafana Cloud's uids. Writes the
     /// token of a service account with the Admin role, which the import signs in with, and
-    /// returns the deployment's setting for it.
-    pub fn start_managed_grafana(&self) -> Vec<(String, String)> {
+    /// returns the deployment's setting for it. It first takes the heavy turn, for Grafana's
+    /// image.
+    pub async fn start_managed_grafana(&self) -> Vec<(String, String)> {
+        self.take_the_heavy_turn().await;
         let image = compose(&[
             "--file",
             "../../deploy/observability/compose.yaml",

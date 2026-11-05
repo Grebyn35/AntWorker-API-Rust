@@ -325,7 +325,7 @@ async fn obs_13_a_deploy_imports_the_dashboards_into_a_folder_of_the_managed_gra
     let deployment = Deployment::managed(&[]);
     let mut settings = vec![("TELEMETRY".to_owned(), "managed".to_owned())];
     settings.extend(deployment.server.start_otlp_backend());
-    settings.extend(deployment.server.start_managed_grafana());
+    settings.extend(deployment.server.start_managed_grafana().await);
     deployment.set(&pairs(&settings));
     let released = release_dashboards(&deployment);
     let token = format!("{DEPLOYMENT}/secrets/managed_grafana_token");
@@ -394,7 +394,7 @@ async fn behind_a_loading_grafana() -> Deployment {
     let deployment = Deployment::managed(&[]);
     let mut settings = vec![("TELEMETRY".to_owned(), "managed".to_owned())];
     settings.extend(deployment.server.start_otlp_backend());
-    settings.extend(deployment.server.start_managed_grafana());
+    settings.extend(deployment.server.start_managed_grafana().await);
     settings.extend(deployment.server.front_managed_grafana());
     deployment.set(&pairs(&settings));
     deployment
@@ -453,7 +453,7 @@ async fn obs_14_a_deploy_imports_the_rules_into_the_managed_grafana_and_warns_un
     deployment.set(&pairs(&settings));
     let released = release_rule_groups(&deployment);
     let without = deployment.apply(&deployment.api, &[]).await;
-    settings.extend(deployment.server.start_managed_grafana());
+    settings.extend(deployment.server.start_managed_grafana().await);
     deployment.set(&pairs(&settings));
     let first = deployment.apply(&deployment.api, &[]).await;
     let loaded = rule_groups(&deployment);

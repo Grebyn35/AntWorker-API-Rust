@@ -12,7 +12,7 @@ use crate::{
     deployment::{Deployment, get},
     docker::lossy,
     images::Pushed,
-    server::DEPLOYMENT,
+    server::{DEPLOYMENT, Server},
 };
 
 /// Waits until Postgres has archived the segment of the write-ahead log that holds everything
@@ -524,7 +524,9 @@ async fn ops_15_a_restore_of_the_latest_state_starts_from_a_backup_on_the_latest
 /// then follows. The lost deployment's bucket, which stands in for one off the server, lives as
 /// long as it does.
 async fn lost_and_new_server(backed_up: bool) -> (Deployment, Deployment) {
-    let lost = Deployment::bundled(&[]);
+    // Both servers' shares at once, so no test holds one while it waits for another.
+    let (lost_server, new_server) = Server::start_two();
+    let lost = Deployment::bundled_on(lost_server, &[]);
     let deployed = lost.apply(&lost.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
     lost.sql(
@@ -548,7 +550,7 @@ async fn lost_and_new_server(backed_up: bool) -> (Deployment, Deployment) {
         let backed = lost.server.deploy(&["backup"]);
         assert!(backed.status.success(), "{}", lossy(&backed));
     }
-    let new = lost.on_a_new_server();
+    let new = lost.on_a_new_server(new_server);
     // The server is lost, while its bucket stays.
     lost.server.shell_ok(
         "docker ps --quiet --filter label=com.docker.compose.project=deployment | xargs docker rm --force",

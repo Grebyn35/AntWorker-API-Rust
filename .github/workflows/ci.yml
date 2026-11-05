@@ -144,7 +144,7 @@ jobs:
             tests: "--skip backups::"
     steps:
       # The runner's preinstalled toolchains that no task uses, deleted for the disk that the
-      # end-to-end tests' servers need (docs/operations/ci.md).
+      # end-to-end tests' servers need where they keep their stores on disk (docs/operations/ci.md).
       - run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/.ghcup /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
