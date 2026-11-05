@@ -86,14 +86,14 @@ impl Drop for Server {
     /// exit, which on a busy machine takes longer than Docker waits for a container to exit after
     /// its kill, and the removal fails with "did not receive an exit event".
     ///
-    /// A test whose server Docker ended for taking more memory than its limit fails, if nothing
-    /// failed it already.
+    /// A test on whose server the memory limit ended a process fails, if nothing failed it
+    /// already.
     fn drop(&mut self) {
         let _removed = Command::new("docker")
             .args(["exec", self.container.id(), "sh", "-c"])
             .arg("docker ps --all --quiet | xargs -r docker rm --force --volumes > /dev/null")
             .output();
-        if let Some(reason) = self.ended_for_memory() {
+        if let Some(reason) = self.out_of_memory() {
             // A test that panicked already reports its own failure, which a second panic would
             // abort; the output of the command that failed then says why (`explained`).
             assert!(std::thread::panicking(), "{reason}");
@@ -241,34 +241,45 @@ impl Server {
         )
     }
 
-    /// `output`, with a line added to what it wrote on stderr when it failed because Docker
-    /// ended the server for taking more than its memory limit.
+    /// `output`, with a line added to what it wrote on stderr when it failed after the server's
+    /// memory limit ended a process on it.
     fn explained(&self, mut output: Output) -> Output {
         if !output.status.success()
-            && let Some(reason) = self.ended_for_memory()
+            && let Some(reason) = self.out_of_memory()
         {
             output.stderr.extend(format!("\n{reason}").bytes());
         }
         output
     }
 
-    /// Why Docker ended the server, if it ended it for taking more than its memory limit.
-    fn ended_for_memory(&self) -> Option<String> {
-        let ended = Command::new("docker")
-            .args([
-                "inspect",
-                "--format",
-                "{{.State.OOMKilled}} {{.HostConfig.Memory}}",
-            ])
-            .arg(self.container.id())
-            .output()
-            .ok()?;
-        let ended = String::from_utf8_lossy(&ended.stdout);
-        let limit = ended.trim().strip_prefix("true ")?;
-        Some(format!(
-            "Docker ended the server for taking more than its limit of {limit} bytes of memory, \
-             which crates/app/tests/e2e/memory.rs sets (D84)"
-        ))
+    /// What the server's memory limit ended, if it ended anything: a process on the server, which
+    /// the kernel counts in the server's own cgroup, or the server itself, which Docker records.
+    fn out_of_memory(&self) -> Option<String> {
+        let id = self.container.id();
+        let read = |args: &[&str]| {
+            Command::new("docker")
+                .args(args)
+                .output()
+                .ok()
+                .filter(|output| output.status.success())
+                .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+        };
+        let limit = read(&["inspect", "--format", "{{.HostConfig.Memory}}", id])?;
+        let limit = limit.trim();
+        let ended = match read(&["exec", id, "cat", "/sys/fs/cgroup/memory.events"]) {
+            Some(events) => events
+                .lines()
+                .find_map(|line| line.strip_prefix("oom_kill "))
+                .is_some_and(|count| count.trim() != "0"),
+            None => read(&["inspect", "--format", "{{.State.OOMKilled}}", id])
+                .is_some_and(|killed| killed.trim() == "true"),
+        };
+        ended.then(|| {
+            format!(
+                "the server's memory limit of {limit} bytes, which crates/app/tests/e2e/memory.rs \
+                 sets (D84), ended a process on it"
+            )
+        })
     }
 
     /// Runs `command` in the server's shell, and returns what it wrote on stdout, trimmed. Panics

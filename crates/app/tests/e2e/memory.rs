@@ -17,13 +17,14 @@ use tokio::sync::Semaphore;
 use crate::docker::{compose, docker};
 
 /// What a server may hold in memory, its store and its processes together, in mebibytes: a
-/// bundled database's server that backs up and restores holds up to 2.3 gibibytes. The limit is
-/// Docker's, so a server that would take more ends, and its test fails, while the machine keeps
-/// the rest.
-pub const SHARE_MIB: u64 = 2_560;
+/// bundled database's server that restores twice holds up to 2.2 gibibytes that its kernel can't
+/// reclaim, its store's files and its processes' memory, beside a cache that it can. The limit is
+/// Docker's, so a process on a server that would take more ends, and its test fails, while the
+/// machine keeps the rest.
+pub const SHARE_MIB: u64 = 3_072;
 /// What the server that holds the heavy turn may hold beyond its share: a bundled database's
 /// server with the self-hosted stack holds up to 6.1 gibibytes.
-pub const HEAVY_MIB: u64 = 4_608;
+pub const HEAVY_MIB: u64 = 4_096;
 /// What the machine keeps beside the servers: for the managed databases' servers, which keep
 /// their data in memory too, and the tests' own processes.
 const HEADROOM_MIB: u64 = 2_048;
