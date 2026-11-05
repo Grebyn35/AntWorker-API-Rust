@@ -15,6 +15,33 @@ use crate::{
     server::{DEPLOYMENT, Server},
 };
 
+/// When the timeline `id` began, as a restore's plan reads it: the second its history file
+/// reached the bucket, since the Unix epoch, as `restore-inputs` lists the bucket's histories.
+fn timeline_began(deployment: &Deployment, id: u32) -> i64 {
+    let inputs = deployment.server.deploy(&["restore-inputs"]);
+    assert!(inputs.status.success(), "{}", lossy(&inputs));
+    let listed = String::from_utf8_lossy(&inputs.stdout);
+    let histories: Value = serde_json::from_str(
+        listed
+            .lines()
+            .find_map(|line| line.strip_prefix("histories "))
+            .expect("the bucket's histories"),
+    )
+    .expect("the histories' JSON");
+    let suffix = format!("/{id:08X}.history");
+    let began = histories
+        .as_object()
+        .expect("the histories by name")
+        .iter()
+        .find_map(|(name, file)| name.ends_with(&suffix).then(|| file["time"].as_i64()))
+        .flatten();
+    assert!(
+        began.is_some(),
+        "no history of timeline {id} in the bucket: {histories}"
+    );
+    began.expect("its time")
+}
+
 /// Waits until Postgres has archived the segment of the write-ahead log that holds everything
 /// committed so far: it ends that segment, and waits until the archiver has passed it.
 fn archive_everything_committed(deployment: &Deployment) {
@@ -368,14 +395,22 @@ async fn ops_15_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
     archive_everything_committed(&deployment);
     let went_back = deployment.restore(Some(&early));
     assert!(went_back.status.success(), "{}", lossy(&went_back));
-    // A second after the moment that restore named: once its transaction had committed, and
-    // before its timeline began, which waited for its second check, Postgres's stop and the
-    // restore of the backup. No commit or rollback that the bucket holds follows it on the
-    // timeline that restore abandoned.
+    // Halfway from the moment that restore named to the second its timeline's history reached
+    // the bucket, which a restore's plan reads as when that timeline began: after the
+    // restore's transaction committed, and before its timeline began, for the plan as for
+    // Postgres. No commit or rollback that the bucket holds follows it on the timeline that
+    // restore abandoned.
+    let named = undoing(&went_back);
+    let began = timeline_began(&deployment, 2);
     let during = deployment.sql(&format!(
-        "SELECT '{}'::timestamptz + interval '1 second'",
-        undoing(&went_back)
+        "SELECT CASE WHEN to_timestamp({began}) > '{named}'::timestamptz \
+         THEN '{named}'::timestamptz + (to_timestamp({began}) - '{named}'::timestamptz) / 2 END"
     ));
+    assert!(
+        !during.is_empty(),
+        "timeline 2 began at {began}, in the second the restore named, {named}: a plan, which \
+         reads whole seconds, can't tell the moments between apart"
+    );
 
     let restored = deployment.restore(Some(&during));
 
