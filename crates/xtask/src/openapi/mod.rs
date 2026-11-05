@@ -1,8 +1,8 @@
 //! `check-openapi`: the committed `openapi.json` follows the rules for the HTTP contract
-//! (API-01 to API-06, API-11, API-17, ERR-02, ERR-13, REALTIME-008). Each operation's scope,
-//! method and statuses are in `operations`, the shape of lists in `lists`, the formats and
-//! request strings' lengths in `schemas`, the event catalog in `events`, and the codes that no
-//! route lists in `codes`.
+//! (API-01 to API-06, API-11, API-17, API-19, API-20, ERR-02, ERR-13, REALTIME-008). Each
+//! operation's scope, method and statuses are in `operations`, the shape of lists and their
+//! `search` in `lists`, the formats and request strings' lengths in `schemas`, the event catalog
+//! in `events`, and the codes that no route lists in `codes`.
 
 mod codes;
 mod events;

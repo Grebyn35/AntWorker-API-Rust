@@ -60,80 +60,74 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Reports which spec behaviors tests prove, and fails on a test whose name doesn't start
-    /// with a behavior or rule ID that exists (TEST-01, DOC-09).
+    /// Reports which spec behaviors tests prove, and fails on a test whose name doesn't start with
+    /// a behavior or rule ID that exists.
     #[command(name = "check-test-map")]
     TestMap,
     /// Fails on a link, ID or named CI check that doesn't resolve, a history marker, an
-    /// unfinished-work marker, a document outside the documentation set, an acronym not spelled
-    /// out where a document first uses it, a spec, rule or tracker whose format breaks DOC-08 or
-    /// DOC-14, or a spec's Routes table that doesn't match `openapi.json` (DOC-01, DOC-04 to
-    /// DOC-08, DOC-12, DOC-14).
+    /// unfinished-work marker, a document outside the documentation set, an acronym not spelled out
+    /// where a document first uses it, a spec, rule or tracker whose format breaks DOC-08 or
+    /// DOC-14, or a spec's Routes table that doesn't match `openapi.json`.
     #[command(name = "check-docs")]
     Docs,
-    /// Fails on a part of the committed `openapi.json` that breaks the rules for the HTTP
-    /// contract: its paths, its property names, each operation's access level and response
-    /// descriptions, the codes of its error responses, and its references, which must resolve
-    /// (API-01, API-05, API-17, ERR-02, ERR-13).
+    /// Fails on a part of the committed `openapi.json` that breaks the rules for the HTTP contract:
+    /// its paths, its property names, each operation's access level and response descriptions, the
+    /// codes of its error responses, and its references, which must resolve.
     #[command(name = "check-openapi")]
     Openapi,
-    /// Fails on a log or span field name outside the list of telemetry names, a record name
-    /// outside it, a message that isn't constant, an `#[instrument]` without `skip_all`, an
-    /// event at any level but `DEBUG`, or a span, in `app` code other than `main.rs`, and an
-    /// exception to a print lint outside the places printing is allowed (CODE-03, OBS-01,
-    /// OBS-03 to OBS-06).
+    /// Fails on a log or span field name outside the list of telemetry names, a record name outside
+    /// it, a message that isn't constant, an `#[instrument]` without `skip_all`, an event at any
+    /// level but `DEBUG`, or a span, in `app` code other than `main.rs`, and an exception to a
+    /// print lint outside the places printing is allowed.
     #[command(name = "check-instrument")]
     Instrument,
     /// Fails on a metric declared or named outside OBS-11, a catalog that differs from the
-    /// declarations, a dashboard or alert that reads a metric nothing declares or lists, a
-    /// metric that nothing reads, a panel title that isn't a question, a dashboard that Grafana's
-    /// users can change, or dashboards no overview links to all of (OBS-11 to OBS-13).
+    /// declarations, a dashboard or alert that reads a metric nothing declares or lists, a metric
+    /// that nothing reads, a panel title that isn't a question, a dashboard that Grafana's users
+    /// can change, or dashboards no overview links to all of.
     #[command(name = "check-metrics")]
     Metrics,
     /// Writes the metric catalog, `docs/operations/metrics.md`, from the declarations (OBS-12).
     #[command(name = "metric-catalog")]
     MetricCatalog,
-    /// Fails on a collector configuration whose tail sampling doesn't keep the traces OBS-08
-    /// names, or a latency objective that differs between the sampling, the alerts and the
-    /// latency dashboard (OBS-08).
+    /// Fails on a collector configuration whose tail sampling doesn't keep the traces OBS-08 names,
+    /// or a latency objective that differs between the sampling, the alerts and the latency
+    /// dashboard.
     #[command(name = "check-telemetry-config")]
     TelemetryConfig,
-    /// Fails on an alert without a severity, a runbook section, or a test that expects it to
-    /// fire (OBS-14).
+    /// Fails on an alert without a severity, a runbook section, or a test that expects it to fire.
     #[command(name = "alert-rules")]
     AlertRules,
     /// Fails on an action, runner, image, download, crate install or tool version that isn't
-    /// pinned, a toolchain other than the one `rust-toolchain.toml` pins, or a crate whose
-    /// edition isn't the workspace's 2024 (CODE-01, OPS-11).
+    /// pinned, a toolchain other than the one `rust-toolchain.toml` pins, or a crate whose edition
+    /// isn't the workspace's 2024.
     #[command(name = "check-pins")]
     Pins,
-    /// Fails on a finding of shellcheck in a recipe of the justfile that runs on Linux and
-    /// macOS, or in a shell script under `deploy/` (CODE-07), and on a `psql` of such a script
-    /// whose statement isn't given with `-c` or names a table of the product schema (ARCH-14).
+    /// Fails on a finding of shellcheck in a recipe of the justfile that runs on Linux and macOS,
+    /// or in a shell script under `deploy/`, and on a `psql` of such a script whose statement isn't
+    /// given with `-c` or names a table of the product schema.
     #[command(name = "check-shell")]
     Shell,
-    /// Fails on a function, method or macro that the locked sqlx exposes and that takes SQL
-    /// text, outside the checked macros, and that `clippy.toml` doesn't ban, or on a ban of
-    /// sqlx's that reaches nothing (DATA-14).
+    /// Fails on a function, method or macro that the locked sqlx exposes and that takes SQL text,
+    /// outside the checked macros, and that `clippy.toml` doesn't ban, or on a ban of sqlx's that
+    /// reaches nothing.
     #[command(name = "check-sql-bans")]
     SqlBans,
     /// Fails on `sqlx` in a module's routes, an HTTP type in its service, a routes type that
-    /// deserializes without refusing unknown fields, an infrastructure error in a service or
-    /// route signature, or an HTTP client built outside the places SEC-10 allows (ARCH-08,
-    /// ARCH-09, API-08, API-09, ERR-04, SEC-10).
+    /// deserializes without refusing unknown fields, an infrastructure error in a service or route
+    /// signature, or an HTTP client built outside the places SEC-10 allows.
     #[command(name = "check-layers")]
     Layers,
-    /// Fails on a module's public submodule, code that reaches into another module's
-    /// submodule, a use of a module the graph in architecture.md doesn't allow, a cycle in that
-    /// graph, or another module's error in a module's public signatures (ARCH-04, ARCH-05,
-    /// ERR-06), and on a dependency that its crate's code never names (CODE-12).
+    /// Fails on a module's public submodule, code that reaches into another module's submodule, a
+    /// use of a module the graph in architecture.md doesn't allow, a cycle in that graph, or
+    /// another module's error in a module's public signatures, and on a dependency that its crate's
+    /// code never names.
     #[command(name = "check-deps")]
     Deps,
     /// Fails on a table, column, constraint, function or index of the migrations' schema that
     /// breaks the data rules for names, standard columns, check constraints, functions, foreign
     /// keys and soft deletes, or a privilege, owner or setting of the roles that breaks them, as
-    /// the catalog of a database that the API's own `bootstrap` and `migrate` build shows it
-    /// (DATA-01, DATA-02, DATA-04, DATA-05, DATA-06, DATA-07, DATA-12, DATA-19).
+    /// the catalog of a database that the API's own `bootstrap` and `migrate` build shows it.
     #[command(name = "check-schema")]
     Schema,
     /// Fails on a query, in a `sqlx` macro of `platform` or `app`, of a table with a
@@ -144,21 +138,20 @@ enum Command {
     #[command(name = "check-tenancy")]
     Tenancy,
     /// Fails on a query, in a `sqlx` macro of `platform` or `app`, that names a table another
-    /// module owns: the module whose name the table's creating migration holds (ARCH-06).
+    /// module owns: the module whose name the table's creating migration holds.
     #[command(name = "check-table-ownership")]
     TableOwnership,
-    /// Fails on a source file or a deploy script over 500 lines, a module's file outside
-    /// ARCH-03's set, a module without its error.rs, an exception to `dead_code`, and a job
-    /// declared outside its module's jobs.rs or with a kind of another module's (CODE-08,
-    /// ARCH-03, ERR-01, CODE-15, OPS-09).
+    /// Fails on a source file or a deploy script over 500 lines, a module's file outside ARCH-03's
+    /// set, a module without its error.rs, an exception to `dead_code`, and a job declared outside
+    /// its module's jobs.rs or with a kind of another module's.
     #[command(name = "check-layout")]
     Layout,
-    /// Fails on a migration whose name holds no module, and on a migration that the newest
-    /// release holds and the working tree changed or deleted (DATA-09).
+    /// Fails on a migration whose name holds no module, and on a migration that the newest release
+    /// holds and the working tree changed or deleted.
     #[command(name = "check-migrations")]
     Migrations,
     /// Fails when the query cache in `.sqlx/` differs from what sqlx-cli writes from a database
-    /// that the migrations build (DATA-14).
+    /// that the migrations build.
     #[command(name = "sqlx-check")]
     SqlxCheck,
     /// Fails on a marker of an optional part that names no part, a block that no end marker
@@ -180,7 +173,7 @@ enum Command {
         parts: Vec<String>,
     },
     /// On a copy of the repository for each run that `crates/xtask/parts.yaml` lists, or for the
-    /// runs named, removes the run's parts, then runs `just checks` (ARCH-07).
+    /// runs named, removes the run's parts, then runs `just checks`.
     #[command(name = "check-removable")]
     CheckRemovable {
         /// The runs, such as `personal`; every run by default.
