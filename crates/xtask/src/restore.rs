@@ -9,6 +9,15 @@
 //! state: one taken on a timeline that a restore then abandoned, after its branch, starts no
 //! replay along the latest timeline.
 //!
+//! A restore records when its timeline begins in the bucket, by the server's clock, which
+//! Postgres stamps each commit with, to the microsecond: the annotation `timeline-<id>` of the
+//! newest full backup (deploy/tasks/backups.sh). The bucket's own times, such as when a history
+//! file reached it, are its provider's clock, in whole seconds, and come after the timeline began.
+//! pgBackRest expires the oldest full backups first, each with the backups that depend on it, so
+//! the newest full backup when a timeline began outlives every backup that reaches a moment before
+//! then. A timeline whose beginning no backup records began, for the plan, before every backup the
+//! bucket holds: no backup that it holds reaches a moment before that timeline began.
+//!
 //! The plan is a pure function of what the backup bucket records, which deploy.sh's
 //! `restore-inputs` prints, so tests cover it without a bucket. `just restore` makes it on the
 //! developer's machine, and the end-to-end tests through `restore-plan`. A moment that the
@@ -16,17 +25,22 @@
 //! hasn't stood at it yet, as when the moment's offset from UTC is wrong.
 
 use std::{
+    collections::BTreeMap,
     io::{self, Read},
     process::ExitCode,
 };
 
 use serde_json::Value;
 
+/// Microseconds in a second: a moment, and when a timeline began, are counted in microseconds
+/// since the Unix epoch, as Postgres stamps commits.
+const MICROS: i64 = 1_000_000;
+
 /// A backup that the bucket holds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Backup {
     label: String,
-    /// When it ended, in seconds since the Unix epoch.
+    /// When it ended, in whole seconds since the Unix epoch, rounded down, as pgBackRest records.
     stop: i64,
     /// The timeline it was taken on.
     timeline: u32,
@@ -38,8 +52,9 @@ pub struct Backup {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Timeline {
     id: u32,
-    /// When it began: when its history file reached the bucket, in seconds since the epoch.
-    began: i64,
+    /// When it began, in microseconds since the epoch, as the bucket's backups record it; `None`
+    /// when no backup records it, as once the backups from before it have expired.
+    began: Option<i64>,
     /// Each timeline it descends from, with the position in the write-ahead log where it
     /// branched off that timeline.
     branches: Vec<(u32, u64)>,
@@ -52,14 +67,15 @@ pub struct Plan {
     pub timeline: u32,
 }
 
-/// The plan of a restore to `moment`, in seconds since the epoch, or to the latest state at
-/// `i64::MAX`: along the timeline that was live at that moment, from the latest backup that
-/// ended before it on that timeline, or on a timeline it descends from, before the branch.
+/// The plan of a restore to `moment`, in microseconds since the epoch, or to the latest state at
+/// `i64::MAX`: along the timeline that was live at that moment, the newest that began before it,
+/// from the latest backup that ended before it on that timeline, or on a timeline it descends
+/// from, before the branch.
 pub fn plan(moment: i64, backups: &[Backup], timelines: &[Timeline]) -> Result<Plan, String> {
     let live = timelines
         .iter()
-        .filter(|timeline| timeline.began <= moment)
-        .max_by_key(|timeline| timeline.began);
+        .filter(|timeline| timeline.began.is_none_or(|began| began < moment))
+        .max_by_key(|timeline| timeline.id);
     // Before the first restore, the database's own timeline, which no history file records.
     let (timeline, branches) = match live {
         Some(live) => (live.id, live.branches.as_slice()),
@@ -78,9 +94,17 @@ pub fn plan(moment: i64, backups: &[Backup], timelines: &[Timeline]) -> Result<P
                 .iter()
                 .any(|&(id, branch)| id == backup.timeline && backup.lsn_stop <= branch)
     };
+    // A backup recorded as ending in a second ended before the next second began.
+    let ended_before = |backup: &Backup| {
+        backup
+            .stop
+            .checked_add(1)
+            .and_then(|next| next.checked_mul(MICROS))
+            .is_some_and(|ended| ended <= moment)
+    };
     backups
         .iter()
-        .filter(|backup| backup.stop < moment && on_timeline(backup))
+        .filter(|backup| ended_before(backup) && on_timeline(backup))
         .max_by_key(|backup| backup.stop)
         .map(|backup| Plan {
             set: backup.label.clone(),
@@ -101,14 +125,18 @@ pub fn planned(text: Option<&str>, inputs: &str) -> Result<Plan, String> {
         Some(text) => moment(text).ok_or_else(|| {
             format!(
                 "{text} isn't a moment. A moment is a date and a time with its offset from UTC, \
-                 as Postgres writes one, such as 2026-10-25 10:41:31+00."
+                 as Postgres writes one, such as 2026-10-25 10:41:31.913582+00."
             )
         })?,
         None => i64::MAX,
     };
     let (now, backups, timelines) = read_inputs(inputs)?;
+    // The clock reads whole seconds, rounded down, so it has reached every moment of its second.
     if let Some(text) = text
-        && at > now
+        && now
+            .checked_add(1)
+            .and_then(|next| next.checked_mul(MICROS))
+            .is_none_or(|next| at >= next)
     {
         return Err(format!(
             "Can't restore to {text}: the server's clock hasn't reached it. Without a moment, a \
@@ -122,14 +150,14 @@ pub fn planned(text: Option<&str>, inputs: &str) -> Result<Plan, String> {
 }
 
 /// What `restore-inputs` printed: a line `now` with the server's clock, in seconds since the
-/// epoch, a line `backups` with pgBackRest's info in JSON, a line `histories` with the history
-/// files the bucket lists in JSON, and a line `branch` for each line of each history file: its
-/// name, the timeline it descends from, and the branch's position.
+/// epoch, a line `backups` with pgBackRest's info in JSON, and a line `branch` for each line of
+/// each history file that the bucket holds: its name, the timeline it descends from, and the
+/// branch's position.
 fn read_inputs(inputs: &str) -> Result<(i64, Vec<Backup>, Vec<Timeline>), String> {
     let mut now = None;
     let mut backups = Vec::new();
-    let mut timelines: Vec<(String, Timeline)> = Vec::new();
-    let mut branches: Vec<(String, u32, u64)> = Vec::new();
+    let mut began = BTreeMap::new();
+    let mut timelines: BTreeMap<String, Timeline> = BTreeMap::new();
     for line in inputs.lines() {
         let (kind, rest) = line.split_once(' ').unwrap_or((line, ""));
         match kind {
@@ -140,46 +168,78 @@ fn read_inputs(inputs: &str) -> Result<(i64, Vec<Backup>, Vec<Timeline>), String
                         .map_err(|_| format!("the server's clock reads oddly: {line}"))?,
                 );
             }
-            "backups" => backups = read_backups(rest)?,
-            "histories" => timelines = read_histories(rest)?,
+            "backups" => (backups, began) = read_backups(rest)?,
             "branch" => {
+                let odd = || format!("a history file in the bucket reads oddly: {line}");
                 let fields: Vec<&str> = rest.split_whitespace().collect();
-                let [name, id, at] = fields.as_slice() else {
-                    return Err(format!("a history file in the bucket reads oddly: {line}"));
+                let [name, parent, at] = fields.as_slice() else {
+                    return Err(odd());
                 };
-                let id = id
-                    .parse()
-                    .map_err(|_| format!("a history file in the bucket reads oddly: {line}"))?;
-                let at = lsn(at)
-                    .ok_or_else(|| format!("a history file in the bucket reads oddly: {line}"))?;
-                branches.push(((*name).to_owned(), id, at));
+                let id = name
+                    .rsplit('/')
+                    .next()
+                    .and_then(|file| file.strip_suffix(".history"))
+                    .and_then(|stem| u32::from_str_radix(stem, 16).ok())
+                    .ok_or_else(odd)?;
+                let branch = (parent.parse().map_err(|_| odd())?, lsn(at).ok_or_else(odd)?);
+                timelines
+                    .entry((*name).to_owned())
+                    .or_insert_with(|| Timeline {
+                        id,
+                        began: None,
+                        branches: Vec::new(),
+                    })
+                    .branches
+                    .push(branch);
             }
             _ => {}
-        }
-    }
-    for (name, id, at) in branches {
-        if let Some((_, timeline)) = timelines.iter_mut().find(|(file, _)| *file == name) {
-            timeline.branches.push((id, at));
         }
     }
     Ok((
         now.ok_or_else(|| "restore-inputs printed no reading of the server's clock".to_owned())?,
         backups,
         timelines
-            .into_iter()
-            .map(|(_, timeline)| timeline)
+            .into_values()
+            .map(|timeline| Timeline {
+                began: began.get(&timeline.id).copied(),
+                ..timeline
+            })
             .collect(),
     ))
 }
 
-/// The backups of pgBackRest's `info --output=json`, which lists one stanza.
-fn read_backups(json: &str) -> Result<Vec<Backup>, String> {
+/// The backups of pgBackRest's `info --output=json`, which lists one stanza, and when each
+/// timeline began, as their annotations `timeline-<id>` record it: the latest, where several
+/// backups record one, since a restore that began no timeline, as one that failed, leaves its
+/// record to the next.
+fn read_backups(json: &str) -> Result<(Vec<Backup>, BTreeMap<u32, i64>), String> {
     let info: Value = serde_json::from_str(json)
         .map_err(|error| format!("pgBackRest's info reads oddly: {error}"))?;
     let odd = || "pgBackRest's info lists a backup that reads oddly".to_owned();
-    info[0]["backup"]
+    let listed = info[0]["backup"]
         .as_array()
-        .ok_or_else(|| "pgBackRest's info lists no backups".to_owned())?
+        .ok_or_else(|| "pgBackRest's info lists no backups".to_owned())?;
+    let mut began = BTreeMap::new();
+    for annotation in listed
+        .iter()
+        .filter_map(|backup| backup["annotation"].as_object())
+    {
+        for (key, value) in annotation {
+            let Some(id) = key.strip_prefix("timeline-") else {
+                continue;
+            };
+            let id: u32 = id.parse().map_err(|_| odd())?;
+            let at: i64 = value
+                .as_str()
+                .and_then(|at| at.parse().ok())
+                .ok_or_else(odd)?;
+            began
+                .entry(id)
+                .and_modify(|latest: &mut i64| *latest = (*latest).max(at))
+                .or_insert(at);
+        }
+    }
+    let backups = listed
         .iter()
         .map(|backup| {
             Ok(Backup {
@@ -197,36 +257,8 @@ fn read_backups(json: &str) -> Result<Vec<Backup>, String> {
                     .ok_or_else(odd)?,
             })
         })
-        .collect()
-}
-
-/// The timelines of the history files that `repo-ls --output=json` lists, by each file's name,
-/// such as `18-1/00000002.history`, whose stem is the timeline in hexadecimal, and its `time`.
-fn read_histories(json: &str) -> Result<Vec<(String, Timeline)>, String> {
-    let listed: Value = serde_json::from_str(json)
-        .map_err(|error| format!("the bucket's list of histories reads oddly: {error}"))?;
-    let files = listed
-        .as_object()
-        .ok_or_else(|| "the bucket's list of histories reads oddly".to_owned())?;
-    files
-        .iter()
-        .map(|(name, file)| {
-            let odd = || format!("the bucket's history file {name} reads oddly");
-            let stem = name
-                .rsplit('/')
-                .next()
-                .and_then(|file| file.strip_suffix(".history"))
-                .ok_or_else(odd)?;
-            Ok((
-                name.clone(),
-                Timeline {
-                    id: u32::from_str_radix(stem, 16).map_err(|_| odd())?,
-                    began: file["time"].as_i64().ok_or_else(odd)?,
-                    branches: Vec::new(),
-                },
-            ))
-        })
-        .collect()
+        .collect::<Result<_, String>>()?;
+    Ok((backups, began))
 }
 
 /// A position in the write-ahead log as Postgres writes it, such as `0/D025D38`.
@@ -235,10 +267,10 @@ fn lsn(text: &str) -> Option<u64> {
     Some((u64::from_str_radix(high, 16).ok()? << 32) | u64::from_str_radix(low, 16).ok()?)
 }
 
-/// The moment `text` names, in whole seconds since the Unix epoch, rounded down: a date and a
-/// time, as Postgres writes a time, `YYYY-MM-DD HH:MM:SS`, with `T` or a space between them, the
-/// seconds and a fraction of a second optional, then its offset from UTC: `Z`, or a sign and
-/// hours, with minutes after them or after a colon.
+/// The moment `text` names, in microseconds since the Unix epoch: a date and a time, as Postgres
+/// writes a time, `YYYY-MM-DD HH:MM:SS.FFFFFF`, with `T` or a space between them, the seconds
+/// optional, and a fraction of a second of at most six digits, then its offset from UTC: `Z`, or
+/// a sign and hours, with minutes after them or after a colon.
 pub fn moment(text: &str) -> Option<i64> {
     let text = text.trim();
     let date = text.get(..10)?;
@@ -251,10 +283,18 @@ pub fn moment(text: &str) -> Option<i64> {
         number(parts.next()?, 2)?,
         number(parts.next()?, 2)?,
     );
-    let time = time.split('.').next()?;
     let mut parts = time.split(':');
     let (hour, minute) = (number(parts.next()?, 2)?, number(parts.next()?, 2)?);
-    let second = parts.next().map_or(Some(0), |second| number(second, 2))?;
+    let (second, micros) = match parts.next() {
+        None => (0, 0),
+        Some(second) => {
+            let (second, fraction) = second.split_once('.').unwrap_or((second, "0"));
+            if fraction.is_empty() || fraction.len() > 6 {
+                return None;
+            }
+            (number(second, 2)?, number(&format!("{fraction:0<6}"), 6)?)
+        }
+    };
     if parts.next().is_some()
         || date.split('-').count() != 3
         || !(1..=12).contains(&month)
@@ -278,9 +318,9 @@ pub fn moment(text: &str) -> Option<i64> {
             sign * (hours * 3600 + minutes * 60)
         }
     };
-    Some(days(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second - offset)
+    let seconds = days(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second - offset;
+    Some(seconds * MICROS + micros)
 }
-
 /// `text` as a number, if it is exactly `width` decimal digits.
 fn number(text: &str, width: usize) -> Option<i64> {
     if text.len() != width || !text.bytes().all(|b| b.is_ascii_digit()) {
@@ -332,6 +372,11 @@ mod tests {
         }
     }
 
+    /// `seconds` since the epoch, in microseconds.
+    fn at(seconds: i64) -> i64 {
+        seconds * MICROS
+    }
+
     /// A database restored once, at 1000, to a moment before 400, whose timeline 2 branched off
     /// timeline 1 at position 40: a backup before the branch, one after it on the timeline the
     /// restore abandoned, and the restore's closing backup on timeline 2, which ended at 1100.
@@ -344,7 +389,7 @@ mod tests {
             ],
             vec![Timeline {
                 id: 2,
-                began: 1000,
+                began: Some(at(1000)),
                 branches: vec![(1, 40)],
             }],
         )
@@ -355,17 +400,32 @@ mod tests {
         let backups = [backup("first", 100, 1, 10), backup("second", 500, 1, 50)];
 
         assert_eq!(
-            plan(600, &backups, &[]),
+            plan(at(600), &backups, &[]),
             Ok(Plan {
                 set: "second".to_owned(),
                 timeline: 1
             })
         );
         assert_eq!(
-            plan(400, &backups, &[]).map(|plan| plan.set),
+            plan(at(400), &backups, &[]).map(|plan| plan.set),
             Ok("first".to_owned())
         );
-        assert!(plan(50, &backups, &[]).is_err());
+        assert!(plan(at(50), &backups, &[]).is_err());
+    }
+
+    #[test]
+    fn ops_15_a_backup_ends_before_a_moment_only_once_its_second_has() {
+        let backups = [backup("first", 100, 1, 10), backup("second", 500, 1, 50)];
+
+        // pgBackRest records the second the backup ended in, so it may have ended at its end.
+        let in_its_second = plan(at(500) + 999_999, &backups, &[]);
+        let after_its_second = plan(at(501), &backups, &[]);
+
+        assert_eq!(in_its_second.map(|plan| plan.set), Ok("first".to_owned()));
+        assert_eq!(
+            after_its_second.map(|plan| plan.set),
+            Ok("second".to_owned())
+        );
     }
 
     #[test]
@@ -373,7 +433,7 @@ mod tests {
         let (backups, timelines) = restored_once();
 
         // Between the restore's target and the time it ran, on the timeline it abandoned.
-        let abandoned = plan(800, &backups, &timelines);
+        let abandoned = plan(at(800), &backups, &timelines);
 
         assert_eq!(
             abandoned,
@@ -385,12 +445,24 @@ mod tests {
     }
 
     #[test]
+    fn ops_15_a_moment_belongs_to_a_restored_timeline_only_after_it_began_as_the_bucket_records() {
+        let (backups, timelines) = restored_once();
+
+        // The microsecond it began, as the restore recorded, and the one after.
+        let as_it_began = plan(at(1000), &backups, &timelines);
+        let just_after = plan(at(1000) + 1, &backups, &timelines);
+
+        assert_eq!(as_it_began.map(|plan| plan.timeline), Ok(1));
+        assert_eq!(just_after.map(|plan| plan.timeline), Ok(2));
+    }
+
+    #[test]
     fn ops_15_a_moment_before_the_closing_backup_ended_replays_the_restored_timeline() {
         let (backups, timelines) = restored_once();
 
         // The restored timeline is live, and its closing backup hasn't ended: the backup from
         // before the branch, not the later one on the timeline the restore abandoned.
-        let during = plan(1050, &backups, &timelines);
+        let during = plan(at(1050), &backups, &timelines);
 
         assert_eq!(
             during,
@@ -406,12 +478,33 @@ mod tests {
         let (backups, timelines) = restored_once();
 
         assert_eq!(
-            plan(1200, &backups, &timelines),
+            plan(at(1200), &backups, &timelines),
             Ok(Plan {
                 set: "closing".to_owned(),
                 timeline: 2
             })
         );
+    }
+
+    #[test]
+    fn ops_15_a_timeline_whose_beginning_no_backup_records_began_before_every_backup() {
+        // Once the backups from before timeline 2 began have expired, with the one that recorded
+        // when it began: every moment that the closing backup reaches is on timeline 2.
+        let (mut backups, mut timelines) = restored_once();
+        backups.retain(|backup| backup.label == "closing");
+        timelines[0].began = None;
+
+        let after_closing = plan(at(1200), &backups, &timelines);
+        let before_closing = plan(at(1050), &backups, &timelines);
+
+        assert_eq!(
+            after_closing,
+            Ok(Plan {
+                set: "closing".to_owned(),
+                timeline: 2
+            })
+        );
+        assert!(before_closing.is_err(), "{before_closing:?}");
     }
 
     #[test]
@@ -436,17 +529,20 @@ mod tests {
 
     #[test]
     fn ops_15_the_bucket_s_records_are_read_as_pgbackrest_writes_them() {
-        // Records as pgBackRest wrote them for a database restored four times: one backup, and
-        // two of its five history files.
+        // Records as pgBackRest wrote them for a database restored twice. The backup that
+        // recorded when timeline 2 began has expired. A restore that failed recorded on the first
+        // backup when timeline 3 would begin; once the database was put back, and backed up, the
+        // restore that began it recorded that on the second.
         let inputs = concat!(
             "now 1793140900\n",
-            r#"backups [{"backup":[{"label":"20261026-214504F","type":"full","timestamp":{"start":1793051104,"stop":1793051111},"lsn":{"start":"0/E000028","stop":"0/E000120"},"archive":{"start":"00000002000000000000000E","stop":"00000002000000000000000E"}}]}]"#,
-            "\n",
-            r#"histories {"18-1/00000002.history":{"type":"file","size":80,"time":1793051101},"18-1/00000003.history":{"type":"file","size":112,"time":1793140862}}"#,
+            r#"backups [{"backup":["#,
+            r#"{"label":"20261026-214504F","type":"full","timestamp":{"start":1793051104,"stop":1793051111},"lsn":{"start":"0/E000028","stop":"0/E000120"},"archive":{"start":"00000002000000000000000E","stop":"00000002000000000000000E"},"annotation":{"restore-1793140849":"1793140849","timeline-3":"1793140850000001"}},"#,
+            r#"{"label":"20261027-214055F","type":"full","timestamp":{"start":1793140855,"stop":1793140858},"lsn":{"start":"0/1A000028","stop":"0/1A000120"},"archive":{"start":"00000002000000000000001A","stop":"00000002000000000000001A"},"annotation":{"restore-1793140860":"1793140860","timeline-3":"1793140861913582"}}"#,
+            r#"]}]"#,
             "\n",
             "branch 18-1/00000002.history 1 0/D025D38\n",
             "branch 18-1/00000003.history 1 0/D025D38\n",
-            "branch 18-1/00000003.history 2 0/19000000\n",
+            "branch 18-1/00000003.history 2 0/1B000000\n",
         );
 
         let (now, backups, timelines) = read_inputs(inputs).unwrap();
@@ -454,27 +550,39 @@ mod tests {
         assert_eq!(now, 1_793_140_900);
         assert_eq!(
             backups,
-            [backup("20261026-214504F", 1_793_051_111, 2, 0xE00_0120)]
+            [
+                backup("20261026-214504F", 1_793_051_111, 2, 0xE00_0120),
+                backup("20261027-214055F", 1_793_140_858, 2, 0x1A00_0120)
+            ]
         );
-        assert!(timelines.contains(&Timeline {
-            id: 3,
-            began: 1_793_140_862,
-            branches: vec![(1, 0xD02_5D38), (2, 0x1900_0000)],
-        }));
+        assert_eq!(
+            timelines,
+            [
+                Timeline {
+                    id: 2,
+                    began: None,
+                    branches: vec![(1, 0xD02_5D38)],
+                },
+                Timeline {
+                    id: 3,
+                    began: Some(1_793_140_861_913_582),
+                    branches: vec![(1, 0xD02_5D38), (2, 0x1B00_0000)],
+                }
+            ]
+        );
     }
 
     #[test]
     fn ops_15_a_moment_that_the_server_s_clock_hasn_t_reached_is_refused() {
-        // A backup that ended a minute before the server's clock reading, and moments at that
-        // reading and a second after it.
+        // A backup that ended a minute before the server's clock reading, and moments in the
+        // second of that reading, and in the second after it.
         let inputs = concat!(
             "now 1793051171\n",
             r#"backups [{"backup":[{"label":"20261026-214504F","type":"full","timestamp":{"start":1793051104,"stop":1793051111},"lsn":{"start":"0/E000028","stop":"0/E000120"},"archive":{"start":"00000001000000000000000E","stop":"00000001000000000000000E"}}]}]"#,
             "\n",
-            "histories {}\n",
         );
 
-        let reached = planned(Some("2026-10-26 21:46:11+00"), inputs);
+        let reached = planned(Some("2026-10-26 21:46:11.999999+00"), inputs);
         let ahead = planned(Some("2026-10-26 21:46:12+00"), inputs);
         let latest = planned(None, inputs);
 
@@ -492,20 +600,24 @@ mod tests {
     }
 
     #[test]
-    fn ops_15_a_moment_is_read_with_its_offset_from_utc() {
-        // The seconds since the epoch that each text below names, in UTC.
-        let utc = 1_792_924_891;
+    fn ops_15_a_moment_is_read_to_the_microsecond_with_its_offset_from_utc() {
+        // The microseconds since the epoch that each text below names, in UTC.
+        let utc = 1_792_924_891 * MICROS;
 
         assert_eq!(moment("2026-10-25 10:41:31+00"), Some(utc));
-        assert_eq!(moment("2026-10-25 10:41:31.913+00"), Some(utc));
+        assert_eq!(moment("2026-10-25 10:41:31.913582+00"), Some(utc + 913_582));
+        assert_eq!(moment("2026-10-25 10:41:31.9+00"), Some(utc + 900_000));
         assert_eq!(moment("2026-10-25T10:41:31Z"), Some(utc));
         assert_eq!(moment("2026-10-25 12:41:31+02:00"), Some(utc));
-        assert_eq!(moment("2026-10-25 05:11:31-0530"), Some(utc));
-        assert_eq!(moment("2026-10-25 10:41+00"), Some(utc - 31));
+        assert_eq!(moment("2026-10-25 05:11:31.5-0530"), Some(utc + 500_000));
+        assert_eq!(moment("2026-10-25 10:41+00"), Some(utc - 31 * MICROS));
         for odd in [
             "2026-10-25 10:41:31",
             "2026-13-25 10:41:31+00",
             "25/10/2026 10:41:31+00",
+            "2026-10-25 10:41:31.+00",
+            "2026-10-25 10:41:31.9135821+00",
+            "2026-10-25 10:41.5+00",
             "yesterday",
         ] {
             assert_eq!(moment(odd), None, "{odd}");

@@ -25,11 +25,12 @@
 #       doesn't reach the bucket, it refuses before anything stops, or, when its transaction or
 #       the check that archives it fails once the replicas have stopped, starts them again and
 #       refuses, unless --allow-unarchived lets it go on. Postgres still replaying the log, as
-#       after a restore that failed during its replay, isn't checked.
+#       after a restore that failed during its replay, isn't checked. Before it stops Postgres, it
+#       records in the bucket when the timeline it begins begins, and refuses if it can't.
 #   deploy.sh restore-inputs
 #       Prints what a restore plans from: the server's clock, and what the backup bucket records
-#       of the bundled database's timelines: pgBackRest's info, the timelines' history files with
-#       when each reached the bucket, and each one's branches. It changes nothing.
+#       of the bundled database's timelines: pgBackRest's info, whose annotations record when
+#       each timeline began, and each history file's branches. It changes nothing.
 #   deploy.sh status
 #       Shows whether a deploy, backup or restore runs, or a deploy stopped before its replicas
 #       served, which color serves, each of the deployment's containers with its state and its

@@ -15,31 +15,19 @@ use crate::{
     server::{DEPLOYMENT, Server},
 };
 
-/// When the timeline `id` began, as a restore's plan reads it: the second its history file
-/// reached the bucket, since the Unix epoch, as `restore-inputs` lists the bucket's histories.
-fn timeline_began(deployment: &Deployment, id: u32) -> i64 {
-    let inputs = deployment.server.deploy(&["restore-inputs"]);
-    assert!(inputs.status.success(), "{}", lossy(&inputs));
-    let listed = String::from_utf8_lossy(&inputs.stdout);
-    let histories: Value = serde_json::from_str(
-        listed
-            .lines()
-            .find_map(|line| line.strip_prefix("histories "))
-            .expect("the bucket's histories"),
-    )
-    .expect("the histories' JSON");
-    let suffix = format!("/{id:08X}.history");
-    let began = histories
-        .as_object()
-        .expect("the histories by name")
-        .iter()
-        .find_map(|(name, file)| name.ends_with(&suffix).then(|| file["time"].as_i64()))
-        .flatten();
+/// When the timeline that `restored`, a restore's output, began, as it says the bucket records.
+fn beginning(restored: &Output) -> String {
+    let output = lossy(restored);
+    let recorded = output.lines().find_map(|line| {
+        line.strip_prefix("deploy: the bucket records that timeline ")?
+            .split_once(" begins at ")
+            .map(|(_, at)| at.to_owned())
+    });
     assert!(
-        began.is_some(),
-        "no history of timeline {id} in the bucket: {histories}"
+        recorded.is_some(),
+        "the restore says no beginning of its timeline: {output}"
     );
-    began.expect("its time")
+    recorded.expect("the beginning")
 }
 
 /// Waits until Postgres has archived the segment of the write-ahead log that holds everything
@@ -240,7 +228,8 @@ fn ops_15_the_retention_keeps_the_full_backup_a_restore_started_from_until_a_bac
 }
 
 #[tokio::test]
-async fn ops_15_a_restore_marks_the_full_backup_it_starts_from_in_the_bucket() {
+async fn ops_15_a_restore_marks_the_backup_it_starts_from_and_records_when_its_timeline_begins_on_the_newest()
+ {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -253,16 +242,16 @@ async fn ops_15_a_restore_marks_the_full_backup_it_starts_from_in_the_bucket() {
     let backed_up = deployment.server.deploy(&["backup"]);
     assert!(backed_up.status.success(), "{}", lossy(&backed_up));
     archive_everything_committed(&deployment);
-    let before = deployment.sql("SELECT extract(epoch FROM now())::bigint");
+    let before = deployment.sql("SELECT (extract(epoch FROM now()) * 1000000)::bigint");
 
     let restored = deployment.restore(Some(&early));
 
-    let after = deployment.sql("SELECT extract(epoch FROM now())::bigint");
+    let after = deployment.sql("SELECT (extract(epoch FROM now()) * 1000000)::bigint");
     assert!(restored.status.success(), "{}", lossy(&restored));
     let backups = backups(&deployment);
-    let first = backups[0]["label"]
-        .as_str()
-        .expect("the first deploy's backup");
+    let label = |index: usize| backups[index]["label"].as_str().expect("a backup's label");
+    // The first deploy's backup, which the restore starts from, and `backup`'s.
+    let (first, newest) = (label(0), label(1));
     assert!(
         lossy(&restored).contains(&format!(
             "the bucket keeps the full backup {first}, which the restore starts from"
@@ -270,7 +259,7 @@ async fn ops_15_a_restore_marks_the_full_backup_it_starts_from_in_the_bucket() {
         "{}",
         lossy(&restored)
     );
-    let marks: Vec<(String, Value)> = backups
+    let annotations: Vec<(String, i64)> = backups
         .iter()
         .flat_map(|backup| {
             let label = backup["label"].as_str().unwrap_or_default().to_owned();
@@ -278,15 +267,29 @@ async fn ops_15_a_restore_marks_the_full_backup_it_starts_from_in_the_bucket() {
                 .as_object()
                 .into_iter()
                 .flatten()
-                .map(move |(key, value)| (format!("{label} {key}"), value.clone()))
+                .map(move |(key, value)| {
+                    let value = value.as_str().and_then(|value| value.parse().ok());
+                    (format!("{label} {key}"), value.expect("a time"))
+                })
         })
         .collect();
-    assert_eq!(marks.len(), 1, "{marks:?}");
-    let (mark, at) = &marks[0];
-    let at: i64 = at.as_str().and_then(|at| at.parse().ok()).expect("a time");
-    assert_eq!(*mark, format!("{first} restore-{at}"));
     let (before, after): (i64, i64) = (before.parse().unwrap(), after.parse().unwrap());
-    assert!((before..=after).contains(&at), "{before} {at} {after}");
+    assert_eq!(annotations.len(), 2, "a mark and a record: {annotations:?}");
+    let ((mark, at), (record, began)) = (&annotations[0], &annotations[1]);
+    assert_eq!(*mark, format!("{first} restore-{at}"));
+    assert!(
+        (before / 1_000_000..=after / 1_000_000).contains(at),
+        "{before} {at} {after}"
+    );
+    assert_eq!(*record, format!("{newest} timeline-2"));
+    assert!((before..=after).contains(began), "{before} {began} {after}");
+    assert_eq!(
+        deployment.sql(&format!(
+            "SELECT extract(epoch FROM '{}'::timestamptz) * 1000000 = {began}",
+            beginning(&restored)
+        )),
+        "t"
+    );
 }
 
 #[tokio::test]
@@ -395,22 +398,18 @@ async fn ops_15_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
     archive_everything_committed(&deployment);
     let went_back = deployment.restore(Some(&early));
     assert!(went_back.status.success(), "{}", lossy(&went_back));
-    // Halfway from the moment that restore named to the second its timeline's history reached
-    // the bucket, which a restore's plan reads as when that timeline began: after the
-    // restore's transaction committed, and before its timeline began, for the plan as for
-    // Postgres. No commit or rollback that the bucket holds follows it on the timeline that
-    // restore abandoned.
+    // Halfway from the moment that restore named to the one it recorded as when its timeline
+    // began: after its transaction committed, and before its timeline began, so no commit or
+    // rollback that the bucket holds follows it on the timeline that restore abandoned. And the
+    // microsecond after its timeline began, before anything committed on it.
     let named = undoing(&went_back);
-    let began = timeline_began(&deployment, 2);
+    let began = beginning(&went_back);
     let during = deployment.sql(&format!(
-        "SELECT CASE WHEN to_timestamp({began}) > '{named}'::timestamptz \
-         THEN '{named}'::timestamptz + (to_timestamp({began}) - '{named}'::timestamptz) / 2 END"
+        "SELECT '{named}'::timestamptz + ('{began}'::timestamptz - '{named}'::timestamptz) / 2"
     ));
-    assert!(
-        !during.is_empty(),
-        "timeline 2 began at {began}, in the second the restore named, {named}: a plan, which \
-         reads whole seconds, can't tell the moments between apart"
-    );
+    let begun = deployment.sql(&format!(
+        "SELECT '{began}'::timestamptz + interval '1 microsecond'"
+    ));
 
     let restored = deployment.restore(Some(&during));
 
@@ -429,6 +428,14 @@ async fn ops_15_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
         "early\nlast"
     );
     assert_eq!(deployment.server.running("api-blue").len(), 2);
+
+    let restored = deployment.restore(Some(&begun));
+
+    assert!(restored.status.success(), "{}", lossy(&restored));
+    assert_eq!(
+        deployment.sql("SELECT name FROM restore_marker ORDER BY name"),
+        "early"
+    );
 }
 
 #[tokio::test]
@@ -864,6 +871,43 @@ async fn ops_15_a_restore_whose_mark_fails_refuses_with_the_api_serving() {
         );
         assert!(!lossy(refused).contains(STOPPING), "{}", lossy(refused));
     }
+    assert_eq!(deployment.server.running("api-blue").len(), 2);
+    assert_eq!(deployment.server.running("backup").len(), 1);
+    let (status, _) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/capabilities"),
+    );
+    assert_eq!(status, 200);
+    assert_eq!(deployment.sql("SELECT name FROM restore_marker"), "kept");
+}
+
+#[tokio::test]
+async fn ops_15_a_restore_whose_record_of_its_timeline_fails_serves_again_and_refuses_whatever_its_options()
+ {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('kept');",
+    );
+
+    // The bucket stops answering once the restore has marked its backup, and
+    // `--allow-unarchived` lets the restore go on past the check that then fails.
+    let running = deployment.restore_until(&["--allow-unarchived"], STOPPING);
+    deployment.server.shell_ok("docker kill bucket");
+    let (refused, refusal) = running.finish();
+
+    assert!(!refused, "{refusal}");
+    assert!(
+        refusal.contains("couldn't record in the bucket when the restore's timeline begins"),
+        "{refusal}"
+    );
+    assert!(
+        refusal.contains("started the API and the backups again"),
+        "{refusal}"
+    );
+    assert!(!refusal.contains("restoring the database"), "{refusal}");
     assert_eq!(deployment.server.running("api-blue").len(), 2);
     assert_eq!(deployment.server.running("backup").len(), 1);
     let (status, _) = get(

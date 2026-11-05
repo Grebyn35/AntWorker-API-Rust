@@ -67,6 +67,16 @@ recovered() {
     done
 }
 
+# Starts again what a restore that refuses stopped, while Postgres still runs the database it
+# found: the live replicas, if any ran, and the backups.
+serve_again() {
+    say "starting the API and the backups again, with the database as the restore found it"
+    if [ -n "$live" ]; then
+        compose up --detach --wait --quiet-pull --no-deps --scale "api-$live=$replicas" "api-$live"
+    fi
+    compose up --detach --wait --quiet-pull backup
+}
+
 restore() {
     moment=$1
     set=$2
@@ -158,16 +168,41 @@ restore() {
             failed="the restore's transaction, or pgBackRest's check that archives it, failed, with the error above, once the replicas had stopped"
             if [ "$anyway" != yes ]; then
                 say "$failed: $refusal"
-                say "starting the API and the backups again, with the database as the restore found it"
-                if [ -n "$live" ]; then
-                    compose up --detach --wait --quiet-pull --no-deps --scale "api-$live=$replicas" "api-$live"
-                fi
-                compose up --detach --wait --quiet-pull backup
+                serve_again
                 fail "refused the restore, and started the API and the backups again"
             fi
             say "$failed; restoring anyway, as --allow-unarchived asks, so what the bucket lacks of the database stays only in the data that moves aside"
         fi
     fi
+    # The bucket records when the restore's timeline begins, for a later restore's plan to read
+    # which timeline was live at a moment (crates/xtask/src/restore.rs): now, by the server's
+    # clock, which Postgres stamps each commit with, to the microsecond, once nothing commits on
+    # the database it replaces, and before Postgres stops. Postgres numbers the timeline one past
+    # the newest that the bucket holds a history of, or than the one it replays along. The record
+    # is the annotation `timeline-<id>` of the newest full backup: pgBackRest expires the oldest
+    # full backups first, each with the backups that depend on it, so that one outlives every
+    # backup that reaches a moment before the timeline began. A record that fails, as when the
+    # bucket stops answering, refuses the restore, whatever its options: without it, a later
+    # plan would put the moments before this restore on its timeline.
+    # shellcheck disable=SC2016 # The script expands its own variables.
+    if ! recorded=$(compose run --rm --no-deps --quiet-pull --user postgres --entrypoint sh postgres -c '
+        set -e
+        histories=$(pgbackrest --stanza=db repo-ls --recurse --filter="\.history\$" archive/db)
+        newest=$(printf "%s\n" "$histories" | sed -n "s|^.*/\([0-9A-F]\{8\}\)\.history\$|\1|p" | sort | tail -n 1)
+        id=$1
+        if [ -n "$newest" ] && [ "$((0x$newest))" -gt "$id" ]; then id=$((0x$newest)); fi
+        id=$((id + 1))
+        info=$(pgbackrest --stanza=db info --output=json)
+        full=$(printf "%s\n" "$info" | jq -r "[.[0].backup[] | select(.type == \"full\")] | max_by(.timestamp.stop) | .label")
+        at=$(date -u "+%s%6N %Y-%m-%d %H:%M:%S.%6N+00")
+        pgbackrest --stanza=db annotate --set="$full" --annotation="timeline-$id=${at%% *}" >&2
+        printf "%s %s\n" "$id" "${at#* }"' sh "$timeline"); then
+        say "couldn't record in the bucket when the restore's timeline begins, with pgBackRest's error above"
+        serve_again
+        fail "refused the restore, and started the API and the backups again; once the bucket answers, restore again"
+    fi
+    new_timeline=${recorded%% *}
+    say "the bucket records that timeline $new_timeline, which the restore begins, begins at ${recorded#* }"
     compose stop postgres
     stamp=$(date -u +%Y%m%dT%H%M%SZ)
     say "restoring the database${moment:+ as it stood at $moment}; the data it replaces moves to /var/lib/postgresql/18/before-restore-$stamp"
@@ -214,6 +249,14 @@ restore() {
             say "the restored database ends where timeline $timeline ends in the bucket, which holds no commit on it after the backup $set that the restore started from"
         fi
     fi
+    # The timeline that Postgres began is the one whose beginning the bucket records, unless the
+    # bucket's histories changed while the restore ran, as when another server restores into it.
+    if ! postgres_timeline=$(compose exec -T --user postgres postgres psql -qAt -c "SELECT ('x' || left(pg_walfile_name(pg_current_wal_lsn()), 8))::bit(32)::int"); then
+        fail "couldn't find which timeline Postgres began, with the error above"
+    fi
+    if [ "$postgres_timeline" != "$new_timeline" ]; then
+        fail "Postgres began timeline $postgres_timeline, while the bucket records when timeline $new_timeline begins: the bucket's histories changed while the restore ran, as when another server restores into it"
+    fi
     if [ -n "$live" ]; then
         API_IMAGE_NEW=$live_image compose --profile tasks run --rm --no-deps --quiet-pull migrate
         compose up --detach --wait --quiet-pull --no-deps --scale "api-$live=$replicas" "api-$live"
@@ -230,13 +273,12 @@ restore() {
 }
 
 # Prints what the backup bucket records of the bundled database's timelines, for a restore to
-# plan from, one item per line: `backups` with pgBackRest's info in JSON, `histories`
-# with the timelines' history files that the bucket lists in JSON, each with the time it reached
-# the bucket, which is when its timeline began, and `branch` for each line of each history file,
-# with the file's name, the timeline it descends from and the position where it branched off;
-# and first, `now` with the server's clock, in seconds since the Unix epoch, the clock that
-# Postgres stamps each commit with. It reads the bucket from Postgres's image, whether Postgres
-# runs or not, as on a new server.
+# plan from, one item per line: `backups` with pgBackRest's info in JSON, whose annotations
+# record when each timeline began, and `branch` for each line of each history file that the
+# bucket holds, with the file's name, the timeline it descends from and the position where it
+# branched off; and first, `now` with the server's clock, in seconds since the Unix epoch, the
+# clock that Postgres stamps each commit with. It reads the bucket from Postgres's image, whether
+# Postgres runs or not, as on a new server.
 restore_inputs() {
     read_settings
     if [ "$database" != bundled ]; then fail "the database is managed: restore it through its provider"; fi
@@ -245,7 +287,6 @@ restore_inputs() {
     compose run --rm --no-deps --quiet-pull --user postgres --entrypoint sh postgres -c '
         set -e
         printf "backups %s\n" "$(pgbackrest --stanza=db info --output=json | tr -d "\n")"
-        printf "histories %s\n" "$(pgbackrest --stanza=db repo-ls --recurse --filter="\.history\$" --output=json archive/db | tr -d "\n")"
         for name in $(pgbackrest --stanza=db repo-ls --recurse --filter="\.history\$" archive/db); do
             pgbackrest --stanza=db repo-get "archive/db/$name" |
                 awk -v name="$name" "\$1 ~ /^[0-9]+\$/ { print \"branch\", name, \$1, \$2 }"
