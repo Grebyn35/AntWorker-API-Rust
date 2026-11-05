@@ -107,6 +107,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 
 | Rule or behavior | Built code that doesn't follow it | Closed by |
 |---|---|---|
+| OPS-15 | A restore's plan reads a moment, and when each timeline began, which it takes from the second that the timeline's history file reached the bucket, in whole seconds (`crates/xtask/src/restore.rs`), so it can pick a timeline other than the one live at a moment in the second that a timeline began, as [backups.md](operations/backups.md#restoring) says it picks: one while an earlier restore ran, after the moment that restore named and before its timeline began, along the newer timeline, which restores that restore's result rather than the database it replaced. So `backups::ops_15_a_restore_reaches_a_moment_while_an_earlier_restore_ran` fails a correct run whose earlier restore reaches the bucket within the second it named (TEST-06) | Next, before step 4: each restore records when its timeline began, to the millisecond, and the plan reads it |
 | DOC-07 | Which rules a check covers is written in four places: its subcommand's help in `crates/xtask/src/main.rs`, its task's comment in `just/check.just`, its module's comment, and its row in [operations/ci.md](operations/ci.md), and they disagree: `check-openapi`'s task names 6 rules, and its row 13 | 4 |
 | OPS-16 | A release's capacity, which `just load-test` measures, has no release notes to go in: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 | TEST-06 | `traces::obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace` fails now and then on amd64 in CI, when nothing reaches Loki or Tempo; its output says why, from the stack's start times to the API's export errors | 6 at the latest, since the migration closes without known gaps: the fix of what its next failure shows |
@@ -207,7 +208,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 47d89d1..a82623d: as above, with pass 1's fixes | 2 | 8 (7, 5, 4 shared) | 2 | 1 | `stopped: no progress`: 9e26742 |
 | 7081b7e..4d86521: the end of step 3's rule fixes before the renumbering: the bound on CPU-heavy work (PLATFORM-060), the observability stack once per end-to-end process, the watch that prints a long test's lines (TEST-06), the restore's mark before the replicas stop (OPS-15), and the deletion pass over the OBS, OPS and SEC rules | 1 | 10 (9, 3, 2 shared) | 4 | 0 | `next pass`: f9931fd |
 | 7081b7e..f9931fd: as above, with pass 1's fixes | 2 | 5 (4, 1, 0 shared) | 1 | 1 | `stopped: no progress`: b1c4e49 |
-| b35b321..05bde6f: the test suites' disk writes cut (D84), the Postgres image's `apt`, the stand-in bucket's volumes, and the moment of the restore while an earlier one ran | 1 | 5 (3, 4, 2 shared) | 1 | 0 | `next pass` |
+| b35b321..05bde6f: the test suites' disk writes cut (D84), the Postgres image's `apt`, the stand-in bucket's volumes, and the moment of the restore while an earlier one ran | 1 | 5 (3, 4, 2 shared) | 1 | 0 | `next pass`: 847f951 |
+| b35b321..847f951: as above, with pass 1's fixes | 2 | 5 (3, 3, 1 shared) | 1 | 0 | `stopped: no progress` |
 
 ## Decisions
 
