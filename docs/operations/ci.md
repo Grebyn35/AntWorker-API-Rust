@@ -91,7 +91,7 @@ Each week, Dependabot opens pull requests for the pins it can read, as `.github/
 These pins are updated by hand, and `check-pins` checks their form:
 - the versions of the tools in the justfile, and of `just` in the workflows;
 - the runner's version in the workflows, such as `ubuntu-24.04`;
-- in the Dockerfiles, the frontend on their first line; in the API's, the zig download with its checksums and the versions of the crates it installs; in `deploy/postgres/Dockerfile`, the versions of pgBackRest and of the certificate authorities' package.
+- in the Dockerfiles, the frontend on their first line; in the API's, the zig download with its checksums and the versions of the crates it installs; in `deploy/postgres/Dockerfile`, the versions of the packages it installs.
 
 The version of Swagger UI that the API reference of development loads from jsDelivr, with the Subresource Integrity hash of each of its two files, in `crates/platform/src/http/reference.rs`, is updated by hand too: the hashes come from the files of the package that npm publishes, and the integration test of PLATFORM-052 checks that the page names that version with a hash. Pick a version at least two weeks old.
 
