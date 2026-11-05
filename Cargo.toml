@@ -69,6 +69,13 @@ uuid = { version = "1.29.0", default-features = false, features = ["std", "v4", 
 utoipa = { version = "6.0.0", default-features = false, features = ["macros"] }
 utoipa-axum = "0.3.0"
 
+# Development builds, the tests' included, carry line tables, the debug information from which a
+# panic's backtrace names its files and lines, and no more. Full debug information, which a
+# debugger needs to show variables, makes each test binary about three times the size, and each
+# link writes it again. `CARGO_PROFILE_DEV_DEBUG=full` builds with it, rebuilding every crate.
+[profile.dev]
+debug = "line-tables-only"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 dead_code = "deny"
