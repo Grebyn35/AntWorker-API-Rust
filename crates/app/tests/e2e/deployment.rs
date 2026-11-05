@@ -49,9 +49,6 @@ pub struct Deployment {
     pub api: String,
     /// The deployment's Postgres image under test, as the server pulls it.
     pub postgres: String,
-    /// The managed database's server, or none for the bundled database. Declared after `server`,
-    /// so it goes once the replicas that connect to it have.
-    database: Option<Container>,
     /// The settings of its kind of deployment, which `changes` of `set` add to or replace.
     base: Vec<(String, String)>,
     /// Whether the settings that `set` last wrote run the self-hosted stack.
@@ -62,11 +59,13 @@ impl Deployment {
     /// A deployment whose managed database is on a new Postgres server, with the tests' settings
     /// and `changes`.
     pub fn managed(changes: &[(&str, &str)]) -> Self {
-        // The server first, so the shares of memory bound how many databases' servers run.
-        let server = Server::start();
+        // The server first, so the shares of memory bound how many databases' servers run, and
+        // the server holds its database's, so its share goes once both have.
+        let mut server = Server::start();
         let database = database_server(server.in_memory());
         let host = database.inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
-        let deployment = Self::on(server, Some(database), &[("DATABASE", "managed")], changes);
+        server.hold_database(database);
+        let deployment = Self::on(server, &[("DATABASE", "managed")], changes);
         for (secret, setting) in [
             ("database_admin_url", "DATABASE_ADMIN_URL"),
             ("database_owner_url", "DATABASE_OWNER_URL"),
@@ -97,19 +96,18 @@ impl Deployment {
             .iter()
             .map(|(name, value)| (name.as_str(), value.as_str()))
             .collect();
-        Self::on(server, None, &kind, changes)
+        Self::on(server, &kind, changes)
     }
 
     /// A deployment of this one's kind on `server`, a new one, set up as backups.md says after
     /// losing a server: with this one's settings, and the copies of its secrets and of the
     /// bucket's authority, so it backs up to this one's bucket. The database must be bundled.
     pub fn on_a_new_server(&self, server: Server) -> Self {
-        assert!(self.database.is_none(), "a bundled database");
+        assert!(self.server.database().is_none(), "a bundled database");
         let deployment = Self {
             server,
             api: self.api.clone(),
             postgres: self.postgres.clone(),
-            database: None,
             base: self.base.clone(),
             runs_stack: AtomicBool::new(false),
         };
@@ -119,12 +117,7 @@ impl Deployment {
         deployment
     }
 
-    fn on(
-        server: Server,
-        database: Option<Container>,
-        kind: &[(&str, &str)],
-        changes: &[(&str, &str)],
-    ) -> Self {
+    fn on(server: Server, kind: &[(&str, &str)], changes: &[(&str, &str)]) -> Self {
         let mut base: Vec<(String, String)> = [
             ("IMAGE_REPOSITORY", "registry:5000/image"),
             ("SOURCE", "https://example.invalid/e2e"),
@@ -149,7 +142,6 @@ impl Deployment {
             server,
             api: Pushed::api().in_network(),
             postgres: Pushed::postgres().in_network(),
-            database,
             base,
             runs_stack: AtomicBool::new(false),
         };
@@ -296,7 +288,7 @@ impl Deployment {
     /// The first column of each row that `sql` returns from the deployment's database, the
     /// bundled one or the managed one on its server, as its administrator, one row per line.
     pub fn sql(&self, sql: &str) -> String {
-        if let Some(database) = &self.database {
+        if let Some(database) = self.server.database() {
             return docker(&[
                 "exec",
                 database.id(),

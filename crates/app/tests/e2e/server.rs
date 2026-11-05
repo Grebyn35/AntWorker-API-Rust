@@ -28,9 +28,12 @@ const DEPLOY_GROUP: &str = "/root/deploy-group";
 
 pub struct Server {
     container: Container,
-    /// Its share of the servers' memory, which holds its store, or none where the stores are on
-    /// disk. Declared after `container`, as `heavy` is, so both are given back once the
-    /// container is gone.
+    /// The server of its deployment's managed database, if it has one, which the replicas on the
+    /// server connect to. Declared after `container`, so it goes once they have.
+    database: Option<Container>,
+    /// Its share of the servers' memory, which holds its store and its managed database's
+    /// server, or none where the stores are on disk. Declared after `container` and `database`,
+    /// as `heavy` is, so both are given back once those containers are gone.
     share: Option<Turn>,
     /// The heavy turn, once its telemetry runs on it (memory.rs).
     heavy: OnceLock<SemaphorePermit<'static>>,
@@ -127,7 +130,7 @@ impl Server {
     fn with_share(share: Option<Turn>) -> Self {
         let image = compose(&["config", "--images", "server"]);
         let network = postgres_network();
-        let limit = format!("{}m", memory::SHARE_MIB);
+        let limit = format!("{}m", memory::SERVER_MIB);
         let mut args = Vec::new();
         if share.is_some() {
             // No swap either: what the store holds stays in memory.
@@ -181,6 +184,7 @@ impl Server {
         ]);
         Self {
             container,
+            database: None,
             share,
             heavy: OnceLock::new(),
         }
@@ -197,7 +201,7 @@ impl Server {
             .await
             .expect("the heavy turn stays open");
         if self.share.is_some() {
-            let limit = format!("{}m", memory::SHARE_MIB + memory::HEAVY_MIB);
+            let limit = format!("{}m", memory::SERVER_MIB + memory::HEAVY_MIB);
             docker(&[
                 "update",
                 "--memory",
@@ -289,6 +293,20 @@ impl Server {
     /// Whether the server keeps its store in memory, as its managed database's server then does.
     pub fn in_memory(&self) -> bool {
         self.share.is_some()
+    }
+
+    /// Keeps `database`, the server of its deployment's managed database, until the server goes.
+    pub fn hold_database(&mut self, database: Container) {
+        assert!(
+            self.database.is_none(),
+            "one managed database for each server"
+        );
+        self.database = Some(database);
+    }
+
+    /// The server of its deployment's managed database, if it has one.
+    pub fn database(&self) -> Option<&Container> {
+        self.database.as_ref()
     }
 
     /// Runs `command` in the server's shell, and returns what it wrote on stdout, trimmed. Panics

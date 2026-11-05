@@ -1,15 +1,15 @@
 //! The memory of the machine that runs Docker, in which the servers keep their Docker stores, and
 //! the managed databases' servers their data (D84), so the suite writes next to nothing to that
-//! machine's disk. Each server holds a share of it, which also holds its managed database's
-//! server, under limits that Docker enforces, and the shares fit in what the machine had
-//! available when the first server started, beside the reserve of the heavy turn: the turn of a
-//! deployment whose telemetry runs on its server, the self-hosted stack or a stand-in for a
-//! managed Grafana, whose images are the largest. One deployment holds that turn at a time, in
-//! addition to its share. A test takes every share it needs at once, and the heavy turn only
-//! while it holds no other turn but its share, so no test holds a turn while it waits for one
-//! that another test holds. Where the machine can't hold the most shares a test takes beside the
-//! reserve, every server keeps its store on disk, and the heavy turn still goes one at a time,
-//! which bounds the disk the suite takes.
+//! machine's disk. Each server holds a share of it: its own limit and its managed database's
+//! server's, which Docker enforces. The shares fit in what the machine had available when the
+//! first server started, beside the reserve of the heavy turn: the turn of a deployment whose
+//! telemetry runs on its server, the self-hosted stack or a stand-in for a managed Grafana, whose
+//! images are the largest. One deployment holds that turn at a time, in addition to its share. A
+//! test takes every share it needs at once, before any other turn, and then the heavy turn, if it
+//! needs it, holding only its share: so the only test that waits while it holds a turn waits for
+//! the heavy turn, whose holder waits for nothing, and every wait ends. Where the machine can't
+//! hold the most shares a test takes beside the reserve, every server keeps its store on disk,
+//! and the heavy turn still goes one at a time, which bounds the disk the suite takes.
 
 use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
 
@@ -17,16 +17,17 @@ use tokio::sync::Semaphore;
 
 use crate::docker::{compose, docker};
 
-/// What a server may hold in memory, its store and its processes together, in mebibytes: a
+/// What a server may hold in memory, its store and its processes together, in mebibytes, its
+/// limit in its share: a
 /// bundled database's server that restores twice holds up to 2.2 gibibytes that its kernel can't
 /// reclaim, its store's files and its processes' memory, beside a cache that it can. The limit is
 /// Docker's, so a process on a server that would take more ends, and its test fails, while the
 /// machine keeps the rest.
-pub const SHARE_MIB: u64 = 3_072;
-/// What a managed database's server may hold in memory, in the share of its deployment's server:
-/// its data and its processes, up to 160 mebibytes.
+pub const SERVER_MIB: u64 = 3_072;
+/// What a managed database's server may hold in memory, its limit in its deployment's share: its
+/// data and its processes, up to 160 mebibytes.
 pub const DATABASE_MIB: u64 = 512;
-/// What the server that holds the heavy turn may hold beyond its share: a bundled database's
+/// What the server that holds the heavy turn may hold beyond its own limit: a bundled database's
 /// server with the self-hosted stack holds up to 6.1 gibibytes.
 pub const HEAVY_MIB: u64 = 4_096;
 /// What the machine keeps beside the servers, for the tests' own processes.
@@ -48,7 +49,7 @@ pub fn shares() -> Option<&'static Turns> {
 /// How many shares `available` mebibytes hold beside the heavy turn's reserve and the headroom,
 /// or none when they hold fewer than a test takes.
 fn shares_in(available: u64) -> u64 {
-    let shares = available.saturating_sub(HEAVY_MIB + HEADROOM_MIB) / (SHARE_MIB + DATABASE_MIB);
+    let shares = available.saturating_sub(HEAVY_MIB + HEADROOM_MIB) / (SERVER_MIB + DATABASE_MIB);
     if shares < MOST_SHARES_A_TEST_TAKES {
         0
     } else {
@@ -168,12 +169,12 @@ impl Drop for Turn {
 }
 
 mod tests {
-    use super::{DATABASE_MIB, HEADROOM_MIB, HEAVY_MIB, SHARE_MIB, Turns, shares_in};
+    use super::{DATABASE_MIB, HEADROOM_MIB, HEAVY_MIB, SERVER_MIB, Turns, shares_in};
 
     #[test]
     fn test_06_a_machine_without_room_for_a_test_s_two_servers_keeps_the_stores_on_disk() {
         let reserved = HEAVY_MIB + HEADROOM_MIB;
-        let share = SHARE_MIB + DATABASE_MIB;
+        let share = SERVER_MIB + DATABASE_MIB;
         assert_eq!(shares_in(reserved + share), 0);
         assert_eq!(shares_in(reserved + 2 * share - 1), 0);
         assert_eq!(shares_in(reserved + 2 * share), 2);
