@@ -610,8 +610,12 @@ impl Server {
             chmod 644 ./*
             mkdir -p {DEPLOYMENT}/certs
             cp ca.crt {DEPLOYMENT}/certs/backup-ca.crt
+            # SeaweedFS grows 7 volumes at once for each collection, its own default one included,
+            # which it writes to about a minute after it starts, while the bucket's objects take a
+            # collection of their own: a deployment's first backup after that would find room for
+            # one volume of the 8 it allows by default, and fail.
             docker run --detach --quiet --name bucket --publish 8334:8334 --volume /root/bucket:/bucket:ro {image} \
-                server -dir=/data -s3 -s3.port=8333 -s3.port.https=8334 \
+                server -dir=/data -volume.max=100 -s3 -s3.port=8333 -s3.port.https=8334 \
                 -s3.cert.file=/bucket/server.crt -s3.key.file=/bucket/server.key -s3.config=/bucket/s3.json > /dev/null
             # SeaweedFS takes a few seconds to start, and the shell can't create the bucket before
             # it answers. Named the filer, the shell reaches it at once, rather than waiting for the
