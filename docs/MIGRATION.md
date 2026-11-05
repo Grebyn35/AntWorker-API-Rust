@@ -107,6 +107,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 
 | Rule or behavior | Built code that doesn't follow it | Closed by |
 |---|---|---|
+| OPS-13 | The reference deployment's Postgres image holds `apt` 3.0.3, with CVE-2026-109518, rated high, which 3.0.4 fixes: the official `postgres:18.6` image that it pins hasn't been built again since, so `image-scan` fails on `main` | 4: the digest of the official image's next build, through Dependabot, or `apt` 3.0.4 installed in `deploy/postgres/Dockerfile` if none has come |
 | DOC-07 | Which rules a check covers is written in four places: its subcommand's help in `crates/xtask/src/main.rs`, its task's comment in `just/check.just`, its module's comment, and its row in [operations/ci.md](operations/ci.md), and they disagree: `check-openapi`'s task names 6 rules, and its row 13 | 4 |
 | OPS-16 | A release's capacity, which `just load-test` measures, has no release notes to go in: `CHANGELOG.md` isn't written | 6, with `CHANGELOG.md` |
 | TEST-06 | `traces::obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace` fails now and then on amd64 in CI, when nothing reaches Loki or Tempo; its output says why, from the stack's start times to the API's export errors | 6 at the latest, since the migration closes without known gaps: the fix of what its next failure shows |
