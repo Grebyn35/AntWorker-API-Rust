@@ -4,10 +4,11 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::docker::compose;
+use crate::{docker::compose, machine};
 
 /// One image under test: the image for the platform `E2E_PLATFORM` names, of the index that
-/// `just image` wrote to target/, as `just e2e` pushed it. A container runs it by its own digest,
+/// `just image` wrote to target/, as the run pushed it once it held the machine (machine.rs). A
+/// container runs it by its own digest,
 /// not the index's: Docker's classic image store holds one platform under a digest, and refuses
 /// to pull a second one under the same.
 pub struct Pushed {
@@ -19,12 +20,20 @@ pub struct Pushed {
 impl Pushed {
     /// The API's image.
     pub fn api() -> Self {
+        machine::claim();
         Self::find("")
     }
 
     /// The reference deployment's Postgres image (D44).
     pub fn postgres() -> Self {
+        machine::claim();
         Self::find("-postgres")
+    }
+
+    /// The API's image and the Postgres image, as the run that holds the machine has just pushed
+    /// them, while it claims it.
+    pub fn under_test() -> [Self; 2] {
+        [Self::find(""), Self::find("-postgres")]
     }
 
     /// The image whose name, and whose layout in target/, end in `suffix`.

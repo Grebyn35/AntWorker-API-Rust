@@ -15,7 +15,10 @@ use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
 
 use tokio::sync::Semaphore;
 
-use crate::docker::{compose, docker};
+use crate::{
+    docker::{compose, docker},
+    machine,
+};
 
 /// What a server may hold in memory, its store and its processes together, in mebibytes, its
 /// limit in its share: a
@@ -40,6 +43,8 @@ pub fn shares() -> Option<&'static Turns> {
     static SHARES: OnceLock<Option<Turns>> = OnceLock::new();
     SHARES
         .get_or_init(|| {
+            // What an earlier run left goes first, with the memory it holds.
+            machine::claim();
             let shares = shares_in(available_mib());
             (shares > 0).then(|| Turns::new(shares))
         })

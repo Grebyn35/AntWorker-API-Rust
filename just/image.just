@@ -15,7 +15,8 @@ image-packages repository:
 # BuildKit reads its cache for the API's image from there, and replaces it with the cache of this
 # build unless IMAGE_CACHE_WRITE is false. While the two platforms write the layer they share,
 # buildx can print "ref ... locked" errors: they are retries, and the exit status says whether the
-# build succeeded.
+# build succeeded. The builder then keeps at most 10 gigabytes of its cache, the least recently
+# used going first, and a later build compiles again what went (OPS-21).
 [doc("Builds the API's and Postgres's images, for both platforms, into target/")]
 [group('image')]
 image: _image-builder && _image-cache
@@ -29,6 +30,7 @@ image: _image-builder && _image-cache
         --label org.opencontainers.image.version={{ version }} --label org.opencontainers.image.revision={{ image_revision }} \
         --label build.inputs={{ postgres_inputs }} \
         --output type=oci,dest={{ image_dir }}-postgres,tar=false deploy/postgres
+    docker buildx prune --builder {{ image_builder }} --force --max-used-space 10gb
 
 # Creates the builder, if this machine doesn't have it yet, and removes the builders of earlier
 # BuildKit images with their caches, which no build uses again.
@@ -66,8 +68,9 @@ image-scan:
     docker compose run --rm grype oci-dir:/image-postgres --platform linux/arm64 --only-fixed --fail-on high
 
 # Runs the end-to-end tests against the images in target, on the platform E2E_PLATFORM, which is
-# this machine's unless the environment names another (TEST-03). The tests run the images from the
-# registry that Compose runs, against the Postgres that `just services` starts. Every other image
+# this machine's unless the environment names another (TEST-03). The tests push the images to the
+# registry that Compose runs, which they empty first, and run them from there, against the Postgres
+# that `just services` starts (crates/app/tests/e2e/machine.rs). Every other image
 # the tests pull is fetched first: this machine's, and, through the mirror, their servers', which
 # run on this machine's platform, so no test reaches a registry outside (TEST-06). The arguments go
 # to the test harness: names run only the tests whose names hold one of them, such as
@@ -78,8 +81,6 @@ image-scan:
 [group('image')]
 e2e *tests: services
     {{ if tests =~ '/' { error("just e2e takes test names and the test harness's options; E2E_PLATFORM names the platform, such as E2E_PLATFORM=linux/arm64") } else { "" } }}docker compose up --detach --wait registry mirror
-    docker compose run --rm crane push --insecure /image registry:5000/{{ e2e_image }}:e2e
-    docker compose run --rm crane push --insecure /image-postgres registry:5000/{{ e2e_image }}-postgres:e2e
     docker compose pull --quiet server
     docker compose --profile observability pull --quiet collector prometheus loki tempo
     {{ xtask }} mirror {{ native_platform }}

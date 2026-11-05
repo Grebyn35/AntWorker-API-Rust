@@ -56,6 +56,26 @@ setup-smoke:
 setup-smoke:
     cargo build --workspace --all-targets --locked
 
+# The build directory of the dev and test profiles, in the directory that CARGO_TARGET_DIR names,
+# as for check-removable's copies, or in target/.
+build_dir := env("CARGO_TARGET_DIR", "target") / "debug"
+
+# Removes the build directory once it holds more than 40 gigabytes, so the build after it starts
+# afresh (OPS-21): Cargo keeps the artifacts of every earlier set of dependencies and settings
+# beside the current ones, and removes none of them itself.
+[unix]
+[private]
+bound-build:
+    if [ -d "{{ build_dir }}" ] && [ "$(du -sk "{{ build_dir }}" | cut -f1)" -gt 41943040 ]; then echo "{{ build_dir }} holds more than 40 GB, which the build after it starts afresh from nothing"; cargo clean --profile dev; fi
+
+# Removes the build directory once it holds more than 40 gigabytes, so the build after it starts
+# afresh (OPS-21): Cargo keeps the artifacts of every earlier set of dependencies and settings
+# beside the current ones, and removes none of them itself.
+[windows]
+[private]
+bound-build:
+    if ((Test-Path -LiteralPath '{{ build_dir }}') -and ((Get-ChildItem -LiteralPath '{{ build_dir }}' -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum -gt 40GB)) { Write-Output '{{ build_dir }} holds more than 40 GB, which the build after it starts afresh from nothing'; cargo clean --profile dev; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+
 [doc("Fails if the code isn't formatted")]
 [group('check')]
 fmt-check:

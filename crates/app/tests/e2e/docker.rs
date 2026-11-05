@@ -8,6 +8,8 @@ use std::{
 
 use serde_json::Value;
 
+use crate::machine;
+
 /// Runs `docker` with `args`, and returns what it wrote on stdout, trimmed. Panics with what it
 /// wrote on stderr if it fails.
 pub fn docker(args: &[&str]) -> String {
@@ -61,9 +63,11 @@ pub struct Container {
 }
 
 impl Container {
-    /// Starts a container with `args`, the arguments of `docker run` after `--detach`.
+    /// Starts a container with `args`, the arguments of `docker run` after `--detach`, labelled
+    /// as the tests' own, once the run holds the machine (machine.rs).
     pub fn start(args: &[&str]) -> Self {
-        let id = docker(&[&["run", "--detach"], args].concat());
+        machine::claim();
+        let id = docker(&[&["run", "--detach", "--label", machine::LABEL], args].concat());
         Self { id }
     }
 
