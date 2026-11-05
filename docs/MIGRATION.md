@@ -135,6 +135,8 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | The owner's decision on second factors (D63) | Whether a second factor can be required beyond superadmins: of every user, by a setting of the deployment, or of a workspace's members, by its owner, as Slack and GitHub let an organization require it of its members | 5, with the full `auth` module |
 | Two independent reads of the code at step 4's start | ARCH-06: whether a module may offer read-only views of its tables that other modules join in their reads, while its writes stay its own. A list that joins two modules' data takes several queries now: a search of a workspace's members first reads every member's ID ([access spec](spec/access.md#searching-members)), and no list can be paged by a column another module owns, such as members by name | 5, with `superadmins`, whose lists join workspaces, their members and their owners |
 | Two independent reads of the code at step 4's start | DATA-16, ERR-04, ARCH-03: whether the facts about the product that checks keep in their code move into the files the product already has, such as a line in the migration that creates a table, so that a fork that adds a table keyed by a user, a job that spans tenants, a client library or a module's extra entry edits no checker. They are the tables of each kind in `check-tenancy`, the libraries that reach other systems in `check-layers`, and the modules' extra entries in `check-layout` | 5, with `just new-module` |
+| Conformance review of b35b321..05bde6f | TEST-06: whether, and how, an end-to-end test's harness waits for a turn that another test holds, such as a share of the servers' memory or the heavy turn, which TEST-06's three ways of waiting for a state don't name; a turn that no machine could give fails at once | 6, with the review of the whole codebase |
+| Conformance review of b35b321..05bde6f | CODE-06: its sentence that every wait goes through the clock's `sleep` names waits on time, while untimed waits, such as a condition variable's, a semaphore's or a child process's, wait on no time | 6, with the review of the whole codebase |
 
 
 ## Conformance reviews
@@ -205,6 +207,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 47d89d1..a82623d: as above, with pass 1's fixes | 2 | 8 (7, 5, 4 shared) | 2 | 1 | `stopped: no progress`: 9e26742 |
 | 7081b7e..4d86521: the end of step 3's rule fixes before the renumbering: the bound on CPU-heavy work (PLATFORM-060), the observability stack once per end-to-end process, the watch that prints a long test's lines (TEST-06), the restore's mark before the replicas stop (OPS-15), and the deletion pass over the OBS, OPS and SEC rules | 1 | 10 (9, 3, 2 shared) | 4 | 0 | `next pass`: f9931fd |
 | 7081b7e..f9931fd: as above, with pass 1's fixes | 2 | 5 (4, 1, 0 shared) | 1 | 1 | `stopped: no progress`: b1c4e49 |
+| b35b321..05bde6f: the test suites' disk writes cut (D84), the Postgres image's `apt`, the stand-in bucket's volumes, and the moment of the restore while an earlier one ran | 1 | 5 (3, 4, 2 shared) | 1 | 0 | `next pass` |
 
 ## Decisions
 
