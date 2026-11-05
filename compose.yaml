@@ -9,8 +9,11 @@ services:
     # when it creates the data directory, as it does for each server that the end-to-end tests
     # start from this service. Every test database created or dropped forces a checkpoint, and on
     # some machines one fsync stalls for minutes. A crash of the machine can corrupt the data;
-    # `docker compose down --volumes` starts it fresh.
-    command: ["postgres", "-c", "fsync=off"]
+    # `docker compose down --volumes` starts it fresh. A test's database is cloned from its
+    # template page by page through the write-ahead log, nearly all that the tests make this
+    # database write to disk, so the log's pages are compressed: by about three quarters, at no
+    # cost in time that the tests show.
+    command: ["postgres", "-c", "fsync=off", "-c", "wal_compression=zstd"]
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run just setup to write .env}
       POSTGRES_DB: api
