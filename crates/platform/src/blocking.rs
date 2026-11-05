@@ -47,13 +47,14 @@ impl Workers {
         self.count
     }
 
-    /// How many callers wait for a turn now.
+    /// How many callers wait for a turn now. A test reads it to wait for a state, and asserts
+    /// only which works start, which a caller observes (TEST-06, TEST-07).
     #[cfg(feature = "test-support")]
     pub fn waiting(&self) -> usize {
         self.waiting.load(Ordering::SeqCst)
     }
 
-    /// How many turns no work holds now.
+    /// How many turns no work holds now, which a test reads as it reads [`Self::waiting`].
     #[cfg(feature = "test-support")]
     pub fn free(&self) -> usize {
         self.turns.available_permits()
