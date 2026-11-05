@@ -20,6 +20,7 @@ use serde_json::Value;
 use crate::{
     docker::{Container, compose, docker, lossy, postgres_network},
     images::Pushed,
+    memory,
     server::{DEPLOYMENT, RunningDeploy, Server},
 };
 
@@ -61,9 +62,11 @@ impl Deployment {
     /// A deployment whose managed database is on a new Postgres server, with the tests' settings
     /// and `changes`.
     pub fn managed(changes: &[(&str, &str)]) -> Self {
-        let database = database_server();
+        // The server first, so the shares of memory bound how many databases' servers run.
+        let server = Server::start();
+        let database = database_server(server.in_memory());
         let host = database.inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
-        let deployment = Self::new(Some(database), &[("DATABASE", "managed")], changes);
+        let deployment = Self::on(server, Some(database), &[("DATABASE", "managed")], changes);
         for (secret, setting) in [
             ("database_admin_url", "DATABASE_ADMIN_URL"),
             ("database_owner_url", "DATABASE_OWNER_URL"),
@@ -114,10 +117,6 @@ impl Deployment {
         self.server
             .copy_to(&deployment.server, &["secrets", "certs"]);
         deployment
-    }
-
-    fn new(database: Option<Container>, kind: &[(&str, &str)], changes: &[(&str, &str)]) -> Self {
-        Self::on(Server::start(), database, kind, changes)
     }
 
     fn on(
@@ -463,8 +462,9 @@ pub fn streaming_client(root: &str, timeout: Duration) -> reqwest::blocking::Cli
 /// Starts the server of a managed database: another server of Compose's Postgres, for the reason
 /// docs/operations/ci.md gives. It runs the service's image with its command and environment, and
 /// its health check's test, interval, timeout and retries, joins its network, and keeps its data
-/// in memory, as the servers keep their stores (D84), which goes with it.
-fn database_server() -> Container {
+/// in a volume of its own, which goes with it: `in_memory`, under a limit in its deployment's
+/// share (D84), where the servers keep their stores in memory.
+fn database_server(in_memory: bool) -> Container {
     let config: Value = serde_json::from_str(&compose(&["config", "--format", "json", "postgres"]))
         .expect("Compose's configuration");
     let service = &config["services"]["postgres"];
@@ -478,12 +478,18 @@ fn database_server() -> Container {
         .collect();
     let (form, check) = test.split_first().expect("a health check");
     assert_eq!(form, "CMD", "a health check that names its program");
-    let mut args = vec![
-        "--mount".to_owned(),
-        "type=tmpfs,destination=/var/lib/postgresql".to_owned(),
-        "--network".to_owned(),
-        postgres_network(),
-    ];
+    let mut args = vec!["--network".to_owned(), postgres_network()];
+    if in_memory {
+        let limit = format!("{}m", memory::DATABASE_MIB);
+        args.extend([
+            "--memory".to_owned(),
+            limit.clone(),
+            "--memory-swap".to_owned(),
+            limit,
+            "--mount".to_owned(),
+            "type=tmpfs,destination=/var/lib/postgresql".to_owned(),
+        ]);
+    }
     for (name, value) in service["environment"]
         .as_object()
         .expect("Postgres's environment")

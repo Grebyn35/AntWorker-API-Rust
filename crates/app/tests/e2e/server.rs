@@ -95,7 +95,8 @@ impl Drop for Server {
             .output();
         if let Some(reason) = self.out_of_memory() {
             // A test that panicked already reports its own failure, which a second panic would
-            // abort; the output of the command that failed then says why (`explained`).
+            // abort. When the command that failed ran through `shell` or `deploy`, as most of a
+            // test's commands on the server do, its output says why (`explained`).
             assert!(std::thread::panicking(), "{reason}");
         }
     }
@@ -252,9 +253,12 @@ impl Server {
         output
     }
 
-    /// What the server's memory limit ended, if it ended anything: a process on the server, which
-    /// the kernel counts in the server's own cgroup, or the server itself, which Docker records.
+    /// What the server's memory limit ended, if it ended anything: a process on the server, once
+    /// its usage reached the limit, which the kernel counts in the server's own cgroup apart from
+    /// the limits of the containers on it, or the server itself, which Docker records. A server
+    /// whose store is on disk has no limit.
     fn out_of_memory(&self) -> Option<String> {
+        self.share.as_ref()?;
         let id = self.container.id();
         let read = |args: &[&str]| {
             Command::new("docker")
@@ -266,10 +270,10 @@ impl Server {
         };
         let limit = read(&["inspect", "--format", "{{.HostConfig.Memory}}", id])?;
         let limit = limit.trim();
-        let ended = match read(&["exec", id, "cat", "/sys/fs/cgroup/memory.events"]) {
+        let ended = match read(&["exec", id, "cat", "/sys/fs/cgroup/memory.events.local"]) {
             Some(events) => events
                 .lines()
-                .find_map(|line| line.strip_prefix("oom_kill "))
+                .find_map(|line| line.strip_prefix("oom "))
                 .is_some_and(|count| count.trim() != "0"),
             None => read(&["inspect", "--format", "{{.State.OOMKilled}}", id])
                 .is_some_and(|killed| killed.trim() == "true"),
@@ -280,6 +284,11 @@ impl Server {
                  sets (D84), ended a process on it"
             )
         })
+    }
+
+    /// Whether the server keeps its store in memory, as its managed database's server then does.
+    pub fn in_memory(&self) -> bool {
+        self.share.is_some()
     }
 
     /// Runs `command` in the server's shell, and returns what it wrote on stdout, trimmed. Panics

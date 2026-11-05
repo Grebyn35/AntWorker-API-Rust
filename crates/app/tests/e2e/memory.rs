@@ -1,14 +1,15 @@
-//! The memory of the machine that runs Docker, in which the servers keep their Docker stores
-//! (D84), so the suite writes next to nothing to that machine's disk. Each server holds a share
-//! of it, under a limit that Docker enforces, and the shares fit in what the machine had
+//! The memory of the machine that runs Docker, in which the servers keep their Docker stores, and
+//! the managed databases' servers their data (D84), so the suite writes next to nothing to that
+//! machine's disk. Each server holds a share of it, which also holds its managed database's
+//! server, under limits that Docker enforces, and the shares fit in what the machine had
 //! available when the first server started, beside the reserve of the heavy turn: the turn of a
 //! deployment whose telemetry runs on its server, the self-hosted stack or a stand-in for a
 //! managed Grafana, whose images are the largest. One deployment holds that turn at a time, in
 //! addition to its share. A test takes every share it needs at once, and the heavy turn only
 //! while it holds no other turn but its share, so no test holds a turn while it waits for one
-//! that another test holds. Where the machine can't hold one share beside the reserve, every
-//! server keeps its store on disk, and the heavy turn still goes one at a time, which bounds the
-//! disk the suite takes.
+//! that another test holds. Where the machine can't hold the most shares a test takes beside the
+//! reserve, every server keeps its store on disk, and the heavy turn still goes one at a time,
+//! which bounds the disk the suite takes.
 
 use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
 
@@ -22,22 +23,37 @@ use crate::docker::{compose, docker};
 /// Docker's, so a process on a server that would take more ends, and its test fails, while the
 /// machine keeps the rest.
 pub const SHARE_MIB: u64 = 3_072;
+/// What a managed database's server may hold in memory, in the share of its deployment's server:
+/// its data and its processes, up to 160 mebibytes.
+pub const DATABASE_MIB: u64 = 512;
 /// What the server that holds the heavy turn may hold beyond its share: a bundled database's
 /// server with the self-hosted stack holds up to 6.1 gibibytes.
 pub const HEAVY_MIB: u64 = 4_096;
-/// What the machine keeps beside the servers: for the managed databases' servers, which keep
-/// their data in memory too, and the tests' own processes.
-const HEADROOM_MIB: u64 = 2_048;
+/// What the machine keeps beside the servers, for the tests' own processes.
+const HEADROOM_MIB: u64 = 1_024;
+/// The most shares that a test takes, for its two servers (`Server::start_two`).
+const MOST_SHARES_A_TEST_TAKES: u64 = 2;
 
 /// The shares of the servers' memory, or none where the servers keep their stores on disk.
 pub fn shares() -> Option<&'static Turns> {
     static SHARES: OnceLock<Option<Turns>> = OnceLock::new();
     SHARES
         .get_or_init(|| {
-            let shares = available_mib().saturating_sub(HEAVY_MIB + HEADROOM_MIB) / SHARE_MIB;
+            let shares = shares_in(available_mib());
             (shares > 0).then(|| Turns::new(shares))
         })
         .as_ref()
+}
+
+/// How many shares `available` mebibytes hold beside the heavy turn's reserve and the headroom,
+/// or none when they hold fewer than a test takes.
+fn shares_in(available: u64) -> u64 {
+    let shares = available.saturating_sub(HEAVY_MIB + HEADROOM_MIB) / (SHARE_MIB + DATABASE_MIB);
+    if shares < MOST_SHARES_A_TEST_TAKES {
+        0
+    } else {
+        shares
+    }
 }
 
 /// The heavy turn, which one deployment holds at a time.
@@ -69,6 +85,8 @@ fn available_mib() -> u64 {
 /// thread, outside any task that a runtime could wake. A thread that waits for several takes
 /// them all at once, and the turns go in the order the threads asked for them.
 pub struct Turns {
+    /// How many turns there are.
+    count: u64,
     queue: Mutex<Queue>,
     changed: Condvar,
 }
@@ -84,6 +102,7 @@ struct Queue {
 impl Turns {
     fn new(count: u64) -> Self {
         Self {
+            count,
             queue: Mutex::new(Queue {
                 free: count,
                 next: 0,
@@ -93,8 +112,14 @@ impl Turns {
         }
     }
 
-    /// `count` turns, once they are free and every thread that asked earlier has its own.
+    /// `count` turns, once they are free and every thread that asked earlier has its own. More
+    /// turns than there are fail at once, since they would never be free.
     pub fn take(&'static self, count: u64) -> Turn {
+        assert!(
+            count <= self.count,
+            "a test takes {count} turns of {}, which it would wait for for ever",
+            self.count
+        );
         let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
         let ticket = queue.next;
         queue.next += 1;
@@ -139,5 +164,26 @@ impl Drop for Turn {
             .unwrap_or_else(PoisonError::into_inner);
         queue.free += self.count;
         self.turns.changed.notify_all();
+    }
+}
+
+mod tests {
+    use super::{DATABASE_MIB, HEADROOM_MIB, HEAVY_MIB, SHARE_MIB, Turns, shares_in};
+
+    #[test]
+    fn test_06_a_machine_without_room_for_a_test_s_two_servers_keeps_the_stores_on_disk() {
+        let reserved = HEAVY_MIB + HEADROOM_MIB;
+        let share = SHARE_MIB + DATABASE_MIB;
+        assert_eq!(shares_in(reserved + share), 0);
+        assert_eq!(shares_in(reserved + 2 * share - 1), 0);
+        assert_eq!(shares_in(reserved + 2 * share), 2);
+        assert_eq!(shares_in(reserved + 3 * share), 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "a test takes 2 turns of 1, which it would wait for for ever")]
+    fn test_06_more_turns_than_there_are_fail_at_once() {
+        let turns: &'static Turns = Box::leak(Box::new(Turns::new(1)));
+        let _turn = turns.take(2);
     }
 }
