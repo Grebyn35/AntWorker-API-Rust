@@ -289,6 +289,17 @@ impl Api {
             .body(body.to_string())
     }
 
+    /// A `PATCH` of `path`, with `body` as a JSON Merge Patch, which is checked against the
+    /// operation's documented request body when sent (API-03).
+    pub fn patch(&self, path: &str, body: &Value) -> Call<'_> {
+        let mut call = self
+            .request(Method::PATCH, path)
+            .header("content-type", "application/merge-patch+json")
+            .body(body.to_string());
+        call.typed = true;
+        call
+    }
+
     /// A request with `method` to `path`, which may hold a query.
     pub fn request(&self, method: Method, path: &str) -> Call<'_> {
         Call {

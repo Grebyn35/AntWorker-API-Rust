@@ -44,7 +44,8 @@ Rank, from highest to lowest: `owner`, `admin`, `member`.
 
 | Permission | Allows | `owner` | `admin` | `member` |
 |---|---|:-:|:-:|:-:|
-| `workspace.read` | Reading the workspace | yes | yes | yes |
+| `workspace.read` | Reading the workspace, and receiving its events about itself, such as `workspace.renamed` | yes | yes | yes |
+| `workspace.update` | Renaming the workspace | yes | yes | |
 | `members.read` | Listing members, with their names, emails and roles | yes | yes | yes |
 | `members.remove` | Removing a member of lower rank | yes | yes | |
 | `invitations.create` | Inviting at a role below one's own | yes | yes | <!-- part: invitations --> |

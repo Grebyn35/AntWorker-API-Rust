@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use platform::types::{EmailAddress, Invalid, Timestamp, UserId, WorkspaceId};
+use platform::types::{EmailAddress, Invalid, Timestamp, UserId, Version, WorkspaceId};
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 use utoipa::{
@@ -91,6 +91,35 @@ pub(crate) struct Created {
     pub(crate) role: Role,
     /// When it was created.
     pub(crate) created_at: Timestamp,
+}
+
+/// A workspace, as one of its members reads it, with their role (WORKSPACES-007).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ToSchema)]
+pub(crate) struct Workspace {
+    /// The workspace's ID.
+    pub(crate) id: WorkspaceId,
+    /// Its name.
+    pub(crate) name: WorkspaceName,
+    /// The caller's role in it.
+    pub(crate) role: Role,
+    /// When it was created.
+    pub(crate) created_at: Timestamp,
+}
+
+/// A workspace as it now stands, with the version its `ETag` names (PLATFORM-071).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Current {
+    /// The workspace.
+    pub(crate) workspace: Workspace,
+    /// Its row's version.
+    pub(crate) version: Version,
+}
+
+/// What renaming a workspace takes (WORKSPACES-008).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Rename {
+    /// The new name.
+    pub(crate) name: WorkspaceName,
 }
 
 /// A workspace the caller belongs to (WORKSPACES-003).

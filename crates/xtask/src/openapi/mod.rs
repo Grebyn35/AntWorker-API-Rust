@@ -257,7 +257,9 @@ fn request_codes(operation: &Value) -> BTreeSet<String> {
 
 /// The operations whose pipeline answers the same `request.` codes: those of one access level,
 /// split by whether their method is safe, since the cross-site check refuses only a request that
-/// changes something, and whether they take a body, whose problems only they answer.
+/// changes something, whether they take a body, whose problems only they answer, and which of the
+/// headers whose problems only their operations answer they document: an `Idempotency-Key`
+/// (API-12) and an `If-Match` (API-13).
 fn group(method: &str, operation: &Value) -> String {
     let access = operation["x-access"].as_str().unwrap_or_default();
     let kind = if operation.get("requestBody").is_some() {
@@ -267,7 +269,26 @@ fn group(method: &str, operation: &Value) -> String {
     } else {
         "changing "
     };
-    format!("{kind}{access}")
+    let headers: String = [("idempotency-key", "keyed "), ("if-match", "conditional ")]
+        .iter()
+        .filter(|(name, _)| takes_header(operation, name))
+        .map(|(_, kind)| *kind)
+        .collect();
+    format!("{headers}{kind}{access}")
+}
+
+/// Whether `operation` documents the header `name`, in any case.
+fn takes_header(operation: &Value, name: &str) -> bool {
+    operation["parameters"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|parameter| {
+            parameter["in"] == "header"
+                && parameter["name"]
+                    .as_str()
+                    .is_some_and(|parameter| parameter.eq_ignore_ascii_case(name))
+        })
 }
 
 /// ERR-13: an operation lists every `request.` code that another operation of its group lists,
@@ -542,6 +563,43 @@ mod tests {
                 "POST /v1/others doesn't list request.invalid_body, which another body-taking public route answers (ERR-13)"
             ],
             "the GET, which takes no body, needn't list it"
+        );
+    }
+
+    #[test]
+    fn err_13_a_route_that_takes_a_key_or_a_precondition_is_grouped_with_those_that_do() {
+        let problem = |code: &str| {
+            json!({
+                "description": format!("`{code}`: A problem."),
+                "content": { "application/problem+json": { "schema": { "allOf": [
+                    { "$ref": "#/components/schemas/Problem" },
+                    { "properties": { "code": { "enum": [code] } } },
+                ] } } },
+            })
+        };
+        let header = |name: &str| json!([{ "in": "header", "name": name, "schema": {} }]);
+        let mut keyed = operation();
+        keyed["requestBody"] = json!({ "content": {} });
+        keyed["parameters"] = header("Idempotency-Key");
+        keyed["responses"]["409"] = problem("request.idempotency_key_in_flight");
+        let mut conditional = operation();
+        conditional["requestBody"] = json!({ "content": {} });
+        conditional["parameters"] = header("If-Match");
+        conditional["responses"]["412"] = problem("request.precondition_failed");
+        let mut forgetful = operation();
+        forgetful["requestBody"] = json!({ "content": {} });
+        forgetful["parameters"] = header("If-Match");
+        let mut document = document("/v1/things", operation(), json!({}));
+        document["paths"]["/v1/things"]["post"] = keyed;
+        document["paths"]["/v1/stuff"] = json!({ "put": conditional });
+        document["paths"]["/v1/others"] = json!({ "put": forgetful });
+        let messages = findings(&document);
+        assert_eq!(
+            messages,
+            [
+                "PUT /v1/others doesn't list request.precondition_failed, which another conditional body-taking public route answers (ERR-13)"
+            ],
+            "neither the keyed POST nor the conditional PUT lists the other's codes"
         );
     }
 

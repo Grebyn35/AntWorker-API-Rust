@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 
 use crate::support::{
     Api,
+    streams::{self, Stream},
     users::{self, SignedIn},
     workspaces,
 };
@@ -602,4 +603,296 @@ async fn workspaces_004_a_search_pages_through_its_matches() {
             vec!["team.one@example.com"]
         ]
     );
+}
+
+/// Renames `workspace` to `name` as `user`, with `if_match` as its `If-Match` if given.
+async fn rename(
+    api: &Api,
+    user: &SignedIn,
+    workspace: &str,
+    name: &str,
+    if_match: Option<&str>,
+) -> crate::support::api::Response {
+    let mut call = api
+        .patch(
+            &format!("/v1/workspaces/{workspace}"),
+            &json!({ "name": name }),
+        )
+        .bearer(&user.access);
+    if let Some(etag) = if_match {
+        call = call.header("if-match", etag);
+    }
+    call.send().await
+}
+
+/// The name `workspace` holds.
+async fn stored_name(api: &Api, workspace: &str) -> String {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT name FROM workspaces WHERE id = '{workspace}'"
+        ))
+        .await
+        .remove(0)
+}
+
+#[tokio::test]
+async fn workspaces_007_reading_a_workspace_gives_it_with_the_caller_s_role_and_its_etag() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    workspaces::join(db, &workspace, &grace.user_id, "member").await;
+    let path = format!("/v1/workspaces/{workspace}");
+
+    let owner = api.get(&path).bearer(&ada.access).send().await;
+    let member = api.get(&path).bearer(&grace.access).send().await;
+
+    assert_eq!(owner.status, 200);
+    let body = owner.json();
+    assert_eq!(body["id"], workspace);
+    assert_eq!(body["name"], "Acme");
+    assert_eq!(body["role"], "owner");
+    assert!(body["created_at"].as_str().unwrap().ends_with('Z'));
+    assert_eq!(owner.header("etag"), "\"1\"");
+    assert_eq!(member.status, 200);
+    assert_eq!(member.json()["role"], "member");
+    assert_eq!(member.header("etag"), "\"1\"");
+}
+
+#[tokio::test]
+async fn workspaces_007_a_created_workspace_s_location_reads_it() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let created = create(&api, &ada, "Acme", None).await;
+
+    let read = api
+        .get(created.header("location"))
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(read.status, 200);
+    assert_eq!(read.json(), created.json());
+}
+
+#[tokio::test]
+async fn workspaces_008_renaming_stores_the_name_records_it_and_publishes_it() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    workspaces::join(db, &workspace, &grace.user_id, "admin").await;
+
+    let response = rename(&api, &grace, &workspace, "  Acme \t Labs ", None).await;
+
+    assert_eq!(response.status, 200);
+    let body = response.json();
+    assert_eq!(body["id"], workspace);
+    assert_eq!(body["name"], "Acme Labs");
+    assert_eq!(body["role"], "admin");
+    assert_eq!(response.header("etag"), "\"2\"");
+    assert_eq!(stored_name(&api, &workspace).await, "Acme Labs");
+    let entries = db
+        .owner_reads(
+            "SELECT scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
+             || coalesce(target_user_id::text, '-') || ' ' || resource_type || ' ' \
+             || resource_id || ' ' || details::text \
+             FROM audit_entries WHERE action = 'workspace.renamed'",
+        )
+        .await;
+    assert_eq!(
+        entries,
+        [format!(
+            "workspace {workspace} {} - workspace {workspace} {{}}",
+            grace.user_id
+        )]
+    );
+    let events = db
+        .owner_reads(
+            "SELECT name || ' ' || scope || ' ' || workspace_id || ' ' || permission || ' ' \
+             || payload::text FROM events",
+        )
+        .await;
+    assert_eq!(
+        events,
+        [format!(
+            "workspace.renamed workspace {workspace} workspace.read {{\"workspace_id\": \"{workspace}\"}}"
+        )]
+    );
+}
+
+#[tokio::test]
+async fn workspaces_008_a_member_may_not_rename_and_the_owner_may() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    workspaces::join(db, &workspace, &grace.user_id, "member").await;
+
+    let refused = rename(&api, &grace, &workspace, "Grace's", None).await;
+    let unchanged = stored_name(&api, &workspace).await;
+    let renamed = rename(&api, &ada, &workspace, "Ada's", None).await;
+
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.json()["code"], "request.permission_denied");
+    assert_eq!(unchanged, "Acme");
+    assert_eq!(renamed.status, 200);
+    assert_eq!(stored_name(&api, &workspace).await, "Ada's");
+}
+
+#[tokio::test]
+async fn workspaces_002_a_new_name_is_refused_unless_it_holds_a_character() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+
+    let blank = rename(&api, &ada, &workspace, " \t ", None).await;
+    // A name longer than the document allows is malformed input, sent raw.
+    let long = api
+        .request(http::Method::PATCH, &format!("/v1/workspaces/{workspace}"))
+        .header("content-type", "application/merge-patch+json")
+        .body(json!({ "name": "a".repeat(256) }).to_string())
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    for (refused, code) in [(&blank, "required"), (&long, "too_long")] {
+        assert_eq!(refused.status, 400);
+        assert_eq!(refused.json()["code"], "request.invalid_fields");
+        assert_eq!(refused.json()["errors"][0]["field"], "/name");
+        assert_eq!(refused.json()["errors"][0]["code"], code);
+    }
+    assert_eq!(stored_name(&api, &workspace).await, "Acme");
+}
+
+#[tokio::test]
+async fn platform_049_a_rename_sent_as_plain_json_is_refused() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+
+    let response = api
+        .request(http::Method::PATCH, &format!("/v1/workspaces/{workspace}"))
+        .header("content-type", "application/json")
+        .body(json!({ "name": "Ada's" }).to_string())
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(response.status, 400);
+    assert_eq!(response.json()["code"], "request.invalid_body");
+    assert_eq!(
+        response.json()["detail"],
+        "The body must be sent as application/merge-patch+json."
+    );
+    assert_eq!(stored_name(&api, &workspace).await, "Acme");
+}
+
+#[tokio::test]
+async fn workspaces_009_a_rename_with_a_stale_etag_answers_412_and_changes_nothing() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    workspaces::join(db, &workspace, &grace.user_id, "admin").await;
+    let read = api
+        .get(&format!("/v1/workspaces/{workspace}"))
+        .bearer(&ada.access)
+        .send()
+        .await;
+    let etag = read.header("etag").to_owned();
+
+    let first = rename(&api, &grace, &workspace, "Grace's", Some(&etag)).await;
+    let stale = rename(&api, &ada, &workspace, "Ada's", Some(&etag)).await;
+
+    assert_eq!(first.status, 200);
+    assert_eq!(first.header("etag"), "\"2\"");
+    assert_eq!(stale.status, 412);
+    assert_eq!(stale.json()["code"], "request.precondition_failed");
+    assert_eq!(stored_name(&api, &workspace).await, "Grace's");
+    let recorded = db
+        .owner_reads(
+            "SELECT (SELECT count(*) FROM audit_entries WHERE action = 'workspace.renamed') \
+             || ' ' || (SELECT count(*) FROM events WHERE name = 'workspace.renamed')",
+        )
+        .await;
+    assert_eq!(recorded, ["1 1"]);
+}
+
+#[tokio::test]
+async fn workspaces_009_a_current_etag_a_star_or_none_lets_the_rename_apply() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+
+    let current = rename(&api, &ada, &workspace, "One", Some("\"7\", \"1\"")).await;
+    let star = rename(&api, &ada, &workspace, "Two", Some("*")).await;
+    let none = rename(&api, &ada, &workspace, "Three", None).await;
+    let weak = rename(&api, &ada, &workspace, "Four", Some("W/\"4\"")).await;
+
+    assert_eq!(current.status, 200);
+    assert_eq!(star.status, 200);
+    assert_eq!(none.status, 200);
+    assert_eq!(none.header("etag"), "\"4\"");
+    // A weak tag never matches, even of the current version (PLATFORM-071).
+    assert_eq!(weak.status, 412);
+    assert_eq!(stored_name(&api, &workspace).await, "Three");
+}
+
+/// A stream of `user`'s, open and past its `stream.opened`.
+async fn opened(api: &Api, user: &SignedIn) -> Stream {
+    let mut stream = streams::connect(api, &user.access, None).await;
+    stream.opened().await;
+    stream
+}
+
+#[tokio::test]
+async fn sec_19_workspace_renamed_reaches_every_member_s_every_device_and_no_replay_from_before_joining()
+ {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let ada_laptop = users::new_session(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let alan = users::register(&api, "alan@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "member")],
+    )
+    .await;
+    // Alan's own workspace gives his stream an event to resume after.
+    assert_eq!(create(&api, &alan, "Alan's", None).await.status, 201);
+    let before = opened(&api, &alan).await.last_event_id;
+    // Every role holds workspace.read, which workspace.renamed requires: no member lacks it.
+    let mut phone = opened(&api, &ada).await;
+    let mut laptop = opened(&api, &ada_laptop).await;
+    let mut member = opened(&api, &grace).await;
+
+    let renamed = rename(&api, &ada, &workspace, "Acme Labs", None).await;
+    workspaces::join(db, &workspace, &alan.user_id, "member").await;
+    let mut joined = streams::connect(&api, &alan.access, before.as_deref()).await;
+    joined.opened().await;
+    let again = rename(&api, &ada, &workspace, "Acme Works", None).await;
+    let after_joining = joined.event().await;
+
+    assert_eq!(renamed.status, 200);
+    assert_eq!(again.status, 200);
+    let mut second = Vec::new();
+    for stream in [&mut phone, &mut laptop, &mut member] {
+        for _ in 0..2 {
+            let event = stream.event().await;
+            assert_eq!(event.event.as_deref(), Some("workspace.renamed"));
+            assert_eq!(event.payload(), &json!({ "workspace_id": workspace }));
+            second.push(event.id);
+        }
+    }
+    // The rename from before Alan joined isn't replayed to him: the first he receives is the one
+    // made after.
+    assert_eq!(after_joining.event.as_deref(), Some("workspace.renamed"));
+    assert_eq!(after_joining.id, second[1]);
 }

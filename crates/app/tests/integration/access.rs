@@ -322,10 +322,11 @@ async fn platform_009_authorization_waits_for_a_change_to_the_caller_s_membershi
 }
 
 /// How the generated test calls a workspace route: the path, given the workspace and a target
-/// member below the caller's rank, its JSON body, if it takes one, and the status of a success.
+/// member below the caller's rank, its body and that body's media type, if it takes one, and the
+/// status of a success.
 struct Fixture {
     path: fn(&str, &str) -> String,
-    body: Option<&'static str>,
+    body: Option<(&'static str, &'static str)>,
     success: StatusCode,
 }
 
@@ -333,6 +334,16 @@ struct Fixture {
 /// test, so every new workspace route joins it (TEST-08).
 fn fixture(method: &str, template: &str) -> Option<Fixture> {
     Some(match (method, template) {
+        ("get", "/v1/workspaces/{workspace_id}") => Fixture {
+            path: |workspace, _| format!("/v1/workspaces/{workspace}"),
+            body: None,
+            success: StatusCode::OK,
+        },
+        ("patch", "/v1/workspaces/{workspace_id}") => Fixture {
+            path: |workspace, _| format!("/v1/workspaces/{workspace}"),
+            body: Some((r#"{"name": "Renamed"}"#, "application/merge-patch+json")),
+            success: StatusCode::OK,
+        },
         ("get", "/v1/workspaces/{workspace_id}/members") => Fixture {
             path: |workspace, _| format!("/v1/workspaces/{workspace}/members"),
             body: None,
@@ -347,7 +358,10 @@ fn fixture(method: &str, template: &str) -> Option<Fixture> {
         // A member is the one role that every role allowed to invite outranks (ACCESS-004).
         ("post", "/v1/workspaces/{workspace_id}/invitations") => Fixture {
             path: |workspace, _| format!("/v1/workspaces/{workspace}/invitations"),
-            body: Some(r#"{"email": "invitee@example.com", "role": "member"}"#),
+            body: Some((
+                r#"{"email": "invitee@example.com", "role": "member"}"#,
+                "application/json",
+            )),
             success: StatusCode::CREATED,
         },
         // end part: invitations
@@ -404,9 +418,9 @@ async fn test_08_every_workspace_route_answers_every_role_as_the_matrix_says() {
 
                 let response = match fixture.body {
                     None => call(&api, method.clone(), &path, caller).await,
-                    Some(body) => {
+                    Some((body, media_type)) => {
                         api.request(method.clone(), &path)
-                            .header("content-type", "application/json")
+                            .header("content-type", media_type)
                             .body(body)
                             .bearer(&caller.access)
                             .send()
@@ -434,7 +448,7 @@ async fn test_08_every_workspace_route_answers_every_role_as_the_matrix_says() {
             }
         }
     }
-    assert!(checked >= 8, "only {checked} calls");
+    assert!(checked >= 16, "only {checked} calls");
 }
 
 // part: invitations

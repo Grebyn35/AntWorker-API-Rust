@@ -5,6 +5,20 @@ use platform::authz::Permission;
 
 use super::model::Role;
 
+/// Reading the workspace, and receiving its events about itself.
+pub(crate) struct WorkspaceRead;
+
+impl Permission for WorkspaceRead {
+    const NAME: &'static str = "workspace.read";
+}
+
+/// Renaming the workspace.
+pub(crate) struct WorkspaceUpdate;
+
+impl Permission for WorkspaceUpdate {
+    const NAME: &'static str = "workspace.update";
+}
+
 /// Listing members, with their names, emails and roles.
 pub(crate) struct MembersRead;
 
@@ -31,6 +45,7 @@ impl Permission for InvitationsCreate {
 /// Each permission, and the roles that hold it (ACCESS-002).
 const MATRIX: &[(&str, &[Role])] = &[
     ("workspace.read", &[Role::Owner, Role::Admin, Role::Member]),
+    ("workspace.update", &[Role::Owner, Role::Admin]),
     ("members.read", &[Role::Owner, Role::Admin, Role::Member]),
     ("members.remove", &[Role::Owner, Role::Admin]),
     // part: invitations
@@ -73,6 +88,7 @@ mod tests {
         let held = |role| {
             [
                 "workspace.read",
+                "workspace.update",
                 "members.read",
                 "members.remove",
                 // part: invitations
@@ -86,6 +102,7 @@ mod tests {
         };
         let all = vec![
             "workspace.read",
+            "workspace.update",
             "members.read",
             "members.remove",
             // part: invitations
@@ -95,6 +112,8 @@ mod tests {
         assert_eq!(held(Role::Owner), all);
         assert_eq!(held(Role::Admin), all);
         assert_eq!(held(Role::Member), ["workspace.read", "members.read"]);
+        assert_eq!(WorkspaceRead::NAME, "workspace.read");
+        assert_eq!(WorkspaceUpdate::NAME, "workspace.update");
         assert_eq!(MembersRead::NAME, "members.read");
         assert_eq!(MembersRemove::NAME, "members.remove");
     }

@@ -1,8 +1,8 @@
 // One step of the hub's load test (OPS-16): `just load-test streams` runs it at rising rates. It
 // publishes events at a constant rate through the publishing replica, by inviting each stream's
 // user again, which publishes `invitation.received` to that user's streams on the measured
-// replica (INVITATIONS-003, INVITATIONS-008): the one event of the template that changes no one's
-// access, so no stream closes. k6 runs it, and prints the step's outcome as one JSON line, which
+// replica (INVITATIONS-003, INVITATIONS-008): an event that changes no one's access, so no stream
+// closes. k6 runs it, and prints the step's outcome as one JSON line, which
 // the task reads.
 //
 // TARGET is the publishing replica's address, RATE the invitations a second, DURATION how long the

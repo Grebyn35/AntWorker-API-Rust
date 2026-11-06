@@ -1,4 +1,5 @@
-//! Creating and listing workspaces, and the members endpoints (the workspaces spec's Routes).
+//! Creating, listing, reading and renaming workspaces, and the members endpoints (the workspaces
+//! spec's Routes).
 
 use axum::{
     extract::{RawPathParams, State},
@@ -10,7 +11,7 @@ use platform::{
     authz::Authorize,
     db::Database,
     errors::{Internal, Problem, RequestError},
-    http::{FieldErrors, Idempotent, Query, Routes},
+    http::{FieldErrors, Idempotent, IfMatch, MergePatch, Query, Routes},
     idempotency::IdempotencyKey,
     lists::{self, Cursor, Limit, List, Page, Search},
     types::{Client, UserId, WorkspaceId},
@@ -21,17 +22,21 @@ use utoipa_axum::routes;
 
 use super::{
     error::WorkspacesError,
-    events::{MEMBER_REMOVED, MEMBERSHIP_CREATED},
-    model::{Created, Member, NewWorkspace, WorkspaceItem, WorkspaceName},
+    events::{MEMBER_REMOVED, MEMBERSHIP_CREATED, WORKSPACE_RENAMED},
+    model::{
+        Created, Current, Member, NewWorkspace, Rename, Workspace, WorkspaceItem, WorkspaceName,
+    },
     service,
 };
-use crate::modules::access::{MembersRead, MembersRemove, Role};
+use crate::modules::access::{MembersRead, MembersRemove, Role, WorkspaceRead, WorkspaceUpdate};
 
 /// The module's routes, which take the database as their state, and the events they publish.
 pub(crate) fn routes() -> Routes<Database> {
     Routes::new()
-        .events(&[&MEMBERSHIP_CREATED, &MEMBER_REMOVED])
+        .events(&[&MEMBERSHIP_CREATED, &WORKSPACE_RENAMED, &MEMBER_REMOVED])
         .user(routes!(create, list), &[])
+        .workspace::<WorkspaceRead>(routes!(read), &[])
+        .workspace::<WorkspaceUpdate>(routes!(rename), &[])
         .workspace::<MembersRead>(routes!(members), &[])
         .workspace::<MembersRemove>(
             routes!(remove_member),
@@ -138,6 +143,80 @@ async fn list(
         .map_err(WorkspacesError::from)?;
     let list = service::list(&database, &client, &principal, search.as_ref(), &page).await?;
     Ok(axum::Json(list))
+}
+
+/// Reads a workspace the caller belongs to.
+#[utoipa::path(
+    get,
+    path = "/v1/workspaces/{workspace_id}",
+    tag = "workspaces",
+    params(
+        ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
+    ),
+    responses(
+        (status = 200, description = "The workspace, with the caller's role.", body = Workspace,
+            headers(("etag" = String, description = "The workspace's version, which a rename's `If-Match` names (API-13)."))),
+    )
+)]
+async fn read(authorize: Authorize<WorkspaceRead>) -> Result<Response, Problem<WorkspacesError>> {
+    let (mut uow, authorized) = authorize.open().await.map_err(WorkspacesError::from)?;
+    let current = service::read(&mut uow, &authorized).await?;
+    with_etag(current)
+}
+
+/// What renaming a workspace takes: a JSON Merge Patch of it (WORKSPACES-008).
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RenameRequest {
+    /// The workspace's new name (WORKSPACES-002).
+    #[schema(value_type = WorkspaceName)]
+    name: String,
+}
+
+impl TryFrom<RenameRequest> for Rename {
+    type Error = RequestError;
+
+    fn try_from(request: RenameRequest) -> Result<Self, Self::Error> {
+        let mut errors = FieldErrors::new();
+        let name = errors.check("/name", WorkspaceName::parse(&request.name));
+        errors.finish(name.map(|name| Self { name }))
+    }
+}
+
+/// Renames a workspace.
+#[utoipa::path(
+    patch,
+    path = "/v1/workspaces/{workspace_id}",
+    tag = "workspaces",
+    request_body(content = RenameRequest, content_type = "application/merge-patch+json"),
+    params(
+        ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
+        ("If-Match" = Option<String>, Header,
+            description = "The `ETag` of the version the client renames, so that a rename made since it read the workspace fails rather than being overwritten (API-13)."),
+    ),
+    responses(
+        (status = 200, description = "The workspace, renamed.", body = Workspace,
+            headers(("etag" = String, description = "The workspace's new version (API-13)."))),
+    )
+)]
+async fn rename(
+    authorize: Authorize<WorkspaceUpdate>,
+    if_match: IfMatch,
+    request: MergePatch<RenameRequest>,
+) -> Result<Response, Problem<WorkspacesError>> {
+    let rename = Rename::try_from(request.0).map_err(WorkspacesError::from)?;
+    let (uow, authorized) = authorize.open().await.map_err(WorkspacesError::from)?;
+    let current = service::rename(uow, &authorized, rename, if_match.versions()).await?;
+    with_etag(current)
+}
+
+/// The response of a workspace as it now stands: its body, and its `ETag` (PLATFORM-071).
+fn with_etag(current: Current) -> Result<Response, Problem<WorkspacesError>> {
+    let etag = HeaderValue::try_from(current.version.etag())
+        .map_err(|error| WorkspacesError::Internal(Internal::new(error)))?;
+    let mut response = axum::Json(current.workspace).into_response();
+    response.headers_mut().insert(header::ETAG, etag);
+    Ok(response)
 }
 
 /// The query of `GET /v1/workspaces/{workspace_id}/members` (WORKSPACES-004).

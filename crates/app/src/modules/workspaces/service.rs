@@ -1,4 +1,5 @@
-//! Creating workspaces, listing the caller's, and the members endpoints (the workspaces spec).
+//! Creating workspaces, listing the caller's, reading and renaming one, and the members endpoints
+//! (the workspaces spec).
 
 use std::collections::HashMap;
 
@@ -6,11 +7,13 @@ use platform::{
     authn::Principal,
     authz::{self, Authorized},
     db::{Database, UnitOfWork},
+    errors::RequestError,
     idempotency::{Claimed, IdempotencyKey},
     lists::{List, Page, Search},
     types::{
         Client,
         UserId,
+        Version,
         // part: invitations
         WorkspaceId,
         // end part: invitations
@@ -21,11 +24,16 @@ use super::{
     audit,
     error::WorkspacesError,
     events as published,
-    model::{Created, Member, NewWorkspace, WorkspaceItem, WorkspaceName},
+    model::{
+        Created, Current, Member, NewWorkspace, Rename, Workspace, WorkspaceItem, WorkspaceName,
+    },
     repo,
 };
 use crate::modules::{
-    access::{self, MemberFilter, MembersRead, MembersRemove, Membership, Removal, Role},
+    access::{
+        self, MemberFilter, MembersRead, MembersRemove, Membership, Removal, Role, WorkspaceRead,
+        WorkspaceUpdate,
+    },
     accounts::{self, PublicProfile},
     audit::{self as log, Entry},
 };
@@ -123,6 +131,56 @@ pub(crate) async fn list(
     Ok(List {
         items,
         next_cursor: joined.next_cursor,
+    })
+}
+
+/// The caller's workspace as it now stands, with their role (WORKSPACES-007).
+pub(crate) async fn read(
+    uow: &mut UnitOfWork,
+    authorized: &Authorized<WorkspaceRead>,
+) -> Result<Current, WorkspacesError> {
+    let id = authorized.workspace_id();
+    let (name, created_at, version) = repo::read(uow, id).await?;
+    Ok(Current {
+        workspace: Workspace {
+            id,
+            name,
+            role: Role::from_name(authorized.role())?,
+            created_at,
+        },
+        version,
+    })
+}
+
+/// Renames the caller's workspace, in the unit of work it was authorized in, if its version is
+/// one of `versions`, when the request named any: the name, its audit entry and the members'
+/// event commit together (WORKSPACES-008, WORKSPACES-009).
+pub(crate) async fn rename(
+    mut uow: UnitOfWork,
+    authorized: &Authorized<WorkspaceUpdate>,
+    rename: Rename,
+    versions: Option<&[Version]>,
+) -> Result<Current, WorkspacesError> {
+    let id = authorized.workspace_id();
+    let Some((created_at, version)) = repo::rename(&mut uow, id, &rename.name, versions).await?
+    else {
+        return Err(RequestError::PreconditionFailed.into());
+    };
+    let entry = Entry::new(audit::WORKSPACE_RENAMED, audit::WORKSPACE, id.uuid());
+    log::record(&mut uow, authorized.audit_scope(), entry).await?;
+    let payload = published::WorkspaceRenamed { workspace_id: id };
+    uow.publish_to_workspace(&published::WORKSPACE_RENAMED, id, &payload)
+        .await?;
+    let role = Role::from_name(authorized.role())?;
+    uow.commit().await?;
+    Ok(Current {
+        workspace: Workspace {
+            id,
+            name: rename.name,
+            role,
+            created_at,
+        },
+        version,
     })
 }
 

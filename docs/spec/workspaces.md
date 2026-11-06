@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`workspaces` owns the workspace itself and the members endpoints. This spec covers creating a workspace, listing the caller's workspaces, listing members, and removing a member. Renaming, the picture, transfer, leaving, deletion and the setup subcommand arrive with the full module.
+`workspaces` owns the workspace itself and the members endpoints. This spec covers creating a workspace, listing the caller's workspaces, reading and renaming one, listing members, and removing a member. The picture, transfer, leaving, deletion and the setup subcommand arrive with the full module.
 
 ## Owns
 
@@ -22,6 +22,8 @@
 |---|---|---|
 | `POST /v1/workspaces` | user | WORKSPACES-001, WORKSPACES-002 |
 | `GET /v1/workspaces` | user | WORKSPACES-003 |
+| `GET /v1/workspaces/{workspace_id}` | `workspace::<WorkspaceRead>` | WORKSPACES-007 |
+| `PATCH /v1/workspaces/{workspace_id}` | `workspace::<WorkspaceUpdate>` | WORKSPACES-002, WORKSPACES-008, WORKSPACES-009 |
 | `GET /v1/workspaces/{workspace_id}/members` | `workspace::<MembersRead>` | WORKSPACES-004 |
 | `DELETE /v1/workspaces/{workspace_id}/members/{user_id}` | `workspace::<MembersRemove>` | WORKSPACES-005, WORKSPACES-006 |
 
@@ -37,6 +39,9 @@
 | WORKSPACES-004 | `GET .../members` lists the workspace's members with `{user_id, name, email, role, joined_at}`, the latest joined first, in cursor pages. Its `search` matches the name or the email, and `role` keeps the members of one role. | API-05, API-06, API-20, DATA-16 | `workspaces_004_` |
 | WORKSPACES-005 | Removing a member deletes their membership and answers 204. It records `member.removed` in the workspace's log, with the removed user as the target, and publishes the workspace event `member.removed`, which requires `members.read`. The removal's access-change signal closes the removed user's streams that PLATFORM-031 says a membership change closes, with `stream.closed` and the reason `access_changed`, before any event that commits after it reaches them (ACCESS-006). | SEC-06, SEC-09, DATA-22, D35 | `workspaces_005_` |
 | WORKSPACES-006 | A caller can't remove themselves (422 `workspaces.cannot_remove_self`), and can't remove a member of equal or higher rank (403 `request.permission_denied`, PLATFORM-010), which also protects the owner. A user ID that isn't a member answers 404 `workspaces.member_not_found`. | SEC-09, ERR-03 | `workspaces_006_` |
+| WORKSPACES-007 | `GET /v1/workspaces/{workspace_id}` answers 200 with `{id, name, role, created_at}`, `role` being the caller's, and the workspace's `ETag` (PLATFORM-071). | API-04, API-13, D3 | `workspaces_007_` |
+| WORKSPACES-008 | Renaming a workspace, `PATCH /v1/workspaces/{workspace_id}` with the merge patch `{"name": <name>}`, stores the name, normalized as WORKSPACES-002 says, and answers 200 with the workspace as WORKSPACES-007 gives it and its new `ETag`. It records `workspace.renamed` in the workspace's log, and publishes the workspace event `workspace.renamed`, which requires `workspace.read`, so every stream of every member receives it. Neither holds the name. The owner and admins may rename; a member gets 403 `request.permission_denied`. | API-03, API-19, SEC-18, SEC-19, DATA-22 | `workspaces_008_` |
+| WORKSPACES-009 | A rename whose `If-Match` names no current version of the workspace, such as an `ETag` read before another rename, answers 412 `request.precondition_failed`, and changes nothing: no name, no entry, no event. One without `If-Match` applies as sent (PLATFORM-071). | API-13, DATA-18 | `workspaces_009_` |
 
 ## Design
 
@@ -64,6 +69,12 @@ The server stores no active or default workspace for a user (D3). Each request n
 ### Listing the caller's workspaces
 
 `access::joined` pages the caller's memberships, filtered by their user ID, through the index on their user and joining time, and `names` gives the page's workspace names (DATA-16, DATA-17). A search first takes the IDs of every workspace the caller belongs to, from `access::workspace_ids` (ACCESS-005), and `matching` keeps those whose name contains it, so `joined` pages only those, as the platform spec's "Lists" says.
+
+### Reading and renaming a workspace
+
+A read and a rename are workspace routes, so `Authorized<P>` proves the caller's membership and gives the workspace's ID, by which both statements filter (DATA-16). The read takes the row's name, creation time and `version`, and the role from the proof. The rename is one `UPDATE` of the row, kept to the versions the request's `If-Match` names when it sent one (DATA-18): zero rows updated is the precondition's failure, and the unit of work rolls back with nothing written. Otherwise the update returns the row as it now stands, whose `version` the shared trigger raised (DATA-02), and the same unit of work records the entry and publishes the event, then commits (D1). The update locks the row, so two renames at once apply one after the other, and an `If-Match` sent with the second sees the first (DATA-20).
+
+A name is text a user writes, so it is personal data (the glossary in [architecture](../architecture.md#11-glossary)): the entry's `details` and the event's payload carry only the workspace's ID (SEC-18, API-19), and a client that receives `workspace.renamed` reads the name through `GET /v1/workspaces/{workspace_id}`. A rename to the name the workspace already has is still a rename: it records and publishes as any other.
 
 ### Listing members
 

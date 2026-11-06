@@ -1,11 +1,11 @@
-//! The SQL of `workspaces` (ARCH-10). A workspace is read only by IDs that came from a query
-//! filtered by tenant (DATA-16).
+//! The SQL of `workspaces` (ARCH-10). A workspace is read only by the ID of the workspace a proof
+//! names, or by IDs that came from a query filtered by tenant (DATA-16).
 
 use platform::{
     db::UnitOfWork,
     errors::Internal,
     lists::Search,
-    types::{Timestamp, WorkspaceId},
+    types::{Timestamp, Version, WorkspaceId},
 };
 
 use super::model::WorkspaceName;
@@ -25,6 +25,53 @@ pub(super) async fn insert(
         WorkspaceId::from_uuid(row.id),
         Timestamp::from_database(row.created_at),
     ))
+}
+
+/// The name, the creation time and the version of the workspace `id`, the one a proof names.
+pub(super) async fn read(
+    uow: &mut UnitOfWork,
+    id: WorkspaceId,
+) -> Result<(WorkspaceName, Timestamp, Version), Internal> {
+    let row = sqlx::query!(
+        "SELECT name, created_at, version FROM workspaces WHERE id = $1",
+        id.uuid(),
+    )
+    .fetch_one(uow.executor())
+    .await?;
+    Ok((
+        WorkspaceName::from_stored(row.name),
+        Timestamp::from_database(row.created_at),
+        Version::from_database(row.version),
+    ))
+}
+
+/// Renames the workspace `id`, the one a proof names, to `name`, if its version is one of
+/// `versions`, or whatever its version when `versions` is `None` (DATA-18). Returns its creation
+/// time and its new version, or `None` when its version isn't one of `versions`.
+pub(super) async fn rename(
+    uow: &mut UnitOfWork,
+    id: WorkspaceId,
+    name: &WorkspaceName,
+    versions: Option<&[Version]>,
+) -> Result<Option<(Timestamp, Version)>, Internal> {
+    let versions: Option<Vec<i64>> =
+        versions.map(|versions| versions.iter().map(|version| version.value()).collect());
+    let row = sqlx::query!(
+        "UPDATE workspaces SET name = $2 \
+         WHERE id = $1 AND ($3::bigint[] IS NULL OR version = ANY($3)) \
+         RETURNING created_at, version",
+        id.uuid(),
+        name.as_str(),
+        versions.as_deref(),
+    )
+    .fetch_optional(uow.executor())
+    .await?;
+    Ok(row.map(|row| {
+        (
+            Timestamp::from_database(row.created_at),
+            Version::from_database(row.version),
+        )
+    }))
 }
 
 /// The names of the workspaces `ids` names, which came from a query filtered by tenant.
