@@ -7,7 +7,7 @@ use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
 
-use super::{Api, api::Response, contract::Contract};
+use super::{Api, api::Response, contract::Contract, users::SignedIn};
 
 /// The stream's path.
 pub const PATH: &str = "/v1/users/me/events";
@@ -190,6 +190,13 @@ pub async fn connect(api: &Api, token: &str, last_event_id: Option<&str>) -> Str
         .await
         .stream()
         .expect("the stream opened")
+}
+
+/// A stream of `user`'s, opened without a `Last-Event-ID`, and past its `stream.opened`.
+pub async fn opened(api: &Api, user: &SignedIn) -> Stream {
+    let mut stream = connect(api, &user.access, None).await;
+    stream.opened().await;
+    stream
 }
 
 impl Stream {

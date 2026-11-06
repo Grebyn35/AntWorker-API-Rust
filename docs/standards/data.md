@@ -131,7 +131,7 @@ A list query filters by the cursor's sort key, with the ID as tiebreaker, and ne
 - Check: `review`, plus `test` (API-06).
 
 ### DATA-18 Optimistic updates check the version
-An update made with `If-Match` includes `WHERE version = $expected`. Zero rows updated becomes `PreconditionFailed`.
+An update made with `If-Match` keeps its `WHERE` to the versions the header names, such as `version = ANY($2)`. Zero rows updated becomes `PreconditionFailed`.
 - Why: lost updates are detected in the same statement that would cause them (API-13).
 - Check: `test`.
 

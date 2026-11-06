@@ -5,7 +5,8 @@ use serde_json::{Value, json};
 
 use crate::support::{
     Api,
-    streams::{self, Stream},
+    events::{self, Event},
+    streams,
     users::{self, SignedIn},
     workspaces,
 };
@@ -847,13 +848,6 @@ async fn platform_071_a_current_etag_a_star_or_none_lets_the_rename_apply() {
     assert_eq!(stored_name(&api, &workspace).await, "Three");
 }
 
-/// A stream of `user`'s, open and past its `stream.opened`.
-async fn opened(api: &Api, user: &SignedIn) -> Stream {
-    let mut stream = streams::connect(api, &user.access, None).await;
-    stream.opened().await;
-    stream
-}
-
 #[tokio::test]
 async fn sec_19_workspace_renamed_reaches_every_member_s_every_device_and_no_replay_from_before_joining()
  {
@@ -869,13 +863,17 @@ async fn sec_19_workspace_renamed_reaches_every_member_s_every_device_and_no_rep
         &[(&ada.user_id, "owner"), (&grace.user_id, "member")],
     )
     .await;
-    // Alan's own workspace gives his stream an event to resume after.
-    assert_eq!(create(&api, &alan, "Alan's", None).await.status, 201);
-    let before = opened(&api, &alan).await.last_event_id;
+    // An event to Alan alone gives his stream one to resume after.
+    db.owner_executes(&events::statement(
+        &[Event::to_user(&alan.user_id, "note.made", "{}")],
+        true,
+    ))
+    .await;
+    let before = streams::opened(&api, &alan).await.last_event_id;
     // Every role holds workspace.read, which workspace.renamed requires: no member lacks it.
-    let mut phone = opened(&api, &ada).await;
-    let mut laptop = opened(&api, &ada_laptop).await;
-    let mut member = opened(&api, &grace).await;
+    let mut phone = streams::opened(&api, &ada).await;
+    let mut laptop = streams::opened(&api, &ada_laptop).await;
+    let mut member = streams::opened(&api, &grace).await;
 
     let renamed = rename(&api, &ada, &workspace, "Acme Labs", None).await;
     workspaces::join(db, &workspace, &alan.user_id, "member").await;

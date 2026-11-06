@@ -10,9 +10,10 @@ use axum::{
 use crate::types::Version;
 
 /// The `If-Match` of an update: the versions of the resource it may change, or `None` when the
-/// request sent no `If-Match`, or `*`, which any version matches. A weak entity tag, or one that
-/// doesn't quote a version, names none, so a request that sent only such tags names an empty set,
-/// which no version matches (PLATFORM-071).
+/// request sent no `If-Match`, or `*`, which any version matches. A tag names the version whose
+/// `ETag` it is, character for character, so a weak tag, or one the API never sent, such as
+/// `"03"`, names none, and a request that sent only such tags names an empty set, which no
+/// version matches (PLATFORM-071).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IfMatch(Option<Vec<Version>>);
 
@@ -36,24 +37,13 @@ impl IfMatch {
                 if tag == "*" {
                     return Self(None);
                 }
-                if let Some(version) = strong_version(tag) {
+                if let Some(version) = Version::from_etag(tag) {
                     versions.push(version);
                 }
             }
         }
         Self(Some(versions))
     }
-}
-
-/// The version whose [`Version::etag`] is `tag`, character for character, as RFC 9110's strong
-/// comparison matches tags: `"03"` names no version, since the API sends version 3 as `"3"`.
-fn strong_version(tag: &str) -> Option<Version> {
-    let digits = tag.strip_prefix('"')?.strip_suffix('"')?;
-    if !digits.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    let version = Version::from_database(digits.parse().ok()?);
-    (version.etag() == tag).then_some(version)
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for IfMatch {

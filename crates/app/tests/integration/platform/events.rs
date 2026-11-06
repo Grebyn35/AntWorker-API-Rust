@@ -86,13 +86,6 @@ async fn frames(stream: &mut Stream, count: usize) -> Vec<streams::Frame> {
     frames
 }
 
-/// A stream of `user`'s, open and past its `stream.opened`.
-async fn opened(api: &Api, user: &SignedIn) -> Stream {
-    let mut stream = streams::connect(api, &user.access, None).await;
-    stream.opened().await;
-    stream
-}
-
 #[tokio::test]
 async fn platform_029_a_workspace_event_reaches_only_the_members_whose_role_holds_its_permission() {
     let api = api().await;
@@ -105,9 +98,9 @@ async fn platform_029_a_workspace_event_reaches_only_the_members_whose_role_hold
         &[(&ada.user_id, "admin"), (&grace.user_id, "member")],
     )
     .await;
-    let mut admin = opened(&api, &ada).await;
-    let mut member = opened(&api, &grace).await;
-    let mut outsider = opened(&api, &alan).await;
+    let mut admin = streams::opened(&api, &ada).await;
+    let mut member = streams::opened(&api, &grace).await;
+    let mut outsider = streams::opened(&api, &alan).await;
 
     post(&api, &ada, &workspace, 1, true).await;
     post(&api, &ada, &workspace, 1, false).await;
@@ -152,7 +145,7 @@ async fn platform_029_a_replay_leaves_out_a_workspace_s_events_from_before_its_m
     let grace = users::register(&api, "grace@example.com").await;
     let workspace =
         workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "owner")]).await;
-    let mut first = opened(&api, &grace).await;
+    let mut first = streams::opened(&api, &grace).await;
     announce(&api, &grace, 1).await;
     first.event().await;
     let last = first.last_event_id.clone();
@@ -190,8 +183,8 @@ async fn platform_027_each_event_is_loaded_once_whatever_the_streams_it_reaches(
     let workspace = workspaces::arrange(api.database(), "Analytical", &members).await;
     let mut open = Vec::new();
     for user in &users {
-        open.push(opened(&api, user).await);
-        open.push(opened(&api, user).await);
+        open.push(streams::opened(&api, user).await);
+        open.push(streams::opened(&api, user).await);
     }
     let loaded = || {
         testing::recorded("platform.event_delivery_lag")
@@ -223,7 +216,7 @@ async fn platform_031_a_signal_closes_its_streams_before_any_event_that_commits_
     let other = users::new_session(&api, "ada@example.com").await;
     let workspace =
         workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "owner")]).await;
-    let mut ended = opened(&api, &ada).await;
+    let mut ended = streams::opened(&api, &ada).await;
 
     let signed_out = api
         .request(http::Method::DELETE, "/v1/users/me/sessions/current")
@@ -251,7 +244,7 @@ async fn platform_028_a_stream_resumes_on_another_replica_with_every_event_after
         platform::lifecycle::Readiness::new(),
     )
     .await;
-    let mut first = opened(&api, &ada).await;
+    let mut first = streams::opened(&api, &ada).await;
     announce(&api, &ada, 1).await;
     first.event().await;
     let last = first.last_event_id.clone();
@@ -278,7 +271,7 @@ async fn platform_028_events_reach_a_stream_and_its_replay_in_the_order_their_un
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let user = UserId::from_uuid(ada.user_id.parse().unwrap());
-    let mut stream = opened(&api, &ada).await;
+    let mut stream = streams::opened(&api, &ada).await;
     announce(&api, &ada, 1).await;
     stream.event().await;
     let before = stream.last_event_id.clone();
@@ -323,8 +316,8 @@ async fn platform_031_the_recheck_closes_a_stream_whose_membership_changed_witho
     let grace = users::register(&api, "grace@example.com").await;
     let workspace =
         workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "member")]).await;
-    let mut changed = opened(&api, &ada).await;
-    let mut unchanged = opened(&api, &grace).await;
+    let mut changed = streams::opened(&api, &ada).await;
+    let mut unchanged = streams::opened(&api, &grace).await;
 
     // Changed behind the API's back, so no signal tells the hub.
     api.database()
@@ -354,8 +347,8 @@ async fn workspaces_005_removing_a_member_closes_their_stream_before_the_next_ev
         &[(&ada.user_id, "admin"), (&grace.user_id, "member")],
     )
     .await;
-    let mut admin = opened(&api, &ada).await;
-    let mut removed = opened(&api, &grace).await;
+    let mut admin = streams::opened(&api, &ada).await;
+    let mut removed = streams::opened(&api, &grace).await;
 
     let response = api
         .request(
@@ -382,8 +375,8 @@ async fn access_006_a_membership_that_starts_closes_its_user_s_streams() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
-    let mut creator = opened(&api, &ada).await;
-    let mut other = opened(&api, &grace).await;
+    let mut creator = streams::opened(&api, &ada).await;
+    let mut other = streams::opened(&api, &grace).await;
 
     let response = api
         .post("/v1/workspaces", &json!({ "name": "Analytical" }))
@@ -416,7 +409,7 @@ async fn access_007_a_stream_holds_each_workspace_s_permissions_of_its_role_ther
         &[(&grace.user_id, "owner"), (&ada.user_id, "member")],
     )
     .await;
-    let mut stream = opened(&api, &ada).await;
+    let mut stream = streams::opened(&api, &ada).await;
 
     post(&api, &grace, &joined, 1, true).await;
     post(&api, &grace, &owned, 1, true).await;
@@ -447,8 +440,8 @@ async fn auth_018_a_stream_outlives_its_access_token_but_not_its_session() {
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
-    let mut ending = opened(&api, &ada).await;
-    let mut lasting = opened(&api, &grace).await;
+    let mut ending = streams::opened(&api, &ada).await;
+    let mut lasting = streams::opened(&api, &grace).await;
 
     api.database()
         .owner_executes(&format!(
@@ -479,7 +472,7 @@ async fn auth_018_a_stream_outlives_its_access_token_but_not_its_session() {
 async fn platform_032_a_stream_whose_client_reads_too_slowly_closes_with_lagging() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let mut stream = opened(&api, &ada).await;
+    let mut stream = streams::opened(&api, &ada).await;
 
     // Nothing reads the stream while 300 events arrive at once.
     announce(&api, &ada, 300).await;
@@ -516,7 +509,7 @@ async fn platform_033_after_a_lost_connection_every_stream_closes_and_replays_wh
     let api = api().await;
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
-    let mut stream = opened(&api, &ada).await;
+    let mut stream = streams::opened(&api, &ada).await;
     announce(&api, &ada, 1).await;
     stream.event().await;
     let last = stream.last_event_id.clone();
@@ -558,7 +551,7 @@ async fn platform_033_after_a_lost_connection_a_reconnect_leaves_out_what_access
     let ada = users::register(&api, "ada@example.com").await;
     let workspace =
         workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "member")]).await;
-    let mut stream = opened(&api, &ada).await;
+    let mut stream = streams::opened(&api, &ada).await;
     announce(&api, &ada, 1).await;
     stream.event().await;
     let last = stream.last_event_id.clone();
@@ -610,7 +603,7 @@ async fn platform_033_a_re_check_that_fails_is_tried_again_at_the_next_check() {
     let ada = users::register(&api, "ada@example.com").await;
     let workspace =
         workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "member")]).await;
-    let mut stream = opened(&api, &ada).await;
+    let mut stream = streams::opened(&api, &ada).await;
     api.database()
         .owner_executes(&format!(
             "DELETE FROM workspace_memberships WHERE workspace_id = '{workspace}'"
@@ -692,7 +685,7 @@ async fn platform_034_the_hub_records_its_streams_why_it_closed_them_and_its_lag
     let name = api.database().name().to_owned();
     let ours = |point: &testing::Point| point.labels.get("db.namespace") == Some(&name);
     let ada = users::register(&api, "ada@example.com").await;
-    let mut stream = opened(&api, &ada).await;
+    let mut stream = streams::opened(&api, &ada).await;
     let open = testing::recorded("platform.streams")
         .into_iter()
         .find(|point| ours(point))
@@ -755,7 +748,7 @@ async fn access_006_removing_a_membership_closes_its_user_s_streams() {
         &[(&ada.user_id, "owner"), (&grace.user_id, "member")],
     )
     .await;
-    let mut removed = opened(&api, &grace).await;
+    let mut removed = streams::opened(&api, &grace).await;
 
     let response = api
         .request(
@@ -777,8 +770,8 @@ async fn auth_018_the_recheck_closes_a_stream_whose_session_outlived_its_lifetim
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
-    let mut expired = opened(&api, &ada).await;
-    let mut deleted = opened(&api, &grace).await;
+    let mut expired = streams::opened(&api, &ada).await;
+    let mut deleted = streams::opened(&api, &grace).await;
 
     // Past its absolute lifetime, though its refresh token hasn't expired; and gone, with no
     // signal to tell the hub.
@@ -816,7 +809,7 @@ async fn platform_031_the_recheck_interval_is_a_setting_of_10_to_3600_seconds() 
     let ada = users::register(&api, "ada@example.com").await;
     let workspace =
         workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "member")]).await;
-    let mut stream = opened(&api, &ada).await;
+    let mut stream = streams::opened(&api, &ada).await;
 
     api.database()
         .owner_executes(&format!(
@@ -848,9 +841,9 @@ async fn sec_19_member_removed_reaches_every_member_and_no_replay_from_before_jo
     )
     .await;
     // Every role holds members.read, which member.removed requires: no member lacks it.
-    let mut owner = opened(&api, &ada).await;
-    let mut member = opened(&api, &grace).await;
-    let mut later = opened(&api, &alan).await;
+    let mut owner = streams::opened(&api, &ada).await;
+    let mut member = streams::opened(&api, &grace).await;
+    let mut later = streams::opened(&api, &alan).await;
     announce(&api, &alan, 1).await;
     later.event().await;
     let before = later.last_event_id.clone();
@@ -929,7 +922,7 @@ async fn platform_029_an_event_that_commits_while_its_member_joins_reaches_them_
     let alan = users::register(&api, "alan@example.com").await;
     let workspace =
         workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "owner")]).await;
-    let mut first = opened(&api, &alan).await;
+    let mut first = streams::opened(&api, &alan).await;
     announce(&api, &alan, 1).await;
     first.event().await;
     let before = first.last_event_id.clone();
@@ -972,7 +965,7 @@ async fn platform_033_a_load_that_fails_is_tried_again_at_the_next_check() {
     let api = api().await;
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
-    let mut stream = opened(&api, &ada).await;
+    let mut stream = streams::opened(&api, &ada).await;
     clock.sleeping(CHECK_INTERVAL).await;
 
     // Every pooled connection is held, so the hub's load waits out the pool and fails.
@@ -1012,7 +1005,7 @@ async fn platform_035_the_hub_records_the_events_it_owes_while_its_loads_fail() 
             .map(|point| point.value)
     };
     let ada = users::register(&api, "ada@example.com").await;
-    let mut stream = opened(&api, &ada).await;
+    let mut stream = streams::opened(&api, &ada).await;
     clock.sleeping(CHECK_INTERVAL).await;
 
     // Every pooled connection is held, so the hub's load waits out the pool and fails.

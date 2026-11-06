@@ -231,8 +231,9 @@ impl ToSchema for Timestamp {
 }
 
 /// The `version` of an editable row, which the shared trigger raises on every update (DATA-02),
-/// and which its resource's `ETag` names (PLATFORM-071). It serializes as its number, as a
-/// stored result holds it (PLATFORM-036).
+/// and which its resource's `ETag` names (PLATFORM-071), or one that a request's `If-Match`
+/// names, which may be no row's. It serializes as its number, as a stored result holds it
+/// (PLATFORM-036).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Version(i64);
@@ -252,6 +253,18 @@ impl Version {
     /// entity tag (API-13).
     pub fn etag(self) -> String {
         format!("\"{}\"", self.0)
+    }
+
+    /// The version whose [`Version::etag`] is `tag`, character for character, as RFC 9110's
+    /// strong comparison matches tags, or `None`: `"03"` names none, since version 3's tag is
+    /// `"3"` (PLATFORM-071).
+    pub fn from_etag(tag: &str) -> Option<Self> {
+        let digits = tag.strip_prefix('"')?.strip_suffix('"')?;
+        if !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        let version = Self(digits.parse().ok()?);
+        (version.etag() == tag).then_some(version)
     }
 }
 
