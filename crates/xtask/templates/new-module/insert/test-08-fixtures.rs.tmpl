@@ -1,36 +1,40 @@
-        ("post", "/v1/workspaces/{workspace_id}/sample-items") => Fixture {
-            path: |workspace, _| format!("/v1/workspaces/{workspace}/sample-items"),
-            row: None,
-            body: Some((r#"{"name": "Blue"}"#, "application/json")),
-            success: StatusCode::CREATED,
-        },
-        ("get", "/v1/workspaces/{workspace_id}/sample-items") => Fixture {
-            path: |workspace, _| format!("/v1/workspaces/{workspace}/sample-items"),
-            row: None,
-            body: None,
-            success: StatusCode::OK,
-        },
-        ("get", "/v1/workspaces/{workspace_id}/sample-items/{sample_item_id}") => Fixture {
-            path: |workspace, sample_item| {
-                format!("/v1/workspaces/{workspace}/sample-items/{sample_item}")
-            },
-            row: Some(SAMPLE_ITEM),
-            body: None,
-            success: StatusCode::OK,
-        },
-        ("patch", "/v1/workspaces/{workspace_id}/sample-items/{sample_item_id}") => Fixture {
-            path: |workspace, sample_item| {
-                format!("/v1/workspaces/{workspace}/sample-items/{sample_item}")
-            },
-            row: Some(SAMPLE_ITEM),
-            body: Some((r#"{"name": "Red"}"#, "application/merge-patch+json")),
-            success: StatusCode::OK,
-        },
-        ("delete", "/v1/workspaces/{workspace_id}/sample-items/{sample_item_id}") => Fixture {
-            path: |workspace, sample_item| {
-                format!("/v1/workspaces/{workspace}/sample-items/{sample_item}")
-            },
-            row: Some(SAMPLE_ITEM),
-            body: None,
-            success: StatusCode::NO_CONTENT,
-        },
+    Fixture {
+        method: "post",
+        template: "/v1/workspaces/{workspace_id}/sample-items",
+        path: |workspace, _| format!("/v1/workspaces/{workspace}/sample-items"),
+        row: None,
+        body: Some((r#"{"name": "Blue"}"#, "application/json")),
+        success: StatusCode::CREATED,
+    },
+    Fixture {
+        method: "get",
+        template: "/v1/workspaces/{workspace_id}/sample-items",
+        path: |workspace, _| format!("/v1/workspaces/{workspace}/sample-items"),
+        row: None,
+        body: None,
+        success: StatusCode::OK,
+    },
+    Fixture {
+        method: "get",
+        template: "/v1/workspaces/{workspace_id}/sample-items/{sample_item_id}",
+        path: |workspace, id| format!("/v1/workspaces/{workspace}/sample-items/{id}"),
+        row: Some(|db, workspace| Box::pin(crate::support::sample_items::arrange(db, workspace, "Blue"))),
+        body: None,
+        success: StatusCode::OK,
+    },
+    Fixture {
+        method: "patch",
+        template: "/v1/workspaces/{workspace_id}/sample-items/{sample_item_id}",
+        path: |workspace, id| format!("/v1/workspaces/{workspace}/sample-items/{id}"),
+        row: Some(|db, workspace| Box::pin(crate::support::sample_items::arrange(db, workspace, "Blue"))),
+        body: Some((r#"{"name": "Red"}"#, "application/merge-patch+json")),
+        success: StatusCode::OK,
+    },
+    Fixture {
+        method: "delete",
+        template: "/v1/workspaces/{workspace_id}/sample-items/{sample_item_id}",
+        path: |workspace, id| format!("/v1/workspaces/{workspace}/sample-items/{id}"),
+        row: Some(|db, workspace| Box::pin(crate::support::sample_items::arrange(db, workspace, "Blue"))),
+        body: None,
+        success: StatusCode::NO_CONTENT,
+    },

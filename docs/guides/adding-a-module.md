@@ -22,18 +22,25 @@ It writes these files, each holding what [architecture §5](../architecture.md#i
 | `migrations/<timestamp>_<module>_<module>.sql` | The module's table, its index for the list, and its column comments |
 | `crates/app/src/modules/<module>/` | `mod.rs`, `routes.rs`, `service.rs`, `repo.rs`, `model.rs`, `error.rs`, `events.rs` and `audit.rs` |
 | `crates/app/tests/integration/<module>.rs` | A test for each behavior |
+| `crates/app/tests/integration/support/<module>.rs` | The builder that arranges the module's rows for tests (TEST-09) |
 | `docs/spec/<module>.md` | The spec: its routes, and a behavior for each thing the routes guarantee |
 
-It registers the module in the files that every module shares: `modules/mod.rs`, `composition.rs`, the permission matrix in `access/permissions.rs` with its four permissions, such as `order_items.read`, `.create`, `.update` and `.delete`, the access spec's copy of the matrix, the test module list, TEST-08's fixtures in `tests/integration/access.rs`, the spec index, and architecture.md's table of what each module owns and its graph of dependencies. Then it rewrites `.sqlx/` and `openapi.json`, and formats the code. A shared file that a fork has rewritten so that the task can't find the place for its line gets no edit, and the task names what to add there instead.
+It registers the module in the ten files that every module shares: `modules/mod.rs`; `composition.rs`; the permission matrix in `access/permissions.rs`, with the module's four permissions, such as `order_items.read`, `.create`, `.update` and `.delete`, and their re-export in `access/mod.rs`; the access spec's copy of the matrix; the list of test modules in `tests/integration/main.rs`, and of the test support's in `support/mod.rs`; TEST-08's fixtures in `tests/integration/access.rs`; the spec index; and architecture.md's table of what each module owns and its graph of dependencies. Then it rewrites `.sqlx/` and `openapi.json`, and formats the code. Before it writes anything, it finds the place of each line in each of those files; if a file doesn't hold it, as when a fork has rewritten the file, the task writes nothing at all, and names each line to add by hand, and where.
 
 ## Making it the module you need
 
 Work in this order, running `just checks` as you go, and `just ci` once you are done:
 
 1. **The spec first.** Rewrite its Purpose, its table's columns, its routes and its behaviors for what the module is for ([spec README](../spec/README.md#sections)), and the module's row in architecture.md. Each behavior keeps an ID and a test prefix (DOC-08, TEST-01); an ID you delete is never reused.
-2. **The table.** Edit the migration for the columns you need, while no release holds it (DATA-09), then run `just migrate`. Run `just migrate` before you write a query that needs the new columns: the tasks build against `.sqlx/` (DATA-14), and `migrate` can't build while a query is missing from it. A migration that the development database already applied is edited as [CLAUDE.md](../../CLAUDE.md#commands) says.
+2. **The table.** Edit the migration for the columns you need, while no release holds it (DATA-09), then run `just migrate` before you write a query that needs them, as [Migrations and the query cache](#migrations-and-the-query-cache) explains.
 3. **The code and its tests,** piece by piece, as the next section places them. Delete what the module doesn't need, such as a route, with its permission, its fixture in TEST-08's test, its behavior and its tests.
 4. **The generated files.** `just prepare` rewrites `.sqlx/` once the queries compile against the migrated database, and `just openapi` rewrites `openapi.json` once the routes change.
+
+## Migrations and the query cache
+
+Queries are checked while compiling: the tasks build against the query cache in `.sqlx/`, which `just prepare` rewrites from the development database. `migrate` is part of the same binary, so it builds only while the cache holds every query. Run `just migrate` before writing a query, on a fresh clone as after adding a migration, then `just prepare` once it is written, before the other tasks build it.
+
+Editing a migration that no release contains (DATA-09) means recreating the development database, which `migrate` refuses once its applied file differs. Recreate it before changing the queries, while the cache in `.sqlx/` still matches them, so the binary compiles without the database: `docker compose exec postgres psql -U postgres -d postgres -c "DROP DATABASE api WITH (FORCE)" -c "CREATE DATABASE api"`, then `SQLX_OFFLINE=true just migrate`. The tests' databases need nothing: their template is named after the migrations' checksums. A checksum reads the file's bytes on disk, and `.gitattributes` commits every text file with lines that end in a line feed alone, so save files that way: one whose lines end in a carriage return and a line feed, as Python's text writes do on Windows, commits unchanged, but migrates with a checksum that no checkout reproduces.
 
 ## Where each piece goes
 
@@ -69,7 +76,7 @@ To a module that `just new-module` wrote, or to any other:
 2. If the route needs a permission that the matrix doesn't hold, add its type and its row to `access/permissions.rs`, and its row to the access spec's matrix.
 3. If it needs a column or a table, add a migration, or edit the module's own while no release holds it, and run `just migrate`.
 4. Write the domain types, the query, the service's function and the handler, as the table above places them, and add the handler to the module's `routes()` with the codes it can answer.
-5. Add the route's fixture to TEST-08's test, then the tests that prove its behavior.
+5. Add the route's fixture to the end of `FIXTURES` in TEST-08's test, whose `row` names the test support's builder of the row the route addresses, if it addresses one by ID, then the tests that prove its behavior.
 6. Run `just prepare`, `just openapi` and `just checks`.
 
 ## What the checks keep about the product

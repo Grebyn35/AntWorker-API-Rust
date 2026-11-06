@@ -24,6 +24,7 @@ pub mod fixtures;
 pub mod invitations;
 // end part: invitations
 pub mod jobs;
+pub mod lists;
 pub mod mailbox;
 pub mod proxy;
 pub mod streams;

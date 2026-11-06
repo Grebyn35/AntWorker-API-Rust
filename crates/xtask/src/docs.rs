@@ -35,6 +35,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
         .collect();
     let mut findings = catalog.findings().to_vec();
     findings.extend(links(repo, &documents));
+    findings.extend(comment_links(repo, &documents));
     findings.extend(headings(&documents));
     findings.extend(ids(repo, catalog));
     findings.extend(named_checks(repo, catalog));
@@ -90,6 +91,38 @@ fn links(repo: &Repo, documents: &BTreeMap<&str, markdown::Document>) -> Vec<Fin
                         link.destination
                     ),
                 ));
+            }
+        }
+    }
+    findings
+}
+
+/// Every link of a Rust file's doc comments to a file resolves, as a document's does (DOC-12),
+/// but in a check's own tests (`text::citing_lines`). A link to an item, such as
+/// `[cfg](super::cfg)`, is rustdoc's, and a link inside a code span is no link.
+fn comment_links(repo: &Repo, documents: &BTreeMap<&str, markdown::Document>) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for file in repo.files().filter(|file| file.path.ends_with(".rs")) {
+        let citing = text::citing_lines(&file.path, &file.text);
+        for (index, line) in file.text.lines().take(citing).enumerate() {
+            let comment = line.trim_start();
+            if !(comment.starts_with("///") || comment.starts_with("//!")) {
+                continue;
+            }
+            let prose = comment.split('`').step_by(2).collect::<Vec<_>>().join(" ");
+            for destination in prose
+                .split("](")
+                .skip(1)
+                .filter_map(|rest| rest.split_once(')').map(|(destination, _)| destination))
+                .filter(|destination| !destination.contains("::"))
+            {
+                if let Some(problem) = unresolved(repo, documents, &file.path, destination) {
+                    findings.push(Finding::new(
+                        &file.path,
+                        index + 1,
+                        format!("the link to `{destination}` doesn't resolve: {problem} (DOC-12)"),
+                    ));
+                }
             }
         }
     }
@@ -414,6 +447,21 @@ mod tests {
                 "crates/widgets/src/lib.rs:1: WIDGETS-007 isn't a rule or behavior ID that exists (DOC-12)",
                 "crates/widgets/src/lib.rs:1: GADGETS-001 isn't a rule or behavior ID that exists (DOC-12)",
                 "crates/widgets/src/lib.rs:1: STYLE-99 isn't a rule or behavior ID that exists (DOC-12)"
+            ]
+        );
+    }
+
+    #[test]
+    fn doc_12_a_doc_comment_s_link_that_doesn_t_resolve_is_reported() {
+        let source = "//! The module ([spec](../../docs/spec/widgets.md)).\n\
+                      /// See [the gone spec](../../docs/spec/gadgets.md), [`Item`], \
+                      [cfg](super::cfg) and `[text](destination)`.\n\
+                      // A plain comment's [link](nowhere.md) isn't documentation.\n";
+
+        assert_eq!(
+            findings(&[("crates/widgets/lib.rs", source)]),
+            [
+                "crates/widgets/lib.rs:2: the link to `../../docs/spec/gadgets.md` doesn't resolve: there is no `docs/spec/gadgets.md` (DOC-12)"
             ]
         );
     }

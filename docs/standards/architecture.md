@@ -21,7 +21,7 @@ Each feature module is a directory under `crates/app/src/modules/`. Its files co
 
 `just new-module <module> [resource]` writes a module in this layout that holds one workspace resource, with its migration, permissions, spec and tests, from the templates in `crates/xtask/templates/new-module/`, registers it in the files every module shares, and leaves a codebase that passes `just checks` ([guide](../guides/adding-a-module.md)).
 - Why: every module reads the same way, so a developer who knows one knows all of them, and a new one starts from code that already follows the rules (D22, D29).
-- Check: `ci: check-layout` (a module's entries, and its templates' directory), plus `ci: check-new-module` (a module that `just new-module` writes on a copy of the repository, then `just checks` there).
+- Check: `ci: check-layout` (a module's entries, and its templates' directory), plus `ci: check-new-module` (two modules that `just new-module` writes on a copy of the repository, one after the other, then `just checks` there).
 
 ### ARCH-04 A module is used only through its `mod.rs`
 Submodules are private (`mod repo;`, never `pub mod repo;`). Other modules use only the items `mod.rs` re-exports.
@@ -99,7 +99,7 @@ No trait exists just so something can be mocked. Traits that define a behavior m
 - Check: `review`.
 
 ### ARCH-14 Application tasks are binary subcommands
-Every task that runs application logic against the database, such as bootstrap, migrate and seed, is a subcommand of the app binary. A script reaches the database only through Postgres's own tools, for what Postgres itself does: pgBackRest, the reference deployment's backup tool, backs it up and restores it (D44, OPS-15), and a restore asks Postgres, through `pg_isready` and `psql`, whether it runs and how far its replay has come, and commits a transaction that changes nothing ([backups.md](../operations/backups.md#restoring)). No statement a script sends names a table of the product schema (DATA-01). The repository's own tools reach the database too: the CI checks that inspect the schema or the compiled queries, and `just prepare`, which rewrites the query cache from the migrated database (DATA-14).
+Every task that runs application logic against the database, such as bootstrap, migrate and seed, is a subcommand of the app binary. A script reaches the database only through Postgres's own tools, for what Postgres itself does: pgBackRest, the reference deployment's backup tool, backs it up and restores it (D44, OPS-15), and a restore asks Postgres, through `pg_isready` and `psql`, whether it runs and how far its replay has come, and commits a transaction that changes nothing ([backups.md](../operations/backups.md#restoring)). No statement a script sends names a table of the product schema (DATA-01). The repository's own tools reach the database too: the CI checks that inspect the schema or the compiled queries, `just prepare`, which rewrites the query cache from the migrated database (DATA-14), and `just new-module`, which rewrites it from a database of its own that the migrations, its module's among them, build.
 - Why: application tasks use the same configuration, types and checks as the server.
 - Check: `ci: check-shell` (each `psql` of a script under `deploy/` takes its statement with `-c`, and the statement names no table of the product schema), plus `review` (what a script asks of Postgres's tools).
 

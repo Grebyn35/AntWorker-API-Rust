@@ -1,0 +1,14 @@
+//! Builders of sample items, through the `owner` connection (TEST-05, TEST-09).
+
+use super::TestDatabase;
+
+/// Creates a sample item named `name` in `workspace`, and returns its ID.
+pub async fn arrange(db: &TestDatabase, workspace: &str, name: &str) -> String {
+    let name = name.replace('\'', "''");
+    db.owner_reads(&format!(
+        "INSERT INTO sample_items (workspace_id, name) VALUES ('{workspace}', '{name}') \
+         RETURNING id::text"
+    ))
+    .await
+    .remove(0)
+}

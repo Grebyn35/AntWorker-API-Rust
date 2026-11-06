@@ -95,6 +95,18 @@ fn check_with(
     }
 }
 
+/// Whether the file at `path` is a migration of `module`: one of `migrations/` whose name holds
+/// `module` right after its timestamp (DATA-09).
+pub fn of_module(path: &str, module: &str) -> bool {
+    path.strip_prefix("migrations/")
+        .and_then(|name| name.split_once('_'))
+        .is_some_and(|(stamp, rest)| {
+            stamp.chars().all(|c| c.is_ascii_digit())
+                && rest.starts_with(&format!("{module}_"))
+                && rest.ends_with(".sql")
+        })
+}
+
 /// Whether `path` names a migration as DATA-09 asks, with one of `modules`.
 fn named(path: &str, modules: &[&str]) -> bool {
     let Some(name) = path

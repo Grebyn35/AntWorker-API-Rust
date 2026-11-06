@@ -240,9 +240,10 @@ check-parts:
 check-removable *runs:
     {{ xtask }} check-removable {{ runs }}
 
-# On a copy of the repository, writes the module order_items with `just new-module`, then runs
-# `just checks` on the copy (ARCH-03). The copy and its build are in target/new-module/order_items/.
-[doc("Fails unless a module that `just new-module` writes leaves a copy that passes the checks")]
+# On a copy of the repository, writes the modules order_items, then categories, with `just
+# new-module`, then runs `just checks` on the copy (ARCH-03). The copy and its build are in
+# target/new-module/modules/.
+[doc("Fails unless two modules that `just new-module` writes leave a copy that passes the checks")]
 [group('check')]
 check-new-module:
     {{ xtask }} check-new-module

@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     events::{self, Event},
+    lists::{field, pages},
     streams,
     users::{self, SignedIn},
     workspaces,
@@ -25,16 +26,6 @@ async fn create(
         call = call.header("idempotency-key", key);
     }
     call.send().await
-}
-
-/// The values of `field` in each item of a list's body.
-fn field(body: &Value, field: &str) -> Vec<String> {
-    body["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|item| item[field].as_str().unwrap().to_owned())
-        .collect()
 }
 
 #[tokio::test]
@@ -118,21 +109,6 @@ async fn workspaces_001_a_retry_with_the_key_creates_one_workspace() {
         .owner_reads("SELECT count(*)::text FROM workspaces")
         .await;
     assert_eq!(count, ["1"]);
-}
-
-/// The IDs, by `field`, of every page of the list at `path`, a path with a query, read as `user`
-/// by following each page's `next_cursor`.
-async fn pages(api: &Api, user: &SignedIn, path: &str, field_name: &str) -> Vec<Vec<String>> {
-    let mut pages = Vec::new();
-    let mut next = path.to_owned();
-    loop {
-        let body = api.get(&next).bearer(&user.access).send().await.json();
-        pages.push(field(&body, field_name));
-        match body["next_cursor"].as_str() {
-            Some(cursor) => next = format!("{path}&cursor={cursor}"),
-            None => return pages,
-        }
-    }
 }
 
 #[tokio::test]

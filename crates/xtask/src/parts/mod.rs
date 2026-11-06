@@ -16,7 +16,7 @@ use serde_json::Value;
 use crate::{
     Finding,
     copy::{self, Copy},
-    markdown, metrics,
+    markdown, metrics, migrations,
     repo::{self, Repo},
 };
 
@@ -164,15 +164,7 @@ fn owned(repo: &Repo, part: &Part) -> Vec<String> {
     if let Some(module) = &part.module {
         owned.extend(
             repo.paths()
-                .filter(|path| {
-                    path.strip_prefix("migrations/")
-                        .and_then(|name| name.split_once('_'))
-                        .is_some_and(|(stamp, rest)| {
-                            stamp.chars().all(|c| c.is_ascii_digit())
-                                && rest.starts_with(&format!("{module}_"))
-                                && rest.ends_with(".sql")
-                        })
-                })
+                .filter(|path| migrations::of_module(path, module))
                 .map(str::to_owned),
         );
     }

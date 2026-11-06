@@ -28,7 +28,7 @@ use names::Names;
 
 use crate::{
     copy::{self, Copy},
-    migrated,
+    migrated, migrations,
     repo::{self, Repo},
 };
 
@@ -44,12 +44,16 @@ const TIMESTAMP: &str = "TIMESTAMP";
 /// The migrations' directory.
 const MIGRATIONS: &str = "migrations/";
 
+/// The permission matrix, whose permissions a module's are named after it (ACCESS-002).
+const PERMISSIONS: &str = "crates/app/src/modules/access/permissions.rs";
+
 /// The query cache's directory (DATA-14).
 const CACHE: &str = ".sqlx/";
 
-/// The module that `check-new-module` writes: its two words take every form apart, and its
-/// resource takes "an".
-const CHECKED: (&str, &str) = ("order_items", "order_item");
+/// The modules that `check-new-module` writes, one after the other, on one copy: the first's two
+/// words take every form of a name apart, and its resource takes "an"; the second's resource is
+/// the singular of a plural in "-ies", and its lines follow the first's in every shared file.
+const CHECKED: [(&str, &str); 2] = [("order_items", "order_item"), ("categories", "category")];
 
 /// Writes the module `module`, whose resource is `resource`, or the singular of `module`.
 pub fn run(module: &str, resource: Option<String>) -> ExitCode {
@@ -81,20 +85,23 @@ pub fn run(module: &str, resource: Option<String>) -> ExitCode {
     }
 }
 
-/// Runs `check-new-module` (ARCH-03): on a fresh copy of the repository, writes a module with
-/// `just new-module`, then runs `just checks` there.
+/// Runs `check-new-module` (ARCH-03): on a fresh copy of the repository, writes each module of
+/// [`CHECKED`] with `just new-module`, then runs `just checks` there.
 pub fn check() -> ExitCode {
-    let (module, resource) = CHECKED;
-    let checked = Copy::fresh("new-module", module).and_then(|copy| {
-        copy.just(&["new-module", module, resource])?;
+    let checked = Copy::fresh("new-module", "modules").and_then(|copy| {
+        for (module, resource) in CHECKED {
+            copy.just(&["new-module", module, resource])?;
+        }
         copy.just(&["checks"])
     });
+    let modules: Vec<&str> = CHECKED.iter().map(|(module, _)| *module).collect();
+    let modules = modules.join("` and `");
     match checked {
         Ok(()) => {
-            report(&format!("check-new-module: `{module}` passed the checks"));
+            report(&format!("check-new-module: `{modules}` passed the checks"));
             ExitCode::SUCCESS
         }
-        Err(error) => fail(&format!("check-new-module: `{module}` failed: {error}")),
+        Err(error) => fail(&format!("check-new-module: `{modules}` failed: {error}")),
     }
 }
 
@@ -144,28 +151,46 @@ fn write(names: &Names) -> Result<Written, String> {
     }
 }
 
-/// Fails when the repository already has a module, a spec, a test file or a migration of
-/// `names`' module.
+/// Fails when the repository already has a module, a spec, a test file, a builder or a migration
+/// of `names`' module, a table of its name, or a permission of its name, whose types the module's
+/// would repeat.
 fn refuse_taken(repo: &Repo, names: &Names) -> Result<(), String> {
     let module = &names.module;
     let taken = [
         format!("crates/app/src/modules/{module}/"),
         format!("docs/spec/{module}.md"),
         format!("crates/app/tests/integration/{module}.rs"),
+        format!("crates/app/tests/integration/support/{module}.rs"),
     ];
-    let migration = format!("_{module}_");
     let found = repo.paths().find(|path| {
         taken.iter().any(|taken| path.starts_with(taken.as_str()))
-            || path
-                .strip_prefix(MIGRATIONS)
-                .is_some_and(|name| name.contains(&migration))
+            || migrations::of_module(path, module)
     });
-    match found {
-        Some(path) => Err(format!(
+    if let Some(path) = found {
+        return Err(format!(
             "the repository has `{path}` already, so it has a module `{module}`, or had one"
-        )),
-        None => Ok(()),
+        ));
     }
+    let table = format!("CREATE TABLE {module} (");
+    if let Some(file) = repo
+        .files()
+        .find(|file| file.path.starts_with(MIGRATIONS) && file.text.contains(&table))
+    {
+        return Err(format!(
+            "{} creates a table `{module}` already, which the module's table would repeat",
+            file.path
+        ));
+    }
+    let permission = format!("\"{module}.");
+    if repo
+        .file(PERMISSIONS)
+        .is_some_and(|file| file.text.contains(&permission))
+    {
+        return Err(format!(
+            "{PERMISSIONS} holds a permission `{module}.` already, which the module's would repeat"
+        ));
+    }
+    Ok(())
 }
 
 /// Each file the module owns, at its path, with its text: the templates of `files/` with
@@ -205,7 +230,6 @@ fn inserts(repo: &Repo, names: &Names) -> Result<Inserts, String> {
         permissions: read("permissions.rs")?,
         matrix: read("matrix.rs")?,
         access_exports: read("access-exports.rs")?,
-        test_08_row: read("test-08-row.rs")?,
         test_08_fixtures: read("test-08-fixtures.rs")?,
         architecture_owns: read("architecture-owns.md")?,
         architecture_graph: read("architecture-graph.md")?,
@@ -218,7 +242,6 @@ fn inserts(repo: &Repo, names: &Names) -> Result<Inserts, String> {
             ("permissions.rs", inserts.permissions.as_str()),
             ("matrix.rs", &inserts.matrix),
             ("access-exports.rs", &inserts.access_exports),
-            ("test-08-row.rs", &inserts.test_08_row),
             ("test-08-fixtures.rs", &inserts.test_08_fixtures),
             ("architecture-owns.md", &inserts.architecture_owns),
             ("architecture-graph.md", &inserts.architecture_graph),
@@ -439,7 +462,7 @@ mod tests {
 
     #[test]
     fn arch_03_a_module_that_exists_or_existed_is_refused() {
-        let names = Names::new("order_items", None).unwrap();
+        let names = Names::new(CHECKED[0].0, None).unwrap();
         let spec = Repo::of(&[("docs/spec/order_items.md", "")]);
         let migration = Repo::of(&[("migrations/20260101000000_order_items_order_items.sql", "")]);
         let other = Repo::of(&[("migrations/20260101000000_orders_orders.sql", "")]);
@@ -447,21 +470,42 @@ mod tests {
         assert!(refuse_taken(&spec, &names).is_err());
         assert!(refuse_taken(&migration, &names).is_err());
         assert!(refuse_taken(&other, &names).is_ok());
+        // `entries` is no module of `audit_entries_workspace_key`, whose module is `audit`.
+        let entries = Names::new("entries", None).unwrap();
+        let audit = Repo::of(&[(
+            "migrations/20261101130200_audit_entries_workspace_key.sql",
+            "ALTER TABLE audit_entries ADD x int;",
+        )]);
+        assert!(refuse_taken(&audit, &entries).is_ok());
+        let table = Repo::of(&[(
+            "migrations/20261101120200_accounts_users.sql",
+            "CREATE TABLE order_items (id uuid);",
+        )]);
+        assert!(refuse_taken(&table, &names).unwrap_err().contains("table"));
+        let permission = Repo::of(&[(PERMISSIONS, "(\"order_items.read\", &[]),")]);
+        assert!(
+            refuse_taken(&permission, &names)
+                .unwrap_err()
+                .contains("permission")
+        );
     }
 
     #[test]
-    fn arch_03_every_template_name_becomes_the_module_s() {
+    fn arch_03_every_template_name_becomes_each_checked_module_s() {
         let repo = Repo::load().unwrap();
-        let names = Names::new(CHECKED.0, Some(CHECKED.1)).unwrap();
+        for (module, resource) in CHECKED {
+            let names = Names::new(module, Some(resource)).unwrap();
 
-        let files = files(&repo, &names).unwrap();
-        inserts(&repo, &names).unwrap();
+            let files = files(&repo, &names).unwrap();
+            inserts(&repo, &names).unwrap();
 
-        let paths: Vec<&str> = files.iter().map(|(path, _)| path.as_str()).collect();
-        assert!(paths.contains(&"crates/app/src/modules/order_items/mod.rs"));
-        assert!(paths.contains(&"docs/spec/order_items.md"));
-        assert!(paths.iter().any(|path| {
-            path.starts_with("migrations/") && path.ends_with("_order_items_order_items.sql")
-        }));
+            let paths: Vec<&str> = files.iter().map(|(path, _)| path.as_str()).collect();
+            assert!(paths.contains(&format!("crates/app/src/modules/{module}/mod.rs").as_str()));
+            assert!(paths.contains(&format!("docs/spec/{module}.md").as_str()));
+            assert!(paths.iter().any(|path| {
+                path.starts_with("migrations/")
+                    && path.ends_with(&format!("_{module}_{module}.sql"))
+            }));
+        }
     }
 }

@@ -69,8 +69,8 @@ default:
     @just --list
 
 # Runs every check CI runs: the checks of the code, on the repository, on its copies without each
-# run's optional parts, and on a copy with a module that `just new-module` wrote, then the build of
-# the image and its checks, on this machine's platform.
+# run's optional parts, and on a copy with two modules that `just new-module` wrote, then the build
+# of the image and its checks, on this machine's platform.
 [doc("Runs every check CI runs, the image's included")]
 [group('check')]
 ci: checks check-removable check-new-module image image-scan e2e

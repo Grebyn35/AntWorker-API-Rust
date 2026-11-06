@@ -126,4 +126,23 @@ mod tests {
         assert!(read.headers().get(header::ETAG).is_none());
         assert!(read.headers().get(header::LOCATION).is_none());
     }
+
+    #[test]
+    fn err_08_a_location_that_no_header_can_hold_answers_the_fixed_internal_body() {
+        let response =
+            ResourceResponse::created("body", "/v1/things/\n1".to_owned()).into_response();
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(response.headers().get(header::LOCATION).is_none());
+        let body = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(axum::body::to_bytes(response.into_body(), usize::MAX))
+            .unwrap();
+        let problem: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(problem["code"], "request.internal_error");
+        assert_eq!(problem["title"], "Internal error");
+        assert!(problem.get("detail").is_none());
+        assert!(!problem.to_string().contains("things"));
+    }
 }

@@ -41,7 +41,7 @@ just release         # the versions that can come next; `just release 1.4.0` rel
 just check-test-map  # which spec behaviors tests prove
 just new-module      # a new module, such as `just new-module order_items`, holding one workspace resource, with its migration, permissions, spec and tests (ARCH-03)
 just check-removable # each workspace shape's copy of the repository, without the parts it removes, passes the checks (ARCH-07)
-just check-new-module # a copy of the repository with a module that `just new-module` wrote passes the checks (ARCH-03)
+just check-new-module # a copy of the repository with two modules that `just new-module` wrote passes the checks (ARCH-03)
 just test            # the tests; they start Postgres through Compose
 just run             # the API with the settings in .env, after bootstrap and migrate
 just migrate         # applies new migrations
@@ -49,6 +49,4 @@ just prepare         # rewrites the query cache in .sqlx/ (DATA-14)
 just metrics         # rewrites the metric catalog from the declarations (OBS-12)
 ```
 
-Queries are checked while compiling: the tasks build against the query cache in `.sqlx/`, which `just prepare` rewrites from the development database. `migrate` is part of the same binary, so it builds only while the cache holds every query. Run `just migrate` before writing a query, on a fresh clone as after adding a migration, then `just prepare` once it is written, before the other tasks build it.
-
-Editing a migration that no release contains (DATA-09) means recreating the development database, which `migrate` refuses once its applied file differs. Recreate it before changing the queries, while the cache in `.sqlx/` still matches them, so the binary compiles without the database: `docker compose exec postgres psql -U postgres -d postgres -c "DROP DATABASE api WITH (FORCE)" -c "CREATE DATABASE api"`, then `SQLX_OFFLINE=true just migrate`. The tests' databases need nothing: their template is named after the migrations' checksums. A checksum reads the file's bytes on disk, and `.gitattributes` commits every text file with lines that end in a line feed alone, so save files that way: one whose lines end in a carriage return and a line feed, as Python's text writes do on Windows, commits unchanged, but migrates with a checksum that no checkout reproduces.
+How queries, migrations and the query cache in `.sqlx/` work together, and how to edit a migration that no release holds, is in [the guide to adding a module](docs/guides/adding-a-module.md#migrations-and-the-query-cache).

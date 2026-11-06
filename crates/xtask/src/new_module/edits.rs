@@ -1,7 +1,8 @@
 //! Where a new module registers itself in the files that every module shares: each insertion
 //! finds its place by what the file holds there, such as the `const MATRIX` of the permission
-//! matrix, so it needs no marker of its own. A file that doesn't hold that place any more, as a
-//! fork may have rewritten it, gets no edit, and the task names what to add there instead.
+//! matrix, so it needs no marker of its own. When a file doesn't hold its place any more, as a
+//! fork may have rewritten it, `edits` gives what to add to each such file instead, and the task
+//! writes nothing.
 
 use super::names::Names;
 
@@ -22,8 +23,6 @@ pub struct Inserts {
     pub matrix: String,
     /// The re-export of the permission types (`access/mod.rs`).
     pub access_exports: String,
-    /// The row that TEST-08's fixtures arrange (`tests/integration/access.rs`).
-    pub test_08_row: String,
     /// TEST-08's fixtures of the module's routes (`tests/integration/access.rs`).
     pub test_08_fixtures: String,
     /// The module's row of what each module owns (architecture.md §5).
@@ -123,9 +122,18 @@ fn code(plan: &mut Plan<'_>, module: &str, inserts: &Inserts) {
         &|text| sorted(text, module, &test_lines, |line| entry(line, "mod ", ";")),
     );
     plan.place(
+        "crates/app/tests/integration/support/mod.rs",
+        &format!("`pub mod {module};` among the test support's modules"),
+        &|text| {
+            sorted(text, module, &[format!("pub mod {module};")], |line| {
+                entry(line, "pub mod ", ";")
+            })
+        },
+    );
+    plan.place(
         "crates/app/tests/integration/access.rs",
-        "the row and the fixtures of the module's routes in TEST-08's test",
-        &|text| test_08(text, &inserts.test_08_row, &inserts.test_08_fixtures),
+        "the fixtures of the module's routes at the end of TEST-08's `FIXTURES`",
+        &|text| test_08(text, &inserts.test_08_fixtures),
     );
 }
 
@@ -307,22 +315,12 @@ fn after_statement(text: &str, start: &str, insert: &str) -> Option<String> {
     Some(before(text, end + 1, insert))
 }
 
-/// TEST-08's test with the module's row above the fixtures' function, and its fixtures before the
-/// match's last arm.
-fn test_08(text: &str, row: &str, fixtures: &str) -> Option<String> {
+/// TEST-08's test with the module's fixtures at the end of its `FIXTURES`.
+fn test_08(text: &str, fixtures: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
-    let function = find(&lines, 0, |line| line.starts_with("fn fixture("))?;
-    let last_arm = find(&lines, function, |line| line.trim() == "_ => return None,")?;
-    let text = before(text, last_arm, fixtures);
-    let mut documented = function;
-    while documented > 0 && lines[documented - 1].starts_with("///") {
-        documented -= 1;
-    }
-    Some(before(
-        &text,
-        documented,
-        &format!("{}\n\n", row.trim_end()),
-    ))
+    let table = find(&lines, 0, |line| line.starts_with("const FIXTURES"))?;
+    let table_end = find(&lines, table, |line| line == "];")?;
+    Some(before(text, table_end, fixtures))
 }
 
 /// architecture.md with the module's row of what each module owns, before `platform`'s, which
@@ -422,7 +420,6 @@ mod tests {
             permissions: String::new(),
             matrix: String::new(),
             access_exports: String::new(),
-            test_08_row: String::new(),
             test_08_fixtures: String::new(),
             architecture_owns: String::new(),
             architecture_graph: String::new(),
@@ -438,7 +435,7 @@ mod tests {
             Err(missing) => missing,
         };
 
-        assert_eq!(missing.len(), 9);
+        assert_eq!(missing.len(), 10);
         assert!(
             missing[0].starts_with("crates/app/src/modules/mod.rs: add `pub(crate) mod files;`")
         );
