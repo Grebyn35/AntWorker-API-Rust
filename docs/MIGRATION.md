@@ -211,7 +211,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 8444903..6f884c0: the items before step 4: a restore's record of when its timeline begins (D85), what the tasks leave on the machine (OPS-21, D86), and the one home of the rules each check enforces (DOC-07) | 1 | 10 (6, 6, 2 shared) | 3 | 0 | `next pass`: c15e6c4 |
 | 8444903..c15e6c4: as above, with pass 1's fixes | 2 | 11 (8, 7, 4 shared) | 4 | 3 | `stopped: no progress`: e94d26e |
 | 8efb527..6c97b86: step 4's afternoon test: renaming and reading a workspace, `platform`'s JSON Merge Patch bodies and `If-Match` preconditions (PLATFORM-071, D87, D88), and the fixes of what slowed it | 1 | 11 (10, 6, 5 shared) | 5 | 0 | `next pass`: 5267df6 |
-| 8efb527..5267df6: as above, with pass 1's fixes | 2 | 5 (3, 2, 0 shared) | 1 | 0 | `next pass` |
+| 8efb527..5267df6: as above, with pass 1's fixes | 2 | 5 (3, 2, 0 shared) | 1 | 0 | `next pass`: 8ff2610 |
+| 8efb527..8ff2610: as above, with pass 2's fixes | 3 | 1 (1, 1, 1 shared) | 1 | 0 | `stopped: no progress` |
 
 ## Decisions
 
