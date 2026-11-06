@@ -21,7 +21,7 @@ use std::{path::Path, process::ExitCode};
 
 use serde_json::{Value, json};
 
-use super::{PORT, docker, fail, healthy, next_rate, report};
+use super::{LABEL, PORT, docker, fail, healthy, next_rate, report};
 use readers::{Streams, delivered, open_streams};
 
 /// What a replica of the image under test runs with: the image, the network of Compose's
@@ -116,9 +116,12 @@ fn start(
 ) -> Result<String, String> {
     let listen = format!("LISTEN_ADDR=0.0.0.0:{PORT}");
     let publish = format!("127.0.0.1::{PORT}");
+    let label = format!("{LABEL}=true");
     let mut args = vec![
         "run",
         "--detach",
+        "--label",
+        &label,
         "--network",
         replica.network,
         "--read-only",

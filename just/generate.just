@@ -13,7 +13,7 @@ prepare: bound-build services
 # route; a test fails while the committed document differs from the one the code writes.
 [doc("Rewrites openapi.json, after a route changes")]
 [group('generate')]
-openapi:
+openapi: bound-build
     {{ api }} openapi openapi.json
 
 # Writes the metric catalog, docs/operations/metrics.md, from the metric declarations (OBS-12).

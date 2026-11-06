@@ -200,12 +200,18 @@ restore() {
         full=$(printf "%s\n" "$info" | jq -r "[.[0].backup[] | select(.type == \"full\")] | max_by(.timestamp.stop) | .label")
         at=$(date -u "+%s%6N %Y-%m-%d %H:%M:%S.%6N+00")
         pgbackrest --stanza=db annotate --set="$full" --annotation="timeline-$id=${at%% *}" >&2
-        printf "%s %s\n" "$id" "${at#* }"' sh "$timeline"); then
+        printf "%s %s %s\n" "$id" "$full" "$at"' sh "$timeline"); then
         say "couldn't record in the bucket when the restore's timeline begins, with pgBackRest's error above"
         serve_again
         fail "refused the restore; once the bucket answers, restore again"
     fi
+    # The timeline, the full backup that holds the record, and when it begins, in microseconds and
+    # as Postgres writes a time.
     new_timeline=${recorded%% *}
+    recorded=${recorded#* }
+    record_set=${recorded%% *}
+    recorded=${recorded#* }
+    began_micros=${recorded%% *}
     say "the bucket records that timeline $new_timeline, which the restore begins, begins at ${recorded#* }"
     compose stop postgres
     stamp=$(date -u +%Y%m%dT%H%M%SZ)
@@ -254,12 +260,17 @@ restore() {
         fi
     fi
     # The timeline that Postgres began is the one whose beginning the bucket records, unless the
-    # bucket's histories changed while the restore ran, as when another server restores into it.
+    # bucket's histories changed while the restore ran, as when another server restores into it:
+    # then the restore records the same beginning for the timeline Postgres began, so that no
+    # timeline it begins lacks a record.
     if ! postgres_timeline=$(compose exec -T --user postgres postgres psql -qAt -c "SELECT ('x' || left(pg_walfile_name(pg_current_wal_lsn()), 8))::bit(32)::int"); then
         fail "couldn't find which timeline Postgres began, with the error above"
     fi
     if [ "$postgres_timeline" != "$new_timeline" ]; then
-        fail "Postgres began timeline $postgres_timeline, while the bucket records when timeline $new_timeline begins: the bucket's histories changed while the restore ran, as when another server restores into it"
+        say "Postgres began timeline $postgres_timeline, not $new_timeline: the bucket's histories changed while the restore ran, as when another server restores into it; recording the beginning for timeline $postgres_timeline"
+        if ! compose exec -T --user postgres postgres pgbackrest --stanza=db annotate --set="$record_set" --annotation="timeline-$postgres_timeline=$began_micros" >&2; then
+            fail "couldn't record in the bucket when timeline $postgres_timeline begins, with pgBackRest's error above, so the API stays down; once the bucket answers, restore the latest state, which records it"
+        fi
     fi
     if [ -n "$live" ]; then
         API_IMAGE_NEW=$live_image compose --profile tasks run --rm --no-deps --quiet-pull migrate

@@ -57,8 +57,7 @@ _image-cache:
     if ('{{ image_cache }}' -and (Test-Path '{{ image_cache }}-new')) { Remove-Item -Recurse -Force '{{ image_cache }}' -ErrorAction SilentlyContinue; Move-Item '{{ image_cache }}-new' '{{ image_cache }}' }
 
 # Fails on a vulnerability that has a fix and is rated high or critical, in each platform's image
-# of each image in target. The scanner reads the operating system's packages and the crates the
-# binary records.
+# of each image in target, as docs/operations/ci.md says.
 [doc("Scans the images in target/ for vulnerabilities that have a fix")]
 [group('image')]
 image-scan:
@@ -96,5 +95,4 @@ e2e *tests: bound-build services
 [doc("Measures one replica's capacity, for the release notes")]
 [group('image')]
 load-test route="capabilities": services
-    docker compose --profile observability up --detach --wait collector prometheus loki tempo
     {{ xtask }} load-test {{ route }}

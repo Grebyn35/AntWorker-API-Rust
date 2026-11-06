@@ -18,8 +18,8 @@
 //! then. A timeline whose beginning no backup records began, for the plan, before every backup the
 //! bucket holds: no backup that it holds reaches a moment before that timeline began. A backup of
 //! an earlier timeline was taken before it began, so a bucket that holds one and no record of the
-//! later timeline's beginning predates the records, and the plan refuses a moment there rather
-//! than guess which timeline was live.
+//! later timeline's beginning predates the records, and the plan refuses a moment there that no
+//! later timeline's recorded beginning precedes, rather than guess which timeline was live.
 //!
 //! The plan is a pure function of what the backup bucket records, which deploy.sh's
 //! `restore-inputs` prints, so tests cover it without a bucket. `just restore` makes it on the
@@ -77,15 +77,20 @@ pub struct Plan {
 pub fn plan(moment: i64, backups: &[Backup], timelines: &[Timeline]) -> Result<Plan, String> {
     if moment < i64::MAX
         && let Some(unrecorded) = timelines.iter().find(|timeline| {
-            timeline.began.is_none() && backups.iter().any(|backup| backup.timeline < timeline.id)
+            timeline.began.is_none()
+                && backups.iter().any(|backup| backup.timeline < timeline.id)
+                && !timelines.iter().any(|later| {
+                    later.id > timeline.id && later.began.is_some_and(|began| began < moment)
+                })
         })
     {
         let id = unrecorded.id;
         return Err(format!(
             "the bucket doesn't record when timeline {id} began, while it holds a backup from \
              before then, as when a restore that recorded no beginning began it, so the backups \
-             can't tell which timeline was live at the moment. The latest state restores, and a \
-             moment does once every backup from before timeline {id} has expired"
+             can't tell which timeline was live at the moment. The latest state restores, and so \
+             does a moment after a later timeline's recorded beginning, or once every backup from \
+             before timeline {id} has expired"
         ));
     }
     let live = timelines
@@ -536,6 +541,32 @@ mod tests {
             "{moment:?}"
         );
         assert_eq!(latest.map(|plan| plan.set), Ok("closing".to_owned()));
+    }
+
+    #[test]
+    fn ops_15_a_moment_after_a_later_timeline_s_recorded_beginning_is_planned_past_an_unrecorded_one()
+     {
+        // As above, then a restore at 2000 that recorded its timeline 3, which branched off
+        // timeline 2 after the closing backup: a moment after 2000 can only be on timeline 3.
+        let (backups, mut timelines) = restored_once();
+        timelines[0].began = None;
+        timelines.push(Timeline {
+            id: 3,
+            began: Some(at(2000)),
+            branches: vec![(1, 40), (2, 150)],
+        });
+
+        let after = plan(at(2100), &backups, &timelines);
+        let before = plan(at(1900), &backups, &timelines);
+
+        assert_eq!(
+            after,
+            Ok(Plan {
+                set: "closing".to_owned(),
+                timeline: 3
+            })
+        );
+        assert!(before.is_err(), "{before:?}");
     }
 
     #[test]

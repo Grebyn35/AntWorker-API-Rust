@@ -27,7 +27,7 @@ setup-tools:
 # what `just dev` wrote.
 [linux]
 [private]
-setup-smoke:
+setup-smoke: bound-build
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p target
@@ -54,7 +54,7 @@ setup-smoke:
 # `just dev` starts, so CI runs `just setup` and this there every week.
 [windows]
 [private]
-setup-smoke:
+setup-smoke: bound-build
     cargo build --workspace --all-targets --locked
 
 # The build directory of the dev and test profiles, in the directory that CARGO_TARGET_DIR names,
@@ -263,5 +263,5 @@ check-migrations:
 # migrations build: run `just prepare` after changing a query or a migration.
 [doc("Fails on a query cache that `just prepare` would change")]
 [group('check')]
-sqlx-check: services
+sqlx-check: bound-build services
     {{ xtask }} sqlx-check

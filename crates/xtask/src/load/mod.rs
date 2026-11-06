@@ -25,7 +25,7 @@ use std::{
 use serde_json::Value;
 
 use crate::{repo::Repo, telemetry_config};
-use replica::{healthy, hold_the_machine, image, limits, prepare};
+use replica::{LABEL, healthy, hold_the_machine, image, limits, prepare, start_the_stack};
 
 mod replica;
 // part: invitations
@@ -120,7 +120,8 @@ pub fn run(route: &str) -> ExitCode {
         return fail(&format!("no route is named {route}: {}", names.join(", ")));
     };
     let root = root();
-    let _machine = match hold_the_machine() {
+    let held = hold_the_machine(&root).and_then(|machine| start_the_stack(&root).map(|()| machine));
+    let _machine = match held {
         Ok(machine) => machine,
         Err(error) => return fail(&error),
     };
@@ -155,9 +156,12 @@ pub fn run(route: &str) -> ExitCode {
     }
     // end part: invitations
     let listen = format!("LISTEN_ADDR=0.0.0.0:{PORT}");
+    let label = format!("{LABEL}=true");
     let mut args = vec![
         "run",
         "--detach",
+        "--label",
+        &label,
         "--network",
         &network,
         "--cpus",

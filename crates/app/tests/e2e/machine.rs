@@ -15,9 +15,10 @@ use crate::{
     images::Pushed,
 };
 
-/// The label of every container that the tests start on the machine, by which a later run finds
-/// what an earlier one left.
-pub const LABEL: &str = "e2e-test-container";
+/// The label of every container that the tests start on the machine in the background, as of each
+/// that the load test starts (crates/xtask/src/load/replica.rs), by which a later run of either
+/// finds what an earlier one left.
+pub const LABEL: &str = "image-test-container";
 
 /// Holds the machine for this run, from the first call on: a run that finds another holding it
 /// fails, saying so, rather than counting the memory that the other's servers hold as its own.
@@ -148,12 +149,15 @@ mod tests {
     #[test]
     fn ops_21_a_run_removes_the_containers_that_an_earlier_one_left() {
         // A label of this test's own, so the removal leaves the containers of the tests that run
-        // beside it, which carry `LABEL`.
-        let label = "e2e-test-container-left";
+        // beside it, which carry `LABEL`; and a container that removes itself once its sleep ends,
+        // should the removal fail.
+        claim();
+        let label = "image-test-container-left";
         let image = compose(&["config", "--images", "server"]);
         docker(&[
             "run",
             "--detach",
+            "--rm",
             "--label",
             label,
             "--entrypoint",

@@ -81,20 +81,68 @@ pub(super) fn healthy(root: &Path, id: &str) -> Result<(), String> {
     }
 }
 
+/// The label of each container that the load test starts, as of each that the end-to-end tests
+/// start in the background (crates/app/tests/e2e/machine.rs), by which a later run of either finds
+/// what an earlier one left.
+pub(super) const LABEL: &str = "image-test-container";
+
 /// Holds the machine for the load test, through the lock that a run of the end-to-end tests holds
-/// it by (crates/app/tests/e2e/machine.rs), or says why it can't: a run of either counts the
-/// machine as its own (OPS-21). The operating system lets the machine go when the process ends.
+/// it by (crates/app/tests/e2e/machine.rs), then removes the containers that an earlier run of
+/// either left, with their volumes; or says why it can't: a run of either counts the machine as
+/// its own (OPS-21). The operating system lets the machine go when the process ends.
+pub(super) fn hold_the_machine(root: &Path) -> Result<File, String> {
+    let machine = hold(&std::env::temp_dir().join("image-tests.lock"))?;
+    let left = docker(
+        root,
+        &[
+            "ps",
+            "--all",
+            "--quiet",
+            "--filter",
+            &format!("label={LABEL}"),
+        ],
+    )?;
+    let left: Vec<&str> = left.lines().collect();
+    if !left.is_empty() {
+        docker(root, &[&["rm", "--force", "--volumes"][..], &left].concat())?;
+    }
+    Ok(machine)
+}
+
+/// Starts the observability stack that the replica exports its telemetry to, once the load test
+/// holds the machine, whose memory the stack takes.
+pub(super) fn start_the_stack(root: &Path) -> Result<(), String> {
+    docker(
+        root,
+        &[
+            "compose",
+            "--profile",
+            "observability",
+            "up",
+            "--detach",
+            "--wait",
+            "collector",
+            "prometheus",
+            "loki",
+            "tempo",
+        ],
+    )
+    .map(|_| ())
+    .map_err(|error| format!("the observability stack didn't start: {error}"))
+}
+
+/// The lock on the file at `path`, or why there is none: another process holds it, or the file
+/// can't be opened.
 #[expect(
     clippy::disallowed_methods,
     reason = "the load test runs as a synchronous program, with no async runtime to stall"
 )]
-pub(super) fn hold_the_machine() -> Result<File, String> {
-    let path = std::env::temp_dir().join("image-tests.lock");
+fn hold(path: &Path) -> Result<File, String> {
     let file = OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(&path)
+        .open(path)
         .map_err(|error| format!("can't open {}: {error}", path.display()))?;
     match file.try_lock() {
         Ok(()) => Ok(file),
@@ -206,4 +254,27 @@ pub(super) fn settings() -> Result<Vec<String>, String> {
         settings.push(format!("{name}={}@postgres:5432{path}", &value[..at]));
     }
     Ok(settings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ops_21_a_load_test_holds_the_machine_so_that_another_fails_at_once() {
+        // A file of this test's own, so a run of the end-to-end tests that holds the machine
+        // meanwhile changes nothing.
+        let path = std::env::temp_dir().join(format!("image-tests-{}.lock", std::process::id()));
+
+        let first = hold(&path);
+        let second = hold(&path);
+
+        assert!(first.is_ok(), "{first:?}");
+        assert!(
+            second
+                .as_ref()
+                .is_err_and(|refused| refused.contains("holds this machine")),
+            "{second:?}"
+        );
+    }
 }

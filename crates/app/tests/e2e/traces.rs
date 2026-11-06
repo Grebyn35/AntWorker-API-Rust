@@ -10,6 +10,7 @@ use serde_json::Value;
 use crate::{
     docker::{Container, compose, docker, lossy, postgres_network},
     image::{Image, PORT, on_the_tests_server, settings},
+    machine,
     support::{self, TestDatabase, http_request},
 };
 
@@ -108,6 +109,8 @@ fn why_nothing_arrived(server: &Container) -> String {
 fn start_the_stack() {
     static STARTED: OnceLock<()> = OnceLock::new();
     STARTED.get_or_init(|| {
+        // Once the run holds the machine, which the stack's memory belongs to.
+        machine::claim();
         compose(&[
             "--profile",
             "observability",
