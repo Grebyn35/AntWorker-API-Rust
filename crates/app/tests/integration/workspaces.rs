@@ -664,7 +664,7 @@ async fn workspaces_007_reading_a_workspace_gives_it_with_the_caller_s_role_and_
 }
 
 #[tokio::test]
-async fn workspaces_007_a_created_workspace_s_location_reads_it() {
+async fn workspaces_001_a_created_workspace_s_location_reads_it() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let created = create(&api, &ada, "Acme", None).await;

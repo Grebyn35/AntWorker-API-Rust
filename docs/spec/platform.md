@@ -61,8 +61,6 @@ This spec covers what the first slice needs. Object storage, the telemetry proxy
 
 ## Behaviors
 
-IDs 001 to 005, 007, 008 and 033 are retired.
-
 ### Database
 
 | ID | Behavior | Rules | Test prefix |

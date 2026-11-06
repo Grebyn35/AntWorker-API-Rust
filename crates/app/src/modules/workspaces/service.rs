@@ -153,9 +153,10 @@ pub(crate) async fn read(
     })
 }
 
-/// Renames the caller's workspace, in the unit of work it was authorized in, if its version is
-/// one of `versions`, when the request named any: the name, its audit entry and the members'
-/// event commit together (WORKSPACES-008, PLATFORM-071).
+/// Renames the caller's workspace, in the unit of work it was authorized in: whatever its
+/// version when `versions` is `None`, and otherwise only if its version is one of them, so an
+/// empty set fails the precondition. The name, its audit entry and the members' event commit
+/// together (WORKSPACES-008, PLATFORM-071).
 pub(crate) async fn rename(
     mut uow: UnitOfWork,
     authorized: &Authorized<WorkspaceUpdate>,

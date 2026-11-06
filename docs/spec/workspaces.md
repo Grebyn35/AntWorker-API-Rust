@@ -31,6 +31,8 @@
 
 ## Behaviors
 
+ID 009 is retired.
+
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
 | WORKSPACES-001 | Creating a workspace makes the caller its owner, in one unit of work. It answers 201 with `Location`, the workspace's `ETag` (PLATFORM-071), and `{id, name, role: "owner", created_at}`. It records `workspace.created` in the workspace's log, and publishes the user event `membership.created`, which names the session that caused it, so that device can tell it already knows. | D33, API-04, DATA-22 | `workspaces_001_` |
