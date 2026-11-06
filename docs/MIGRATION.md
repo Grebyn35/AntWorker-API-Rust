@@ -208,6 +208,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 7081b7e..f9931fd: as above, with pass 1's fixes | 2 | 5 (4, 1, 0 shared) | 1 | 1 | `stopped: no progress`: b1c4e49 |
 | b35b321..05bde6f: the test suites' disk writes cut (D84), the Postgres image's `apt`, the stand-in bucket's volumes, and the moment of the restore while an earlier one ran | 1 | 5 (3, 4, 2 shared) | 1 | 0 | `next pass`: 847f951 |
 | b35b321..847f951: as above, with pass 1's fixes | 2 | 5 (3, 3, 1 shared) | 1 | 0 | `stopped: no progress`: 57e0c6b, d08b5b9 |
+| 8444903..6f884c0: the items before step 4: a restore's record of when its timeline begins (D85), what the tasks leave on the machine (OPS-21, D86), and the one home of the rules each check enforces (DOC-07) | 1 | 10 (6, 6, 2 shared) | 3 | 0 | `next pass` |
 
 ## Decisions
 
