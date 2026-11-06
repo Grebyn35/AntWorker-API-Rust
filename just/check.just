@@ -82,11 +82,13 @@ bound-build:
 fmt-check:
     cargo fmt --all -- --check
 
-# Runs clippy with warnings as errors, on every target with every feature, so the end-to-end tests
-# are linted too.
+# Runs clippy with warnings as errors: on the targets the image builds, with their default
+# features, where an item that only the tests' code uses is dead (CODE-15), then on every target
+# with every feature, so the tests, the end-to-end ones included, are linted too.
 [doc("Runs clippy, with warnings as errors")]
 [group('check')]
 lint: bound-build
+    cargo clippy --workspace --locked -- -D warnings
     cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 # Checks dependencies: advisories, bans and sources for every target, and licenses for each target

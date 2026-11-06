@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO workspaces (name) VALUES ($1) RETURNING id, created_at",
+  "query": "INSERT INTO workspaces (name) VALUES ($1) RETURNING id, created_at, version",
   "describe": {
     "columns": [
       {
@@ -24,6 +24,17 @@
             "name": "created_at"
           }
         }
+      },
+      {
+        "ordinal": 2,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "workspaces",
+            "name": "version"
+          }
+        }
       }
     ],
     "parameters": {
@@ -33,8 +44,9 @@
     },
     "nullable": [
       false,
+      false,
       false
     ]
   },
-  "hash": "f057c46fdfd380a96bed535fc480aebcdfd6bf1720000a1304a8ff4570714a6d"
+  "hash": "25d2ff389c365f0bc04e5321a49413d06cfb51f5674b5337fa3c0ad434919510"
 }

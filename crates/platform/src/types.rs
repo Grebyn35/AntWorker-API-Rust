@@ -231,8 +231,10 @@ impl ToSchema for Timestamp {
 }
 
 /// The `version` of an editable row, which the shared trigger raises on every update (DATA-02),
-/// and which its resource's `ETag` names (PLATFORM-071).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// and which its resource's `ETag` names (PLATFORM-071). It serializes as its number, as a
+/// stored result holds it (PLATFORM-036).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Version(i64);
 
 impl Version {

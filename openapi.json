@@ -117,34 +117,6 @@
         ],
         "type": "object"
       },
-      "Created": {
-        "description": "A workspace just created, with its creator's role (WORKSPACES-001).",
-        "properties": {
-          "created_at": {
-            "$ref": "#/components/schemas/Timestamp",
-            "description": "When it was created."
-          },
-          "id": {
-            "$ref": "#/components/schemas/WorkspaceId",
-            "description": "The workspace's ID."
-          },
-          "name": {
-            "$ref": "#/components/schemas/WorkspaceName",
-            "description": "Its name."
-          },
-          "role": {
-            "$ref": "#/components/schemas/Role",
-            "description": "The creator's role: `owner`."
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "role",
-          "created_at"
-        ],
-        "type": "object"
-      },
       "DeviceId": {
         "maxLength": 64,
         "minLength": 1,
@@ -1215,7 +1187,7 @@
         "type": "string"
       },
       "Workspace": {
-        "description": "A workspace, as one of its members reads it, with their role (WORKSPACES-007).",
+        "description": "A workspace, as one of its members reads it, with their role: its creator's, `owner`, when\ncreating it answers it (WORKSPACES-001, WORKSPACES-007).",
         "properties": {
           "created_at": {
             "$ref": "#/components/schemas/Timestamp",
@@ -4683,12 +4655,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Created"
+                  "$ref": "#/components/schemas/Workspace"
                 }
               }
             },
             "description": "The new workspace, which the caller owns.",
             "headers": {
+              "etag": {
+                "description": "The workspace's version, which a rename's `If-Match` names (API-13).",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "location": {
                 "description": "The new workspace: `/v1/workspaces/{id}`.",
                 "schema": {

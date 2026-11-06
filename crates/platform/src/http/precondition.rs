@@ -45,13 +45,15 @@ impl IfMatch {
     }
 }
 
-/// The version that `tag`, a strong entity tag, quotes, as [`Version::etag`] writes it.
+/// The version whose [`Version::etag`] is `tag`, character for character, as RFC 9110's strong
+/// comparison matches tags: `"03"` names no version, since the API sends version 3 as `"3"`.
 fn strong_version(tag: &str) -> Option<Version> {
     let digits = tag.strip_prefix('"')?.strip_suffix('"')?;
-    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+    if !digits.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
-    digits.parse().ok().map(Version::from_database)
+    let version = Version::from_database(digits.parse().ok()?);
+    (version.etag() == tag).then_some(version)
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for IfMatch {
@@ -105,6 +107,8 @@ mod tests {
             "3",
             "\"\"",
             "\"-1\"",
+            "\"03\"",
+            "\"+3\"",
             "\"99999999999999999999\"",
         ] {
             assert_eq!(read(&[value]).0, versions(&[]), "{value}");

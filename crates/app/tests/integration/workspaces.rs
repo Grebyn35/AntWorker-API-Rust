@@ -47,6 +47,7 @@ async fn workspaces_001_creating_a_workspace_makes_the_caller_its_owner() {
     let body = response.json();
     let id = body["id"].as_str().unwrap();
     assert_eq!(response.header("location"), format!("/v1/workspaces/{id}"));
+    assert_eq!(response.header("etag"), "\"1\"");
     assert_eq!(body["name"], "Acme");
     assert_eq!(body["role"], "owner");
     assert!(body["created_at"].as_str().unwrap().ends_with('Z'));
@@ -110,6 +111,7 @@ async fn workspaces_001_a_retry_with_the_key_creates_one_workspace() {
     assert_eq!(retry.status, 201);
     assert_eq!(retry.json(), first.json());
     assert_eq!(retry.header("location"), first.header("location"));
+    assert_eq!(retry.header("etag"), first.header("etag"));
     let count = api
         .database()
         .owner_reads("SELECT count(*)::text FROM workspaces")
@@ -674,6 +676,7 @@ async fn workspaces_007_a_created_workspace_s_location_reads_it() {
 
     assert_eq!(read.status, 200);
     assert_eq!(read.json(), created.json());
+    assert_eq!(read.header("etag"), created.header("etag"));
 }
 
 #[tokio::test]
@@ -792,7 +795,7 @@ async fn platform_049_a_rename_sent_as_plain_json_is_refused() {
 }
 
 #[tokio::test]
-async fn workspaces_009_a_rename_with_a_stale_etag_answers_412_and_changes_nothing() {
+async fn platform_071_a_rename_with_a_stale_etag_answers_412_and_changes_nothing() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
@@ -805,6 +808,7 @@ async fn workspaces_009_a_rename_with_a_stale_etag_answers_412_and_changes_nothi
         .send()
         .await;
     let etag = read.header("etag").to_owned();
+    assert_eq!(etag, "\"1\"");
 
     let first = rename(&api, &grace, &workspace, "Grace's", Some(&etag)).await;
     let stale = rename(&api, &ada, &workspace, "Ada's", Some(&etag)).await;
@@ -824,7 +828,7 @@ async fn workspaces_009_a_rename_with_a_stale_etag_answers_412_and_changes_nothi
 }
 
 #[tokio::test]
-async fn workspaces_009_a_current_etag_a_star_or_none_lets_the_rename_apply() {
+async fn platform_071_a_current_etag_a_star_or_none_lets_the_rename_apply() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;

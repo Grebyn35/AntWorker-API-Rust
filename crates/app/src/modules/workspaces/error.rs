@@ -14,7 +14,7 @@ pub(crate) enum WorkspacesError {
     #[error("the user isn't a member of the workspace")]
     MemberNotFound,
     /// `platform` refused the request, such as by authorization, its idempotency key or its
-    /// input, or couldn't check it.
+    /// input, or couldn't check it, or the update failed its precondition (PLATFORM-071).
     #[error(transparent)]
     Platform(#[from] PlatformError),
     /// Anything else (ERR-04).

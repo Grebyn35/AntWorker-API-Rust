@@ -80,21 +80,9 @@ pub(crate) struct NewWorkspace {
     pub(crate) name: WorkspaceName,
 }
 
-/// A workspace just created, with its creator's role (WORKSPACES-001).
+/// A workspace, as one of its members reads it, with their role: its creator's, `owner`, when
+/// creating it answers it (WORKSPACES-001, WORKSPACES-007).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-pub(crate) struct Created {
-    /// The workspace's ID.
-    pub(crate) id: WorkspaceId,
-    /// Its name.
-    pub(crate) name: WorkspaceName,
-    /// The creator's role: `owner`.
-    pub(crate) role: Role,
-    /// When it was created.
-    pub(crate) created_at: Timestamp,
-}
-
-/// A workspace, as one of its members reads it, with their role (WORKSPACES-007).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, ToSchema)]
 pub(crate) struct Workspace {
     /// The workspace's ID.
     pub(crate) id: WorkspaceId,
@@ -106,8 +94,9 @@ pub(crate) struct Workspace {
     pub(crate) created_at: Timestamp,
 }
 
-/// A workspace as it now stands, with the version its `ETag` names (PLATFORM-071).
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A workspace as it now stands, with the version its `ETag` names (PLATFORM-071), which a
+/// create with an idempotency key stores as its result (PLATFORM-036).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Current {
     /// The workspace.
     pub(crate) workspace: Workspace,

@@ -171,7 +171,8 @@ impl ErrorCode for RequestError {
                 Some("The key's first request is still running: retry later.".to_owned())
             }
             Self::PreconditionFailed => Some(
-                "The resource changed since the version If-Match names: read it again.".to_owned(),
+                "If-Match names no current version of the resource: read it again, and send its ETag."
+                    .to_owned(),
             ),
             Self::InvalidBody(BodyFault::ContentType(media_type)) => {
                 Some(format!("The body must be sent as {media_type}."))

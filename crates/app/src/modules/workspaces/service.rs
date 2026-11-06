@@ -24,9 +24,7 @@ use super::{
     audit,
     error::WorkspacesError,
     events as published,
-    model::{
-        Created, Current, Member, NewWorkspace, Rename, Workspace, WorkspaceItem, WorkspaceName,
-    },
+    model::{Current, Member, NewWorkspace, Rename, Workspace, WorkspaceItem, WorkspaceName},
     repo,
 };
 use crate::modules::{
@@ -47,7 +45,7 @@ pub(crate) async fn create(
     principal: &Principal,
     key: Option<&IdempotencyKey>,
     input: NewWorkspace,
-) -> Result<Created, WorkspacesError> {
+) -> Result<Current, WorkspacesError> {
     let mut uow = database.begin(client).await?;
     if let Claimed::Replay(created) = uow.claim(principal.user_id(), key).await? {
         return Ok(created);
@@ -64,8 +62,8 @@ async fn found(
     uow: &mut UnitOfWork,
     principal: &Principal,
     name: &WorkspaceName,
-) -> Result<Created, WorkspacesError> {
-    let (id, created_at) = repo::insert(uow, name).await?;
+) -> Result<Current, WorkspacesError> {
+    let (id, created_at, version) = repo::insert(uow, name).await?;
     access::add_owner(uow, id, principal.user_id()).await?;
     #[expect(
         clippy::disallowed_methods,
@@ -84,11 +82,14 @@ async fn found(
         &payload,
     )
     .await?;
-    Ok(Created {
-        id,
-        name: name.clone(),
-        role: Role::Owner,
-        created_at,
+    Ok(Current {
+        workspace: Workspace {
+            id,
+            name: name.clone(),
+            role: Role::Owner,
+            created_at,
+        },
+        version,
     })
 }
 
@@ -154,7 +155,7 @@ pub(crate) async fn read(
 
 /// Renames the caller's workspace, in the unit of work it was authorized in, if its version is
 /// one of `versions`, when the request named any: the name, its audit entry and the members'
-/// event commit together (WORKSPACES-008, WORKSPACES-009).
+/// event commit together (WORKSPACES-008, PLATFORM-071).
 pub(crate) async fn rename(
     mut uow: UnitOfWork,
     authorized: &Authorized<WorkspaceUpdate>,

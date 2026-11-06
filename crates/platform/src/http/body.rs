@@ -38,7 +38,8 @@ where
 
 /// A `PATCH` route's body, a JSON Merge Patch (RFC 7396) sent as `application/merge-patch+json`
 /// (API-03), parsed into `T` as [`Json`] parses its body. `T` holds the members a patch may
-/// change, each of which the patch leaves as it is when it doesn't name it.
+/// change: one it makes optional is left as it is when the patch doesn't name it, and it may
+/// require one while that is the resource's only editable member (D88).
 #[derive(Debug)]
 pub struct MergePatch<T>(pub T);
 

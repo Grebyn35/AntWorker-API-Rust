@@ -23,9 +23,7 @@ use utoipa_axum::routes;
 use super::{
     error::WorkspacesError,
     events::{MEMBER_REMOVED, MEMBERSHIP_CREATED, WORKSPACE_RENAMED},
-    model::{
-        Created, Current, Member, NewWorkspace, Rename, Workspace, WorkspaceItem, WorkspaceName,
-    },
+    model::{Current, Member, NewWorkspace, Rename, Workspace, WorkspaceItem, WorkspaceName},
     service,
 };
 use crate::modules::access::{MembersRead, MembersRemove, Role, WorkspaceRead, WorkspaceUpdate};
@@ -77,8 +75,11 @@ impl TryFrom<CreateRequest> for NewWorkspace {
             description = "A key of the caller's own, as a quoted string, so a retry creates nothing twice (API-12)."),
     ),
     responses(
-        (status = 201, description = "The new workspace, which the caller owns.", body = Created,
-            headers(("location" = String, description = "The new workspace: `/v1/workspaces/{id}`."))),
+        (status = 201, description = "The new workspace, which the caller owns.", body = Workspace,
+            headers(
+                ("location" = String, description = "The new workspace: `/v1/workspaces/{id}`."),
+                ("etag" = String, description = "The workspace's version, which a rename's `If-Match` names (API-13)."),
+            )),
     )
 )]
 async fn create(
@@ -90,9 +91,10 @@ async fn create(
     let input = NewWorkspace::try_from(request.body).map_err(WorkspacesError::from)?;
     let created =
         service::create(&database, &client, &principal, request.key.as_ref(), input).await?;
-    let location = HeaderValue::try_from(format!("/v1/workspaces/{}", created.id))
+    let location = HeaderValue::try_from(format!("/v1/workspaces/{}", created.workspace.id))
         .map_err(|error| WorkspacesError::Internal(Internal::new(error)))?;
-    let mut response = (StatusCode::CREATED, axum::Json(created)).into_response();
+    let mut response = with_etag(created)?;
+    *response.status_mut() = StatusCode::CREATED;
     response.headers_mut().insert(header::LOCATION, location);
     Ok(response)
 }

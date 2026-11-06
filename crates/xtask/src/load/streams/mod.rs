@@ -7,8 +7,8 @@
 //! gap, as the search for a replica's capacity does.
 //!
 //! An event is `invitation.received`, which inviting a stream's user again publishes to that user's
-//! 10 streams (INVITATIONS-003, INVITATIONS-008), the one event of the template that changes no
-//! one's access, so no stream closes. A step passes when no request failed, k6 dropped none, every
+//! 10 streams (INVITATIONS-003, INVITATIONS-008), an event that changes no one's access, so no
+//! stream closes. A step passes when no request failed, k6 dropped none, every
 //! event reached each of its user's streams once, the streams of a user received the same events
 //! in the same order, no stream closed, and the 99th percentile of the lag of the events that the
 //! measured replica's hub delivered, which k6 reads from Prometheus, is within the latency

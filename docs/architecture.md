@@ -81,7 +81,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `storage` | An object storage client. | D1, D14 |
 | `mail` | Sending email: `Mail` enqueues a module's rendered email in a unit of work, and the job `platform.send_email` sends it through the SMTP transport, which the email settings configure, with a client span for each send. Each module's emails, and their templates, live in the module (§5). | D1, D9 |
 | `outbound` | The only HTTP clients: one for URLs from configuration, and one for URLs supplied by third parties, with protection against server-side request forgery (SSRF) (SEC-10). | D26 |
-| `types` | Shared domain types: `Secret`, `EmailAddress`, the ID types. | D7, D25 |
+| `types` | Shared domain types: `Secret`, `EmailAddress`, `Timestamp`, a row's `Version`, the ID types. | D7, D25 |
 | `clock`, `random` | The injectable clock and the operating system's secure random source (CODE-06). | D23, D26 |
 | `hashing` | The hashes that stand in for secrets in the database: SHA-256 of a token, and a hash-based message authentication code (HMAC) with SHA-256, under `HMAC_KEY`, of a value short or common enough to guess, such as an email (SEC-03). | D26, D32 |
 | `blocking` | Runs CPU-heavy work, such as hashing a password, on a blocking thread, inside a span of its own, at most one at once per processor (CODE-05, OBS-06, OPS-07). | D10, D81 |

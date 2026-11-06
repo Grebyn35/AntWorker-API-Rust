@@ -10,13 +10,13 @@ use platform::{
 
 use super::model::WorkspaceName;
 
-/// Inserts a workspace named `name`, and returns its ID and when it was created.
+/// Inserts a workspace named `name`, and returns its ID, when it was created and its version.
 pub(super) async fn insert(
     uow: &mut UnitOfWork,
     name: &WorkspaceName,
-) -> Result<(WorkspaceId, Timestamp), Internal> {
+) -> Result<(WorkspaceId, Timestamp, Version), Internal> {
     let row = sqlx::query!(
-        "INSERT INTO workspaces (name) VALUES ($1) RETURNING id, created_at",
+        "INSERT INTO workspaces (name) VALUES ($1) RETURNING id, created_at, version",
         name.as_str(),
     )
     .fetch_one(uow.executor())
@@ -24,6 +24,7 @@ pub(super) async fn insert(
     Ok((
         WorkspaceId::from_uuid(row.id),
         Timestamp::from_database(row.created_at),
+        Version::from_database(row.version),
     ))
 }
 
