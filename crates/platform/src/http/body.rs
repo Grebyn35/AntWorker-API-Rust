@@ -1,5 +1,5 @@
-//! Request bodies: the JSON extractor (PLATFORM-049, PLATFORM-050), with the idempotency key of a
-//! keyed route (PLATFORM-037), and the collection of every
+//! Request bodies: the JSON extractor (PLATFORM-049, PLATFORM-050), that of a JSON Merge Patch
+//! (API-03), with the idempotency key of a keyed route (PLATFORM-037), and the collection of every
 //! field that a request type's conversion into domain types refuses (PLATFORM-051, API-10).
 
 use axum::{
@@ -31,10 +31,35 @@ where
     type Rejection = Problem<RequestError>;
 
     async fn from_request(request: Request, _: &S) -> Result<Self, Self::Rejection> {
-        let bytes = read(request).await?;
+        let bytes = read(request, JSON).await?;
         parse(&bytes).map(Self)
     }
 }
+
+/// A `PATCH` route's body, a JSON Merge Patch (RFC 7396) sent as `application/merge-patch+json`
+/// (API-03), parsed into `T` as [`Json`] parses its body. `T` holds the members a patch may
+/// change, each of which the patch leaves as it is when it doesn't name it.
+#[derive(Debug)]
+pub struct MergePatch<T>(pub T);
+
+impl<T, S> FromRequest<S> for MergePatch<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = Problem<RequestError>;
+
+    async fn from_request(request: Request, _: &S) -> Result<Self, Self::Rejection> {
+        let bytes = read(request, MERGE_PATCH).await?;
+        parse(&bytes).map(Self)
+    }
+}
+
+/// The media type of a JSON body.
+const JSON: &str = "application/json";
+
+/// The media type of a JSON Merge Patch (RFC 7396).
+const MERGE_PATCH: &str = "application/merge-patch+json";
 
 /// The JSON body of a route that accepts an `Idempotency-Key` (API-12), and the request's key, if
 /// it sent one, with the fingerprint of its method, path, query and body (PLATFORM-036).
@@ -58,7 +83,7 @@ where
         let path = request.uri().path().to_owned();
         let query = request.uri().query().unwrap_or_default().to_owned();
         let header = request.headers().get(IDEMPOTENCY_KEY).cloned();
-        let bytes = read(request).await?;
+        let bytes = read(request, JSON).await?;
         let digest: [u8; 32] = Sha256::digest(&bytes).into();
         let key = header
             .map(|value| {
@@ -73,11 +98,13 @@ where
     }
 }
 
-/// The body of `request`, which must be sent as JSON, read up to its route's limit
+/// The body of `request`, which must be sent as `media_type`, read up to its route's limit
 /// (PLATFORM-049, PLATFORM-050).
-async fn read(request: Request) -> Result<Bytes, Problem<RequestError>> {
-    if !is_json(request.headers().get(header::CONTENT_TYPE)) {
-        return Err(Problem(RequestError::InvalidBody(BodyFault::ContentType)));
+async fn read(request: Request, media_type: &'static str) -> Result<Bytes, Problem<RequestError>> {
+    if !is_media_type(request.headers().get(header::CONTENT_TYPE), media_type) {
+        return Err(Problem(RequestError::InvalidBody(BodyFault::ContentType(
+            media_type,
+        ))));
     }
     match request.into_body().collect().await {
         Ok(collected) => Ok(collected.to_bytes()),
@@ -99,15 +126,15 @@ fn parse<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Problem<RequestError>> 
     })
 }
 
-/// Whether a `Content-Type` is `application/json`, with no parameter but a `charset` of `utf-8`.
-fn is_json(value: Option<&axum::http::HeaderValue>) -> bool {
+/// Whether a `Content-Type` is `media_type`, with no parameter but a `charset` of `utf-8`.
+fn is_media_type(value: Option<&axum::http::HeaderValue>, media_type: &str) -> bool {
     let Some(value) = value.and_then(|value| value.to_str().ok()) else {
         return false;
     };
     let mut parts = value.split(';').map(str::trim);
     let media_type_ok = parts
         .next()
-        .is_some_and(|media_type| media_type.eq_ignore_ascii_case("application/json"));
+        .is_some_and(|sent| sent.eq_ignore_ascii_case(media_type));
     media_type_ok
         && parts.all(|parameter| {
             parameter.split_once('=').is_some_and(|(name, value)| {
@@ -192,15 +219,32 @@ impl FieldErrors {
 mod tests {
     use super::*;
 
+    /// Whether a request sent with `content_type` sends `media_type`.
+    fn sent(content_type: Option<&'static str>, media_type: &str) -> bool {
+        let header = content_type.map(axum::http::HeaderValue::from_static);
+        is_media_type(header.as_ref(), media_type)
+    }
+
     #[test]
     fn platform_049_a_body_must_be_sent_as_json() {
-        let header = |value: &'static str| axum::http::HeaderValue::from_static(value);
-        assert!(is_json(Some(&header("application/json"))));
-        assert!(is_json(Some(&header("Application/JSON; charset=UTF-8"))));
-        assert!(!is_json(None));
-        assert!(!is_json(Some(&header("text/plain"))));
-        assert!(!is_json(Some(&header("application/json; charset=latin1"))));
-        assert!(!is_json(Some(&header("application/json-patch+json"))));
+        assert!(sent(Some("application/json"), JSON));
+        assert!(sent(Some("Application/JSON; charset=UTF-8"), JSON));
+        assert!(!sent(None, JSON));
+        assert!(!sent(Some("text/plain"), JSON));
+        assert!(!sent(Some("application/json; charset=latin1"), JSON));
+        assert!(!sent(Some("application/json-patch+json"), JSON));
+        assert!(!sent(Some("application/merge-patch+json"), JSON));
+    }
+
+    #[test]
+    fn platform_049_a_merge_patch_must_be_sent_as_one() {
+        assert!(sent(Some("application/merge-patch+json"), MERGE_PATCH));
+        assert!(sent(
+            Some("application/merge-patch+json; charset=utf-8"),
+            MERGE_PATCH
+        ));
+        assert!(!sent(Some("application/json"), MERGE_PATCH));
+        assert!(!sent(Some("application/json-patch+json"), MERGE_PATCH));
     }
 
     #[test]

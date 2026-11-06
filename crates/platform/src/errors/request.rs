@@ -51,6 +51,9 @@ pub enum RequestError {
     /// The key's first request hasn't committed or rolled back yet (PLATFORM-036).
     #[error("the idempotency key's first request is still running")]
     IdempotencyKeyInFlight,
+    /// An update's `If-Match` names no current version of the resource (PLATFORM-071).
+    #[error("the resource's version isn't one the request's If-Match names")]
+    PreconditionFailed,
     /// A rate limit's bucket is full (PLATFORM-054).
     #[error("a rate limit refused the request")]
     RateLimited,
@@ -73,8 +76,8 @@ pub enum RequestError {
 /// Why a body isn't the JSON its route takes (PLATFORM-049).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BodyFault {
-    /// The request's `Content-Type` isn't `application/json`.
-    ContentType,
+    /// The request's `Content-Type` isn't the media type its route takes, which this names.
+    ContentType(&'static str),
     /// The body isn't JSON.
     Syntax,
     /// The body is JSON, but not of the route's request type, such as with an unknown field. The
@@ -98,6 +101,7 @@ impl ErrorCode for RequestError {
             Self::InvalidIdempotencyKey => "request.invalid_idempotency_key",
             Self::IdempotencyKeyReused => "request.idempotency_key_reused",
             Self::IdempotencyKeyInFlight => "request.idempotency_key_in_flight",
+            Self::PreconditionFailed => "request.precondition_failed",
             Self::RateLimited => "request.rate_limited",
             Self::TimedOut => "request.timed_out",
             Self::Overloaded => "request.overloaded",
@@ -121,6 +125,7 @@ impl ErrorCode for RequestError {
             Self::InvalidIdempotencyKey => "Invalid idempotency key",
             Self::IdempotencyKeyReused => "Idempotency key already used",
             Self::IdempotencyKeyInFlight => "A request is outstanding for this idempotency key",
+            Self::PreconditionFailed => "Precondition failed",
             Self::RateLimited => "Too many requests",
             Self::TimedOut => "Request timed out",
             Self::Overloaded => "Too many requests in progress",
@@ -142,6 +147,7 @@ impl ErrorCode for RequestError {
             Self::OriginNotAllowed | Self::PermissionDenied => Category::Forbidden,
             Self::IdempotencyKeyReused => Category::BusinessRule,
             Self::IdempotencyKeyInFlight => Category::Conflict,
+            Self::PreconditionFailed => Category::PreconditionFailed,
             Self::RateLimited => Category::RateLimited,
             Self::TimedOut | Self::Overloaded | Self::Unavailable => Category::Unavailable,
             Self::Panicked => Category::Internal,
@@ -164,8 +170,11 @@ impl ErrorCode for RequestError {
             Self::IdempotencyKeyInFlight => {
                 Some("The key's first request is still running: retry later.".to_owned())
             }
-            Self::InvalidBody(BodyFault::ContentType) => {
-                Some("The body must be sent as application/json.".to_owned())
+            Self::PreconditionFailed => Some(
+                "The resource changed since the version If-Match names: read it again.".to_owned(),
+            ),
+            Self::InvalidBody(BodyFault::ContentType(media_type)) => {
+                Some(format!("The body must be sent as {media_type}."))
             }
             Self::InvalidBody(BodyFault::Syntax) => Some("The body isn't valid JSON.".to_owned()),
             Self::InvalidBody(BodyFault::Shape(_)) => {
@@ -240,7 +249,7 @@ impl ErrorCode for PlatformError {
 impl RequestError {
     /// One value of every variant, so the OpenAPI document can list every code `platform`
     /// answers (ERR-13). A new variant is added here too.
-    pub fn every() -> [Self; 18] {
+    pub fn every() -> [Self; 19] {
         [
             Self::NotFound,
             Self::MethodNotAllowed,
@@ -255,6 +264,7 @@ impl RequestError {
             Self::InvalidIdempotencyKey,
             Self::IdempotencyKeyReused,
             Self::IdempotencyKeyInFlight,
+            Self::PreconditionFailed,
             Self::RateLimited,
             Self::TimedOut,
             Self::Overloaded,

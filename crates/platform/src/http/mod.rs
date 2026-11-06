@@ -6,6 +6,7 @@ mod browsers;
 mod client;
 mod docs;
 mod limits;
+mod precondition;
 pub(crate) mod query;
 mod reference;
 mod stack;
@@ -16,8 +17,9 @@ use axum::{Router, routing::get};
 use utoipa::openapi::{Info, OpenApi};
 use utoipa_axum::router::{OpenApiRouter, UtoipaMethodRouter};
 
-pub use body::{FieldErrors, Idempotent, Json};
+pub use body::{FieldErrors, Idempotent, Json, MergePatch};
 pub use browsers::{Cookies, Origins, expired_cookie, session_cookie};
+pub use precondition::IfMatch;
 pub use query::Query;
 
 use crate::{

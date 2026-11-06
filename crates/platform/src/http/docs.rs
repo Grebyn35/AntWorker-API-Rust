@@ -41,6 +41,9 @@ const PROBLEM_MEDIA_TYPE: &str = "application/problem+json";
 /// The header of an idempotency key (API-12).
 pub(super) const IDEMPOTENCY_KEY: &str = "idempotency-key";
 
+/// The header of an update's precondition (API-13).
+const IF_MATCH: &str = "if-match";
+
 /// Where the document lists a code that `platform` answers.
 enum Place {
     /// On every operation: the route's own pipeline answers it.
@@ -55,6 +58,8 @@ enum Place {
     Workspace,
     /// On every operation that takes an `Idempotency-Key` (PLATFORM-036, PLATFORM-037).
     Keyed,
+    /// On every operation that takes an `If-Match` (PLATFORM-071).
+    Conditional,
     /// Among the components' responses: the router answers it when no operation matches.
     Fallback,
 }
@@ -67,6 +72,7 @@ fn place(error: &RequestError) -> Place {
         RequestError::InvalidIdempotencyKey
         | RequestError::IdempotencyKeyReused
         | RequestError::IdempotencyKeyInFlight => Place::Keyed,
+        RequestError::PreconditionFailed => Place::Conditional,
         RequestError::Unauthenticated | RequestError::AccessTokenExpired => Place::Authenticated,
         RequestError::InvalidBody(_) | RequestError::InvalidFields(_) => Place::Body,
         RequestError::InvalidQuery(_)
@@ -87,13 +93,14 @@ fn applies(place: &Place, method: &Method, access: Access, operation: &Operation
         Place::Authenticated => !matches!(access, Access::Public),
         Place::Body => operation.request_body.is_some(),
         Place::Workspace => matches!(access, Access::Workspace(_)),
-        Place::Keyed => takes_key(operation),
+        Place::Keyed => takes_header(operation, IDEMPOTENCY_KEY),
+        Place::Conditional => takes_header(operation, IF_MATCH),
         Place::Fallback => false,
     }
 }
 
-/// Whether `operation` documents the `Idempotency-Key` header (API-12).
-fn takes_key(operation: &Operation) -> bool {
+/// Whether `operation` documents the header `name`, such as `Idempotency-Key` (API-12).
+fn takes_header(operation: &Operation, name: &str) -> bool {
     operation
         .parameters
         .iter()
@@ -101,7 +108,7 @@ fn takes_key(operation: &Operation) -> bool {
         .any(|parameter| match parameter {
             RefOr::T(parameter) => {
                 matches!(parameter.parameter_in, ParameterIn::Header)
-                    && parameter.name.eq_ignore_ascii_case(IDEMPOTENCY_KEY)
+                    && parameter.name.eq_ignore_ascii_case(name)
             }
             RefOr::Ref(_) => false,
         })

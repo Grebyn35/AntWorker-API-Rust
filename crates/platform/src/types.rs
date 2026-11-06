@@ -1,5 +1,5 @@
-//! Types shared by every module: secrets, the IDs of the tenancy keys and of sessions, and the
-//! email address (D25).
+//! Types shared by every module: secrets, the IDs of the tenancy keys and of sessions, a row's
+//! version, and the email address (D25).
 
 use std::{borrow::Cow, fmt};
 
@@ -227,6 +227,29 @@ impl PartialSchema for Timestamp {
 impl ToSchema for Timestamp {
     fn name() -> Cow<'static, str> {
         Cow::Borrowed("Timestamp")
+    }
+}
+
+/// The `version` of an editable row, which the shared trigger raises on every update (DATA-02),
+/// and which its resource's `ETag` names (PLATFORM-071).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Version(i64);
+
+impl Version {
+    /// The version `value`, as the database returned it.
+    pub fn from_database(value: i64) -> Self {
+        Self(value)
+    }
+
+    /// The version, for a statement that keeps an update to it (DATA-18).
+    pub fn value(self) -> i64 {
+        self.0
+    }
+
+    /// The value of the `ETag` header that names this version: the number, quoted, a strong
+    /// entity tag (API-13).
+    pub fn etag(self) -> String {
+        format!("\"{}\"", self.0)
     }
 }
 
