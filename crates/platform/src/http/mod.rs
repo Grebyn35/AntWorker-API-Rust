@@ -9,6 +9,7 @@ mod limits;
 mod precondition;
 pub(crate) mod query;
 mod reference;
+mod resource;
 mod stack;
 
 use std::sync::Arc;
@@ -21,6 +22,7 @@ pub use body::{FieldErrors, Idempotent, Json, MergePatch};
 pub use browsers::{Cookies, Origins, expired_cookie, session_cookie};
 pub use precondition::IfMatch;
 pub use query::Query;
+pub use resource::{ResourceResponse, path_id};
 
 use crate::{
     authn::{Authenticator, SessionVerifier},

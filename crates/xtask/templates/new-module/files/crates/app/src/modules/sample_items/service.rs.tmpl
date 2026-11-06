@@ -1,4 +1,5 @@
-//! Creating, listing, reading, renaming and deleting a workspace's sample items (the sample items spec).
+//! Creating, listing, reading, renaming and deleting a workspace's sample items (the sample items
+//! spec).
 
 use platform::{
     authz::Authorized,
@@ -23,7 +24,8 @@ use crate::modules::{
 
 /// Creates a sample item in the caller's workspace, in the unit of work it was authorized in, which
 /// claims `key` first, so a retry with the same key and request answers the same sample item. The
-/// sample item, its audit entry and the members' event commit together (SAMPLE_ITEMS-001, PLATFORM-036).
+/// sample item, its audit entry and the members' event commit together (SAMPLE_ITEMS-001,
+/// PLATFORM-036).
 pub(crate) async fn create(
     mut uow: UnitOfWork,
     authorized: &Authorized<SampleItemsCreate>,
@@ -48,8 +50,8 @@ pub(crate) async fn create(
     Ok(created)
 }
 
-/// A page of the caller's workspace's sample items, the latest created first, kept to those whose name
-/// contains `search` (SAMPLE_ITEMS-003).
+/// A page of the caller's workspace's sample items, the latest created first, kept to those whose
+/// name contains `search` (SAMPLE_ITEMS-003).
 pub(crate) async fn list(
     uow: &mut UnitOfWork,
     authorized: &Authorized<SampleItemsRead>,
@@ -73,8 +75,8 @@ pub(crate) async fn read(
         .ok_or(SampleItemsError::NotFound)
 }
 
-/// Renames the sample item `id` of the caller's workspace, in the unit of work it was authorized in:
-/// whatever its version when `versions` is `None`, and otherwise only if its version is one of
+/// Renames the sample item `id` of the caller's workspace, in the unit of work it was authorized
+/// in: whatever its version when `versions` is `None`, and otherwise only if its version is one of
 /// them, so an empty set fails the precondition. The name, its audit entry and the members' event
 /// commit together (SAMPLE_ITEMS-005, PLATFORM-071).
 pub(crate) async fn rename(
@@ -104,8 +106,8 @@ pub(crate) async fn rename(
     Ok(renamed)
 }
 
-/// Deletes the sample item `id` of the caller's workspace, in the unit of work it was authorized in:
-/// the row, its audit entry and the members' event commit together (SAMPLE_ITEMS-006).
+/// Deletes the sample item `id` of the caller's workspace, in the unit of work it was authorized
+/// in: the row, its audit entry and the members' event commit together (SAMPLE_ITEMS-006).
 pub(crate) async fn delete(
     mut uow: UnitOfWork,
     authorized: &Authorized<SampleItemsDelete>,

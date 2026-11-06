@@ -3,15 +3,16 @@
 
 use axum::{
     extract::{RawPathParams, State},
-    http::{HeaderValue, StatusCode, header},
-    response::{IntoResponse, Response},
+    http::StatusCode,
 };
 use platform::{
     authn::Principal,
     authz::Authorize,
     db::Database,
-    errors::{Internal, Problem, RequestError},
-    http::{FieldErrors, Idempotent, IfMatch, MergePatch, Query, Routes},
+    errors::{Problem, RequestError},
+    http::{
+        FieldErrors, Idempotent, IfMatch, MergePatch, Query, ResourceResponse, Routes, path_id,
+    },
     idempotency::IdempotencyKey,
     lists::{self, Cursor, Limit, List, Page, Search},
     types::{Client, UserId, WorkspaceId},
@@ -23,7 +24,7 @@ use utoipa_axum::routes;
 use super::{
     error::WorkspacesError,
     events::{MEMBER_REMOVED, MEMBERSHIP_CREATED, WORKSPACE_RENAMED},
-    model::{Current, Member, NewWorkspace, Rename, Workspace, WorkspaceItem, WorkspaceName},
+    model::{Member, NewWorkspace, Rename, Workspace, WorkspaceItem, WorkspaceName},
     service,
 };
 use crate::modules::access::{MembersRead, MembersRemove, Role, WorkspaceRead, WorkspaceUpdate};
@@ -87,16 +88,12 @@ async fn create(
     client: Client,
     principal: Principal,
     request: Idempotent<CreateRequest>,
-) -> Result<Response, Problem<WorkspacesError>> {
+) -> Result<ResourceResponse<Workspace>, Problem<WorkspacesError>> {
     let input = NewWorkspace::try_from(request.body).map_err(WorkspacesError::from)?;
     let created =
         service::create(&database, &client, &principal, request.key.as_ref(), input).await?;
-    let location = HeaderValue::try_from(format!("/v1/workspaces/{}", created.workspace.id))
-        .map_err(|error| WorkspacesError::Internal(Internal::new(error)))?;
-    let mut response = with_etag(created)?;
-    *response.status_mut() = StatusCode::CREATED;
-    response.headers_mut().insert(header::LOCATION, location);
-    Ok(response)
+    let location = format!("/v1/workspaces/{}", created.workspace.id);
+    Ok(ResourceResponse::created(created.workspace, location).tagged(created.version))
 }
 
 /// The query of `GET /v1/workspaces` (WORKSPACES-003).
@@ -160,10 +157,12 @@ async fn list(
             headers(("etag" = String, description = "The workspace's version, which a rename's `If-Match` names (API-13)."))),
     )
 )]
-async fn read(authorize: Authorize<WorkspaceRead>) -> Result<Response, Problem<WorkspacesError>> {
+async fn read(
+    authorize: Authorize<WorkspaceRead>,
+) -> Result<ResourceResponse<Workspace>, Problem<WorkspacesError>> {
     let (mut uow, authorized) = authorize.open().await.map_err(WorkspacesError::from)?;
     let current = service::read(&mut uow, &authorized).await?;
-    with_etag(current)
+    Ok(ResourceResponse::ok(current.workspace).tagged(current.version))
 }
 
 /// What renaming a workspace takes: a JSON Merge Patch of it (WORKSPACES-008).
@@ -205,20 +204,11 @@ async fn rename(
     authorize: Authorize<WorkspaceUpdate>,
     if_match: IfMatch,
     request: MergePatch<RenameRequest>,
-) -> Result<Response, Problem<WorkspacesError>> {
+) -> Result<ResourceResponse<Workspace>, Problem<WorkspacesError>> {
     let rename = Rename::try_from(request.0).map_err(WorkspacesError::from)?;
     let (uow, authorized) = authorize.open().await.map_err(WorkspacesError::from)?;
     let current = service::rename(uow, &authorized, rename, if_match.versions()).await?;
-    with_etag(current)
-}
-
-/// The response of a workspace as it now stands: its body, and its `ETag` (PLATFORM-071).
-fn with_etag(current: Current) -> Result<Response, Problem<WorkspacesError>> {
-    let etag = HeaderValue::try_from(current.version.etag())
-        .map_err(|error| WorkspacesError::Internal(Internal::new(error)))?;
-    let mut response = axum::Json(current.workspace).into_response();
-    response.headers_mut().insert(header::ETAG, etag);
-    Ok(response)
+    Ok(ResourceResponse::ok(current.workspace).tagged(current.version))
 }
 
 /// The query of `GET /v1/workspaces/{workspace_id}/members` (WORKSPACES-004).
@@ -292,12 +282,7 @@ async fn remove_member(
     authorize: Authorize<MembersRemove>,
     params: RawPathParams,
 ) -> Result<StatusCode, Problem<WorkspacesError>> {
-    // A user ID that isn't a UUID names no member.
-    let user = params
-        .iter()
-        .find(|(name, _)| *name == "user_id")
-        .and_then(|(_, value)| uuid::Uuid::parse_str(value).ok())
-        .map(UserId::from_uuid);
+    let user = path_id(&params, "user_id").map(UserId::from_uuid);
     let (uow, authorized) = authorize.open().await.map_err(WorkspacesError::from)?;
     let user = user.ok_or(WorkspacesError::MemberNotFound)?;
     service::remove_member(uow, &authorized, user).await?;

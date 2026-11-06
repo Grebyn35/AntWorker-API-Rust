@@ -1,15 +1,13 @@
-//! Creating, listing, reading, renaming and deleting a workspace's sample items (the sample items spec's
-//! Routes).
+//! Creating, listing, reading, renaming and deleting a workspace's sample items (the sample items
+//! spec's Routes).
 
-use axum::{
-    extract::RawPathParams,
-    http::{HeaderValue, StatusCode, header},
-    response::{IntoResponse, Response},
-};
+use axum::{extract::RawPathParams, http::StatusCode};
 use platform::{
     authz::Authorize,
-    errors::{Internal, Problem, RequestError},
-    http::{FieldErrors, Idempotent, IfMatch, MergePatch, Query, Routes},
+    errors::{Problem, RequestError},
+    http::{
+        FieldErrors, Idempotent, IfMatch, MergePatch, Query, ResourceResponse, Routes, path_id,
+    },
     idempotency::IdempotencyKey,
     lists::{Cursor, Limit, List, Page, Search},
     types::WorkspaceId,
@@ -21,7 +19,7 @@ use utoipa_axum::routes;
 use super::{
     error::SampleItemsError,
     events::{SAMPLE_ITEM_CREATED, SAMPLE_ITEM_DELETED, SAMPLE_ITEM_UPDATED},
-    model::{Current, NewSampleItem, Rename, SampleItem, SampleItemName},
+    model::{NewSampleItem, Rename, SampleItem, SampleItemName},
     service,
 };
 use crate::modules::access::{
@@ -84,20 +82,16 @@ impl TryFrom<CreateRequest> for NewSampleItem {
 async fn create(
     authorize: Authorize<SampleItemsCreate>,
     request: Idempotent<CreateRequest>,
-) -> Result<Response, Problem<SampleItemsError>> {
+) -> Result<ResourceResponse<SampleItem>, Problem<SampleItemsError>> {
     let input = NewSampleItem::try_from(request.body).map_err(SampleItemsError::from)?;
     let (uow, authorized) = authorize.open().await.map_err(SampleItemsError::from)?;
     let created = service::create(uow, &authorized, request.key.as_ref(), input).await?;
-    let location = HeaderValue::try_from(format!(
+    let location = format!(
         "/v1/workspaces/{}/sample-items/{}",
         authorized.workspace_id(),
         created.sample_item.id
-    ))
-    .map_err(|error| SampleItemsError::Internal(Internal::new(error)))?;
-    let mut response = with_etag(created)?;
-    *response.status_mut() = StatusCode::CREATED;
-    response.headers_mut().insert(header::LOCATION, location);
-    Ok(response)
+    );
+    Ok(ResourceResponse::created(created.sample_item, location).tagged(created.version))
 }
 
 /// The query of `GET /v1/workspaces/{workspace_id}/sample-items` (SAMPLE_ITEMS-003).
@@ -167,12 +161,12 @@ async fn list(
 async fn read(
     authorize: Authorize<SampleItemsRead>,
     params: RawPathParams,
-) -> Result<Response, Problem<SampleItemsError>> {
-    let id = sample_item_id(&params);
+) -> Result<ResourceResponse<SampleItem>, Problem<SampleItemsError>> {
+    let id = path_id(&params, "sample_item_id");
     let (mut uow, authorized) = authorize.open().await.map_err(SampleItemsError::from)?;
     let id = id.ok_or(SampleItemsError::NotFound)?;
     let current = service::read(&mut uow, &authorized, id).await?;
-    with_etag(current)
+    Ok(ResourceResponse::ok(current.sample_item).tagged(current.version))
 }
 
 /// What renaming a sample item takes: a JSON Merge Patch of it (SAMPLE_ITEMS-005).
@@ -216,13 +210,13 @@ async fn rename(
     params: RawPathParams,
     if_match: IfMatch,
     request: MergePatch<RenameRequest>,
-) -> Result<Response, Problem<SampleItemsError>> {
+) -> Result<ResourceResponse<SampleItem>, Problem<SampleItemsError>> {
     let rename = Rename::try_from(request.0).map_err(SampleItemsError::from)?;
-    let id = sample_item_id(&params);
+    let id = path_id(&params, "sample_item_id");
     let (uow, authorized) = authorize.open().await.map_err(SampleItemsError::from)?;
     let id = id.ok_or(SampleItemsError::NotFound)?;
     let current = service::rename(uow, &authorized, id, rename, if_match.versions()).await?;
-    with_etag(current)
+    Ok(ResourceResponse::ok(current.sample_item).tagged(current.version))
 }
 
 /// Deletes a sample item of the workspace.
@@ -242,26 +236,9 @@ async fn delete(
     authorize: Authorize<SampleItemsDelete>,
     params: RawPathParams,
 ) -> Result<StatusCode, Problem<SampleItemsError>> {
-    let id = sample_item_id(&params);
+    let id = path_id(&params, "sample_item_id");
     let (uow, authorized) = authorize.open().await.map_err(SampleItemsError::from)?;
     let id = id.ok_or(SampleItemsError::NotFound)?;
     service::delete(uow, &authorized, id).await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-/// The sample item ID in the path, or `None` when it isn't a UUID, which names no sample item.
-fn sample_item_id(params: &RawPathParams) -> Option<uuid::Uuid> {
-    params
-        .iter()
-        .find(|(name, _)| *name == "sample_item_id")
-        .and_then(|(_, value)| uuid::Uuid::parse_str(value).ok())
-}
-
-/// The response of a sample item as it now stands: its body, and its `ETag` (PLATFORM-071).
-fn with_etag(current: Current) -> Result<Response, Problem<SampleItemsError>> {
-    let etag = HeaderValue::try_from(current.version.etag())
-        .map_err(|error| SampleItemsError::Internal(Internal::new(error)))?;
-    let mut response = axum::Json(current.sample_item).into_response();
-    response.headers_mut().insert(header::ETAG, etag);
-    Ok(response)
 }

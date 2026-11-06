@@ -43,8 +43,10 @@ Work in this order, running `just checks` as you go, and `just ci` once you are 
 | A route: its method, path, documentation and access level | `routes.rs`, and the module's `routes()` | API-01 to API-04, API-14, API-17, ARCH-08 |
 | A request's body, and its conversion into domain types | `routes.rs`: a request type, and its `TryFrom` through `FieldErrors` | API-08, API-10 |
 | A list's paging and search | `routes.rs`: `Page` and `Search`; `repo.rs`: the keyset query | API-05, API-06, API-09, API-20, DATA-17 |
+| A row's ID in the path | `routes.rs`: `path_id`, whose `None` answers the module's not-found once the caller is authorized | PLATFORM-072 |
+| The response, with its status, `Location` and `ETag` | `routes.rs`: `ResourceResponse`, `ok` or `created`, `tagged` for an editable resource | API-04, API-13 |
 | A retry that creates nothing twice | `routes.rs`: `Idempotent<T>`; `service.rs`: `uow.claim`, then `commit_with` | API-12 |
-| An update that a concurrent one can't overwrite | `routes.rs`: `IfMatch` and the `ETag`; `repo.rs`: the version in the `WHERE` | API-13, DATA-18 |
+| An update that a concurrent one can't overwrite | `routes.rs`: `IfMatch`; `repo.rs`: the version in the `WHERE` | API-13, DATA-18 |
 | A value's limits and normalization | `model.rs`: a domain type, such as one built on `platform::types::one_line` | API-10, DATA-04, OBS-04 |
 | Who may call a route | a permission type and a row of the matrix in `access/permissions.rs`, the route's `workspace::<P>`, and the access spec's matrix | SEC-08, SEC-09 |
 | What the route does | `service.rs`, in the unit of work that `Authorized<P>` opened | ARCH-09, ARCH-11 |

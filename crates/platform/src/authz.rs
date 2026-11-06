@@ -19,6 +19,7 @@ use crate::{
     authn::{AuditScope, BoxFuture, Log, Principal},
     db::{Database, UnitOfWork},
     errors::{Internal, PlatformError, Problem, RequestError},
+    http::path_id,
     jobs::JobScope,
     telemetry::{metrics::Counter, names},
     types::{Client, UserId, WorkspaceId},
@@ -293,12 +294,7 @@ impl<P: Permission, S: Send + Sync> FromRequestParts<S> for Authorize<P> {
         let workspace_id = RawPathParams::from_request_parts(parts, state)
             .await
             .ok()
-            .and_then(|params| {
-                params
-                    .iter()
-                    .find(|(name, _)| *name == WORKSPACE_PARAMETER)
-                    .and_then(|(_, value)| uuid::Uuid::parse_str(value).ok())
-            })
+            .and_then(|params| path_id(&params, WORKSPACE_PARAMETER))
             .map(WorkspaceId::from_uuid);
         Ok(Self {
             principal,

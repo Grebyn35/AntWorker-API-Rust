@@ -1,15 +1,11 @@
 //! Inviting, listing the caller's invitations, and accepting one (the invitations spec's Routes).
 
-use axum::{
-    extract::{RawPathParams, State},
-    http::{HeaderValue, StatusCode, header},
-    response::{IntoResponse, Response},
-};
+use axum::extract::{RawPathParams, State};
 use platform::{
     authn::Principal,
     authz::Authorize,
-    errors::{Internal, Problem, RequestError},
-    http::{FieldErrors, Idempotent, Query, Routes},
+    errors::{Problem, RequestError},
+    http::{FieldErrors, Idempotent, Query, ResourceResponse, Routes, path_id},
     idempotency::IdempotencyKey,
     lists::{Cursor, Limit, List, Page, Search},
     rate_limit::RateLimits,
@@ -88,7 +84,7 @@ async fn invite(
     limits: RateLimits,
     authorize: Authorize<InvitationsCreate>,
     request: Idempotent<InviteRequest>,
-) -> Result<Response, Problem<InvitationsError>> {
+) -> Result<ResourceResponse<Invitation>, Problem<InvitationsError>> {
     let input = NewInvitation::try_from(request.body).map_err(InvitationsError::from)?;
     let invited = service::invite(
         &limits,
@@ -100,16 +96,13 @@ async fn invite(
     .await?;
     let invitation = invited.invitation;
     if !invited.created {
-        return Ok(axum::Json(invitation).into_response());
+        return Ok(ResourceResponse::ok(invitation));
     }
-    let location = HeaderValue::try_from(format!(
+    let location = format!(
         "/v1/workspaces/{}/invitations/{}",
         invitation.workspace_id, invitation.id
-    ))
-    .map_err(|error| InvitationsError::Internal(Internal::new(error)))?;
-    let mut response = (StatusCode::CREATED, axum::Json(invitation)).into_response();
-    response.headers_mut().insert(header::LOCATION, location);
-    Ok(response)
+    );
+    Ok(ResourceResponse::created(invitation, location))
 }
 
 /// The query of `GET /v1/users/me/invitations` (INVITATIONS-004).
@@ -185,11 +178,7 @@ async fn accept(
     principal: Principal,
     params: RawPathParams,
 ) -> Result<axum::Json<Accepted>, Problem<InvitationsError>> {
-    // An ID that isn't a UUID names no invitation.
-    let id = params
-        .iter()
-        .find(|(name, _)| *name == "invitation_id")
-        .and_then(|(_, value)| uuid::Uuid::parse_str(value).ok());
+    let id = path_id(&params, "invitation_id");
     let accepted = service::accept(&invitations.database, &client, &principal, id).await?;
     Ok(axum::Json(accepted))
 }

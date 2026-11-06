@@ -9,8 +9,8 @@ use crate::support::{
     workspaces,
 };
 
-/// Creates a sample item named `name` in `workspace` as `user`, with `key` as its idempotency key if
-/// given.
+/// Creates a sample item named `name` in `workspace` as `user`, with `key` as its idempotency key
+/// if given.
 async fn create(
     api: &Api,
     user: &SignedIn,

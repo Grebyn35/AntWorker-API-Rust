@@ -522,6 +522,32 @@ async fn workspaces_006_a_caller_can_t_remove_themselves_or_a_rank_at_or_above_t
 }
 
 #[tokio::test]
+async fn platform_072_a_row_id_that_isn_t_a_uuid_answers_as_a_missing_row_once_authorized() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let outsider = users::register(&api, "outsider@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&owner.user_id, "owner")]).await;
+    let path = format!("/v1/workspaces/{workspace}/members/not-a-uuid");
+
+    let member = api
+        .request(http::Method::DELETE, &path)
+        .bearer(&owner.access)
+        .send()
+        .await;
+    let non_member = api
+        .request(http::Method::DELETE, &path)
+        .bearer(&outsider.access)
+        .send()
+        .await;
+
+    assert_eq!(member.status, 404);
+    assert_eq!(member.json()["code"], "workspaces.member_not_found");
+    // The caller's membership is checked first, so a non-member learns nothing of the workspace.
+    assert_eq!(non_member.status, 404);
+    assert_eq!(non_member.json()["code"], "request.not_found");
+}
+
+#[tokio::test]
 async fn platform_046_a_page_holds_50_items_without_a_limit() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

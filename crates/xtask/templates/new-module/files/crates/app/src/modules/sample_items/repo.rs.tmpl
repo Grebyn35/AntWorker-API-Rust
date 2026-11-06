@@ -1,5 +1,5 @@
-//! The SQL of `sample_items` (ARCH-10). Every statement filters by the workspace the operation's proof
-//! names (DATA-16).
+//! The SQL of `sample_items` (ARCH-10). Every statement filters by the workspace the operation's
+//! proof names (DATA-16).
 
 use platform::{
     db::UnitOfWork,
@@ -35,9 +35,9 @@ pub(super) async fn insert(
     })
 }
 
-/// A page of `workspace`'s sample items, the latest created first, kept to those whose name contains
-/// `search`, ignoring case in every script, read through the index on the workspace and the
-/// creation time (DATA-17, PLATFORM-047).
+/// A page of `workspace`'s sample items, the latest created first, kept to those whose name
+/// contains `search`, ignoring case in every script, read through the index on the workspace and
+/// the creation time (DATA-17, PLATFORM-047).
 pub(super) async fn page(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,

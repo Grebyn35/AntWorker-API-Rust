@@ -21,8 +21,8 @@ pub(super) const SAMPLE_ITEM_UPDATED: WorkspaceEvent<SampleItemsRead, SampleItem
 pub(super) const SAMPLE_ITEM_DELETED: WorkspaceEvent<SampleItemsRead, SampleItemChanged> =
     WorkspaceEvent::new("sample_item.deleted");
 
-/// The payload of each sample item event: which sample item changed, which a client reads through its route,
-/// since a name is personal data (API-19).
+/// The payload of each sample item event: which sample item changed, which a client reads through
+/// its route, since a name is personal data (API-19).
 #[derive(Debug, Serialize, ToSchema)]
 pub(super) struct SampleItemChanged {
     /// The workspace.
