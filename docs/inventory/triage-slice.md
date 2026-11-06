@@ -29,6 +29,9 @@ Verdicts:
 | WS-002 Create a workspace | changed | WORKSPACES-001 | Path (D3), 201 (API-04), owner role (D2), workspace log (D6) |
 | WS-003 Creating doesn't make the workspace active | dropped | | No server-side active workspace (D3) |
 | WS-004 List my workspaces | changed | WORKSPACES-003 | Caller's role in each item; keyset paging; no total count (D8). The name filter is kept as `search` (API-20) |
+| WS-005 Read the current workspace | changed | WORKSPACES-007 | The path names the workspace (D3); the body holds the caller's role, and the response its `ETag` (API-13) |
+| WS-006 Update workspace name and/or picture | changed | WORKSPACES-008 | The name alone, as a JSON Merge Patch that may carry `If-Match` (API-03, API-13, D87, D88), by the owner and admins (D2); its entry and its event commit with it, and carry IDs only (D1, API-19). The picture arrives with `files` |
+| WS-007 Workspace update no-op cases | changed | WORKSPACES-008 | A rename requires `name` (D88), so a patch without it is refused rather than answered unchanged; a rename to the current name records and publishes, as every rename does. The picture's cases arrive with `files` |
 | WS-018 List members | changed | WORKSPACES-004 | Roles instead of permission lists (D2). `search` by name or email (API-20) and `role` replace the email and permission filters |
 | WS-023 Remove a member | changed | WORKSPACES-005 | Rank rule (D2), access-change signal (D35), audit in the same transaction (D1) |
 | WS-024 Owner and caller can't be removed | changed | WORKSPACES-006 | The owner is protected by rank (SEC-09) |
