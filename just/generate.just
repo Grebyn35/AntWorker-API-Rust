@@ -6,7 +6,7 @@
 # <version> --no-default-features --features rustls,postgres --locked`.
 [doc("Rewrites the query cache in .sqlx/, after a query changes")]
 [group('generate')]
-prepare: services
+prepare: bound-build services
     cargo sqlx prepare --workspace -- --all-targets --locked
 
 # Writes openapi.json, the OpenAPI document of every route (API-17). Run it after changing a

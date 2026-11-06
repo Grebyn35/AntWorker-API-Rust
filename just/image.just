@@ -57,8 +57,8 @@ _image-cache:
     if ('{{ image_cache }}' -and (Test-Path '{{ image_cache }}-new')) { Remove-Item -Recurse -Force '{{ image_cache }}' -ErrorAction SilentlyContinue; Move-Item '{{ image_cache }}-new' '{{ image_cache }}' }
 
 # Fails on a vulnerability that has a fix and is rated high or critical, in each platform's image
-# of each image in target (SEC-15). The scanner reads the operating system's packages and the
-# crates the binary records.
+# of each image in target. The scanner reads the operating system's packages and the crates the
+# binary records.
 [doc("Scans the images in target/ for vulnerabilities that have a fix")]
 [group('image')]
 image-scan:
@@ -79,7 +79,7 @@ image-scan:
 # run would pass with none.
 [doc("Runs the end-to-end tests; `just e2e obs_13` runs only those whose names contain obs_13")]
 [group('image')]
-e2e *tests: services
+e2e *tests: bound-build services
     {{ if tests =~ '/' { error("just e2e takes test names and the test harness's options; E2E_PLATFORM names the platform, such as E2E_PLATFORM=linux/arm64") } else { "" } }}docker compose up --detach --wait registry mirror
     docker compose pull --quiet server
     docker compose --profile observability pull --quiet collector prometheus loki tempo
@@ -97,6 +97,4 @@ e2e *tests: services
 [group('image')]
 load-test route="capabilities": services
     docker compose --profile observability up --detach --wait collector prometheus loki tempo
-    docker compose up --detach --wait registry
-    docker compose run --rm crane push --insecure /image registry:5000/{{ e2e_image }}:e2e
     {{ xtask }} load-test {{ route }}

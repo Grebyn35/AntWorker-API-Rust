@@ -26,31 +26,41 @@ pub fn claim() {
     static CLAIMED: OnceLock<File> = OnceLock::new();
     CLAIMED.get_or_init(|| {
         let lock = locked();
-        let left = docker(&[
-            "ps",
-            "--all",
-            "--quiet",
-            "--filter",
-            &format!("label={LABEL}"),
-        ]);
-        let left: Vec<&str> = left.lines().collect();
-        if !left.is_empty() {
-            docker(&[&["rm", "--force", "--volumes"][..], &left].concat());
-        }
+        remove_containers_labelled(LABEL);
         push_images_under_test();
         remove_images_of_earlier_builds();
         lock
     });
 }
 
+/// Removes every container that carries `label`, with its anonymous volumes.
+fn remove_containers_labelled(label: &str) {
+    let left = docker(&[
+        "ps",
+        "--all",
+        "--quiet",
+        "--filter",
+        &format!("label={label}"),
+    ]);
+    let left: Vec<&str> = left.lines().collect();
+    if !left.is_empty() {
+        docker(&[&["rm", "--force", "--volumes"][..], &left].concat());
+    }
+}
+
+/// The file whose lock a run holds the machine by.
+fn lock_path() -> std::path::PathBuf {
+    std::env::temp_dir().join("image-tests.lock")
+}
+
 /// The lock that one run holds at a time, on a file in the system's temporary directory, so runs
-/// from different checkouts take turns too.
+/// from different checkouts take turns too, and so does `just load-test`, which holds it as well.
 #[expect(
     clippy::disallowed_methods,
     reason = "tests may block, each on a runtime of its own (CODE-05)"
 )]
 fn locked() -> File {
-    let path = std::env::temp_dir().join("e2e-tests.lock");
+    let path = lock_path();
     let file = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -60,8 +70,9 @@ fn locked() -> File {
     let locked = file.try_lock();
     assert!(
         !matches!(locked, Err(TryLockError::WouldBlock)),
-        "another run of the end-to-end tests holds this machine, as its lock on {} says: each \
-         run counts the machine's memory as its own, so wait for that run to end, or end it",
+        "another run of the end-to-end tests, or one of the load test, holds this machine, as its \
+         lock on {} says: each counts the machine's memory as its own, so wait for that run to \
+         end, or end it",
         path.display()
     );
     locked.expect("the lock on the machine");
@@ -110,5 +121,68 @@ fn remove_images_of_earlier_builds() {
         .collect();
     if !earlier.is_empty() {
         docker(&[&["image", "rm", "--force"][..], &earlier].concat());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::docker::Container;
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "tests may block, each on a runtime of its own (CODE-05)"
+    )]
+    fn ops_21_a_run_holds_the_machine_so_that_another_fails_at_once() {
+        claim();
+
+        let another = OpenOptions::new()
+            .write(true)
+            .open(lock_path())
+            .expect("the lock file");
+
+        assert!(matches!(another.try_lock(), Err(TryLockError::WouldBlock)));
+    }
+
+    #[test]
+    fn ops_21_a_run_removes_the_containers_that_an_earlier_one_left() {
+        // A label of this test's own, so the removal leaves the containers of the tests that run
+        // beside it, which carry `LABEL`.
+        let label = "e2e-test-container-left";
+        let image = compose(&["config", "--images", "server"]);
+        docker(&[
+            "run",
+            "--detach",
+            "--label",
+            label,
+            "--entrypoint",
+            "sleep",
+            &image,
+            "600",
+        ]);
+
+        remove_containers_labelled(label);
+
+        let left = docker(&[
+            "ps",
+            "--all",
+            "--quiet",
+            "--filter",
+            &format!("label={label}"),
+        ]);
+        assert_eq!(left, "");
+    }
+
+    #[test]
+    fn ops_21_each_container_the_tests_start_in_the_background_carries_the_label() {
+        let image = compose(&["config", "--images", "server"]);
+
+        let container = Container::start(&["--entrypoint", "sleep", &image, "600"]);
+
+        assert_eq!(
+            container.inspect(&format!("{{{{index .Config.Labels \"{LABEL}\"}}}}")),
+            "true"
+        );
     }
 }

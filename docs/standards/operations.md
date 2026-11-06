@@ -134,9 +134,9 @@ Every task on the reference deployment's server runs from a developer's machine,
 
 ### OPS-21 The tasks bound what they leave on the machine
 What the tasks leave on the machine that runs them stays within a bound, however many times they run, rather than growing until someone removes it by hand:
-- A run of the end-to-end tests holds the machine, and fails at once while another run holds it, since each counts the machine's memory as its own (D84). Its containers go when their test ends, and before its first container starts, it removes those that an earlier run left, as one stopped by hand leaves its servers, with their volumes.
-- A run of the end-to-end tests empties the registry that it pushes the images under test to before it pushes them, and removes every image that earlier runs pulled from it onto the machine but those under test.
+- A run of the end-to-end tests, or of `just load-test`, holds the machine, and fails at once while another holds it, since each counts the machine's memory as its own (D84). Its containers go when their test ends, and before its first container starts, it removes those that an earlier run left, as one stopped by hand leaves its servers, with their volumes.
+- A run of the end-to-end tests, or of `just load-test`, empties the registry that it pushes the images under test to before it pushes them, and a run of the end-to-end tests removes every image that earlier runs pulled from it onto the machine but those under test.
 - `just image` leaves BuildKit's builder at most 10 gigabytes of cache, the least recently used going first.
-- `just checks` first removes a build directory of the dev and test profiles that holds more than 40 gigabytes, its own or a copy's of `check-removable`, so the build after it starts afresh: Cargo removes none of the artifacts of earlier dependencies and settings.
+- Each task that builds the workspace's code into the build directory of the dev and test profiles, `just lint`, `test`, `e2e`, `prepare` and `bootstrap`, which `dev`, `run`, `migrate` and `seed` run first, first removes that directory once it holds more than 40 gigabytes, the repository's or a copy's of `check-removable`, so the build after it starts afresh: Cargo removes none of the artifacts of earlier dependencies and settings.
 - Why: a machine that runs the tasks every day fills its disk within days, and a hosted server whose provider limits its writes, as this repository's development server's did, stops being usable (D84, D86).
-- Check: `review`.
+- Check: `ci: e2e` (a run that holds the machine, the removal of the containers that an earlier run left, and the label of each container the tests start in the background), plus `review` (the registry, BuildKit's cache and the build directory).

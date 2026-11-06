@@ -58,7 +58,7 @@ services:
 # Creates the database roles and their grants (DATA-12).
 [doc("Creates the database roles and their grants")]
 [group('develop')]
-bootstrap: services
+bootstrap: bound-build services
     {{ api }} bootstrap
 
 # Applies the migrations the database hasn't recorded. Run it after adding a migration, before
@@ -122,5 +122,5 @@ fmt:
 # Runs every test. The integration tests use the services.
 [doc("Runs the tests, which start Postgres through Compose")]
 [group('develop')]
-test: services
+test: bound-build services
     cargo test --workspace --locked

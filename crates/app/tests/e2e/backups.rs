@@ -227,9 +227,10 @@ fn ops_15_the_retention_keeps_the_full_backup_a_restore_started_from_until_a_bac
     );
 }
 
-#[tokio::test]
-async fn ops_15_a_restore_marks_the_backup_it_starts_from_and_records_when_its_timeline_begins_on_the_newest()
- {
+/// A bundled deployment whose database a restore took back to the moment after it held "early",
+/// past a full backup that `backup` took after that moment, with the epoch's microseconds by
+/// Postgres's clock just before and just after the restore, and what the restore wrote.
+async fn restored_past_a_full_backup() -> (Deployment, i64, i64, Output) {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -238,28 +239,26 @@ async fn ops_15_a_restore_marks_the_backup_it_starts_from_and_records_when_its_t
          INSERT INTO restore_marker VALUES ('early');",
     );
     let early = deployment.sql("SELECT now()");
-    // A full backup after the moment, which the restore goes back past.
     let backed_up = deployment.server.deploy(&["backup"]);
     assert!(backed_up.status.success(), "{}", lossy(&backed_up));
     archive_everything_committed(&deployment);
-    let before = deployment.sql("SELECT (extract(epoch FROM now()) * 1000000)::bigint");
-
+    let micros = "SELECT (extract(epoch FROM now()) * 1000000)::bigint";
+    let before = deployment.sql(micros);
     let restored = deployment.restore(Some(&early));
-
-    let after = deployment.sql("SELECT (extract(epoch FROM now()) * 1000000)::bigint");
+    let after = deployment.sql(micros);
     assert!(restored.status.success(), "{}", lossy(&restored));
-    let backups = backups(&deployment);
-    let label = |index: usize| backups[index]["label"].as_str().expect("a backup's label");
-    // The first deploy's backup, which the restore starts from, and `backup`'s.
-    let (first, newest) = (label(0), label(1));
-    assert!(
-        lossy(&restored).contains(&format!(
-            "the bucket keeps the full backup {first}, which the restore starts from"
-        )),
-        "{}",
-        lossy(&restored)
-    );
-    let annotations: Vec<(String, i64)> = backups
+    (
+        deployment,
+        before.parse().expect("microseconds"),
+        after.parse().expect("microseconds"),
+        restored,
+    )
+}
+
+/// Each annotation of each backup that `backups` lists: the backup's label and the annotation's
+/// key, and its value as a number.
+fn annotations(backups: &[Value]) -> Vec<(String, i64)> {
+    backups
         .iter()
         .flat_map(|backup| {
             let label = backup["label"].as_str().unwrap_or_default().to_owned();
@@ -269,18 +268,55 @@ async fn ops_15_a_restore_marks_the_backup_it_starts_from_and_records_when_its_t
                 .flatten()
                 .map(move |(key, value)| {
                     let value = value.as_str().and_then(|value| value.parse().ok());
-                    (format!("{label} {key}"), value.expect("a time"))
+                    (format!("{label} {key}"), value.expect("a number"))
                 })
         })
+        .collect()
+}
+
+#[tokio::test]
+async fn ops_15_a_restore_marks_the_full_backup_it_starts_from_in_the_bucket() {
+    let (deployment, before, after, restored) = restored_past_a_full_backup().await;
+
+    let backups = backups(&deployment);
+
+    let first = backups[0]["label"]
+        .as_str()
+        .expect("the first deploy's backup");
+    assert!(
+        lossy(&restored).contains(&format!(
+            "the bucket keeps the full backup {first}, which the restore starts from"
+        )),
+        "{}",
+        lossy(&restored)
+    );
+    let marks: Vec<(String, i64)> = annotations(&backups)
+        .into_iter()
+        .filter(|(mark, _)| mark.contains(" restore-"))
         .collect();
-    let (before, after): (i64, i64) = (before.parse().unwrap(), after.parse().unwrap());
-    assert_eq!(annotations.len(), 2, "a mark and a record: {annotations:?}");
-    let ((mark, at), (record, began)) = (&annotations[0], &annotations[1]);
+    assert_eq!(marks.len(), 1, "{marks:?}");
+    let (mark, at) = &marks[0];
     assert_eq!(*mark, format!("{first} restore-{at}"));
     assert!(
         (before / 1_000_000..=after / 1_000_000).contains(at),
         "{before} {at} {after}"
     );
+}
+
+#[tokio::test]
+async fn ops_15_a_restore_records_when_its_timeline_begins_on_the_newest_full_backup() {
+    let (deployment, before, after, restored) = restored_past_a_full_backup().await;
+
+    let backups = backups(&deployment);
+
+    // `backup`'s, the newest full backup when the restore ran; the restore's own came after.
+    let newest = backups[1]["label"].as_str().expect("`backup`'s backup");
+    let records: Vec<(String, i64)> = annotations(&backups)
+        .into_iter()
+        .filter(|(record, _)| record.contains(" timeline-"))
+        .collect();
+    assert_eq!(records.len(), 1, "{records:?}");
+    let (record, began) = &records[0];
     assert_eq!(*record, format!("{newest} timeline-2"));
     assert!((before..=after).contains(began), "{before} {began} {after}");
     assert_eq!(
@@ -384,8 +420,9 @@ async fn ops_15_a_restore_to_the_moment_an_earlier_restore_names_undoes_it() {
     );
 }
 
-#[tokio::test]
-async fn ops_15_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
+/// A bundled deployment whose database held "early", then "last", and a restore took back to
+/// the moment after "early", and what that restore wrote.
+async fn restored_before_the_last_change() -> (Deployment, Output) {
     let deployment = Deployment::bundled(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
@@ -398,17 +435,18 @@ async fn ops_15_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
     archive_everything_committed(&deployment);
     let went_back = deployment.restore(Some(&early));
     assert!(went_back.status.success(), "{}", lossy(&went_back));
+    (deployment, went_back)
+}
+
+#[tokio::test]
+async fn ops_15_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
+    let (deployment, went_back) = restored_before_the_last_change().await;
     // Halfway from the moment that restore named to the one it recorded as when its timeline
     // began: after its transaction committed, and before its timeline began, so no commit or
-    // rollback that the bucket holds follows it on the timeline that restore abandoned. And the
-    // microsecond after its timeline began, before anything committed on it.
-    let named = undoing(&went_back);
-    let began = beginning(&went_back);
+    // rollback that the bucket holds follows it on the timeline that restore abandoned.
+    let (named, began) = (undoing(&went_back), beginning(&went_back));
     let during = deployment.sql(&format!(
         "SELECT '{named}'::timestamptz + ('{began}'::timestamptz - '{named}'::timestamptz) / 2"
-    ));
-    let begun = deployment.sql(&format!(
-        "SELECT '{began}'::timestamptz + interval '1 microsecond'"
     ));
 
     let restored = deployment.restore(Some(&during));
@@ -428,6 +466,17 @@ async fn ops_15_a_restore_reaches_a_moment_while_an_earlier_restore_ran() {
         "early\nlast"
     );
     assert_eq!(deployment.server.running("api-blue").len(), 2);
+}
+
+#[tokio::test]
+async fn ops_15_a_restore_reaches_the_moment_just_after_an_earlier_restore_s_timeline_began() {
+    let (deployment, went_back) = restored_before_the_last_change().await;
+    // The microsecond after the moment that restore recorded as when its timeline began, before
+    // anything committed on it.
+    let begun = deployment.sql(&format!(
+        "SELECT '{}'::timestamptz + interval '1 microsecond'",
+        beginning(&went_back)
+    ));
 
     let restored = deployment.restore(Some(&begun));
 
@@ -904,7 +953,7 @@ async fn ops_15_a_restore_whose_record_of_its_timeline_fails_serves_again_and_re
         "{refusal}"
     );
     assert!(
-        refusal.contains("started the API and the backups again"),
+        refusal.contains("starting the API and the backups again"),
         "{refusal}"
     );
     assert!(!refusal.contains("restoring the database"), "{refusal}");

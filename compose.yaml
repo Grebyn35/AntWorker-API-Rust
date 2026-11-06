@@ -98,7 +98,8 @@ services:
   # The images the image tasks run, under the `tools` profile, so the dependency updates that
   # reach every other image reach them too (docs/operations/ci.md). The tasks run them with
   # `docker compose run`, or read their names with `docker compose config --images`. Only the
-  # registry, to which `just e2e` pushes the image, and the mirror run as services.
+  # registry, to which the end-to-end tests and `just load-test` push the images under test, and the
+  # mirror run as services.
   registry:
     profiles: [tools]
     image: registry:3.1.2@sha256:d4032d4cc323c1731c707931ecada07a53076eac38e3b61ae57533f170f2c6c3

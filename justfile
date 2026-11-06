@@ -77,4 +77,4 @@ ci: checks check-removable image image-scan e2e
 # Runs the checks of the code that need neither the image nor a copy of the repository.
 [doc("Runs the checks of the code that need no image and no copy of the repository")]
 [group('check')]
-checks: bound-build fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-layout check-schema check-tenancy check-table-ownership check-migrations sqlx-check check-parts
+checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-layout check-schema check-tenancy check-table-ownership check-migrations sqlx-check check-parts

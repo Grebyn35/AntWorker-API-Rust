@@ -94,8 +94,8 @@ release-image repository commit source:
 
 # Fails unless each image of `repository`, such as owner/name, tagged `version` is signed by the
 # run on main of the repository at `source`, with the SBOM and the provenance of both platforms,
-# and prints each one's digest (OPS-12). It runs deploy/verify-release.sh, which the reference
-# deployment's deploy also runs before it pulls a release (OPS-14).
+# and prints each one's digest. It runs deploy/verify-release.sh, which the reference
+# deployment's deploy also runs before it pulls a release.
 [unix]
 [doc("Verifies a release's images, signatures, SBOMs and provenance")]
 [group('release')]
@@ -105,7 +105,7 @@ verify-release repository version source:
 
 # Scans the published images of `repository`, such as owner/name, again: `edge`, the newest final
 # release and the newest prerelease of each image, for vulnerabilities published since they were
-# tested (SEC-15). The scheduled workflow runs it every week, after a `docker login`.
+# tested. The scheduled workflow runs it every week, after a `docker login`.
 [unix]
 [private]
 image-rescan repository:

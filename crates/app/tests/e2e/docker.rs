@@ -67,7 +67,8 @@ impl Container {
     /// as the tests' own, once the run holds the machine (machine.rs).
     pub fn start(args: &[&str]) -> Self {
         machine::claim();
-        let id = docker(&[&["run", "--detach", "--label", machine::LABEL], args].concat());
+        let label = format!("{}=true", machine::LABEL);
+        let id = docker(&[&["run", "--detach", "--label", &label], args].concat());
         Self { id }
     }
 

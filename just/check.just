@@ -86,7 +86,7 @@ fmt-check:
 # are linted too.
 [doc("Runs clippy, with warnings as errors")]
 [group('check')]
-lint:
+lint: bound-build
     cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 # Checks dependencies: advisories, bans and sources for every target, and licenses for each target
@@ -113,7 +113,8 @@ deny:
 check-test-map:
     {{ xtask }} check-test-map
 
-# Fails on a part of openapi.json that breaks the rules for the HTTP contract.
+# Fails on a part of openapi.json that breaks the rules for the HTTP contract, of those that
+# docs/operations/ci.md says it reads.
 [doc("Fails on a part of openapi.json that breaks the HTTP contract's rules")]
 [group('check')]
 check-openapi:
@@ -137,9 +138,9 @@ check-instrument:
 check-metrics:
     {{ xtask }} check-metrics
 
-# Fails on a collector configuration whose tail sampling doesn't keep the traces OBS-08 names, a
-# managed backend's configuration that replaces that sampling, or a latency objective that differs
-# between the sampling, the alerts and the latency dashboard.
+# Fails on a tail sampling of the collector that doesn't keep the traces OBS-08 names, a
+# configuration of the managed backend or of the proxy that doesn't keep that sampling, or a
+# latency objective that differs between the sampling, the alerts and the latency dashboard.
 [doc("Fails on a collector configuration that breaks the sampling rules")]
 [group('check')]
 check-telemetry-config:
@@ -214,7 +215,7 @@ check-layout:
 # Fails on a name, a standard column, a check constraint, a function, a foreign key, a soft
 # delete or a role's privilege in the migrations' schema that breaks the data rules, in the
 # catalog of a database that the API's own bootstrap and migrate build on the Postgres that
-# `services` starts (DATA-01, DATA-02, DATA-04, DATA-05, DATA-06, DATA-07, DATA-12, DATA-19).
+# `services` starts.
 [doc("Fails on a table, constraint, index or grant of the migrations that breaks the data rules")]
 [group('check')]
 check-schema: services

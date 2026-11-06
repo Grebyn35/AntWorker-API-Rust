@@ -16,7 +16,10 @@
 //! pgBackRest expires the oldest full backups first, each with the backups that depend on it, so
 //! the newest full backup when a timeline began outlives every backup that reaches a moment before
 //! then. A timeline whose beginning no backup records began, for the plan, before every backup the
-//! bucket holds: no backup that it holds reaches a moment before that timeline began.
+//! bucket holds: no backup that it holds reaches a moment before that timeline began. A backup of
+//! an earlier timeline was taken before it began, so a bucket that holds one and no record of the
+//! later timeline's beginning predates the records, and the plan refuses a moment there rather
+//! than guess which timeline was live.
 //!
 //! The plan is a pure function of what the backup bucket records, which deploy.sh's
 //! `restore-inputs` prints, so tests cover it without a bucket. `just restore` makes it on the
@@ -72,6 +75,19 @@ pub struct Plan {
 /// from the latest backup that ended before it on that timeline, or on a timeline it descends
 /// from, before the branch.
 pub fn plan(moment: i64, backups: &[Backup], timelines: &[Timeline]) -> Result<Plan, String> {
+    if moment < i64::MAX
+        && let Some(unrecorded) = timelines.iter().find(|timeline| {
+            timeline.began.is_none() && backups.iter().any(|backup| backup.timeline < timeline.id)
+        })
+    {
+        let id = unrecorded.id;
+        return Err(format!(
+            "the bucket doesn't record when timeline {id} began, while it holds a backup from \
+             before then, as when a restore that recorded no beginning began it, so the backups \
+             can't tell which timeline was live at the moment. The latest state restores, and a \
+             moment does once every backup from before timeline {id} has expired"
+        ));
+    }
     let live = timelines
         .iter()
         .filter(|timeline| timeline.began.is_none_or(|began| began < moment))
@@ -131,12 +147,8 @@ pub fn planned(text: Option<&str>, inputs: &str) -> Result<Plan, String> {
         None => i64::MAX,
     };
     let (now, backups, timelines) = read_inputs(inputs)?;
-    // The clock reads whole seconds, rounded down, so it has reached every moment of its second.
     if let Some(text) = text
-        && now
-            .checked_add(1)
-            .and_then(|next| next.checked_mul(MICROS))
-            .is_none_or(|next| at >= next)
+        && at > now
     {
         return Err(format!(
             "Can't restore to {text}: the server's clock hasn't reached it. Without a moment, a \
@@ -149,7 +161,7 @@ pub fn planned(text: Option<&str>, inputs: &str) -> Result<Plan, String> {
     })
 }
 
-/// What `restore-inputs` printed: a line `now` with the server's clock, in seconds since the
+/// What `restore-inputs` printed: a line `now` with the server's clock, in microseconds since the
 /// epoch, a line `backups` with pgBackRest's info in JSON, and a line `branch` for each line of
 /// each history file that the bucket holds: its name, the timeline it descends from, and the
 /// branch's position.
@@ -508,6 +520,25 @@ mod tests {
     }
 
     #[test]
+    fn ops_15_a_moment_is_refused_where_a_timeline_s_beginning_predates_the_records() {
+        // Timeline 2 with no record of its beginning, while the bucket still holds the backups of
+        // timeline 1, from before it began: a restore began it before restores recorded it.
+        let (backups, mut timelines) = restored_once();
+        timelines[0].began = None;
+
+        let moment = plan(at(800), &backups, &timelines);
+        let latest = plan(i64::MAX, &backups, &timelines);
+
+        assert!(
+            moment
+                .as_ref()
+                .is_err_and(|refused| refused.contains("doesn't record when timeline 2 began")),
+            "{moment:?}"
+        );
+        assert_eq!(latest.map(|plan| plan.set), Ok("closing".to_owned()));
+    }
+
+    #[test]
     fn ops_15_the_latest_state_starts_from_the_latest_backup_on_the_latest_timeline() {
         let (mut backups, timelines) = restored_once();
         let with_closing = plan(i64::MAX, &backups, &timelines);
@@ -534,7 +565,7 @@ mod tests {
         // backup when timeline 3 would begin; once the database was put back, and backed up, the
         // restore that began it recorded that on the second.
         let inputs = concat!(
-            "now 1793140900\n",
+            "now 1793140900000000\n",
             r#"backups [{"backup":["#,
             r#"{"label":"20261026-214504F","type":"full","timestamp":{"start":1793051104,"stop":1793051111},"lsn":{"start":"0/E000028","stop":"0/E000120"},"archive":{"start":"00000002000000000000000E","stop":"00000002000000000000000E"},"annotation":{"restore-1793140849":"1793140849","timeline-3":"1793140850000001"}},"#,
             r#"{"label":"20261027-214055F","type":"full","timestamp":{"start":1793140855,"stop":1793140858},"lsn":{"start":"0/1A000028","stop":"0/1A000120"},"archive":{"start":"00000002000000000000001A","stop":"00000002000000000000001A"},"annotation":{"restore-1793140860":"1793140860","timeline-3":"1793140861913582"}}"#,
@@ -547,7 +578,7 @@ mod tests {
 
         let (now, backups, timelines) = read_inputs(inputs).unwrap();
 
-        assert_eq!(now, 1_793_140_900);
+        assert_eq!(now, 1_793_140_900_000_000);
         assert_eq!(
             backups,
             [
@@ -574,16 +605,16 @@ mod tests {
 
     #[test]
     fn ops_15_a_moment_that_the_server_s_clock_hasn_t_reached_is_refused() {
-        // A backup that ended a minute before the server's clock reading, and moments in the
-        // second of that reading, and in the second after it.
+        // A backup that ended a minute before the server's clock reading, and moments at that
+        // reading and a microsecond after it.
         let inputs = concat!(
-            "now 1793051171\n",
+            "now 1793051171000000\n",
             r#"backups [{"backup":[{"label":"20261026-214504F","type":"full","timestamp":{"start":1793051104,"stop":1793051111},"lsn":{"start":"0/E000028","stop":"0/E000120"},"archive":{"start":"00000001000000000000000E","stop":"00000001000000000000000E"}}]}]"#,
             "\n",
         );
 
-        let reached = planned(Some("2026-10-26 21:46:11.999999+00"), inputs);
-        let ahead = planned(Some("2026-10-26 21:46:12+00"), inputs);
+        let reached = planned(Some("2026-10-26 21:46:11+00"), inputs);
+        let ahead = planned(Some("2026-10-26 21:46:11.000001+00"), inputs);
         let latest = planned(None, inputs);
 
         assert_eq!(

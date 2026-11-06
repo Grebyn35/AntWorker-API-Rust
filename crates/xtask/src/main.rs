@@ -70,9 +70,8 @@ enum Command {
     /// DOC-14, or a spec's Routes table that doesn't match `openapi.json`.
     #[command(name = "check-docs")]
     Docs,
-    /// Fails on a part of the committed `openapi.json` that breaks the rules for the HTTP contract:
-    /// its paths, its property names, each operation's access level and response descriptions, the
-    /// codes of its error responses, and its references, which must resolve.
+    /// Fails on a part of the committed `openapi.json` that breaks the rules for the HTTP contract,
+    /// of those that docs/operations/ci.md says it reads.
     #[command(name = "check-openapi")]
     Openapi,
     /// Fails on a log or span field name outside the list of telemetry names, a record name outside
@@ -90,9 +89,9 @@ enum Command {
     /// Writes the metric catalog, `docs/operations/metrics.md`, from the declarations (OBS-12).
     #[command(name = "metric-catalog")]
     MetricCatalog,
-    /// Fails on a collector configuration whose tail sampling doesn't keep the traces OBS-08 names,
-    /// or a latency objective that differs between the sampling, the alerts and the latency
-    /// dashboard.
+    /// Fails on a tail sampling of the collector that doesn't keep the traces OBS-08 names, a
+    /// configuration of the managed backend or of the proxy that doesn't keep that sampling, or a
+    /// latency objective that differs between the sampling, the alerts and the latency dashboard.
     #[command(name = "check-telemetry-config")]
     TelemetryConfig,
     /// Fails on an alert without a severity, a runbook section, or a test that expects it to fire.
@@ -134,7 +133,7 @@ enum Command {
     /// `workspace_id` that names neither its `workspace_id` nor, for a table with one, its
     /// `user_id`, outside a listed job that spans tenants, and on a table without a
     /// `workspace_id` that isn't listed as account or platform data or as the workspaces
-    /// themselves (DATA-16).
+    /// themselves.
     #[command(name = "check-tenancy")]
     Tenancy,
     /// Fails on a query, in a `sqlx` macro of `platform` or `app`, that names a table another
@@ -158,8 +157,7 @@ enum Command {
     /// closes, a marker in a Rust file that isn't Rust's `//` comment alone on its line, a test of
     /// another module's behavior in a file that a part owns, and, for each run that
     /// `crates/xtask/parts.yaml` lists, on a Rust file that removing the run's parts leaves
-    /// unparseable, or a line or path it keeps that names one of them, removing them in memory
-    /// (ARCH-07).
+    /// unparseable, or a line or path it keeps that names one of them, removing them in memory.
     #[command(name = "check-parts")]
     Parts,
     /// Removes the optional parts named `parts` (ARCH-07): it deletes the files each owns whole

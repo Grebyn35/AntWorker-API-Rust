@@ -2,6 +2,7 @@
 //! database it is prepared on, and the wait until it is healthy.
 
 use std::{
+    fs::{File, OpenOptions, TryLockError},
     io::{BufRead, BufReader},
     path::Path,
     process::{Command, Stdio},
@@ -80,9 +81,61 @@ pub(super) fn healthy(root: &Path, id: &str) -> Result<(), String> {
     }
 }
 
-/// The image for this machine's platform, of the index in target/image, which `just load-test`
-/// pushed to the registry that Compose runs, as this machine reaches it.
+/// Holds the machine for the load test, through the lock that a run of the end-to-end tests holds
+/// it by (crates/app/tests/e2e/machine.rs), or says why it can't: a run of either counts the
+/// machine as its own (OPS-21). The operating system lets the machine go when the process ends.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the load test runs as a synchronous program, with no async runtime to stall"
+)]
+pub(super) fn hold_the_machine() -> Result<File, String> {
+    let path = std::env::temp_dir().join("image-tests.lock");
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .map_err(|error| format!("can't open {}: {error}", path.display()))?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(TryLockError::WouldBlock) => Err(format!(
+            "a run of the end-to-end tests or of the load test holds this machine, as its lock on \
+             {} says: wait for it to end, or end it",
+            path.display()
+        )),
+        Err(TryLockError::Error(error)) => Err(format!("can't lock {}: {error}", path.display())),
+    }
+}
+
+/// The image for this machine's platform, of the index in target/image, which it pushes to the
+/// registry that Compose runs, emptied first, as this machine reaches it there.
 pub(super) fn image(root: &Path) -> Result<String, String> {
+    docker(
+        root,
+        &[
+            "compose",
+            "rm",
+            "--force",
+            "--stop",
+            "--volumes",
+            "registry",
+        ],
+    )?;
+    docker(root, &["compose", "up", "--detach", "--wait", "registry"])?;
+    docker(
+        root,
+        &[
+            "compose",
+            "run",
+            "--rm",
+            "--no-TTY",
+            "crane",
+            "push",
+            "--insecure",
+            "/image",
+            "registry:5000/image:e2e",
+        ],
+    )?;
     let index: Value = serde_json::from_str(
         &read(&root.join("target/image/index.json"))
             .map_err(|_| "target/image/index.json is missing; run `just image`".to_owned())?,

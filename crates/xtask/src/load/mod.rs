@@ -25,7 +25,7 @@ use std::{
 use serde_json::Value;
 
 use crate::{repo::Repo, telemetry_config};
-use replica::{healthy, image, limits, prepare};
+use replica::{healthy, hold_the_machine, image, limits, prepare};
 
 mod replica;
 // part: invitations
@@ -102,8 +102,8 @@ pub fn next_rate(first: u64, steps: &[(u64, bool)]) -> Option<u64> {
     }
 }
 
-/// Runs the load test against the API's image under test, which `just load-test` pushed: of a
-/// replica's capacity on `route`.
+/// Runs the load test against the API's image under test, once it holds the machine and has pushed
+/// the image: of a replica's capacity on `route`.
 // part: invitations
 /// With `streams`, it measures the replica's hub instead.
 // end part: invitations
@@ -120,6 +120,10 @@ pub fn run(route: &str) -> ExitCode {
         return fail(&format!("no route is named {route}: {}", names.join(", ")));
     };
     let root = root();
+    let _machine = match hold_the_machine() {
+        Ok(machine) => machine,
+        Err(error) => return fail(&error),
+    };
     let image = match image(&root) {
         Ok(image) => image,
         Err(error) => return fail(&error),
