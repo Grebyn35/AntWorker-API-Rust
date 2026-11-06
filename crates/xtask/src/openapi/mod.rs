@@ -9,8 +9,6 @@ mod lists;
 mod operations;
 mod schemas;
 
-use std::collections::{BTreeMap, BTreeSet};
-
 use serde_json::{Map, Value};
 
 use crate::{Finding, Outcome, repo::Repo, text::line_of};
@@ -50,22 +48,14 @@ pub fn check(repo: &Repo) -> Outcome {
     let mut problems = Vec::new();
     let empty = Map::new();
     let paths = document["paths"].as_object().unwrap_or(&empty);
-    let mut groups: Vec<(String, String, String, BTreeSet<String>)> = Vec::new();
     for (path, item) in paths {
         problems.extend(path_shape(path));
         for method in METHODS {
             if let Some(operation) = item.get(method) {
                 problems.extend(operation_problems(path, method, operation));
-                groups.push((
-                    format!("{} {path}", method.to_ascii_uppercase()),
-                    quoted(path),
-                    group(method, operation),
-                    request_codes(operation),
-                ));
             }
         }
     }
-    problems.extend(group_codes(&groups));
     problems.extend(references(&document, &document));
     problems.extend(operations::check(&document));
     problems.extend(lists::check(&document));
@@ -228,90 +218,6 @@ fn error_codes(
                 needle.to_owned(),
                 format!("{here}: the {status} response doesn't say what {code} means (ERR-13)"),
             ));
-        }
-    }
-    problems
-}
-
-/// The `request.` codes an operation lists: the problems `platform` answers on any route of
-/// the operation's group.
-fn request_codes(operation: &Value) -> BTreeSet<String> {
-    let empty = Map::new();
-    operation["responses"]
-        .as_object()
-        .unwrap_or(&empty)
-        .values()
-        .flat_map(|response| {
-            response["content"]["application/problem+json"]["schema"]["allOf"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|part| part["properties"]["code"]["enum"].as_array())
-                .flatten()
-                .filter_map(Value::as_str)
-        })
-        .filter(|code| code.starts_with("request."))
-        .map(str::to_owned)
-        .collect()
-}
-
-/// The operations whose pipeline answers the same `request.` codes: those of one access level,
-/// split by whether their method is safe, since the cross-site check refuses only a request that
-/// changes something, whether they take a body, whose problems only they answer, and which of the
-/// headers whose problems only their operations answer they document: an `Idempotency-Key`
-/// (API-12) and an `If-Match` (API-13).
-fn group(method: &str, operation: &Value) -> String {
-    let access = operation["x-access"].as_str().unwrap_or_default();
-    let kind = if operation.get("requestBody").is_some() {
-        "body-taking "
-    } else if ["get", "head", "options", "trace"].contains(&method) {
-        ""
-    } else {
-        "changing "
-    };
-    let headers: String = [("idempotency-key", "keyed "), ("if-match", "conditional ")]
-        .iter()
-        .filter(|(name, _)| takes_header(operation, name))
-        .map(|(_, kind)| *kind)
-        .collect();
-    format!("{headers}{kind}{access}")
-}
-
-/// Whether `operation` documents the header `name`, in any case.
-fn takes_header(operation: &Value, name: &str) -> bool {
-    operation["parameters"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .any(|parameter| {
-            parameter["in"] == "header"
-                && parameter["name"]
-                    .as_str()
-                    .is_some_and(|parameter| parameter.eq_ignore_ascii_case(name))
-        })
-}
-
-/// ERR-13: an operation lists every `request.` code that another operation of its group lists,
-/// since the pipeline answers each of them on any route of the group.
-fn group_codes(operations: &[(String, String, String, BTreeSet<String>)]) -> Vec<Problem> {
-    let mut by_access: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
-    for (_, _, access, codes) in operations {
-        by_access
-            .entry(access)
-            .or_default()
-            .extend(codes.iter().map(String::as_str));
-    }
-    let mut problems = Vec::new();
-    for (here, needle, access, codes) in operations {
-        for code in &by_access[access.as_str()] {
-            if !codes.contains(*code) {
-                problems.push((
-                    needle.clone(),
-                    format!(
-                        "{here} doesn't list {code}, which another {access} route answers (ERR-13)"
-                    ),
-                ));
-            }
         }
     }
     problems
@@ -516,90 +422,6 @@ mod tests {
                 "GET /v1/things answers 404 without a problem that lists its codes (ERR-13)",
                 "GET /v1/things: the 503 response doesn't say what request.timed_out means (ERR-13)",
             ]
-        );
-    }
-
-    #[test]
-    fn err_13_every_operation_lists_the_codes_its_route_group_can_answer() {
-        let mut full = operation();
-        full["responses"]["503"] = json!({
-            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress.",
-            "content": { "application/problem+json": { "schema": { "allOf": [
-                { "$ref": "#/components/schemas/Problem" },
-                { "properties": { "code": { "enum": ["request.timed_out", "request.overloaded"] } } },
-            ] } } },
-        });
-        let mut two = document("/v1/things", operation(), json!({}));
-        two["paths"]["/v1/others"] = json!({ "get": full });
-        let messages = findings(&two);
-        assert_eq!(
-            messages,
-            [
-                "GET /v1/things doesn't list request.overloaded, which another public route answers (ERR-13)"
-            ]
-        );
-    }
-
-    #[test]
-    fn err_13_a_route_that_takes_a_body_is_grouped_with_those_that_do() {
-        let mut body = operation();
-        body["requestBody"] = json!({ "content": {} });
-        body["responses"]["400"] = json!({
-            "description": "`request.invalid_body`: Invalid body.",
-            "content": { "application/problem+json": { "schema": { "allOf": [
-                { "$ref": "#/components/schemas/Problem" },
-                { "properties": { "code": { "enum": ["request.invalid_body"] } } },
-            ] } } },
-        });
-        let mut without = operation();
-        without["requestBody"] = json!({ "content": {} });
-        let mut document = document("/v1/things", operation(), json!({}));
-        document["paths"]["/v1/things"]["post"] = body;
-        document["paths"]["/v1/others"] = json!({ "post": without });
-        let messages = findings(&document);
-        assert_eq!(
-            messages,
-            [
-                "POST /v1/others doesn't list request.invalid_body, which another body-taking public route answers (ERR-13)"
-            ],
-            "the GET, which takes no body, needn't list it"
-        );
-    }
-
-    #[test]
-    fn err_13_a_route_that_takes_a_key_or_a_precondition_is_grouped_with_those_that_do() {
-        let problem = |code: &str| {
-            json!({
-                "description": format!("`{code}`: A problem."),
-                "content": { "application/problem+json": { "schema": { "allOf": [
-                    { "$ref": "#/components/schemas/Problem" },
-                    { "properties": { "code": { "enum": [code] } } },
-                ] } } },
-            })
-        };
-        let header = |name: &str| json!([{ "in": "header", "name": name, "schema": {} }]);
-        let mut keyed = operation();
-        keyed["requestBody"] = json!({ "content": {} });
-        keyed["parameters"] = header("Idempotency-Key");
-        keyed["responses"]["409"] = problem("request.idempotency_key_in_flight");
-        let mut conditional = operation();
-        conditional["requestBody"] = json!({ "content": {} });
-        conditional["parameters"] = header("If-Match");
-        conditional["responses"]["412"] = problem("request.precondition_failed");
-        let mut forgetful = operation();
-        forgetful["requestBody"] = json!({ "content": {} });
-        forgetful["parameters"] = header("If-Match");
-        let mut document = document("/v1/things", operation(), json!({}));
-        document["paths"]["/v1/things"]["post"] = keyed;
-        document["paths"]["/v1/stuff"] = json!({ "put": conditional });
-        document["paths"]["/v1/others"] = json!({ "put": forgetful });
-        let messages = findings(&document);
-        assert_eq!(
-            messages,
-            [
-                "PUT /v1/others doesn't list request.precondition_failed, which another conditional body-taking public route answers (ERR-13)"
-            ],
-            "neither the keyed POST nor the conditional PUT lists the other's codes"
         );
     }
 

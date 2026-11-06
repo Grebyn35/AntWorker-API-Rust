@@ -76,9 +76,20 @@ utoipa-axum = "0.3.0"
 [profile.dev]
 debug = "line-tables-only"
 
+# Development builds optimize the password hash, Argon2id and the BLAKE2 it is built on, as
+# release builds do. Unoptimized, hashing takes most of the tests' time, since they register their
+# users through the API: the integration tests run about three times as long. The hash is the
+# same either way.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
+
+# `dead_code` keeps its default, a warning, so code in progress still builds and serves under
+# `just dev`; clippy's `-D warnings`, which `just checks` and CI run, refuses it (CODE-15).
 [workspace.lints.rust]
 unsafe_code = "forbid"
-dead_code = "deny"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

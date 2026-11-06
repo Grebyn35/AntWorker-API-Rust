@@ -33,7 +33,7 @@ This is a Rust API built as a template to fork. Read these before changing anyth
 just setup           # checks the tools' pinned versions, and writes .env, with generated passwords
 just dev             # the API with auto-reload; `just dev observe` adds the observability stack
 just ci              # every check CI runs, the image's included
-just checks          # the checks of the code that need neither the image nor a copy of the repository
+just checks          # the checks of the code that need neither the image nor a copy of the repository: what a change runs while it is made, and `just ci` once it is done
 just image           # the image, for both platforms, into target/image
 just e2e             # the end-to-end tests, against the image in target/image; `just e2e obs_13` runs those whose names hold obs_13
 just release         # the versions that can come next; `just release 1.4.0` releases main as 1.4.0, once CI passes (docs/operations/release.md)
@@ -46,6 +46,6 @@ just prepare         # rewrites the query cache in .sqlx/ (DATA-14)
 just metrics         # rewrites the metric catalog from the declarations (OBS-12)
 ```
 
-Queries are checked against the database while compiling, and `migrate` is part of the same binary. Add a migration and run `just migrate` before writing the queries that use it, then run `just prepare` before `just ci`.
+Queries are checked while compiling: the tasks build against the query cache in `.sqlx/`, which `just prepare` rewrites from the development database. `migrate` is part of the same binary, so it builds only while the cache holds every query. Run `just migrate` before writing a query, on a fresh clone as after adding a migration, then `just prepare` once it is written, before the other tasks build it.
 
 Editing a migration that no release contains (DATA-09) means recreating the development database, which `migrate` refuses once its applied file differs. Recreate it before changing the queries, while the cache in `.sqlx/` still matches them, so the binary compiles without the database: `docker compose exec postgres psql -U postgres -d postgres -c "DROP DATABASE api WITH (FORCE)" -c "CREATE DATABASE api"`, then `SQLX_OFFLINE=true just migrate`. The tests' databases need nothing: their template is named after the migrations' checksums. A checksum reads the file's bytes on disk, and `.gitattributes` commits every text file with lines that end in a line feed alone, so save files that way: one whose lines end in a carriage return and a line feed, as Python's text writes do on Windows, commits unchanged, but migrates with a checksum that no checkout reproduces.
