@@ -1,6 +1,7 @@
-//! The copies of the repository that `check-removable` removes parts from: each run's in
-//! `target/removable/<run>/repo/`, with its build in `target/removable/<run>/target/`, so no run's
-//! `cargo run` finds a binary that another copy built.
+//! The copies of the repository that a check changes: `check-removable` removes each run's parts
+//! from one, and `check-new-module` adds a module to one, as a fork does, then each runs
+//! `just checks` on it. Each copy is in `target/<check>/<name>/repo/`, with its build in
+//! `target/<check>/<name>/target/`, so no copy's `cargo run` finds a binary that another built.
 
 use std::{
     io,
@@ -9,7 +10,7 @@ use std::{
 };
 
 /// The repository's root.
-fn root() -> PathBuf {
+pub fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
@@ -34,26 +35,44 @@ pub fn run(
     }
 }
 
-/// On a fresh copy of the repository for the run `name`, removes `parts` with `just remove`, then
-/// runs `just checks`, as on a fork before its first release (ARCH-07). The copy shares the
-/// repository's `.env` and its Compose project, so its tests use the same Postgres and Mailpit,
-/// whose test databases are named after their migrations.
-pub fn check(name: &str, parts: &[String]) -> Result<(), String> {
-    let root = root();
-    let run_directory = root.join("target/removable").join(name);
-    let copy = run_directory.join("repo");
-    fresh_copy(&root, &copy).map_err(|error| format!("can't copy the repository: {error}"))?;
-    let target = run_directory.join("target");
-    let target = target.to_string_lossy();
-    let project = project();
-    let environment = [
-        ("CARGO_TARGET_DIR", target.as_ref()),
-        ("COMPOSE_PROJECT_NAME", project.as_str()),
-    ];
-    let mut remove = vec!["remove"];
-    remove.extend(parts.iter().map(String::as_str));
-    run(&copy, "just", &remove, &environment)?;
-    run(&copy, "just", &["checks"], &environment)
+/// A fresh copy of the repository, which shares the repository's `.env` and its Compose project,
+/// so its tests use the same Postgres and Mailpit, whose test databases are named after their
+/// migrations.
+pub struct Copy {
+    /// The copy's root.
+    root: PathBuf,
+    /// Its build directory.
+    target: String,
+    /// The repository's Compose project.
+    project: String,
+}
+
+impl Copy {
+    /// A fresh copy for the check `check`, named `name`, such as a run of `check-removable`.
+    pub fn fresh(check: &str, name: &str) -> Result<Self, String> {
+        let root = root();
+        let directory = root.join("target").join(check).join(name);
+        let copy = directory.join("repo");
+        fresh_copy(&root, &copy).map_err(|error| format!("can't copy the repository: {error}"))?;
+        Ok(Self {
+            root: copy,
+            target: directory.join("target").to_string_lossy().into_owned(),
+            project: project(),
+        })
+    }
+
+    /// Runs `just` with `args` on the copy, and fails unless it succeeds.
+    pub fn just(&self, args: &[&str]) -> Result<(), String> {
+        run(
+            &self.root,
+            "just",
+            args,
+            &[
+                ("CARGO_TARGET_DIR", self.target.as_str()),
+                ("COMPOSE_PROJECT_NAME", self.project.as_str()),
+            ],
+        )
+    }
 }
 
 /// The name of the repository's Compose project: `COMPOSE_PROJECT_NAME` if it is set, or the
@@ -122,13 +141,13 @@ fn fresh_copy(root: &Path, copy: &Path) -> io::Result<()> {
         &["add", "--all"],
         &[
             "-c",
-            "user.name=check-removable",
+            "user.name=xtask",
             "-c",
-            "user.email=check-removable@localhost",
+            "user.email=xtask@localhost",
             "commit",
             "--quiet",
             "--no-gpg-sign",
-            "--message=The repository, before the removal",
+            "--message=The repository, before the check changes it",
         ],
     ] {
         let status = Command::new("git").args(args).current_dir(copy).status()?;

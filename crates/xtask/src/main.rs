@@ -6,6 +6,7 @@ mod acronyms;
 mod alerts;
 mod boards;
 mod catalog;
+mod copy;
 mod crate_deps;
 mod declarations;
 mod deploy;
@@ -23,6 +24,7 @@ mod metrics;
 mod migrated;
 mod migrations;
 mod mirror;
+mod new_module;
 mod openapi;
 mod ownership;
 mod parts;
@@ -170,6 +172,22 @@ enum Command {
         #[arg(required = true)]
         parts: Vec<String>,
     },
+    /// Writes a new module that holds one workspace resource, with its migration, permissions,
+    /// spec and tests, registers it where every module is registered, rewrites the query cache
+    /// from a database of its own and `openapi.json`, and formats the code (ARCH-03). A step that
+    /// fails undoes what it wrote.
+    #[command(name = "new-module")]
+    NewModule {
+        /// The module's name, plural and in snake_case, such as `order_items`.
+        module: String,
+        /// The name of one of its rows, singular, such as `order_item`; by default, the singular
+        /// that English's regular plurals give the module's name.
+        resource: Option<String>,
+    },
+    /// On a copy of the repository, writes a module with `just new-module`, then runs
+    /// `just checks`.
+    #[command(name = "check-new-module")]
+    CheckNewModule,
     /// On a copy of the repository for each run that `crates/xtask/parts.yaml` lists, or for the
     /// runs named, removes the run's parts, then runs `just checks`.
     #[command(name = "check-removable")]
@@ -337,6 +355,8 @@ fn main() -> ExitCode {
     let command = match Cli::parse().command {
         Command::Remove { parts } => return parts::remove(&parts),
         Command::CheckRemovable { runs } => return parts::check_removable(&runs),
+        Command::NewModule { module, resource } => return new_module::run(&module, resource),
+        Command::CheckNewModule => return new_module::check(),
         Command::Release { version } => return release::run(version.as_deref()),
         Command::ReleaseCheck { version } => return release::check(&version),
         Command::Inputs { directory } => return inputs::run(&directory),
@@ -393,6 +413,8 @@ fn main() -> ExitCode {
         Command::Parts => parts::check(&repo),
         Command::Remove { .. }
         | Command::CheckRemovable { .. }
+        | Command::NewModule { .. }
+        | Command::CheckNewModule
         | Command::Release { .. }
         | Command::ReleaseCheck { .. }
         | Command::Inputs { .. }

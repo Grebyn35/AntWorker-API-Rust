@@ -117,14 +117,20 @@ pub fn read(path: &Path) -> io::Result<Vec<u8>> {
     std::fs::read(path)
 }
 
-/// Writes `text` to the file at `path`, a path from the repository root, with line feeds.
+/// Writes `text` to the file at `path`, a path from the repository root, with line feeds,
+/// creating the directories above it that don't exist yet.
 #[expect(
     clippy::disallowed_methods,
     reason = "the checks run as a synchronous program, with no async runtime to stall"
 )]
 pub fn write(path: &str, text: &str) -> io::Result<()> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    std::fs::write(root.join(path), text)
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, text)
 }
 
 /// Deletes the file at `path`, a path from the repository root, and each directory above it that

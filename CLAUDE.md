@@ -6,6 +6,7 @@ This is a Rust API built as a template to fork. Read these before changing anyth
 2. [docs/standards/README.md](docs/standards/README.md): how rules work, and how reviews run.
 3. The rules in [docs/standards/](docs/standards/) that your change touches.
 4. The spec in [docs/spec/](docs/spec/README.md) for the module you are changing.
+5. To add a module or a route: [docs/guides/adding-a-module.md](docs/guides/adding-a-module.md), which says where each piece goes.
 
 [docs/MIGRATION.md](docs/MIGRATION.md) tracks what is built, what comes next, and the known gaps. It holds status only (DOC-14).
 
@@ -38,7 +39,9 @@ just image           # the image, for both platforms, into target/image
 just e2e             # the end-to-end tests, against the image in target/image; `just e2e obs_13` runs those whose names hold obs_13
 just release         # the versions that can come next; `just release 1.4.0` releases main as 1.4.0, once CI passes (docs/operations/release.md)
 just check-test-map  # which spec behaviors tests prove
+just new-module      # a new module, such as `just new-module order_items`, holding one workspace resource, with its migration, permissions, spec and tests (ARCH-03)
 just check-removable # each workspace shape's copy of the repository, without the parts it removes, passes the checks (ARCH-07)
+just check-new-module # a copy of the repository with a module that `just new-module` wrote passes the checks (ARCH-03)
 just test            # the tests; they start Postgres through Compose
 just run             # the API with the settings in .env, after bootstrap and migrate
 just migrate         # applies new migrations

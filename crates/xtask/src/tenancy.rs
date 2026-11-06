@@ -245,7 +245,8 @@ fn placements(tables: &BTreeMap<String, Table>) -> Vec<Finding> {
                 table.line,
                 format!(
                     "`{name}` has no `workspace_id`, and check-tenancy lists it as neither account \
-                     nor platform data: data a module adds for its product lives in a workspace \
+                     nor platform data: data a module adds for its product lives in a workspace, \
+                     and a table of another kind goes in its list in crates/xtask/src/tenancy.rs \
                      (DATA-16, D39)"
                 ),
             )
@@ -469,7 +470,8 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
             [
                 "migrations/1_things.sql:10: `notes` has no `workspace_id`, and check-tenancy lists \
               it as neither account nor platform data: data a module adds for its product lives \
-              in a workspace (DATA-16, D39)"
+              in a workspace, and a table of another kind goes in its list in \
+              crates/xtask/src/tenancy.rs (DATA-16, D39)"
             ]
         );
     }

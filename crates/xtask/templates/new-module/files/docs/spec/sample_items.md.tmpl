@@ -1,0 +1,50 @@
+# Spec: `sample_items`
+
+## Purpose
+
+`sample_items` holds each workspace's sample items: its members create, list, read, rename and delete them.
+
+## Owns
+
+| Table | Holds |
+|---|---|
+| `sample_items` | `id`, `workspace_id`, `name`, `created_at`, `updated_at`, `version`. The database generates the `id` (DATA-08), and deleting the workspace deletes its sample items (DATA-05). |
+
+## Interface
+
+None. No other module uses `sample_items`.
+
+## Routes
+
+| Method and path | Access | Behaviors |
+|---|---|---|
+| `POST /v1/workspaces/{workspace_id}/sample-items` | `workspace::<SampleItemsCreate>` | SAMPLE_ITEMS-001, SAMPLE_ITEMS-002 |
+| `GET /v1/workspaces/{workspace_id}/sample-items` | `workspace::<SampleItemsRead>` | SAMPLE_ITEMS-003 |
+| `GET /v1/workspaces/{workspace_id}/sample-items/{sample_item_id}` | `workspace::<SampleItemsRead>` | SAMPLE_ITEMS-004 |
+| `PATCH /v1/workspaces/{workspace_id}/sample-items/{sample_item_id}` | `workspace::<SampleItemsUpdate>` | SAMPLE_ITEMS-002, SAMPLE_ITEMS-005 |
+| `DELETE /v1/workspaces/{workspace_id}/sample-items/{sample_item_id}` | `workspace::<SampleItemsDelete>` | SAMPLE_ITEMS-006 |
+
+`POST /v1/workspaces/{workspace_id}/sample-items` accepts an `Idempotency-Key` (API-12), and `PATCH /v1/workspaces/{workspace_id}/sample-items/{sample_item_id}` an `If-Match` (API-13, PLATFORM-071).
+
+## Behaviors
+
+| ID | Behavior | Rules | Test prefix |
+|---|---|---|---|
+| SAMPLE_ITEMS-001 | Creating a sample item with `{"name": <name>}` stores it in the workspace, and answers 201 with `Location`, the sample item's `ETag` (PLATFORM-071), and `{id, name, created_at, updated_at}`. It records `sample_item.created` in the workspace's log, and publishes the workspace event `sample_item.created`, which requires `sample_items.read`. Neither holds the name. A retry with the same `Idempotency-Key` creates one sample item. | API-04, API-12, DATA-22, SEC-18, SEC-19 | `sample_items_001_` |
+| SAMPLE_ITEMS-002 | A sample item's name is trimmed, has internal whitespace collapsed to single spaces, is normalized to Unicode Normalization Form C (NFC), and must be 1 to 255 characters and not only whitespace. | D25, API-10 | `sample_items_002_` |
+| SAMPLE_ITEMS-003 | Listing the workspace's sample items gives each as SAMPLE_ITEMS-001 does, the latest created first, in cursor pages. Its `search` matches the name. | API-05, API-06, API-20, DATA-16, DATA-17 | `sample_items_003_` |
+| SAMPLE_ITEMS-004 | Reading a sample item answers 200 with the sample item as SAMPLE_ITEMS-001 gives it, and its `ETag`. A sample item ID that names no sample item of the workspace, or isn't a UUID, answers 404 `sample_items.not_found`, here and in SAMPLE_ITEMS-005 and SAMPLE_ITEMS-006. | API-04, API-13, DATA-16 | `sample_items_004_` |
+| SAMPLE_ITEMS-005 | Renaming a sample item with the merge patch `{"name": <name>}` stores the name, normalized as SAMPLE_ITEMS-002 says, and answers 200 with the sample item as SAMPLE_ITEMS-004 gives it and its new `ETag`. An `If-Match` that names none of its versions answers 412 `request.precondition_failed` and changes nothing. It records `sample_item.updated` in the workspace's log, and publishes the workspace event `sample_item.updated`, which requires `sample_items.read`. Neither holds the name. | API-03, API-13, DATA-18, DATA-22, SEC-18, SEC-19 | `sample_items_005_` |
+| SAMPLE_ITEMS-006 | Deleting a sample item deletes its row and answers 204. It records `sample_item.deleted` in the workspace's log, and publishes the workspace event `sample_item.deleted`, which requires `sample_items.read`. The owner and admins may delete; a member gets 403 `request.permission_denied`. | API-04, DATA-06, DATA-22, SEC-19 | `sample_items_006_` |
+
+## Design
+
+Every route is a workspace route, so `Authorized<P>` proves the caller's membership and gives the workspace's ID, by which every statement filters, a sample item's ID among them, so a sample item of another workspace is never found (DATA-16). A create, a rename and a delete each record their entry and publish their event in the unit of work that changes the row, then commit (D1).
+
+The list reads a page through the index on the workspace and the creation time (DATA-17), and a search narrows the rows it reaches with the name (PLATFORM-047). A rename is one `UPDATE`, kept to the versions the request's `If-Match` names when it sent one (DATA-18): zero rows updated is either a sample item that isn't there or the precondition's failure, which a read of the row tells apart before the unit of work rolls back. The update returns the row as it now stands, whose `version` the shared trigger raised (DATA-02).
+
+A name is text a user writes, so it is personal data (the glossary in [architecture](../architecture.md#11-glossary)): the entries' `details` are empty, their resource being the sample item, and the events' payloads carry only IDs (SEC-18, API-19), so a client that receives one reads the sample item through its route.
+
+## Open design questions
+
+None.

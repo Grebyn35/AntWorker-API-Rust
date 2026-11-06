@@ -1,0 +1,18 @@
+//! The audit actions `sample_items` records, and the kind of resource they happen to (ARCH-03, the
+//! audit spec).
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a module declares its audit actions and resources here (the audit spec)"
+)]
+
+use crate::modules::audit::{Action, Resource};
+
+/// A sample item was created (SAMPLE_ITEMS-001).
+pub(super) const SAMPLE_ITEM_CREATED: Action = Action::new("sample_item.created");
+/// A sample item was renamed (SAMPLE_ITEMS-005).
+pub(super) const SAMPLE_ITEM_UPDATED: Action = Action::new("sample_item.updated");
+/// A sample item was deleted (SAMPLE_ITEMS-006).
+pub(super) const SAMPLE_ITEM_DELETED: Action = Action::new("sample_item.deleted");
+
+/// A sample item.
+pub(super) const SAMPLE_ITEM: Resource = Resource::new("sample_item");

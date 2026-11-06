@@ -1,0 +1,434 @@
+//! A workspace's sample items (the sample items spec).
+
+use serde_json::{Value, json};
+
+use crate::support::{
+    Api,
+    api::Response,
+    users::{self, SignedIn},
+    workspaces,
+};
+
+/// Creates a sample item named `name` in `workspace` as `user`, with `key` as its idempotency key if
+/// given.
+async fn create(
+    api: &Api,
+    user: &SignedIn,
+    workspace: &str,
+    name: &str,
+    key: Option<&str>,
+) -> Response {
+    let mut call = api
+        .post(
+            &format!("/v1/workspaces/{workspace}/sample-items"),
+            &json!({ "name": name }),
+        )
+        .bearer(&user.access);
+    if let Some(key) = key {
+        call = call.header("idempotency-key", key);
+    }
+    call.send().await
+}
+
+/// Renames `sample_item` of `workspace` to `name` as `user`, with `if_match` as its `If-Match` if
+/// given.
+async fn rename(
+    api: &Api,
+    user: &SignedIn,
+    workspace: &str,
+    sample_item: &str,
+    name: &str,
+    if_match: Option<&str>,
+) -> Response {
+    let mut call = api
+        .patch(
+            &format!("/v1/workspaces/{workspace}/sample-items/{sample_item}"),
+            &json!({ "name": name }),
+        )
+        .bearer(&user.access);
+    if let Some(etag) = if_match {
+        call = call.header("if-match", etag);
+    }
+    call.send().await
+}
+
+/// A workspace that `ada` owns and `grace` belongs to at `role`, with both signed in.
+async fn acme(api: &Api, role: &str) -> (String, SignedIn, SignedIn) {
+    let ada = users::register(api, "ada@example.com").await;
+    let grace = users::register(api, "grace@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    workspaces::join(db, &workspace, &grace.user_id, role).await;
+    (workspace, ada, grace)
+}
+
+/// The values of `field` in each item of a list's body.
+fn field(body: &Value, field: &str) -> Vec<String> {
+    body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item[field].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// The values of `field_name` on every page of the list at `path`, a path with a query, read as
+/// `user` by following each page's `next_cursor`.
+async fn pages(api: &Api, user: &SignedIn, path: &str, field_name: &str) -> Vec<Vec<String>> {
+    let mut pages = Vec::new();
+    let mut next = path.to_owned();
+    loop {
+        let body = api.get(&next).bearer(&user.access).send().await.json();
+        pages.push(field(&body, field_name));
+        match body["next_cursor"].as_str() {
+            Some(cursor) => next = format!("{path}&cursor={cursor}"),
+            None => return pages,
+        }
+    }
+}
+
+/// The names the sample items of `workspace` hold, in the order of their IDs.
+async fn stored_names(api: &Api, workspace: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT name FROM sample_items WHERE workspace_id = '{workspace}' ORDER BY id"
+        ))
+        .await
+}
+
+/// Each audit entry of `action`, as its log, workspace, actor, resource and details.
+async fn entries(api: &Api, action: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
+             || resource_type || ' ' || resource_id || ' ' || details::text \
+             FROM audit_entries WHERE action = '{action}'"
+        ))
+        .await
+}
+
+/// Each event named `name`, as its scope, workspace and permission, then its payload's
+/// workspace, its sample item and how many fields it holds.
+async fn events(api: &Api, name: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT scope || ' ' || workspace_id || ' ' || permission || ' ' \
+             || (payload ->> 'workspace_id') || ' ' || (payload ->> 'sample_item_id') || ' ' \
+             || (SELECT count(*) FROM jsonb_object_keys(payload)) \
+             FROM events WHERE name = '{name}'"
+        ))
+        .await
+}
+
+#[tokio::test]
+async fn sample_items_001_creating_a_sample_item_stores_it_records_it_and_publishes_it() {
+    let api = Api::new().await;
+    let (workspace, _, grace) = acme(&api, "member").await;
+
+    let response = create(&api, &grace, &workspace, "Blue", None).await;
+
+    assert_eq!(response.status, 201);
+    let body = response.json();
+    let id = body["id"].as_str().unwrap();
+    assert_eq!(
+        response.header("location"),
+        format!("/v1/workspaces/{workspace}/sample-items/{id}")
+    );
+    assert_eq!(response.header("etag"), "\"1\"");
+    assert_eq!(body["name"], "Blue");
+    assert!(body["created_at"].as_str().unwrap().ends_with('Z'));
+    assert_eq!(body["updated_at"], body["created_at"]);
+    assert_eq!(stored_names(&api, &workspace).await, ["Blue"]);
+    assert_eq!(
+        entries(&api, "sample_item.created").await,
+        [format!(
+            "workspace {workspace} {} sample_item {id} {{}}",
+            grace.user_id
+        )]
+    );
+    assert_eq!(
+        events(&api, "sample_item.created").await,
+        [format!(
+            "workspace {workspace} sample_items.read {workspace} {id} 2"
+        )]
+    );
+}
+
+#[tokio::test]
+async fn sample_items_001_a_retry_with_the_key_creates_one_sample_item() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+
+    let first = create(&api, &ada, &workspace, "Blue", Some("\"k1\"")).await;
+    let retry = create(&api, &ada, &workspace, "Blue", Some("\"k1\"")).await;
+
+    assert_eq!(first.status, 201);
+    assert_eq!(retry.status, 201);
+    assert_eq!(retry.json(), first.json());
+    assert_eq!(retry.header("location"), first.header("location"));
+    assert_eq!(retry.header("etag"), first.header("etag"));
+    assert_eq!(stored_names(&api, &workspace).await, ["Blue"]);
+    assert_eq!(entries(&api, "sample_item.created").await.len(), 1);
+}
+
+#[tokio::test]
+async fn sample_items_002_a_name_is_stored_normalized_and_must_hold_a_character() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+
+    let created = create(&api, &ada, &workspace, "  Blue \t one ", None).await;
+    let blank = create(&api, &ada, &workspace, " \t ", None).await;
+    // A name longer than the document allows is malformed input, sent raw.
+    let long = api
+        .post_raw(
+            &format!("/v1/workspaces/{workspace}/sample-items"),
+            &json!({ "name": "a".repeat(256) }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(created.status, 201);
+    assert_eq!(created.json()["name"], "Blue one");
+    for (refused, code) in [(&blank, "required"), (&long, "too_long")] {
+        assert_eq!(refused.status, 400);
+        assert_eq!(refused.json()["code"], "request.invalid_fields");
+        assert_eq!(refused.json()["errors"][0]["field"], "/name");
+        assert_eq!(refused.json()["errors"][0]["code"], code);
+    }
+    assert_eq!(stored_names(&api, &workspace).await, ["Blue one"]);
+}
+
+#[tokio::test]
+async fn sample_items_003_lists_the_workspace_s_sample_items_the_latest_created_first() {
+    let api = Api::new().await;
+    let (workspace, ada, grace) = acme(&api, "member").await;
+    let other = workspaces::arrange(api.database(), "Other", &[(&ada.user_id, "owner")]).await;
+    let first = create(&api, &ada, &workspace, "First", None).await.json();
+    let second = create(&api, &ada, &workspace, "Second", None).await.json();
+    create(&api, &ada, &other, "Elsewhere", None).await;
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE sample_items SET created_at = CASE id \
+             WHEN '{}' THEN timestamptz '2026-11-01T10:00:00Z' \
+             ELSE timestamptz '2026-11-01T11:00:00.5Z' END",
+            first["id"].as_str().unwrap()
+        ))
+        .await;
+
+    let response = api
+        .get(&format!("/v1/workspaces/{workspace}/sample-items"))
+        .bearer(&grace.access)
+        .send()
+        .await;
+
+    assert_eq!(response.status, 200);
+    let body = response.json();
+    assert_eq!(
+        field(&body, "id"),
+        [
+            second["id"].as_str().unwrap(),
+            first["id"].as_str().unwrap()
+        ]
+    );
+    assert_eq!(field(&body, "name"), ["Second", "First"]);
+    assert_eq!(
+        field(&body, "created_at"),
+        ["2026-11-01T11:00:00.500000Z", "2026-11-01T10:00:00.000000Z"]
+    );
+    assert_eq!(body["next_cursor"], Value::Null);
+}
+
+#[tokio::test]
+async fn sample_items_003_paging_returns_each_sample_item_once_across_a_shared_creation_time() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let mut arranged = Vec::new();
+    for name in ["A", "B", "C", "D", "E"] {
+        let created = create(&api, &ada, &workspace, name, None).await.json();
+        arranged.push(created["id"].as_str().unwrap().to_owned());
+    }
+    api.database()
+        .owner_executes("UPDATE sample_items SET created_at = '2026-11-01T10:00:00Z'")
+        .await;
+
+    let path = format!("/v1/workspaces/{workspace}/sample-items?limit=2");
+    let pages = pages(&api, &ada, &path, "id").await;
+
+    // Among sample items that share a creation time, the higher ID comes first.
+    arranged.sort();
+    arranged.reverse();
+    assert_eq!(pages.iter().map(Vec::len).collect::<Vec<_>>(), [2, 2, 1]);
+    assert_eq!(pages.concat(), arranged);
+}
+
+#[tokio::test]
+async fn sample_items_003_a_search_pages_through_its_matches() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    for name in ["Blue one", "Red", "Blue two", "Blue three"] {
+        create(&api, &ada, &workspace, name, None).await;
+    }
+
+    let path = format!("/v1/workspaces/{workspace}/sample-items?search=BLUE&limit=2");
+    let pages = pages(&api, &ada, &path, "name").await;
+
+    assert_eq!(pages, [vec!["Blue three", "Blue two"], vec!["Blue one"]]);
+}
+
+#[tokio::test]
+async fn sample_items_004_reading_a_sample_item_gives_it_with_its_etag() {
+    let api = Api::new().await;
+    let (workspace, ada, grace) = acme(&api, "member").await;
+    let created = create(&api, &ada, &workspace, "Blue", None).await;
+
+    let read = api
+        .get(created.header("location"))
+        .bearer(&grace.access)
+        .send()
+        .await;
+
+    assert_eq!(read.status, 200);
+    assert_eq!(read.json(), created.json());
+    assert_eq!(read.header("etag"), "\"1\"");
+}
+
+#[tokio::test]
+async fn sample_items_004_an_id_that_names_no_sample_item_of_the_workspace_answers_404() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let other = workspaces::arrange(api.database(), "Other", &[(&ada.user_id, "owner")]).await;
+    let elsewhere = create(&api, &ada, &other, "Elsewhere", None).await.json();
+    let elsewhere = elsewhere["id"].as_str().unwrap();
+
+    for sample_item in [
+        elsewhere,
+        "019a0000-0000-7000-8000-000000000000",
+        "not-a-uuid",
+    ] {
+        let path = format!("/v1/workspaces/{workspace}/sample-items/{sample_item}");
+        let read = api.get(&path).bearer(&ada.access).send().await;
+        let renamed = rename(&api, &ada, &workspace, sample_item, "Red", None).await;
+        let deleted = api
+            .request(http::Method::DELETE, &path)
+            .bearer(&ada.access)
+            .send()
+            .await;
+
+        for response in [read, renamed, deleted] {
+            assert_eq!(response.status, 404, "{sample_item}");
+            assert_eq!(
+                response.json()["code"],
+                "sample_items.not_found",
+                "{sample_item}"
+            );
+        }
+    }
+    assert_eq!(stored_names(&api, &other).await, ["Elsewhere"]);
+}
+
+#[tokio::test]
+async fn sample_items_005_renaming_stores_the_name_records_it_and_publishes_it() {
+    let api = Api::new().await;
+    let (workspace, ada, grace) = acme(&api, "member").await;
+    let created = create(&api, &ada, &workspace, "Blue", None).await.json();
+    let id = created["id"].as_str().unwrap();
+
+    let response = rename(&api, &grace, &workspace, id, "  Red \t one ", Some("\"1\"")).await;
+
+    assert_eq!(response.status, 200);
+    let body = response.json();
+    assert_eq!(body["id"], id);
+    assert_eq!(body["name"], "Red one");
+    assert_eq!(body["created_at"], created["created_at"]);
+    assert_eq!(response.header("etag"), "\"2\"");
+    assert_eq!(stored_names(&api, &workspace).await, ["Red one"]);
+    assert_eq!(
+        entries(&api, "sample_item.updated").await,
+        [format!(
+            "workspace {workspace} {} sample_item {id} {{}}",
+            grace.user_id
+        )]
+    );
+    assert_eq!(
+        events(&api, "sample_item.updated").await,
+        [format!(
+            "workspace {workspace} sample_items.read {workspace} {id} 2"
+        )]
+    );
+}
+
+#[tokio::test]
+async fn sample_items_005_a_stale_etag_answers_412_and_changes_nothing() {
+    let api = Api::new().await;
+    let (workspace, ada, grace) = acme(&api, "member").await;
+    let created = create(&api, &ada, &workspace, "Blue", None).await;
+    let etag = created.header("etag").to_owned();
+    let id = created.json()["id"].as_str().unwrap().to_owned();
+
+    let first = rename(&api, &grace, &workspace, &id, "Red", Some(&etag)).await;
+    let stale = rename(&api, &ada, &workspace, &id, "Green", Some(&etag)).await;
+
+    assert_eq!(first.status, 200);
+    assert_eq!(stale.status, 412);
+    assert_eq!(stale.json()["code"], "request.precondition_failed");
+    assert_eq!(stored_names(&api, &workspace).await, ["Red"]);
+    assert_eq!(entries(&api, "sample_item.updated").await.len(), 1);
+    assert_eq!(events(&api, "sample_item.updated").await.len(), 1);
+}
+
+#[tokio::test]
+async fn sample_items_006_deleting_a_sample_item_deletes_it_records_it_and_publishes_it() {
+    let api = Api::new().await;
+    let (workspace, ada, grace) = acme(&api, "admin").await;
+    let created = create(&api, &ada, &workspace, "Blue", None).await;
+    let id = created.json()["id"].as_str().unwrap().to_owned();
+
+    let response = api
+        .request(http::Method::DELETE, created.header("location"))
+        .bearer(&grace.access)
+        .send()
+        .await;
+
+    assert_eq!(response.status, 204);
+    assert!(stored_names(&api, &workspace).await.is_empty());
+    assert_eq!(
+        entries(&api, "sample_item.deleted").await,
+        [format!(
+            "workspace {workspace} {} sample_item {id} {{}}",
+            grace.user_id
+        )]
+    );
+    assert_eq!(
+        events(&api, "sample_item.deleted").await,
+        [format!(
+            "workspace {workspace} sample_items.read {workspace} {id} 2"
+        )]
+    );
+}
+
+#[tokio::test]
+async fn sample_items_006_a_member_may_not_delete_and_the_owner_may() {
+    let api = Api::new().await;
+    let (workspace, ada, grace) = acme(&api, "member").await;
+    let created = create(&api, &grace, &workspace, "Grace's", None).await;
+    let path = created.header("location").to_owned();
+
+    let refused = api
+        .request(http::Method::DELETE, &path)
+        .bearer(&grace.access)
+        .send()
+        .await;
+    let unchanged = stored_names(&api, &workspace).await;
+    let deleted = api
+        .request(http::Method::DELETE, &path)
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.json()["code"], "request.permission_denied");
+    assert_eq!(unchanged, ["Grace's"]);
+    assert_eq!(deleted.status, 204);
+    assert!(stored_names(&api, &workspace).await.is_empty());
+}

@@ -3,7 +3,6 @@
 //! each run that `parts.yaml` lists, then `just checks` on each.
 
 mod cache;
-mod copy;
 mod dry_run;
 mod markers;
 
@@ -15,7 +14,9 @@ use std::{path::Path, process::ExitCode};
 use serde_json::Value;
 
 use crate::{
-    Finding, markdown, metrics,
+    Finding,
+    copy::{self, Copy},
+    markdown, metrics,
     repo::{self, Repo},
 };
 
@@ -446,7 +447,7 @@ pub fn check_removable(names: &[String]) -> ExitCode {
             continue;
         }
         report(&format!("{}: removing {}", run.name, run.parts.join(", ")));
-        match copy::check(&run.name, &run.parts) {
+        match removed(&run.name, &run.parts) {
             Ok(()) => report(&format!("{}: passed", run.name)),
             Err(error) => {
                 report(&format!("{}: failed: {error}", run.name));
@@ -459,6 +460,16 @@ pub fn check_removable(names: &[String]) -> ExitCode {
     } else {
         fail(&format!("these runs failed: {}", failed.join(", ")))
     }
+}
+
+/// On a fresh copy of the repository for the run `name`, removes `parts` with `just remove`, then
+/// runs `just checks`, as on a fork before its first release (ARCH-07).
+fn removed(name: &str, parts: &[String]) -> Result<(), String> {
+    let copy = Copy::fresh("removable", name)?;
+    let mut remove = vec!["remove"];
+    remove.extend(parts.iter().map(String::as_str));
+    copy.just(&remove)?;
+    copy.just(&["checks"])
 }
 
 #[expect(clippy::print_stdout, reason = "the report is the task's output")]

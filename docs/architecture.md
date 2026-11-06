@@ -60,7 +60,7 @@ The configuration of the services the API runs beside lives under `deploy/`, so 
 
 ## 4. Crates
 
-The API has two crates. Cargo forbids `platform` from depending on `app`, so the shared mechanisms can never come to depend on a feature. The workspace's third crate, `xtask`, holds the custom CI checks and the other tasks that `just` runs, such as `just release`, `just deploy`, `just load-test` and `just remove`, and neither API crate depends on it.
+The API has two crates. Cargo forbids `platform` from depending on `app`, so the shared mechanisms can never come to depend on a feature. The workspace's third crate, `xtask`, holds the custom CI checks and the other tasks that `just` runs, such as `just release`, `just deploy`, `just load-test`, `just remove` and `just new-module`, whose templates are in `crates/xtask/templates/`, and neither API crate depends on it.
 
 ### `platform`
 

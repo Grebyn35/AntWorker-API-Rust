@@ -1,0 +1,74 @@
+//! What `sample_items` reports (ERR-01).
+
+use platform::errors::{Category, ErrorCode, FieldError, Internal, PlatformError, RequestError};
+
+use crate::modules::audit::AuditError;
+
+/// A failure of `sample_items`.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum SampleItemsError {
+    /// The sample item ID names no sample item of the workspace (SAMPLE_ITEMS-004).
+    #[error("the sample item doesn't exist")]
+    NotFound,
+    /// `platform` refused the request, such as by authorization, its idempotency key or its
+    /// input, or couldn't check it, or the update failed its precondition (PLATFORM-071).
+    #[error(transparent)]
+    Platform(#[from] PlatformError),
+    /// Anything else (ERR-04).
+    #[error(transparent)]
+    Internal(#[from] Internal),
+}
+
+impl From<RequestError> for SampleItemsError {
+    fn from(error: RequestError) -> Self {
+        Self::Platform(error.into())
+    }
+}
+
+impl From<AuditError> for SampleItemsError {
+    fn from(error: AuditError) -> Self {
+        match error {
+            AuditError::Internal(error) => Self::Internal(error),
+        }
+    }
+}
+
+impl ErrorCode for SampleItemsError {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::NotFound => "sample_items.not_found",
+            Self::Platform(error) => error.code(),
+            Self::Internal(error) => error.code(),
+        }
+    }
+
+    fn title(&self) -> &'static str {
+        match self {
+            Self::NotFound => "Sample item not found",
+            Self::Platform(error) => error.title(),
+            Self::Internal(error) => error.title(),
+        }
+    }
+
+    fn category(&self) -> Category {
+        match self {
+            Self::NotFound => Category::NotFound,
+            Self::Platform(error) => error.category(),
+            Self::Internal(error) => error.category(),
+        }
+    }
+
+    fn detail(&self) -> Option<String> {
+        match self {
+            Self::Platform(error) => error.detail(),
+            _ => None,
+        }
+    }
+
+    fn errors(&self) -> Option<Vec<FieldError>> {
+        match self {
+            Self::Platform(error) => error.errors(),
+            _ => None,
+        }
+    }
+}

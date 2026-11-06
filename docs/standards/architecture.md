@@ -18,8 +18,10 @@ The API is built from exactly two crates, `platform` and `app`, and `platform` h
 
 ### ARCH-03 One directory per module, with fixed file names
 Each feature module is a directory under `crates/app/src/modules/`. Its files come only from this set, and only those it needs: `mod.rs`, `routes.rs`, `service.rs`, `repo.rs`, `model.rs`, `error.rs`, `events.rs`, `audit.rs`, `jobs.rs`, `emails.rs`, `metrics.rs`, `personal_data.rs`. The three module-specific entries listed in [architecture.md §5](../architecture.md#inside-a-module) are also allowed: `access/permissions.rs`, `auth/providers/` and `system/seed.rs`. A module's email templates are in a directory named after it under `crates/app/templates/`. A file that outgrows the limit in CODE-08 becomes a directory with the same name.
-- Why: every module reads the same way, so a developer who knows one knows all of them (D22, D29).
-- Check: `ci: check-layout` (a module's entries, and its templates' directory).
+
+`just new-module <module> [resource]` writes a module in this layout that holds one workspace resource, with its migration, permissions, spec and tests, from the templates in `crates/xtask/templates/new-module/`, registers it in the files every module shares, and leaves a codebase that passes `just checks` ([guide](../guides/adding-a-module.md)).
+- Why: every module reads the same way, so a developer who knows one knows all of them, and a new one starts from code that already follows the rules (D22, D29).
+- Check: `ci: check-layout` (a module's entries, and its templates' directory), plus `ci: check-new-module` (a module that `just new-module` writes on a copy of the repository, then `just checks` there).
 
 ### ARCH-04 A module is used only through its `mod.rs`
 Submodules are private (`mod repo;`, never `pub mod repo;`). Other modules use only the items `mod.rs` re-exports.

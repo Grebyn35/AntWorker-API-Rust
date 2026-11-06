@@ -68,11 +68,12 @@ import 'just/server.just'
 default:
     @just --list
 
-# Runs every check CI runs: the checks of the code, on the repository and on its copies without
-# each run's optional parts, then the build of the image and its checks, on this machine's platform.
+# Runs every check CI runs: the checks of the code, on the repository, on its copies without each
+# run's optional parts, and on a copy with a module that `just new-module` wrote, then the build of
+# the image and its checks, on this machine's platform.
 [doc("Runs every check CI runs, the image's included")]
 [group('check')]
-ci: checks check-removable image image-scan e2e
+ci: checks check-removable check-new-module image image-scan e2e
 
 # Runs the checks of the code that need neither the image nor a copy of the repository.
 [doc("Runs the checks of the code that need no image and no copy of the repository")]

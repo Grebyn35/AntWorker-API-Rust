@@ -240,6 +240,13 @@ check-parts:
 check-removable *runs:
     {{ xtask }} check-removable {{ runs }}
 
+# On a copy of the repository, writes the module order_items with `just new-module`, then runs
+# `just checks` on the copy (ARCH-03). The copy and its build are in target/new-module/order_items/.
+[doc("Fails unless a module that `just new-module` writes leaves a copy that passes the checks")]
+[group('check')]
+check-new-module:
+    {{ xtask }} check-new-module
+
 # Fails on a query of workspace data that names no tenant, or a table that holds no workspace data
 # and isn't listed as account or platform data.
 [doc("Fails on a query of workspace data that names no tenant, or a table placed nowhere")]

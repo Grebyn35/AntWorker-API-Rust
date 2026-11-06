@@ -1,0 +1,32 @@
+//! The events `sample_items` publishes, each with its payload, which the event catalog documents
+//! (API-19, REALTIME-008).
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a module declares its events here (the platform spec's events)"
+)]
+
+use platform::{events::WorkspaceEvent, types::WorkspaceId};
+use serde::Serialize;
+use utoipa::ToSchema;
+
+use crate::modules::access::SampleItemsRead;
+
+/// A sample item was created, sent to the members who may read sample items (SAMPLE_ITEMS-001).
+pub(super) const SAMPLE_ITEM_CREATED: WorkspaceEvent<SampleItemsRead, SampleItemChanged> =
+    WorkspaceEvent::new("sample_item.created");
+/// A sample item was renamed, sent to the members who may read sample items (SAMPLE_ITEMS-005).
+pub(super) const SAMPLE_ITEM_UPDATED: WorkspaceEvent<SampleItemsRead, SampleItemChanged> =
+    WorkspaceEvent::new("sample_item.updated");
+/// A sample item was deleted, sent to the members who may read sample items (SAMPLE_ITEMS-006).
+pub(super) const SAMPLE_ITEM_DELETED: WorkspaceEvent<SampleItemsRead, SampleItemChanged> =
+    WorkspaceEvent::new("sample_item.deleted");
+
+/// The payload of each sample item event: which sample item changed, which a client reads through its route,
+/// since a name is personal data (API-19).
+#[derive(Debug, Serialize, ToSchema)]
+pub(super) struct SampleItemChanged {
+    /// The workspace.
+    pub(super) workspace_id: WorkspaceId,
+    /// The sample item.
+    pub(super) sample_item_id: uuid::Uuid,
+}

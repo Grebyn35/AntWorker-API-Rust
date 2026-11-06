@@ -1,0 +1,267 @@
+//! Creating, listing, reading, renaming and deleting a workspace's sample items (the sample items spec's
+//! Routes).
+
+use axum::{
+    extract::RawPathParams,
+    http::{HeaderValue, StatusCode, header},
+    response::{IntoResponse, Response},
+};
+use platform::{
+    authz::Authorize,
+    errors::{Internal, Problem, RequestError},
+    http::{FieldErrors, Idempotent, IfMatch, MergePatch, Query, Routes},
+    idempotency::IdempotencyKey,
+    lists::{Cursor, Limit, List, Page, Search},
+    types::WorkspaceId,
+};
+use serde::Deserialize;
+use utoipa::{IntoParams, ToSchema};
+use utoipa_axum::routes;
+
+use super::{
+    error::SampleItemsError,
+    events::{SAMPLE_ITEM_CREATED, SAMPLE_ITEM_DELETED, SAMPLE_ITEM_UPDATED},
+    model::{Current, NewSampleItem, Rename, SampleItem, SampleItemName},
+    service,
+};
+use crate::modules::access::{
+    SampleItemsCreate, SampleItemsDelete, SampleItemsRead, SampleItemsUpdate,
+};
+
+/// The module's routes, and the events they publish.
+pub(crate) fn routes() -> Routes {
+    Routes::new()
+        .events(&[
+            &SAMPLE_ITEM_CREATED,
+            &SAMPLE_ITEM_UPDATED,
+            &SAMPLE_ITEM_DELETED,
+        ])
+        .workspace::<SampleItemsCreate>(routes!(create), &[])
+        .workspace::<SampleItemsRead>(routes!(list), &[])
+        .workspace::<SampleItemsRead>(routes!(read), &[&SampleItemsError::NotFound])
+        .workspace::<SampleItemsUpdate>(routes!(rename), &[&SampleItemsError::NotFound])
+        .workspace::<SampleItemsDelete>(routes!(delete), &[&SampleItemsError::NotFound])
+}
+
+/// What creating a sample item takes (SAMPLE_ITEMS-001).
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CreateRequest {
+    /// The sample item's name (SAMPLE_ITEMS-002).
+    #[schema(value_type = SampleItemName)]
+    name: String,
+}
+
+impl TryFrom<CreateRequest> for NewSampleItem {
+    type Error = RequestError;
+
+    fn try_from(request: CreateRequest) -> Result<Self, Self::Error> {
+        let mut errors = FieldErrors::new();
+        let name = errors.check("/name", SampleItemName::parse(&request.name));
+        errors.finish(name.map(|name| Self { name }))
+    }
+}
+
+/// Creates a sample item in the workspace.
+#[utoipa::path(
+    post,
+    path = "/v1/workspaces/{workspace_id}/sample-items",
+    tag = "sample_items",
+    request_body = CreateRequest,
+    params(
+        ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
+        ("Idempotency-Key" = inline(Option<IdempotencyKey>), Header,
+            description = "A key of the caller's own, as a quoted string, so a retry creates nothing twice (API-12)."),
+    ),
+    responses(
+        (status = 201, description = "The new sample item.", body = SampleItem,
+            headers(
+                ("location" = String, description = "The new sample item: `/v1/workspaces/{workspace_id}/sample-items/{id}`."),
+                ("etag" = String, description = "The sample item's version, which a rename's `If-Match` names (API-13)."),
+            )),
+    )
+)]
+async fn create(
+    authorize: Authorize<SampleItemsCreate>,
+    request: Idempotent<CreateRequest>,
+) -> Result<Response, Problem<SampleItemsError>> {
+    let input = NewSampleItem::try_from(request.body).map_err(SampleItemsError::from)?;
+    let (uow, authorized) = authorize.open().await.map_err(SampleItemsError::from)?;
+    let created = service::create(uow, &authorized, request.key.as_ref(), input).await?;
+    let location = HeaderValue::try_from(format!(
+        "/v1/workspaces/{}/sample-items/{}",
+        authorized.workspace_id(),
+        created.sample_item.id
+    ))
+    .map_err(|error| SampleItemsError::Internal(Internal::new(error)))?;
+    let mut response = with_etag(created)?;
+    *response.status_mut() = StatusCode::CREATED;
+    response.headers_mut().insert(header::LOCATION, location);
+    Ok(response)
+}
+
+/// The query of `GET /v1/workspaces/{workspace_id}/sample-items` (SAMPLE_ITEMS-003).
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ListQuery {
+    /// How many sample items a page holds.
+    #[param(value_type = Option<Limit>, inline)]
+    limit: Option<String>,
+    /// The `next_cursor` of the page before.
+    #[param(value_type = Option<Cursor>, inline)]
+    cursor: Option<String>,
+    /// Only the sample items whose name contains this, ignoring case (API-20).
+    #[param(value_type = Option<Search>, inline)]
+    search: Option<String>,
+}
+
+/// Lists the workspace's sample items, the latest created first.
+#[utoipa::path(
+    get,
+    path = "/v1/workspaces/{workspace_id}/sample-items",
+    tag = "sample_items",
+    params(
+        ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
+        ListQuery,
+    ),
+    responses(
+        (status = 200, description = "A page of the workspace's sample items.", body = List<SampleItem>),
+    )
+)]
+async fn list(
+    authorize: Authorize<SampleItemsRead>,
+    query: Query<ListQuery>,
+) -> Result<axum::Json<List<SampleItem>>, Problem<SampleItemsError>> {
+    let params = query.params();
+    let mut errors = FieldErrors::new();
+    let page = Page::read(
+        query.route(),
+        params.limit.as_deref(),
+        params.cursor.as_deref(),
+        &mut errors,
+    );
+    let search = Search::read(params.search.as_deref(), &mut errors);
+    let (page, search) = errors
+        .finish_query(page.zip(search))
+        .map_err(SampleItemsError::from)?;
+    let (mut uow, authorized) = authorize.open().await.map_err(SampleItemsError::from)?;
+    let list = service::list(&mut uow, &authorized, search.as_ref(), &page).await?;
+    Ok(axum::Json(list))
+}
+
+/// Reads a sample item of the workspace.
+#[utoipa::path(
+    get,
+    path = "/v1/workspaces/{workspace_id}/sample-items/{sample_item_id}",
+    tag = "sample_items",
+    params(
+        ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
+        ("sample_item_id" = uuid::Uuid, Path, description = "The sample item."),
+    ),
+    responses(
+        (status = 200, description = "The sample item.", body = SampleItem,
+            headers(("etag" = String, description = "The sample item's version, which a rename's `If-Match` names (API-13)."))),
+    )
+)]
+async fn read(
+    authorize: Authorize<SampleItemsRead>,
+    params: RawPathParams,
+) -> Result<Response, Problem<SampleItemsError>> {
+    let id = sample_item_id(&params);
+    let (mut uow, authorized) = authorize.open().await.map_err(SampleItemsError::from)?;
+    let id = id.ok_or(SampleItemsError::NotFound)?;
+    let current = service::read(&mut uow, &authorized, id).await?;
+    with_etag(current)
+}
+
+/// What renaming a sample item takes: a JSON Merge Patch of it (SAMPLE_ITEMS-005).
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RenameRequest {
+    /// The sample item's new name (SAMPLE_ITEMS-002).
+    #[schema(value_type = SampleItemName)]
+    name: String,
+}
+
+impl TryFrom<RenameRequest> for Rename {
+    type Error = RequestError;
+
+    fn try_from(request: RenameRequest) -> Result<Self, Self::Error> {
+        let mut errors = FieldErrors::new();
+        let name = errors.check("/name", SampleItemName::parse(&request.name));
+        errors.finish(name.map(|name| Self { name }))
+    }
+}
+
+/// Renames a sample item of the workspace.
+#[utoipa::path(
+    patch,
+    path = "/v1/workspaces/{workspace_id}/sample-items/{sample_item_id}",
+    tag = "sample_items",
+    request_body(content = RenameRequest, content_type = "application/merge-patch+json"),
+    params(
+        ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
+        ("sample_item_id" = uuid::Uuid, Path, description = "The sample item."),
+        ("If-Match" = Option<String>, Header,
+            description = "The `ETag` of the version the client renames, so that a rename made since it read the sample item fails rather than being overwritten (API-13)."),
+    ),
+    responses(
+        (status = 200, description = "The sample item, renamed.", body = SampleItem,
+            headers(("etag" = String, description = "The sample item's new version (API-13)."))),
+    )
+)]
+async fn rename(
+    authorize: Authorize<SampleItemsUpdate>,
+    params: RawPathParams,
+    if_match: IfMatch,
+    request: MergePatch<RenameRequest>,
+) -> Result<Response, Problem<SampleItemsError>> {
+    let rename = Rename::try_from(request.0).map_err(SampleItemsError::from)?;
+    let id = sample_item_id(&params);
+    let (uow, authorized) = authorize.open().await.map_err(SampleItemsError::from)?;
+    let id = id.ok_or(SampleItemsError::NotFound)?;
+    let current = service::rename(uow, &authorized, id, rename, if_match.versions()).await?;
+    with_etag(current)
+}
+
+/// Deletes a sample item of the workspace.
+#[utoipa::path(
+    delete,
+    path = "/v1/workspaces/{workspace_id}/sample-items/{sample_item_id}",
+    tag = "sample_items",
+    params(
+        ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
+        ("sample_item_id" = uuid::Uuid, Path, description = "The sample item."),
+    ),
+    responses(
+        (status = 204, description = "The sample item was deleted."),
+    )
+)]
+async fn delete(
+    authorize: Authorize<SampleItemsDelete>,
+    params: RawPathParams,
+) -> Result<StatusCode, Problem<SampleItemsError>> {
+    let id = sample_item_id(&params);
+    let (uow, authorized) = authorize.open().await.map_err(SampleItemsError::from)?;
+    let id = id.ok_or(SampleItemsError::NotFound)?;
+    service::delete(uow, &authorized, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// The sample item ID in the path, or `None` when it isn't a UUID, which names no sample item.
+fn sample_item_id(params: &RawPathParams) -> Option<uuid::Uuid> {
+    params
+        .iter()
+        .find(|(name, _)| *name == "sample_item_id")
+        .and_then(|(_, value)| uuid::Uuid::parse_str(value).ok())
+}
+
+/// The response of a sample item as it now stands: its body, and its `ETag` (PLATFORM-071).
+fn with_etag(current: Current) -> Result<Response, Problem<SampleItemsError>> {
+    let etag = HeaderValue::try_from(current.version.etag())
+        .map_err(|error| SampleItemsError::Internal(Internal::new(error)))?;
+    let mut response = axum::Json(current.sample_item).into_response();
+    response.headers_mut().insert(header::ETAG, etag);
+    Ok(response)
+}

@@ -1,0 +1,127 @@
+//! Creating, listing, reading, renaming and deleting a workspace's sample items (the sample items spec).
+
+use platform::{
+    authz::Authorized,
+    db::UnitOfWork,
+    errors::RequestError,
+    idempotency::{Claimed, IdempotencyKey},
+    lists::{List, Page, Search, key},
+    types::Version,
+};
+
+use super::{
+    audit,
+    error::SampleItemsError,
+    events as published,
+    model::{Current, NewSampleItem, Rename, SampleItem},
+    repo,
+};
+use crate::modules::{
+    access::{SampleItemsCreate, SampleItemsDelete, SampleItemsRead, SampleItemsUpdate},
+    audit::{self as log, Entry},
+};
+
+/// Creates a sample item in the caller's workspace, in the unit of work it was authorized in, which
+/// claims `key` first, so a retry with the same key and request answers the same sample item. The
+/// sample item, its audit entry and the members' event commit together (SAMPLE_ITEMS-001, PLATFORM-036).
+pub(crate) async fn create(
+    mut uow: UnitOfWork,
+    authorized: &Authorized<SampleItemsCreate>,
+    key: Option<&IdempotencyKey>,
+    input: NewSampleItem,
+) -> Result<Current, SampleItemsError> {
+    if let Claimed::Replay(created) = uow.claim(authorized.principal().user_id(), key).await? {
+        return Ok(created);
+    }
+    let workspace = authorized.workspace_id();
+    let created = repo::insert(&mut uow, workspace, &input.name).await?;
+    let id = created.sample_item.id;
+    let entry = Entry::new(audit::SAMPLE_ITEM_CREATED, audit::SAMPLE_ITEM, id);
+    log::record(&mut uow, authorized.audit_scope(), entry).await?;
+    let payload = published::SampleItemChanged {
+        workspace_id: workspace,
+        sample_item_id: id,
+    };
+    uow.publish_to_workspace(&published::SAMPLE_ITEM_CREATED, workspace, &payload)
+        .await?;
+    uow.commit_with(&created).await?;
+    Ok(created)
+}
+
+/// A page of the caller's workspace's sample items, the latest created first, kept to those whose name
+/// contains `search` (SAMPLE_ITEMS-003).
+pub(crate) async fn list(
+    uow: &mut UnitOfWork,
+    authorized: &Authorized<SampleItemsRead>,
+    search: Option<&Search>,
+    page: &Page,
+) -> Result<List<SampleItem>, SampleItemsError> {
+    let rows = repo::page(uow, authorized.workspace_id(), search, page).await?;
+    Ok(page.list(rows, |sample_item| {
+        key(sample_item.created_at, sample_item.id)
+    }))
+}
+
+/// The sample item `id` of the caller's workspace as it now stands (SAMPLE_ITEMS-004).
+pub(crate) async fn read(
+    uow: &mut UnitOfWork,
+    authorized: &Authorized<SampleItemsRead>,
+    id: uuid::Uuid,
+) -> Result<Current, SampleItemsError> {
+    repo::read(uow, authorized.workspace_id(), id)
+        .await?
+        .ok_or(SampleItemsError::NotFound)
+}
+
+/// Renames the sample item `id` of the caller's workspace, in the unit of work it was authorized in:
+/// whatever its version when `versions` is `None`, and otherwise only if its version is one of
+/// them, so an empty set fails the precondition. The name, its audit entry and the members' event
+/// commit together (SAMPLE_ITEMS-005, PLATFORM-071).
+pub(crate) async fn rename(
+    mut uow: UnitOfWork,
+    authorized: &Authorized<SampleItemsUpdate>,
+    id: uuid::Uuid,
+    rename: Rename,
+    versions: Option<&[Version]>,
+) -> Result<Current, SampleItemsError> {
+    let workspace = authorized.workspace_id();
+    let Some(renamed) = repo::rename(&mut uow, workspace, id, &rename.name, versions).await? else {
+        return Err(if repo::exists(&mut uow, workspace, id).await? {
+            RequestError::PreconditionFailed.into()
+        } else {
+            SampleItemsError::NotFound
+        });
+    };
+    let entry = Entry::new(audit::SAMPLE_ITEM_UPDATED, audit::SAMPLE_ITEM, id);
+    log::record(&mut uow, authorized.audit_scope(), entry).await?;
+    let payload = published::SampleItemChanged {
+        workspace_id: workspace,
+        sample_item_id: id,
+    };
+    uow.publish_to_workspace(&published::SAMPLE_ITEM_UPDATED, workspace, &payload)
+        .await?;
+    uow.commit().await?;
+    Ok(renamed)
+}
+
+/// Deletes the sample item `id` of the caller's workspace, in the unit of work it was authorized in:
+/// the row, its audit entry and the members' event commit together (SAMPLE_ITEMS-006).
+pub(crate) async fn delete(
+    mut uow: UnitOfWork,
+    authorized: &Authorized<SampleItemsDelete>,
+    id: uuid::Uuid,
+) -> Result<(), SampleItemsError> {
+    let workspace = authorized.workspace_id();
+    if !repo::delete(&mut uow, workspace, id).await? {
+        return Err(SampleItemsError::NotFound);
+    }
+    let entry = Entry::new(audit::SAMPLE_ITEM_DELETED, audit::SAMPLE_ITEM, id);
+    log::record(&mut uow, authorized.audit_scope(), entry).await?;
+    let payload = published::SampleItemChanged {
+        workspace_id: workspace,
+        sample_item_id: id,
+    };
+    uow.publish_to_workspace(&published::SAMPLE_ITEM_DELETED, workspace, &payload)
+        .await?;
+    Ok(uow.commit().await?)
+}

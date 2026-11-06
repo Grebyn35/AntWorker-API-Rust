@@ -1,0 +1,28 @@
+/// Reading the workspace's sample items, and receiving their events.
+pub(crate) struct SampleItemsRead;
+
+impl Permission for SampleItemsRead {
+    const NAME: &'static str = "sample_items.read";
+}
+
+/// Creating a sample item.
+pub(crate) struct SampleItemsCreate;
+
+impl Permission for SampleItemsCreate {
+    const NAME: &'static str = "sample_items.create";
+}
+
+/// Renaming a sample item.
+pub(crate) struct SampleItemsUpdate;
+
+impl Permission for SampleItemsUpdate {
+    const NAME: &'static str = "sample_items.update";
+}
+
+/// Deleting a sample item.
+pub(crate) struct SampleItemsDelete;
+
+impl Permission for SampleItemsDelete {
+    const NAME: &'static str = "sample_items.delete";
+}
+

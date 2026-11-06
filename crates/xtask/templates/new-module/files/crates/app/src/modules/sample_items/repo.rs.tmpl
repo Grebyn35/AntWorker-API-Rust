@@ -1,0 +1,163 @@
+//! The SQL of `sample_items` (ARCH-10). Every statement filters by the workspace the operation's proof
+//! names (DATA-16).
+
+use platform::{
+    db::UnitOfWork,
+    errors::Internal,
+    lists::{Page, Search},
+    types::{Timestamp, Version, WorkspaceId},
+};
+
+use super::model::{Current, SampleItem, SampleItemName};
+
+/// Inserts a sample item named `name` in `workspace`, and returns it as it now stands.
+pub(super) async fn insert(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+    name: &SampleItemName,
+) -> Result<Current, Internal> {
+    let row = sqlx::query!(
+        "INSERT INTO sample_items (workspace_id, name) VALUES ($1, $2)
+        RETURNING id, created_at, updated_at, version",
+        workspace.uuid(),
+        name.as_str(),
+    )
+    .fetch_one(uow.executor())
+    .await?;
+    Ok(Current {
+        sample_item: SampleItem {
+            id: row.id,
+            name: name.clone(),
+            created_at: Timestamp::from_database(row.created_at),
+            updated_at: Timestamp::from_database(row.updated_at),
+        },
+        version: Version::from_database(row.version),
+    })
+}
+
+/// A page of `workspace`'s sample items, the latest created first, kept to those whose name contains
+/// `search`, ignoring case in every script, read through the index on the workspace and the
+/// creation time (DATA-17, PLATFORM-047).
+pub(super) async fn page(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+    search: Option<&Search>,
+    page: &Page,
+) -> Result<Vec<SampleItem>, Internal> {
+    let rows = sqlx::query!(
+        "SELECT id, name, created_at, updated_at FROM sample_items
+        WHERE workspace_id = $1
+            AND ($2::text IS NULL OR name COLLATE pg_unicode_fast ILIKE $2)
+            AND ($3::timestamptz IS NULL OR (created_at, id) < ($3, $4))
+        ORDER BY created_at DESC, id DESC
+        LIMIT $5",
+        workspace.uuid(),
+        search.map(Search::pattern),
+        page.after_at(),
+        page.after_id(),
+        page.fetch(),
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| SampleItem {
+            id: row.id,
+            name: SampleItemName::from_stored(row.name),
+            created_at: Timestamp::from_database(row.created_at),
+            updated_at: Timestamp::from_database(row.updated_at),
+        })
+        .collect())
+}
+
+/// The sample item `id` of `workspace` as it now stands, if there is one.
+pub(super) async fn read(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+    id: uuid::Uuid,
+) -> Result<Option<Current>, Internal> {
+    let row = sqlx::query!(
+        "SELECT name, created_at, updated_at, version FROM sample_items
+        WHERE workspace_id = $1 AND id = $2",
+        workspace.uuid(),
+        id,
+    )
+    .fetch_optional(uow.executor())
+    .await?;
+    Ok(row.map(|row| Current {
+        sample_item: SampleItem {
+            id,
+            name: SampleItemName::from_stored(row.name),
+            created_at: Timestamp::from_database(row.created_at),
+            updated_at: Timestamp::from_database(row.updated_at),
+        },
+        version: Version::from_database(row.version),
+    }))
+}
+
+/// Renames the sample item `id` of `workspace` to `name`, if its version is one of `versions`, or
+/// whatever its version when `versions` is `None` (DATA-18), and returns it as it now stands, or
+/// `None` when no row was updated: the sample item isn't there, or its version isn't one of
+/// `versions`.
+pub(super) async fn rename(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+    id: uuid::Uuid,
+    name: &SampleItemName,
+    versions: Option<&[Version]>,
+) -> Result<Option<Current>, Internal> {
+    let versions: Option<Vec<i64>> =
+        versions.map(|versions| versions.iter().map(|version| version.value()).collect());
+    let row = sqlx::query!(
+        "UPDATE sample_items SET name = $3
+        WHERE workspace_id = $1 AND id = $2 AND ($4::bigint[] IS NULL OR version = ANY($4))
+        RETURNING created_at, updated_at, version",
+        workspace.uuid(),
+        id,
+        name.as_str(),
+        versions.as_deref(),
+    )
+    .fetch_optional(uow.executor())
+    .await?;
+    Ok(row.map(|row| Current {
+        sample_item: SampleItem {
+            id,
+            name: name.clone(),
+            created_at: Timestamp::from_database(row.created_at),
+            updated_at: Timestamp::from_database(row.updated_at),
+        },
+        version: Version::from_database(row.version),
+    }))
+}
+
+/// Whether the sample item `id` is one of `workspace`'s.
+pub(super) async fn exists(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+    id: uuid::Uuid,
+) -> Result<bool, Internal> {
+    let found = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM sample_items WHERE workspace_id = $1 AND id = $2) AS "found!""#,
+        workspace.uuid(),
+        id,
+    )
+    .fetch_one(uow.executor())
+    .await?;
+    Ok(found)
+}
+
+/// Deletes the sample item `id` of `workspace`, and returns whether there was one.
+pub(super) async fn delete(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+    id: uuid::Uuid,
+) -> Result<bool, Internal> {
+    let deleted = sqlx::query!(
+        "DELETE FROM sample_items WHERE workspace_id = $1 AND id = $2",
+        workspace.uuid(),
+        id,
+    )
+    .execute(uow.executor())
+    .await?;
+    Ok(deleted.rows_affected() > 0)
+}

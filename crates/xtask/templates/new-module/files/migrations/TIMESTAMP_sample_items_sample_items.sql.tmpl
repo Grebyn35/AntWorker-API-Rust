@@ -1,0 +1,22 @@
+-- The sample items of each workspace (the sample items spec). A sample item's name is edited (SAMPLE_ITEMS-005), so
+-- the table has updated_at and version (DATA-02).
+CREATE TABLE sample_items (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    workspace_id uuid NOT NULL,
+    name text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    version bigint NOT NULL DEFAULT 1,
+    CONSTRAINT sample_items_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE
+);
+
+-- A workspace's sample items, the latest created first (SAMPLE_ITEMS-003), which also indexes the foreign
+-- key (DATA-05).
+CREATE INDEX sample_items_workspace_id_created_at_id_idx ON sample_items (workspace_id, created_at DESC, id DESC);
+
+-- A name is text a user writes (DATA-23).
+COMMENT ON COLUMN sample_items.name IS 'personal_data';
+
+CREATE TRIGGER sample_items_set_row_version
+BEFORE UPDATE ON sample_items
+FOR EACH ROW EXECUTE FUNCTION set_row_version();
