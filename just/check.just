@@ -1,6 +1,6 @@
-# The checks that `just checks` and `just check-removable` run, and the lists of the tools they
-# need, which CI installs. The justfile imports this file. docs/operations/ci.md names the rules
-# that each check enforces.
+# The checks that `just checks`, `just check-removable` and `just check-new-module` run, and the
+# lists of the tools they need, which CI installs. The justfile imports this file.
+# docs/operations/ci.md names the rules that each check enforces.
 
 # Lists the tools `just checks` needs besides just and the toolchain, as CI's install step takes
 # them.
@@ -58,7 +58,7 @@ setup-smoke: bound-build
     cargo build --workspace --all-targets --locked
 
 # The build directory of the dev and test profiles, in the directory that CARGO_TARGET_DIR names,
-# as for check-removable's copies, or in target/.
+# as for the copies of check-removable and check-new-module, or in target/.
 build_dir := env("CARGO_TARGET_DIR", "target") / "debug"
 
 # Removes the build directory once it holds more than 40 gigabytes, so the build after it starts

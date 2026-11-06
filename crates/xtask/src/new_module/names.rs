@@ -53,6 +53,11 @@ impl Names {
         })
     }
 
+    /// The type of the module's resource, such as `OrderItem`.
+    pub fn resource_type(&self) -> String {
+        pascal(&self.resource)
+    }
+
     /// The names the templates are written for.
     pub fn template() -> Self {
         Self {

@@ -184,8 +184,8 @@ enum Command {
         /// that English's regular plurals give the module's name.
         resource: Option<String>,
     },
-    /// On a copy of the repository, writes a module with `just new-module`, then runs
-    /// `just checks`.
+    /// On a copy of the repository, writes two modules with `just new-module`, one after the
+    /// other, then runs `just checks`.
     #[command(name = "check-new-module")]
     CheckNewModule,
     /// On a copy of the repository for each run that `crates/xtask/parts.yaml` lists, or for the

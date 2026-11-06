@@ -1,5 +1,5 @@
 //! The copies of the repository that a check changes: `check-removable` removes each run's parts
-//! from one, and `check-new-module` adds a module to one, as a fork does, then each runs
+//! from one, and `check-new-module` adds two modules to one, as a fork does, then each runs
 //! `just checks` on it. Each copy is in `target/<check>/<name>/repo/`, with its build in
 //! `target/<check>/<name>/target/`, so no copy's `cargo run` finds a binary that another built.
 

@@ -34,26 +34,26 @@ pub(crate) fn routes() -> Routes {
             &SAMPLE_ITEM_UPDATED,
             &SAMPLE_ITEM_DELETED,
         ])
-        .workspace::<SampleItemsCreate>(routes!(create), &[])
-        .workspace::<SampleItemsRead>(routes!(list), &[])
-        .workspace::<SampleItemsRead>(routes!(read), &[&SampleItemsError::NotFound])
-        .workspace::<SampleItemsUpdate>(routes!(rename), &[&SampleItemsError::NotFound])
-        .workspace::<SampleItemsDelete>(routes!(delete), &[&SampleItemsError::NotFound])
+        .workspace::<SampleItemsCreate>(routes!(create_sample_item), &[])
+        .workspace::<SampleItemsRead>(routes!(list_sample_items), &[])
+        .workspace::<SampleItemsRead>(routes!(read_sample_item), &[&SampleItemsError::NotFound])
+        .workspace::<SampleItemsUpdate>(routes!(rename_sample_item), &[&SampleItemsError::NotFound])
+        .workspace::<SampleItemsDelete>(routes!(delete_sample_item), &[&SampleItemsError::NotFound])
 }
 
 /// What creating a sample item takes (SAMPLE_ITEMS-001).
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct CreateRequest {
+pub(crate) struct CreateSampleItemRequest {
     /// The sample item's name (SAMPLE_ITEMS-002).
     #[schema(value_type = SampleItemName)]
     name: String,
 }
 
-impl TryFrom<CreateRequest> for NewSampleItem {
+impl TryFrom<CreateSampleItemRequest> for NewSampleItem {
     type Error = RequestError;
 
-    fn try_from(request: CreateRequest) -> Result<Self, Self::Error> {
+    fn try_from(request: CreateSampleItemRequest) -> Result<Self, Self::Error> {
         let mut errors = FieldErrors::new();
         let name = errors.check("/name", SampleItemName::parse(&request.name));
         errors.finish(name.map(|name| Self { name }))
@@ -65,7 +65,7 @@ impl TryFrom<CreateRequest> for NewSampleItem {
     post,
     path = "/v1/workspaces/{workspace_id}/sample-items",
     tag = "sample_items",
-    request_body = CreateRequest,
+    request_body = CreateSampleItemRequest,
     params(
         ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
         ("Idempotency-Key" = inline(Option<IdempotencyKey>), Header,
@@ -79,9 +79,9 @@ impl TryFrom<CreateRequest> for NewSampleItem {
             )),
     )
 )]
-async fn create(
+async fn create_sample_item(
     authorize: Authorize<SampleItemsCreate>,
-    request: Idempotent<CreateRequest>,
+    request: Idempotent<CreateSampleItemRequest>,
 ) -> Result<ResourceResponse<SampleItem>, Problem<SampleItemsError>> {
     let input = NewSampleItem::try_from(request.body).map_err(SampleItemsError::from)?;
     let (uow, authorized) = authorize.open().await.map_err(SampleItemsError::from)?;
@@ -123,7 +123,7 @@ pub(crate) struct ListQuery {
         (status = 200, description = "A page of the workspace's sample items.", body = List<SampleItem>),
     )
 )]
-async fn list(
+async fn list_sample_items(
     authorize: Authorize<SampleItemsRead>,
     query: Query<ListQuery>,
 ) -> Result<axum::Json<List<SampleItem>>, Problem<SampleItemsError>> {
@@ -158,7 +158,7 @@ async fn list(
             headers(("etag" = String, description = "The sample item's version, which a rename's `If-Match` names (API-13)."))),
     )
 )]
-async fn read(
+async fn read_sample_item(
     authorize: Authorize<SampleItemsRead>,
     params: RawPathParams,
 ) -> Result<ResourceResponse<SampleItem>, Problem<SampleItemsError>> {
@@ -172,16 +172,16 @@ async fn read(
 /// What renaming a sample item takes: a JSON Merge Patch of it (SAMPLE_ITEMS-005).
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct RenameRequest {
+pub(crate) struct RenameSampleItemRequest {
     /// The sample item's new name (SAMPLE_ITEMS-002).
     #[schema(value_type = SampleItemName)]
     name: String,
 }
 
-impl TryFrom<RenameRequest> for Rename {
+impl TryFrom<RenameSampleItemRequest> for Rename {
     type Error = RequestError;
 
-    fn try_from(request: RenameRequest) -> Result<Self, Self::Error> {
+    fn try_from(request: RenameSampleItemRequest) -> Result<Self, Self::Error> {
         let mut errors = FieldErrors::new();
         let name = errors.check("/name", SampleItemName::parse(&request.name));
         errors.finish(name.map(|name| Self { name }))
@@ -193,7 +193,7 @@ impl TryFrom<RenameRequest> for Rename {
     patch,
     path = "/v1/workspaces/{workspace_id}/sample-items/{sample_item_id}",
     tag = "sample_items",
-    request_body(content = RenameRequest, content_type = "application/merge-patch+json"),
+    request_body(content = RenameSampleItemRequest, content_type = "application/merge-patch+json"),
     params(
         ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
         ("sample_item_id" = uuid::Uuid, Path, description = "The sample item."),
@@ -205,11 +205,11 @@ impl TryFrom<RenameRequest> for Rename {
             headers(("etag" = String, description = "The sample item's new version (API-13)."))),
     )
 )]
-async fn rename(
+async fn rename_sample_item(
     authorize: Authorize<SampleItemsUpdate>,
     params: RawPathParams,
     if_match: IfMatch,
-    request: MergePatch<RenameRequest>,
+    request: MergePatch<RenameSampleItemRequest>,
 ) -> Result<ResourceResponse<SampleItem>, Problem<SampleItemsError>> {
     let rename = Rename::try_from(request.0).map_err(SampleItemsError::from)?;
     let id = path_id(&params, "sample_item_id");
@@ -232,7 +232,7 @@ async fn rename(
         (status = 204, description = "The sample item was deleted."),
     )
 )]
-async fn delete(
+async fn delete_sample_item(
     authorize: Authorize<SampleItemsDelete>,
     params: RawPathParams,
 ) -> Result<StatusCode, Problem<SampleItemsError>> {

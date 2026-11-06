@@ -1,12 +1,13 @@
 //! `new-module`, which writes a new module that holds one workspace resource, and
-//! `check-new-module`, which writes one on a copy of the repository and runs `just checks` there
+//! `check-new-module`, which writes two on a copy of the repository and runs `just checks` there
 //! (ARCH-03, docs/guides/adding-a-module.md).
 //!
 //! The templates in `crates/xtask/templates/new-module/` are the module `sample_items`, whose
 //! resource is `sample_item`, written as the code and documents of any module are: `files/` holds
 //! the files the module owns, at their paths, each ending in `.tmpl`, and `insert/` what it adds to
 //! the files every module shares, which `edits` places. Writing a module replaces each form of the
-//! template's names with the same form of the module's (`names`).
+//! template's names with the same form of the module's (`names`), once it has checked that nothing
+//! of the module exists yet, and that its names clash with none the code imports (`refusals`).
 //!
 //! The module's queries need the query cache before anything that holds them builds (DATA-14), and
 //! the cache needs a database that the module's migration built, so the task writes the migration
@@ -16,6 +17,7 @@
 
 mod edits;
 mod names;
+mod refusals;
 
 use std::{
     io,
@@ -28,7 +30,7 @@ use names::Names;
 
 use crate::{
     copy::{self, Copy},
-    migrated, migrations,
+    migrated,
     repo::{self, Repo},
 };
 
@@ -44,8 +46,8 @@ const TIMESTAMP: &str = "TIMESTAMP";
 /// The migrations' directory.
 const MIGRATIONS: &str = "migrations/";
 
-/// The permission matrix, whose permissions a module's are named after it (ACCESS-002).
-const PERMISSIONS: &str = "crates/app/src/modules/access/permissions.rs";
+/// The OpenAPI document, which the task writes again (API-17).
+const DOCUMENT: &str = "openapi.json";
 
 /// The query cache's directory (DATA-14).
 const CACHE: &str = ".sqlx/";
@@ -119,7 +121,8 @@ type Original = (String, Option<String>);
 /// Writes the module `names`, or undoes what it wrote and says why it couldn't.
 fn write(names: &Names) -> Result<Written, String> {
     let repo = Repo::load().map_err(|error| format!("can't read the repository: {error}"))?;
-    refuse_taken(&repo, names)?;
+    refusals::refuse_taken(&repo, names)?;
+    refusals::refuse_clashing(&repo, names)?;
     let files = files(&repo, names)?;
     let inserts = inserts(&repo, names)?;
     let edits = edits::edits(names, &inserts, |path| {
@@ -134,6 +137,7 @@ fn write(names: &Names) -> Result<Written, String> {
         )
     })?;
     let cache = snapshot(&repo, CACHE);
+    let document = repo.file(DOCUMENT).map(|file| file.text.clone());
     let mut originals: Vec<Original> = Vec::new();
     let written = apply(&files, &edits, &mut originals);
     match written {
@@ -142,55 +146,13 @@ fn write(names: &Names) -> Result<Written, String> {
             edited: edits.iter().map(|edit| edit.path.to_owned()).collect(),
         }),
         Err(error) => {
-            let undone = undo(&originals, &cache);
+            let undone = undo(&originals, &cache, document.as_deref());
             Err(match undone {
                 Ok(()) => format!("{error}\nThe task undid what it wrote."),
                 Err(undo) => format!("{error}\nUndoing what it wrote failed too: {undo}"),
             })
         }
     }
-}
-
-/// Fails when the repository already has a module, a spec, a test file, a builder or a migration
-/// of `names`' module, a table of its name, or a permission of its name, whose types the module's
-/// would repeat.
-fn refuse_taken(repo: &Repo, names: &Names) -> Result<(), String> {
-    let module = &names.module;
-    let taken = [
-        format!("crates/app/src/modules/{module}/"),
-        format!("docs/spec/{module}.md"),
-        format!("crates/app/tests/integration/{module}.rs"),
-        format!("crates/app/tests/integration/support/{module}.rs"),
-    ];
-    let found = repo.paths().find(|path| {
-        taken.iter().any(|taken| path.starts_with(taken.as_str()))
-            || migrations::of_module(path, module)
-    });
-    if let Some(path) = found {
-        return Err(format!(
-            "the repository has `{path}` already, so it has a module `{module}`, or had one"
-        ));
-    }
-    let table = format!("CREATE TABLE {module} (");
-    if let Some(file) = repo
-        .files()
-        .find(|file| file.path.starts_with(MIGRATIONS) && file.text.contains(&table))
-    {
-        return Err(format!(
-            "{} creates a table `{module}` already, which the module's table would repeat",
-            file.path
-        ));
-    }
-    let permission = format!("\"{module}.");
-    if repo
-        .file(PERMISSIONS)
-        .is_some_and(|file| file.text.contains(&permission))
-    {
-        return Err(format!(
-            "{PERMISSIONS} holds a permission `{module}.` already, which the module's would repeat"
-        ));
-    }
-    Ok(())
 }
 
 /// Each file the module owns, at its path, with its text: the templates of `files/` with
@@ -394,7 +356,7 @@ fn apply(
             "antworker-api",
             "--",
             "openapi",
-            "openapi.json",
+            DOCUMENT,
         ],
         &[("SQLX_OFFLINE", "true")],
     )?;
@@ -407,9 +369,13 @@ fn create(path: &str, text: &str, originals: &mut Vec<Original>) -> Result<(), S
     repo::write(path, text).map_err(|error| format!("can't write {path}: {error}"))
 }
 
-/// Puts back each file of `originals` as it stood, deleting those the task created, and the query
-/// cache as `cache` holds it, then `openapi.json` as git has it.
-fn undo(originals: &[Original], cache: &[(String, String)]) -> io::Result<()> {
+/// Puts back each file of `originals` as it stood, deleting those the task created, the query cache
+/// as `cache` holds it, and `openapi.json` as `document` holds it.
+fn undo(
+    originals: &[Original],
+    cache: &[(String, String)],
+    document: Option<&str>,
+) -> io::Result<()> {
     for (path, original) in originals.iter().rev() {
         match original {
             Some(text) => repo::write(path, text)?,
@@ -423,13 +389,10 @@ fn undo(originals: &[Original], cache: &[(String, String)]) -> io::Result<()> {
     for (path, text) in cache {
         repo::write(path, text)?;
     }
-    copy::run(
-        &copy::root(),
-        "git",
-        &["checkout", "--", "openapi.json"],
-        &[],
-    )
-    .map_err(io::Error::other)
+    match document {
+        Some(text) => repo::write(DOCUMENT, text),
+        None => Ok(()),
+    }
 }
 
 #[expect(clippy::print_stdout, reason = "the report is the task's output")]
@@ -458,36 +421,6 @@ mod tests {
     fn arch_03_the_new_migration_comes_after_every_other() {
         let repo = Repo::of(&[("migrations/99990101000000_x_x.sql", "")]);
         assert_eq!(timestamp(&repo).unwrap(), "99990101000001");
-    }
-
-    #[test]
-    fn arch_03_a_module_that_exists_or_existed_is_refused() {
-        let names = Names::new(CHECKED[0].0, None).unwrap();
-        let spec = Repo::of(&[("docs/spec/order_items.md", "")]);
-        let migration = Repo::of(&[("migrations/20260101000000_order_items_order_items.sql", "")]);
-        let other = Repo::of(&[("migrations/20260101000000_orders_orders.sql", "")]);
-
-        assert!(refuse_taken(&spec, &names).is_err());
-        assert!(refuse_taken(&migration, &names).is_err());
-        assert!(refuse_taken(&other, &names).is_ok());
-        // `entries` is no module of `audit_entries_workspace_key`, whose module is `audit`.
-        let entries = Names::new("entries", None).unwrap();
-        let audit = Repo::of(&[(
-            "migrations/20261101130200_audit_entries_workspace_key.sql",
-            "ALTER TABLE audit_entries ADD x int;",
-        )]);
-        assert!(refuse_taken(&audit, &entries).is_ok());
-        let table = Repo::of(&[(
-            "migrations/20261101120200_accounts_users.sql",
-            "CREATE TABLE order_items (id uuid);",
-        )]);
-        assert!(refuse_taken(&table, &names).unwrap_err().contains("table"));
-        let permission = Repo::of(&[(PERMISSIONS, "(\"order_items.read\", &[]),")]);
-        assert!(
-            refuse_taken(&permission, &names)
-                .unwrap_err()
-                .contains("permission")
-        );
     }
 
     #[test]

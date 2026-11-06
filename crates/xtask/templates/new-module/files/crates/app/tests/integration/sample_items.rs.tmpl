@@ -270,6 +270,34 @@ async fn sample_items_003_paging_returns_each_sample_item_once_across_a_shared_c
 }
 
 #[tokio::test]
+async fn sample_items_003_a_limit_and_a_search_it_refuses_are_reported_together() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+
+    let response = api
+        .get(&format!("/v1/workspaces/{workspace}/sample-items?limit=0&search=%20"))
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(response.status, 400);
+    let body = response.json();
+    assert_eq!(body["code"], "request.invalid_query");
+    let refused: Vec<(&str, &str)> = body["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|error| {
+            (
+                error["field"].as_str().unwrap(),
+                error["code"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(refused, [("/limit", "out_of_range"), ("/search", "required")]);
+}
+
+#[tokio::test]
 async fn sample_items_003_a_search_pages_through_its_matches() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
@@ -445,30 +473,38 @@ async fn sec_19_sample_item_events_reach_the_members_and_no_replay_from_before_j
     let mut member = streams::opened(&api, &grace).await;
 
     let created = create(&api, &ada, &workspace, "Blue", None).await.json();
-    let id = created["id"].as_str().unwrap();
-    let renamed = rename(&api, &ada, &workspace, id, "Red", None).await;
+    let first = created["id"].as_str().unwrap();
+    let renamed = rename(&api, &ada, &workspace, first, "Red", None).await;
+    let deleted = delete(&api, &ada, &workspace, first).await;
     workspaces::join(db, &workspace, &alan.user_id, "member").await;
     let mut joined = streams::connect(&api, &alan.access, before.as_deref()).await;
     joined.opened().await;
-    let deleted = delete(&api, &ada, &workspace, id).await;
+    let after = create(&api, &ada, &workspace, "Green", None).await.json();
     let after_joining = joined.event().await;
 
     assert_eq!(renamed.status, 200);
     assert_eq!(deleted.status, 204);
+    let second = after["id"].as_str().unwrap();
+    let expected = [
+        ("sample_item.created", first),
+        ("sample_item.updated", first),
+        ("sample_item.deleted", first),
+        ("sample_item.created", second),
+    ];
     let mut ids = Vec::new();
     for stream in [&mut owner, &mut member] {
-        for name in ["sample_item.created", "sample_item.updated", "sample_item.deleted"] {
+        for (name, sample_item) in expected {
             let event = stream.event().await;
             assert_eq!(event.event.as_deref(), Some(name));
             assert_eq!(
                 event.payload(),
-                &json!({ "workspace_id": workspace, "sample_item_id": id })
+                &json!({ "workspace_id": workspace, "sample_item_id": sample_item })
             );
             ids.push(event.id);
         }
     }
-    // Neither event from before Alan joined is replayed to him: the first he receives is the
-    // deletion, made after.
-    assert_eq!(after_joining.event.as_deref(), Some("sample_item.deleted"));
-    assert_eq!(after_joining.id, ids[2]);
+    // None of the three events from before Alan joined is replayed to him: the first he receives
+    // is the create made after.
+    assert_eq!(after_joining.event.as_deref(), Some("sample_item.created"));
+    assert_eq!(after_joining.id, ids[3]);
 }

@@ -324,21 +324,38 @@ fn test_08(text: &str, fixtures: &str) -> Option<String> {
 }
 
 /// architecture.md with the module's row of what each module owns, before `platform`'s, which
-/// isn't a module of `app`, and its edges at the end of the graph of dependencies.
+/// isn't a module of `app`, and its edges at the end of the graph of dependencies. A module that
+/// the document plans already, such as one a later step builds, keeps its planned row and edges.
 fn architecture(text: &str, owns: &str, graph: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
     let heading = find(&lines, 0, |line| line == "### What each module owns")?;
     let table = find(&lines, heading, |line| line.starts_with('|'))?;
     let table_end = find(&lines, table, |line| !line.starts_with('|')).unwrap_or(lines.len());
+    let cell = owns.split(" | ").next().unwrap_or(owns);
+    let planned = lines[table..table_end]
+        .iter()
+        .any(|line| line.starts_with(&format!("{cell} |")));
     let at = find(&lines, table, |line| line.starts_with("| `platform` |"))
         .filter(|at| *at < table_end)
         .unwrap_or(table_end);
-    let text = before(text, at, owns);
+    let text = if planned {
+        text.to_owned()
+    } else {
+        before(text, at, owns)
+    };
     let lines: Vec<&str> = text.lines().collect();
     let heading = find(&lines, 0, |line| line == "### Dependencies")?;
     let diagram = find(&lines, heading, |line| line == "```mermaid")?;
     let diagram_end = find(&lines, diagram + 1, |line| line == "```")?;
-    Some(before(&text, diagram_end, graph))
+    let source = graph.split(" -->").next().unwrap_or(graph);
+    let drawn = lines[diagram..diagram_end]
+        .iter()
+        .any(|line| line.starts_with(&format!("{source} -->")));
+    Some(if drawn {
+        text
+    } else {
+        before(&text, diagram_end, graph)
+    })
 }
 
 /// `text` with `rows` after the last row of the first table below the heading `heading`.
@@ -452,6 +469,13 @@ mod tests {
             "### What each module owns\n\n| Module | Owns |\n|---|---|\n\
              | `access` | x |\n| `files` | z |\n| `platform` | y |\n\nText.\n\n### Dependencies\n\n\
              ```mermaid\nflowchart TD\n  audit --> access\n  files --> access\n```\n"
+        );
+        let planned = "### What each module owns\n\n| Module | Owns |\n|---|---|\n\
+                       | `files` | planned |\n| `platform` | y |\n\n### Dependencies\n\n\
+                       ```mermaid\nflowchart TD\n  files --> access & audit\n```\n";
+        assert_eq!(
+            architecture(planned, "| `files` | z |", "  files --> access").unwrap(),
+            planned
         );
         assert_eq!(
             after_table(

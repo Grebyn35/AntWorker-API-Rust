@@ -60,7 +60,7 @@ jobs:
       - run: just setup
       - run: just check-removable
 
-  # On main, a module that `just new-module` writes on a copy of the repository passes the checks
+  # On main, two modules that `just new-module` writes on a copy of the repository pass the checks
   # (ARCH-03). The copy builds into a target of its own.
   new-module:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

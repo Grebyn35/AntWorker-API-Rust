@@ -33,7 +33,9 @@ fn named_id<'a>(
 
 /// The response that answers a resource: its body as JSON, `200`, or `201` with the `Location` of
 /// a resource just created (API-04), and, for an editable resource, the `ETag` that names its
-/// version, which every response that answers it carries (PLATFORM-071).
+/// version, which every response that answers it carries (PLATFORM-071). A location that no header
+/// can hold, such as one with a line break, which no path the API builds from IDs has, answers the
+/// internal problem instead (ERR-08).
 #[derive(Debug)]
 pub struct ResourceResponse<T> {
     body: T,

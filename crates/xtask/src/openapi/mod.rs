@@ -1,11 +1,13 @@
 //! `check-openapi`: the committed `openapi.json` follows the rules for the HTTP contract. Each
 //! operation's scope, method and statuses are in `operations`, the shape of lists and their
 //! `search` in `lists`, the formats and request strings' lengths in `schemas`, the event catalog
-//! in `events`, and the codes that no route lists in `codes`, each with the rules it reads.
+//! in `events`, the codes that no route lists in `codes`, and the names the document keys its
+//! operations and schemas by in `names`, each with the rules it reads.
 
 mod codes;
 mod events;
 mod lists;
+mod names;
 mod operations;
 mod schemas;
 
@@ -60,6 +62,7 @@ pub fn check(repo: &Repo) -> Outcome {
     problems.extend(operations::check(&document));
     problems.extend(lists::check(&document));
     problems.extend(schemas::problems(&document));
+    problems.extend(names::operation_ids(&document));
     let responses = document["components"]["responses"]
         .as_object()
         .unwrap_or(&empty);
@@ -92,6 +95,7 @@ pub fn check(repo: &Repo) -> Outcome {
         .collect();
     findings.extend(events::check(repo, &document));
     findings.extend(codes::check(repo, &document));
+    findings.extend(names::schema_names(repo));
     Outcome {
         report: Vec::new(),
         findings,
