@@ -150,8 +150,9 @@ fn join(directory: &str, relative: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
-/// Every rule or behavior ID cited outside the inventory exists (DOC-12). A token whose prefix
-/// no rule or module uses, such as `SHA-256`, isn't an ID.
+/// Every rule or behavior ID cited outside the inventory, and outside a check's own tests
+/// (`text::citing_lines`), exists (DOC-12). A token whose prefix no rule or module uses, such as
+/// `SHA-256`, isn't an ID.
 fn ids(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
     let mut findings = Vec::new();
     let cited = repo.files().filter(|file| {
@@ -160,7 +161,8 @@ fn ids(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
             && file.path != "Cargo.lock"
     });
     for file in cited {
-        for (index, line) in file.text.lines().enumerate() {
+        let citing = text::citing_lines(&file.path, &file.text);
+        for (index, line) in file.text.lines().take(citing).enumerate() {
             for token in text::id_tokens(line) {
                 let id = token.id();
                 if catalog.knows_prefix(token.prefix) && !catalog.defines(&id) {
@@ -412,6 +414,19 @@ mod tests {
                 "crates/widgets/src/lib.rs:1: WIDGETS-007 isn't a rule or behavior ID that exists (DOC-12)",
                 "crates/widgets/src/lib.rs:1: GADGETS-001 isn't a rule or behavior ID that exists (DOC-12)",
                 "crates/widgets/src/lib.rs:1: STYLE-99 isn't a rule or behavior ID that exists (DOC-12)"
+            ]
+        );
+    }
+
+    #[test]
+    fn doc_12_a_check_s_tests_cite_ids_of_their_own() {
+        let source = "/// Reads WIDGETS-007.\nfn check() {}\n\n#[cfg(test)]\nmod tests {\n    \
+                      // A made-up module's WIDGETS-009, and `widgets_009_` its test prefix.\n}\n";
+
+        assert_eq!(
+            findings(&[("crates/xtask/src/widgets.rs", source)]),
+            [
+                "crates/xtask/src/widgets.rs:1: WIDGETS-007 isn't a rule or behavior ID that exists (DOC-12)"
             ]
         );
     }

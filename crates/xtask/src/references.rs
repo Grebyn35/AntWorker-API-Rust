@@ -42,13 +42,19 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
         let workspace = WORKSPACE.iter().any(|place| path.starts_with(place));
         let markdown = path.ends_with(".md");
         let rust = path.ends_with(".rs");
+        let citing = text::citing_lines(path, &file.text);
         for (index, line) in file.text.lines().enumerate() {
             let mut found = |message: String| findings.push(Finding::new(path, index + 1, message));
             // A Rust file's code names what it checks, such as the inventory's path; its comments
             // describe it, as every other file's comments do.
             let comment = text::comment(path, line);
             let described = if markdown { Some(line) } else { comment };
-            for (prefix, number) in described.map(test_prefixes).unwrap_or_default() {
+            let cites = index < citing;
+            for (prefix, number) in described
+                .filter(|_| cites)
+                .map(test_prefixes)
+                .unwrap_or_default()
+            {
                 let id = format!("{}-{number}", prefix.to_ascii_uppercase());
                 if catalog.knows_prefix(&prefix.to_ascii_uppercase()) && !catalog.defines(&id) {
                     found(format!(

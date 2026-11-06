@@ -321,11 +321,14 @@ async fn platform_009_authorization_waits_for_a_change_to_the_caller_s_membershi
     assert_eq!(request.await.unwrap(), StatusCode::NOT_FOUND);
 }
 
-/// How the generated test calls a workspace route: the path, given the workspace and a target
-/// member below the caller's rank, its body and that body's media type, if it takes one, and the
-/// status of a success.
+/// How the generated test calls a workspace route: the path, given the workspace and the ID the
+/// route addresses, its body and that body's media type, if it takes one, and the status of a
+/// success. The ID is a target member's, below the caller's rank, unless `row` arranges the row
+/// the route addresses: a statement, run through the `owner` connection, that inserts it in the
+/// workspace its `{workspace}` names and returns its ID.
 struct Fixture {
     path: fn(&str, &str) -> String,
+    row: Option<&'static str>,
     body: Option<(&'static str, &'static str)>,
     success: StatusCode,
 }
@@ -336,21 +339,25 @@ fn fixture(method: &str, template: &str) -> Option<Fixture> {
     Some(match (method, template) {
         ("get", "/v1/workspaces/{workspace_id}") => Fixture {
             path: |workspace, _| format!("/v1/workspaces/{workspace}"),
+            row: None,
             body: None,
             success: StatusCode::OK,
         },
         ("patch", "/v1/workspaces/{workspace_id}") => Fixture {
             path: |workspace, _| format!("/v1/workspaces/{workspace}"),
+            row: None,
             body: Some((r#"{"name": "Renamed"}"#, "application/merge-patch+json")),
             success: StatusCode::OK,
         },
         ("get", "/v1/workspaces/{workspace_id}/members") => Fixture {
             path: |workspace, _| format!("/v1/workspaces/{workspace}/members"),
+            row: None,
             body: None,
             success: StatusCode::OK,
         },
         ("delete", "/v1/workspaces/{workspace_id}/members/{user_id}") => Fixture {
             path: |workspace, target| format!("/v1/workspaces/{workspace}/members/{target}"),
+            row: None,
             body: None,
             success: StatusCode::NO_CONTENT,
         },
@@ -358,6 +365,7 @@ fn fixture(method: &str, template: &str) -> Option<Fixture> {
         // A member is the one role that every role allowed to invite outranks (ACCESS-004).
         ("post", "/v1/workspaces/{workspace_id}/invitations") => Fixture {
             path: |workspace, _| format!("/v1/workspaces/{workspace}/invitations"),
+            row: None,
             body: Some((
                 r#"{"email": "invitee@example.com", "role": "member"}"#,
                 "application/json",
@@ -367,6 +375,34 @@ fn fixture(method: &str, template: &str) -> Option<Fixture> {
         // end part: invitations
         _ => return None,
     })
+}
+
+/// Runs `row`, a fixture's statement, for `workspace`, and returns the ID of the row it inserted.
+async fn arrange_row(db: &TestDatabase, row: &str, workspace: &str) -> String {
+    db.owner_reads(&row.replace("{workspace}", workspace))
+        .await
+        .remove(0)
+}
+
+/// Sends `method` to `path` as `caller`, with `body`, in its media type, when there is one.
+async fn send(
+    api: &Api,
+    method: Method,
+    path: &str,
+    caller: &SignedIn,
+    body: Option<(&str, &str)>,
+) -> crate::support::api::Response {
+    match body {
+        None => call(api, method, path, caller).await,
+        Some((body, media_type)) => {
+            api.request(method, path)
+                .header("content-type", media_type)
+                .body(body)
+                .bearer(&caller.access)
+                .send()
+                .await
+        }
+    }
 }
 
 #[tokio::test]
@@ -414,19 +450,13 @@ async fn test_08_every_workspace_route_answers_every_role_as_the_matrix_says() {
                     workspaces::join(db, &workspace, &caller.user_id, role).await;
                 }
                 workspaces::join(db, &workspace, &target.user_id, below).await;
-                let path = (fixture.path)(&workspace, &target.user_id);
-
-                let response = match fixture.body {
-                    None => call(&api, method.clone(), &path, caller).await,
-                    Some((body, media_type)) => {
-                        api.request(method.clone(), &path)
-                            .header("content-type", media_type)
-                            .body(body)
-                            .bearer(&caller.access)
-                            .send()
-                            .await
-                    }
+                let addressed = match fixture.row {
+                    Some(row) => arrange_row(db, row, &workspace).await,
+                    None => target.user_id.clone(),
                 };
+                let path = (fixture.path)(&workspace, &addressed);
+
+                let response = send(&api, method.clone(), &path, caller, fixture.body).await;
 
                 let expected = match *role {
                     "none" => StatusCode::NOT_FOUND,
@@ -436,15 +466,26 @@ async fn test_08_every_workspace_route_answers_every_role_as_the_matrix_says() {
                 assert_eq!(response.status, expected, "{method} {template} as {role}");
                 checked += 1;
             }
-            if template.contains("{user_id}") {
-                // A member of another workspace the caller belongs to names nobody here (DATA-16).
+            if template.contains("{user_id}") || fixture.row.is_some() {
+                // A member or a row of another workspace the caller belongs to names nothing here
+                // (DATA-16).
                 let (_, owner) = &callers[0];
                 let here = workspaces::arrange(db, "Here", &[(&owner.user_id, "owner")]).await;
                 let there = workspaces::arrange(db, "There", &[(&owner.user_id, "owner")]).await;
-                workspaces::join(db, &there, &target.user_id, "member").await;
-                let path = (fixture.path)(&here, &target.user_id);
-                let foreign = call(&api, method.clone(), &path, owner).await;
-                assert_eq!(foreign.status, StatusCode::NOT_FOUND, "{method} {template}");
+                let foreign = match fixture.row {
+                    Some(row) => arrange_row(db, row, &there).await,
+                    None => {
+                        workspaces::join(db, &there, &target.user_id, "member").await;
+                        target.user_id.clone()
+                    }
+                };
+                let path = (fixture.path)(&here, &foreign);
+                let response = send(&api, method.clone(), &path, owner, fixture.body).await;
+                assert_eq!(
+                    response.status,
+                    StatusCode::NOT_FOUND,
+                    "{method} {template}"
+                );
             }
         }
     }

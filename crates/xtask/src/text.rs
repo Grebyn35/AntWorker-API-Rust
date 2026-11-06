@@ -50,6 +50,32 @@ pub fn id_tokens(line: &str) -> Vec<Token<'_>> {
     tokens
 }
 
+/// How many lines of `text`, a Rust file, come before its test module: all of them when it has
+/// none.
+pub fn lines_before_tests(text: &str) -> usize {
+    let lines: Vec<&str> = text.lines().collect();
+    lines
+        .windows(2)
+        .position(|pair| {
+            pair[0].trim() == "#[cfg(test)]"
+                && ["mod ", "pub mod ", "pub(crate) mod "]
+                    .iter()
+                    .any(|start| pair[1].trim_start().starts_with(start))
+        })
+        .unwrap_or(lines.len())
+}
+
+/// The lines of the file at `path` that cite what they name, by number: every line, except in a
+/// check's own tests, the test module of a file under `crates/xtask/`, whose documents and code are
+/// made up for the check to read, with IDs of modules that no repository need have (DOC-12).
+pub fn citing_lines(path: &str, text: &str) -> usize {
+    if path.starts_with("crates/xtask/") && path.ends_with(".rs") {
+        lines_before_tests(text)
+    } else {
+        text.lines().count()
+    }
+}
+
 /// The line of the first occurrence of `needle` in `text`, or 1.
 pub fn line_of(text: &str, needle: &str) -> usize {
     text.find(needle)

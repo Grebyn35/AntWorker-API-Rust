@@ -11,7 +11,7 @@
 //! - A job is declared in its module's `jobs.rs`, or in an area of `platform`, and its kind starts
 //!   with its module's name, or `platform.` for one of `platform`'s (OPS-09).
 
-use crate::{Finding, Outcome, repo::Repo, shell, unused};
+use crate::{Finding, Outcome, repo::Repo, shell, text, unused};
 
 /// The most lines a file holds (CODE-08).
 const MOST_LINES: usize = 500;
@@ -65,7 +65,7 @@ pub fn check(repo: &Repo) -> Outcome {
             && path.split('/').nth(2) == Some("src")
             && path.ends_with(".rs");
         if in_src {
-            let lines = lines_before_tests(&file.text);
+            let lines = text::lines_before_tests(&file.text);
             if lines > MOST_LINES {
                 findings.push(Finding::new(
                     path,
@@ -202,20 +202,6 @@ fn templates(path: &str, code: &[&str]) -> Vec<Finding> {
             })
         })
         .collect()
-}
-
-/// The lines of `text` before its test module: a `#[cfg(test)]` line that a `mod` follows.
-fn lines_before_tests(text: &str) -> usize {
-    let lines: Vec<&str> = text.lines().collect();
-    lines
-        .windows(2)
-        .position(|pair| {
-            pair[0].trim() == "#[cfg(test)]"
-                && ["mod ", "pub mod ", "pub(crate) mod "]
-                    .iter()
-                    .any(|start| pair[1].trim_start().starts_with(start))
-        })
-        .unwrap_or(lines.len())
 }
 
 /// ARCH-03 and ERR-01: each module's entries, its templates' directory, and its `error.rs`.

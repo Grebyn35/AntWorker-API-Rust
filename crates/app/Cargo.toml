@@ -36,7 +36,6 @@ tokio.workspace = true
 # seed sends the API's router its requests in process.
 tower.workspace = true
 tracing.workspace = true
-unicode-normalization.workspace = true
 utoipa.workspace = true
 utoipa-axum.workspace = true
 uuid.workspace = true

@@ -2,9 +2,8 @@
 
 use std::borrow::Cow;
 
-use platform::types::{EmailAddress, Invalid, Timestamp, UserId, Version, WorkspaceId};
+use platform::types::{EmailAddress, Invalid, Timestamp, UserId, Version, WorkspaceId, one_line};
 use serde::{Deserialize, Serialize};
-use unicode_normalization::UnicodeNormalization;
 use utoipa::{
     PartialSchema, ToSchema,
     openapi::{ObjectBuilder, RefOr, Schema, Type},
@@ -32,18 +31,13 @@ impl std::fmt::Debug for WorkspaceName {
 impl WorkspaceName {
     /// The name in `value`, normalized, or why it isn't one.
     pub(crate) fn parse(value: &str) -> Result<Self, Invalid> {
-        let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
-        let name: String = collapsed.nfc().collect();
-        if name.is_empty() {
-            return Err(Invalid::new("required", "Enter a name."));
-        }
-        if name.chars().count() > NAME_MAX_CHARS {
-            return Err(Invalid::new(
-                "too_long",
-                "A workspace name has at most 255 characters.",
-            ));
-        }
-        Ok(Self(name))
+        one_line(
+            value,
+            NAME_MAX_CHARS,
+            "Enter a name.",
+            "A workspace name has at most 255 characters.",
+        )
+        .map(Self)
     }
 
     /// A name the database holds, which was normalized when it was stored.

@@ -4,6 +4,7 @@
 use std::{borrow::Cow, fmt};
 
 use serde::{Deserialize, Serialize};
+use unicode_normalization::UnicodeNormalization;
 use utoipa::{
     PartialSchema, ToSchema,
     openapi::{KnownFormat, ObjectBuilder, RefOr, Schema, SchemaFormat, Type},
@@ -67,6 +68,27 @@ impl Invalid {
             message: message.into(),
         }
     }
+}
+
+/// `value` as one line of text, such as a name or a search: trimmed, with each run of whitespace
+/// inside it collapsed to one space, in Unicode Normalization Form C (NFC), and of 1 to
+/// `max_chars` characters, or why it isn't one: `required`, explained by `empty`, or `too_long`,
+/// explained by `too_long` (D25). A domain type of text a user writes wraps what it returns.
+pub fn one_line(
+    value: &str,
+    max_chars: usize,
+    empty: &'static str,
+    too_long: &'static str,
+) -> Result<String, Invalid> {
+    let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let line: String = collapsed.nfc().collect();
+    if line.is_empty() {
+        return Err(Invalid::new("required", empty));
+    }
+    if line.chars().count() > max_chars {
+        return Err(Invalid::new("too_long", too_long));
+    }
+    Ok(line)
 }
 
 macro_rules! id_type {

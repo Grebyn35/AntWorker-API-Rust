@@ -126,12 +126,12 @@ fn without_code_and_targets(line: &str) -> String {
     prose
 }
 
-/// The byte ranges of the words of `prose`: runs of ASCII letters and digits.
+/// The byte ranges of the words of `prose`: runs of ASCII letters, digits and underscores.
 fn words(prose: &str) -> Vec<(usize, usize)> {
     let mut words = Vec::new();
     let mut start = None;
     for (at, c) in prose.char_indices().chain([(prose.len(), ' ')]) {
-        match (start, c.is_ascii_alphanumeric()) {
+        match (start, c.is_ascii_alphanumeric() || c == '_') {
             (None, true) => start = Some(at),
             (Some(from), false) => {
                 words.push((from, at));
@@ -143,13 +143,15 @@ fn words(prose: &str) -> Vec<(usize, usize)> {
     words
 }
 
-/// Two or more characters, a capital letter first, and nothing but capitals and digits.
+/// Two or more characters, a capital letter first, and nothing but capitals, digits and the
+/// underscores that join the words of a module's name in its behaviors' prefix, such as
+/// `CLIENT_TELEMETRY`.
 fn is_capitals(word: &str) -> bool {
     word.len() >= 2
         && word.starts_with(|c: char| c.is_ascii_uppercase())
         && word
             .chars()
-            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
 /// An ID such as D12 or Q1: one capital letter and a number.
@@ -189,6 +191,30 @@ mod tests {
     fn doc_06_spelled_out_and_listed_acronyms_pass() {
         let document = "Email goes over the Simple Mail Transfer Protocol (SMTP), then SMTP again.\nADRs (architecture decision records), and an HTTP API. SHA-256 is a name, and SCRAM-SHA-256 (Salted Challenge Response Authentication Mechanism) is spelled out. See [the inventory](inventory/SYNTHESIS.md) and `ERROR`. D12 and Q1 are IDs, and so is factor IV.\n";
         assert_eq!(findings(document), Vec::<String>::new());
+    }
+
+    #[test]
+    fn doc_06_the_prefix_of_a_module_named_in_two_words_is_no_acronym() {
+        let glossary = format!(
+            "### What each module owns\n\n| Module | Owns |\n|---|---|\n\
+             | `client_telemetry` | none |\n\n{GLOSSARY_TEXT}"
+        );
+        let document =
+            "CLIENT_TELEMETRY-001 holds, as CLIENT_TELEMETRY-002 does. NEW_THING waits.\n";
+        let repo = Repo::of(&[(GLOSSARY, &glossary), ("docs/coverage.md", document)]);
+        let catalog = Catalog::read(&repo);
+
+        let findings: Vec<String> = check(&repo, &catalog)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect();
+
+        assert_eq!(
+            findings,
+            [
+                "NEW_THING isn't spelled out where the document first uses it, and the glossary doesn't list it (DOC-06)"
+            ]
+        );
     }
 
     #[test]

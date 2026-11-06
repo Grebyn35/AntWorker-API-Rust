@@ -7,7 +7,6 @@ use std::borrow::Cow;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use unicode_normalization::UnicodeNormalization;
 use utoipa::{
     PartialSchema, ToSchema,
     openapi::{ObjectBuilder, RefOr, Schema, Type},
@@ -15,7 +14,7 @@ use utoipa::{
 
 use crate::{
     http::{FieldErrors, query::parameter_pointer},
-    types::{Invalid, Timestamp},
+    types::{Invalid, Timestamp, one_line},
 };
 
 /// How many items a page holds when the request names no `limit` (API-06).
@@ -173,18 +172,13 @@ impl Search {
 
     /// The search in `value`, normalized, or why it isn't one.
     pub fn parse(value: &str) -> Result<Self, Invalid> {
-        let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
-        let search: String = collapsed.nfc().collect();
-        if search.is_empty() {
-            return Err(Invalid::new("required", "Enter something to search for."));
-        }
-        if search.chars().count() > SEARCH_MAX_CHARS {
-            return Err(Invalid::new(
-                "too_long",
-                "A search has at most 100 characters.",
-            ));
-        }
-        Ok(Self(search))
+        one_line(
+            value,
+            SEARCH_MAX_CHARS,
+            "Enter something to search for.",
+            "A search has at most 100 characters.",
+        )
+        .map(Self)
     }
 
     /// The pattern of an `ILIKE` that finds the search anywhere in a field, with `%`, `_` and
