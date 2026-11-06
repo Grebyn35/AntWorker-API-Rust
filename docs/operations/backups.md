@@ -88,6 +88,7 @@ A restore that fails once it moved the data directory aside leaves the API down,
   ```
 - **When Postgres can't fetch a segment of the log from the bucket,** the restore shows the end of Postgres's log, with pgBackRest's error. Postgres tries its start again meanwhile, and may finish the replay itself once the bucket answers; either way, once the bucket answers, run the restore again.
 - **When the replay hasn't advanced for 10 minutes,** the restore stops waiting, and shows the end of Postgres's log. Fix what the log names, and run the restore again.
+- **When Postgres begins another timeline than the one whose beginning the restore recorded,** which only a bucket that changes while the restore runs, as when another server restores into it, brings about, the restore says both. Stop what else writes to the bucket, and run the restore again.
 - **In `migrate`, or while the replicas start,** Postgres runs the restored database. Fix the cause, and deploy the live release again.
 
 Putting the data back by hand is for a restore whose database didn't start only: once Postgres runs the restored database, the backups follow it, so undo the restore with another, as above.
