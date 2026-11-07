@@ -1,19 +1,23 @@
 //! Request bodies: the JSON extractor (PLATFORM-049, PLATFORM-050), that of a JSON Merge Patch
-//! (API-03), with the idempotency key of a keyed route (PLATFORM-037), and the collection of every
-//! field that a request type's conversion into domain types refuses (PLATFORM-051, API-10).
+//! (API-03), with the idempotency key of a keyed route (PLATFORM-037), the body of an upload
+//! (PLATFORM-074), and the collection of every field that a request type's conversion into domain
+//! types refuses (PLATFORM-051, API-10).
+
+use std::sync::Arc;
 
 use axum::{
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{FromRequest, Request},
-    http::header,
+    http::{HeaderValue, header},
 };
-use http_body_util::{BodyExt, LengthLimitError};
+use http_body_util::{BodyExt, LengthLimitError, Limited};
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::docs::IDEMPOTENCY_KEY;
 use crate::{
-    errors::{BodyFault, FieldError, Problem, RequestError},
+    errors::{BodyFault, FieldError, Internal, PlatformError, Problem, RequestError},
     idempotency::IdempotencyKey,
     types::Invalid,
 };
@@ -62,6 +66,9 @@ const JSON: &str = "application/json";
 /// The media type of a JSON Merge Patch (RFC 7396).
 const MERGE_PATCH: &str = "application/merge-patch+json";
 
+/// The media type of an upload's bytes, whose kind its route finds from the bytes themselves.
+const OCTET_STREAM: &str = "application/octet-stream";
+
 /// The JSON body of a route that accepts an `Idempotency-Key` (API-12), and the request's key, if
 /// it sent one, with the fingerprint of its method, path, query and body (PLATFORM-036).
 #[derive(Debug)]
@@ -95,6 +102,135 @@ where
         Ok(Self {
             body: parse(&bytes)?,
             key,
+        })
+    }
+}
+
+/// How many uploads' bodies a replica holds in memory at once (PLATFORM-074).
+const UPLOADS_AT_ONCE: usize = 4;
+
+/// The turns of the uploads a replica reads at once, which the stack shares with every request
+/// (PLATFORM-074).
+#[derive(Clone, Debug)]
+pub(super) struct UploadTurns(Arc<Semaphore>);
+
+impl UploadTurns {
+    /// Every turn free.
+    pub(super) fn new() -> Self {
+        Self(Arc::new(Semaphore::new(UPLOADS_AT_ONCE)))
+    }
+}
+
+/// The body of an upload route: a file's bytes, sent as `application/octet-stream`, the one kind
+/// of body that isn't JSON (API-08), which the handler reads once it has refused what it refuses without them, such as a caller
+/// who may not upload (PLATFORM-073), up to the limit its module sets, in one of the replica's
+/// turns, with the request's `Idempotency-Key`, if it sent one (PLATFORM-074). An upload route's
+/// group sets no body limit of its own, so nothing reads the body before the handler does.
+#[derive(Debug)]
+pub struct Upload {
+    body: Body,
+    /// The body's declared length: `None` without `Content-Length`, and `Some(None)` for one that
+    /// isn't a number Rust can hold.
+    declared: Option<Option<usize>>,
+    method: String,
+    path: String,
+    query: String,
+    key: Option<HeaderValue>,
+    turns: UploadTurns,
+}
+
+impl<S: Send + Sync> FromRequest<S> for Upload {
+    type Rejection = Problem<PlatformError>;
+
+    async fn from_request(request: Request, _: &S) -> Result<Self, Self::Rejection> {
+        let Some(turns) = request.extensions().get::<UploadTurns>().cloned() else {
+            return Err(Problem(
+                Internal::new("the request carries no upload turns").into(),
+            ));
+        };
+        if !is_media_type(request.headers().get(header::CONTENT_TYPE), OCTET_STREAM) {
+            return Err(Problem(
+                RequestError::InvalidBody(BodyFault::ContentType(OCTET_STREAM)).into(),
+            ));
+        }
+        let key = request.headers().get(IDEMPOTENCY_KEY).cloned();
+        if key
+            .as_ref()
+            .is_some_and(|value| !IdempotencyKey::is_key(value.as_bytes()))
+        {
+            return Err(Problem(RequestError::InvalidIdempotencyKey.into()));
+        }
+        let declared = request.headers().get(header::CONTENT_LENGTH).map(|length| {
+            length
+                .to_str()
+                .ok()
+                .and_then(|length| length.parse::<usize>().ok())
+        });
+        Ok(Self {
+            declared,
+            method: request.method().as_str().to_owned(),
+            path: request.uri().path().to_owned(),
+            query: request.uri().query().unwrap_or_default().to_owned(),
+            key,
+            turns,
+            body: request.into_body(),
+        })
+    }
+}
+
+/// An upload's bytes, which [`Upload::read`] read, and its key, with the fingerprint of its
+/// method, path, query and bytes (PLATFORM-036). It holds the replica's turn until it is dropped,
+/// so the handler keeps it until it has done with the bytes (PLATFORM-074).
+#[derive(Debug)]
+pub struct Uploaded {
+    /// The bytes.
+    pub bytes: Bytes,
+    /// The key, which the operation's unit of work claims.
+    pub key: Option<IdempotencyKey>,
+    _turn: OwnedSemaphorePermit,
+}
+
+impl Upload {
+    /// 413 `request.payload_too_large` when the body's `Content-Length` declares more than
+    /// `limit` bytes, before anything reads it (PLATFORM-048).
+    pub fn refuse_declared(&self, limit: usize) -> Result<(), RequestError> {
+        match self.declared {
+            Some(Some(length)) if length <= limit => Ok(()),
+            Some(_) => Err(RequestError::PayloadTooLarge),
+            None => Ok(()),
+        }
+    }
+
+    /// Waits for one of the replica's turns, then reads the body, up to `limit` bytes: 413
+    /// `request.payload_too_large` for a body that declares more or grows past it (PLATFORM-048,
+    /// PLATFORM-050), and 400 `request.invalid_body` for one that stops before its end.
+    pub async fn read(self, limit: usize) -> Result<Uploaded, PlatformError> {
+        self.refuse_declared(limit)?;
+        // The semaphore is never closed, so waiting for a turn ends only with one.
+        let turn = self.turns.0.acquire_owned().await.map_err(Internal::new)?;
+        let bytes = match Limited::new(self.body, limit).collect().await {
+            Ok(collected) => collected.to_bytes(),
+            Err(error) if is_too_large(&*error) => return Err(RequestError::PayloadTooLarge.into()),
+            Err(_) => return Err(RequestError::InvalidBody(BodyFault::Syntax).into()),
+        };
+        let digest: [u8; 32] = Sha256::digest(&bytes).into();
+        let key = self
+            .key
+            .map(|value| {
+                IdempotencyKey::parse(
+                    value.as_bytes(),
+                    &self.method,
+                    &self.path,
+                    &self.query,
+                    &digest,
+                )
+                .ok_or(RequestError::InvalidIdempotencyKey)
+            })
+            .transpose()?;
+        Ok(Uploaded {
+            bytes,
+            key,
+            _turn: turn,
         })
     }
 }

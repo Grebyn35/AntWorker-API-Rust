@@ -4,6 +4,7 @@
         path: |workspace, _| format!("/v1/workspaces/{workspace}/sample-items"),
         row: None,
         body: Some((r#"{"name": "Blue"}"#, "application/json")),
+        headers: &[],
         success: StatusCode::CREATED,
     },
     Fixture {
@@ -12,6 +13,7 @@
         path: |workspace, _| format!("/v1/workspaces/{workspace}/sample-items"),
         row: None,
         body: None,
+        headers: &[],
         success: StatusCode::OK,
     },
     Fixture {
@@ -20,6 +22,7 @@
         path: |workspace, id| format!("/v1/workspaces/{workspace}/sample-items/{id}"),
         row: Some(|db, workspace| Box::pin(crate::support::sample_items::arrange(db, workspace, "Blue"))),
         body: None,
+        headers: &[],
         success: StatusCode::OK,
     },
     Fixture {
@@ -28,6 +31,7 @@
         path: |workspace, id| format!("/v1/workspaces/{workspace}/sample-items/{id}"),
         row: Some(|db, workspace| Box::pin(crate::support::sample_items::arrange(db, workspace, "Blue"))),
         body: Some((r#"{"name": "Red"}"#, "application/merge-patch+json")),
+        headers: &[],
         success: StatusCode::OK,
     },
     Fixture {
@@ -36,5 +40,6 @@
         path: |workspace, id| format!("/v1/workspaces/{workspace}/sample-items/{id}"),
         row: Some(|db, workspace| Box::pin(crate::support::sample_items::arrange(db, workspace, "Blue"))),
         body: None,
+        headers: &[],
         success: StatusCode::NO_CONTENT,
     },

@@ -60,6 +60,8 @@ impl Contract {
                     .as_object()
                     .map(|content| content.keys().collect::<Vec<_>>())
             )],
+            // A file's bytes are no JSON that a schema describes.
+            Some(_) if !is_json(media_type) => Vec::new(),
             Some(media) => self.validate(&media["schema"], body),
         };
         assert!(
@@ -213,8 +215,9 @@ impl Contract {
                         "the content type {media_type:?} isn't documented, only {:?}",
                         content.keys().collect::<Vec<_>>()
                     )),
-                    // A stream's frames are no JSON that a schema describes: its tests read them.
-                    Some(_) if method == Method::HEAD || media_type == "text/event-stream" => {}
+                    // A stream's frames, and a file's bytes, are no JSON that a schema
+                    // describes: their tests read them.
+                    Some(_) if method == Method::HEAD || !is_json(media_type) => {}
                     Some(media) => breaches.extend(self.validate(&media["schema"], body)),
                 }
             }
@@ -300,4 +303,9 @@ fn close(schema: &mut Value) {
             parts.iter_mut().for_each(close);
         }
     }
+}
+
+/// Whether `media_type` is JSON, as a problem's is, whose body a schema describes.
+fn is_json(media_type: &str) -> bool {
+    media_type == "application/json" || media_type.ends_with("+json")
 }

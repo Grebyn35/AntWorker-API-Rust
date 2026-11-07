@@ -14,6 +14,8 @@ argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "pa
 askama = { version = "0.16.1", default-features = false, features = ["derive", "std"] } # part: invitations
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
 base64 = { version = "0.23.1", default-features = false, features = ["std"] }
+# The bytes of a file, which the bucket's client and the HTTP server share.
+bytes = "1.12.1"
 clap ={ version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 dotenvy = "0.15.7"
 # The stream of server-sent events, which axum's `Sse` takes as a `Stream`.
@@ -28,6 +30,10 @@ json-subscriber = { version = "0.3.1", default-features = false, features = ["tr
 # The SMTP transport on Tokio, with rustls on ring and the system's certificates (SEC-16, D38).
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "pool", "smtp-transport", "tokio1", "tokio1-rustls", "ring", "rustls-native-certs"] }
 mimalloc = { version = "0.1.52", default-features = false }
+# The client of the S3-compatible bucket that holds files' bytes, signing with ring and sending
+# through reqwest with a rustls configuration built with ring, as the telemetry exporters' client
+# does, since its `aws` feature brings aws-lc-rs, which SEC-16 bans.
+object_store = { version = "0.14.2", default-features = false, features = ["aws-base", "reqwest", "ring"] }
 opentelemetry = { version = "0.33.1", default-features = false, features = ["trace", "metrics", "logs"] }
 opentelemetry-appender-tracing = { version = "0.33.1", default-features = false }
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs"] }

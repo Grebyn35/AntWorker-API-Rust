@@ -92,6 +92,18 @@
       "asDropdown": false,
       "includeVars": false,
       "tooltip": ""
+    },
+    {
+      "title": "Files",
+      "type": "link",
+      "url": "/d/api-files",
+      "keepTime": true,
+      "targetBlank": false,
+      "icon": "dashboard",
+      "tags": [],
+      "asDropdown": false,
+      "includeVars": false,
+      "tooltip": ""
     }
   ],
   "panels": [

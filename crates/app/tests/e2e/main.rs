@@ -16,6 +16,8 @@ mod deployment;
 #[cfg(test)]
 mod docker;
 #[cfg(test)]
+mod files;
+#[cfg(test)]
 mod image;
 #[cfg(test)]
 mod images;

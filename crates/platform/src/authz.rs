@@ -318,6 +318,45 @@ impl<P: Permission> Authorize<P> {
     /// `request.permission_denied` for a member without `P`, each recorded first (ACCESS-003,
     /// PLATFORM-009).
     pub async fn open(self) -> Result<(UnitOfWork, Authorized<P>), PlatformError> {
+        let (uow, workspace_id, decision) = self.decide().await?;
+        let Decision::Allowed(role) = decision else {
+            drop(uow);
+            return Err(self.refuse(workspace_id, decision).await);
+        };
+        // The request's span carries the workspace the caller was authorized in (OBS-09).
+        tracing::Span::current().record(names::WORKSPACE_ID, workspace_id.to_string());
+        Ok((
+            uow,
+            Authorized {
+                principal: self.principal,
+                workspace_id,
+                role,
+                client: self.client,
+                sink: self.authorizer.sink,
+                permission: PhantomData,
+            },
+        ))
+    }
+
+    /// Authorizes the caller as [`Authorize::open`] does, refusals and their records included,
+    /// in a unit of work of its own that commits nothing, for a route that refuses a caller
+    /// before work it does outside any transaction, such as reading an upload's body
+    /// (PLATFORM-073). The route's unit of work, which [`Authorize::open`] opens afterwards,
+    /// authorizes the caller again, so the operation still runs under the membership it was
+    /// authorized with (PLATFORM-009).
+    pub async fn check(&self) -> Result<(), PlatformError> {
+        let (uow, workspace_id, decision) = self.decide().await?;
+        drop(uow);
+        match decision {
+            Decision::Allowed(_) => Ok(()),
+            refused => Err(self.refuse(workspace_id, refused).await),
+        }
+    }
+
+    /// Opens a unit of work and asks the policy whether the caller holds `P` in the workspace
+    /// of the path. A workspace ID that isn't a UUID names no workspace, which answers 404
+    /// unrecorded (ACCESS-003).
+    async fn decide(&self) -> Result<(UnitOfWork, WorkspaceId, Decision), PlatformError> {
         let Some(workspace_id) = self.workspace_id else {
             return Err(RequestError::NotFound.into());
         };
@@ -327,39 +366,28 @@ impl<P: Permission> Authorize<P> {
             .policy
             .authorize(&mut uow, self.principal.user_id(), workspace_id, P::NAME)
             .await?;
-        let refusal = |member| Refusal {
+        Ok((uow, workspace_id, decision))
+    }
+
+    /// Records and counts the refusal of `decision`, which isn't [`Decision::Allowed`], and
+    /// answers it: 404 for a caller who isn't a member, 403 for a member without `P`.
+    async fn refuse(&self, workspace_id: WorkspaceId, decision: Decision) -> PlatformError {
+        let member = decision != Decision::NotMember;
+        let refusal = Refusal {
             user_id: self.principal.user_id(),
             workspace_id,
             permission: P::NAME,
             member,
             client: self.client.clone(),
         };
-        match decision {
-            Decision::Allowed(role) => {
-                // The request's span carries the workspace the caller was authorized in (OBS-09).
-                tracing::Span::current().record(names::WORKSPACE_ID, workspace_id.to_string());
-                Ok((
-                    uow,
-                    Authorized {
-                        principal: self.principal,
-                        workspace_id,
-                        role,
-                        client: self.client,
-                        sink: self.authorizer.sink,
-                        permission: PhantomData,
-                    },
-                ))
-            }
-            Decision::NotMember => {
-                drop(uow);
-                report(&*self.authorizer.sink, &refusal(false), Reason::NotMember).await?;
-                Err(RequestError::NotFound.into())
-            }
-            Decision::Denied => {
-                drop(uow);
-                report(&*self.authorizer.sink, &refusal(true), Reason::Permission).await?;
-                Err(RequestError::PermissionDenied.into())
-            }
+        let (reason, answer) = if member {
+            (Reason::Permission, RequestError::PermissionDenied)
+        } else {
+            (Reason::NotMember, RequestError::NotFound)
+        };
+        match report(&*self.authorizer.sink, &refusal, reason).await {
+            Ok(()) => answer.into(),
+            Err(error) => error.into(),
         }
     }
 }

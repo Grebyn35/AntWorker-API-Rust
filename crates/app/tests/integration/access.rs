@@ -336,6 +336,7 @@ struct Fixture {
     path: fn(&str, &str) -> String,
     row: Option<Arrange>,
     body: Option<(&'static str, &'static str)>,
+    headers: &'static [(&'static str, &'static str)],
     success: StatusCode,
 }
 
@@ -348,6 +349,7 @@ const FIXTURES: &[Fixture] = &[
         path: |workspace, _| format!("/v1/workspaces/{workspace}"),
         row: None,
         body: None,
+        headers: &[],
         success: StatusCode::OK,
     },
     Fixture {
@@ -356,6 +358,7 @@ const FIXTURES: &[Fixture] = &[
         path: |workspace, _| format!("/v1/workspaces/{workspace}"),
         row: None,
         body: Some((r#"{"name": "Renamed"}"#, "application/merge-patch+json")),
+        headers: &[],
         success: StatusCode::OK,
     },
     Fixture {
@@ -364,6 +367,7 @@ const FIXTURES: &[Fixture] = &[
         path: |workspace, _| format!("/v1/workspaces/{workspace}/members"),
         row: None,
         body: None,
+        headers: &[],
         success: StatusCode::OK,
     },
     Fixture {
@@ -372,6 +376,7 @@ const FIXTURES: &[Fixture] = &[
         path: |workspace, target| format!("/v1/workspaces/{workspace}/members/{target}"),
         row: None,
         body: None,
+        headers: &[],
         success: StatusCode::NO_CONTENT,
     },
     // part: invitations
@@ -385,6 +390,7 @@ const FIXTURES: &[Fixture] = &[
             r#"{"email": "invitee@example.com", "role": "member"}"#,
             "application/json",
         )),
+        headers: &[],
         success: StatusCode::CREATED,
     },
     // end part: invitations
@@ -393,7 +399,8 @@ const FIXTURES: &[Fixture] = &[
         template: "/v1/workspaces/{workspace_id}/files",
         path: |workspace, _| format!("/v1/workspaces/{workspace}/files"),
         row: None,
-        body: Some((r#"{"name": "Blue"}"#, "application/json")),
+        body: Some(("hello", "application/octet-stream")),
+        headers: &[("content-disposition", "attachment; filename=\"blue.txt\"")],
         success: StatusCode::CREATED,
     },
     Fixture {
@@ -402,6 +409,7 @@ const FIXTURES: &[Fixture] = &[
         path: |workspace, _| format!("/v1/workspaces/{workspace}/files"),
         row: None,
         body: None,
+        headers: &[],
         success: StatusCode::OK,
     },
     Fixture {
@@ -410,14 +418,16 @@ const FIXTURES: &[Fixture] = &[
         path: |workspace, id| format!("/v1/workspaces/{workspace}/files/{id}"),
         row: Some(|db, workspace| Box::pin(crate::support::files::arrange(db, workspace, "Blue"))),
         body: None,
+        headers: &[],
         success: StatusCode::OK,
     },
     Fixture {
-        method: "patch",
-        template: "/v1/workspaces/{workspace_id}/files/{file_id}",
-        path: |workspace, id| format!("/v1/workspaces/{workspace}/files/{id}"),
+        method: "get",
+        template: "/v1/workspaces/{workspace_id}/files/{file_id}/content",
+        path: |workspace, id| format!("/v1/workspaces/{workspace}/files/{id}/content"),
         row: Some(|db, workspace| Box::pin(crate::support::files::arrange(db, workspace, "Blue"))),
-        body: Some((r#"{"name": "Red"}"#, "application/merge-patch+json")),
+        body: None,
+        headers: &[],
         success: StatusCode::OK,
     },
     Fixture {
@@ -426,6 +436,7 @@ const FIXTURES: &[Fixture] = &[
         path: |workspace, id| format!("/v1/workspaces/{workspace}/files/{id}"),
         row: Some(|db, workspace| Box::pin(crate::support::files::arrange(db, workspace, "Blue"))),
         body: None,
+        headers: &[],
         success: StatusCode::NO_CONTENT,
     },
 ];
@@ -437,23 +448,27 @@ fn fixture(method: &str, template: &str) -> Option<&'static Fixture> {
         .find(|fixture| fixture.method == method && fixture.template == template)
 }
 
-/// Sends `method` to `path` as `caller`, with `body`, in its media type, when there is one.
+/// Sends `method` to `path` as `caller`, with the fixture's body, in its media type, when it has
+/// one, and its headers.
 async fn send(
     api: &Api,
     method: Method,
     path: &str,
     caller: &SignedIn,
-    body: Option<(&str, &str)>,
+    fixture: &Fixture,
 ) -> crate::support::api::Response {
-    match body {
+    match fixture.body {
         None => call(api, method, path, caller).await,
         Some((body, media_type)) => {
-            api.request(method, path)
+            let mut request = api
+                .request(method, path)
                 .header("content-type", media_type)
                 .body(body)
-                .bearer(&caller.access)
-                .send()
-                .await
+                .bearer(&caller.access);
+            for (name, value) in fixture.headers {
+                request = request.header(name, value);
+            }
+            request.send().await
         }
     }
 }
@@ -509,7 +524,7 @@ async fn test_08_every_workspace_route_answers_every_role_as_the_matrix_says() {
                 };
                 let path = (fixture.path)(&workspace, &addressed);
 
-                let response = send(&api, method.clone(), &path, caller, fixture.body).await;
+                let response = send(&api, method.clone(), &path, caller, fixture).await;
 
                 let expected = match *role {
                     "none" => StatusCode::NOT_FOUND,
@@ -533,7 +548,7 @@ async fn test_08_every_workspace_route_answers_every_role_as_the_matrix_says() {
                     }
                 };
                 let path = (fixture.path)(&here, &foreign);
-                let response = send(&api, method.clone(), &path, owner, fixture.body).await;
+                let response = send(&api, method.clone(), &path, owner, fixture).await;
                 assert_eq!(
                     response.status,
                     StatusCode::NOT_FOUND,

@@ -1,43 +1,59 @@
-//! The SQL of `files` (ARCH-10). Every statement filters by the workspace the operation's
-//! proof names (DATA-16).
+//! The SQL of `files`' routes (ARCH-10). Every statement filters by the workspace the operation's
+//! proof names (DATA-16). The periodic jobs that span every workspace keep theirs in `jobs.rs`.
 
 use platform::{
     db::UnitOfWork,
     errors::Internal,
     lists::{Page, Search},
-    types::{Timestamp, Version, WorkspaceId},
+    storage::ObjectKey,
+    types::{Timestamp, UserId, WorkspaceId},
 };
 
-use super::model::{Current, File, FileName};
+use super::model::{File, FileName, Stored};
 
-/// Inserts a file named `name` in `workspace`, and returns it as it now stands.
+/// What an upload's row holds besides its workspace and uploader.
+pub(super) struct NewRow<'a> {
+    pub(super) name: &'a FileName,
+    pub(super) media_type: &'static str,
+    pub(super) size_bytes: u64,
+    pub(super) object_key: &'a ObjectKey,
+}
+
+/// Inserts the file that `uploader` uploaded to `workspace`, and returns it.
 pub(super) async fn insert(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
-    name: &FileName,
-) -> Result<Current, Internal> {
-    let row = sqlx::query!(
-        "INSERT INTO files (workspace_id, name) VALUES ($1, $2)
-        RETURNING id, created_at, updated_at, version",
+    uploader: UserId,
+    row: &NewRow<'_>,
+) -> Result<File, Internal> {
+    let size_bytes = i64::try_from(row.size_bytes).map_err(Internal::new)?;
+    let inserted = sqlx::query!(
+        "INSERT INTO workspace_files (workspace_id, name, media_type, size_bytes, object_key, uploader_id)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, created_at",
         workspace.uuid(),
-        name.as_str(),
+        row.name.as_str(),
+        row.media_type,
+        size_bytes,
+        row.object_key.as_str(),
+        uploader.uuid(),
     )
     .fetch_one(uow.executor())
     .await?;
-    Ok(Current {
-        file: File {
-            id: row.id,
-            name: name.clone(),
-            created_at: Timestamp::from_database(row.created_at),
-            updated_at: Timestamp::from_database(row.updated_at),
-        },
-        version: Version::from_database(row.version),
+    Ok(File {
+        id: inserted.id,
+        workspace_id: workspace,
+        name: row.name.clone(),
+        media_type: row.media_type.to_owned(),
+        size_bytes: row.size_bytes,
+        uploader_id: Some(uploader),
+        created_at: Timestamp::from_database(inserted.created_at),
     })
 }
 
-/// A page of `workspace`'s files, the latest created first, kept to those whose name
-/// contains `search`, ignoring case in every script, read through the index on the workspace and
-/// the creation time (DATA-17, PLATFORM-047).
+/// A page of `workspace`'s files, the latest uploaded first, kept to those whose name contains
+/// `search`, ignoring case in every script, read through the index on the workspace and the
+/// upload time (DATA-17, PLATFORM-047).
 pub(super) async fn page(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
@@ -45,7 +61,7 @@ pub(super) async fn page(
     page: &Page,
 ) -> Result<Vec<File>, Internal> {
     let rows = sqlx::query!(
-        "SELECT id, name, created_at, updated_at FROM files
+        "SELECT id, name, media_type, size_bytes, uploader_id, created_at FROM workspace_files
         WHERE workspace_id = $1
             AND ($2::text IS NULL OR name COLLATE pg_unicode_fast ILIKE $2)
             AND ($3::timestamptz IS NULL OR (created_at, id) < ($3, $4))
@@ -59,91 +75,50 @@ pub(super) async fn page(
     )
     .fetch_all(uow.executor())
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| File {
-            id: row.id,
-            name: FileName::from_stored(row.name),
-            created_at: Timestamp::from_database(row.created_at),
-            updated_at: Timestamp::from_database(row.updated_at),
+    rows.into_iter()
+        .map(|row| {
+            Ok(File {
+                id: row.id,
+                workspace_id: workspace,
+                name: FileName::from_stored(row.name),
+                media_type: row.media_type,
+                size_bytes: u64::try_from(row.size_bytes).map_err(Internal::new)?,
+                uploader_id: row.uploader_id.map(UserId::from_uuid),
+                created_at: Timestamp::from_database(row.created_at),
+            })
         })
-        .collect())
+        .collect()
 }
 
-/// The file `id` of `workspace` as it now stands, if there is one.
+/// The file `id` of `workspace`, with the key of its object, if there is one.
 pub(super) async fn read(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
     id: uuid::Uuid,
-) -> Result<Option<Current>, Internal> {
+) -> Result<Option<Stored>, Internal> {
     let row = sqlx::query!(
-        "SELECT name, created_at, updated_at, version FROM files
-        WHERE workspace_id = $1 AND id = $2",
+        "SELECT name, media_type, size_bytes, object_key, uploader_id, created_at
+        FROM workspace_files WHERE workspace_id = $1 AND id = $2",
         workspace.uuid(),
         id,
     )
     .fetch_optional(uow.executor())
     .await?;
-    Ok(row.map(|row| Current {
-        file: File {
-            id,
-            name: FileName::from_stored(row.name),
-            created_at: Timestamp::from_database(row.created_at),
-            updated_at: Timestamp::from_database(row.updated_at),
-        },
-        version: Version::from_database(row.version),
-    }))
-}
-
-/// Renames the file `id` of `workspace` to `name`, if its version is one of `versions`, or
-/// whatever its version when `versions` is `None` (DATA-18), and returns it as it now stands, or
-/// `None` when no row was updated: the file isn't there, or its version isn't one of
-/// `versions`.
-pub(super) async fn rename(
-    uow: &mut UnitOfWork,
-    workspace: WorkspaceId,
-    id: uuid::Uuid,
-    name: &FileName,
-    versions: Option<&[Version]>,
-) -> Result<Option<Current>, Internal> {
-    let versions: Option<Vec<i64>> =
-        versions.map(|versions| versions.iter().map(|version| version.value()).collect());
-    let row = sqlx::query!(
-        "UPDATE files SET name = $3
-        WHERE workspace_id = $1 AND id = $2 AND ($4::bigint[] IS NULL OR version = ANY($4))
-        RETURNING created_at, updated_at, version",
-        workspace.uuid(),
-        id,
-        name.as_str(),
-        versions.as_deref(),
-    )
-    .fetch_optional(uow.executor())
-    .await?;
-    Ok(row.map(|row| Current {
-        file: File {
-            id,
-            name: name.clone(),
-            created_at: Timestamp::from_database(row.created_at),
-            updated_at: Timestamp::from_database(row.updated_at),
-        },
-        version: Version::from_database(row.version),
-    }))
-}
-
-/// Whether the file `id` is one of `workspace`'s.
-pub(super) async fn exists(
-    uow: &mut UnitOfWork,
-    workspace: WorkspaceId,
-    id: uuid::Uuid,
-) -> Result<bool, Internal> {
-    let found = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM files WHERE workspace_id = $1 AND id = $2) AS "found!""#,
-        workspace.uuid(),
-        id,
-    )
-    .fetch_one(uow.executor())
-    .await?;
-    Ok(found)
+    row.map(|row| {
+        Ok(Stored {
+            file: File {
+                id,
+                workspace_id: workspace,
+                name: FileName::from_stored(row.name),
+                media_type: row.media_type,
+                size_bytes: u64::try_from(row.size_bytes).map_err(Internal::new)?,
+                uploader_id: row.uploader_id.map(UserId::from_uuid),
+                created_at: Timestamp::from_database(row.created_at),
+            },
+            object_key: row.object_key,
+        })
+    })
+    .transpose()
 }
 
 /// Deletes the file `id` of `workspace`, and returns whether there was one.
@@ -153,7 +128,7 @@ pub(super) async fn delete(
     id: uuid::Uuid,
 ) -> Result<bool, Internal> {
     let deleted = sqlx::query!(
-        "DELETE FROM files WHERE workspace_id = $1 AND id = $2",
+        "DELETE FROM workspace_files WHERE workspace_id = $1 AND id = $2",
         workspace.uuid(),
         id,
     )

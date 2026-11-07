@@ -28,9 +28,12 @@ encode() { base64 < "$1" | tr -d '\n'; }
         printf 'e2e-token' > /root/setup/token
         printf 'secret backup_s3_key %s\n' "$(encode /root/setup/key)"
         printf 'secret backup_s3_key_secret %s\n' "$(encode /root/setup/key_secret)"
+        printf 'secret files_s3_key %s\n' "$(encode /root/setup/key)"
+        printf 'secret files_s3_key_secret %s\n' "$(encode /root/setup/key_secret)"
         printf 'https://hooks.example.invalid/page' > /root/setup/page_url
         printf 'secret alertmanager/page_url %s\n' "$(encode /root/setup/page_url)"
         printf 'cert backup-ca.crt %s\n' "$(encode /root/bucket/ca.crt)"
+        printf 'cert files-ca.crt %s\n' "$(encode /root/bucket/ca.crt)"
         printf 'login registry:5000 e2e %s\n' "$(encode /root/setup/token)"
         if [ -s /root/setup/postgres_password ]; then
             printf 'secret postgres_password %s\n' "$(encode /root/setup/postgres_password)"
@@ -58,7 +61,11 @@ fn new_server() -> (Server, String) {
          API_ADDRESS={API_ADDRESS}\nTELEMETRY=off\nEMAIL=off\nDATABASE=bundled\nAPI_REPLICAS=2\n\
          DATABASE_MAX_CONNECTIONS=2\n"
     );
-    for (name, value) in server.start_bucket() {
+    for (name, value) in server
+        .start_bucket()
+        .into_iter()
+        .chain(server.start_files_bucket())
+    {
         settings.push_str(&format!("{name}={value}\n"));
     }
     server.write("/root/setup/settings.env", &settings);

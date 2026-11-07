@@ -42,25 +42,18 @@ impl Permission for InvitationsCreate {
 }
 // end part: invitations
 
-/// Reading the workspace's files, and receiving their events.
+/// Listing, reading and downloading the workspace's files, and receiving their events.
 pub(crate) struct FilesRead;
 
 impl Permission for FilesRead {
     const NAME: &'static str = "files.read";
 }
 
-/// Creating a file.
-pub(crate) struct FilesCreate;
+/// Uploading a file.
+pub(crate) struct FilesUpload;
 
-impl Permission for FilesCreate {
-    const NAME: &'static str = "files.create";
-}
-
-/// Renaming a file.
-pub(crate) struct FilesUpdate;
-
-impl Permission for FilesUpdate {
-    const NAME: &'static str = "files.update";
+impl Permission for FilesUpload {
+    const NAME: &'static str = "files.upload";
 }
 
 /// Deleting a file.
@@ -80,8 +73,7 @@ const MATRIX: &[(&str, &[Role])] = &[
     ("invitations.create", &[Role::Owner, Role::Admin]),
     // end part: invitations
     ("files.read", &[Role::Owner, Role::Admin, Role::Member]),
-    ("files.create", &[Role::Owner, Role::Admin, Role::Member]),
-    ("files.update", &[Role::Owner, Role::Admin, Role::Member]),
+    ("files.upload", &[Role::Owner, Role::Admin, Role::Member]),
     ("files.delete", &[Role::Owner, Role::Admin]),
 ];
 

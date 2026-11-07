@@ -1,94 +1,103 @@
-//! Creating, listing, reading, renaming and deleting a workspace's files (the files
-//! spec's Routes).
+//! Uploading, listing, reading, downloading and deleting a workspace's files (the files spec's
+//! Routes).
 
-use axum::{extract::RawPathParams, http::StatusCode};
+use axum::{
+    extract::{RawPathParams, State},
+    http::{HeaderMap, StatusCode},
+};
 use platform::{
     authz::Authorize,
-    errors::{Problem, RequestError},
+    errors::Problem,
     http::{
-        FieldErrors, Idempotent, IfMatch, MergePatch, Query, ResourceResponse, Routes, path_id,
+        Download, FieldErrors, Query, ResourceResponse, Routes, Upload, disposition_name, path_id,
     },
     idempotency::IdempotencyKey,
     lists::{Cursor, Limit, List, Page, Search},
+    storage::ObjectBytes,
     types::WorkspaceId,
 };
 use serde::Deserialize;
-use utoipa::{IntoParams, ToSchema};
+use utoipa::IntoParams;
 use utoipa_axum::routes;
 
 use super::{
     error::FilesError,
-    events::{FILE_CREATED, FILE_DELETED, FILE_RENAMED},
-    model::{File, FileName, NewFile, Rename},
-    service,
+    events::{FILE_DELETED, FILE_UPLOADED},
+    model::{File, FileName, Kind},
+    service::{self, Files},
 };
-use crate::modules::access::{FilesCreate, FilesDelete, FilesRead, FilesUpdate};
+use crate::modules::access::{FilesDelete, FilesRead, FilesUpload};
 
 /// The module's routes, and the events they publish.
-pub(crate) fn routes() -> Routes {
+pub(crate) fn routes() -> Routes<Files> {
     Routes::new()
-        .events(&[&FILE_CREATED, &FILE_RENAMED, &FILE_DELETED])
-        .workspace::<FilesCreate>(routes!(create_file), &[])
+        .events(&[&FILE_UPLOADED, &FILE_DELETED])
+        .workspace_upload::<FilesUpload>(
+            routes!(upload_file),
+            &[
+                &FilesError::InvalidName(None),
+                &FilesError::Empty,
+                &FilesError::UnsupportedType,
+                &FilesError::StorageUnavailable(None),
+            ],
+        )
         .workspace::<FilesRead>(routes!(list_files), &[])
         .workspace::<FilesRead>(routes!(read_file), &[&FilesError::NotFound])
-        .workspace::<FilesUpdate>(routes!(rename_file), &[&FilesError::NotFound])
+        .workspace::<FilesRead>(
+            routes!(download_file),
+            &[&FilesError::NotFound, &FilesError::StorageUnavailable(None)],
+        )
         .workspace::<FilesDelete>(routes!(delete_file), &[&FilesError::NotFound])
 }
 
-/// What creating a file takes (FILES-001).
-#[derive(Deserialize, ToSchema)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct CreateFileRequest {
-    /// The file's name (FILES-002).
-    #[schema(value_type = FileName)]
-    name: String,
-}
-
-impl TryFrom<CreateFileRequest> for NewFile {
-    type Error = RequestError;
-
-    fn try_from(request: CreateFileRequest) -> Result<Self, Self::Error> {
-        let mut errors = FieldErrors::new();
-        let name = errors.check("/name", FileName::parse(&request.name));
-        errors.finish(name.map(|name| Self { name }))
-    }
-}
-
-/// Creates a file in the workspace.
+/// Uploads a file to the workspace: its bytes as the body, and its name in `Content-Disposition`.
 #[utoipa::path(
     post,
     path = "/v1/workspaces/{workspace_id}/files",
     tag = "files",
-    request_body = CreateFileRequest,
+    request_body(content = Vec<u8>, content_type = "application/octet-stream",
+        description = "The file's bytes. Its kind comes from its name's extension and its bytes alone (FILES-003)."),
     params(
         ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
+        ("Content-Disposition" = String, Header,
+            description = "The file's name, as `filename*`, encoded as RFC 8187 says, or `filename`, such as `attachment; filename*=UTF-8''report.pdf` (FILES-002)."),
         ("Idempotency-Key" = inline(Option<IdempotencyKey>), Header,
-            description = "A key of the caller's own, as a quoted string, so a retry creates nothing twice (API-12)."),
+            description = "A key of the caller's own, as a quoted string, so a retry stores nothing twice (API-12)."),
     ),
     responses(
         (status = 201, description = "The new file.", body = File,
             headers(
                 ("location" = String, description = "The new file: `/v1/workspaces/{workspace_id}/files/{id}`."),
-                ("etag" = String, description = "The file's version, which a rename's `If-Match` names (API-13)."),
             )),
     )
 )]
-async fn create_file(
-    authorize: Authorize<FilesCreate>,
-    request: Idempotent<CreateFileRequest>,
+async fn upload_file(
+    State(files): State<Files>,
+    authorize: Authorize<FilesUpload>,
+    headers: HeaderMap,
+    upload: Upload,
 ) -> Result<ResourceResponse<File>, Problem<FilesError>> {
-    let input = NewFile::try_from(request.body).map_err(FilesError::from)?;
-    let (uow, authorized) = authorize.open().await.map_err(FilesError::from)?;
-    let created = service::create(uow, &authorized, request.key.as_ref(), input).await?;
-    let location = format!(
-        "/v1/workspaces/{}/files/{}",
-        authorized.workspace_id(),
-        created.file.id
-    );
-    Ok(ResourceResponse::created(created.file, location).tagged(created.version))
+    let limit = files.settings.max_bytes;
+    upload.refuse_declared(limit).map_err(FilesError::from)?;
+    authorize.check().await.map_err(FilesError::from)?;
+    let name = disposition_name(&headers).ok_or(FilesError::InvalidName(None))?;
+    let name = FileName::parse(&name).map_err(|invalid| FilesError::InvalidName(Some(invalid)))?;
+    // The turn the bytes hold lasts until `uploaded` is dropped, once the file is stored
+    // (PLATFORM-074).
+    let uploaded = upload.read(limit).await.map_err(FilesError::from)?;
+    let file = service::upload(
+        &files,
+        authorize,
+        name,
+        uploaded.bytes.clone(),
+        uploaded.key.as_ref(),
+    )
+    .await?;
+    let location = format!("/v1/workspaces/{}/files/{}", file.workspace_id, file.id);
+    Ok(ResourceResponse::created(file, location))
 }
 
-/// The query of `GET /v1/workspaces/{workspace_id}/files` (FILES-003).
+/// The query of `GET /v1/workspaces/{workspace_id}/files` (FILES-007).
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 #[serde(deny_unknown_fields)]
@@ -104,7 +113,7 @@ pub(crate) struct ListQuery {
     search: Option<String>,
 }
 
-/// Lists the workspace's files, the latest created first.
+/// Lists the workspace's files, the latest uploaded first.
 #[utoipa::path(
     get,
     path = "/v1/workspaces/{workspace_id}/files",
@@ -148,8 +157,7 @@ async fn list_files(
         ("file_id" = uuid::Uuid, Path, description = "The file."),
     ),
     responses(
-        (status = 200, description = "The file.", body = File,
-            headers(("etag" = String, description = "The file's version, which a rename's `If-Match` names (API-13)."))),
+        (status = 200, description = "The file.", body = File),
     )
 )]
 async fn read_file(
@@ -159,58 +167,57 @@ async fn read_file(
     let id = path_id(&params, "file_id");
     let (mut uow, authorized) = authorize.open().await.map_err(FilesError::from)?;
     let id = id.ok_or(FilesError::NotFound)?;
-    let current = service::read(&mut uow, &authorized, id).await?;
-    Ok(ResourceResponse::ok(current.file).tagged(current.version))
+    let file = service::read(&mut uow, &authorized, id).await?;
+    Ok(ResourceResponse::ok(file))
 }
 
-/// What renaming a file takes: a JSON Merge Patch of it (FILES-005).
-#[derive(Deserialize, ToSchema)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct RenameFileRequest {
-    /// The file's new name (FILES-002).
-    #[schema(value_type = FileName)]
-    name: String,
-}
-
-impl TryFrom<RenameFileRequest> for Rename {
-    type Error = RequestError;
-
-    fn try_from(request: RenameFileRequest) -> Result<Self, Self::Error> {
-        let mut errors = FieldErrors::new();
-        let name = errors.check("/name", FileName::parse(&request.name));
-        errors.finish(name.map(|name| Self { name }))
-    }
-}
-
-/// Renames a file of the workspace.
+/// Downloads a file of the workspace: its bytes, served so that a browser can't run them.
 #[utoipa::path(
-    patch,
-    path = "/v1/workspaces/{workspace_id}/files/{file_id}",
+    get,
+    path = "/v1/workspaces/{workspace_id}/files/{file_id}/content",
     tag = "files",
-    request_body(content = RenameFileRequest, content_type = "application/merge-patch+json"),
     params(
         ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
         ("file_id" = uuid::Uuid, Path, description = "The file."),
-        ("If-Match" = Option<String>, Header,
-            description = "The `ETag` of the version the client renames, so that a rename made since it read the file fails rather than being overwritten (API-13)."),
     ),
     responses(
-        (status = 200, description = "The file, renamed.", body = File,
-            headers(("etag" = String, description = "The file's new version (API-13)."))),
+        (status = 200, description = "The file's bytes, as its media type.",
+            content(
+                (Vec<u8> = "image/png"),
+                (Vec<u8> = "image/jpeg"),
+                (Vec<u8> = "image/gif"),
+                (Vec<u8> = "image/webp"),
+                (Vec<u8> = "application/pdf"),
+                (Vec<u8> = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                (Vec<u8> = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                (Vec<u8> = "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+                (Vec<u8> = "text/plain"),
+                (Vec<u8> = "text/csv"),
+                (Vec<u8> = "text/markdown"),
+            ),
+            headers(
+                ("content-disposition" = String, description = "`inline` for an image and `attachment` for every other kind, with the file's name (FILES-009)."),
+                ("content-security-policy" = String, description = "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11)."),
+            )),
     )
 )]
-async fn rename_file(
-    authorize: Authorize<FilesUpdate>,
+async fn download_file(
+    State(files): State<Files>,
+    authorize: Authorize<FilesRead>,
     params: RawPathParams,
-    if_match: IfMatch,
-    request: MergePatch<RenameFileRequest>,
-) -> Result<ResourceResponse<File>, Problem<FilesError>> {
-    let rename = Rename::try_from(request.0).map_err(FilesError::from)?;
+) -> Result<Download<ObjectBytes>, Problem<FilesError>> {
     let id = path_id(&params, "file_id");
     let (uow, authorized) = authorize.open().await.map_err(FilesError::from)?;
     let id = id.ok_or(FilesError::NotFound)?;
-    let current = service::rename(uow, &authorized, id, rename, if_match.versions()).await?;
-    Ok(ResourceResponse::ok(current.file).tagged(current.version))
+    let (stored, object) = service::download(&files, uow, &authorized, id).await?;
+    let inline = Kind::of_media_type(&stored.file.media_type).is_some_and(Kind::inline);
+    Ok(Download {
+        media_type: stored.file.media_type,
+        length: object.size,
+        inline,
+        name: stored.file.name.as_str().to_owned(),
+        bytes: object.bytes,
+    })
 }
 
 /// Deletes a file of the workspace.

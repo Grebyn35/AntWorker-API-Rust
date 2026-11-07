@@ -227,6 +227,18 @@ read_settings() {
     whole_number DATABASE_MAX_CONNECTIONS "$pool" 1 1000
     whole_number POSTGRES_MAX_CONNECTIONS "$connections" 20 10000
     if [ -z "$(setting API_ADDRESS)" ]; then fail "API_ADDRESS is required"; fi
+    for name in FILES_S3_ENDPOINT FILES_S3_REGION FILES_S3_BUCKET; do
+        if [ -z "$(setting "$name")" ]; then fail "$name is required, for the bucket of files' bytes (docs/operations/deploy.md#the-files-bucket)"; fi
+    done
+    whole_number FILES_S3_PORT "$(setting FILES_S3_PORT 443)" 1 65535
+    case $(setting FILES_S3_URI_STYLE host) in
+        host | path) ;;
+        *) fail "FILES_S3_URI_STYLE is host or path, not '$(setting FILES_S3_URI_STYLE)'" ;;
+    esac
+    whole_number FILE_MAX_BYTES "$(setting FILE_MAX_BYTES 10485760)" 1 104857600
+    if [ -n "$(setting FILE_DELETION_DELAY_DAYS)" ]; then
+        whole_number FILE_DELETION_DELAY_DAYS "$(setting FILE_DELETION_DELAY_DAYS)" 1 3650
+    fi
     profiles=""
     case $database in
         bundled)

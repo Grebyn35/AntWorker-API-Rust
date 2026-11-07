@@ -7,7 +7,8 @@
 //!   address of the user its rows are addressed to, which their own queries name instead. A file
 //!   of a scheduled job that spans tenants, in [`CROSS_TENANT`], is exempt.
 //! - Every other table is listed below: as account data, keyed by a user; as platform data, whose
-//!   scope columns, if any, record whom its work is for; or as the workspaces themselves.
+//!   scope columns, if any, record whom its work is for; as a module's bookkeeping of what it keeps
+//!   outside the database, which holds no tenant's data; or as the workspaces themselves.
 //!
 //! It reads the migrations' `CREATE TABLE` and `ALTER TABLE ... ADD COLUMN` statements as text,
 //! and the code as token streams (`rust`).
@@ -39,6 +40,10 @@ const PLATFORM_DATA: [&str; 5] = [
     "events",
 ];
 
+/// Tables of a module's bookkeeping of what it keeps outside the database, which hold no tenant's
+/// data, such as the keys of objects that no file's row names (DATA-16).
+const BOOKKEEPING: [&str; 1] = ["object_deletions"];
+
 /// Tables of workspace data whose rows are addressed to a user by email, with that column: the
 /// user's own queries of them filter by the caller's address (DATA-16).
 const ADDRESSED: &[(&str, &str)] = &[
@@ -54,6 +59,7 @@ const TENANTS: [&str; 1] = ["workspaces"];
 /// The files of scheduled jobs that span tenants, which select rows by their own criteria, such
 /// as expiry (DATA-16).
 const CROSS_TENANT: &[&str] = &[
+    "crates/app/src/modules/files/jobs.rs",
     // part: invitations
     "crates/app/src/modules/invitations/jobs.rs",
     // end part: invitations
@@ -230,6 +236,7 @@ fn placements(tables: &BTreeMap<String, Table>) -> Vec<Finding> {
     let listed: Vec<&str> = ACCOUNT_DATA
         .iter()
         .chain(&PLATFORM_DATA)
+        .chain(&BOOKKEEPING)
         .chain(&TENANTS)
         .copied()
         .collect();
@@ -245,9 +252,9 @@ fn placements(tables: &BTreeMap<String, Table>) -> Vec<Finding> {
                 table.line,
                 format!(
                     "`{name}` has no `workspace_id`, and check-tenancy lists it as neither account \
-                     nor platform data: data a module adds for its product lives in a workspace, \
-                     and a table of another kind goes in its list in crates/xtask/src/tenancy.rs \
-                     (DATA-16, D39)"
+                     data, platform data nor a module's bookkeeping: data a module adds for its \
+                     product lives in a workspace, and a table of another kind goes in its list in \
+                     crates/xtask/src/tenancy.rs (DATA-16, D39)"
                 ),
             )
         })
@@ -436,6 +443,7 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
              CREATE TABLE jobs (id uuid, workspace_id uuid, user_id uuid);\n\
              CREATE TABLE job_schedules (id uuid);\n\
              CREATE TABLE events (id uuid, workspace_id uuid, user_id uuid);\n\
+             CREATE TABLE object_deletions (id uuid, object_key text);\n\
              CREATE TABLE offers (id uuid, workspace_id uuid, email text);\n"
         );
         let repo = Repo::of(&[
@@ -469,9 +477,9 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
             findings(code),
             [
                 "migrations/1_things.sql:10: `notes` has no `workspace_id`, and check-tenancy lists \
-              it as neither account nor platform data: data a module adds for its product lives \
-              in a workspace, and a table of another kind goes in its list in \
-              crates/xtask/src/tenancy.rs (DATA-16, D39)"
+              it as neither account data, platform data nor a module's bookkeeping: data a module \
+              adds for its product lives in a workspace, and a table of another kind goes in its \
+              list in crates/xtask/src/tenancy.rs (DATA-16, D39)"
             ]
         );
     }
@@ -507,7 +515,7 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
     #[test]
     fn data_16_a_listed_table_that_no_migration_creates_is_found() {
         let tables = BTreeMap::new();
-        assert_eq!(placements(&tables).len(), 10);
+        assert_eq!(placements(&tables).len(), 11);
     }
 
     #[test]

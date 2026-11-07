@@ -10,6 +10,7 @@ flowchart LR
   caddy --> blue[api-blue replicas] & green[api-green replicas]
   caddy --> grafana[Grafana]
   blue & green --> postgres[(Postgres)]
+  blue & green -- files' bytes --> files[(Files bucket, off the server)]
   postgres -- write-ahead log, base backups --> bucket[(Backup bucket, off the server)]
   blue & green -- OTLP --> collector[Collector]
   collector --> stack[Prometheus, Loki, Tempo, Alertmanager]
@@ -19,6 +20,7 @@ flowchart LR
 - **Caddy** is the only service the server publishes, on ports 80 and 443 (SEC-14). It obtains a certificate for each address through the Automatic Certificate Management Environment (ACME), from Let's Encrypt, answers HTTP with a redirect to HTTPS, and sets HTTP Strict Transport Security (HSTS) (OPS-17). It sends each request to a replica that its own health checks find ready (OPS-05).
 - **The API** runs in two colors, `api-blue` and `api-green`, of `API_REPLICAS` replicas each, every replica limited to `API_CPUS` CPUs and `API_MEMORY` of memory. Between deploys one color runs; a deploy starts the other, then stops the first (D45).
 - **Postgres**, when the deployment bundles it, runs from the release's Postgres image, the official image with pgBackRest (D44). It archives its write-ahead log continuously to a bucket off the server, and the `backup` service takes a base backup every day ([backups.md](backups.md)). Only the deployment's private network reaches it.
+- **The files bucket**, a provider's, holds the bytes of the files that users upload, which the replicas write and read over HTTPS ([below](#the-files-bucket)).
 - **The collector** receives the API's telemetry, and passes it to the self-hosted stack, whose Grafana answers on its own address behind Caddy, where every viewer signs in (D42). [observability.md](observability.md) describes the stack.
 
 [deploy/compose.yaml](../../deploy/compose.yaml) defines the services, and [deploy/deploy.sh](../../deploy/deploy.sh) runs them on the server, with each task's code in a file of `deploy/tasks/` that it sources.
@@ -31,7 +33,8 @@ flowchart LR
 - **A firewall** that admits SSH, and ports 80 and 443 from anywhere. Ports 80 and 443 must be open for Let's Encrypt to issue the certificates.
 - **DNS records** that point `API_ADDRESS`, and with the self-hosted stack `GRAFANA_ADDRESS`, to the server, such as `api.example.com` and `grafana.example.com`.
 - **A registry login** that can read the release's images, for a private repository: `just server-setup` makes it with a token that can read the repository's packages. The tools that verify a release read the login from `~/.docker/config.json`.
-- **With the bundled database, a bucket off the server**, at any provider that speaks the S3 protocol over HTTPS, such as Backblaze B2, Cloudflare R2, Hetzner Object Storage or Amazon S3, with encryption at rest, and a key pair that reaches only that bucket ([backups.md](backups.md#the-bucket)).
+- **A bucket for files' bytes, off the server**, at any provider that speaks the S3 protocol over HTTPS, such as Backblaze B2, Cloudflare R2, Hetzner Object Storage or Amazon S3, with encryption at rest, and a key pair that reaches only that bucket ([below](#the-files-bucket)).
+- **With the bundled database, a second bucket off the server, for its backups**, under the same conditions ([backups.md](backups.md#the-bucket)): a bucket of its own, since pgBackRest manages everything its bucket holds.
 
 ## Setting up a server
 
@@ -160,7 +163,20 @@ Each service the API depends on is bundled or a provider's, chosen by one settin
 | | `managed` | The collector alone, which sends every signal to a managed backend, into whose Grafana each deploy imports the dashboards and the alert rules ([observability.md](observability.md#a-managed-backend)) |
 | | `off` | Nothing: the API's logs go only to its containers' output |
 
-Object storage for files joins the deployment with the `files` module, which offers the same choice.
+Files' bytes always go to a provider's bucket, off the server, as the backups do: a bucket on the server would lose what it holds with the server, so it would need its own backup off the server (D94, [the files bucket](#the-files-bucket)).
+
+## The files bucket
+
+The replicas keep the bytes of the files that users upload in a bucket that a provider holds off the server, at any provider that speaks the S3 protocol over HTTPS ([files spec](../spec/files.md#storage)). Give it:
+
+- encryption at rest, which most providers apply to every bucket;
+- a key pair that reaches only this bucket, in `secrets/files_s3_key` and `secrets/files_s3_key_secret`, which `just server-setup` asks for;
+- the settings `FILES_S3_ENDPOINT`, the provider's host, `FILES_S3_REGION` and `FILES_S3_BUCKET`, and `FILES_S3_URI_STYLE=path` for a provider whose bucket names don't appear in its host names, which [deploy/settings.env.example](../../deploy/settings.env.example) describes;
+- for a bucket of your own, whose certificate a private authority signs, that authority's certificate in `certs/files-ca.crt`.
+
+Use a bucket of its own, not the backups' one, which pgBackRest manages whole. The API deletes the bytes of a file that no row names only `FILE_DELETION_DELAY_DAYS` after it first finds it so: by default the backups' reach, `BACKUP_RETENTION_DAYS` plus 7, with the bundled database, so a restore to any moment it reaches finds every file's bytes; with a managed database, set it to the provider's recovery window if that is longer than 35 days. Versioning on the bucket, with a lifecycle rule that expires noncurrent versions after the same number of days, also keeps bytes that something other than the API deleted or replaced, such as a leaked key pair; the API itself never replaces an object, and deletes one only once no restore can need it, so neither is required. Set no other lifecycle rule that deletes the bucket's current files.
+
+The bucket holds the only copy of each file's bytes: the backups hold the files' rows, never their bytes. The provider's durability is the files' durability, so choose a provider that states it.
 
 ## Email
 
@@ -196,7 +212,7 @@ With a managed backend, its Grafana shows the dashboards in the folder `API`, an
 |---|---|---|
 | `settings.env` | The deployment's settings | `just server-setup` |
 | `secrets/` | One secret per file | `just server-setup`, and the first deploy that needs each generated one |
-| `certs/backup-ca.crt`, `certs/managed-otlp-ca.crt`, `certs/managed-grafana-ca.crt` | The authority of a private bucket's certificate, and of a managed backend's and its Grafana's, if any | `just server-setup` |
+| `certs/files-ca.crt`, `certs/backup-ca.crt`, `certs/managed-otlp-ca.crt`, `certs/managed-grafana-ca.crt` | The authority of a private bucket's certificate, for files or backups, and of a managed backend's and its Grafana's, if any | `just server-setup` |
 | `compose.yaml`, `deploy.sh`, `tasks/`, `verify-release.sh`, `import-grafana.sh`, `settings.env.example`, `caddy/`, `observability/`, `tools/` | The deployment files of the last deploy whose replicas served, once one has: a deploy that refuses or fails before its own serve puts these back, as [Deploying a release](#deploying-a-release) says | each deploy |
 | `releases/<version>/` | The files of the release that `just deploy` last copied; a deploy whose replicas serve removes every other release's | `just deploy` |
 | `state/` | Which color serves, the images each color runs, Caddy's sites and replicas, the files each service of the stack last read, the files that a deploy replaced until its replicas serve, and the tasks' locks | each deploy, backup and restore |
@@ -206,7 +222,7 @@ With a managed backend, its Grafana shows the dashboards in the folder `API`, an
 The image and its settings don't depend on this deployment, so a fork can run the API on Kubernetes, Amazon's Elastic Container Service or any platform that runs containers. That platform must provide:
 
 - one Postgres that every replica shares, with point-in-time recovery (OPS-15), on a server that holds no other deployment's database, since deployments on one server share its roles ([platform spec](../spec/platform.md#database-roles));
-- object storage, once the `files` module stores files;
+- a bucket that speaks the S3 protocol over HTTPS, for files' bytes, which every replica reaches with `S3_ENDPOINT` and the settings that [.env.example](../../.env.example) lists beside it, and `FILE_DELETION_DELAY_DAYS` at least the database's recovery window ([the files bucket](#the-files-bucket));
 - routing that sends requests only to replicas whose `/health/ready` answers 200, and stops within `SHUTDOWN_DELAY_SECONDS` of a replica answering `draining`;
 - every proxy between the clients and the replicas listed in `TRUSTED_PROXIES`, each adding the address it received the request from to `X-Forwarded-For`, so that the rate limits count each client by its own address (PLATFORM-053);
 - a grace period after the shutdown signal longer than `SHUTDOWN_DELAY_SECONDS` plus `SHUTDOWN_DRAIN_SECONDS` plus the time that writing out telemetry may take, which the platform spec's [Telemetry export](../spec/platform.md#telemetry-export) bounds;

@@ -1,0 +1,79 @@
+{
+  "uid": "api-files",
+  "title": "Files",
+  "description": "How uploads end, which a client that sends files the API doesn't accept, or a bucket that stops answering, changes (the files spec).",
+  "tags": [
+    "api"
+  ],
+  "editable": false,
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "API overview",
+      "type": "link",
+      "url": "/d/api-overview",
+      "keepTime": true,
+      "targetBlank": false,
+      "icon": "dashboard",
+      "tags": [],
+      "asDropdown": false,
+      "includeVars": false,
+      "tooltip": ""
+    }
+  ],
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "How do uploads end?",
+      "description": "Uploads in the last 5 minutes that reached the check of their bytes, by how each ended: stored, unsupported_type, its bytes of no kind the API accepts, or failed, as when the bucket doesn't answer (FILES-013). A rise in failed beside 503s on the upload route is the bucket's.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (files_outcome) (increase(files_uploads_total[5m]))",
+          "legendFormat": "{{files_outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 1,
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    }
+  ]
+}

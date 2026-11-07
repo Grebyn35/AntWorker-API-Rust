@@ -57,6 +57,12 @@ impl IdempotencyKey {
         })
     }
 
+    /// Whether the header's `value` is a key, whatever request it came with (PLATFORM-037).
+    pub(crate) fn is_key(value: &[u8]) -> bool {
+        structured_string(value)
+            .is_some_and(|key| (1..=KEY_MAX_CHARS).contains(&key.chars().count()))
+    }
+
     /// The key.
     pub(crate) fn key(&self) -> &str {
         &self.key

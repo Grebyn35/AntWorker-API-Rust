@@ -5,6 +5,7 @@ mod body;
 mod browsers;
 mod client;
 mod docs;
+mod files;
 mod limits;
 mod precondition;
 pub(crate) mod query;
@@ -14,12 +15,16 @@ mod stack;
 
 use std::sync::Arc;
 
-use axum::{Router, routing::get};
+use axum::{
+    Router,
+    routing::{MethodRouter, get},
+};
 use utoipa::openapi::{Info, OpenApi};
 use utoipa_axum::router::{OpenApiRouter, UtoipaMethodRouter};
 
-pub use body::{FieldErrors, Idempotent, Json, MergePatch};
+pub use body::{FieldErrors, Idempotent, Json, MergePatch, Upload, Uploaded};
 pub use browsers::{Cookies, Origins, expired_cookie, session_cookie};
+pub use files::{Download, disposition_name};
 pub use precondition::IfMatch;
 pub use query::Query;
 pub use resource::{ResourceResponse, path_id};
@@ -109,6 +114,23 @@ where
         self.add(Access::Workspace(P::NAME), route, errors)
     }
 
+    /// Adds an upload route that a member of the workspace in the path calls, whose handler
+    /// extracts `Authorize<P>` and reads the file's bytes through [`Upload`], and which can answer
+    /// `errors` besides the pipeline's own (ERR-13). Its group has the upload timeout, and no body
+    /// limit of its own (PLATFORM-074).
+    pub fn workspace_upload<P: Permission>(
+        self,
+        route: UtoipaMethodRouter<S>,
+        errors: &[&dyn ErrorCode],
+    ) -> Self {
+        self.add_with(
+            Access::Workspace(P::NAME),
+            route,
+            errors,
+            stack::upload_group,
+        )
+    }
+
     /// Registers `events`, which the module's routes publish or send, in the event catalog of
     /// the routes' document (REALTIME-008).
     #[must_use]
@@ -143,19 +165,28 @@ where
         }
     }
 
+    /// Adds `route`, documented with its access level and `errors`, inside its route group's
+    /// layers.
+    fn add(self, access: Access, route: UtoipaMethodRouter<S>, errors: &[&dyn ErrorCode]) -> Self {
+        self.add_with(access, route, errors, stack::route_group)
+    }
+
+    /// Adds `route`, documented with its access level and `errors`, inside the layers `group`
+    /// gives it.
     #[expect(
         clippy::disallowed_methods,
         reason = "the builders are the one place that registers routes (API-14, API-17)"
     )]
-    fn add(
+    fn add_with(
         self,
         access: Access,
         (mut schemas, mut paths, route): UtoipaMethodRouter<S>,
         errors: &[&dyn ErrorCode],
+        group: fn(MethodRouter<S>, docs::QueryNames) -> MethodRouter<S>,
     ) -> Self {
         let queries = docs::document(&mut paths, access, errors);
         schemas.extend(docs::problem_schemas());
-        let route = stack::route_group(route, queries);
+        let route = group(route, queries);
         Self {
             router: self.router.routes((schemas, paths, route)),
         }

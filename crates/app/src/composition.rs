@@ -19,6 +19,7 @@ use platform::{
     lifecycle::Readiness,
     mail::Mail,
     rate_limit::{Bucket, RateLimiter},
+    storage::Storage,
     telemetry::Service,
 };
 use sqlx::migrate::Migrator;
@@ -29,7 +30,7 @@ use crate::modules::{
     accounts,
     audit,
     auth,
-    files,
+    files::{self, Files},
     // part: invitations
     invitations::{self, Invitations},
     // end part: invitations
@@ -45,6 +46,7 @@ pub static MIGRATIONS: Migrator = sqlx::migrate!("../../migrations");
 /// The settings of the modules, which `serve` reads before its async runtime starts (OPS-01).
 pub struct Config {
     auth: auth::Settings,
+    files: files::Settings,
     // part: invitations
     invitations: invitations::Settings,
     // end part: invitations
@@ -110,6 +112,15 @@ impl Config {
                     365 * day,
                     day..=5 * 365 * day,
                 )?,
+            },
+            files: files::Settings {
+                max_bytes: usize::try_from(settings.number(
+                    "FILE_MAX_BYTES",
+                    10_485_760,
+                    1..=104_857_600,
+                )?)
+                .unwrap_or(usize::MAX),
+                deletion_delay_days: settings.number("FILE_DELETION_DELAY_DAYS", 35, 1..=3_650)?,
             },
             // part: invitations
             invitations: invitations::Settings {
@@ -179,6 +190,12 @@ pub async fn compose(
     );
     let mail = Mail::new(server.mail.clone(), clock.clone())?;
     mail.register(&mut jobs).map_err(Internal::new)?;
+    let files = Files::new(
+        database.clone(),
+        Storage::new(&server.storage)?,
+        config.files,
+    );
+    files.register(&mut jobs).map_err(Internal::new)?;
     // part: invitations
     let invitations = Invitations::new(database.clone(), mail.clone(), config.invitations);
     invitations.register(&mut jobs).map_err(Internal::new)?;
@@ -208,7 +225,7 @@ pub async fn compose(
         .merge(invitations::routes().with_state(invitations))
         // end part: invitations
         .merge(workspaces::routes().with_state(database.clone()))
-        .merge(files::routes())
+        .merge(files::routes().with_state(files))
         .merge(realtime::routes().with_state(realtime));
     Ok(Services {
         routes,

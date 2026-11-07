@@ -26,6 +26,7 @@ use tracing::{Instrument, Span, field::Empty};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::{
+    body::UploadTurns,
     browsers::{Origins, cors, cross_site},
     client::{TrustedProxies, client},
     docs::QueryNames,
@@ -51,8 +52,9 @@ const GROUP_TIMEOUT: Duration = Duration::from_secs(10);
 /// The largest body a request of those groups may carry (API-08).
 const GROUP_BODY_LIMIT: usize = 64 * 1024;
 
-/// What a client should wait before it retries a request that load shedding refused.
-const RETRY_AFTER_SECONDS: &str = "1";
+/// How long an upload may run, its body's transfer included: a body of 10 MiB takes 42 seconds at
+/// 2 megabits a second (PLATFORM-074).
+const UPLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The method of a request whose method HTTP's specifications don't define, and the error type
 /// of a 5xx whose error the request log doesn't know (PLATFORM-067).
@@ -130,7 +132,8 @@ pub(super) fn request(router: Router, stack: Stack) -> Router {
             .layer(middleware::from_fn_with_state(stack.ip_limit, ip_limit))
             .layer(middleware::from_fn_with_state(stack.origins, cross_site))
             .layer(Extension(stack.authenticator))
-            .layer(Extension(stack.authorizer)),
+            .layer(Extension(stack.authorizer))
+            .layer(Extension(UploadTurns::new())),
     )
 }
 
@@ -145,6 +148,21 @@ where
             .layer(HandleErrorLayer::new(timed_out))
             .layer(TimeoutLayer::new(GROUP_TIMEOUT))
             .layer(middleware::from_fn(body_limit))
+            .layer(middleware::from_fn_with_state(Arc::new(queries), query)),
+    )
+}
+
+/// The layers of an upload route: its timeout, and the check of its query parameters against its
+/// documentation. It sets no body limit: the handler reads the body through `Upload`, with the
+/// limit its module sets (PLATFORM-074).
+pub(super) fn upload_group<S>(route: MethodRouter<S>, queries: QueryNames) -> MethodRouter<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    route.layer(
+        ServiceBuilder::new()
+            .layer(HandleErrorLayer::new(timed_out))
+            .layer(TimeoutLayer::new(UPLOAD_TIMEOUT))
             .layer(middleware::from_fn_with_state(Arc::new(queries), query)),
     )
 }
@@ -286,7 +304,7 @@ fn panicked(_payload: Box<dyn Any + Send + 'static>) -> Response {
 /// (PLATFORM-039).
 async fn overloaded(error: BoxError) -> Response {
     if error.is::<tower::load_shed::error::Overloaded>() {
-        retry_later(RequestError::Overloaded)
+        Problem(RequestError::Overloaded).into_response()
     } else {
         Problem(Internal::new(error)).into_response()
     }
@@ -296,20 +314,10 @@ async fn overloaded(error: BoxError) -> Response {
 /// (PLATFORM-042).
 async fn timed_out(error: BoxError) -> Response {
     if error.is::<tower::timeout::error::Elapsed>() {
-        retry_later(RequestError::TimedOut)
+        Problem(RequestError::TimedOut).into_response()
     } else {
         Problem(Internal::new(error)).into_response()
     }
-}
-
-/// The 503 problem of `error`, with the `Retry-After` the document lists for it.
-fn retry_later(error: RequestError) -> Response {
-    let mut response = Problem(error).into_response();
-    response.headers_mut().insert(
-        header::RETRY_AFTER,
-        HeaderValue::from_static(RETRY_AFTER_SECONDS),
-    );
-    response
 }
 
 /// Refuses a body whose declared length is over the route group's limit before reading it, and

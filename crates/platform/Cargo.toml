@@ -8,6 +8,9 @@ publish.workspace = true
 [dependencies]
 axum = { workspace = true, features = ["matched-path"] }
 base64.workspace = true
+bytes.workspace = true
+# The stream of a stored file's bytes, which a download serves.
+futures-util.workspace = true
 getrandom.workspace = true
 hmac.workspace = true
 http-body-util.workspace = true
@@ -15,6 +18,8 @@ ipnet.workspace = true
 json-subscriber.workspace = true
 # The SMTP transport of the `mail` area.
 lettre.workspace = true
+# The client of the bucket of the `storage` area.
+object_store.workspace = true
 opentelemetry.workspace = true
 opentelemetry-appender-tracing.workspace = true
 opentelemetry-otlp.workspace = true

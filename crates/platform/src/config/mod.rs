@@ -13,6 +13,7 @@ use std::{
 
 mod error;
 mod mail;
+mod storage;
 mod web;
 
 pub use error::ConfigError;
@@ -22,7 +23,10 @@ use ipnet::IpNet;
 
 pub use web::Origin;
 
-use crate::{db::DatabaseUrl, hashing::HmacKey, mail::MailConfig, telemetry::OtlpEndpoint};
+use crate::{
+    db::DatabaseUrl, hashing::HmacKey, mail::MailConfig, storage::StorageConfig,
+    telemetry::OtlpEndpoint,
+};
 
 /// Where the API runs. Every deployment sets it explicitly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,6 +119,8 @@ pub struct ServerConfig {
     pub job_dead_letter_retention: Duration,
     /// Whether email is sent, and through which server (PLATFORM-024).
     pub mail: MailConfig,
+    /// The bucket that holds files' bytes (PLATFORM-076).
+    pub storage: StorageConfig,
     /// How often the hub re-checks each open stream's session and memberships (PLATFORM-031).
     pub stream_recheck: Duration,
 }
@@ -273,8 +279,9 @@ where
 
     /// The settings for `serve`.
     pub fn server(&self) -> Result<ServerConfig, ConfigError> {
+        let environment = self.required("ENVIRONMENT", "development, test or production")?;
         Ok(ServerConfig {
-            environment: self.required("ENVIRONMENT", "development, test or production")?,
+            environment,
             listen_addr: self.required("LISTEN_ADDR", LISTEN_ADDR_EXPECTED)?,
             database_url: self.database_url("DATABASE_URL")?,
             database_max_connections: self.number("DATABASE_MAX_CONNECTIONS", 10, 1..=1000)?,
@@ -295,6 +302,7 @@ where
                 u64::from(self.number("JOB_DEAD_LETTER_RETENTION_DAYS", 14, 1..=365)?) * 86_400,
             ),
             mail: self.mail()?,
+            storage: self.storage(environment)?,
             stream_recheck: self.duration("STREAM_RECHECK_SECONDS", 60, 10..=3_600)?,
         })
     }
@@ -486,12 +494,17 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    const SERVER: [(&str, &str); 5] = [
+    const SERVER: [(&str, &str); 10] = [
         ("ENVIRONMENT", "test"),
         ("LISTEN_ADDR", "0.0.0.0:8080"),
         ("DATABASE_URL", "postgres://app:secret@localhost:5432/api"),
         ("HMAC_KEY", "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="),
         ("EMAIL", "off"),
+        ("S3_ENDPOINT", "https://bucket.invalid"),
+        ("S3_REGION", "us-east-1"),
+        ("S3_BUCKET", "files"),
+        ("S3_ACCESS_KEY_ID", "key"),
+        ("S3_SECRET_ACCESS_KEY", "secret"),
     ];
 
     fn settings(

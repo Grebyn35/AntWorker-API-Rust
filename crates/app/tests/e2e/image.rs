@@ -80,6 +80,13 @@ pub fn settings(database: &TestDatabase) -> Vec<String> {
         "HMAC_KEY=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=".to_owned(),
         // No test of the image alone sends email; PLATFORM-021's sends it from a deployment.
         "EMAIL=off".to_owned(),
+        // No test of the image alone stores a file, so its bucket's address names no host
+        // (RFC 6761): the client reaches the bucket only when asked (PLATFORM-076).
+        "S3_ENDPOINT=https://bucket.invalid".to_owned(),
+        "S3_REGION=us-east-1".to_owned(),
+        "S3_BUCKET=files".to_owned(),
+        "S3_ACCESS_KEY_ID=e2e".to_owned(),
+        "S3_SECRET_ACCESS_KEY=e2e-secret".to_owned(),
     ];
     for setting in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
         let mut url = url::Url::parse(&std::env::var(setting).expect(setting)).expect(setting);

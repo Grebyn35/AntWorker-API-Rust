@@ -49,9 +49,8 @@ Rank, from highest to lowest: `owner`, `admin`, `member`.
 | `members.read` | Listing members, with their names, emails and roles | yes | yes | yes |
 | `members.remove` | Removing a member of lower rank | yes | yes | |
 | `invitations.create` | Inviting at a role below one's own | yes | yes | <!-- part: invitations --> |
-| `files.read` | Reading the workspace's files, and receiving their events | yes | yes | yes |
-| `files.create` | Creating a file | yes | yes | yes |
-| `files.update` | Renaming a file | yes | yes | yes |
+| `files.read` | Listing, reading and downloading the workspace's files, and receiving their events | yes | yes | yes |
+| `files.upload` | Uploading a file | yes | yes | yes |
 | `files.delete` | Deleting a file | yes | yes | |
 
 The matrix lives in `access/permissions.rs` as one table, so adding a permission is one type and one row (D2). Later modules add their permissions to this table.

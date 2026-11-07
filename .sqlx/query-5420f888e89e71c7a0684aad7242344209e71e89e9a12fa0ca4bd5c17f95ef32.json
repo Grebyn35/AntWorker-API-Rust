@@ -1,0 +1,92 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name, media_type, size_bytes, uploader_id, created_at FROM workspace_files\n        WHERE workspace_id = $1\n            AND ($2::text IS NULL OR name COLLATE pg_unicode_fast ILIKE $2)\n            AND ($3::timestamptz IS NULL OR (created_at, id) < ($3, $4))\n        ORDER BY created_at DESC, id DESC\n        LIMIT $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "media_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "media_type"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "size_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "uploader_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "uploader_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Timestamptz",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "5420f888e89e71c7a0684aad7242344209e71e89e9a12fa0ca4bd5c17f95ef32"
+}

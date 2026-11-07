@@ -24,6 +24,7 @@ platform.workspace = true
 argon2.workspace = true
 askama.workspace = true # part: invitations
 axum.workspace = true
+bytes.workspace = true
 clap.workspace = true
 futures-util.workspace = true
 ipnet.workspace = true

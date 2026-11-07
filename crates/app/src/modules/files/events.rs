@@ -11,13 +11,10 @@ use utoipa::ToSchema;
 
 use crate::modules::access::FilesRead;
 
-/// A file was created, sent to the members who may read files (FILES-001).
-pub(super) const FILE_CREATED: WorkspaceEvent<FilesRead, FileChanged> =
-    WorkspaceEvent::new("file.created");
-/// A file was renamed, sent to the members who may read files (FILES-005).
-pub(super) const FILE_RENAMED: WorkspaceEvent<FilesRead, FileChanged> =
-    WorkspaceEvent::new("file.renamed");
-/// A file was deleted, sent to the members who may read files (FILES-006).
+/// A file was uploaded, sent to the members who may read files (FILES-001).
+pub(super) const FILE_UPLOADED: WorkspaceEvent<FilesRead, FileChanged> =
+    WorkspaceEvent::new("file.uploaded");
+/// A file was deleted, sent to the members who may read files (FILES-010).
 pub(super) const FILE_DELETED: WorkspaceEvent<FilesRead, FileChanged> =
     WorkspaceEvent::new("file.deleted");
 

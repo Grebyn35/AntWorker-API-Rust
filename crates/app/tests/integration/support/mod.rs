@@ -17,6 +17,7 @@
 
 pub mod announcements;
 pub mod api;
+pub mod bucket;
 mod contract;
 pub mod events;
 pub mod files;
@@ -96,6 +97,8 @@ pub struct TestDatabase {
     name: String,
     settings: BootstrapConfig,
     roles: Mutex<Vec<String>>,
+    /// The bucket of files' bytes that the test's API uses, once it has created it.
+    bucket: OnceCell<String>,
 }
 
 impl TestDatabase {
@@ -129,6 +132,7 @@ impl TestDatabase {
             name,
             settings,
             roles: Mutex::default(),
+            bucket: OnceCell::new(),
         };
         let mut grants = Admin::connect(&database.admin_url())
             .await
@@ -139,6 +143,19 @@ impl TestDatabase {
             .expect("grant the roles their privileges");
         grants.close().await.expect("close the connection");
         database
+    }
+
+    /// The bucket of files' bytes of the test's API, named after the database, which the first
+    /// call creates, and the database's drop empties and deletes (OPS-21).
+    pub async fn bucket(&self) -> String {
+        self.bucket
+            .get_or_init(|| async {
+                let name = bucket::name(&self.name);
+                bucket::create(&name).await;
+                name
+            })
+            .await
+            .clone()
     }
 
     /// The database's name.
@@ -207,9 +224,13 @@ impl TestDatabase {
         let mut command = Command::new(BINARY);
         // The development origins that `.env` lists are plain `http`, which every environment
         // but development refuses (PLATFORM-058), so a test names the origins it needs.
+        // The development bucket's endpoint is plain `http`, which production refuses
+        // (PLATFORM-076), so the binary's bucket names no host (RFC 6761), which `serve` reaches
+        // only when asked; a test that stores a file runs the API in process.
         command
             .args(args)
             .env("CORS_ALLOWED_ORIGINS", "")
+            .env("S3_ENDPOINT", "https://bucket.invalid")
             .envs(env.iter().map(|(name, value)| (name, value)));
         for setting in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
             let mut url =
@@ -386,6 +407,7 @@ impl Drop for TestDatabase {
         let admin = self.settings.admin.clone();
         let name = self.name.clone();
         let roles = std::mem::take(self.roles.get_mut().unwrap_or_else(PoisonError::into_inner));
+        let bucket = self.bucket.take();
         // Drop can't await, so the cleanup runs on a runtime of its own.
         let dropped = std::thread::spawn(move || -> Result<(), Box<dyn Error + Send + Sync>> {
             tokio::runtime::Builder::new_current_thread()
@@ -406,6 +428,9 @@ impl Drop for TestDatabase {
                             .await?;
                     }
                     conn.close().await?;
+                    if let Some(bucket) = bucket {
+                        bucket::remove(&bucket).await;
+                    }
                     Ok(())
                 })
         })

@@ -103,20 +103,6 @@
         ],
         "type": "string"
       },
-      "CreateFileRequest": {
-        "additionalProperties": false,
-        "description": "What creating a file takes (FILES-001).",
-        "properties": {
-          "name": {
-            "$ref": "#/components/schemas/FileName",
-            "description": "The file's name (FILES-002)."
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "type": "object"
-      },
       "CreateRequest": {
         "additionalProperties": false,
         "description": "What creating a workspace takes (WORKSPACES-001).",
@@ -185,31 +171,54 @@
         "type": "object"
       },
       "File": {
-        "description": "A file, as its routes answer it (FILES-001, FILES-003).",
+        "description": "A file of a workspace, as its routes answer it (FILES-001, FILES-008).",
         "properties": {
           "created_at": {
             "$ref": "#/components/schemas/Timestamp",
-            "description": "When it was created."
+            "description": "When it was uploaded."
           },
           "id": {
             "description": "The file's ID.",
             "format": "uuid",
             "type": "string"
           },
+          "media_type": {
+            "description": "The media type of its kind (FILES-003).",
+            "type": "string"
+          },
           "name": {
             "$ref": "#/components/schemas/FileName",
             "description": "Its name."
           },
-          "updated_at": {
-            "$ref": "#/components/schemas/Timestamp",
-            "description": "When it last changed."
+          "size_bytes": {
+            "description": "Its size, in bytes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "uploader_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UserId",
+                "description": "The member who uploaded it, until their account's deletion clears it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId",
+            "description": "The workspace it belongs to."
           }
         },
         "required": [
           "id",
+          "workspace_id",
           "name",
-          "created_at",
-          "updated_at"
+          "media_type",
+          "size_bytes",
+          "created_at"
         ],
         "type": "object"
       },
@@ -231,53 +240,6 @@
           "file_id"
         ],
         "type": "object"
-      },
-      "FileCreatedFrame": {
-        "description": "`file.created`, a workspace event: it reaches the streams of the workspace's members who hold `files.read` (SEC-19).",
-        "properties": {
-          "data": {
-            "contentMediaType": "application/json",
-            "contentSchema": {
-              "properties": {
-                "data": {
-                  "$ref": "#/components/schemas/FileChanged"
-                },
-                "trace_id": {
-                  "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                }
-              },
-              "required": [
-                "data",
-                "trace_id"
-              ],
-              "type": "object"
-            },
-            "description": "JSON: the payload, and the trace ID of what sent it (REALTIME-002).",
-            "type": "string"
-          },
-          "event": {
-            "enum": [
-              "file.created"
-            ],
-            "type": "string"
-          },
-          "id": {
-            "description": "What a client that reconnects names in `Last-Event-ID` (REALTIME-004).",
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "required": [
-          "event",
-          "data",
-          "id"
-        ],
-        "type": "object",
-        "x-event": "file.created"
       },
       "FileDeletedFrame": {
         "description": "`file.deleted`, a workspace event: it reaches the streams of the workspace's members who hold `files.read` (SEC-19).",
@@ -331,8 +293,8 @@
         "minLength": 1,
         "type": "string"
       },
-      "FileRenamedFrame": {
-        "description": "`file.renamed`, a workspace event: it reaches the streams of the workspace's members who hold `files.read` (SEC-19).",
+      "FileUploadedFrame": {
+        "description": "`file.uploaded`, a workspace event: it reaches the streams of the workspace's members who hold `files.read` (SEC-19).",
         "properties": {
           "data": {
             "contentMediaType": "application/json",
@@ -360,7 +322,7 @@
           },
           "event": {
             "enum": [
-              "file.renamed"
+              "file.uploaded"
             ],
             "type": "string"
           },
@@ -376,19 +338,16 @@
           "id"
         ],
         "type": "object",
-        "x-event": "file.renamed"
+        "x-event": "file.uploaded"
       },
       "Frame": {
         "description": "A frame of the stream of server-sent events, one schema for each type, which its `event` names (REALTIME-008).",
         "oneOf": [
           {
-            "$ref": "#/components/schemas/FileCreatedFrame"
-          },
-          {
             "$ref": "#/components/schemas/FileDeletedFrame"
           },
           {
-            "$ref": "#/components/schemas/FileRenamedFrame"
+            "$ref": "#/components/schemas/FileUploadedFrame"
           },
           {
             "$ref": "#/components/schemas/InvitationReceivedFrame"
@@ -548,31 +507,54 @@
           "items": {
             "description": "The page's items.",
             "items": {
-              "description": "A file, as its routes answer it (FILES-001, FILES-003).",
+              "description": "A file of a workspace, as its routes answer it (FILES-001, FILES-008).",
               "properties": {
                 "created_at": {
                   "$ref": "#/components/schemas/Timestamp",
-                  "description": "When it was created."
+                  "description": "When it was uploaded."
                 },
                 "id": {
                   "description": "The file's ID.",
                   "format": "uuid",
                   "type": "string"
                 },
+                "media_type": {
+                  "description": "The media type of its kind (FILES-003).",
+                  "type": "string"
+                },
                 "name": {
                   "$ref": "#/components/schemas/FileName",
                   "description": "Its name."
                 },
-                "updated_at": {
-                  "$ref": "#/components/schemas/Timestamp",
-                  "description": "When it last changed."
+                "size_bytes": {
+                  "description": "Its size, in bytes.",
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "uploader_id": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/UserId",
+                      "description": "The member who uploaded it, until their account's deletion clears it."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "workspace_id": {
+                  "$ref": "#/components/schemas/WorkspaceId",
+                  "description": "The workspace it belongs to."
                 }
               },
               "required": [
                 "id",
+                "workspace_id",
                 "name",
-                "created_at",
-                "updated_at"
+                "media_type",
+                "size_bytes",
+                "created_at"
               ],
               "type": "object"
             },
@@ -1149,20 +1131,6 @@
         "required": [
           "email",
           "password",
-          "name"
-        ],
-        "type": "object"
-      },
-      "RenameFileRequest": {
-        "additionalProperties": false,
-        "description": "What renaming a file takes: a JSON Merge Patch of it (FILES-005).",
-        "properties": {
-          "name": {
-            "$ref": "#/components/schemas/FileName",
-            "description": "The file's new name (FILES-002)."
-          }
-        },
-        "required": [
           "name"
         ],
         "type": "object"
@@ -6467,7 +6435,7 @@
             }
           }
         },
-        "summary": "Lists the workspace's files, the latest created first.",
+        "summary": "Lists the workspace's files, the latest uploaded first.",
         "tags": [
           "files"
         ],
@@ -6475,7 +6443,7 @@
         "x-permission": "files.read"
       },
       "post": {
-        "operationId": "create_file",
+        "operationId": "upload_file",
         "parameters": [
           {
             "description": "The workspace.",
@@ -6487,7 +6455,16 @@
             }
           },
           {
-            "description": "A key of the caller's own, as a quoted string, so a retry creates nothing twice (API-12).",
+            "description": "The file's name, as `filename*`, encoded as RFC 8187 says, or `filename`, such as `attachment; filename*=UTF-8''report.pdf` (FILES-002).",
+            "in": "header",
+            "name": "Content-Disposition",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A key of the caller's own, as a quoted string, so a retry stores nothing twice (API-12).",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -6506,12 +6483,18 @@
         ],
         "requestBody": {
           "content": {
-            "application/json": {
+            "application/octet-stream": {
               "schema": {
-                "$ref": "#/components/schemas/CreateFileRequest"
+                "items": {
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
               }
             }
           },
+          "description": "The file's bytes. Its kind comes from its name's extension and its bytes alone (FILES-003).",
           "required": true
         },
         "responses": {
@@ -6525,12 +6508,6 @@
             },
             "description": "The new file.",
             "headers": {
-              "etag": {
-                "description": "The file's version, which a rename's `If-Match` names (API-13).",
-                "schema": {
-                  "type": "string"
-                }
-              },
               "location": {
                 "description": "The new file: `/v1/workspaces/{workspace_id}/files/{id}`.",
                 "schema": {
@@ -6566,7 +6543,9 @@
                             "request.invalid_query",
                             "request.invalid_body",
                             "request.invalid_fields",
-                            "request.invalid_idempotency_key"
+                            "request.invalid_idempotency_key",
+                            "files.invalid_name",
+                            "files.empty"
                           ],
                           "type": "string"
                         }
@@ -6577,7 +6556,7 @@
                 }
               }
             },
-            "description": "`request.invalid_query`: Invalid query. `request.invalid_body`: Invalid body. `request.invalid_fields`: Invalid fields. `request.invalid_idempotency_key`: Invalid idempotency key.",
+            "description": "`request.invalid_query`: Invalid query. `request.invalid_body`: Invalid body. `request.invalid_fields`: Invalid fields. `request.invalid_idempotency_key`: Invalid idempotency key. `files.invalid_name`: Invalid file name. `files.empty`: Empty file.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -6802,7 +6781,8 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.idempotency_key_reused"
+                            "request.idempotency_key_reused",
+                            "files.unsupported_type"
                           ],
                           "type": "string"
                         }
@@ -6813,7 +6793,7 @@
                 }
               }
             },
-            "description": "`request.idempotency_key_reused`: Idempotency key already used.",
+            "description": "`request.idempotency_key_reused`: Idempotency key already used. `files.unsupported_type`: Unsupported file type.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -6913,7 +6893,8 @@
                           "enum": [
                             "request.timed_out",
                             "request.overloaded",
-                            "request.unavailable"
+                            "request.unavailable",
+                            "files.storage_unavailable"
                           ],
                           "type": "string"
                         }
@@ -6924,7 +6905,7 @@
                 }
               }
             },
-            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer. `files.storage_unavailable`: Storage unavailable.",
             "headers": {
               "retry-after": {
                 "description": "How many seconds to wait before trying again.",
@@ -6935,12 +6916,12 @@
             }
           }
         },
-        "summary": "Creates a file in the workspace.",
+        "summary": "Uploads a file to the workspace: its bytes as the body, and its name in `Content-Disposition`.",
         "tags": [
           "files"
         ],
         "x-access": "workspace",
-        "x-permission": "files.create"
+        "x-permission": "files.upload"
       }
     },
     "/v1/workspaces/{workspace_id}/files/{file_id}": {
@@ -7330,12 +7311,6 @@
             },
             "description": "The file.",
             "headers": {
-              "etag": {
-                "description": "The file's version, which a rename's `If-Match` names (API-13).",
-                "schema": {
-                  "type": "string"
-                }
-              },
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
                 "schema": {
@@ -7659,9 +7634,11 @@
         ],
         "x-access": "workspace",
         "x-permission": "files.read"
-      },
-      "patch": {
-        "operationId": "rename_file",
+      }
+    },
+    "/v1/workspaces/{workspace_id}/files/{file_id}/content": {
+      "get": {
+        "operationId": "download_file",
         "parameters": [
           {
             "description": "The workspace.",
@@ -7681,43 +7658,132 @@
               "format": "uuid",
               "type": "string"
             }
-          },
-          {
-            "description": "The `ETag` of the version the client renames, so that a rename made since it read the file fails rather than being overwritten (API-13).",
-            "in": "header",
-            "name": "If-Match",
-            "required": false,
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/merge-patch+json": {
-              "schema": {
-                "$ref": "#/components/schemas/RenameFileRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "content": {
-              "application/json": {
+              "application/pdf": {
                 "schema": {
-                  "$ref": "#/components/schemas/File"
+                  "items": {
+                    "format": "int32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+                "schema": {
+                  "items": {
+                    "format": "int32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "items": {
+                    "format": "int32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "schema": {
+                  "items": {
+                    "format": "int32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "items": {
+                    "format": "int32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "items": {
+                    "format": "int32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "items": {
+                    "format": "int32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "items": {
+                    "format": "int32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "items": {
+                    "format": "int32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              },
+              "text/markdown": {
+                "schema": {
+                  "items": {
+                    "format": "int32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "items": {
+                    "format": "int32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
                 }
               }
             },
-            "description": "The file, renamed.",
+            "description": "The file's bytes, as its media type.",
             "headers": {
-              "etag": {
-                "description": "The file's new version (API-13).",
+              "content-disposition": {
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name (FILES-009).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-security-policy": {
+                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
                 "schema": {
                   "type": "string"
                 }
@@ -7748,9 +7814,7 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.invalid_query",
-                            "request.invalid_body",
-                            "request.invalid_fields"
+                            "request.invalid_query"
                           ],
                           "type": "string"
                         }
@@ -7761,7 +7825,7 @@
                 }
               }
             },
-            "description": "`request.invalid_query`: Invalid query. `request.invalid_body`: Invalid body. `request.invalid_fields`: Invalid fields.",
+            "description": "`request.invalid_query`: Invalid query.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -7829,7 +7893,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.origin_not_allowed",
                             "request.permission_denied"
                           ],
                           "type": "string"
@@ -7841,7 +7904,7 @@
                 }
               }
             },
-            "description": "`request.origin_not_allowed`: Origin not allowed. `request.permission_denied`: Permission denied.",
+            "description": "`request.permission_denied`: Permission denied.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -7882,45 +7945,6 @@
               }
             },
             "description": "`request.not_found`: Not found. `files.not_found`: File not found.",
-            "headers": {
-              "ratelimit": {
-                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "ratelimit-policy": {
-                "description": "That bucket's quota, and its window in seconds.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "412": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/Problem"
-                    },
-                    {
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "request.precondition_failed"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "`request.precondition_failed`: Precondition failed.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -8059,7 +8083,8 @@
                           "enum": [
                             "request.timed_out",
                             "request.overloaded",
-                            "request.unavailable"
+                            "request.unavailable",
+                            "files.storage_unavailable"
                           ],
                           "type": "string"
                         }
@@ -8070,7 +8095,7 @@
                 }
               }
             },
-            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer. `files.storage_unavailable`: Storage unavailable.",
             "headers": {
               "retry-after": {
                 "description": "How many seconds to wait before trying again.",
@@ -8081,12 +8106,12 @@
             }
           }
         },
-        "summary": "Renames a file of the workspace.",
+        "summary": "Downloads a file of the workspace: its bytes, served so that a browser can't run them.",
         "tags": [
           "files"
         ],
         "x-access": "workspace",
-        "x-permission": "files.update"
+        "x-permission": "files.read"
       }
     },
     "/v1/workspaces/{workspace_id}/invitations": {

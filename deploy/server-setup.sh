@@ -187,7 +187,7 @@ write() {
                 ;;
             secret)
                 case $first in
-                    database_admin_url | database_owner_url | database_url | postgres_password | backup_s3_key | backup_s3_key_secret | backup_cipher_pass | managed_otlp_token | managed_grafana_token | smtp_password) ;;
+                    database_admin_url | database_owner_url | database_url | postgres_password | backup_s3_key | backup_s3_key_secret | backup_cipher_pass | files_s3_key | files_s3_key_secret | managed_otlp_token | managed_grafana_token | smtp_password) ;;
                     # A credential of an alert integration, which alertmanager.yaml names (D49).
                     alertmanager/*/* | alertmanager/.*) fail "no secret is named $first" ;;
                     alertmanager/?*)
@@ -203,7 +203,7 @@ write() {
                 ;;
             cert)
                 case $first in
-                    backup-ca.crt | managed-otlp-ca.crt | managed-grafana-ca.crt) ;;
+                    backup-ca.crt | files-ca.crt | managed-otlp-ca.crt | managed-grafana-ca.crt) ;;
                     *) fail "no certificate is named $first" ;;
                 esac
                 write_file "$deployment/certs/$first" "$second"

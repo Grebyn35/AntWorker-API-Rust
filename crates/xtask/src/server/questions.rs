@@ -63,6 +63,10 @@ struct File {
     needed: fn(&[(String, String)]) -> bool,
 }
 
+fn always(_: &[(String, String)]) -> bool {
+    true
+}
+
 fn bundled(settings: &[(String, String)]) -> bool {
     matches!(get(settings, "DATABASE"), "bundled" | "")
 }
@@ -108,14 +112,26 @@ const SECRETS: &[File] = &[
         needed: managed_database,
     },
     File {
+        name: "files_s3_key",
+        what: "The access key of the files bucket's key pair, which reaches only that bucket.",
+        generated: false,
+        needed: always,
+    },
+    File {
+        name: "files_s3_key_secret",
+        what: "The secret key of the files bucket's key pair.",
+        generated: false,
+        needed: always,
+    },
+    File {
         name: "backup_s3_key",
-        what: "The access key of the bucket's key pair, which reaches only that bucket.",
+        what: "The access key of the backup bucket's key pair, which reaches only that bucket.",
         generated: false,
         needed: bundled,
     },
     File {
         name: "backup_s3_key_secret",
-        what: "The secret key of the bucket's key pair.",
+        what: "The secret key of the backup bucket's key pair.",
         generated: false,
         needed: bundled,
     },
@@ -160,9 +176,16 @@ const SECRETS: &[File] = &[
 /// The certificates of private authorities that a deployment may trust.
 const CERTS: &[File] = &[
     File {
+        name: "files-ca.crt",
+        what: "The certificate of the private authority that signed the files bucket's \
+               certificate, for a bucket of your own; none for a provider's.",
+        generated: false,
+        needed: always,
+    },
+    File {
         name: "backup-ca.crt",
-        what: "The certificate of the private authority that signed the bucket's certificate, \
-               for a bucket of your own; none for a provider's.",
+        what: "The certificate of the private authority that signed the backup bucket's \
+               certificate, for a bucket of your own; none for a provider's.",
         generated: false,
         needed: bundled,
     },
@@ -553,6 +576,14 @@ mod tests {
         "grafana.example.com",
         // No email, so no question about a mail server.
         "off",
+        // The files bucket, then Enter for the uploads' limit and the deletion's delay.
+        "files.example.com",
+        "",
+        "eu-1",
+        "files",
+        "",
+        "",
+        "",
         "s3.example.com",
         "",
         "eu-1",
@@ -577,13 +608,16 @@ mod tests {
         "",
         "",
         "",
-        // The bucket's key pair, then Enter leaves the passphrase and the superuser's password
-        // to be generated.
+        // The files bucket's key pair, the backup bucket's, then Enter leaves the passphrase and
+        // the superuser's password to be generated.
+        "files-key",
+        "files-secret",
         "key",
         "secret",
         "",
         "",
-        // No private authority, then the registry's token and its user.
+        // No private authority for either bucket, then the registry's token and its user.
+        "",
         "",
         "ghp_token",
         "",
@@ -619,6 +653,8 @@ mod tests {
         assert_eq!(get(&settings, "SOURCE"), "https://github.com/Owner/Name");
         assert_eq!(get(&settings, "API_ADDRESS"), "api.example.com");
         assert_eq!(get(&settings, "GRAFANA_ADDRESS"), "grafana.example.com");
+        assert_eq!(get(&settings, "FILES_S3_ENDPOINT"), "files.example.com");
+        assert_eq!(get(&settings, "FILES_S3_BUCKET"), "files");
         assert_eq!(get(&settings, "BACKUP_S3_ENDPOINT"), "s3.example.com");
         assert_eq!(get(&settings, "BACKUP_S3_PORT"), "443");
         assert_eq!(get(&settings, "BACKUP_S3_BUCKET"), "backups");
@@ -634,6 +670,8 @@ mod tests {
         assert_eq!(
             setup.secrets,
             vec![
+                ("files_s3_key".to_owned(), "files-key".to_owned()),
+                ("files_s3_key_secret".to_owned(), "files-secret".to_owned()),
                 ("backup_s3_key".to_owned(), "key".to_owned()),
                 ("backup_s3_key_secret".to_owned(), "secret".to_owned()),
             ]
@@ -661,6 +699,7 @@ mod tests {
     fn ops_19_a_server_that_was_set_up_keeps_what_each_empty_answer_leaves() {
         let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
                     API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=off\n\
+                    FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n\
                     FORK_SETTING=kept\n";
         let state = State {
             user: "deploy".to_owned(),
@@ -669,11 +708,14 @@ mod tests {
                 "database_admin_url".to_owned(),
                 "database_owner_url".to_owned(),
                 "database_url".to_owned(),
+                "files_s3_key".to_owned(),
+                "files_s3_key_secret".to_owned(),
             ],
             certs: Vec::new(),
         };
-        // An empty answer to every setting, every secret, and the registry's token.
-        let answers = vec![""; setting_questions(held) + 3 + 1];
+        // An empty answer to every setting, every secret, the files bucket's authority, and the
+        // registry's token.
+        let answers = vec![""; setting_questions(held) + 5 + 1 + 1];
         let mut script = Script::new(&answers);
 
         let setup = ask(&release(&example()), &state, &[], &mut script, no_file).unwrap();
@@ -707,7 +749,8 @@ mod tests {
         let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
                     API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=smtp\n\
                     SMTP_HOST=smtp.example.com\nSMTP_USERNAME=api\n\
-                    EMAIL_FROM=AntWorker <noreply@example.com>\n";
+                    EMAIL_FROM=AntWorker <noreply@example.com>\n\
+                    FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n";
         let state = State {
             user: "deploy".to_owned(),
             settings: Some(held.to_owned()),
@@ -715,13 +758,15 @@ mod tests {
                 "database_admin_url".to_owned(),
                 "database_owner_url".to_owned(),
                 "database_url".to_owned(),
+                "files_s3_key".to_owned(),
+                "files_s3_key_secret".to_owned(),
             ],
             certs: Vec::new(),
         };
-        // Enter for every setting and the database's URLs, the mail server's password, then
-        // Enter for the registry's token.
-        let mut answers = vec![""; setting_questions(held) + 3];
-        answers.extend(["the password", ""]);
+        // Enter for every setting, the database's URLs and the files bucket's key pair, the mail
+        // server's password, then Enter for the files bucket's authority and the registry's token.
+        let mut answers = vec![""; setting_questions(held) + 5];
+        answers.extend(["the password", "", ""]);
         let mut script = Script::new(&answers);
 
         let setup = ask(&release(&example()), &state, &[], &mut script, no_file).unwrap();
@@ -745,7 +790,8 @@ mod tests {
     fn ops_19_the_self_hosted_stack_is_asked_for_each_credential_its_alert_integrations_read() {
         let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
                     API_ADDRESS=api.example.com\nGRAFANA_ADDRESS=grafana.example.com\n\
-                    DATABASE=managed\nTELEMETRY=self-hosted\nEMAIL=off\n";
+                    DATABASE=managed\nTELEMETRY=self-hosted\nEMAIL=off\n\
+                    FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n";
         let state = State {
             user: "deploy".to_owned(),
             settings: Some(held.to_owned()),
@@ -753,6 +799,8 @@ mod tests {
                 "database_admin_url".to_owned(),
                 "database_owner_url".to_owned(),
                 "database_url".to_owned(),
+                "files_s3_key".to_owned(),
+                "files_s3_key_secret".to_owned(),
                 "alertmanager/held_url".to_owned(),
             ],
             certs: Vec::new(),
@@ -763,10 +811,11 @@ mod tests {
                            \x20     - url_file: /etc/alertmanager-secrets/new_url\n\
                            \x20     - url_file: /etc/alertmanager-secrets/held_url\n",
         };
-        // Enter for every setting and the database's URLs, a new credential and Enter for the
-        // held one, then Enter for the registry's token.
-        let mut answers = vec![""; setting_questions(held) + 3];
-        answers.extend(["https://hooks.example.com/page", "", ""]);
+        // Enter for every setting, the database's URLs and the files bucket's key pair, a new
+        // credential and Enter for the held one, then Enter for the files bucket's authority and
+        // the registry's token.
+        let mut answers = vec![""; setting_questions(held) + 5];
+        answers.extend(["https://hooks.example.com/page", "", "", ""]);
         let mut script = Script::new(&answers);
 
         let setup = ask(&alerting, &state, &[], &mut script, no_file).unwrap();

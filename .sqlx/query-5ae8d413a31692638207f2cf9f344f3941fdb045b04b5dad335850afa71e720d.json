@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM files WHERE workspace_id = $1 AND id = $2",
+  "query": "DELETE FROM workspace_files WHERE workspace_id = $1 AND id = $2",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "fd6c46303fabca71feb7f98606a37786fc372abf72ed872b91581ec3acebad2a"
+  "hash": "5ae8d413a31692638207f2cf9f344f3941fdb045b04b5dad335850afa71e720d"
 }

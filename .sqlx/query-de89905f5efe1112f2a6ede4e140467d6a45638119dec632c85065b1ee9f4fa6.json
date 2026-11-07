@@ -1,0 +1,45 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_files (workspace_id, name, media_type, size_bytes, object_key, uploader_id)\n        VALUES ($1, $2, $3, $4, $5, $6)\n        RETURNING id, created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "de89905f5efe1112f2a6ede4e140467d6a45638119dec632c85065b1ee9f4fa6"
+}

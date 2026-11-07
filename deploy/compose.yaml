@@ -67,7 +67,20 @@ x-api: &api
     JOB_DEAD_LETTER_RETENTION_DAYS: ${JOB_DEAD_LETTER_RETENTION_DAYS:-14}
     STREAM_HEARTBEAT_SECONDS: ${STREAM_HEARTBEAT_SECONDS:-15}
     STREAM_RECHECK_SECONDS: ${STREAM_RECHECK_SECONDS:-60}
-  secrets: [database_url, hmac_key, smtp_password]
+    S3_ENDPOINT: https://${FILES_S3_ENDPOINT:?the files bucket's host, in settings.env}:${FILES_S3_PORT:-443}
+    S3_REGION: ${FILES_S3_REGION:?the files bucket's region, in settings.env}
+    S3_BUCKET: ${FILES_S3_BUCKET:?the files bucket's name, in settings.env}
+    S3_URI_STYLE: ${FILES_S3_URI_STYLE:-host}
+    S3_ACCESS_KEY_ID_FILE: /run/secrets/files_s3_key
+    S3_SECRET_ACCESS_KEY_FILE: /run/secrets/files_s3_key_secret
+    # Empty, as deploy.sh writes it when certs/ holds no authority for the bucket, the bucket's
+    # certificate is checked against the operating system's authorities alone (PLATFORM-076).
+    S3_CA_PATH: ${FILES_CA_FILE:-}
+    FILE_MAX_BYTES: ${FILE_MAX_BYTES:-10485760}
+    FILE_DELETION_DELAY_DAYS: ${FILE_DELETION_DELAY:-35}
+  volumes:
+    - ./certs:/etc/deployment-certs:ro
+  secrets: [database_url, hmac_key, smtp_password, files_s3_key, files_s3_key_secret]
   # The shutdown delay and the drain take at most 15 seconds, and writing out telemetry the time
   # that the platform spec's Telemetry export bounds it to, which fits in the rest.
   stop_grace_period: 30s
@@ -386,6 +399,10 @@ secrets:
     file: ./secrets/database_admin_url
   postgres_password:
     file: ./secrets/postgres_password
+  files_s3_key:
+    file: ./secrets/files_s3_key
+  files_s3_key_secret:
+    file: ./secrets/files_s3_key_secret
   backup_s3_key:
     file: ./secrets/backup_s3_key
   backup_s3_key_secret:

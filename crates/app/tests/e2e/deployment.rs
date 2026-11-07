@@ -118,6 +118,8 @@ impl Deployment {
     }
 
     fn on(server: Server, kind: &[(&str, &str)], changes: &[(&str, &str)]) -> Self {
+        // Every deployment's replicas reach a files bucket (the files spec's "Storage").
+        let files = server.start_files_bucket();
         let mut base: Vec<(String, String)> = [
             ("IMAGE_REPOSITORY", "registry:5000/image"),
             ("SOURCE", "https://example.invalid/e2e"),
@@ -136,6 +138,7 @@ impl Deployment {
         .iter()
         .chain(kind)
         .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .chain(files)
         .collect();
         base.sort();
         let deployment = Self {

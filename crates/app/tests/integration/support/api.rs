@@ -88,6 +88,14 @@ fn environment(options: &Options) -> HashMap<String, String> {
         ("SMTP_PORT", "1025"),
         ("SMTP_SECURITY", "none"),
         ("EMAIL_FROM", "AntWorker <noreply@example.com>"),
+        // The bucket of files' bytes, in the SeaweedFS that `just services` starts, which takes no
+        // credentials. A test that runs the API names a bucket of its own (`bucket`).
+        ("S3_ENDPOINT", super::bucket::ENDPOINT),
+        ("S3_REGION", "us-east-1"),
+        ("S3_BUCKET", "files"),
+        ("S3_URI_STYLE", "path"),
+        ("S3_ACCESS_KEY_ID", "test"),
+        ("S3_SECRET_ACCESS_KEY", "test"),
     ]
     .into_iter()
     .map(|(name, value)| (name.to_owned(), value.to_owned()))
@@ -189,7 +197,10 @@ impl Api {
         Self::connected(database, pool, options).await
     }
 
-    async fn connected(database: TestDatabase, pool: Database, options: Options) -> Self {
+    async fn connected(database: TestDatabase, pool: Database, mut options: Options) -> Self {
+        // The test's own bucket, unless the test names another setting of the bucket's.
+        let bucket = database.bucket().await;
+        options.settings.insert(0, ("S3_BUCKET", bucket));
         let database = Arc::new(database);
         let clock = Arc::new(TestClock::default());
         let readiness = Readiness::new();

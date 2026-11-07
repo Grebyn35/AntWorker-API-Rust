@@ -86,6 +86,9 @@ pub const IDEMPOTENCY_OUTCOME: &str = "idempotency.outcome";
 pub const RATE_LIMIT_BUCKET: &str = "rate_limit.bucket";
 /// How a sign-in ended, such as `succeeded` or `invalid_credentials` (AUTH-004, AUTH-005).
 pub const AUTH_OUTCOME: &str = "auth.outcome";
+/// How an upload that reached the check of its bytes ended, such as `stored` or
+/// `unsupported_type` (FILES-013).
+pub const FILES_OUTCOME: &str = "files.outcome";
 /// A job's kind, or a periodic job's name, such as `platform.send_email` (PLATFORM-020).
 pub const JOB_KIND: &str = "job.kind";
 /// A queued job's ID, or the claim of a periodic job's run.

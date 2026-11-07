@@ -1,7 +1,7 @@
 //! The export of spans, log records and metrics over OTLP/HTTP (PLATFORM-066), and the counts of
 //! what each exporter exported (OBS-10).
 
-use std::{fmt, str::FromStr, sync::Arc, time::Duration};
+use std::{fmt, str::FromStr, time::Duration};
 
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::{
@@ -221,34 +221,13 @@ pub(super) fn resource(service: Service, environment: Environment) -> Resource {
 /// export never needs the async runtime. An `https` endpoint is verified against the operating
 /// system's certificate store, as a verified database connection is (D38).
 fn client(endpoint: &OtlpEndpoint) -> Result<reqwest::blocking::Client, ExportError> {
-    let tls = tls(endpoint.0.scheme() == "https").map_err(ExportError::Client)?;
+    let tls = crate::tls::client_config(endpoint.0.scheme() == "https", None)
+        .map_err(ExportError::Client)?;
     reqwest::blocking::Client::builder()
         .timeout(EXPORT_TIMEOUT)
         .tls_backend_preconfigured(tls)
         .build()
         .map_err(|error| ExportError::Client(Box::new(error)))
-}
-
-/// TLS through rustls with its ring provider (SEC-16). The client needs it even for an `http`
-/// endpoint, which trusts no certificate since it uses none. An `https` endpoint trusts the
-/// operating system's certificates, or the files that `SSL_CERT_FILE` and `SSL_CERT_DIR` name.
-fn tls(verified: bool) -> Result<rustls::ClientConfig, Box<dyn std::error::Error + Send + Sync>> {
-    let mut roots = rustls::RootCertStore::empty();
-    if verified {
-        let found = rustls_native_certs::load_native_certs();
-        if let Some(error) = found.errors.into_iter().next() {
-            return Err(Box::new(error));
-        }
-        for certificate in found.certs {
-            roots.add(certificate)?;
-        }
-    }
-    Ok(rustls::ClientConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()?
-    .with_root_certificates(roots)
-    .with_no_client_auth())
 }
 
 /// The value of `error.type` for an export's result: none on success. The OTLP exporter reports

@@ -37,6 +37,8 @@ pub struct Server {
     share: Option<Turn>,
     /// The heavy turn, once its telemetry runs on it (memory.rs).
     heavy: OnceLock<SemaphorePermit<'static>>,
+    /// The address its buckets' stand-in answers at, once it has started.
+    buckets: OnceLock<String>,
 }
 
 /// A deploy that `Server::deploy_until` started and that still runs.
@@ -187,6 +189,7 @@ impl Server {
             database: None,
             share,
             heavy: OnceLock::new(),
+            buckets: OnceLock::new(),
         }
     }
 
@@ -749,11 +752,16 @@ impl Server {
         .collect()
     }
 
-    /// Starts the stand-in for the bundled database's backup bucket on the server: SeaweedFS,
-    /// serving S3 over HTTPS on the server's own address, with a certificate for that address
-    /// from an authority of the test's own, which the deployment trusts as certs/backup-ca.crt.
-    /// Writes the bucket's secrets, and returns its settings.
-    pub fn start_bucket(&self) -> Vec<(String, String)> {
+    /// Starts the stand-in for the provider of the deployment's buckets on the server, once:
+    /// SeaweedFS, serving S3 over HTTPS on the server's own address, with a certificate for that
+    /// address from an authority of the test's own, which the deployment trusts as
+    /// certs/backup-ca.crt and certs/files-ca.crt, and with two buckets, `backups` for the bundled
+    /// database's backups and `files` for files' bytes. Writes both buckets' secrets, and returns
+    /// the address the buckets answer at.
+    fn start_buckets(&self) -> String {
+        if let Some(address) = self.buckets.get() {
+            return address.clone();
+        }
         let image = compose(&["config", "--images", "bucket"]);
         let address = self.issue_certificate("/root/bucket", "e2e-bucket-authority");
         self.write(
@@ -766,23 +774,36 @@ impl Server {
             chmod 644 ./*
             mkdir -p {DEPLOYMENT}/certs
             cp ca.crt {DEPLOYMENT}/certs/backup-ca.crt
+            cp ca.crt {DEPLOYMENT}/certs/files-ca.crt
             # SeaweedFS grows 7 volumes at once for each collection, its own default one included,
-            # which it writes to about a minute after it starts, while the bucket's objects take a
+            # which it writes to about a minute after it starts, while each bucket's objects take a
             # collection of their own: a deployment's first backup after that would find room for
             # one volume of the 8 it allows by default, and fail.
             docker run --detach --quiet --name bucket --publish 8334:8334 --volume /root/bucket:/bucket:ro {image} \
                 server -dir=/data -volume.max=100 -s3 -s3.port=8333 -s3.port.https=8334 \
                 -s3.cert.file=/bucket/server.crt -s3.key.file=/bucket/server.key -s3.config=/bucket/s3.json > /dev/null
-            # SeaweedFS takes a few seconds to start, and the shell can't create the bucket before
-            # it answers. Named the filer, the shell reaches it at once, rather than waiting for the
+            # SeaweedFS takes a few seconds to start, and the shell can't create a bucket before it
+            # answers. Named the filer, the shell reaches it at once, rather than waiting for the
             # master to list it.
-            timeout 120 sh -c 'until echo s3.bucket.create -name backups | docker exec --interactive bucket weed shell -master=localhost:9333 -filer=localhost:8888 2> /dev/null | grep -q created; do sleep 1; done'"
+            for bucket in backups files; do
+                timeout 120 sh -c \"until echo s3.bucket.create -name $bucket | docker exec --interactive bucket weed shell -master=localhost:9333 -filer=localhost:8888 2> /dev/null | grep -q created; do sleep 1; done\"
+            done"
         ));
-        self.write(&format!("{DEPLOYMENT}/secrets/backup_s3_key"), "e2e");
-        self.write(
-            &format!("{DEPLOYMENT}/secrets/backup_s3_key_secret"),
-            "e2e-secret",
-        );
+        for (secret, value) in [
+            ("backup_s3_key", "e2e"),
+            ("backup_s3_key_secret", "e2e-secret"),
+            ("files_s3_key", "e2e"),
+            ("files_s3_key_secret", "e2e-secret"),
+        ] {
+            self.write(&format!("{DEPLOYMENT}/secrets/{secret}"), value);
+        }
+        self.buckets.get_or_init(|| address).clone()
+    }
+
+    /// Starts the buckets' stand-in, as `start_buckets` does, and writes the bundled database's
+    /// secrets beside its bucket's, then returns the settings of its backup bucket.
+    pub fn start_bucket(&self) -> Vec<(String, String)> {
+        let address = self.start_buckets();
         self.write(
             &format!("{DEPLOYMENT}/secrets/backup_cipher_pass"),
             "the passphrase of the e2e tests' backups",
@@ -798,6 +819,22 @@ impl Server {
             ("BACKUP_S3_REGION", "us-east-1"),
             ("BACKUP_S3_BUCKET", "backups"),
             ("BACKUP_S3_URI_STYLE", "path"),
+        ]
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .collect()
+    }
+
+    /// Starts the buckets' stand-in, as `start_buckets` does, and returns the settings of its
+    /// files bucket, which every deployment's replicas reach (the files spec's "Storage").
+    pub fn start_files_bucket(&self) -> Vec<(String, String)> {
+        let address = self.start_buckets();
+        [
+            ("FILES_S3_ENDPOINT", address.as_str()),
+            ("FILES_S3_PORT", "8334"),
+            ("FILES_S3_REGION", "us-east-1"),
+            ("FILES_S3_BUCKET", "files"),
+            ("FILES_S3_URI_STYLE", "path"),
         ]
         .iter()
         .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))

@@ -13,7 +13,7 @@ A restore starts from a base backup that ended before the moment it restores to,
 
 pgBackRest compresses everything with zstd, and encrypts it with AES-256 before it leaves the server, with the passphrase in `secrets/backup_cipher_pass` (OPS-17). The bucket's provider sees nothing it can read.
 
-The backups don't hold the deployment's settings and secrets, which the next sections say to keep elsewhere, nor the observability stack's metrics, logs and traces, which a new server starts without. Caddy obtains new certificates on its own.
+The backups don't hold the deployment's settings and secrets, which the next sections say to keep elsewhere, nor the bytes of the files users upload, which stay in their own bucket, off the server ([deploy.md](deploy.md#the-files-bucket)), nor the observability stack's metrics, logs and traces, which a new server starts without. Caddy obtains new certificates on its own.
 
 ## Recovery targets
 

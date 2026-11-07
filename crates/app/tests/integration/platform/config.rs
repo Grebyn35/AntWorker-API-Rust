@@ -75,6 +75,11 @@ fn ops_01_each_number_setting_is_refused_just_outside_its_range() {
         ("SMTP_HOST", "127.0.0.1"),
         ("SMTP_SECURITY", "none"),
         ("EMAIL_FROM", "AntWorker <noreply@example.com>"),
+        ("S3_ENDPOINT", "https://bucket.invalid"),
+        ("S3_REGION", "us-east-1"),
+        ("S3_BUCKET", "files"),
+        ("S3_ACCESS_KEY_ID", "key"),
+        ("S3_SECRET_ACCESS_KEY", "secret"),
     ];
 
     for (name, low, high) in &ranged {

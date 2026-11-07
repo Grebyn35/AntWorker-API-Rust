@@ -87,6 +87,12 @@ pub trait ErrorCode: Error {
     fn errors(&self) -> Option<Vec<FieldError>> {
         None
     }
+
+    /// How many seconds a client waits before it retries, which a 503's `Retry-After` gives
+    /// (API-07).
+    fn retry_after_seconds(&self) -> u32 {
+        1
+    }
 }
 
 /// One field of a request that failed validation (API-07, API-10).
@@ -195,6 +201,12 @@ fn response(error: &(dyn ErrorCode + 'static)) -> Response {
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/problem+json"),
     );
+    if error.category() == Category::Unavailable {
+        response.headers_mut().insert(
+            header::RETRY_AFTER,
+            HeaderValue::from(error.retry_after_seconds()),
+        );
+    }
     if status.is_server_error() {
         response.extensions_mut().insert(ErrorReport {
             code: error.code(),
