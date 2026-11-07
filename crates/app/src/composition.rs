@@ -29,6 +29,7 @@ use crate::modules::{
     accounts,
     audit,
     auth,
+    files,
     // part: invitations
     invitations::{self, Invitations},
     // end part: invitations
@@ -207,6 +208,7 @@ pub async fn compose(
         .merge(invitations::routes().with_state(invitations))
         // end part: invitations
         .merge(workspaces::routes().with_state(database.clone()))
+        .merge(files::routes())
         .merge(realtime::routes().with_state(realtime));
     Ok(Services {
         routes,
@@ -268,6 +270,7 @@ pub fn openapi(service: Service) -> OpenApi {
         // part: invitations
         invitations::routes().openapi(service),
         // end part: invitations
+        files::routes().openapi(service),
     ])
 }
 

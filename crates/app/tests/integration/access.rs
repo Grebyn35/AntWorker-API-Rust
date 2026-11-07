@@ -388,6 +388,46 @@ const FIXTURES: &[Fixture] = &[
         success: StatusCode::CREATED,
     },
     // end part: invitations
+    Fixture {
+        method: "post",
+        template: "/v1/workspaces/{workspace_id}/files",
+        path: |workspace, _| format!("/v1/workspaces/{workspace}/files"),
+        row: None,
+        body: Some((r#"{"name": "Blue"}"#, "application/json")),
+        success: StatusCode::CREATED,
+    },
+    Fixture {
+        method: "get",
+        template: "/v1/workspaces/{workspace_id}/files",
+        path: |workspace, _| format!("/v1/workspaces/{workspace}/files"),
+        row: None,
+        body: None,
+        success: StatusCode::OK,
+    },
+    Fixture {
+        method: "get",
+        template: "/v1/workspaces/{workspace_id}/files/{file_id}",
+        path: |workspace, id| format!("/v1/workspaces/{workspace}/files/{id}"),
+        row: Some(|db, workspace| Box::pin(crate::support::files::arrange(db, workspace, "Blue"))),
+        body: None,
+        success: StatusCode::OK,
+    },
+    Fixture {
+        method: "patch",
+        template: "/v1/workspaces/{workspace_id}/files/{file_id}",
+        path: |workspace, id| format!("/v1/workspaces/{workspace}/files/{id}"),
+        row: Some(|db, workspace| Box::pin(crate::support::files::arrange(db, workspace, "Blue"))),
+        body: Some((r#"{"name": "Red"}"#, "application/merge-patch+json")),
+        success: StatusCode::OK,
+    },
+    Fixture {
+        method: "delete",
+        template: "/v1/workspaces/{workspace_id}/files/{file_id}",
+        path: |workspace, id| format!("/v1/workspaces/{workspace}/files/{id}"),
+        row: Some(|db, workspace| Box::pin(crate::support::files::arrange(db, workspace, "Blue"))),
+        body: None,
+        success: StatusCode::NO_CONTENT,
+    },
 ];
 
 /// The fixture of the route `method` `template`, if it has one.

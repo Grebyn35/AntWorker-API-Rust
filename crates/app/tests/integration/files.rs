@@ -1,0 +1,520 @@
+//! A workspace's files (the files spec).
+
+use serde_json::{Value, json};
+
+use crate::support::{
+    Api,
+    api::Response,
+    events::{self, Event},
+    files,
+    lists::{field, pages},
+    streams,
+    users::{self, SignedIn},
+    workspaces,
+};
+
+/// Creates a file named `name` in `workspace` as `user`, with `key` as its idempotency key
+/// if given.
+async fn create(
+    api: &Api,
+    user: &SignedIn,
+    workspace: &str,
+    name: &str,
+    key: Option<&str>,
+) -> Response {
+    let mut call = api
+        .post(
+            &format!("/v1/workspaces/{workspace}/files"),
+            &json!({ "name": name }),
+        )
+        .bearer(&user.access);
+    if let Some(key) = key {
+        call = call.header("idempotency-key", key);
+    }
+    call.send().await
+}
+
+/// Renames `file` of `workspace` to `name` as `user`, with `if_match` as its `If-Match` if
+/// given.
+async fn rename(
+    api: &Api,
+    user: &SignedIn,
+    workspace: &str,
+    file: &str,
+    name: &str,
+    if_match: Option<&str>,
+) -> Response {
+    let mut call = api
+        .patch(
+            &format!("/v1/workspaces/{workspace}/files/{file}"),
+            &json!({ "name": name }),
+        )
+        .bearer(&user.access);
+    if let Some(etag) = if_match {
+        call = call.header("if-match", etag);
+    }
+    call.send().await
+}
+
+/// Deletes `file` of `workspace` as `user`.
+async fn delete(api: &Api, user: &SignedIn, workspace: &str, file: &str) -> Response {
+    let path = format!("/v1/workspaces/{workspace}/files/{file}");
+    api.request(http::Method::DELETE, &path)
+        .bearer(&user.access)
+        .send()
+        .await
+}
+
+/// A workspace that `ada` owns and `grace` belongs to at `role`, with both signed in.
+async fn acme(api: &Api, role: &str) -> (String, SignedIn, SignedIn) {
+    let ada = users::register(api, "ada@example.com").await;
+    let grace = users::register(api, "grace@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    workspaces::join(db, &workspace, &grace.user_id, role).await;
+    (workspace, ada, grace)
+}
+
+/// The names the files of `workspace` hold, in the order of their IDs.
+async fn stored_names(api: &Api, workspace: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT name FROM files WHERE workspace_id = '{workspace}' ORDER BY id"
+        ))
+        .await
+}
+
+/// Each audit entry of `action`, as its log, workspace, actor, resource and details.
+async fn entries(api: &Api, action: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
+             || resource_type || ' ' || resource_id || ' ' || details::text \
+             FROM audit_entries WHERE action = '{action}'"
+        ))
+        .await
+}
+
+/// Each event named `name`, as its scope, workspace and permission, then its payload's
+/// workspace, its file and how many fields it holds.
+async fn published(api: &Api, name: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT scope || ' ' || workspace_id || ' ' || permission || ' ' \
+             || (payload ->> 'workspace_id') || ' ' || (payload ->> 'file_id') || ' ' \
+             || (SELECT count(*) FROM jsonb_object_keys(payload)) \
+             FROM events WHERE name = '{name}'"
+        ))
+        .await
+}
+
+#[tokio::test]
+async fn files_001_creating_a_file_stores_it_records_it_and_publishes_it() {
+    let api = Api::new().await;
+    let (workspace, _, grace) = acme(&api, "member").await;
+
+    let response = create(&api, &grace, &workspace, "Blue", None).await;
+
+    assert_eq!(response.status, 201);
+    let body = response.json();
+    let id = body["id"].as_str().unwrap();
+    assert_eq!(
+        response.header("location"),
+        format!("/v1/workspaces/{workspace}/files/{id}")
+    );
+    assert_eq!(response.header("etag"), "\"1\"");
+    assert_eq!(body["name"], "Blue");
+    assert!(body["created_at"].as_str().unwrap().ends_with('Z'));
+    assert_eq!(body["updated_at"], body["created_at"]);
+    assert_eq!(stored_names(&api, &workspace).await, ["Blue"]);
+    assert_eq!(
+        entries(&api, "file.created").await,
+        [format!(
+            "workspace {workspace} {} file {id} {{}}",
+            grace.user_id
+        )]
+    );
+    assert_eq!(
+        published(&api, "file.created").await,
+        [format!(
+            "workspace {workspace} files.read {workspace} {id} 2"
+        )]
+    );
+}
+
+#[tokio::test]
+async fn files_001_a_retry_with_the_key_creates_one_file() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+
+    let first = create(&api, &ada, &workspace, "Blue", Some("\"k1\"")).await;
+    let retry = create(&api, &ada, &workspace, "Blue", Some("\"k1\"")).await;
+
+    assert_eq!(first.status, 201);
+    assert_eq!(retry.status, 201);
+    assert_eq!(retry.json(), first.json());
+    assert_eq!(retry.header("location"), first.header("location"));
+    assert_eq!(retry.header("etag"), first.header("etag"));
+    assert_eq!(stored_names(&api, &workspace).await, ["Blue"]);
+    assert_eq!(entries(&api, "file.created").await.len(), 1);
+}
+
+#[tokio::test]
+async fn files_002_a_name_is_stored_normalized_and_must_hold_a_character() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+
+    let created = create(&api, &ada, &workspace, "  Blue \t one ", None).await;
+    let blank = create(&api, &ada, &workspace, " \t ", None).await;
+    // A name longer than the document allows is malformed input, sent raw.
+    let long = api
+        .post_raw(
+            &format!("/v1/workspaces/{workspace}/files"),
+            &json!({ "name": "a".repeat(256) }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(created.status, 201);
+    assert_eq!(created.json()["name"], "Blue one");
+    for (refused, code) in [(&blank, "required"), (&long, "too_long")] {
+        assert_eq!(refused.status, 400);
+        assert_eq!(refused.json()["code"], "request.invalid_fields");
+        assert_eq!(refused.json()["errors"][0]["field"], "/name");
+        assert_eq!(refused.json()["errors"][0]["code"], code);
+    }
+    assert_eq!(stored_names(&api, &workspace).await, ["Blue one"]);
+}
+
+#[tokio::test]
+async fn files_002_a_new_name_is_refused_unless_it_holds_a_character() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let id = files::arrange(api.database(), &workspace, "Blue").await;
+
+    let blank = rename(&api, &ada, &workspace, &id, " \t ", None).await;
+    // A name longer than the document allows is malformed input, sent raw.
+    let long = api
+        .request(
+            http::Method::PATCH,
+            &format!("/v1/workspaces/{workspace}/files/{id}"),
+        )
+        .header("content-type", "application/merge-patch+json")
+        .body(json!({ "name": "a".repeat(256) }).to_string())
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    for (refused, code) in [(&blank, "required"), (&long, "too_long")] {
+        assert_eq!(refused.status, 400);
+        assert_eq!(refused.json()["code"], "request.invalid_fields");
+        assert_eq!(refused.json()["errors"][0]["field"], "/name");
+        assert_eq!(refused.json()["errors"][0]["code"], code);
+    }
+    assert_eq!(stored_names(&api, &workspace).await, ["Blue"]);
+}
+
+#[tokio::test]
+async fn files_003_lists_the_workspace_s_files_the_latest_created_first() {
+    let api = Api::new().await;
+    let (workspace, ada, grace) = acme(&api, "member").await;
+    let db = api.database();
+    let other = workspaces::arrange(db, "Other", &[(&ada.user_id, "owner")]).await;
+    let first = files::arrange(db, &workspace, "First").await;
+    let second = files::arrange(db, &workspace, "Second").await;
+    files::arrange(db, &other, "Elsewhere").await;
+    db.owner_executes(&format!(
+        "UPDATE files SET created_at = CASE id \
+         WHEN '{first}' THEN timestamptz '2026-11-01T10:00:00Z' \
+         ELSE timestamptz '2026-11-01T11:00:00.5Z' END"
+    ))
+    .await;
+
+    let response = api
+        .get(&format!("/v1/workspaces/{workspace}/files"))
+        .bearer(&grace.access)
+        .send()
+        .await;
+
+    assert_eq!(response.status, 200);
+    let body = response.json();
+    assert_eq!(field(&body, "id"), [second, first]);
+    assert_eq!(field(&body, "name"), ["Second", "First"]);
+    assert_eq!(
+        field(&body, "created_at"),
+        ["2026-11-01T11:00:00.500000Z", "2026-11-01T10:00:00.000000Z"]
+    );
+    assert_eq!(body["next_cursor"], Value::Null);
+}
+
+#[tokio::test]
+async fn files_003_paging_returns_each_file_once_across_a_shared_creation_time() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let db = api.database();
+    let mut arranged = Vec::new();
+    for name in ["A", "B", "C", "D", "E"] {
+        arranged.push(files::arrange(db, &workspace, name).await);
+    }
+    db.owner_executes("UPDATE files SET created_at = '2026-11-01T10:00:00Z'")
+        .await;
+
+    let path = format!("/v1/workspaces/{workspace}/files?limit=2");
+    let pages = pages(&api, &ada, &path, "id").await;
+
+    // Among files that share a creation time, the higher ID comes first.
+    arranged.sort();
+    arranged.reverse();
+    assert_eq!(pages.iter().map(Vec::len).collect::<Vec<_>>(), [2, 2, 1]);
+    assert_eq!(pages.concat(), arranged);
+}
+
+#[tokio::test]
+async fn files_003_a_limit_and_a_search_it_refuses_are_reported_together() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+
+    let response = api
+        .get(&format!(
+            "/v1/workspaces/{workspace}/files?limit=0&search=%20"
+        ))
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(response.status, 400);
+    let body = response.json();
+    assert_eq!(body["code"], "request.invalid_query");
+    let refused: Vec<(&str, &str)> = body["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|error| {
+            (
+                error["field"].as_str().unwrap(),
+                error["code"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        refused,
+        [("/limit", "out_of_range"), ("/search", "required")]
+    );
+}
+
+#[tokio::test]
+async fn files_003_a_search_pages_through_its_matches() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let db = api.database();
+    for name in ["Blue one", "Red", "Blue two", "Blue three"] {
+        files::arrange(db, &workspace, name).await;
+    }
+
+    let path = format!("/v1/workspaces/{workspace}/files?search=BLUE&limit=2");
+    let pages = pages(&api, &ada, &path, "name").await;
+
+    assert_eq!(pages, [vec!["Blue three", "Blue two"], vec!["Blue one"]]);
+}
+
+#[tokio::test]
+async fn files_004_reading_a_file_gives_it_with_its_etag() {
+    let api = Api::new().await;
+    let (workspace, _, grace) = acme(&api, "member").await;
+    let id = files::arrange(api.database(), &workspace, "Blue").await;
+
+    let read = api
+        .get(&format!("/v1/workspaces/{workspace}/files/{id}"))
+        .bearer(&grace.access)
+        .send()
+        .await;
+
+    assert_eq!(read.status, 200);
+    let body = read.json();
+    assert_eq!(body["id"], id);
+    assert_eq!(body["name"], "Blue");
+    assert!(body["created_at"].as_str().unwrap().ends_with('Z'));
+    assert_eq!(body["updated_at"], body["created_at"]);
+    assert_eq!(read.header("etag"), "\"1\"");
+}
+
+#[tokio::test]
+async fn files_004_an_id_that_names_no_file_of_the_workspace_answers_404() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let db = api.database();
+    let other = workspaces::arrange(db, "Other", &[(&ada.user_id, "owner")]).await;
+    let elsewhere = files::arrange(db, &other, "Elsewhere").await;
+
+    for file in [
+        elsewhere.as_str(),
+        "019a0000-0000-7000-8000-000000000000",
+        "not-a-uuid",
+    ] {
+        let path = format!("/v1/workspaces/{workspace}/files/{file}");
+        let read = api.get(&path).bearer(&ada.access).send().await;
+        let renamed = rename(&api, &ada, &workspace, file, "Red", None).await;
+        let deleted = delete(&api, &ada, &workspace, file).await;
+
+        for response in [read, renamed, deleted] {
+            assert_eq!(response.status, 404, "{file}");
+            assert_eq!(response.json()["code"], "files.not_found", "{file}");
+        }
+    }
+    assert_eq!(stored_names(&api, &other).await, ["Elsewhere"]);
+}
+
+#[tokio::test]
+async fn files_005_renaming_stores_the_name_records_it_and_publishes_it() {
+    let api = Api::new().await;
+    let (workspace, _, grace) = acme(&api, "member").await;
+    let id = files::arrange(api.database(), &workspace, "Blue").await;
+
+    let response = rename(
+        &api,
+        &grace,
+        &workspace,
+        &id,
+        "  Red \t one ",
+        Some("\"1\""),
+    )
+    .await;
+
+    assert_eq!(response.status, 200);
+    let body = response.json();
+    assert_eq!(body["id"], id);
+    assert_eq!(body["name"], "Red one");
+    let created_at = body["created_at"].as_str().unwrap();
+    assert!(created_at.ends_with('Z'));
+    assert!(body["updated_at"].as_str().unwrap() > created_at);
+    assert_eq!(response.header("etag"), "\"2\"");
+    assert_eq!(stored_names(&api, &workspace).await, ["Red one"]);
+    assert_eq!(
+        entries(&api, "file.renamed").await,
+        [format!(
+            "workspace {workspace} {} file {id} {{}}",
+            grace.user_id
+        )]
+    );
+    assert_eq!(
+        published(&api, "file.renamed").await,
+        [format!(
+            "workspace {workspace} files.read {workspace} {id} 2"
+        )]
+    );
+}
+
+#[tokio::test]
+async fn files_005_a_stale_etag_answers_412_and_changes_nothing() {
+    let api = Api::new().await;
+    let (workspace, ada, grace) = acme(&api, "member").await;
+    let id = files::arrange(api.database(), &workspace, "Blue").await;
+
+    let first = rename(&api, &grace, &workspace, &id, "Red", Some("\"1\"")).await;
+    let stale = rename(&api, &ada, &workspace, &id, "Green", Some("\"1\"")).await;
+
+    assert_eq!(first.status, 200);
+    assert_eq!(stale.status, 412);
+    assert_eq!(stale.json()["code"], "request.precondition_failed");
+    assert_eq!(stored_names(&api, &workspace).await, ["Red"]);
+    assert_eq!(entries(&api, "file.renamed").await.len(), 1);
+    assert_eq!(published(&api, "file.renamed").await.len(), 1);
+}
+
+#[tokio::test]
+async fn files_006_deleting_a_file_deletes_it_records_it_and_publishes_it() {
+    let api = Api::new().await;
+    let (workspace, _, grace) = acme(&api, "admin").await;
+    let id = files::arrange(api.database(), &workspace, "Blue").await;
+
+    let response = delete(&api, &grace, &workspace, &id).await;
+
+    assert_eq!(response.status, 204);
+    assert!(stored_names(&api, &workspace).await.is_empty());
+    assert_eq!(
+        entries(&api, "file.deleted").await,
+        [format!(
+            "workspace {workspace} {} file {id} {{}}",
+            grace.user_id
+        )]
+    );
+    assert_eq!(
+        published(&api, "file.deleted").await,
+        [format!(
+            "workspace {workspace} files.read {workspace} {id} 2"
+        )]
+    );
+}
+
+#[tokio::test]
+async fn files_006_a_member_may_not_delete_and_the_owner_may() {
+    let api = Api::new().await;
+    let (workspace, ada, grace) = acme(&api, "member").await;
+    let id = files::arrange(api.database(), &workspace, "Grace's").await;
+
+    let refused = delete(&api, &grace, &workspace, &id).await;
+    let unchanged = stored_names(&api, &workspace).await;
+    let deleted = delete(&api, &ada, &workspace, &id).await;
+
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.json()["code"], "request.permission_denied");
+    assert_eq!(unchanged, ["Grace's"]);
+    assert_eq!(deleted.status, 204);
+    assert!(stored_names(&api, &workspace).await.is_empty());
+}
+
+#[tokio::test]
+async fn sec_19_file_events_reach_the_members_and_no_replay_from_before_joining() {
+    let api = Api::new().await;
+    let (workspace, ada, grace) = acme(&api, "member").await;
+    let alan = users::register(&api, "alan@example.com").await;
+    let db = api.database();
+    // An event to Alan alone gives his stream one to resume after.
+    db.owner_executes(&events::statement(
+        &[Event::to_user(&alan.user_id, "note.made", "{}")],
+        true,
+    ))
+    .await;
+    let before = streams::opened(&api, &alan).await.last_event_id;
+    // Every role holds files.read, which the file events require: no member lacks
+    // it.
+    let mut owner = streams::opened(&api, &ada).await;
+    let mut member = streams::opened(&api, &grace).await;
+
+    let created = create(&api, &ada, &workspace, "Blue", None).await.json();
+    let first = created["id"].as_str().unwrap();
+    let renamed = rename(&api, &ada, &workspace, first, "Red", None).await;
+    let deleted = delete(&api, &ada, &workspace, first).await;
+    workspaces::join(db, &workspace, &alan.user_id, "member").await;
+    let mut joined = streams::connect(&api, &alan.access, before.as_deref()).await;
+    joined.opened().await;
+    let after = create(&api, &ada, &workspace, "Green", None).await.json();
+    let after_joining = joined.event().await;
+
+    assert_eq!(renamed.status, 200);
+    assert_eq!(deleted.status, 204);
+    let second = after["id"].as_str().unwrap();
+    let expected = [
+        ("file.created", first),
+        ("file.renamed", first),
+        ("file.deleted", first),
+        ("file.created", second),
+    ];
+    let mut ids = Vec::new();
+    for stream in [&mut owner, &mut member] {
+        for (name, file) in expected {
+            let event = stream.event().await;
+            assert_eq!(event.event.as_deref(), Some(name));
+            assert_eq!(
+                event.payload(),
+                &json!({ "workspace_id": workspace, "file_id": file })
+            );
+            ids.push(event.id);
+        }
+    }
+    // None of the three events from before Alan joined is replayed to him: the first he receives
+    // is the create made after.
+    assert_eq!(after_joining.event.as_deref(), Some("file.created"));
+    assert_eq!(after_joining.id, ids[3]);
+}

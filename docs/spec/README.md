@@ -39,3 +39,4 @@ A behavior's ID is the module name in capitals plus a three-digit number, such a
 | `invitations` | [invitations.md](invitations.md) <!-- part: invitations --> |
 | `audit` | [audit.md](audit.md) |
 | `realtime` | [realtime.md](realtime.md) |
+| `files` | [files.md](files.md) |

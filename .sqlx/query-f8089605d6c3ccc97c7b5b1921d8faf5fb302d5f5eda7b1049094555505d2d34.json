@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE files SET name = $3\n        WHERE workspace_id = $1 AND id = $2 AND ($4::bigint[] IS NULL OR version = ANY($4))\n        RETURNING created_at, updated_at, version",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "files",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "files",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "files",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f8089605d6c3ccc97c7b5b1921d8faf5fb302d5f5eda7b1049094555505d2d34"
+}

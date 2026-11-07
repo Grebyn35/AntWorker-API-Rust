@@ -11,6 +11,7 @@ pub(crate) use model::{MemberFilter, Membership, Role};
 // part: invitations
 pub(crate) use permissions::InvitationsCreate;
 // end part: invitations
+pub(crate) use permissions::{FilesCreate, FilesDelete, FilesRead, FilesUpdate};
 pub(crate) use permissions::{MembersRead, MembersRemove, WorkspaceRead, WorkspaceUpdate, matrix};
 pub(crate) use service::{
     Policy, Removal, add_owner, joined, member_ids, members, remove, workspace_ids,

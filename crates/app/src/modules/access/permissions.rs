@@ -42,6 +42,34 @@ impl Permission for InvitationsCreate {
 }
 // end part: invitations
 
+/// Reading the workspace's files, and receiving their events.
+pub(crate) struct FilesRead;
+
+impl Permission for FilesRead {
+    const NAME: &'static str = "files.read";
+}
+
+/// Creating a file.
+pub(crate) struct FilesCreate;
+
+impl Permission for FilesCreate {
+    const NAME: &'static str = "files.create";
+}
+
+/// Renaming a file.
+pub(crate) struct FilesUpdate;
+
+impl Permission for FilesUpdate {
+    const NAME: &'static str = "files.update";
+}
+
+/// Deleting a file.
+pub(crate) struct FilesDelete;
+
+impl Permission for FilesDelete {
+    const NAME: &'static str = "files.delete";
+}
+
 /// Each permission, and the roles that hold it (ACCESS-002).
 const MATRIX: &[(&str, &[Role])] = &[
     ("workspace.read", &[Role::Owner, Role::Admin, Role::Member]),
@@ -51,6 +79,10 @@ const MATRIX: &[(&str, &[Role])] = &[
     // part: invitations
     ("invitations.create", &[Role::Owner, Role::Admin]),
     // end part: invitations
+    ("files.read", &[Role::Owner, Role::Admin, Role::Member]),
+    ("files.create", &[Role::Owner, Role::Admin, Role::Member]),
+    ("files.update", &[Role::Owner, Role::Admin, Role::Member]),
+    ("files.delete", &[Role::Owner, Role::Admin]),
 ];
 
 /// Whether `role` holds the permission named `permission`: exactly when the matrix says so
@@ -94,7 +126,7 @@ mod tests {
                 // part: invitations
                 "invitations.create",
                 // end part: invitations
-                "files.read",
+                "unlisted.read",
             ]
             .into_iter()
             .filter(|permission| grants(role, permission))

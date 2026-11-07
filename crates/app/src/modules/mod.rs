@@ -4,6 +4,7 @@ pub(crate) mod access;
 pub(crate) mod accounts;
 pub(crate) mod audit;
 pub(crate) mod auth;
+pub(crate) mod files;
 // part: invitations
 pub(crate) mod invitations;
 // end part: invitations
