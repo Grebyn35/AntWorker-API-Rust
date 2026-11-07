@@ -79,15 +79,36 @@ pub struct Storage {
     copy: Option<Arc<AmazonS3>>,
 }
 
+/// The size of rclone's `crypt` header, which starts each object of the copy.
+const CRYPT_HEADER: u64 = 32;
+
+/// How many bytes `crypt` encrypts in each block, after which it writes its authenticator.
+const CRYPT_BLOCK: u64 = 64 * 1024;
+
+/// The size of the authenticator of each block.
+const CRYPT_AUTHENTICATOR: u64 = 16;
+
 /// Which of the buckets holds an object.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Held {
     /// The bucket alone.
     Bucket,
-    /// The copy alone.
-    Copy,
+    /// The copy alone, as an object of `size` bytes.
+    Copy {
+        /// The size of the copy's object, which `crypt` encrypted.
+        size: u64,
+    },
     /// Both.
     Both,
+}
+
+/// The size of the copy's object of an object of `size` bytes, as rclone's `crypt` writes it: a
+/// header of 32 bytes, then each block of 64 KiB of the bytes, the last one shorter, followed by
+/// its authenticator of 16 bytes. `crypt` checks each block it decrypts, but not that a block
+/// follows the last one it finds, so an object cut short after a block decrypts without an error,
+/// and only its size tells it from the object it was (PLATFORM-078).
+pub const fn copy_size(size: u64) -> u64 {
+    CRYPT_HEADER + size + size.div_ceil(CRYPT_BLOCK) * CRYPT_AUTHENTICATOR
 }
 
 /// A failure to reach the bucket.
@@ -208,19 +229,20 @@ impl Storage {
     }
 
     /// The keys of the objects under `prefix` that the bucket or its copy holds, each once, in
-    /// the order of the keys, with which of the two holds it. Each bucket lists its keys in
-    /// order, as S3's `ListObjectsV2` does, and a list that doesn't fails the stream, rather than
-    /// merging the two wrongly.
+    /// the order of the keys, with which of the two holds it, and the size of the copy's object
+    /// when the copy alone holds it. Each bucket lists its keys in order, as S3's
+    /// `ListObjectsV2` does, and a list that doesn't fails the stream, rather than merging the two
+    /// wrongly.
     pub fn holdings(
         &self,
         prefix: &str,
     ) -> BoxStream<'static, Result<(ObjectKey, Held), StorageError>> {
         let merge = Merge {
-            bucket: keys(&self.bucket, Some(prefix)).fuse(),
+            bucket: objects(&self.bucket, Some(prefix)).fuse(),
             copy: self
                 .copy
                 .as_ref()
-                .map(|copy| keys(copy, Some(prefix)).fuse()),
+                .map(|copy| objects(copy, Some(prefix)).fuse()),
             next_bucket: None,
             next_copy: None,
             last: None,
@@ -234,7 +256,11 @@ impl Storage {
     /// Whether the bucket holds no object at all, as a new server's doesn't, from the first
     /// page of its list.
     pub async fn is_empty(&self) -> Result<bool, StorageError> {
-        Ok(keys(&self.bucket, None).next().await.transpose()?.is_none())
+        Ok(objects(&self.bucket, None)
+            .next()
+            .await
+            .transpose()?
+            .is_none())
     }
 
     /// Whether the bucket is restoring from its copy: whether it holds the object that marks it
@@ -304,18 +330,21 @@ async fn deleted(bucket: &AmazonS3, key: &ObjectKey) -> Result<(), StorageError>
     }
 }
 
-/// The keys of the objects of `bucket` under `prefix`, or every object's, as the bucket lists
-/// them, a page at a time.
-fn keys(
+/// An object that a bucket lists: its key, and its size.
+type Listed = (ObjectKey, u64);
+
+/// The objects of `bucket` under `prefix`, or every object, as the bucket lists them, a page at a
+/// time.
+fn objects(
     bucket: &Arc<AmazonS3>,
     prefix: Option<&str>,
-) -> BoxStream<'static, Result<ObjectKey, StorageError>> {
+) -> BoxStream<'static, Result<Listed, StorageError>> {
     let prefix = prefix.map(|prefix| Path::from(prefix.trim_end_matches('/')));
     Arc::clone(bucket)
         .list(prefix.as_ref())
         .map(|listed| {
             listed
-                .map(|meta| ObjectKey(meta.location.to_string()))
+                .map(|meta| (ObjectKey(meta.location.to_string()), meta.size))
                 .map_err(classify)
         })
         .boxed()
@@ -324,10 +353,10 @@ fn keys(
 /// The merge of the bucket's list with its copy's, each in the order of the keys, and fused, so
 /// that one which has ended is asked again for nothing.
 struct Merge {
-    bucket: Fuse<BoxStream<'static, Result<ObjectKey, StorageError>>>,
-    copy: Option<Fuse<BoxStream<'static, Result<ObjectKey, StorageError>>>>,
-    next_bucket: Option<ObjectKey>,
-    next_copy: Option<ObjectKey>,
+    bucket: Fuse<BoxStream<'static, Result<Listed, StorageError>>>,
+    copy: Option<Fuse<BoxStream<'static, Result<Listed, StorageError>>>>,
+    next_bucket: Option<Listed>,
+    next_copy: Option<Listed>,
     last: Option<ObjectKey>,
 }
 
@@ -346,16 +375,16 @@ impl Merge {
         let held = match (&self.next_bucket, &self.next_copy) {
             (None, None) => return Ok(None),
             (Some(_), None) => Held::Bucket,
-            (None, Some(_)) => Held::Copy,
-            (Some(bucket), Some(copy)) => match bucket.0.cmp(&copy.0) {
+            (None, Some((_, size))) => Held::Copy { size: *size },
+            (Some((bucket, _)), Some((copy, size))) => match bucket.0.cmp(&copy.0) {
                 Ordering::Less => Held::Bucket,
-                Ordering::Greater => Held::Copy,
+                Ordering::Greater => Held::Copy { size: *size },
                 Ordering::Equal => Held::Both,
             },
         };
-        let key = match held {
+        let (key, _) = match held {
             Held::Bucket => self.next_bucket.take(),
-            Held::Copy => self.next_copy.take(),
+            Held::Copy { .. } => self.next_copy.take(),
             Held::Both => self.next_copy.take().and(self.next_bucket.take()),
         }
         .ok_or_else(|| StorageError::Failed(Internal::new("a list's next key went missing")))?;
@@ -430,6 +459,15 @@ mod tests {
             },
             copy: None,
         }
+    }
+
+    #[test]
+    fn platform_078_the_copy_s_size_of_an_object_is_crypt_s() {
+        // rclone's crypt wrote 200,096 bytes for 200,000 (4 blocks), measured with rclone 1.75.2.
+        assert_eq!(copy_size(200_000), 200_096);
+        assert_eq!(copy_size(1), 32 + 1 + 16);
+        assert_eq!(copy_size(65_536), 32 + 65_536 + 16);
+        assert_eq!(copy_size(65_537), 32 + 65_537 + 32);
     }
 
     #[test]

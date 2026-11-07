@@ -341,15 +341,29 @@ pub enum FilesRestored {
     },
 }
 
+/// What `restore-files` is asked to do (FILES-015).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RestoreFiles {
+    /// Do nothing while the bucket holds an object, as a deploy asks.
+    pub when_empty: bool,
+    /// Remove the files whose bytes neither bucket holds even while the copy holds no object
+    /// that a file's row names.
+    pub allow_lost_files: bool,
+}
+
 /// Removes the files whose bytes neither the bucket nor its copy holds, and marks the bucket as
 /// restoring from its copy when the copy holds an object that it lacks; with `when_empty`, only
 /// when the bucket holds no object (FILES-015, the files spec's "Restoring from the copy").
 pub async fn restore_files(
     database: &Database,
     storage: &Storage,
-    when_empty: bool,
+    asked: RestoreFiles,
 ) -> Result<FilesRestored, Internal> {
-    Ok(match files::restore(database, storage, when_empty).await? {
+    let asked = files::Restore {
+        when_empty: asked.when_empty,
+        allow_lost_files: asked.allow_lost_files,
+    };
+    Ok(match files::restore(database, storage, asked).await? {
         files::Restored::NotEmpty => FilesRestored::NotEmpty,
         files::Restored::Checked { lost, restoring } => FilesRestored::Checked {
             lost: lost

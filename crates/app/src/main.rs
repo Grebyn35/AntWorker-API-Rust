@@ -65,6 +65,11 @@ enum Command {
         /// Do nothing while the bucket holds an object, as a deploy asks.
         #[arg(long)]
         when_empty: bool,
+        /// Remove the files whose bytes neither the bucket nor its copy holds even while the copy
+        /// holds no object that a file's row names, which it otherwise refuses, since its
+        /// settings may name another bucket.
+        #[arg(long)]
+        allow_lost_files: bool,
     },
     /// Asks the instance that `LISTEN_ADDR` names whether it is ready, for a container's health
     /// check, and exits 0 only if it is.
@@ -94,10 +99,21 @@ fn main() -> ExitCode {
                 .and_then(|server| Ok((server, app::Config::read(&settings)?)));
             start(settings.telemetry(), config, seed)
         }
-        Command::RestoreFiles { when_empty } => start(
+        Command::RestoreFiles {
+            when_empty,
+            allow_lost_files,
+        } => start(
             settings.telemetry(),
             settings.restore_files(),
-            move |config| restore_files(config, when_empty),
+            move |config| {
+                restore_files(
+                    config,
+                    app::RestoreFiles {
+                        when_empty,
+                        allow_lost_files,
+                    },
+                )
+            },
         ),
         Command::Health => health(settings.health()),
         Command::Openapi { path } => openapi(&path),
@@ -286,7 +302,7 @@ async fn seed((config, modules): (ServerConfig, app::Config)) -> ExitCode {
 /// Removes the files whose bytes neither bucket holds, marks the bucket as restoring from its copy
 /// when the copy holds what it lacks, and prints what it did (FILES-015). It opens 2 connections
 /// at most, as `app`, after the startup checks.
-async fn restore_files(config: RestoreFilesConfig, when_empty: bool) -> ExitCode {
+async fn restore_files(config: RestoreFilesConfig, asked: app::RestoreFiles) -> ExitCode {
     let database = match Database::connect(&config.database_url, 2, &app::MIGRATIONS).await {
         Ok(database) => database,
         Err(error) => return failed("database", &error),
@@ -295,7 +311,7 @@ async fn restore_files(config: RestoreFilesConfig, when_empty: bool) -> ExitCode
         Ok(storage) => storage,
         Err(error) => return failed("storage", &error),
     };
-    match app::restore_files(&database, &storage, when_empty).await {
+    match app::restore_files(&database, &storage, asked).await {
         Ok(restored) => {
             print_restored(&restored);
             ExitCode::SUCCESS

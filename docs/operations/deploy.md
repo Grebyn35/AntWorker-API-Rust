@@ -120,6 +120,7 @@ What a deploy refuses, and what to do:
 | A secret that the settings need is missing | Give it with `just server-setup`, which asks for each one |
 | The connections wouldn't fit | Lower `API_REPLICAS` or `DATABASE_MAX_CONNECTIONS`, or raise `POSTGRES_MAX_CONNECTIONS` (below) |
 | The release changes Postgres or Caddy | Deploy it again with `--allow-restart` when a few seconds of failed requests are acceptable (below) |
+| On a new server, the bundled files bucket's copy holds none of the files' objects | Correct the copy's settings, which may name another bucket; or, when they name the copy and it holds none of the files' bytes, deploy again with `--allow-lost-files`, which removes those files ([backups.md](backups.md#restoring-onto-a-new-server)) |
 | The new replicas don't become ready | Nothing to undo: the deploy removed them, and the live replicas never stopped. Its output ends with their last log lines |
 | Another deploy, backup or restore runs | Wait for it. Its lock goes when its processes end, however they end, so a task stopped by force leaves none |
 

@@ -2,7 +2,7 @@
 
 use futures_util::TryStreamExt;
 use platform::{
-    storage::{Bytes, ObjectKey, Storage},
+    storage::{self, Bytes, ObjectKey, Storage},
     telemetry::testing,
 };
 use serde_json::{Value, json};
@@ -621,6 +621,33 @@ async fn files_009_a_file_whose_bytes_the_bucket_lacks_answers_500_and_its_cause
 }
 
 #[tokio::test]
+async fn files_009_a_file_whose_object_has_another_size_answers_500_and_its_cause_names_it() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let id = files::arrange_row(api.database(), &workspace, "Blue").await;
+    let key = object_key(&api, &id).await;
+    // The file's bytes, cut short by one.
+    put_sized(
+        &api.database().bucket().await,
+        &key,
+        files::BYTES.len() as u64 - 1,
+    )
+    .await;
+
+    let response = download(&api, &ada, &workspace, &id).await;
+
+    assert_eq!(response.status, 500);
+    assert_eq!(response.json()["code"], "request.internal_error");
+    let trace_id = response.json()["trace_id"].as_str().unwrap().to_owned();
+    let errors: Vec<Value> = testing::logged(&trace_id)
+        .into_iter()
+        .filter(|line| line["level"] == "ERROR")
+        .collect();
+    assert_eq!(errors.len(), 1, "{errors:#?}");
+    assert!(errors[0].to_string().contains(&id), "{errors:#?}");
+}
+
+#[tokio::test]
 async fn files_010_deleting_a_file_deletes_its_row_records_it_and_publishes_it() {
     let api = Api::new().await;
     let (workspace, _, grace) = acme(&api, "admin").await;
@@ -871,6 +898,36 @@ async fn put(name: &str, key: &str) {
         .unwrap();
 }
 
+/// Writes the object `key` into the copy `name`, with as many bytes as rclone's `crypt` writes for
+/// the bytes that builders arrange, as the deployment's copy holds them.
+async fn put_in_copy(name: &str, key: &str) {
+    put_sized(name, key, storage::copy_size(files::BYTES.len() as u64)).await;
+}
+
+/// Writes the object `key` into the bucket `name`, with `size` bytes.
+async fn put_sized(name: &str, key: &str, size: u64) {
+    bucket::storage(name)
+        .put(
+            &ObjectKey::from_stored(key),
+            Bytes::from(vec![0; usize::try_from(size).unwrap()]),
+            "application/octet-stream",
+        )
+        .await
+        .unwrap();
+}
+
+/// What a restore asks of `restore-files`.
+const CHECK: app::RestoreFiles = app::RestoreFiles {
+    when_empty: false,
+    allow_lost_files: false,
+};
+
+/// What a deploy asks of `restore-files`.
+const WHEN_EMPTY: app::RestoreFiles = app::RestoreFiles {
+    when_empty: true,
+    allow_lost_files: false,
+};
+
 /// Deletes the object `key` from the bucket `name`.
 async fn remove_object(name: &str, key: &str) {
     bucket::storage(name)
@@ -908,11 +965,11 @@ async fn files_011_the_deletion_of_bytes_finds_and_deletes_the_copy_s_objects_to
     let name = db.bucket().await;
     let deleted = files::arrange(db, &workspace, "Deleted").await;
     let in_both = object_key(&api, &deleted).await;
-    put(&copy, &in_both).await;
+    put_in_copy(&copy, &in_both).await;
     delete(&api, &ada, &workspace, &deleted).await;
     // An object that only the copy holds, and no row names, as after a restore of the bucket.
     let copy_alone = "workspaces/00000000000000000000000000000000";
-    put(&copy, copy_alone).await;
+    put_in_copy(&copy, copy_alone).await;
 
     api.run_periodic("files.find_unreferenced_objects").await;
     let recorded = db
@@ -955,15 +1012,15 @@ async fn files_015_restore_files_removes_the_files_that_neither_bucket_holds_and
     let name = db.bucket().await;
     let other = workspaces::arrange(db, "Other", &[]).await;
     let in_both = files::arrange(db, &workspace, "Both").await;
-    put(&copy, &object_key(&api, &in_both).await).await;
+    put_in_copy(&copy, &object_key(&api, &in_both).await).await;
     let in_copy = files::arrange(db, &workspace, "Copy").await;
     let in_copy_key = object_key(&api, &in_copy).await;
-    put(&copy, &in_copy_key).await;
+    put_in_copy(&copy, &in_copy_key).await;
     remove_object(&name, &in_copy_key).await;
     let lost = files::arrange_row(db, &workspace, "Lost").await;
     let lost_elsewhere = files::arrange_row(db, &other, "Lost too").await;
 
-    let restored = app::restore_files(api.pool(), &both(&api, &copy).await, false)
+    let restored = app::restore_files(api.pool(), &both(&api, &copy).await, CHECK)
         .await
         .unwrap();
 
@@ -995,11 +1052,11 @@ async fn files_015_a_bucket_that_holds_every_file_s_object_changes_nothing() {
     let (workspace, _, _) = acme(&api, "member").await;
     let db = api.database();
     let kept = files::arrange(db, &workspace, "Kept").await;
-    put(&copy, &object_key(&api, &kept).await).await;
+    put_in_copy(&copy, &object_key(&api, &kept).await).await;
     // Only in the bucket: an upload that the copy hasn't received yet.
     files::arrange(db, &workspace, "New").await;
 
-    let restored = app::restore_files(api.pool(), &both(&api, &copy).await, false)
+    let restored = app::restore_files(api.pool(), &both(&api, &copy).await, CHECK)
         .await
         .unwrap();
 
@@ -1022,16 +1079,16 @@ async fn files_015_with_when_empty_it_does_nothing_while_the_bucket_holds_an_obj
     let name = db.bucket().await;
     let kept = files::arrange(db, &workspace, "Kept").await;
     let kept_key = object_key(&api, &kept).await;
-    put(&copy, &kept_key).await;
+    put_in_copy(&copy, &kept_key).await;
     files::arrange_row(db, &workspace, "Lost").await;
 
-    let holding = app::restore_files(api.pool(), &both(&api, &copy).await, true)
+    let holding = app::restore_files(api.pool(), &both(&api, &copy).await, WHEN_EMPTY)
         .await
         .unwrap();
     let kept_rows = stored_names(&api, &workspace).await;
     // A new server's bucket, which holds nothing.
     remove_object(&name, &kept_key).await;
-    let empty = app::restore_files(api.pool(), &both(&api, &copy).await, true)
+    let empty = app::restore_files(api.pool(), &both(&api, &copy).await, WHEN_EMPTY)
         .await
         .unwrap();
 
@@ -1053,11 +1110,79 @@ async fn files_015_a_copy_that_holds_nothing_removes_no_file() {
     let (workspace, _, _) = acme(&api, "member").await;
     files::arrange_row(api.database(), &workspace, "Blue").await;
 
-    let refused = app::restore_files(api.pool(), &both(&api, &copy).await, false).await;
+    let refused = app::restore_files(api.pool(), &both(&api, &copy).await, CHECK).await;
 
     let error = platform::errors::chain(&refused.unwrap_err());
-    assert!(error.contains("the copy holds no object"), "{error}");
+    assert!(
+        error.contains("the copy holds no object that a file's row names"),
+        "{error}"
+    );
     assert_eq!(stored_names(&api, &workspace).await, ["Blue"]);
+}
+
+#[tokio::test]
+async fn files_015_another_deployment_s_copy_removes_no_file_unless_allowed() {
+    let (api, copy) = api_with_copy(Options::default()).await;
+    let (workspace, _, _) = acme(&api, "member").await;
+    files::arrange_row(api.database(), &workspace, "Blue").await;
+    // Another deployment's copy holds objects of its own, whose random keys no row here names.
+    put_in_copy(&copy, "workspaces/00000000000000000000000000000000").await;
+
+    let refused = app::restore_files(api.pool(), &both(&api, &copy).await, CHECK).await;
+    let kept = stored_names(&api, &workspace).await;
+    let allowed = app::restore_files(
+        api.pool(),
+        &both(&api, &copy).await,
+        app::RestoreFiles {
+            allow_lost_files: true,
+            ..CHECK
+        },
+    )
+    .await
+    .unwrap();
+
+    let error = platform::errors::chain(&refused.unwrap_err());
+    assert!(error.contains("--allow-lost-files"), "{error}");
+    assert_eq!(kept, ["Blue"]);
+    assert_eq!(
+        allowed,
+        app::FilesRestored::Checked {
+            lost: vec![(workspace.clone(), 1)],
+            restoring: true,
+        }
+    );
+    assert!(stored_names(&api, &workspace).await.is_empty());
+}
+
+#[tokio::test]
+async fn files_015_an_object_of_the_copy_cut_short_counts_as_lost() {
+    let (api, copy) = api_with_copy(Options::default()).await;
+    let (workspace, _, _) = acme(&api, "member").await;
+    let db = api.database();
+    let whole = files::arrange_row(db, &workspace, "Whole").await;
+    put_in_copy(&copy, &object_key(&api, &whole).await).await;
+    // Its last block's authenticator gone, as a provider that cut the object short would leave
+    // it, which rclone's crypt decrypts without an error.
+    let cut = files::arrange_row(db, &workspace, "Cut").await;
+    let full = storage::copy_size(files::BYTES.len() as u64);
+    put_sized(&copy, &object_key(&api, &cut).await, full - 16).await;
+
+    let restored = app::restore_files(api.pool(), &both(&api, &copy).await, CHECK)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        restored,
+        app::FilesRestored::Checked {
+            lost: vec![(workspace.clone(), 1)],
+            restoring: true,
+        }
+    );
+    assert_eq!(stored_names(&api, &workspace).await, ["Whole"]);
+    assert_eq!(
+        lost_entries(&api).await,
+        [format!("{workspace} {cut} true {{}}")]
+    );
 }
 
 #[tokio::test]
@@ -1068,7 +1193,7 @@ async fn files_015_the_subcommand_prints_how_many_files_each_workspace_lost() {
     let name = db.bucket().await;
     files::arrange_row(db, &workspace, "Lost").await;
     let kept = files::arrange(db, &workspace, "Kept").await;
-    put(&copy, &object_key(&api, &kept).await).await;
+    put_in_copy(&copy, &object_key(&api, &kept).await).await;
     let bucket_settings = [
         ("S3_ENDPOINT", bucket::ENDPOINT),
         ("S3_REGION", "us-east-1"),

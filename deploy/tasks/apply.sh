@@ -253,6 +253,7 @@ apply() {
     api_image=$1
     postgres_image=$2
     allow_restart=$3
+    allow_lost_files=$4
     for image in "$api_image" "$postgres_image"; do
         case $image in
             *@sha256:*) ;;
@@ -327,7 +328,10 @@ apply() {
     # files' rows, as a managed database's does after losing the server, gets the copy's objects
     # back, and the files whose bytes the copy lacks go (FILES-015). One that holds an object is
     # left as it is.
-    if [ "$files" = bundled ] && ! compose --profile tasks run --rm --no-deps --quiet-pull restore-files restore-files --when-empty; then
+    lost_files=""
+    if [ "$allow_lost_files" = yes ]; then lost_files=--allow-lost-files; fi
+    # shellcheck disable=SC2086 # $lost_files is an option or nothing.
+    if [ "$files" = bundled ] && ! compose --profile tasks run --rm --no-deps --quiet-pull restore-files restore-files --when-empty $lost_files; then
         compose logs --tail 30 files >&2 || true
         fail "restore-files couldn't check the files' rows against the bundled files bucket and its copy, with the error above, so no replica started"
     fi
@@ -460,5 +464,5 @@ deploy_release() {
     if ! verified=$(CRANE=$crane COSIGN=$cosign sh "$here/verify-release.sh" "$version" "$source" "$repository" "$repository-postgres"); then
         fail "the release $version doesn't verify, so nothing changed; the error above says why"
     fi
-    apply "$(printf '%s\n' "$verified" | sed -n 1p)" "$(printf '%s\n' "$verified" | sed -n 2p)" "$2"
+    apply "$(printf '%s\n' "$verified" | sed -n 1p)" "$(printf '%s\n' "$verified" | sed -n 2p)" "$2" "$3"
 }

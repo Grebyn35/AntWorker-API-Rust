@@ -7,10 +7,10 @@
 # machine; docs/operations/deploy.md describes the deployment. Each task's code is a file of
 # tasks/, which this script sources.
 #
-#   deploy.sh deploy <version> [--allow-restart]
+#   deploy.sh deploy <version> [--allow-restart] [--allow-lost-files]
 #       Verifies the release <version>, then deploys its images. Once its replicas serve, it
 #       removes the other releases' files and the images that nothing uses.
-#   deploy.sh apply <API image> <Postgres image> [--allow-restart]
+#   deploy.sh apply <API image> <Postgres image> [--allow-restart] [--allow-lost-files]
 #       Deploys the two images, each named by digest, such as ghcr.io/owner/name@sha256:..., as
 #       deploy does once the release verifies.
 #   deploy.sh backup
@@ -49,7 +49,10 @@
 #       fails.
 #
 # A deploy restarts Postgres or Caddy, which each run once, only with --allow-restart, because
-# restarting either interrupts requests for a few seconds. DEPLOYMENT names the deployment's
+# restarting either interrupts requests for a few seconds. On a new server, a deploy with the
+# bundled files bucket removes the files whose bytes its copy lacks while the copy holds none of
+# the files' objects, as when its settings name another bucket, only with --allow-lost-files
+# (FILES-015). DEPLOYMENT names the deployment's
 # directory, which holds settings.env, secrets/ and state/. The script first installs the files of
 # its own release there, so the deployment runs the release's configuration.
 set -eu
@@ -71,32 +74,55 @@ project=deployment
 . "$here/tasks/status.sh"
 . "$here/tasks/check.sh"
 
-# Prints yes when $2, a command's last argument, is the option $1, and no when it's empty.
-allowed() {
-    case ${2:-} in
-        '') echo no ;;
-        "$1") echo yes ;;
-        *) fail "unknown option $2" ;;
-    esac
+# Refuses any of the arguments after the first that isn't one of the options that the first
+# lists, separated by spaces.
+check_options() {
+    known=$1
+    shift
+    for option in "$@"; do
+        case " $known " in
+            *" $option "*) ;;
+            *) fail "unknown option $option" ;;
+        esac
+    done
+}
+
+# Prints yes when the option $1 is among the arguments after it, and no otherwise.
+given() {
+    option=$1
+    shift
+    for argument in "$@"; do
+        if [ "$argument" = "$option" ]; then
+            echo yes
+            return
+        fi
+    done
+    echo no
 }
 
 command=${1:-}
 case $command in
     deploy)
-        if [ "$#" -lt 2 ]; then fail "usage: deploy.sh deploy <version> [--allow-restart]"; fi
-        # An assignment, so that the script stops when allowed refuses.
-        restart=$(allowed --allow-restart "${3:-}")
-        deploy_release "$2" "$restart"
+        if [ "$#" -lt 2 ]; then fail "usage: deploy.sh deploy <version> [--allow-restart] [--allow-lost-files]"; fi
+        given_version=$2
+        shift 2
+        check_options "--allow-restart --allow-lost-files" "$@"
+        deploy_release "$given_version" "$(given --allow-restart "$@")" "$(given --allow-lost-files "$@")"
         ;;
     apply)
-        if [ "$#" -lt 3 ]; then fail "usage: deploy.sh apply <API image> <Postgres image> [--allow-restart]"; fi
-        restart=$(allowed --allow-restart "${4:-}")
-        apply "$2" "$3" "$restart"
+        if [ "$#" -lt 3 ]; then fail "usage: deploy.sh apply <API image> <Postgres image> [--allow-restart] [--allow-lost-files]"; fi
+        given_api=$2 given_postgres=$3
+        shift 3
+        check_options "--allow-restart --allow-lost-files" "$@"
+        apply "$given_api" "$given_postgres" "$(given --allow-restart "$@")" "$(given --allow-lost-files "$@")"
         ;;
     backup) backup ;;
     restore)
-        unarchived=$(allowed --allow-unarchived "${5:-}")
-        restore "${2:-}" "${3:-}" "${4:-}" "$unarchived"
+        # The moment, the backup and the timeline, each possibly empty, then the options.
+        given_moment=${2:-} given_backup=${3:-} given_timeline=${4:-}
+        if [ "$#" -gt 4 ]; then shift 4; else set --; fi
+        check_options --allow-unarchived "$@"
+        restore "$given_moment" "$given_backup" "$given_timeline" "$(given --allow-unarchived "$@")"
         ;;
     restore-inputs) restore_inputs ;;
     status) status ;;

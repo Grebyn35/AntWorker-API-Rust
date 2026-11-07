@@ -17,7 +17,7 @@ use platform::{
     authn::AuditScope,
     db::Database,
     errors::Internal,
-    storage::{Held, Storage},
+    storage::{self, Held, Storage},
     types::WorkspaceId,
 };
 
@@ -40,47 +40,48 @@ pub(crate) enum Restored {
     },
 }
 
+/// What `restore-files` is asked to do.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Restore {
+    /// Do nothing while the bucket holds an object, as a deploy asks.
+    pub(crate) when_empty: bool,
+    /// Remove the files that neither bucket holds even while the copy holds no object that a
+    /// file's row names, once the operator has checked that its settings name the deployment's
+    /// copy.
+    pub(crate) allow_lost_files: bool,
+}
+
 /// A row, by the key of its object.
 struct Row {
     id: uuid::Uuid,
     workspace_id: uuid::Uuid,
     object_key: String,
+    size_bytes: i64,
 }
 
 /// What the lists of the two buckets have shown so far.
 #[derive(Default)]
 struct Seen {
-    /// The copy holds an object.
-    copy_holds_one: bool,
+    /// The copy holds an object that a file's row names.
+    copy_holds_a_file: bool,
     /// The copy holds an object that the bucket doesn't.
     copy_alone: bool,
 }
 
-impl Seen {
-    fn note(&mut self, held: Held) {
-        match held {
-            Held::Bucket => {}
-            Held::Both => self.copy_holds_one = true,
-            Held::Copy => {
-                self.copy_holds_one = true;
-                self.copy_alone = true;
-            }
-        }
-    }
-}
-
-/// Removes each file whose object neither the bucket nor its copy holds, with its entry
+/// Removes each file whose bytes neither the bucket nor its copy holds, with its entry
 /// `file.lost` in its workspace's log, and marks the bucket as restoring from its copy when the
-/// copy holds an object that the bucket doesn't (FILES-015). With `when_empty`, it does nothing
-/// while the bucket holds an object. It refuses to remove a file while the copy holds no object
-/// at all, as when its settings name a new bucket, rather than remove every file the bucket
-/// lacks.
+/// copy holds an object that the bucket doesn't (FILES-015). The copy holds a file's bytes when
+/// it holds its object at the size that `crypt` gives the file's size, so an object cut short
+/// counts as lost. With `when_empty`, it does nothing while the bucket holds an object. Unless
+/// `allow_lost_files`, it refuses to remove a file while the copy holds no object that a file's
+/// row names, as when its settings name a new bucket or another deployment's copy, whose random
+/// keys no row of this one names, rather than remove every file the bucket lacks.
 pub(crate) async fn restore(
     database: &Database,
     storage: &Storage,
-    when_empty: bool,
+    asked: Restore,
 ) -> Result<Restored, Internal> {
-    if when_empty && !storage.is_empty().await.map_err(Internal::new)? {
+    if asked.when_empty && !storage.is_empty().await.map_err(Internal::new)? {
         return Ok(Restored::NotEmpty);
     }
     let mut holdings = storage.holdings(WORKSPACE_PREFIX);
@@ -94,15 +95,26 @@ pub(crate) async fn restore(
             while let Some((key, held)) = &next
                 && key.as_str() < row.object_key.as_str()
             {
-                seen.note(*held);
+                seen.copy_alone |= matches!(held, Held::Copy { .. });
                 next = holdings.next().await.transpose().map_err(Internal::new)?;
             }
-            match &next {
-                Some((key, held)) if key.as_str() == row.object_key => {
-                    seen.note(*held);
-                    next = holdings.next().await.transpose().map_err(Internal::new)?;
-                }
-                _ => lost.push((row.id, WorkspaceId::from_uuid(row.workspace_id))),
+            let held = match &next {
+                Some((key, held)) if key.as_str() == row.object_key => Some(*held),
+                _ => None,
+            };
+            if held.is_some() {
+                next = holdings.next().await.transpose().map_err(Internal::new)?;
+            }
+            let expected = u64::try_from(row.size_bytes).map(storage::copy_size);
+            let bytes_held = match held {
+                Some(Held::Bucket | Held::Both) => true,
+                Some(Held::Copy { size }) => expected == Ok(size),
+                None => false,
+            };
+            seen.copy_holds_a_file |= matches!(held, Some(Held::Copy { .. } | Held::Both));
+            seen.copy_alone |= matches!(held, Some(Held::Copy { .. }));
+            if !bytes_held {
+                lost.push((row.id, WorkspaceId::from_uuid(row.workspace_id)));
             }
         }
         if rows.len() < PAGE {
@@ -111,13 +123,15 @@ pub(crate) async fn restore(
         after = rows.last().map(|row| row.object_key.clone());
     }
     while let Some((_, held)) = next {
-        seen.note(held);
+        seen.copy_alone |= matches!(held, Held::Copy { .. });
         next = holdings.next().await.transpose().map_err(Internal::new)?;
     }
-    if !lost.is_empty() && !seen.copy_holds_one {
+    if !lost.is_empty() && !seen.copy_holds_a_file && !asked.allow_lost_files {
         return Err(Internal::new(format!(
-            "the copy holds no object, while {} files' rows name objects that the bucket doesn't \
-             hold either: S3_COPY_BUCKET may name another bucket, so no file was removed",
+            "the copy holds no object that a file's row names, while {} files' rows name objects \
+             that the bucket doesn't hold either: S3_COPY_BUCKET may name another bucket, such as \
+             a new one or another deployment's copy, so no file was removed. Once the settings \
+             name this deployment's copy, --allow-lost-files removes them",
             lost.len()
         )));
     }
@@ -138,7 +152,7 @@ async fn page(database: &Database, after: Option<&str>) -> Result<Vec<Row>, Inte
     let mut uow = database.for_task().await?;
     let rows = sqlx::query_as!(
         Row,
-        "SELECT id, workspace_id, object_key FROM workspace_files
+        "SELECT id, workspace_id, object_key, size_bytes FROM workspace_files
         WHERE object_key > COALESCE($1, '') ORDER BY object_key LIMIT $2",
         after,
         limit,

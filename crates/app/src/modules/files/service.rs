@@ -165,7 +165,12 @@ pub(crate) async fn download(
         .get(&ObjectKey::from_stored(&stored.object_key))
         .await
     {
-        Ok(object) => Ok((stored, object)),
+        Ok(object) if object.size == stored.file.size_bytes => Ok((stored, object)),
+        // An object of another size isn't the file's bytes, as one cut short isn't.
+        Ok(object) => Err(FilesError::Internal(Internal::new(format!(
+            "the row of the file {} names an object of {} bytes, which the bucket holds with {}",
+            stored.file.id, stored.file.size_bytes, object.size
+        )))),
         Err(StorageError::NotFound) => {
             if files.storage.restoring().await.map_err(unavailable)? {
                 return Err(FilesError::Restoring);

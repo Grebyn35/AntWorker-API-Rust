@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, object_key FROM workspace_files\n        WHERE object_key > COALESCE($1, '') ORDER BY object_key LIMIT $2",
+  "query": "SELECT id, workspace_id, object_key, size_bytes FROM workspace_files\n        WHERE object_key > COALESCE($1, '') ORDER BY object_key LIMIT $2",
   "describe": {
     "columns": [
       {
@@ -35,6 +35,17 @@
             "name": "object_key"
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "size_bytes"
+          }
+        }
       }
     ],
     "parameters": {
@@ -46,8 +57,9 @@
     "nullable": [
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "dbe9593afd7c6ec9050d7e78bc97da2c02c4ff0087962a8274544717fec57f4f"
+  "hash": "9f95a183a5c3917062b1ec40828ed48552c025d296d89bdccd017f496f5367eb"
 }

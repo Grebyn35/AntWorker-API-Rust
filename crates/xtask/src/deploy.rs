@@ -87,8 +87,15 @@ fn chosen(
 }
 
 /// Deploys the release `requested`, or the latest release, to the deployment that SSH reaches at
-/// `host`.
-pub fn deploy(host: &str, requested: Option<&str>, allow_restart: bool) -> ExitCode {
+/// `host`: `allow_restart` lets it restart Postgres or Caddy, and `allow_lost_files` remove the
+/// files whose bytes the bundled files bucket's copy lacks while the copy holds none of the files'
+/// objects (FILES-015).
+pub fn deploy(
+    host: &str,
+    requested: Option<&str>,
+    allow_restart: bool,
+    allow_lost_files: bool,
+) -> ExitCode {
     let root = root();
     let version = match released(&root, requested) {
         Ok(version) => version,
@@ -109,6 +116,9 @@ pub fn deploy(host: &str, requested: Option<&str>, allow_restart: bool) -> ExitC
     );
     if allow_restart {
         command.push_str(" --allow-restart");
+    }
+    if allow_lost_files {
+        command.push_str(" --allow-lost-files");
     }
     on_server(host, &command)
 }

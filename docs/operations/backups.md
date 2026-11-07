@@ -103,14 +103,14 @@ After losing the server, set up a new one with `just server-setup`, as [deploy.m
 
 With the bundled files bucket, the new server's bucket holds nothing, so the deploy after the restore runs `restore-files` before its replicas start, once its `bootstrap` has given the restored database the new server's passwords ([files spec](../spec/files.md#restoring-from-the-copy)):
 
-1. It removes each file whose bytes neither the bucket nor its copy holds, as when the server was lost after the file's row reached the backups and before its bytes reached the copy, records it as `file.lost` in its workspace's audit log, and prints how many files each workspace lost:
+1. It removes each file whose bytes neither the bucket nor its copy holds, as when the server was lost after the file's row reached the backups and before its bytes reached the copy, or the copy's object was cut short, which its size shows, records it as `file.lost` in its workspace's audit log, and prints how many files each workspace lost:
 
    ```
    Removed 2 files whose bytes neither the files bucket nor its copy held, each recorded as file.lost in its workspace's audit log:
      workspace 0199a3c2-6b1e-7d2a-9f41-8e5c2b7d1a03: 2
    ```
 
-   It refuses while the copy holds no object at all, as when its settings name a new bucket, and removes nothing then.
+   It refuses, and removes nothing, while the copy holds no object that a file's row names, as when its settings name a new bucket or another deployment's copy, so the deploy stops before its replicas start: correct the settings with `just server-setup`, and deploy again. When they name this deployment's copy and the copy holds none of the files' bytes, as when it never received one, `just deploy production --allow-lost-files` removes those files.
 2. It marks the bucket as restoring from its copy, and the replicas start. `files-copy` brings back every object the bucket lacks while the API serves, then removes the mark: until a file's bytes are back, its download answers 503 `files.restoring` with `Retry-After` (FILES-014). `just status` shows since when the bucket restores, and FilesRestoreFailing pages while bringing them back fails ([runbooks.md](runbooks.md#filesrestorefailing)).
 
 A restore on a server that wasn't lost runs `restore-files` too, once its replicas serve; its bucket holds every file's bytes that the restored rows name, so it removes nothing. CI restores a deployment with the bundled files bucket onto a new server, downloads a file uploaded before the loss, and checks that a file whose bytes the copy lacked is gone, with its entry in its workspace's log (OPS-15).

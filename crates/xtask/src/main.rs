@@ -216,6 +216,11 @@ enum Command {
         /// a few seconds.
         #[arg(long)]
         allow_restart: bool,
+        /// On a new server with the bundled files bucket, removes the files whose bytes the
+        /// bucket's copy lacks even while the copy holds none of the files' objects, which the
+        /// deploy otherwise refuses, since the copy's settings may name another bucket.
+        #[arg(long)]
+        allow_lost_files: bool,
     },
     /// Takes a full base backup of the bundled database of the deployment at `host` (OPS-15).
     Backup {
@@ -365,7 +370,8 @@ fn main() -> ExitCode {
             host,
             version,
             allow_restart,
-        } => return deploy::deploy(&host, version.as_deref(), allow_restart),
+            allow_lost_files,
+        } => return deploy::deploy(&host, version.as_deref(), allow_restart, allow_lost_files),
         Command::Backup { host } => return deploy::backup(&host),
         Command::LoadTest { route } => return load::run(&route),
         Command::EnvDrift => return env_drift::run(),
@@ -478,27 +484,35 @@ fn unreadable(error: &io::Error) -> ExitCode {
 mod tests {
     use super::*;
 
-    /// The version and the option of a deploy to `production` with `args`, if they make one.
-    fn deploy(args: &[&str]) -> Option<(Option<String>, bool)> {
+    /// The version and the options of a deploy to `production` with `args`, if they make one.
+    fn deploy(args: &[&str]) -> Option<(Option<String>, bool, bool)> {
         let cli = Cli::try_parse_from([&["xtask", "deploy", "production"], args].concat()).ok()?;
         match cli.command {
             Command::Deploy {
                 version,
                 allow_restart,
+                allow_lost_files,
                 ..
-            } => Some((version, allow_restart)),
+            } => Some((version, allow_restart, allow_lost_files)),
             _ => None,
         }
     }
 
     #[test]
-    fn ops_14_a_deploy_s_version_is_optional_and_its_option_stays_an_option() {
-        assert_eq!(deploy(&[]), Some((None, false)));
-        assert_eq!(deploy(&["--allow-restart"]), Some((None, true)));
-        assert_eq!(deploy(&["1.4.0"]), Some((Some("1.4.0".to_owned()), false)));
+    fn ops_14_a_deploy_s_version_is_optional_and_its_options_stay_options() {
+        assert_eq!(deploy(&[]), Some((None, false, false)));
+        assert_eq!(deploy(&["--allow-restart"]), Some((None, true, false)));
+        assert_eq!(
+            deploy(&["1.4.0"]),
+            Some((Some("1.4.0".to_owned()), false, false))
+        );
         assert_eq!(
             deploy(&["1.4.0", "--allow-restart"]),
-            Some((Some("1.4.0".to_owned()), true))
+            Some((Some("1.4.0".to_owned()), true, false))
+        );
+        assert_eq!(
+            deploy(&["--allow-lost-files", "1.4.0", "--allow-restart"]),
+            Some((Some("1.4.0".to_owned()), true, true))
         );
     }
 

@@ -94,7 +94,7 @@ async fn platform_078_list_gives_each_key_that_either_bucket_holds_once_in_order
         [
             ("workspaces/0a".to_owned(), Held::Bucket),
             ("workspaces/0b".to_owned(), Held::Both),
-            ("workspaces/0c".to_owned(), Held::Copy),
+            ("workspaces/0c".to_owned(), Held::Copy { size: 5 }),
         ]
     );
     assert_eq!(listed, ["workspaces/0a", "workspaces/0b", "workspaces/0c"]);
