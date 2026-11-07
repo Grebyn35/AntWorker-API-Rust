@@ -116,6 +116,16 @@ impl AuditScope {
         }
     }
 
+    /// The log of `workspace`, with no actor, for an operator's task that no request or job
+    /// runs, such as `restore-files` removing the files whose bytes were lost (FILES-015). Only
+    /// such a task calls it; clippy bans it elsewhere.
+    pub fn unattended(workspace: WorkspaceId) -> Self {
+        Self {
+            log: Log::Workspace(workspace),
+            actor: None,
+        }
+    }
+
     /// The log `log`, with `actor` as the actor, which only the proofs of `platform` build.
     pub(crate) fn proven(log: Log, actor: UserId) -> Self {
         Self {

@@ -15,4 +15,5 @@ mod logging;
 mod mail;
 mod migrations;
 mod startup;
+mod storage;
 mod telemetry;

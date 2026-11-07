@@ -11,6 +11,8 @@ use crate::modules::audit::{Action, Resource};
 pub(super) const FILE_UPLOADED: Action = Action::new("file.uploaded");
 /// A file was deleted (FILES-010).
 pub(super) const FILE_DELETED: Action = Action::new("file.deleted");
+/// A file whose bytes neither the bucket nor its copy held was removed (FILES-015).
+pub(super) const FILE_LOST: Action = Action::new("file.lost");
 
 /// A file.
 pub(super) const FILE: Resource = Resource::new("file");

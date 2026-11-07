@@ -755,9 +755,10 @@ impl Server {
     /// Starts the stand-in for the provider of the deployment's buckets on the server, once:
     /// SeaweedFS, serving S3 over HTTPS on the server's own address, with a certificate for that
     /// address from an authority of the test's own, which the deployment trusts as
-    /// certs/backup-ca.crt and certs/files-ca.crt, and with two buckets, `backups` for the bundled
-    /// database's backups and `files` for files' bytes. Writes both buckets' secrets, and returns
-    /// the address the buckets answer at.
+    /// certs/backup-ca.crt, certs/files-ca.crt and certs/files-copy-ca.crt, and with three buckets,
+    /// `backups` for the bundled database's backups, `files` for files' bytes in a provider's
+    /// bucket, and `files-copy` for the bundled files bucket's copy. Writes the buckets' key
+    /// pairs, and returns the address the buckets answer at.
     fn start_buckets(&self) -> String {
         if let Some(address) = self.buckets.get() {
             return address.clone();
@@ -775,6 +776,7 @@ impl Server {
             mkdir -p {DEPLOYMENT}/certs
             cp ca.crt {DEPLOYMENT}/certs/backup-ca.crt
             cp ca.crt {DEPLOYMENT}/certs/files-ca.crt
+            cp ca.crt {DEPLOYMENT}/certs/files-copy-ca.crt
             # SeaweedFS grows 7 volumes at once for each collection, its own default one included,
             # which it writes to about a minute after it starts, while each bucket's objects take a
             # collection of their own: a deployment's first backup after that would find room for
@@ -785,7 +787,7 @@ impl Server {
             # SeaweedFS takes a few seconds to start, and the shell can't create a bucket before it
             # answers. Named the filer, the shell reaches it at once, rather than waiting for the
             # master to list it.
-            for bucket in backups files; do
+            for bucket in backups files files-copy; do
                 timeout 120 sh -c \"until echo s3.bucket.create -name $bucket | docker exec --interactive bucket weed shell -master=localhost:9333 -filer=localhost:8888 2> /dev/null | grep -q created; do sleep 1; done\"
             done"
         ));
@@ -794,6 +796,8 @@ impl Server {
             ("backup_s3_key_secret", "e2e-secret"),
             ("files_s3_key", "e2e"),
             ("files_s3_key_secret", "e2e-secret"),
+            ("files_copy_s3_key", "e2e"),
+            ("files_copy_s3_key_secret", "e2e-secret"),
         ] {
             self.write(&format!("{DEPLOYMENT}/secrets/{secret}"), value);
         }
@@ -823,6 +827,69 @@ impl Server {
         .iter()
         .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
         .collect()
+    }
+
+    /// Starts the buckets' stand-in, as `start_buckets` does, and writes the passphrase of the
+    /// bundled files bucket's copy beside its bucket's key pair, then returns the settings of a
+    /// deployment whose files bucket is bundled, with its copy in the stand-in's bucket
+    /// `files-copy` (OPS-15).
+    pub fn start_files_copy_bucket(&self) -> Vec<(String, String)> {
+        let address = self.start_buckets();
+        self.write(
+            &format!("{DEPLOYMENT}/secrets/files_copy_cipher_pass"),
+            "the passphrase of the e2e tests' files copy",
+        );
+        [
+            ("FILES", "bundled"),
+            ("FILES_COPY_S3_ENDPOINT", address.as_str()),
+            ("FILES_COPY_S3_PORT", "8334"),
+            ("FILES_COPY_S3_REGION", "us-east-1"),
+            ("FILES_COPY_S3_BUCKET", "files-copy"),
+            ("FILES_COPY_S3_URI_STYLE", "path"),
+        ]
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .collect()
+    }
+
+    /// The bytes of the object `key` that the stand-in's bucket `bucket` holds, as they are
+    /// stored, or `None` when it holds no such object, read through SeaweedFS's shell.
+    pub fn stand_in_object(&self, bucket: &str, key: &str) -> Option<Vec<u8>> {
+        let read = self.shell(&format!(
+            "echo 'fs.cat /buckets/{bucket}/{key}' | docker exec --interactive bucket \
+             weed shell -master=localhost:9333 -filer=localhost:8888 2> /dev/null"
+        ));
+        (read.status.success() && !read.stdout.is_empty()).then_some(read.stdout)
+    }
+
+    /// Waits until the stand-in's bucket `bucket` holds the object `key`, for at most 2 minutes,
+    /// and returns its bytes as they are stored.
+    pub fn wait_for_stand_in_object(&self, bucket: &str, key: &str) -> Vec<u8> {
+        self.write(
+            "/root/stand-in-object.sh",
+            &format!(
+                "until echo 'fs.ls /buckets/{bucket}/{key}' | docker exec --interactive bucket \
+                 weed shell -master=localhost:9333 -filer=localhost:8888 2> /dev/null | grep -q .; \
+                 do sleep 1; done\n"
+            ),
+        );
+        let waited = self.shell("timeout 120 sh /root/stand-in-object.sh");
+        assert!(
+            waited.status.success(),
+            "the stand-in's bucket {bucket} never held {key}"
+        );
+        self.stand_in_object(bucket, key)
+            .expect("the stand-in's bucket holds the object it listed")
+    }
+
+    /// Deletes the object `key` from the stand-in's bucket `bucket`, as a copy that the server's
+    /// loss came before would lack it.
+    pub fn remove_stand_in_object(&self, bucket: &str, key: &str) {
+        self.shell_ok(&format!(
+            "echo 'fs.rm /buckets/{bucket}/{key}' | docker exec --interactive bucket \
+             weed shell -master=localhost:9333 -filer=localhost:8888 > /dev/null"
+        ));
+        assert!(self.stand_in_object(bucket, key).is_none(), "{key} stays");
     }
 
     /// Starts the buckets' stand-in, as `start_buckets` does, and returns the settings of its

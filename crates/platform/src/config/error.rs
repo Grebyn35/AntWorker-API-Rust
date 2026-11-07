@@ -26,6 +26,8 @@ pub(super) enum Problem {
     MustBeUnset,
     #[error("must be unset: telemetry takes its settings only from OTEL_EXPORTER_OTLP_ENDPOINT")]
     TelemetryMustBeUnset,
+    #[error("must be unset while S3_COPY_ENDPOINT is: there is no copy without it")]
+    CopyUnset,
 }
 
 impl ConfigError {

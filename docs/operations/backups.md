@@ -1,6 +1,6 @@
 # Backups
 
-The reference deployment's bundled Postgres is backed up continuously, to a bucket off its server, so that losing the server loses at most about a minute of data, and a restore can return the database to any moment before a mistake (D44, OPS-15). This document says what is backed up, the recovery targets, what the bucket needs, how to take a backup and restore one, and what to keep off the server. With a managed database, its provider backs it up instead ([below](#a-managed-database)). [deploy.md](deploy.md) describes the deployment.
+The reference deployment's bundled Postgres is backed up continuously, to a bucket off its server, so that losing the server loses at most about a minute of data, and a restore can return the database to any moment before a mistake (D44, OPS-15). The bundled files bucket is copied continuously too, to a bucket of its own off the server, from which a new server gets every file back (D98). This document says what is backed up, the recovery targets, what the bucket needs, how to take a backup and restore one, and what to keep off the server. With a managed database, its provider backs it up instead ([below](#a-managed-database)). [deploy.md](deploy.md) describes the deployment.
 
 ## What is backed up
 
@@ -13,15 +13,19 @@ A restore starts from a base backup that ended before the moment it restores to,
 
 pgBackRest compresses everything with zstd, and encrypts it with AES-256 before it leaves the server, with the passphrase in `secrets/backup_cipher_pass` (OPS-17). The bucket's provider sees nothing it can read.
 
-The backups don't hold the deployment's settings and secrets, which the next sections say to keep elsewhere, nor the bytes of the files users upload, which stay in their own bucket, off the server ([deploy.md](deploy.md#the-files-bucket)), nor the observability stack's metrics, logs and traces, which a new server starts without. Caddy obtains new certificates on its own.
+The backups don't hold the deployment's settings and secrets, which the next sections say to keep elsewhere, nor the bytes of the files users upload, nor the observability stack's metrics, logs and traces, which a new server starts without. Caddy obtains new certificates on its own.
+
+The bytes of the files are in the bundled files bucket, whose copy off the server, encrypted with the passphrase in `secrets/files_copy_cipher_pass`, gets each upload a few seconds after it is stored, and keeps every object until the API deletes it, as long as `FILE_DELETION_DELAY_DAYS` after no row names it, which reaches as far back as the backups do; or they are in a provider's bucket with `FILES=managed`, whose provider keeps them ([deploy.md](deploy.md#the-files-bucket)). So a restore to any moment the backups reach finds every file's bytes that the restored rows name: in the bucket on the same server, and in the copy on a new one.
 
 ## Recovery targets
 
 | Target | The reference deployment's |
 |---|---|
 | Data lost when the server is lost | At most the changes of the last minute, plus however long the last archive took to reach the bucket |
+| Files lost when the server is lost | With the bundled files bucket, the uploads of the last few seconds, plus however long the copy was behind or failing, which FilesCopyFailing pages on. A file whose row the database's backups hold and whose bytes the copy doesn't is removed when its bytes don't come back, so every file listed can be downloaded (D100) |
 | Moments a restore reaches | Every moment from `BACKUP_RETENTION_DAYS` days ago, or from the first deploy that ran the bundled database if that came later, until the restore begins, those while an earlier restore ran included. A moment that no commit or rollback the bucket holds follows on its timeline, such as one after the last change that a lost server archived, is reached as of the timeline's end in the bucket, which the restore names: what the server hadn't archived is lost, as the row above says |
 | Time a restore takes | The wait for the second check of step 1 of [Restoring](#restoring), as long as one segment of the log takes to reach the bucket, then the time to download the base backup it starts from, and to replay the log from it to the moment, which the daily base backup bounds to a day of changes. A moment that no commit or rollback the bucket holds follows on its timeline takes a second restore of the backup and a second replay, as step 3 says. The database is unavailable meanwhile. The first check waits as long before that, while the API serves |
+| Time the files take to come back | Onto a new server, the API serves once the database is restored, while the copy's objects come back, and until a file's bytes are back, its download answers 503 `files.restoring` with `Retry-After` (D99). From Backblaze B2, 8 parallel downloads to a server at HostUp reached about 80 megabytes a second: about 2 minutes for 10 gigabytes, 20 for 100, and 3.5 hours for a terabyte |
 
 The time a restore takes grows with the database and with its rate of change, so measure it on the server, as [Restoring onto a new server](#restoring-onto-a-new-server) does. For scale: on a server with 2 virtual CPUs and 4 gigabytes of memory, a restore of the latest state of a new database of 30 megabytes, from a bucket at Backblaze B2, took 45 seconds, and the API was unavailable for about 16 of them: restoring the data took 6 seconds, and stopping and starting the services the rest. The checks' waits add to that, the first while the API still serves. The full backup that ends a restore took 20 seconds, while the API served.
 
@@ -95,7 +99,21 @@ Putting the data back by hand is for a restore whose database didn't start only:
 
 ### Restoring onto a new server
 
-After losing the server, set up a new one with `just server-setup`, as [deploy.md](deploy.md#setting-up-a-server) says, answering with the lost server's settings, its bucket's key pair, and its copies of `backup_cipher_pass` and `postgres_password`, which the restored database keeps, and deploy the release that ran. The deploy stops before its replicas start, because the new server's database, which Postgres has just created empty, isn't the one whose backups the bucket holds: pgBackRest refuses it. Then run `just restore` without a moment, and `just deploy` again. CI does the same, on a new server of its own set up from a lost one's settings, secrets and bucket, and checks that the first deploy stops before any replica starts, and that the deploy after the restore serves the lost server's data (OPS-15).
+After losing the server, set up a new one with `just server-setup`, as [deploy.md](deploy.md#setting-up-a-server) says, answering with the lost server's settings, its buckets' key pairs, and its copies of `backup_cipher_pass`, `postgres_password`, which the restored database keeps, and `files_copy_cipher_pass`, and deploy the release that ran. The deploy stops before its replicas start, because the new server's database, which Postgres has just created empty, isn't the one whose backups the bucket holds: pgBackRest refuses it. Then run `just restore` without a moment, and `just deploy` again. CI does the same, on a new server of its own set up from a lost one's settings, secrets and bucket, and checks that the first deploy stops before any replica starts, and that the deploy after the restore serves the lost server's data (OPS-15).
+
+With the bundled files bucket, the new server's bucket holds nothing, so the deploy after the restore runs `restore-files` before its replicas start, once its `bootstrap` has given the restored database the new server's passwords ([files spec](../spec/files.md#restoring-from-the-copy)):
+
+1. It removes each file whose bytes neither the bucket nor its copy holds, as when the server was lost after the file's row reached the backups and before its bytes reached the copy, records it as `file.lost` in its workspace's audit log, and prints how many files each workspace lost:
+
+   ```
+   Removed 2 files whose bytes neither the files bucket nor its copy held, each recorded as file.lost in its workspace's audit log:
+     workspace 0199a3c2-6b1e-7d2a-9f41-8e5c2b7d1a03: 2
+   ```
+
+   It refuses while the copy holds no object at all, as when its settings name a new bucket, and removes nothing then.
+2. It marks the bucket as restoring from its copy, and the replicas start. `files-copy` brings back every object the bucket lacks while the API serves, then removes the mark: until a file's bytes are back, its download answers 503 `files.restoring` with `Retry-After` (FILES-014). `just status` shows since when the bucket restores, and FilesRestoreFailing pages while bringing them back fails ([runbooks.md](runbooks.md#filesrestorefailing)).
+
+A restore on a server that wasn't lost runs `restore-files` too, once its replicas serve; its bucket holds every file's bytes that the restored rows name, so it removes nothing. CI restores a deployment with the bundled files bucket onto a new server, downloads a file uploaded before the loss, and checks that a file whose bytes the copy lacked is gone, with its entry in its workspace's log (OPS-15).
 
 ## What to keep off the server
 
@@ -103,7 +121,8 @@ Keep a copy of these where the server's loss doesn't reach them, such as a passw
 
 - **`secrets/backup_cipher_pass`.** Without it, no backup can be read, by you or anyone else.
 - **`secrets/postgres_password`**, the database's superuser password, which a restored database keeps. `bootstrap` sets the other roles' passwords from the URLs that the deploy writes.
-- **The bucket's key pair**, and **`settings.env`**, unless you can make them again.
+- **`secrets/files_copy_cipher_pass`**, with the bundled files bucket. Without it, no file can be brought back from the copy.
+- **The buckets' key pairs**, and **`settings.env`**, unless you can make them again.
 
 ## Alerts
 
@@ -112,6 +131,11 @@ Two alerts watch the backups, from the times that the `pgbackrest` wrapper and t
 - [BackupArchivingFailing](runbooks.md#backuparchivingfailing) pages when an archive of the write-ahead log has failed more recently than one succeeded, for five minutes.
 - [BaseBackupTooOld](runbooks.md#basebackuptooold) opens a ticket when no base backup has completed for 26 hours.
 
+Two more watch the bundled files bucket's copy, from the times that `files-copy` sets on files of the volume `deployment_files-copy-status`; `just status <host>` shows them too.
+
+- [FilesCopyFailing](runbooks.md#filescopyfailing) pages when the copy has failed more recently than it succeeded, or hasn't succeeded for 10 minutes, for five minutes.
+- [FilesRestoreFailing](runbooks.md#filesrestorefailing) pages when bringing objects back from the copy has failed more recently than it last succeeded, for five minutes.
+
 ## A managed database
 
-With `DATABASE=managed`, the deployment runs no Postgres, and backs nothing up. The provider must provide point-in-time recovery, for as long as you need to reach back, which every major provider offers, such as Amazon Relational Database Service (RDS), Google Cloud SQL, Azure Database for PostgreSQL and Neon (OPS-15). It must also encrypt what it stores (OPS-17): where a provider makes that a choice, such as when an RDS instance is created, choose it. A provider restores into a new database, with a new address: give its URLs to `just server-setup`, and deploy again.
+With `DATABASE=managed`, the deployment runs no Postgres, and backs nothing up. The provider must provide point-in-time recovery, for as long as you need to reach back, which every major provider offers, such as Amazon Relational Database Service (RDS), Google Cloud SQL, Azure Database for PostgreSQL and Neon (OPS-15). It must also encrypt what it stores (OPS-17): where a provider makes that a choice, such as when an RDS instance is created, choose it. A provider restores into a new database, with a new address: give its URLs to `just server-setup`, and deploy again. With the bundled files bucket, a new server's first deploy gets the files back from the copy as the deploy after a restore does ([above](#restoring-onto-a-new-server)), since its bucket holds nothing; CI does so too.

@@ -108,12 +108,12 @@ Both span every workspace by nature, so they select objects by key alone (DATA-1
 
 ### Restoring from the copy
 
-A bundled bucket that lost objects, as a new server's does, which starts empty, gets them back from its copy while the API serves (OPS-15, D99, D100). `restore-files`, a subcommand that a restore runs once the database is restored, and a deploy runs with `--when-empty` before its replicas start, reads the rows and the lists of both buckets, each in the order of the objects' keys, so it holds no whole list in memory:
+A bundled bucket that lost objects, as a new server's does, which starts empty, gets them back from its copy while the API serves (OPS-15, D99, D100). `restore-files` is a subcommand that each deploy runs with `--when-empty` before its replicas start, which on a new server is the deploy after the database's restore, once its `bootstrap` has given the restored database the server's passwords, and that a restore on the same server runs once its replicas serve. It reads the rows and the lists of both buckets, each in the order of the objects' keys, a page of each at a time, so it holds no whole list in memory, and keeps the rows' order to the bytes' order of the keys, as a bucket lists them, with the column's collation "C":
 
 1. A file whose object neither the bucket nor the copy holds can never be downloaded, as when the server was lost after the file's row had reached the database's backups and before its object had reached the copy. Its row is deleted, with the entry `file.lost` in its workspace's log, and the subcommand prints how many files each workspace lost (FILES-015). It publishes no event, as a row that the server's loss took publishes none.
 2. When the copy holds an object that the bucket doesn't, the subcommand marks the bucket as restoring from its copy, and the deployment brings back every object of the copy while the replicas serve, then removes the mark ([platform spec](platform.md#storage)). Until a file's object is back, its download answers 503 `files.restoring` with `Retry-After` (FILES-014).
 
-With `--when-empty`, it lists one object of the bucket, and does nothing when there is one, so that only a deploy onto a new server, whose bucket holds nothing yet, lists the buckets.
+With `--when-empty`, it lists one object of the bucket, and does nothing when there is one, so that only a deploy onto a new server, whose bucket holds nothing yet, lists the buckets. It refuses to remove any file while the copy holds no object at all, as when its settings name a new bucket, rather than remove every file the bucket lacks.
 
 ### Recording and events
 

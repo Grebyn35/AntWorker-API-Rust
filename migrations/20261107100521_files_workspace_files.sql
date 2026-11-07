@@ -7,7 +7,9 @@ CREATE TABLE workspace_files (
     name text NOT NULL,
     media_type text NOT NULL,
     size_bytes bigint NOT NULL,
-    object_key text NOT NULL,
+    -- In the bytes' order, as a bucket lists its keys, so restore-files reads the rows through the
+    -- unique index in the order of the buckets' lists (FILES-015).
+    object_key text COLLATE "C" NOT NULL,
     uploader_id uuid,
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT workspace_files_object_key_key UNIQUE (object_key),

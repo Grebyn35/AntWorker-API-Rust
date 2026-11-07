@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 use crate::{
     deployment::{Deployment, get},
     docker::lossy,
+    files::{Account, object_key},
     images::Pushed,
     server::{DEPLOYMENT, Server},
 };
@@ -681,6 +682,68 @@ async fn ops_15_a_new_server_serves_only_once_it_restores_the_database_its_bucke
         new.url("https", 443, "/v1/capabilities"),
     );
     assert_eq!(status, 200);
+}
+
+#[tokio::test]
+async fn ops_15_a_restore_onto_a_new_server_brings_the_bundled_files_back_and_removes_those_the_copy_lacked()
+ {
+    // Both servers' shares at once, so no test holds one while it waits for another.
+    let (lost_server, new_server) = Server::start_two();
+    let lost = Deployment::bundled_on(lost_server, &[]).with_bundled_files(&[]);
+    let deployed = lost.apply(&lost.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    let account = Account::register(&lost);
+    let kept = account.upload(&lost, "kept.txt", "back from the copy");
+    let gone = account.upload(&lost, "gone.txt", "lost with the server");
+    for id in [&kept, &gone] {
+        lost.server
+            .wait_for_stand_in_object("files-copy", &object_key(&lost, id));
+    }
+    // The copy lacks the second file's bytes, as when the server was lost after the file's row
+    // reached the backups and before its bytes reached the copy.
+    lost.server
+        .remove_stand_in_object("files-copy", &object_key(&lost, &gone));
+    archive_everything_committed(&lost);
+    let new = lost.on_a_new_server(new_server);
+    // The server is lost, while its buckets stay.
+    lost.server.shell_ok(
+        "docker ps --quiet --filter label=com.docker.compose.project=deployment | xargs docker rm --force",
+    );
+
+    let refused = new.apply(&new.api, &[]).await;
+    let restored = new.restore(None);
+    let deployed = new.apply(&new.api, &[]).await;
+    let account = Account {
+        root: new.server.caddy_root(),
+        ..account
+    };
+    let downloaded = account.download_once_back(&new, &kept);
+
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(restored.status.success(), "{}", lossy(&restored));
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    let report = lossy(&deployed);
+    assert!(
+        report.contains("Removed 1 files whose bytes neither the files bucket nor its copy held"),
+        "{report}"
+    );
+    assert!(
+        report.contains(&format!("  workspace {}: 1", account.workspace)),
+        "{report}"
+    );
+    assert!(
+        report.contains("The files bucket lacks objects that its copy holds"),
+        "{report}"
+    );
+    assert_eq!(downloaded, (200, "back from the copy".to_owned()));
+    assert_eq!(account.names(&new), ["kept.txt"]);
+    assert_eq!(
+        new.sql(&format!(
+            "SELECT workspace_id || ' ' || (actor_user_id IS NULL) FROM audit_entries \
+             WHERE action = 'file.lost' AND resource_id = '{gone}'"
+        )),
+        format!("{} true", account.workspace)
+    );
 }
 
 #[tokio::test]

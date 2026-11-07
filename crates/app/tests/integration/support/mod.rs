@@ -99,6 +99,8 @@ pub struct TestDatabase {
     roles: Mutex<Vec<String>>,
     /// The bucket of files' bytes that the test's API uses, once it has created it.
     bucket: OnceCell<String>,
+    /// The copy of that bucket, for a test of the copy, once it has created it.
+    copy: OnceCell<String>,
 }
 
 impl TestDatabase {
@@ -133,6 +135,7 @@ impl TestDatabase {
             settings,
             roles: Mutex::default(),
             bucket: OnceCell::new(),
+            copy: OnceCell::new(),
         };
         let mut grants = Admin::connect(&database.admin_url())
             .await
@@ -151,6 +154,19 @@ impl TestDatabase {
         self.bucket
             .get_or_init(|| async {
                 let name = bucket::name(&self.name);
+                bucket::create(&name).await;
+                name
+            })
+            .await
+            .clone()
+    }
+
+    /// The copy of the bucket of [`TestDatabase::bucket`], named after the database too, which
+    /// the first call creates, and the database's drop empties and deletes (OPS-21).
+    pub async fn copy_bucket(&self) -> String {
+        self.copy
+            .get_or_init(|| async {
+                let name = format!("{}-copy", bucket::name(&self.name));
                 bucket::create(&name).await;
                 name
             })
@@ -407,7 +423,10 @@ impl Drop for TestDatabase {
         let admin = self.settings.admin.clone();
         let name = self.name.clone();
         let roles = std::mem::take(self.roles.get_mut().unwrap_or_else(PoisonError::into_inner));
-        let bucket = self.bucket.take();
+        let buckets: Vec<String> = [self.bucket.take(), self.copy.take()]
+            .into_iter()
+            .flatten()
+            .collect();
         // Drop can't await, so the cleanup runs on a runtime of its own.
         let dropped = std::thread::spawn(move || -> Result<(), Box<dyn Error + Send + Sync>> {
             tokio::runtime::Builder::new_current_thread()
@@ -428,8 +447,8 @@ impl Drop for TestDatabase {
                             .await?;
                     }
                     conn.close().await?;
-                    if let Some(bucket) = bucket {
-                        bucket::remove(&bucket).await;
+                    for bucket in &buckets {
+                        bucket::remove(bucket).await;
                     }
                     Ok(())
                 })

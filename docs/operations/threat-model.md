@@ -8,8 +8,9 @@ What the API and its reference deployment protect, from whom, and which rules an
 - **Workspaces:** what each holds, who belongs to it, and with which role.
 - **Personal data:** email addresses and names, and the client IP addresses and user agents that audit entries record (SEC-18).
 - **The audit logs:** who did what, which an attacker would want to change or erase.
-- **Secrets:** the key of every keyed hash, such as a rate-limit bucket's key (PLATFORM-057), the database roles' passwords, the password of the mail server, reached over the Simple Mail Transfer Protocol (SMTP), the backups' encryption passphrase, the bucket's key pair, and Grafana's credentials (SEC-01).
+- **Secrets:** the key of every keyed hash, such as a rate-limit bucket's key (PLATFORM-057), the database roles' passwords, the password of the mail server, reached over the Simple Mail Transfer Protocol (SMTP), the backups' encryption passphrase, the buckets' key pairs, the passphrase that encrypts the bundled files bucket's copy, and Grafana's credentials (SEC-01).
 - **The backups**, which hold the database, and so all of the above but the secrets, in a bucket off the server ([what is backed up](backups.md#what-is-backed-up)).
+- **The files that users upload**, in the files bucket, bundled on the server or a provider's, and the bundled one's copy, in a bucket off the server ([the files bucket](deploy.md#the-files-bucket)).
 - **The deployment's server**, its Postgres, and its observability stack.
 
 ## Trust boundaries
@@ -22,6 +23,8 @@ What the API and its reference deployment protect, from whom, and which rules an
 | The API to Postgres | Every query, as the role `app` | Two roles, the API's with least privilege (DATA-12, DATA-13, DATA-19); queries checked at compile time (DATA-14); every query filters by tenant (DATA-16) |
 | The API to other systems | Email, and later OAuth providers | One of two outbound clients (SEC-10); TLS that verifies the certificate (OPS-17) |
 | Postgres to the bucket | The write-ahead log and the base backups | Encrypted before they leave the server (OPS-17); a key pair that reaches only the bucket ([the bucket](backups.md#the-bucket)) |
+| The replicas to the files bucket | Files' bytes | TLS that verifies the bucket's certificate (OPS-17, PLATFORM-076); a key pair that reaches only the bucket; the bundled one on a network that only the deployment's services that use it share, serving S3 over TLS alone ([the files bucket](deploy.md#the-files-bucket)) |
+| `files-copy` to the copy's bucket | Each file's bytes | Encrypted before they leave the server, with each object's key kept (OPS-17, D101); a key pair that reaches only the copy's bucket |
 | The collector to an observability backend | Logs, traces and metrics | No personal data or secret in telemetry (OBS-04); TLS (OPS-17) |
 | CI to the registry to the server | The images, and the deploy's tools | Everything pinned (OPS-11); one build whose digest is tested, signed and promoted (OPS-12); advisories block the build (SEC-15); a minimal, unprivileged image (OPS-13) |
 | The operator to the server | Deploys, backups, restores and settings | Secure Shell (SSH) from the developer's machine (OPS-19); secrets in files, one per secret ([the files on the server](deploy.md#the-files-on-the-server)), held so that nothing prints them (SEC-01) |
@@ -71,7 +74,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | A database dump giving away secrets | Secrets at rest are encrypted with associated data (SEC-02); tokens and codes are stored as hashes (SEC-03) |
 | Personal data in telemetry, audit details or rate-limit keys | No personal data in telemetry (OBS-04); audit entries hold only IP address and user agent (SEC-18); bucket keys are HMACs (PLATFORM-057) |
 | Data read in transit, or from a stolen disk | TLS for every connection that leaves the server, and encryption at rest (OPS-17) |
-| The bucket's provider reading the backups | They are encrypted before they leave the server (OPS-17) |
+| A bucket's provider reading the backups or the files' copy | Both are encrypted before they leave the server (OPS-17, D101) |
 | Losing data, or a change that shouldn't have happened | Continuous backups, restores to any moment the retention covers, and a restore that another undoes (OPS-15) |
 | Tampering with audit history | `app` may only insert and read audit entries (AUDIT-005), which commit with the change they record (AUDIT-001) |
 

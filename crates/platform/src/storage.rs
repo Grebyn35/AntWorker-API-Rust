@@ -1,11 +1,15 @@
 //! The client of the S3-compatible bucket that holds files' bytes (D1, D14, the files spec's
-//! "Storage"). It reports a bucket that didn't answer as unavailable, and every other failure as
-//! internal, neither naming the key, so no error of the library leaves it (ERR-04).
+//! "Storage"), and of its copy off the server, which the bundled bucket has (D101, the platform
+//! spec's "Storage"). It reports a bucket that didn't answer as unavailable, and every other
+//! failure as internal, neither naming the key, so no error of the library leaves it (ERR-04).
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{cmp::Ordering, path::PathBuf, sync::Arc, time::Duration};
 
 pub use bytes::Bytes;
-use futures_util::{StreamExt, TryStreamExt, stream::BoxStream};
+use futures_util::{
+    StreamExt, TryStreamExt,
+    stream::{self, BoxStream, Fuse},
+};
 use object_store::{
     Attribute, Attributes, ClientOptions, ObjectStore, ObjectStoreExt, PutOptions, PutPayload,
     RetryConfig,
@@ -30,9 +34,26 @@ const RETRY_TIMEOUT: Duration = Duration::from_secs(5);
 /// How many times a request is retried.
 const RETRIES: usize = 2;
 
-/// What reaching the bucket takes (PLATFORM-076).
+/// The prefix under which `put` writes each object a second time, for the deployment to move to
+/// the copy (PLATFORM-078).
+const QUEUE: &str = "copy-queue/";
+
+/// The object that marks the bucket as restoring from its copy, outside every module's prefix
+/// (PLATFORM-078).
+const RESTORING: &str = "copy-restoring";
+
+/// What reaching the bucket of files' bytes takes, and its copy's (PLATFORM-076, PLATFORM-077).
 #[derive(Clone, Debug)]
 pub struct StorageConfig {
+    /// The bucket.
+    pub bucket: BucketConfig,
+    /// Its copy off the server, which the bundled bucket has.
+    pub copy: Option<BucketConfig>,
+}
+
+/// What reaching one bucket takes.
+#[derive(Clone, Debug)]
+pub struct BucketConfig {
     /// Its endpoint, such as `https://s3.eu-central-003.backblazeb2.com`.
     pub endpoint: Url,
     /// Its region.
@@ -51,10 +72,22 @@ pub struct StorageConfig {
     pub ca_path: Option<PathBuf>,
 }
 
-/// The bucket.
+/// The bucket, and its copy when there is one.
 #[derive(Clone, Debug)]
 pub struct Storage {
-    store: Arc<AmazonS3>,
+    bucket: Arc<AmazonS3>,
+    copy: Option<Arc<AmazonS3>>,
+}
+
+/// Which of the buckets holds an object.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Held {
+    /// The bucket alone.
+    Bucket,
+    /// The copy alone.
+    Copy,
+    /// Both.
+    Both,
 }
 
 /// A failure to reach the bucket.
@@ -109,87 +142,230 @@ pub struct Object {
 }
 
 impl Storage {
-    /// The client of the bucket that `config` describes. It reaches the bucket only when asked,
-    /// so a bucket that doesn't answer at startup keeps no route from serving.
+    /// The clients of the bucket and of the copy that `config` describes. They reach a bucket
+    /// only when asked, so a bucket that doesn't answer at startup keeps no route from serving.
     pub fn new(config: &StorageConfig) -> Result<Self, Internal> {
-        let options = ClientOptions::new()
-            .with_timeout(REQUEST_TIMEOUT)
-            .with_connect_timeout(CONNECT_TIMEOUT)
-            .with_allow_http(config.endpoint.scheme() == "http");
-        let retry = RetryConfig {
-            max_retries: RETRIES,
-            retry_timeout: RETRY_TIMEOUT,
-            ..RetryConfig::default()
-        };
-        let store = AmazonS3Builder::new()
-            .with_endpoint(config.endpoint.as_str().trim_end_matches('/'))
-            .with_region(&config.region)
-            .with_bucket_name(&config.bucket)
-            .with_access_key_id(&config.access_key_id)
-            .with_secret_access_key(config.secret_access_key.expose())
-            .with_virtual_hosted_style_request(!config.path_style)
-            .with_disable_tagging(true)
-            .with_disable_bulk_delete(true)
-            .with_client_options(options)
-            .with_retry(retry)
-            .with_http_connector(Connector {
-                ca_path: config.ca_path.clone(),
-            })
-            .build()
-            .map_err(Internal::new)?;
         Ok(Self {
-            store: Arc::new(store),
+            bucket: Arc::new(client(&config.bucket)?),
+            copy: config.copy.as_ref().map(client).transpose()?.map(Arc::new),
         })
     }
 
-    /// Writes `bytes` as the object `key`, of media type `media_type`.
+    /// Writes `bytes` as the object `key`, of media type `media_type`, and, with a copy, again
+    /// under the copy's queue, both at once, failing unless both writes succeed (PLATFORM-078).
     pub async fn put(
         &self,
         key: &ObjectKey,
         bytes: Bytes,
         media_type: &str,
     ) -> Result<(), StorageError> {
-        let mut attributes = Attributes::new();
-        attributes.insert(Attribute::ContentType, media_type.to_owned().into());
-        let options = PutOptions {
-            attributes,
-            ..PutOptions::default()
+        let write = |path: Path, bytes: Bytes| {
+            let mut attributes = Attributes::new();
+            attributes.insert(Attribute::ContentType, media_type.to_owned().into());
+            let options = PutOptions {
+                attributes,
+                ..PutOptions::default()
+            };
+            let bucket = Arc::clone(&self.bucket);
+            async move {
+                bucket
+                    .put_opts(&path, PutPayload::from_bytes(bytes), options)
+                    .await
+                    .map(drop)
+                    .map_err(classify)
+            }
         };
-        self.store
-            .put_opts(&path(key), PutPayload::from_bytes(bytes), options)
-            .await
-            .map(drop)
-            .map_err(classify)
+        if self.copy.is_none() {
+            return write(path(key), bytes).await;
+        }
+        let queued = Path::from(format!("{QUEUE}{}", key.0));
+        futures_util::try_join!(write(path(key), bytes.clone()), write(queued, bytes)).map(drop)
     }
 
     /// The object `key`'s bytes, as the bucket streams them.
     pub async fn get(&self, key: &ObjectKey) -> Result<Object, StorageError> {
-        let found = self.store.get(&path(key)).await.map_err(classify)?;
+        let found = self.bucket.get(&path(key)).await.map_err(classify)?;
         let size = found.meta.size;
         let bytes = found.into_stream().map_err(Internal::new).boxed();
         Ok(Object { size, bytes })
     }
 
-    /// Deletes the object `key`. An object that isn't there counts as deleted, so a second
-    /// deletion of it succeeds.
+    /// Deletes the object `key` from the copy, if there is one, then from the bucket, so that a
+    /// deletion that stops between the two leaves the object in the bucket, where the next
+    /// deletion finds it (PLATFORM-078). An object that isn't there counts as deleted, so a
+    /// second deletion of it succeeds.
     pub async fn delete(&self, key: &ObjectKey) -> Result<(), StorageError> {
-        match self.store.delete(&path(key)).await.map_err(classify) {
-            Ok(()) | Err(StorageError::NotFound) => Ok(()),
+        if let Some(copy) = &self.copy {
+            deleted(copy, key).await?;
+        }
+        deleted(&self.bucket, key).await
+    }
+
+    /// The keys of the objects under `prefix` that the bucket or its copy holds, each once, in
+    /// the order of the keys, a page of each bucket's list at a time (PLATFORM-078).
+    pub fn list(&self, prefix: &str) -> BoxStream<'static, Result<ObjectKey, StorageError>> {
+        self.holdings(prefix).map_ok(|(key, _)| key).boxed()
+    }
+
+    /// The keys of the objects under `prefix` that the bucket or its copy holds, each once, in
+    /// the order of the keys, with which of the two holds it. Each bucket lists its keys in
+    /// order, as S3's `ListObjectsV2` does, and a list that doesn't fails the stream, rather than
+    /// merging the two wrongly.
+    pub fn holdings(
+        &self,
+        prefix: &str,
+    ) -> BoxStream<'static, Result<(ObjectKey, Held), StorageError>> {
+        let merge = Merge {
+            bucket: keys(&self.bucket, Some(prefix)).fuse(),
+            copy: self
+                .copy
+                .as_ref()
+                .map(|copy| keys(copy, Some(prefix)).fuse()),
+            next_bucket: None,
+            next_copy: None,
+            last: None,
+        };
+        stream::try_unfold(merge, |mut merge| async move {
+            Ok(merge.next().await?.map(|holding| (holding, merge)))
+        })
+        .boxed()
+    }
+
+    /// Whether the bucket holds no object at all, as a new server's doesn't, from the first
+    /// page of its list.
+    pub async fn is_empty(&self) -> Result<bool, StorageError> {
+        Ok(keys(&self.bucket, None).next().await.transpose()?.is_none())
+    }
+
+    /// Whether the bucket is restoring from its copy: whether it holds the object that marks it
+    /// so, which only a bucket with a copy can (PLATFORM-078).
+    pub async fn restoring(&self) -> Result<bool, StorageError> {
+        if self.copy.is_none() {
+            return Ok(false);
+        }
+        match self
+            .bucket
+            .head(&Path::from(RESTORING))
+            .await
+            .map_err(classify)
+        {
+            Ok(_) => Ok(true),
+            Err(StorageError::NotFound) => Ok(false),
             Err(error) => Err(error),
         }
     }
 
-    /// The keys of the objects under `prefix`, as the bucket lists them, a page at a time.
-    pub fn list(&self, prefix: &str) -> BoxStream<'static, Result<ObjectKey, StorageError>> {
-        let prefix = Path::from(prefix.trim_end_matches('/'));
-        self.store
-            .list(Some(&prefix))
-            .map(|listed| {
-                listed
-                    .map(|meta| ObjectKey(meta.location.to_string()))
-                    .map_err(classify)
-            })
-            .boxed()
+    /// Marks the bucket as restoring from its copy, for the deployment to bring back every
+    /// object of the copy, which then removes the mark (the files spec's "Restoring from the
+    /// copy").
+    pub async fn mark_restoring(&self) -> Result<(), StorageError> {
+        self.bucket
+            .put(&Path::from(RESTORING), PutPayload::default())
+            .await
+            .map(drop)
+            .map_err(classify)
+    }
+}
+
+/// The client of the bucket that `config` describes.
+fn client(config: &BucketConfig) -> Result<AmazonS3, Internal> {
+    let options = ClientOptions::new()
+        .with_timeout(REQUEST_TIMEOUT)
+        .with_connect_timeout(CONNECT_TIMEOUT)
+        .with_allow_http(config.endpoint.scheme() == "http");
+    let retry = RetryConfig {
+        max_retries: RETRIES,
+        retry_timeout: RETRY_TIMEOUT,
+        ..RetryConfig::default()
+    };
+    AmazonS3Builder::new()
+        .with_endpoint(config.endpoint.as_str().trim_end_matches('/'))
+        .with_region(&config.region)
+        .with_bucket_name(&config.bucket)
+        .with_access_key_id(&config.access_key_id)
+        .with_secret_access_key(config.secret_access_key.expose())
+        .with_virtual_hosted_style_request(!config.path_style)
+        .with_disable_tagging(true)
+        .with_disable_bulk_delete(true)
+        .with_client_options(options)
+        .with_retry(retry)
+        .with_http_connector(Connector {
+            ca_path: config.ca_path.clone(),
+        })
+        .build()
+        .map_err(Internal::new)
+}
+
+/// Deletes the object `key` from `bucket`, where one that isn't there counts as deleted.
+async fn deleted(bucket: &AmazonS3, key: &ObjectKey) -> Result<(), StorageError> {
+    match bucket.delete(&path(key)).await.map_err(classify) {
+        Ok(()) | Err(StorageError::NotFound) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// The keys of the objects of `bucket` under `prefix`, or every object's, as the bucket lists
+/// them, a page at a time.
+fn keys(
+    bucket: &Arc<AmazonS3>,
+    prefix: Option<&str>,
+) -> BoxStream<'static, Result<ObjectKey, StorageError>> {
+    let prefix = prefix.map(|prefix| Path::from(prefix.trim_end_matches('/')));
+    Arc::clone(bucket)
+        .list(prefix.as_ref())
+        .map(|listed| {
+            listed
+                .map(|meta| ObjectKey(meta.location.to_string()))
+                .map_err(classify)
+        })
+        .boxed()
+}
+
+/// The merge of the bucket's list with its copy's, each in the order of the keys, and fused, so
+/// that one which has ended is asked again for nothing.
+struct Merge {
+    bucket: Fuse<BoxStream<'static, Result<ObjectKey, StorageError>>>,
+    copy: Option<Fuse<BoxStream<'static, Result<ObjectKey, StorageError>>>>,
+    next_bucket: Option<ObjectKey>,
+    next_copy: Option<ObjectKey>,
+    last: Option<ObjectKey>,
+}
+
+impl Merge {
+    /// The next key that either list holds, with which holds it, or `None` once both have
+    /// ended.
+    async fn next(&mut self) -> Result<Option<(ObjectKey, Held)>, StorageError> {
+        if self.next_bucket.is_none() {
+            self.next_bucket = self.bucket.next().await.transpose()?;
+        }
+        if self.next_copy.is_none()
+            && let Some(copy) = &mut self.copy
+        {
+            self.next_copy = copy.next().await.transpose()?;
+        }
+        let held = match (&self.next_bucket, &self.next_copy) {
+            (None, None) => return Ok(None),
+            (Some(_), None) => Held::Bucket,
+            (None, Some(_)) => Held::Copy,
+            (Some(bucket), Some(copy)) => match bucket.0.cmp(&copy.0) {
+                Ordering::Less => Held::Bucket,
+                Ordering::Greater => Held::Copy,
+                Ordering::Equal => Held::Both,
+            },
+        };
+        let key = match held {
+            Held::Bucket => self.next_bucket.take(),
+            Held::Copy => self.next_copy.take(),
+            Held::Both => self.next_copy.take().and(self.next_bucket.take()),
+        }
+        .ok_or_else(|| StorageError::Failed(Internal::new("a list's next key went missing")))?;
+        if self.last.as_ref().is_some_and(|last| key.0 <= last.0) {
+            return Err(StorageError::Failed(Internal::new(
+                "a bucket listed its keys out of order",
+            )));
+        }
+        self.last = Some(key.clone());
+        Ok(Some((key, held)))
     }
 }
 
@@ -243,13 +419,16 @@ mod tests {
     /// A bucket's settings, with `ca_path`.
     fn config(ca_path: Option<PathBuf>) -> StorageConfig {
         StorageConfig {
-            endpoint: "https://s3.example.com".parse().unwrap(),
-            region: "us-east-1".to_owned(),
-            bucket: "files".to_owned(),
-            access_key_id: "key".to_owned(),
-            secret_access_key: Secret::new("secret".to_owned()),
-            path_style: false,
-            ca_path,
+            bucket: BucketConfig {
+                endpoint: "https://s3.example.com".parse().unwrap(),
+                region: "us-east-1".to_owned(),
+                bucket: "files".to_owned(),
+                access_key_id: "key".to_owned(),
+                secret_access_key: Secret::new("secret".to_owned()),
+                path_style: false,
+                ca_path,
+            },
+            copy: None,
         }
     }
 

@@ -5,6 +5,6 @@ mod composition;
 mod modules;
 
 pub use composition::{
-    Config, MIGRATIONS, Resources, SeedError, SeedReport, Services, compose, openapi, permissions,
-    pipeline, seed, seed_allowed,
+    Config, FilesRestored, MIGRATIONS, Resources, SeedError, SeedReport, Services, compose,
+    openapi, permissions, pipeline, restore_files, seed, seed_allowed,
 };

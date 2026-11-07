@@ -27,6 +27,10 @@ pub(crate) enum FilesError {
     /// cause.
     #[error("the storage is unavailable")]
     StorageUnavailable(#[source] Option<Internal>),
+    /// The bucket is restoring from its copy, and doesn't hold the file's object yet
+    /// (FILES-014).
+    #[error("the file's bytes are being restored")]
+    Restoring,
     /// `platform` refused the request, such as by authorization, its idempotency key or its
     /// input, or couldn't check it, or the update failed its precondition (PLATFORM-071).
     #[error(transparent)]
@@ -58,6 +62,7 @@ impl ErrorCode for FilesError {
             Self::Empty => "files.empty",
             Self::UnsupportedType => "files.unsupported_type",
             Self::StorageUnavailable(_) => "files.storage_unavailable",
+            Self::Restoring => "files.restoring",
             Self::Platform(error) => error.code(),
             Self::Internal(error) => error.code(),
         }
@@ -70,6 +75,7 @@ impl ErrorCode for FilesError {
             Self::Empty => "Empty file",
             Self::UnsupportedType => "Unsupported file type",
             Self::StorageUnavailable(_) => "Storage unavailable",
+            Self::Restoring => "File being restored",
             Self::Platform(error) => error.title(),
             Self::Internal(error) => error.title(),
         }
@@ -80,7 +86,7 @@ impl ErrorCode for FilesError {
             Self::NotFound => Category::NotFound,
             Self::InvalidName(_) | Self::Empty => Category::Validation,
             Self::UnsupportedType => Category::BusinessRule,
-            Self::StorageUnavailable(_) => Category::Unavailable,
+            Self::StorageUnavailable(_) | Self::Restoring => Category::Unavailable,
             Self::Platform(error) => error.category(),
             Self::Internal(error) => error.category(),
         }
@@ -97,6 +103,10 @@ impl ErrorCode for FilesError {
                 "The file's extension must be one the API accepts, and its contents of that type."
                     .to_owned(),
             ),
+            Self::Restoring => Some(
+                "The file's contents are coming back from a copy after a restore of the server."
+                    .to_owned(),
+            ),
             Self::Platform(error) => error.detail(),
             _ => None,
         }
@@ -106,6 +116,16 @@ impl ErrorCode for FilesError {
         match self {
             Self::Platform(error) => error.errors(),
             _ => None,
+        }
+    }
+
+    /// A minute while the bucket restores from its copy, which brings files back over minutes,
+    /// and `platform`'s second otherwise (FILES-014).
+    fn retry_after_seconds(&self) -> u32 {
+        match self {
+            Self::Restoring => 60,
+            Self::Platform(error) => error.retry_after_seconds(),
+            _ => 1,
         }
     }
 }

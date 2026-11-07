@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 
 use futures_util::TryStreamExt;
 use platform::{
-    storage::{Storage, StorageConfig},
+    storage::{BucketConfig, Storage, StorageConfig},
     types::Secret,
 };
 use tokio::{
@@ -31,6 +31,24 @@ pub fn name(database: &str) -> String {
 /// The client of the bucket `bucket`, as the API builds it.
 pub fn storage(bucket: &str) -> Storage {
     Storage::new(&StorageConfig {
+        bucket: config(bucket),
+        copy: None,
+    })
+    .unwrap()
+}
+
+/// The client of the bucket `bucket` with its copy `copy`, as the API builds it.
+pub fn storage_with_copy(bucket: &str, copy: &str) -> Storage {
+    Storage::new(&StorageConfig {
+        bucket: config(bucket),
+        copy: Some(config(copy)),
+    })
+    .unwrap()
+}
+
+/// The settings of the bucket `bucket`, in the SeaweedFS that `just services` starts.
+fn config(bucket: &str) -> BucketConfig {
+    BucketConfig {
         endpoint: ENDPOINT.parse().unwrap(),
         region: "us-east-1".to_owned(),
         bucket: bucket.to_owned(),
@@ -38,8 +56,7 @@ pub fn storage(bucket: &str) -> Storage {
         secret_access_key: Secret::new("test".to_owned()),
         path_style: true,
         ca_path: None,
-    })
-    .unwrap()
+    }
 }
 
 /// Creates the bucket `bucket`.

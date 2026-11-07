@@ -8084,7 +8084,8 @@
                             "request.timed_out",
                             "request.overloaded",
                             "request.unavailable",
-                            "files.storage_unavailable"
+                            "files.storage_unavailable",
+                            "files.restoring"
                           ],
                           "type": "string"
                         }
@@ -8095,7 +8096,7 @@
                 }
               }
             },
-            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer. `files.storage_unavailable`: Storage unavailable.",
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer. `files.storage_unavailable`: Storage unavailable. `files.restoring`: File being restored.",
             "headers": {
               "retry-after": {
                 "description": "How many seconds to wait before trying again.",

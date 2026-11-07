@@ -187,7 +187,7 @@ write() {
                 ;;
             secret)
                 case $first in
-                    database_admin_url | database_owner_url | database_url | postgres_password | backup_s3_key | backup_s3_key_secret | backup_cipher_pass | files_s3_key | files_s3_key_secret | managed_otlp_token | managed_grafana_token | smtp_password) ;;
+                    database_admin_url | database_owner_url | database_url | postgres_password | backup_s3_key | backup_s3_key_secret | backup_cipher_pass | files_s3_key | files_s3_key_secret | files_copy_s3_key | files_copy_s3_key_secret | files_copy_cipher_pass | managed_otlp_token | managed_grafana_token | smtp_password) ;;
                     # A credential of an alert integration, which alertmanager.yaml names (D49).
                     alertmanager/*/* | alertmanager/.*) fail "no secret is named $first" ;;
                     alertmanager/?*)
@@ -203,7 +203,7 @@ write() {
                 ;;
             cert)
                 case $first in
-                    backup-ca.crt | files-ca.crt | managed-otlp-ca.crt | managed-grafana-ca.crt) ;;
+                    backup-ca.crt | files-ca.crt | files-copy-ca.crt | managed-otlp-ca.crt | managed-grafana-ca.crt) ;;
                     *) fail "no certificate is named $first" ;;
                 esac
                 write_file "$deployment/certs/$first" "$second"
@@ -216,13 +216,17 @@ write() {
             *) fail "no item is named $kind" ;;
         esac
     done
-    # The bundled database's secrets that no answer gave: the passphrase that encrypts the backups,
-    # and the superuser's password, which a restored database keeps. Each is 24 random bytes in
-    # hex, which a URL holds as it is.
+    # The secrets that no answer gave and that the settings need: the bundled database's
+    # passphrase that encrypts the backups, and its superuser's password, which a restored database
+    # keeps, and the passphrase that encrypts the bundled files bucket's copy. Each is 24 random
+    # bytes in hex, which a URL holds as it is.
     database=$(sed -n 's/^DATABASE=//p' "$deployment/settings.env" | tail -n 1)
-    if [ "${database:-bundled}" != bundled ]; then return; fi
+    files=$(sed -n 's/^FILES=//p' "$deployment/settings.env" | tail -n 1)
+    names=""
+    if [ "${database:-bundled}" = bundled ]; then names="backup_cipher_pass postgres_password"; fi
+    if [ "${files:-bundled}" = bundled ]; then names="$names files_copy_cipher_pass"; fi
     generated=""
-    for name in backup_cipher_pass postgres_password; do
+    for name in $names; do
         if [ ! -s "$deployment/secrets/$name" ]; then
             od -An -N24 -tx1 /dev/urandom | tr -d ' \n' > "$deployment/secrets/$name"
             generated="$generated $name"
@@ -234,7 +238,7 @@ write() {
         printf '\n    %s: %s\n' "$name" "$(cat "$deployment/secrets/$name")"
     done
     printf '\n'
-    say "keep a copy of each off the server, such as in a password manager: without them, no backup can be restored (docs/operations/backups.md)"
+    say "keep a copy of each off the server, such as in a password manager: without them, no backup can be restored, and no file brought back from its copy (docs/operations/backups.md)"
 }
 
 case ${1:-} in

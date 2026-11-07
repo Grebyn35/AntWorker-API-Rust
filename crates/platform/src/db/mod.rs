@@ -131,6 +131,13 @@ impl Database {
         self.unattributed().await
     }
 
+    /// Opens a unit of work for an operator's task, a subcommand that acts for no request and
+    /// no job, such as `restore-files`, whose audit entries record no client. Only such a task
+    /// calls it; clippy bans it elsewhere.
+    pub async fn for_task(&self) -> Result<UnitOfWork, Internal> {
+        self.unattributed().await
+    }
+
     /// Opens a unit of work for `platform`'s own mechanisms, such as the hub's reads, which act
     /// for no request and no job, and whose audit entries record no client.
     pub(crate) async fn unattributed(&self) -> Result<UnitOfWork, Internal> {

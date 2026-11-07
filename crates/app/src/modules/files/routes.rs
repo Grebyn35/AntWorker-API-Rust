@@ -45,7 +45,11 @@ pub(crate) fn routes() -> Routes<Files> {
         .workspace::<FilesRead>(routes!(read_file), &[&FilesError::NotFound])
         .workspace::<FilesRead>(
             routes!(download_file),
-            &[&FilesError::NotFound, &FilesError::StorageUnavailable(None)],
+            &[
+                &FilesError::NotFound,
+                &FilesError::StorageUnavailable(None),
+                &FilesError::Restoring,
+            ],
         )
         .workspace::<FilesDelete>(routes!(delete_file), &[&FilesError::NotFound])
 }

@@ -45,9 +45,10 @@ const MODULE_FILES: [&str; 12] = [
 ];
 
 /// The entries that one module has besides the set (architecture.md §5).
-const MODULE_EXTRAS: [(&str, &str); 3] = [
+const MODULE_EXTRAS: [(&str, &str); 4] = [
     ("access", "permissions"),
     ("auth", "providers"),
+    ("files", "restore"),
     ("system", "seed"),
 ];
 

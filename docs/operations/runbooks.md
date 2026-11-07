@@ -133,6 +133,22 @@ With a managed database, run the same query in the provider's console. Add `payl
 
 **What to do.** Fix what the error names, often the same as for [BackupArchivingFailing](#backuparchivingfailing), then take a full backup at once with `just backup`. The alert clears when it completes.
 
+## FilesCopyFailing
+
+**What it means.** The bundled files bucket's copy, off the server, failed to take what the API queued for it, more recently than it succeeded, or hasn't succeeded for 10 minutes, as when `files-copy` stopped. The queue keeps each upload until the copy holds it, so nothing is lost while the server runs, but losing the server now loses every upload since the copy last succeeded, and the restore onto a new server removes those files (OPS-15, D100).
+
+**Look first.** `just logs <host> files-copy` shows rclone's error for each pass that failed, such as a key pair the copy's bucket refuses, an endpoint that doesn't answer, or a certificate the deployment doesn't trust. `just status <host>` shows when the copy last succeeded and last failed, and whether `files-copy` runs.
+
+**What to do.** Fix what the error names: the copy bucket's key pair or its settings, with `just server-setup`, or the bucket itself; `just server-check` lists the copy's bucket with its key pair, as `files-copy` reaches it. `files-copy` tries again every few seconds, and the alert clears with the next pass that succeeds.
+
+## FilesRestoreFailing
+
+**What it means.** The bundled files bucket is restoring from its copy, as after a restore onto a new server, and bringing the copy's objects back failed, more recently than it last succeeded. Until a file's object is back, its download answers 503 `files.restoring` (FILES-014).
+
+**Look first.** `just logs <host> files-copy` shows rclone's error, and `just status <host>` since when the bucket restores.
+
+**What to do.** Fix what the error names, as for [FilesCopyFailing](#filescopyfailing). `files-copy` tries again a minute after each failure, bringing back only the objects the bucket still lacks, and the alert clears once every object is back.
+
 ## ObservabilityServiceDown
 
 **What it means.** Prometheus can't scrape the collector, Loki, Tempo or Alertmanager. Telemetry that passes through that service may be lost, and alerts may not reach anyone if it is Alertmanager.

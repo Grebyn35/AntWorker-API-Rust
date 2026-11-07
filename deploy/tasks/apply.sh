@@ -4,12 +4,13 @@
 
 # Writes the secrets the deployment generates, once those the operator holds are there: the
 # passwords of the bundled Postgres's other roles and the URLs made from them, the API's HMAC
-# key, and Grafana's administrator password. The files may be read by every user of a container, as Compose mounts
-# them, so the directory admits only the deployment's owner.
+# key, Grafana's administrator password, and the bundled files bucket's key pair, identities and
+# certificate. The files may be read by every user of a container, as Compose mounts them, so the
+# directory admits only the deployment's owner.
 write_secrets() {
     secrets=$deployment/secrets
     umask 022
-    mkdir -p "$secrets/alertmanager"
+    mkdir -p "$secrets/alertmanager" "$deployment/certs"
     chmod 700 "$secrets"
     check_secrets
     # The bundled database's URLs, written the first time it runs, and again when they name
@@ -49,6 +50,7 @@ write_secrets() {
         random > "$secrets/grafana_admin_password"
         say "wrote Grafana's administrator password to $secrets/grafana_admin_password"
     fi
+    if [ "$files" = bundled ]; then write_files_secrets; fi
     for name in database_url database_owner_url database_admin_url; do
         if [ ! -f "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
     done
@@ -57,9 +59,11 @@ write_secrets() {
     done
     # Compose checks every secret file it declares, so the ones this choice of services doesn't
     # use exist empty.
-    for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass grafana_admin_password managed_otlp_token; do
+    for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass grafana_admin_password managed_otlp_token \
+        files_copy_s3_key files_copy_s3_key_secret files_copy_cipher_pass bundled_files_tls_key bundled_files_s3_config; do
         if [ ! -f "$secrets/$name" ]; then : > "$secrets/$name"; fi
     done
+    if [ ! -f "$deployment/certs/bundled-files.crt" ]; then : > "$deployment/certs/bundled-files.crt"; fi
 }
 
 # Fails unless secrets/ holds each secret that the operator holds for these settings, which
@@ -80,6 +84,16 @@ check_secrets() {
         for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass; do
             if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
         done
+    fi
+    if [ "$files" = bundled ]; then
+        for name in files_copy_s3_key files_copy_s3_key_secret files_copy_cipher_pass; do
+            if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md#the-files-bucket)"; fi
+        done
+    fi
+    # Replicas that a deploy to a provider's bucket starts with the bundled bucket's key pair
+    # would reach no bucket.
+    if [ "$files" = managed ] && grep -q '^bundled-' "$secrets/files_s3_key" 2> /dev/null; then
+        fail "$secrets/files_s3_key holds the bundled files bucket's key pair; write the provider's bucket's key pair into files_s3_key and files_s3_key_secret first (docs/operations/deploy.md#the-files-bucket)"
     fi
     if [ "$telemetry" = managed ] && [ ! -s "$secrets/managed_otlp_token" ]; then
         fail "$secrets/managed_otlp_token is missing (docs/operations/observability.md)"
@@ -123,7 +137,30 @@ write_deploy_env() {
         if [ "$telemetry" = off ]; then echo "API_TELEMETRY_ENDPOINT="; else echo "API_TELEMETRY_ENDPOINT=http://collector:4318"; fi
         if [ "$telemetry" = off ]; then echo "PROXY_TRACES_EXPORTER=none"; else echo "PROXY_TRACES_EXPORTER=otlp"; fi
         if [ -f "$deployment/certs/backup-ca.crt" ]; then echo "BACKUP_CA_FILE=/etc/deployment-certs/backup-ca.crt"; fi
-        if [ -f "$deployment/certs/files-ca.crt" ]; then echo "FILES_CA_FILE=/etc/deployment-certs/files-ca.crt"; fi
+        # The bucket of files' bytes, and its copy, which only the bundled bucket has (D98).
+        if [ "$files" = bundled ]; then
+            echo "FILES_ENDPOINT=https://files:8334"
+            echo "FILES_REGION=us-east-1"
+            echo "FILES_BUCKET=files"
+            echo "FILES_URI_STYLE=path"
+            echo "FILES_CA_FILE=/etc/deployment-certs/bundled-files-ca.crt"
+            printf '%s\n' "FILES_COPY_ENDPOINT=https://$(setting FILES_COPY_S3_ENDPOINT):$(setting FILES_COPY_S3_PORT 443)"
+            printf '%s\n' "FILES_COPY_REGION=$(setting FILES_COPY_S3_REGION)"
+            printf '%s\n' "FILES_COPY_BUCKET=$(setting FILES_COPY_S3_BUCKET)"
+            printf '%s\n' "FILES_COPY_URI_STYLE=$(setting FILES_COPY_S3_URI_STYLE host)"
+            echo "FILES_COPY_KEY_FILE=/run/secrets/files_copy_s3_key"
+            echo "FILES_COPY_KEY_SECRET_FILE=/run/secrets/files_copy_s3_key_secret"
+            if [ -f "$deployment/certs/files-copy-ca.crt" ]; then echo "FILES_COPY_CA_FILE=/etc/deployment-certs/files-copy-ca.crt"; fi
+            # The certificate's fingerprint, so a deploy that issues a new one restarts the
+            # bucket, which reads it as it starts.
+            printf '%s\n' "BUNDLED_FILES_CERTIFICATE=$(cksum < "$deployment/certs/bundled-files.crt" | cut -d ' ' -f 1)"
+        else
+            printf '%s\n' "FILES_ENDPOINT=https://$(setting FILES_S3_ENDPOINT):$(setting FILES_S3_PORT 443)"
+            printf '%s\n' "FILES_REGION=$(setting FILES_S3_REGION)"
+            printf '%s\n' "FILES_BUCKET=$(setting FILES_S3_BUCKET)"
+            printf '%s\n' "FILES_URI_STYLE=$(setting FILES_S3_URI_STYLE host)"
+            if [ -f "$deployment/certs/files-ca.crt" ]; then echo "FILES_CA_FILE=/etc/deployment-certs/files-ca.crt"; fi
+        fi
         # How long the bytes of a file that no row names stay: the backups' reach with the bundled
         # database, so a restore finds every file's bytes it brings back (FILES-011).
         delay=$(setting FILE_DELETION_DELAY_DAYS)
@@ -153,11 +190,12 @@ write_caddy_state() {
 }
 
 # The services that run once and would restart, because their configuration differs from the
-# running ones'. The bundled Postgres counts only while the settings choose it: otherwise the deploy
-# stops it instead.
+# running ones'. The bundled Postgres and the bundled files bucket count only while the settings
+# choose them: otherwise the deploy stops them instead.
 changed_single_services() {
     services=caddy
-    if [ "$database" = bundled ]; then services="caddy postgres"; fi
+    if [ "$database" = bundled ]; then services="$services postgres"; fi
+    if [ "$files" = bundled ]; then services="$services files"; fi
     for service in $services; do
         container=$(running "$service")
         if [ -z "$container" ]; then continue; fi
@@ -266,6 +304,7 @@ apply() {
     single="caddy"
     shared=""
     if [ "$database" = bundled ]; then single="$single postgres" shared="$shared backup"; fi
+    if [ "$files" = bundled ]; then single="$single files" shared="$shared files-copy"; fi
     if [ "$telemetry" = self-hosted ]; then shared="$shared collector prometheus alertmanager loki tempo grafana"; fi
     if [ "$telemetry" = managed ]; then shared="$shared collector-managed"; fi
     if [ "$allow_restart" = yes ]; then recreate=""; else recreate="--no-recreate"; fi
@@ -284,6 +323,14 @@ apply() {
     say "running bootstrap and migrate from $api_image"
     compose --profile tasks run --rm --no-deps --quiet-pull bootstrap
     compose --profile tasks run --rm --no-deps --quiet-pull migrate
+    # A bundled files bucket that holds nothing, as a new server's, while the database holds
+    # files' rows, as a managed database's does after losing the server, gets the copy's objects
+    # back, and the files whose bytes the copy lacks go (FILES-015). One that holds an object is
+    # left as it is.
+    if [ "$files" = bundled ] && ! compose --profile tasks run --rm --no-deps --quiet-pull restore-files restore-files --when-empty; then
+        compose logs --tail 30 files >&2 || true
+        fail "restore-files couldn't check the files' rows against the bundled files bucket and its copy, with the error above, so no replica started"
+    fi
 
     say "starting $replicas $target replicas"
     if ! compose up --detach --wait --quiet-pull --wait-timeout 180 --no-deps --scale "api-$target=$replicas" "api-$target"; then
@@ -330,21 +377,23 @@ import_into_managed_grafana() {
     fi
 }
 
-# Stops the services that an earlier DATABASE or TELEMETRY started and the settings don't
-# choose, once no replica uses them. Their volumes, with the bundled database's data, stay, but
-# the bundled database's backup status goes with it, so no alert watches backups that the
-# deployment doesn't take.
+# Stops the services that an earlier DATABASE, FILES or TELEMETRY started and the settings don't
+# choose, once no replica uses them. Their volumes, with the bundled database's data and the
+# bundled files bucket's, stay, but the status of the bundled database's backups and of the files'
+# copy goes with them, so no alert watches backups or a copy that the deployment doesn't take.
 stop_unused_services() {
     unused=""
     if [ "$database" != bundled ]; then unused="$unused postgres backup"; fi
+    if [ "$files" != bundled ]; then unused="$unused files files-copy"; fi
     if [ "$telemetry" != self-hosted ]; then unused="$unused collector prometheus alertmanager loki tempo grafana"; fi
     if [ "$telemetry" != managed ]; then unused="$unused collector-managed"; fi
-    left=""
+    left="" copier=""
     for service in $unused; do
         container=$(running "$service")
         if [ -z "$container" ]; then continue; fi
-        say "stopping $service, which DATABASE=$database and TELEMETRY=$telemetry don't use; its volumes stay"
+        say "stopping $service, which DATABASE=$database, FILES=$files and TELEMETRY=$telemetry don't use; its volumes stay"
         if [ "$service" = postgres ]; then left=$(docker inspect --format '{{ .Config.Image }}' "$container"); fi
+        if [ "$service" = files-copy ]; then copier=$(docker inspect --format '{{ .Config.Image }}' "$container"); fi
         # As long as Compose would give Postgres, the longest of the services' grace periods.
         docker stop --time 60 "$container" > /dev/null
         docker rm "$container" > /dev/null
@@ -354,6 +403,10 @@ stop_unused_services() {
     if [ -n "$left" ]; then
         docker run --rm --volume "${project}_backup-status:/var/lib/backup-status" --entrypoint sh "$left" \
             -c 'rm -f /var/lib/backup-status/*'
+    fi
+    if [ -n "$copier" ]; then
+        docker run --rm --volume "${project}_files-copy-status:/var/lib/files-copy-status" --entrypoint sh "$copier" \
+            -c 'rm -f /var/lib/files-copy-status/*'
     fi
 }
 

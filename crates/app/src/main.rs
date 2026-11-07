@@ -18,11 +18,12 @@ use platform::{
     blocking::Workers,
     clock::SharedClock,
     config::{
-        BootstrapConfig, ConfigError, Environment, HealthConfig, MigrateConfig, ServerConfig,
-        TelemetryConfig,
+        BootstrapConfig, ConfigError, Environment, HealthConfig, MigrateConfig, RestoreFilesConfig,
+        ServerConfig, TelemetryConfig,
     },
     db::Database,
     lifecycle::{self, Readiness, Shutdown, ShutdownSignals},
+    storage::Storage,
     telemetry::{Service, names},
 };
 use tokio::{net::TcpListener, sync::watch};
@@ -57,6 +58,14 @@ enum Command {
     /// Fills a development database with demo accounts and workspaces, through the API's routes,
     /// and prints how to sign in. Refuses unless ENVIRONMENT is development.
     Seed,
+    /// Removes the files whose bytes neither the files bucket nor its copy holds, and marks the
+    /// bucket as restoring from its copy when the copy holds what the bucket lacks, as a restore
+    /// asks once the database is restored.
+    RestoreFiles {
+        /// Do nothing while the bucket holds an object, as a deploy asks.
+        #[arg(long)]
+        when_empty: bool,
+    },
     /// Asks the instance that `LISTEN_ADDR` names whether it is ready, for a container's health
     /// check, and exits 0 only if it is.
     Health,
@@ -85,6 +94,11 @@ fn main() -> ExitCode {
                 .and_then(|server| Ok((server, app::Config::read(&settings)?)));
             start(settings.telemetry(), config, seed)
         }
+        Command::RestoreFiles { when_empty } => start(
+            settings.telemetry(),
+            settings.restore_files(),
+            move |config| restore_files(config, when_empty),
+        ),
         Command::Health => health(settings.health()),
         Command::Openapi { path } => openapi(&path),
     }
@@ -266,6 +280,63 @@ async fn seed((config, modules): (ServerConfig, app::Config)) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => failed("seed", &error),
+    }
+}
+
+/// Removes the files whose bytes neither bucket holds, marks the bucket as restoring from its copy
+/// when the copy holds what it lacks, and prints what it did (FILES-015). It opens 2 connections
+/// at most, as `app`, after the startup checks.
+async fn restore_files(config: RestoreFilesConfig, when_empty: bool) -> ExitCode {
+    let database = match Database::connect(&config.database_url, 2, &app::MIGRATIONS).await {
+        Ok(database) => database,
+        Err(error) => return failed("database", &error),
+    };
+    let storage = match Storage::new(&config.storage) {
+        Ok(storage) => storage,
+        Err(error) => return failed("storage", &error),
+    };
+    match app::restore_files(&database, &storage, when_empty).await {
+        Ok(restored) => {
+            print_restored(&restored);
+            ExitCode::SUCCESS
+        }
+        Err(error) => failed("restore-files", &error),
+    }
+}
+
+/// Prints what `restore-files` did: how many files each workspace lost, and whether the bucket's
+/// objects come back from its copy (FILES-015).
+#[expect(
+    clippy::print_stdout,
+    reason = "the files a restore lost are its output, for the operator who ran it (CODE-03)"
+)]
+fn print_restored(restored: &app::FilesRestored) {
+    let (lost, restoring) = match restored {
+        app::FilesRestored::NotEmpty => {
+            println!("The files bucket holds objects, so restore-files checked nothing.");
+            return;
+        }
+        app::FilesRestored::Checked { lost, restoring } => (lost, *restoring),
+    };
+    if lost.is_empty() {
+        println!("No file was lost: the files bucket or its copy holds every file's bytes.");
+    } else {
+        let total: u64 = lost.iter().map(|(_, count)| count).sum();
+        println!(
+            "Removed {total} files whose bytes neither the files bucket nor its copy held, each \
+             recorded as file.lost in its workspace's audit log:"
+        );
+        for (workspace, count) in lost {
+            println!("  workspace {workspace}: {count}");
+        }
+    }
+    if restoring {
+        println!(
+            "The files bucket lacks objects that its copy holds: they come back while the API \
+             serves, and until a file's bytes are back, its download answers 503."
+        );
+    } else {
+        println!("The files bucket holds every object of its copy.");
     }
 }
 

@@ -5,7 +5,7 @@
 //!   `workspace_id`, or for a table that also has a `user_id`, a `user_id`, compared in its
 //!   `WHERE` or among the columns it inserts. A table of [`ADDRESSED`] is also reached by the
 //!   address of the user its rows are addressed to, which their own queries name instead. A file
-//!   of a scheduled job that spans tenants, in [`CROSS_TENANT`], is exempt.
+//!   of a scheduled job or an operator's task that spans tenants, in [`CROSS_TENANT`], is exempt.
 //! - Every other table is listed below: as account data, keyed by a user; as platform data, whose
 //!   scope columns, if any, record whom its work is for; as a module's bookkeeping of what it keeps
 //!   outside the database, which holds no tenant's data; or as the workspaces themselves.
@@ -56,10 +56,11 @@ const ADDRESSED: &[(&str, &str)] = &[
 /// tenant (DATA-16).
 const TENANTS: [&str; 1] = ["workspaces"];
 
-/// The files of scheduled jobs that span tenants, which select rows by their own criteria, such
-/// as expiry (DATA-16).
+/// The files of scheduled jobs and of operators' tasks that span tenants, which select rows by
+/// their own criteria, such as expiry, or the objects a bucket holds (DATA-16).
 const CROSS_TENANT: &[&str] = &[
     "crates/app/src/modules/files/jobs.rs",
+    "crates/app/src/modules/files/restore.rs",
     // part: invitations
     "crates/app/src/modules/invitations/jobs.rs",
     // end part: invitations

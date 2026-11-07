@@ -139,7 +139,7 @@ copy_release() {
     else
         rm -rf "$2/tasks"
     fi
-    for directory in caddy observability tools; do
+    for directory in caddy files observability tools; do
         sync_directory "$1/$directory" "$2/$directory"
     done
 }
@@ -219,6 +219,7 @@ read_settings() {
         fail "$deployment/settings.env is missing; copy settings.env.example there and set its values"
     fi
     database=$(setting DATABASE bundled)
+    files=$(setting FILES bundled)
     telemetry=$(setting TELEMETRY self-hosted)
     replicas=$(setting API_REPLICAS 2)
     pool=$(setting DATABASE_MAX_CONNECTIONS 10)
@@ -227,14 +228,6 @@ read_settings() {
     whole_number DATABASE_MAX_CONNECTIONS "$pool" 1 1000
     whole_number POSTGRES_MAX_CONNECTIONS "$connections" 20 10000
     if [ -z "$(setting API_ADDRESS)" ]; then fail "API_ADDRESS is required"; fi
-    for name in FILES_S3_ENDPOINT FILES_S3_REGION FILES_S3_BUCKET; do
-        if [ -z "$(setting "$name")" ]; then fail "$name is required, for the bucket of files' bytes (docs/operations/deploy.md#the-files-bucket)"; fi
-    done
-    whole_number FILES_S3_PORT "$(setting FILES_S3_PORT 443)" 1 65535
-    case $(setting FILES_S3_URI_STYLE host) in
-        host | path) ;;
-        *) fail "FILES_S3_URI_STYLE is host or path, not '$(setting FILES_S3_URI_STYLE)'" ;;
-    esac
     whole_number FILE_MAX_BYTES "$(setting FILE_MAX_BYTES 10485760)" 1 104857600
     if [ -n "$(setting FILE_DELETION_DELAY_DAYS)" ]; then
         whole_number FILE_DELETION_DELAY_DAYS "$(setting FILE_DELETION_DELAY_DAYS)" 1 3650
@@ -251,6 +244,15 @@ read_settings() {
             ;;
         managed) ;;
         *) fail "DATABASE is bundled or managed, not '$database'" ;;
+    esac
+    # The bundled files bucket's copy, or a provider's bucket (D98).
+    case $files in
+        bundled)
+            profiles="$profiles --profile files"
+            bucket_settings FILES_COPY_S3 "with FILES=bundled, for the copy of the bundled files bucket"
+            ;;
+        managed) bucket_settings FILES_S3 "with FILES=managed, for the bucket of files' bytes" ;;
+        *) fail "FILES is bundled or managed, not '$files'" ;;
     esac
     case $telemetry in
         self-hosted)
@@ -271,6 +273,19 @@ read_settings() {
             ;;
         off) ;;
         *) fail "TELEMETRY is self-hosted, managed or off, not '$telemetry'" ;;
+    esac
+}
+
+# Fails unless the settings of a provider's bucket whose names start with $1 are there and valid:
+# its endpoint, region and bucket, and its port and URI style, which $2 says the bucket is for.
+bucket_settings() {
+    for name in "$1_ENDPOINT" "$1_REGION" "$1_BUCKET"; do
+        if [ -z "$(setting "$name")" ]; then fail "$name is required $2 (docs/operations/deploy.md#the-files-bucket)"; fi
+    done
+    whole_number "$1_PORT" "$(setting "$1_PORT" 443)" 1 65535
+    case $(setting "$1_URI_STYLE" host) in
+        host | path) ;;
+        *) fail "$1_URI_STYLE is host or path, not '$(setting "$1_URI_STYLE")'" ;;
     esac
 }
 

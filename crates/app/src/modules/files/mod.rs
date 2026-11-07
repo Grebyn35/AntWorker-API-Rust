@@ -7,9 +7,11 @@ mod jobs;
 mod metrics;
 mod model;
 mod repo;
+mod restore;
 mod routes;
 mod service;
 
 pub(crate) use model::Settings;
+pub(crate) use restore::{Restored, restore};
 pub(crate) use routes::routes;
 pub(crate) use service::Files;

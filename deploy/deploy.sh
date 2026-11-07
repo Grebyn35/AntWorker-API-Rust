@@ -66,6 +66,7 @@ project=deployment
 # Each task's code, a file of tasks/ that shares this script's variables (CODE-08).
 . "$here/tasks/common.sh"
 . "$here/tasks/apply.sh"
+. "$here/tasks/files.sh"
 . "$here/tasks/backups.sh"
 . "$here/tasks/status.sh"
 . "$here/tasks/check.sh"

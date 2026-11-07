@@ -18,6 +18,7 @@ mod web;
 
 pub use error::ConfigError;
 use error::Problem;
+pub use storage::RestoreFilesConfig;
 
 use ipnet::IpNet;
 

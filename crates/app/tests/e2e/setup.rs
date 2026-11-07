@@ -28,12 +28,12 @@ encode() { base64 < "$1" | tr -d '\n'; }
         printf 'e2e-token' > /root/setup/token
         printf 'secret backup_s3_key %s\n' "$(encode /root/setup/key)"
         printf 'secret backup_s3_key_secret %s\n' "$(encode /root/setup/key_secret)"
-        printf 'secret files_s3_key %s\n' "$(encode /root/setup/key)"
-        printf 'secret files_s3_key_secret %s\n' "$(encode /root/setup/key_secret)"
+        printf 'secret files_copy_s3_key %s\n' "$(encode /root/setup/key)"
+        printf 'secret files_copy_s3_key_secret %s\n' "$(encode /root/setup/key_secret)"
         printf 'https://hooks.example.invalid/page' > /root/setup/page_url
         printf 'secret alertmanager/page_url %s\n' "$(encode /root/setup/page_url)"
         printf 'cert backup-ca.crt %s\n' "$(encode /root/bucket/ca.crt)"
-        printf 'cert files-ca.crt %s\n' "$(encode /root/bucket/ca.crt)"
+        printf 'cert files-copy-ca.crt %s\n' "$(encode /root/bucket/ca.crt)"
         printf 'login registry:5000 e2e %s\n' "$(encode /root/setup/token)"
         if [ -s /root/setup/postgres_password ]; then
             printf 'secret postgres_password %s\n' "$(encode /root/setup/postgres_password)"
@@ -53,7 +53,8 @@ fn as_deploy(server: &Server, command: &str) -> std::process::Output {
 }
 
 /// A new server, with a stand-in bucket, the setup's script and its settings: the bundled
-/// database, which backs up to the bucket, and no telemetry. Returns the server and the settings.
+/// database, which backs up to the bucket, the bundled files bucket, whose copy goes to the
+/// bucket's stand-in too, and no telemetry. Returns the server and the settings.
 fn new_server() -> (Server, String) {
     let server = Server::start();
     let mut settings = format!(
@@ -64,7 +65,7 @@ fn new_server() -> (Server, String) {
     for (name, value) in server
         .start_bucket()
         .into_iter()
-        .chain(server.start_files_bucket())
+        .chain(server.start_files_copy_bucket())
     {
         settings.push_str(&format!("{name}={value}\n"));
     }
@@ -98,7 +99,11 @@ fn assert_set_up(
     ] {
         assert!(output.contains(line), "{line}: {output}");
     }
-    for name in ["backup_cipher_pass", "postgres_password"] {
+    for name in [
+        "backup_cipher_pass",
+        "postgres_password",
+        "files_copy_cipher_pass",
+    ] {
         let value = server.shell_ok(&format!("cat {DEPLOYMENT}/secrets/{name}"));
         let shown = output
             .lines()
@@ -134,7 +139,12 @@ async fn ops_19_a_new_server_that_the_setup_prepares_passes_the_check_and_runs_a
     server.write("/root/setup/postgres_password", LOST_PASSWORD);
 
     let first = server.shell("sh /root/setup/set-up.sh secrets");
-    let passphrase = assert_set_up(&server, &first, &settings, &["backup_cipher_pass"]);
+    let passphrase = assert_set_up(
+        &server,
+        &first,
+        &settings,
+        &["backup_cipher_pass", "files_copy_cipher_pass"],
+    );
     let again = server.shell("sh /root/setup/set-up.sh");
     let before = as_deploy(&server, &check);
     let deployed = as_deploy(
@@ -198,6 +208,8 @@ fn assert_checked(output: &std::process::Output, holds: &str) {
         "check: ok    memory",
         "check: ok    the server pulls",
         &format!("check: ok    the bucket backups answers to its key pair, and {holds}"),
+        "check: ok    openssl, which issues the bundled files bucket's certificate",
+        "check: ok    the bucket files-copy of the files' copy answers to its key pair",
         "check: note  whether the disk is encrypted",
         "deploy: every check on the server passed",
     ] {
@@ -215,7 +227,11 @@ async fn ops_19_the_check_finds_a_key_pair_the_bucket_refuses_and_a_missing_sett
         &server,
         &set_up,
         &settings,
-        &["backup_cipher_pass", "postgres_password"],
+        &[
+            "backup_cipher_pass",
+            "postgres_password",
+            "files_copy_cipher_pass",
+        ],
     );
     let check = || {
         as_deploy(

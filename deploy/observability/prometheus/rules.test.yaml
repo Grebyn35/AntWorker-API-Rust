@@ -210,6 +210,70 @@ tests:
               summary: The bundled database's last archive of its write-ahead log failed, more recently than one succeeded, for five minutes.
               runbook: docs/operations/runbooks.md#backuparchivingfailing
 
+  # The files' copy fails after it last succeeded, then succeeds again.
+  - interval: 1m
+    input_series:
+      - series: 'file_mtime_seconds{file_name="files-copied"}'
+        values: "60x10 600x10"
+      - series: 'file_mtime_seconds{file_name="files-copy-failed"}'
+        values: "120x20"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: FilesCopyFailing
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: FilesCopyFailing
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: The bundled files bucket's copy failed more recently than it succeeded, or hasn't succeeded for 10 minutes, for five minutes.
+              runbook: docs/operations/runbooks.md#filescopyfailing
+      - eval_time: 15m
+        alertname: FilesCopyFailing
+        exp_alerts: []
+
+  # The files' copy stops: its last success stays at the start.
+  - interval: 1m
+    input_series:
+      - series: 'file_mtime_seconds{file_name="files-copied"}'
+        values: "0x30"
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: FilesCopyFailing
+        exp_alerts: []
+      - eval_time: 17m
+        alertname: FilesCopyFailing
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: The bundled files bucket's copy failed more recently than it succeeded, or hasn't succeeded for 10 minutes, for five minutes.
+              runbook: docs/operations/runbooks.md#filescopyfailing
+
+  # Bringing the copy's objects back fails, then succeeds.
+  - interval: 1m
+    input_series:
+      - series: 'file_mtime_seconds{file_name="files-restore-failed"}'
+        values: "60x20"
+      - series: 'file_mtime_seconds{file_name="files-restored"}'
+        values: "_x10 600x10"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: FilesRestoreFailing
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: FilesRestoreFailing
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: Bringing the bundled files bucket's objects back from its copy failed, more recently than it last succeeded, for five minutes.
+              runbook: docs/operations/runbooks.md#filesrestorefailing
+      - eval_time: 15m
+        alertname: FilesRestoreFailing
+        exp_alerts: []
+
   # The last base backup completed at the start, and none since.
   - interval: 1m
     input_series:

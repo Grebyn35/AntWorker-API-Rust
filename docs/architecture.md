@@ -201,7 +201,7 @@ modules/workspaces/
   personal_data.rs   its export and erasure contract (D31)
 ```
 
-Three modules have one extra entry each: `access/permissions.rs` holds the permission matrix, `auth/providers/` holds one file per OAuth provider together with their registry, and `system/seed.rs` holds `seed`, a client of the API's routes, which names HTTP types as a service may not ([system spec](spec/system.md#seed)).
+Four modules have one extra entry each: `access/permissions.rs` holds the permission matrix, `auth/providers/` holds one file per OAuth provider together with their registry, `files/restore.rs` holds `restore-files`, an operator's task that spans every workspace, as only the module's jobs otherwise do ([files spec](spec/files.md#restoring-from-the-copy)), and `system/seed.rs` holds `seed`, a client of the API's routes, which names HTTP types as a service may not ([system spec](spec/system.md#seed)).
 
 The layers have strict jobs (ARCH-08 to ARCH-10):
 - **Handlers** contain no SQL and no business rules.
@@ -310,7 +310,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   - `seed` fills a development database with demo accounts and workspaces, through the API's own routes, as a client would, and refuses in any other environment ([system spec](spec/system.md#seed)).
   - The setup subcommand creates a workspace and its owner's account, each time an operator runs it, in a fork that keeps it (§5, "Workspace shapes").
   - The superadmin subcommand adds an account to the superadmins or removes it, in a fork that keeps `superadmins` (D62). `just` runs it, on a deployment's server over Secure Shell (SSH), so only someone who can reach the server can change who is a superadmin.
-  - `restore-files` removes the files whose bytes neither the bundled files bucket nor its copy holds, and marks the bucket as restoring from its copy when the copy holds what the bucket lacks, as a restore, and a deploy onto a new server, run it ([files spec](spec/files.md#restoring-from-the-copy)).
+  - `restore-files` removes the files whose bytes neither the bundled files bucket nor its copy holds, and marks the bucket as restoring from its copy when the copy holds what the bucket lacks: each deploy runs it when the bucket holds nothing, as on a new server, and a restore runs it once its replicas serve ([files spec](spec/files.md#restoring-from-the-copy)).
   - `openapi` writes the contract, `openapi.json`, which a test compares with the committed one (API-17).
   - `health` asks the instance whether it is ready, for the image's health check (PLATFORM-063).
 - **The single-host reference deployment** runs on one Linux server, in Docker Compose (D15, D20, D45):
@@ -358,6 +358,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | Load testing | k6 | Constant-arrival-rate scenarios measure the rate a replica serves within the latency objective (OPS-16) |
 | Object storage | `object_store`, signing with `ring` and sending through a `reqwest` client on `rustls` with its ring provider; SeaweedFS in development and the tests (D28) | The Apache Arrow project's client of S3-compatible buckets, which reads an object as a stream; SeaweedFS serves S3 without credentials in one container, as the end-to-end tests' backup bucket already does ([platform spec](spec/platform.md#storage)) |
 | Backups | pgBackRest, in the reference deployment's image of the official Postgres | Continuous archiving of the write-ahead log, and point-in-time recovery from an S3-compatible bucket, encrypted, with retention (D44) |
+| The bundled files bucket, and its copy | SeaweedFS, serving S3 over TLS alone; rclone, whose `crypt` encrypts each object of the copy and keeps its key | SeaweedFS is the bucket that development and the tests run already; SeaweedFS's own copy writes the bytes as they are, the `age` crate would add 85 crates and SEC-16 lets this codebase build no encryption, and rclone's S3 server is experimental, so the API queues each object and rclone moves the queue (D101) |
 | Image scan | Grype | It reads both the base's packages and the crates the binary records (SEC-15) |
 | Shell linting | shellcheck | The standard linter for shell, run on the recipes of the justfile and the files it imports, and the deployment's scripts (CODE-07) |
 | Registry and signing | crane, and cosign with keyless signing | crane copies and tags an image without changing its digest, so promoting it never rewrites it (OPS-12) |
@@ -370,7 +371,6 @@ A part's tools and libraries are chosen when it is built, as "Docs for unbuilt p
 | Concern | Starting point | Chosen in |
 |---|---|---|
 | Outbound HTTP | `reqwest` with `rustls` | the first outbound caller (5) |
-| The bundled files bucket, and the copy of its objects off the server | SeaweedFS, which development and the tests run, for the bucket, and rclone, whose `crypt` encrypts the copy (D101) | `files`' bundled bucket (5) |
 
 The decided parts of the stack are decisions with recorded reasons: OpenTelemetry and the Grafana stack (D10, D19), GitHub Actions and `just` (D21), and Postgres as the only shared state (D20).
 

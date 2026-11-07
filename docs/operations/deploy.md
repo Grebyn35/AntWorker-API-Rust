@@ -10,7 +10,8 @@ flowchart LR
   caddy --> blue[api-blue replicas] & green[api-green replicas]
   caddy --> grafana[Grafana]
   blue & green --> postgres[(Postgres)]
-  blue & green -- files' bytes --> files[(Files bucket, off the server)]
+  blue & green -- files' bytes --> files[(Files bucket)]
+  files -- copy, encrypted --> copy[(Files' copy, off the server)]
   postgres -- write-ahead log, base backups --> bucket[(Backup bucket, off the server)]
   blue & green -- OTLP --> collector[Collector]
   collector --> stack[Prometheus, Loki, Tempo, Alertmanager]
@@ -20,7 +21,7 @@ flowchart LR
 - **Caddy** is the only service the server publishes, on ports 80 and 443 (SEC-14). It obtains a certificate for each address through the Automatic Certificate Management Environment (ACME), from Let's Encrypt, answers HTTP with a redirect to HTTPS, and sets HTTP Strict Transport Security (HSTS) (OPS-17). It sends each request to a replica that its own health checks find ready (OPS-05).
 - **The API** runs in two colors, `api-blue` and `api-green`, of `API_REPLICAS` replicas each, every replica limited to `API_CPUS` CPUs and `API_MEMORY` of memory. Between deploys one color runs; a deploy starts the other, then stops the first (D45).
 - **Postgres**, when the deployment bundles it, runs from the release's Postgres image, the official image with pgBackRest (D44). It archives its write-ahead log continuously to a bucket off the server, and the `backup` service takes a base backup every day ([backups.md](backups.md)). Only the deployment's private network reaches it.
-- **The files bucket**, a provider's, holds the bytes of the files that users upload, which the replicas write and read over HTTPS ([below](#the-files-bucket)).
+- **The files bucket** holds the bytes of the files that users upload, which the replicas write and read over HTTPS. It is bundled on the server, as `files`, from which `files-copy` copies each object, encrypted, to a bucket off the server, or it is a provider's ([below](#the-files-bucket)).
 - **The collector** receives the API's telemetry, and passes it to the self-hosted stack, whose Grafana answers on its own address behind Caddy, where every viewer signs in (D42). [observability.md](observability.md) describes the stack.
 
 [deploy/compose.yaml](../../deploy/compose.yaml) defines the services, and [deploy/deploy.sh](../../deploy/deploy.sh) runs them on the server, with each task's code in a file of `deploy/tasks/` that it sources.
@@ -28,12 +29,13 @@ flowchart LR
 ## What a server needs
 
 - **Linux on amd64 or arm64, with Docker Engine 29 or later and its Compose and Buildx plugins**, which Docker's own packages install as `docker compose` and `docker buildx`; `deploy/verify-release.sh` reads a release's images through `docker buildx imagetools`. `just server-setup` installs them on Debian and Ubuntu. The user that Secure Shell (SSH) signs in as for the deployment's tasks belongs to the `docker` group: on a new server, which often has only `root`, the setup creates such a user, `deploy`, and gives it root's SSH keys. The `docker` group can do whatever `root` can, so guard that key as you would root's.
-- **Memory for the services the settings choose.** On a trial server with 4 gigabytes, the bundled database and two replicas, the server used about 1.2 gigabytes with the self-hosted stack, Grafana the most at about 300 megabytes, and 0.75 gigabytes with a managed backend, the operating system and Docker included. Give it at least 2 gigabytes with the self-hosted stack, which needs room for its data to grow, and 1 gigabyte without it, since a deploy runs twice the replicas while it switches colors; `just server-check` checks it. The images take about 4.5 gigabytes of disk.
+- **Memory for the services the settings choose.** On a trial server with 4 gigabytes, the bundled database and two replicas, the server used about 1.2 gigabytes with the self-hosted stack, Grafana the most at about 300 megabytes, and 0.75 gigabytes with a managed backend, the operating system and Docker included. The bundled files bucket's SeaweedFS took about 70 megabytes in a test deployment that held few files. Give it at least 2 gigabytes with the self-hosted stack, which needs room for its data to grow, and 1 gigabyte without it, since a deploy runs twice the replicas while it switches colors; `just server-check` checks it. The images take about 4.5 gigabytes of disk.
 - **An encrypted disk** for its volumes (OPS-17). A provider encrypts below the server, where the server can't see it, so confirm it in the provider's documentation or in writing from its support: some providers encrypt neither their servers' disks nor their copies of them. Without it, encrypt the disk that holds Docker's data with Linux Unified Key Setup (LUKS), and plan where its key comes from at each boot, since a key on the same disk protects nothing: typed at the provider's console, sent over SSH, or fetched from a key server on another machine. Until the disk is unlocked, nothing of the deployment starts.
 - **A firewall** that admits SSH, and ports 80 and 443 from anywhere. Ports 80 and 443 must be open for Let's Encrypt to issue the certificates.
 - **DNS records** that point `API_ADDRESS`, and with the self-hosted stack `GRAFANA_ADDRESS`, to the server, such as `api.example.com` and `grafana.example.com`.
 - **A registry login** that can read the release's images, for a private repository: `just server-setup` makes it with a token that can read the repository's packages. The tools that verify a release read the login from `~/.docker/config.json`.
-- **A bucket for files' bytes, off the server**, at any provider that speaks the S3 protocol over HTTPS, such as Backblaze B2, Cloudflare R2, Hetzner Object Storage or Amazon S3, with encryption at rest, and a key pair that reaches only that bucket ([below](#the-files-bucket)).
+- **A bucket for files' bytes, off the server**, at any provider that speaks the S3 protocol over HTTPS, such as Backblaze B2, Cloudflare R2, Hetzner Object Storage or Amazon S3, with a key pair that reaches only that bucket: with the bundled files bucket, the bucket of its copy; with `FILES=managed`, the files bucket itself, with encryption at rest ([below](#the-files-bucket)).
+- **With the bundled files bucket, disk for every file and `openssl`.** The bucket keeps each file's bytes on the server, beside a copy of each upload in its queue until the copy holds it, so give the disk room for every file, while DiskFillingUp and DiskFull watch it ([runbooks.md](runbooks.md#diskfillingup)). A deploy issues the bucket's certificate with `openssl`, which Debian and Ubuntu install by default; `just server-check` checks for it.
 - **With the bundled database, a second bucket off the server, for its backups**, under the same conditions ([backups.md](backups.md#the-bucket)): a bucket of its own, since pgBackRest manages everything its bucket holds.
 
 ## Setting up a server
@@ -49,6 +51,8 @@ The argument is the server as SSH names it, signed in as `root`, or as a user th
 - For each setting of [deploy/settings.env.example](../../deploy/settings.env.example) that the choices need, such as the bucket's with the bundled database and the managed backend's with `TELEMETRY=managed`, under the comment that says what it means, with the value the server holds, or the example's, which Enter keeps. `IMAGE_REPOSITORY` and `SOURCE` start from the checkout's repository on GitHub.
 - For each secret the choices need, which you type unseen, and which Enter keeps when the server holds it:
   - With the bundled database: `backup_s3_key` and `backup_s3_key_secret`, the bucket's key pair; `backup_cipher_pass`, the passphrase that encrypts the backups, which the setup generates the first time and shows once; and `postgres_password`, the database's superuser password, which the setup also generates the first time and shows once, unless you give a lost server's, whose backups the new server restores. Keep a copy of the passphrase off the server: without it, no backup can be restored ([backups.md](backups.md#what-to-keep-off-the-server)).
+  - With the bundled files bucket: `files_copy_s3_key` and `files_copy_s3_key_secret`, the key pair of its copy's bucket; and `files_copy_cipher_pass`, the passphrase that encrypts the copy, which the setup generates the first time and shows once, unless you give a lost server's, whose files the new server brings back. Keep a copy of it off the server too.
+  - With `FILES=managed`: `files_s3_key` and `files_s3_key_secret`, the files bucket's key pair.
   - With a managed database: `database_admin_url`, `database_owner_url` and `database_url`, as `.env.example` describes `DATABASE_ADMIN_URL`, `DATABASE_OWNER_URL` and `DATABASE_URL`, each with `sslmode=verify-full` (OPS-17).
   - With a managed backend: `managed_otlp_token`, the token the collector signs in with, and with `MANAGED_GRAFANA_URL`, `managed_grafana_token`, the token of a service account of that Grafana with the Admin role, which imports the dashboards and the alert rules ([observability.md](observability.md#a-managed-backend)).
   - With the self-hosted stack: each credential of an alert integration that the release's `alertmanager.yaml` names, in `secrets/alertmanager/` ([observability.md](observability.md#alerts)).
@@ -72,7 +76,7 @@ Host production
 
 With them, every task names the server `production`, as the rest of this document does, and `ssh production` signs in. Choose any name, and add a `Host` for each server, such as `staging` beside `production`.
 
-Run it again to change a setting, a secret or the login: it asks again, starting from what the server holds, and keeps any setting the example doesn't list. The deploy writes the other secrets the first time the services need them: the bundled database's other passwords and the URLs made from them, and Grafana's administrator password. When `DATABASE` moves from `managed` to `bundled`, the deploy moves the managed database's URLs aside, to `<name>.before-bundled`, and writes the bundled one's. Compose mounts each secret file into the containers that read it, where any user of the container can read it, so each file is readable by every user, while the directory admits only the deployment's user.
+Run it again to change a setting, a secret or the login: it asks again, starting from what the server holds, and keeps any setting the example doesn't list. The deploy writes the other secrets the first time the services need them: the bundled database's other passwords and the URLs made from them, Grafana's administrator password, and the bundled files bucket's key pair, whose access key starts with `bundled-`, its identities, and its certificate. When `DATABASE` moves from `managed` to `bundled`, the deploy moves the managed database's URLs aside, to `<name>.before-bundled`, and writes the bundled one's; when `FILES` does, it moves the provider bucket's key pair aside the same way. Compose mounts each secret file into the containers that read it, where any user of the container can read it, so each file is readable by every user, while the directory admits only the deployment's user.
 
 ### Checking a server
 
@@ -159,24 +163,39 @@ Each service the API depends on is bundled or a provider's, chosen by one settin
 |---|---|---|
 | `DATABASE` | `bundled` | Postgres and its backups, on the server ([backups.md](backups.md)) |
 | | `managed` | Nothing: the API connects to a provider's Postgres server, which must back it up with point-in-time recovery, which restores the database as it stood at any moment it reaches, as OPS-15 requires, encrypt what it stores, as OPS-17 does, and hold no other deployment's database, such as a staging one's, which each deploy's `bootstrap` refuses, since deployments on one server share its roles ([platform spec](../spec/platform.md#database-roles)), and a staging deployment there would share production's connections, locks, disk and administrator (D75): a staging deployment runs the bundled Postgres on a server of its own instead |
+| `FILES` | `bundled` | The files bucket, `files`, and its copy, `files-copy`, on the server ([the files bucket](#the-files-bucket)) |
+| | `managed` | Nothing: the replicas reach a provider's bucket, which must encrypt what it stores |
 | `TELEMETRY` | `self-hosted` | The collector, Prometheus, Loki, Tempo, Alertmanager, and Grafana at `GRAFANA_ADDRESS` |
 | | `managed` | The collector alone, which sends every signal to a managed backend, into whose Grafana each deploy imports the dashboards and the alert rules ([observability.md](observability.md#a-managed-backend)) |
 | | `off` | Nothing: the API's logs go only to its containers' output |
 
-Files' bytes go to a provider's bucket, off the server ([the files bucket](#the-files-bucket)). The choice of a files bucket bundled on the server, whose objects a bucket of its own off the server copies, joins the deployment with `files`' bundled bucket, as [architecture §9](../architecture.md#9-runtime-topology) plans (D98).
+Changing `FILES` once files exist moves none of them: copy the objects of the bucket it leaves into the one it chooses before the deploy, as you would move a database before changing `DATABASE`. With `FILES=bundled`, the copy then gets each of them, in the daily copy of what it lacks.
 
 ## The files bucket
 
-The replicas keep the bytes of the files that users upload in a bucket that a provider holds off the server, at any provider that speaks the S3 protocol over HTTPS ([files spec](../spec/files.md#storage)). Give it:
+The replicas keep the bytes of the files that users upload in a bucket that speaks the S3 protocol over HTTPS ([files spec](../spec/files.md#storage)), which `FILES` chooses (D98).
+
+**Bundled**, the default, the bucket is SeaweedFS, as the service `files`, on a network that only the replicas, `restore-files` and `files-copy` share with it. It serves S3 over TLS alone, with a certificate that the deploy issues from an authority of the deployment's own, `certs/bundled-files-ca.crt`, which lasts 10 years and is issued anew, with a new authority, once it has 30 days left, and to the key pair that the deploy generates. Its master, volume and filer servers listen only inside its container, its Iceberg and Lance servers and its API that manages identities are off, and it reports nothing to SeaweedFS's makers; the port of its S3 gRPC service, which SeaweedFS binds with S3's, answers on its network too, which only services that hold its key pair share. Its data is the volume `deployment_files`.
+
+The API writes each object it stores a second time, under the bucket's queue, `copy-queue/`, and `files-copy` moves what the queue holds, every few seconds, to the copy's bucket, through rclone's `crypt`, which encrypts each object before it leaves the server, with a key from the passphrase in `secrets/files_copy_cipher_pass`, and keeps its key, so an object leaves the queue once the copy holds it (OPS-15, D101). Once a day, and as it starts, it also copies every object that the copy lacks. Nothing deletes from the copy but the API, as it deletes an object from the bucket, once no restore can need it (FILES-011), so a bucket that starts empty, as a new server's does, can't empty the copy. When the bucket is restoring from its copy, `files-copy` brings back what it lacks while the API serves ([backups.md](backups.md#restoring-onto-a-new-server)). `just status` shows when the copy last succeeded and failed, and FilesCopyFailing pages when it fails or stops ([runbooks.md](runbooks.md#filescopyfailing)). Give the copy:
+
+- a bucket of its own, at any provider that speaks S3 over HTTPS, on another machine than the server, such as the provider of the backup bucket, in a bucket beside it: not the backups' one, which pgBackRest manages whole, and whose noncurrent versions it must not keep;
+- a key pair that reaches only this bucket, in `secrets/files_copy_s3_key` and `secrets/files_copy_s3_key_secret`, which `just server-setup` asks for;
+- the settings `FILES_COPY_S3_ENDPOINT`, `FILES_COPY_S3_REGION` and `FILES_COPY_S3_BUCKET`, and `FILES_COPY_S3_URI_STYLE=path` for a provider whose bucket names don't appear in its host names, which [deploy/settings.env.example](../../deploy/settings.env.example) describes;
+- for a bucket of your own, whose certificate a private authority signs, that authority's certificate in `certs/files-copy-ca.crt`.
+
+`just server-check` lists the copy's bucket with its key pair, as `files-copy` reaches it. Versioning on it, with a lifecycle rule that expires noncurrent versions after `FILE_DELETION_DELAY_DAYS`, also keeps objects that something other than the API deleted, such as a leaked key pair.
+
+**`FILES=managed`**, the bucket is a provider's, off the server. Give it:
 
 - encryption at rest, which most providers apply to every bucket;
 - a key pair that reaches only this bucket, in `secrets/files_s3_key` and `secrets/files_s3_key_secret`, which `just server-setup` asks for;
-- the settings `FILES_S3_ENDPOINT`, the provider's host, `FILES_S3_REGION` and `FILES_S3_BUCKET`, and `FILES_S3_URI_STYLE=path` for a provider whose bucket names don't appear in its host names, which [deploy/settings.env.example](../../deploy/settings.env.example) describes;
+- the settings `FILES_S3_ENDPOINT`, the provider's host, `FILES_S3_REGION` and `FILES_S3_BUCKET`, and `FILES_S3_URI_STYLE=path` for a provider whose bucket names don't appear in its host names;
 - for a bucket of your own, whose certificate a private authority signs, that authority's certificate in `certs/files-ca.crt`.
 
-Use a bucket of its own, not the backups' one, which pgBackRest manages whole. The API deletes the bytes of a file that no row names only `FILE_DELETION_DELAY_DAYS` after it first finds it so: by default the backups' reach, `BACKUP_RETENTION_DAYS` plus 7, with the bundled database, so a restore to any moment it reaches finds every file's bytes; with a managed database, set it to the provider's recovery window if that is longer than 35 days. Versioning on the bucket, with a lifecycle rule that expires noncurrent versions after the same number of days, also keeps bytes that something other than the API deleted or replaced, such as a leaked key pair; the API itself never replaces an object, and deletes one only once no restore can need it, so neither is required. Set no other lifecycle rule that deletes the bucket's current files.
+Use a bucket of its own, not the backups' one. The bucket holds the only copy of each file's bytes, so the provider's durability is the files' durability: choose a provider that states it. Versioning on it, with a lifecycle rule that expires noncurrent versions after `FILE_DELETION_DELAY_DAYS`, also keeps bytes that something other than the API deleted or replaced; the API itself never replaces an object.
 
-The bucket holds the only copy of each file's bytes: the backups hold the files' rows, never their bytes. The provider's durability is the files' durability, so choose a provider that states it.
+Either way, the API deletes the bytes of a file that no row names only `FILE_DELETION_DELAY_DAYS` after it first finds it so: by default the backups' reach, `BACKUP_RETENTION_DAYS` plus 7, with the bundled database, so a restore to any moment it reaches finds every file's bytes; with a managed database, set it to the provider's recovery window if that is longer than 35 days. Set no lifecycle rule that deletes a bucket's current files. The backups hold the files' rows, never their bytes.
 
 ## Email
 
@@ -212,8 +231,9 @@ With a managed backend, its Grafana shows the dashboards in the folder `API`, an
 |---|---|---|
 | `settings.env` | The deployment's settings | `just server-setup` |
 | `secrets/` | One secret per file | `just server-setup`, and the first deploy that needs each generated one |
-| `certs/files-ca.crt`, `certs/backup-ca.crt`, `certs/managed-otlp-ca.crt`, `certs/managed-grafana-ca.crt` | The authority of a private bucket's certificate, for files or backups, and of a managed backend's and its Grafana's, if any | `just server-setup` |
-| `compose.yaml`, `deploy.sh`, `tasks/`, `verify-release.sh`, `import-grafana.sh`, `settings.env.example`, `caddy/`, `observability/`, `tools/` | The deployment files of the last deploy whose replicas served, once one has: a deploy that refuses or fails before its own serve puts these back, as [Deploying a release](#deploying-a-release) says | each deploy |
+| `certs/files-ca.crt`, `certs/files-copy-ca.crt`, `certs/backup-ca.crt`, `certs/managed-otlp-ca.crt`, `certs/managed-grafana-ca.crt` | The authority of a private bucket's certificate, for files, the files' copy or backups, and of a managed backend's and its Grafana's, if any | `just server-setup` |
+| `certs/bundled-files-ca.crt`, `certs/bundled-files.crt` | The bundled files bucket's authority, and its certificate, whose key is `secrets/bundled_files_tls_key` | the deploy |
+| `compose.yaml`, `deploy.sh`, `tasks/`, `verify-release.sh`, `import-grafana.sh`, `settings.env.example`, `caddy/`, `files/`, `observability/`, `tools/` | The deployment files of the last deploy whose replicas served, once one has: a deploy that refuses or fails before its own serve puts these back, as [Deploying a release](#deploying-a-release) says | each deploy |
 | `releases/<version>/` | The files of the release that `just deploy` last copied; a deploy whose replicas serve removes every other release's | `just deploy` |
 | `state/` | Which color serves, the images each color runs, Caddy's sites and replicas, the files each service of the stack last read, the files that a deploy replaced until its replicas serve, and the tasks' locks | each deploy, backup and restore |
 

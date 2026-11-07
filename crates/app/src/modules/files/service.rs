@@ -148,8 +148,9 @@ pub(crate) async fn read(
 
 /// The file `id` of the caller's workspace, with its bytes as the bucket streams them. The unit of
 /// work ends once the row is read, before the bucket is asked, so no transaction waits on it
-/// (FILES-009, DATA-21). A row whose object the bucket doesn't hold is an internal error, whose
-/// cause names the file, since only a fault of the bucket's leaves one (FILES-009, ERR-10).
+/// (FILES-009, DATA-21). A row whose object the bucket doesn't hold yet, while the bucket is
+/// restoring from its copy, is being restored (FILES-014); otherwise, it is an internal error,
+/// whose cause names the file, since only a fault of the bucket's leaves one (FILES-009, ERR-10).
 pub(crate) async fn download(
     files: &Files,
     mut uow: UnitOfWork,
@@ -165,10 +166,15 @@ pub(crate) async fn download(
         .await
     {
         Ok(object) => Ok((stored, object)),
-        Err(StorageError::NotFound) => Err(FilesError::Internal(Internal::new(format!(
-            "the row of the file {} names an object that the bucket doesn't hold",
-            stored.file.id
-        )))),
+        Err(StorageError::NotFound) => {
+            if files.storage.restoring().await.map_err(unavailable)? {
+                return Err(FilesError::Restoring);
+            }
+            Err(FilesError::Internal(Internal::new(format!(
+                "the row of the file {} names an object that the bucket doesn't hold",
+                stored.file.id
+            ))))
+        }
         Err(error) => Err(unavailable(error)),
     }
 }

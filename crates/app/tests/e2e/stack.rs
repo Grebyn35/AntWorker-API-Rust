@@ -142,7 +142,9 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
 #[tokio::test]
 async fn obs_14_the_backups_the_server_s_memory_and_the_collector_report_what_the_cause_alerts_read()
  {
-    let deployment = Deployment::bundled(&[("TELEMETRY", "self-hosted")]);
+    // With the bundled files bucket too, whose copy reports its passes as the backups do.
+    let deployment = Deployment::bundled(&[("TELEMETRY", "self-hosted")])
+        .with_bundled_files(&[("TELEMETRY", "self-hosted")]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
     deployment.sql("SELECT pg_switch_wal()");
@@ -152,7 +154,8 @@ async fn obs_14_the_backups_the_server_s_memory_and_the_collector_report_what_th
     let found = deployment.server.shell(
         "timeout 300 sh -c 'until docker exec deployment-prometheus-1 wget -qO- \
          \"http://localhost:9090/api/v1/query?query=file_mtime_seconds\" > /root/series.json \
-         && grep -q backup-completed /root/series.json && grep -q \"\\\"archived\\\"\" /root/series.json; \
+         && grep -q backup-completed /root/series.json && grep -q \"\\\"archived\\\"\" /root/series.json \
+         && grep -q files-copied /root/series.json; \
          do sleep 5; done'; cat /root/series.json",
     );
 
@@ -163,6 +166,7 @@ async fn obs_14_the_backups_the_server_s_memory_and_the_collector_report_what_th
         "{series}"
     );
     assert!(series.contains(r#""file_name":"archived""#), "{series}");
+    assert!(series.contains(r#""file_name":"files-copied""#), "{series}");
     // The server's memory, which the collector reads every 30 seconds. A test server's disks are
     // bind mounts of the machine's, which the scraper leaves out as views of filesystems it
     // reports where they are mounted whole, as on a server; so the test reads memory only.

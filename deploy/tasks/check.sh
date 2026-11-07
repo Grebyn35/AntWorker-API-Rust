@@ -60,6 +60,14 @@ check() {
         fi
     fi
     if [ "$settled" = yes ] && [ "$database" = bundled ] && [ -n "$postgres_image" ]; then check_bucket; fi
+    if [ "$settled" = yes ] && [ "$files" = bundled ]; then
+        if command -v openssl > /dev/null; then
+            passed "openssl, which issues the bundled files bucket's certificate"
+        else
+            failed "openssl isn't installed, and a deploy issues the bundled files bucket's certificate with it (docs/operations/deploy.md#what-a-server-needs)"
+        fi
+        if [ "$docker_answers" = yes ]; then check_files_copy; fi
+    fi
     if [ "$settled" = yes ] && [ "$telemetry" = managed ] && [ "$docker_answers" = yes ]; then check_backend; fi
     noted "whether the disk is encrypted can't be seen from the server; confirm it with the provider (docs/operations/deploy.md#what-a-server-needs)"
     if [ "$findings" -gt 0 ]; then fail "$findings of the checks on the server failed"; fi
@@ -101,6 +109,38 @@ check_memory() {
         passed "memory: $gigabytes GB, for the $needed GB that TELEMETRY=$telemetry needs"
     else
         failed "memory: $gigabytes GB, less than the $needed GB that TELEMETRY=$telemetry needs (docs/operations/deploy.md#what-a-server-needs)"
+    fi
+}
+
+# Fails the check unless rclone, as the service files-copy runs it, lists the bucket of the bundled
+# files bucket's copy with its key pair, through the authority that the copy's settings name, if
+# any. Listing changes nothing.
+check_files_copy() {
+    authorities="--ca-cert /etc/ssl/certs/ca-certificates.crt"
+    if [ -f "$deployment/certs/files-copy-ca.crt" ]; then authorities="$authorities --ca-cert /etc/deployment-certs/files-copy-ca.crt"; fi
+    if [ "$(setting FILES_COPY_S3_URI_STYLE host)" = path ]; then path_style=true; else path_style=false; fi
+    bucket=$(setting FILES_COPY_S3_BUCKET)
+    secrets=$deployment/secrets
+    # shellcheck disable=SC2016 # The container's shell expands its own variables.
+    if answer=$(docker run --rm --read-only --tmpfs /tmp --entrypoint sh \
+        --env RCLONE_CONFIG_COPY_TYPE=s3 --env RCLONE_CONFIG_COPY_PROVIDER=Other \
+        --env RCLONE_CONFIG_COPY_ENDPOINT="https://$(setting FILES_COPY_S3_ENDPOINT):$(setting FILES_COPY_S3_PORT 443)" \
+        --env RCLONE_CONFIG_COPY_REGION="$(setting FILES_COPY_S3_REGION)" \
+        --env RCLONE_CONFIG_COPY_FORCE_PATH_STYLE="$path_style" \
+        --volume "$secrets/files_copy_s3_key:/run/secrets/files_copy_s3_key:ro" \
+        --volume "$secrets/files_copy_s3_key_secret:/run/secrets/files_copy_s3_key_secret:ro" \
+        --volume "$deployment/certs:/etc/deployment-certs:ro" \
+        "$(docker compose --file "$here/tools/compose.yaml" config --images rclone)" -c '
+            RCLONE_CONFIG_COPY_ACCESS_KEY_ID=$(cat /run/secrets/files_copy_s3_key)
+            RCLONE_CONFIG_COPY_SECRET_ACCESS_KEY=$(cat /run/secrets/files_copy_s3_key_secret)
+            export RCLONE_CONFIG_COPY_ACCESS_KEY_ID RCLONE_CONFIG_COPY_SECRET_ACCESS_KEY
+            : > /tmp/rclone.conf
+            # shellcheck disable=SC2086 # $1 holds one option and its value per pair of words.
+            RCLONE_CONFIG=/tmp/rclone.conf rclone $1 lsf --max-depth 1 "copy:$2" > /dev/null' sh "$authorities" "$bucket" 2>&1); then
+        passed "the bucket $bucket of the files' copy answers to its key pair"
+    else
+        failed "rclone can't list the bucket $bucket of the files' copy with its key pair, and says:"
+        printf '%s\n' "$answer" | tail -n 5 | sed 's/^/        /'
     fi
 }
 

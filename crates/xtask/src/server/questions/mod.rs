@@ -2,6 +2,10 @@
 //! choices need, and the registry's login, asked on the developer's machine before anything on
 //! the server changes, and what the answers send the server.
 
+mod files;
+
+use files::{CERTS, SECRETS};
+
 use super::{
     base64::{decode, encode},
     settings::{Block, alertmanager_secrets, blocks, get, set, settings_file, settings_of},
@@ -51,159 +55,6 @@ impl State {
         Ok(state)
     }
 }
-
-/// A file of secrets/ or certs/ that the settings' choices may need.
-struct File {
-    name: &'static str,
-    /// What it holds, as the question shows it.
-    what: &'static str,
-    /// Whether the server generates it when the operator gives none.
-    generated: bool,
-    /// Whether the settings need it.
-    needed: fn(&[(String, String)]) -> bool,
-}
-
-fn always(_: &[(String, String)]) -> bool {
-    true
-}
-
-fn bundled(settings: &[(String, String)]) -> bool {
-    matches!(get(settings, "DATABASE"), "bundled" | "")
-}
-
-fn managed_database(settings: &[(String, String)]) -> bool {
-    get(settings, "DATABASE") == "managed"
-}
-
-fn managed_telemetry(settings: &[(String, String)]) -> bool {
-    get(settings, "TELEMETRY") == "managed"
-}
-
-fn managed_grafana(settings: &[(String, String)]) -> bool {
-    managed_telemetry(settings) && !get(settings, "MANAGED_GRAFANA_URL").is_empty()
-}
-
-fn smtp_credentials(settings: &[(String, String)]) -> bool {
-    get(settings, "EMAIL") == "smtp" && !get(settings, "SMTP_USERNAME").is_empty()
-}
-
-/// The secrets that the operator holds, as docs/operations/deploy.md lists them; the server
-/// generates those it can, for the operator to keep, unless the operator gives a lost server's.
-const SECRETS: &[File] = &[
-    File {
-        name: "database_admin_url",
-        what: "The managed database's URL for its administrator, as .env.example describes \
-               DATABASE_ADMIN_URL, with sslmode=verify-full.",
-        generated: false,
-        needed: managed_database,
-    },
-    File {
-        name: "database_owner_url",
-        what: "The managed database's URL for the owner of the schema, as .env.example describes \
-               DATABASE_OWNER_URL, with sslmode=verify-full.",
-        generated: false,
-        needed: managed_database,
-    },
-    File {
-        name: "database_url",
-        what: "The managed database's URL for the API, as .env.example describes DATABASE_URL, \
-               with sslmode=verify-full.",
-        generated: false,
-        needed: managed_database,
-    },
-    File {
-        name: "files_s3_key",
-        what: "The access key of the files bucket's key pair, which reaches only that bucket.",
-        generated: false,
-        needed: always,
-    },
-    File {
-        name: "files_s3_key_secret",
-        what: "The secret key of the files bucket's key pair.",
-        generated: false,
-        needed: always,
-    },
-    File {
-        name: "backup_s3_key",
-        what: "The access key of the backup bucket's key pair, which reaches only that bucket.",
-        generated: false,
-        needed: bundled,
-    },
-    File {
-        name: "backup_s3_key_secret",
-        what: "The secret key of the backup bucket's key pair.",
-        generated: false,
-        needed: bundled,
-    },
-    File {
-        name: "backup_cipher_pass",
-        what: "The passphrase that encrypts the backups. Enter generates one on the server, the \
-               first time, which the setup shows once; type a lost server's to restore its \
-               backups (docs/operations/backups.md).",
-        generated: true,
-        needed: bundled,
-    },
-    File {
-        name: "postgres_password",
-        what: "The bundled database's superuser password. Enter generates one on the server, \
-               the first time, which the setup shows once; type a lost server's to restore its \
-               backups, whose database keeps it (docs/operations/backups.md).",
-        generated: true,
-        needed: bundled,
-    },
-    File {
-        name: "managed_otlp_token",
-        what: "The token that the collector signs in to the managed backend with, as \
-               MANAGED_OTLP_USER.",
-        generated: false,
-        needed: managed_telemetry,
-    },
-    File {
-        name: "managed_grafana_token",
-        what: "The token of a service account of the managed Grafana with the Admin role, which \
-               imports the dashboards and the alert rules.",
-        generated: false,
-        needed: managed_grafana,
-    },
-    File {
-        name: "smtp_password",
-        what: "The password the mail server signs the API in with, as SMTP_USERNAME.",
-        generated: false,
-        needed: smtp_credentials,
-    },
-];
-
-/// The certificates of private authorities that a deployment may trust.
-const CERTS: &[File] = &[
-    File {
-        name: "files-ca.crt",
-        what: "The certificate of the private authority that signed the files bucket's \
-               certificate, for a bucket of your own; none for a provider's.",
-        generated: false,
-        needed: always,
-    },
-    File {
-        name: "backup-ca.crt",
-        what: "The certificate of the private authority that signed the backup bucket's \
-               certificate, for a bucket of your own; none for a provider's.",
-        generated: false,
-        needed: bundled,
-    },
-    File {
-        name: "managed-otlp-ca.crt",
-        what: "The certificate of the private authority that signed the managed backend's \
-               certificate, if one did.",
-        generated: false,
-        needed: managed_telemetry,
-    },
-    File {
-        name: "managed-grafana-ca.crt",
-        what: "The certificate of the private authority that signed the managed Grafana's \
-               certificate, if one did.",
-        generated: false,
-        needed: managed_grafana,
-    },
-];
 
 /// Where the questions go and the answers come from.
 pub(super) trait Prompt {
@@ -558,8 +409,8 @@ mod tests {
     /// call for, in the file's order, so a setting added there adds an answer here.
     const NEW_SERVER: &[&str] = &[
         // IMAGE_REPOSITORY, SOURCE, API_ADDRESS, then Enter for the rest of the settings,
-        // until the bucket: TRUSTED_PROXIES, CORS_ALLOWED_ORIGINS, the two rate limits, and the
-        // replicas'.
+        // until Grafana's address: TRUSTED_PROXIES, CORS_ALLOWED_ORIGINS, the two rate limits,
+        // the replicas', DATABASE, FILES, POSTGRES_MAX_CONNECTIONS and TELEMETRY.
         "",
         "",
         "api.example.com",
@@ -573,10 +424,12 @@ mod tests {
         "",
         "",
         "",
+        "",
         "grafana.example.com",
         // No email, so no question about a mail server.
         "off",
-        // The files bucket, then Enter for the uploads' limit and the deletion's delay.
+        // The bucket of the bundled files bucket's copy, then Enter for the uploads' limit and the
+        // deletion's delay.
         "files.example.com",
         "",
         "eu-1",
@@ -608,10 +461,12 @@ mod tests {
         "",
         "",
         "",
-        // The files bucket's key pair, the backup bucket's, then Enter leaves the passphrase and
-        // the superuser's password to be generated.
+        // The key pair of the bucket of the files' copy, then Enter leaves its passphrase to be
+        // generated; the backup bucket's key pair, then Enter leaves the passphrase and the
+        // superuser's password to be generated.
         "files-key",
         "files-secret",
+        "",
         "key",
         "secret",
         "",
@@ -653,8 +508,13 @@ mod tests {
         assert_eq!(get(&settings, "SOURCE"), "https://github.com/Owner/Name");
         assert_eq!(get(&settings, "API_ADDRESS"), "api.example.com");
         assert_eq!(get(&settings, "GRAFANA_ADDRESS"), "grafana.example.com");
-        assert_eq!(get(&settings, "FILES_S3_ENDPOINT"), "files.example.com");
-        assert_eq!(get(&settings, "FILES_S3_BUCKET"), "files");
+        assert_eq!(get(&settings, "FILES"), "bundled");
+        assert_eq!(
+            get(&settings, "FILES_COPY_S3_ENDPOINT"),
+            "files.example.com"
+        );
+        assert_eq!(get(&settings, "FILES_COPY_S3_BUCKET"), "files");
+        assert_eq!(get(&settings, "FILES_S3_ENDPOINT"), "");
         assert_eq!(get(&settings, "BACKUP_S3_ENDPOINT"), "s3.example.com");
         assert_eq!(get(&settings, "BACKUP_S3_PORT"), "443");
         assert_eq!(get(&settings, "BACKUP_S3_BUCKET"), "backups");
@@ -670,8 +530,11 @@ mod tests {
         assert_eq!(
             setup.secrets,
             vec![
-                ("files_s3_key".to_owned(), "files-key".to_owned()),
-                ("files_s3_key_secret".to_owned(), "files-secret".to_owned()),
+                ("files_copy_s3_key".to_owned(), "files-key".to_owned()),
+                (
+                    "files_copy_s3_key_secret".to_owned(),
+                    "files-secret".to_owned()
+                ),
                 ("backup_s3_key".to_owned(), "key".to_owned()),
                 ("backup_s3_key_secret".to_owned(), "secret".to_owned()),
             ]
@@ -699,7 +562,7 @@ mod tests {
     fn ops_19_a_server_that_was_set_up_keeps_what_each_empty_answer_leaves() {
         let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
                     API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=off\n\
-                    FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n\
+                    FILES=managed\nFILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n\
                     FORK_SETTING=kept\n";
         let state = State {
             user: "deploy".to_owned(),
@@ -747,7 +610,7 @@ mod tests {
     #[test]
     fn ops_19_email_through_a_mail_server_with_a_user_name_is_asked_for_its_password() {
         let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
-                    API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=smtp\n\
+                    API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=smtp\nFILES=managed\n\
                     SMTP_HOST=smtp.example.com\nSMTP_USERNAME=api\n\
                     EMAIL_FROM=AntWorker <noreply@example.com>\n\
                     FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n";
@@ -790,7 +653,7 @@ mod tests {
     fn ops_19_the_self_hosted_stack_is_asked_for_each_credential_its_alert_integrations_read() {
         let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
                     API_ADDRESS=api.example.com\nGRAFANA_ADDRESS=grafana.example.com\n\
-                    DATABASE=managed\nTELEMETRY=self-hosted\nEMAIL=off\n\
+                    DATABASE=managed\nTELEMETRY=self-hosted\nEMAIL=off\nFILES=managed\n\
                     FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n";
         let state = State {
             user: "deploy".to_owned(),

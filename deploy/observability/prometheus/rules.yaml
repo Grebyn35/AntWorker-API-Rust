@@ -250,6 +250,33 @@ groups:
           summary: The bundled database's newest base backup completed more than 26 hours ago, though one runs every day.
           runbook: docs/operations/runbooks.md#basebackuptooold
 
+      # The bundled files bucket's copy (OBS-14): the times of the status files that files-copy
+      # sets, which a provider's bucket lacks. Each pass that moves the copy's queue sets
+      # files-copied when it succeeds, every few seconds, so a copy that stopped is one whose last
+      # success grows old.
+      - alert: FilesCopyFailing
+        expr: |
+          max(file_mtime_seconds{file_name="files-copy-failed"})
+          > (max(file_mtime_seconds{file_name="files-copied"}) or vector(0))
+          or time() - max(file_mtime_seconds{file_name="files-copied"}) > 600
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: The bundled files bucket's copy failed more recently than it succeeded, or hasn't succeeded for 10 minutes, for five minutes.
+          runbook: docs/operations/runbooks.md#filescopyfailing
+
+      - alert: FilesRestoreFailing
+        expr: |
+          max(file_mtime_seconds{file_name="files-restore-failed"})
+          > (max(file_mtime_seconds{file_name="files-restored"}) or vector(0))
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: Bringing the bundled files bucket's objects back from its copy failed, more recently than it last succeeded, for five minutes.
+          runbook: docs/operations/runbooks.md#filesrestorefailing
+
       - alert: ObservabilityServiceDown
         expr: up{job=~"collector|loki|tempo|alertmanager"} == 0
         for: 5m
