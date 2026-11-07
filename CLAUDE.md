@@ -21,6 +21,7 @@ This is a Rust API built as a template to fork. Read these before changing anyth
 - **No open-ended evaluations.** Reviews follow the procedure and the stopping rule in the standards README. A conformance review runs through the `conformance-review` skill in `.claude/skills/`, which launches the `conformance-reviewer` agent in `.claude/agents/`, whose prompt is fixed.
 - **Docs and comments describe the current state only** (DOC-01, DOC-13). Edits rewrite in place. History belongs in git, architecture decision records (ADRs) and `CHANGELOG.md`.
 - **End every session with the `handoff` skill** in `.claude/skills/`, so the next session, on any machine, starts from the repository alone.
+- **A session pushes `main` when it ends.** The owner allows it without asking: once the handoff's `just ci` passes and its commit is made, the session pushes `main` and watches the CI run to its end. A push in the middle of a session still waits for the owner, as a release always does.
 - **No `TODO` or `FIXME`.** Known work is tracked as an issue, and in the tracker while the migration runs (DOC-04, DOC-07).
 - **Releases are the owner's to start.** A release makes the repository's name public in Sigstore's logs, so a session runs `just release` with a version only when the owner asks for that release. Without a version, it only shows the versions that can come next.
 - **Agents send no personal data.** An agent that may make web requests is told to put no email address, name or other personal information in any request, header or URL.
