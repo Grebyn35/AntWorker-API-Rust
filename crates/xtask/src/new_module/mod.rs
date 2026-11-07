@@ -53,8 +53,9 @@ const DOCUMENT: &str = "openapi.json";
 const CACHE: &str = ".sqlx/";
 
 /// The modules that `check-new-module` writes, one after the other, on one copy: the first's two
-/// words take every form of a name apart, and its resource takes "an"; the second's resource is
-/// the singular of a plural in "-ies", and its lines follow the first's in every shared file.
+/// words take every form of a name apart, and its resource takes "an"; the second's lines go
+/// among the first's, before them in each shared file that lists modules in order, and after them
+/// in the others.
 const CHECKED: [(&str, &str); 2] = [("order_items", "order_item"), ("categories", "category")];
 
 /// Writes the module `module`, whose resource is `resource`, or the singular of `module`.
@@ -124,6 +125,7 @@ fn write(names: &Names) -> Result<Written, String> {
     refusals::refuse_taken(&repo, names)?;
     refusals::refuse_clashing(&repo, names)?;
     let files = files(&repo, names)?;
+    refusals::refuse_schema_names(&repo, &files)?;
     let inserts = inserts(&repo, names)?;
     let edits = edits::edits(names, &inserts, |path| {
         repo.file(path).map(|file| file.text.clone())

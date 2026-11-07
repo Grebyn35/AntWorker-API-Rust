@@ -15,8 +15,8 @@ use crate::modules::access::SampleItemsRead;
 pub(super) const SAMPLE_ITEM_CREATED: WorkspaceEvent<SampleItemsRead, SampleItemChanged> =
     WorkspaceEvent::new("sample_item.created");
 /// A sample item was renamed, sent to the members who may read sample items (SAMPLE_ITEMS-005).
-pub(super) const SAMPLE_ITEM_UPDATED: WorkspaceEvent<SampleItemsRead, SampleItemChanged> =
-    WorkspaceEvent::new("sample_item.updated");
+pub(super) const SAMPLE_ITEM_RENAMED: WorkspaceEvent<SampleItemsRead, SampleItemChanged> =
+    WorkspaceEvent::new("sample_item.renamed");
 /// A sample item was deleted, sent to the members who may read sample items (SAMPLE_ITEMS-006).
 pub(super) const SAMPLE_ITEM_DELETED: WorkspaceEvent<SampleItemsRead, SampleItemChanged> =
     WorkspaceEvent::new("sample_item.deleted");

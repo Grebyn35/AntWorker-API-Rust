@@ -18,7 +18,7 @@ use utoipa_axum::routes;
 
 use super::{
     error::SampleItemsError,
-    events::{SAMPLE_ITEM_CREATED, SAMPLE_ITEM_DELETED, SAMPLE_ITEM_UPDATED},
+    events::{SAMPLE_ITEM_CREATED, SAMPLE_ITEM_DELETED, SAMPLE_ITEM_RENAMED},
     model::{NewSampleItem, Rename, SampleItem, SampleItemName},
     service,
 };
@@ -31,7 +31,7 @@ pub(crate) fn routes() -> Routes {
     Routes::new()
         .events(&[
             &SAMPLE_ITEM_CREATED,
-            &SAMPLE_ITEM_UPDATED,
+            &SAMPLE_ITEM_RENAMED,
             &SAMPLE_ITEM_DELETED,
         ])
         .workspace::<SampleItemsCreate>(routes!(create_sample_item), &[])

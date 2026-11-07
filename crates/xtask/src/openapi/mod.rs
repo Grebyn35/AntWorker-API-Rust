@@ -7,7 +7,7 @@
 mod codes;
 mod events;
 mod lists;
-mod names;
+pub mod names;
 mod operations;
 mod schemas;
 

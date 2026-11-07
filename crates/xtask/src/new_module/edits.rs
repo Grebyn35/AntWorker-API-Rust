@@ -325,7 +325,8 @@ fn test_08(text: &str, fixtures: &str) -> Option<String> {
 
 /// architecture.md with the module's row of what each module owns, before `platform`'s, which
 /// isn't a module of `app`, and its edges at the end of the graph of dependencies. A module that
-/// the document plans already, such as one a later step builds, keeps its planned row and edges.
+/// the document plans already, such as one a later step builds, keeps its planned row and edges,
+/// and gains a line with the edges its code needs that the plan lacks.
 fn architecture(text: &str, owns: &str, graph: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
     let heading = find(&lines, 0, |line| line == "### What each module owns")?;
@@ -347,14 +348,26 @@ fn architecture(text: &str, owns: &str, graph: &str) -> Option<String> {
     let heading = find(&lines, 0, |line| line == "### Dependencies")?;
     let diagram = find(&lines, heading, |line| line == "```mermaid")?;
     let diagram_end = find(&lines, diagram + 1, |line| line == "```")?;
-    let source = graph.split(" -->").next().unwrap_or(graph);
-    let drawn = lines[diagram..diagram_end]
+    let (source, targets) = graph.trim_end().split_once(" --> ")?;
+    let planned: Vec<&str> = lines[diagram..diagram_end]
         .iter()
-        .any(|line| line.starts_with(&format!("{source} -->")));
-    Some(if drawn {
+        .filter_map(|line| line.strip_prefix(&format!("{source} --> ")))
+        .flat_map(|planned| planned.split(" & "))
+        .map(str::trim)
+        .collect();
+    let missing: Vec<&str> = targets
+        .split(" & ")
+        .map(str::trim)
+        .filter(|target| !planned.contains(target))
+        .collect();
+    Some(if missing.is_empty() {
         text
     } else {
-        before(&text, diagram_end, graph)
+        before(
+            &text,
+            diagram_end,
+            &format!("{source} --> {}", missing.join(" & ")),
+        )
     })
 }
 
@@ -476,6 +489,15 @@ mod tests {
         assert_eq!(
             architecture(planned, "| `files` | z |", "  files --> access").unwrap(),
             planned
+        );
+        // A plan whose edges lack some that the module's code needs gains a line with those.
+        let lacking = planned.replace("  files --> access & audit", "  files --> accounts");
+        assert_eq!(
+            architecture(&lacking, "| `files` | z |", "  files --> access & audit").unwrap(),
+            lacking.replace(
+                "  files --> accounts\n",
+                "  files --> accounts\n  files --> access & audit\n"
+            )
         );
         assert_eq!(
             after_table(

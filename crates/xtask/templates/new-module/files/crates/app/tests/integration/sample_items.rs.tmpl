@@ -381,14 +381,14 @@ async fn sample_items_005_renaming_stores_the_name_records_it_and_publishes_it()
     assert_eq!(response.header("etag"), "\"2\"");
     assert_eq!(stored_names(&api, &workspace).await, ["Red one"]);
     assert_eq!(
-        entries(&api, "sample_item.updated").await,
+        entries(&api, "sample_item.renamed").await,
         [format!(
             "workspace {workspace} {} sample_item {id} {{}}",
             grace.user_id
         )]
     );
     assert_eq!(
-        published(&api, "sample_item.updated").await,
+        published(&api, "sample_item.renamed").await,
         [format!(
             "workspace {workspace} sample_items.read {workspace} {id} 2"
         )]
@@ -408,8 +408,8 @@ async fn sample_items_005_a_stale_etag_answers_412_and_changes_nothing() {
     assert_eq!(stale.status, 412);
     assert_eq!(stale.json()["code"], "request.precondition_failed");
     assert_eq!(stored_names(&api, &workspace).await, ["Red"]);
-    assert_eq!(entries(&api, "sample_item.updated").await.len(), 1);
-    assert_eq!(published(&api, "sample_item.updated").await.len(), 1);
+    assert_eq!(entries(&api, "sample_item.renamed").await.len(), 1);
+    assert_eq!(published(&api, "sample_item.renamed").await.len(), 1);
 }
 
 #[tokio::test]
@@ -487,7 +487,7 @@ async fn sec_19_sample_item_events_reach_the_members_and_no_replay_from_before_j
     let second = after["id"].as_str().unwrap();
     let expected = [
         ("sample_item.created", first),
-        ("sample_item.updated", first),
+        ("sample_item.renamed", first),
         ("sample_item.deleted", first),
         ("sample_item.created", second),
     ];

@@ -35,7 +35,7 @@ impl Names {
             Some(resource) => resource.to_owned(),
             None => singular(module).ok_or_else(|| {
                 format!(
-                    "`{module}` doesn't end as a regular English plural does: name the resource \
+                    "`{module}` doesn't end as only one kind of English plural does: name the resource \
                      too, such as `just new-module {module} <resource>`"
                 )
             })?,
@@ -142,17 +142,21 @@ fn check_name(what: &str, name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The singular of `plural` by English's regular plurals, such as `order_item` for
-/// `order_items`, `category` for `categories` and `address` for `addresses`, or `None` when it
-/// doesn't end as one does.
+/// The endings that the plurals of two forms share, such as `-ies` of `categories` and of
+/// `movies`, whose singulars only a dictionary tells apart.
+const AMBIGUOUS: [&str; 4] = ["ies", "ses", "zes", "ches"];
+
+/// The singular of `plural` by English's regular plurals, such as `order_item` for `order_items`,
+/// `address` for `addresses` and `inbox` for `inboxes`, or `None` when it doesn't end as one does,
+/// or ends as the plurals of two forms do, such as `categories` and `movies`.
 fn singular(plural: &str) -> Option<String> {
-    if let Some(stem) = plural.strip_suffix("ies") {
-        return Some(format!("{stem}y"));
-    }
-    for ending in ["sses", "shes", "ches", "xes", "zes"] {
+    for ending in ["sses", "shes", "xes"] {
         if plural.ends_with(ending) {
             return Some(plural[..plural.len() - 2].to_owned());
         }
+    }
+    if AMBIGUOUS.iter().any(|ending| plural.ends_with(ending)) {
+        return None;
     }
     plural
         .strip_suffix('s')
@@ -196,9 +200,14 @@ mod tests {
     fn arch_03_the_resource_is_the_module_s_regular_singular_unless_named() {
         let resource = |module| Names::new(module, None).map(|names| names.resource);
         assert_eq!(resource("order_items").unwrap(), "order_item");
-        assert_eq!(resource("categories").unwrap(), "category");
         assert_eq!(resource("addresses").unwrap(), "address");
         assert_eq!(resource("inboxes").unwrap(), "inbox");
+        assert_eq!(resource("dishes").unwrap(), "dish");
+        // Two forms of singular share these plurals' endings: category and movie, status and
+        // house, size and quiz, cache and church.
+        for ambiguous in ["categories", "movies", "statuses", "sizes", "caches"] {
+            assert!(resource(ambiguous).unwrap_err().contains("only one kind"));
+        }
         assert!(resource("staff").unwrap_err().contains("doesn't end"));
         assert!(resource("class").unwrap_err().contains("doesn't end"));
         let people = Names::new("people", Some("person")).unwrap();

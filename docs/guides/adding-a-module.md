@@ -11,9 +11,10 @@ A module owns tables and the one area of the product they serve ([architecture �
 ```
 just new-module order_items              # the resource is order_item, the regular singular
 just new-module people person            # a resource that the regular plural doesn't give
+just new-module categories category      # a name whose ending two kinds of plural share, as movies' does
 ```
 
-The module's name is plural and the resource's singular, both in `snake_case`. The task refuses a module that the repository has, or had, and its table's or permissions' name if they exist, and a resource whose type the module's code imports from elsewhere, such as `page`, whose `Page` is `platform::lists::Page`; it says why, and suggests naming the resource. `just new-module` writes a module that already follows every rule, with one resource: a row of a workspace with a `name`, which the workspace's members create, list, read, rename and delete. It needs Postgres, which it starts, and leaves the development database as it was: `just dev` and `just migrate` apply the new migration to it. A step that fails undoes what the task wrote.
+The module's name is plural and the resource's singular, both in `snake_case`. The task refuses a module that the repository has, or had, and its table's or permissions' name if they exist, and a resource whose type the module's code names already, such as `page`, whose `Page` is `platform::lists::Page`, or whose schema name a type of the code takes, such as `role`'s `Role`; it says why, and suggests naming the resource. `just new-module` writes a module that already follows every rule, with one resource: a row of a workspace with a `name`, which the workspace's members create, list, read, rename and delete. It needs Postgres, which it starts, and leaves the development database as it was: `just dev` and `just migrate` apply the new migration to it. A step that fails undoes what the task wrote.
 
 It writes these files, each holding what [architecture §5](../architecture.md#inside-a-module) says its name holds, where `<module>` is the module's name, such as `order_items`:
 
@@ -89,5 +90,5 @@ A few checks hold facts about the product in lists of their own, which a module 
 | A table whose rows are addressed to a user by an email address, which the user reads before belonging to the workspace | `ADDRESSED` in `crates/xtask/src/tenancy.rs` | DATA-16 |
 | A scheduled job that selects rows across workspaces, such as an expiry sweep | `CROSS_TENANT` in `crates/xtask/src/tenancy.rs` | DATA-16 |
 | A library that reaches another system | `INFRASTRUCTURE` in `crates/xtask/src/layers.rs`, and `HTTP_CLIENTS` if it makes HTTP requests | ERR-04, SEC-10 |
-| A file outside the set of names a module's files take | a change to ARCH-03, through [Changing a rule](../standards/README.md#changing-a-rule) | ARCH-03 |
+| A file outside the set of names a module's files take | a change to ARCH-03, through [Changing a rule](../standards/README.md#changing-a-rule), then `MODULE_FILES`, or `MODULE_EXTRAS` for one module's own entry, in `crates/xtask/src/layout.rs` | ARCH-03 |
 | A dependency on another module | the module's edge in the graph in [architecture §5](../architecture.md#dependencies) | ARCH-05 |

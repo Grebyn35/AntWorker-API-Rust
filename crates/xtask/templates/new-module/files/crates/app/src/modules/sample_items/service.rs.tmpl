@@ -94,13 +94,13 @@ pub(crate) async fn rename(
             SampleItemsError::NotFound
         });
     };
-    let entry = Entry::new(audit::SAMPLE_ITEM_UPDATED, audit::SAMPLE_ITEM, id);
+    let entry = Entry::new(audit::SAMPLE_ITEM_RENAMED, audit::SAMPLE_ITEM, id);
     log::record(&mut uow, authorized.audit_scope(), entry).await?;
     let payload = published::SampleItemChanged {
         workspace_id: workspace,
         sample_item_id: id,
     };
-    uow.publish_to_workspace(&published::SAMPLE_ITEM_UPDATED, workspace, &payload)
+    uow.publish_to_workspace(&published::SAMPLE_ITEM_RENAMED, workspace, &payload)
         .await?;
     uow.commit().await?;
     Ok(renamed)

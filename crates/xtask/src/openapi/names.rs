@@ -2,8 +2,9 @@
 //! - no two operations share an `operationId`, which OpenAPI requires to be unique, and which a
 //!   client generated from the document names its methods by;
 //! - no two types of the code take one schema name, by deriving `ToSchema` under their own name or
-//!   under the one `#[schema(as = …)]` gives: utoipa keeps one schema of each name, so every
-//!   operation that names the other type would document the first's.
+//!   under the one `#[schema(as = …)]` gives, or by a hand-written `impl ToSchema`: utoipa keeps
+//!   one schema of each name, so every operation that names the other type would document the
+//!   first's.
 //!
 //! It reads the committed document for the first, and the code of `platform` and `app`, before
 //! each file's tests, for the second.
@@ -16,7 +17,7 @@ use serde_json::{Map, Value};
 use super::{METHODS, Problem};
 use crate::{
     Finding,
-    repo::Repo,
+    repo::{File, Repo},
     rust::{self, Source},
     text,
 };
@@ -65,17 +66,7 @@ pub fn schema_names(repo: &Repo) -> Vec<Finding> {
         if !in_code || !file.path.ends_with(".rs") {
             continue;
         }
-        // A file that isn't Rust is check-layers' and the compiler's to report.
-        let Ok(source) = Source::read(file) else {
-            continue;
-        };
-        let tests = text::lines_before_tests(&file.text);
-        for (name, line, attributes) in rust::types_with_attributes(&source.tokens) {
-            if line > tests || !attributes.iter().any(|attribute| derives_schema(attribute)) {
-                continue;
-            }
-            let schema = attributes.iter().find_map(|attribute| renamed(attribute));
-            let schema = schema.unwrap_or_else(|| name.clone());
+        for (name, schema, line) in schemas_of(file) {
             match first.get(&schema) {
                 Some((path, at)) => findings.push(Finding::new(
                     &file.path,
@@ -94,6 +85,65 @@ pub fn schema_names(repo: &Repo) -> Vec<Finding> {
         }
     }
     findings
+}
+
+/// The schema names that the code of `platform` and `app` in `repo` takes.
+pub fn taken(repo: &Repo) -> Vec<String> {
+    repo.files()
+        .filter(|file| {
+            CODE.iter().any(|code| file.path.starts_with(code)) && file.path.ends_with(".rs")
+        })
+        .flat_map(|file| schemas_of(file).into_iter().map(|(_, schema, _)| schema))
+        .collect()
+}
+
+/// Each type of `file`'s code, before its tests, that takes a schema name, with that name and its
+/// line: a type that derives `ToSchema` takes its own name, or the one `#[schema(as = …)]` gives,
+/// and a hand-written `impl ToSchema for` a type takes the type's, as every such impl names it.
+pub fn schemas_of(file: &File) -> Vec<(String, String, usize)> {
+    // A file that isn't Rust is check-layers' and the compiler's to report.
+    let Ok(source) = Source::read(file) else {
+        return Vec::new();
+    };
+    let tests = text::lines_before_tests(&file.text);
+    let mut found = Vec::new();
+    for (name, line, attributes) in rust::types_with_attributes(&source.tokens) {
+        if line > tests || !attributes.iter().any(|attribute| derives_schema(attribute)) {
+            continue;
+        }
+        let schema = attributes.iter().find_map(|attribute| renamed(attribute));
+        found.push((name.clone(), schema.unwrap_or(name), line));
+    }
+    found.extend(
+        implemented(&source.tokens)
+            .into_iter()
+            .filter(|(_, line)| *line <= tests)
+            .map(|(name, line)| (name.clone(), name, line)),
+    );
+    found
+}
+
+/// Each type that `tokens` implement `ToSchema` for by hand, at any depth, with its line.
+fn implemented(tokens: &[TokenTree]) -> Vec<(String, usize)> {
+    let mut found = Vec::new();
+    for (at, token) in tokens.iter().enumerate() {
+        match token {
+            TokenTree::Ident(ident) if ident == "ToSchema" => {
+                if let (Some(TokenTree::Ident(word)), Some(TokenTree::Ident(name))) =
+                    (tokens.get(at + 1), tokens.get(at + 2))
+                    && word == "for"
+                {
+                    found.push((name.to_string(), name.span().start().line));
+                }
+            }
+            TokenTree::Group(group) => {
+                let inner: Vec<TokenTree> = group.stream().into_iter().collect();
+                found.extend(implemented(&inner));
+            }
+            _ => {}
+        }
+    }
+    found
 }
 
 /// Whether `attribute` is a `derive` that holds `ToSchema`.
@@ -158,13 +208,14 @@ mod tests {
 
     #[test]
     fn api_17_two_types_that_take_one_schema_name_are_reported() {
-        let workspaces = "#[derive(Deserialize, ToSchema)]\npub(crate) struct CreateRequest {}\n";
+        let workspaces = "#[derive(Deserialize, ToSchema)]\npub(crate) struct CreateRequest {}\n\
+                          impl ToSchema for WorkspaceName {}\n";
         let orders = "#[derive(Deserialize, ToSchema)]\n#[serde(deny_unknown_fields)]\n\
                       pub(crate) struct CreateRequest {}\n\
                       #[derive(Serialize, ToSchema)]\n#[schema(as = Problem)]\nstruct Body {}\n\
                       #[derive(IntoParams)]\nstruct ListQuery {}\n";
         let platform = "#[derive(Serialize, ToSchema)]\n#[schema(as = Problem, description = \"x\")]\n\
-                        struct ProblemBody {}\n\
+                        struct ProblemBody {}\nimpl ToSchema for WorkspaceName {}\n\
                         #[cfg(test)]\nmod tests {\n    #[derive(ToSchema)]\n    struct CreateRequest {}\n}\n";
         let repo = Repo::of(&[
             ("crates/app/src/modules/workspaces/routes.rs", workspaces),
@@ -182,7 +233,8 @@ mod tests {
             found,
             [
                 "crates/app/src/modules/orders/routes.rs:3",
-                "crates/platform/src/errors/mod.rs:3"
+                "crates/platform/src/errors/mod.rs:3",
+                "crates/platform/src/errors/mod.rs:4"
             ]
         );
     }

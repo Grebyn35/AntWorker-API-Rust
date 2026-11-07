@@ -181,7 +181,8 @@ enum Command {
         /// The module's name, plural and in snake_case, such as `order_items`.
         module: String,
         /// The name of one of its rows, singular, such as `order_item`; by default, the singular
-        /// that English's regular plurals give the module's name.
+        /// that English's regular plurals give the module's name, where only one kind of plural
+        /// ends as it does.
         resource: Option<String>,
     },
     /// On a copy of the repository, writes two modules with `just new-module`, one after the
