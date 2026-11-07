@@ -213,7 +213,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 8efb527..5267df6: as above, with pass 1's fixes | 2 | 5 (3, 2, 0 shared) | 1 | 0 | `next pass`: 8ff2610 |
 | 8efb527..8ff2610: as above, with pass 2's fixes | 3 | 1 (1, 1, 1 shared) | 1 | 0 | `stopped: no progress`: 5ad5563 |
 | 1834298..919157a: step 5's `just new-module`, `check-new-module` and the guide to adding a module (D91, D92), with `platform`'s `one_line`, `ResourceResponse` and `path_id` (PLATFORM-072), and TEST-08's fixtures of a module's rows | 1 | 11 (9, 6, 4 shared) | 4 | 0 | `next pass`: 34ac029 |
-| 1834298..34ac029: as above, with pass 1's fixes | 2 | 10 (8, 3, 1 shared) | 2 | 0 | `next pass` |
+| 1834298..34ac029: as above, with pass 1's fixes | 2 | 10 (8, 3, 1 shared) | 2 | 0 | `next pass`: 0046098 |
+| 1834298..0046098: as above, with pass 2's fixes | 3 | 7 (4, 3, 0 shared) | 2 | 1 | `stopped: no progress` |
 
 ## Decisions
 
