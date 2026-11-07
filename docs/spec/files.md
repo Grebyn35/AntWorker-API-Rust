@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`files` keeps the files that a workspace's members upload: their bytes in object storage, and what the API knows of each in Postgres. It accepts only the types it can check, scans each upload for malware before storing it, serves each file so that it can't run in a browser, and deletes a file's bytes only once no restore of the database can bring its row back. This spec covers a workspace's files and the deletion of bytes. A user's own files, public files and signed download URLs arrive with the next part of the module.
+`files` keeps the files that a workspace's members upload: their bytes in object storage, and what the API knows of each in Postgres. It accepts only the types it can check, scans each upload for malware before storing it, serves each file so that it can't run in a browser, and deletes a file's bytes only once no restore of the database can bring its row back. With the bundled bucket, a copy off the server holds every object too, from which a new server gets them back. This spec covers a workspace's files and the deletion of bytes. A user's own files, public files and signed download URLs arrive with the next part of the module.
 
 ## Owns
 
@@ -22,7 +22,7 @@ None. No other module uses `files` yet.
 | `POST /v1/workspaces/{workspace_id}/files` | `workspace::<FilesUpload>` | FILES-001 to FILES-006, FILES-012, FILES-013 |
 | `GET /v1/workspaces/{workspace_id}/files` | `workspace::<FilesRead>` | FILES-007 |
 | `GET /v1/workspaces/{workspace_id}/files/{file_id}` | `workspace::<FilesRead>` | FILES-008 |
-| `GET /v1/workspaces/{workspace_id}/files/{file_id}/content` | `workspace::<FilesRead>` | FILES-009, FILES-012 |
+| `GET /v1/workspaces/{workspace_id}/files/{file_id}/content` | `workspace::<FilesRead>` | FILES-009, FILES-012, FILES-014 |
 | `DELETE /v1/workspaces/{workspace_id}/files/{file_id}` | `workspace::<FilesDelete>` | FILES-010 |
 
 `POST /v1/workspaces/{workspace_id}/files` accepts an `Idempotency-Key` (API-12). Its body is the file's bytes, the only kind of request body that isn't JSON (API-08), which it reads through `Upload` with a limit of `FILE_MAX_BYTES` (PLATFORM-074).
@@ -39,11 +39,13 @@ None. No other module uses `files` yet.
 | FILES-006 | An upload checks that the caller may upload before it reads the body, and refuses a caller as ACCESS-003 says, such as one who isn't a member with 404 `request.not_found`, with the body unread. The upload's unit of work authorizes the caller again before it records the file. | ACCESS-003, DATA-21 | `files_006_` |
 | FILES-007 | Listing the workspace's files gives each as FILES-001 does, the latest uploaded first, in cursor pages. Its `search` matches the name. | API-05, API-06, API-20, DATA-16, DATA-17 | `files_007_` |
 | FILES-008 | Reading a file answers 200 with the file as FILES-001 gives it. A file ID that names no file of the workspace, or isn't a UUID, answers 404 `files.not_found`, here and in FILES-009 and FILES-010. | API-04, DATA-16, PLATFORM-072 | `files_008_` |
-| FILES-009 | Downloading a file answers 200 with its bytes, `Content-Type` its media type, `Content-Length` its size, `Content-Disposition` `inline` for a kind that Accepted kinds serves inline and `attachment` for every other, with its name, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox` and `Cache-Control: no-store`. A file whose bytes the bucket doesn't hold answers 500 `request.internal_error`, whose cause the request log writes with the file's ID (ERR-10). | SEC-11, SEC-12, ERR-10, D63 | `files_009_` |
+| FILES-009 | Downloading a file answers 200 with its bytes, `Content-Type` its media type, `Content-Length` its size, `Content-Disposition` `inline` for a kind that Accepted kinds serves inline and `attachment` for every other, with its name, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox` and `Cache-Control: no-store`. A file whose bytes the bucket doesn't hold answers 500 `request.internal_error`, whose cause the request log writes with the file's ID (ERR-10), unless the bucket is restoring from its copy (FILES-014). | SEC-11, SEC-12, ERR-10, D63 | `files_009_` |
 | FILES-010 | Deleting a file deletes its row and answers 204. It records `file.deleted` in the workspace's log, and publishes the workspace event `file.deleted`, which requires `files.read`. Its bytes stay until FILES-011 deletes them. The owner and admins may delete; a member gets 403 `request.permission_denied`. | API-04, DATA-06, DATA-22, SEC-19 | `files_010_` |
-| FILES-011 | An object that no file's row names, whatever removed or never committed its row, is deleted from storage once `FILE_DELETION_DELAY_DAYS` (1 to 3,650, default 35) have passed since the periodic job `files.find_unreferenced_objects` first found it so, and never while a row names it. | D1, D30, OPS-15 | `files_011_` |
+| FILES-011 | An object that no file's row names, whatever removed or never committed its row, is deleted from the bucket, and from its copy when there is one, once `FILE_DELETION_DELAY_DAYS` (1 to 3,650, default 35) have passed since the periodic job `files.find_unreferenced_objects` first found it so, in either, and never while a row names it. | D1, D30, OPS-15, PLATFORM-078 | `files_011_` |
 | FILES-012 | While the storage doesn't answer, a route that reads or writes bytes answers 503 `files.storage_unavailable`, with `Retry-After`. | ERR-03, ERR-04 | `files_012_` |
 | FILES-013 | `files.uploads` counts the uploads that reached the check of their bytes, by outcome: `stored`, `unsupported_type`, `malware_detected`, or `failed`. | OBS-11, OBS-14 | `files_013_` |
+| FILES-014 | While the bucket is restoring from its copy, a download of a file whose object the bucket doesn't hold yet answers 503 `files.restoring`, with `Retry-After`. | ERR-03, D99 | `files_014_` |
+| FILES-015 | `restore-files` deletes the row of each file whose object neither the bucket nor its copy holds, with the entry `file.lost` in its workspace's log, which no actor records and whose `details` are empty, and prints how many files each workspace lost; when the copy holds an object that the bucket doesn't, it marks the bucket as restoring from its copy. With `--when-empty`, it does nothing while the bucket holds an object. | ARCH-14, DATA-22, OPS-15, D100 | `files_015_` |
 
 ## Design
 
@@ -69,7 +71,7 @@ The list lives in `model/kinds.rs` as one table, so a fork adds a kind as one ro
 
 ### Storage
 
-`platform::storage` holds the client of an S3-compatible bucket, bundled on the server or a provider's, as the deployment chooses (D98, [architecture §9](../architecture.md#9-runtime-topology)), which the settings `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_URI_STYLE` and `S3_CA_PATH` configure, each required but the last two: `S3_URI_STYLE` is `host` unless it is `path`, and `S3_CA_PATH` names a file of certificates that a bucket of the operator's own may chain to (OPS-01, SEC-01, PLATFORM-076). The endpoint must be `https` outside development and test (SEC-10). The client reports a bucket that doesn't answer as unavailable, and every other failure as internal, neither naming the key (ERR-04). Readiness doesn't wait on the bucket: replicas that couldn't reach it would all leave the load balancer, and every route would fail with them, rather than only those of FILES-012.
+`platform::storage` holds the client of an S3-compatible bucket, bundled on the server or a provider's, as the deployment chooses (D98, [architecture §9](../architecture.md#9-runtime-topology)), which the settings `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_URI_STYLE` and `S3_CA_PATH` configure, each required but the last two: `S3_URI_STYLE` is `host` unless it is `path`, and `S3_CA_PATH` names a file of certificates that a bucket of the operator's own may chain to (OPS-01, SEC-01, PLATFORM-076). With the bundled bucket, the settings `S3_COPY_ENDPOINT` and those beside it name its copy off the server, which gets every object the module writes, and loses it only as the deletion of bytes deletes it (PLATFORM-077, PLATFORM-078, the [platform spec](platform.md#storage)). The endpoint must be `https` outside development and test (SEC-10). The client reports a bucket that doesn't answer as unavailable, and every other failure as internal, neither naming the key (ERR-04). Readiness doesn't wait on the bucket: replicas that couldn't reach it would all leave the load balancer, and every route would fail with them, rather than only those of FILES-012.
 
 An object's key is 128 random bits from the operating system's source, in hexadecimal, under the prefix `workspaces/`, so it names no row and reveals nothing (DATA-08, CODE-06). An object is written once and never replaced.
 
@@ -78,7 +80,7 @@ An object's key is 128 random bits from the operating system's source, in hexade
 1. The handler refuses a body whose `Content-Length` declares more than `FILE_MAX_BYTES` (FILES-004), then checks that the caller may upload, in a short unit of work of its own that authorizes them and commits nothing, and records a refusal as any workspace route does (FILES-006, D96).
 2. It reads the name from `Content-Disposition` (FILES-002), then the body, in one of the replica's turns (PLATFORM-074).
 3. It finds the kind from the name's extension, and checks the bytes against it (FILES-003), then sends them to the scanner (FILES-005).
-4. It writes the object, outside any transaction (DATA-21).
+4. It writes the object, outside any transaction (DATA-21), and, with a copy, its entry in the copy's queue (PLATFORM-078).
 5. The unit of work opens with `Authorize<FilesUpload>`, which authorizes the caller again, claims the `Idempotency-Key`, inserts the row, records the entry and publishes the event, then commits (FILES-001).
 
 An upload that stops after its object is written, whether a refusal at step 5, a failed commit or a stopped replica, leaves an object no row names, which FILES-011 deletes. The handler doesn't delete it itself: when a commit's answer is lost, the row may exist, and deleting its object would leave a row without bytes. A retry whose `Idempotency-Key` already committed writes its object, then answers the first result, leaving its own object to FILES-011 too.
@@ -99,10 +101,19 @@ The bytes of a file outlive its row, so that a restore of the database to a mome
 
 No statement deletes bytes when it deletes a row: a row may also go with its workspace's deletion, which cascades (DATA-05), or never commit, and the schema holds no trigger that could record either (DATA-07). Instead, two periodic jobs compare the bucket with the rows:
 
-- `files.find_unreferenced_objects`, every day, lists the bucket's objects, and records in `object_deletions` each that no row names, with `deletable_at` `FILE_DELETION_DELAY_DAYS` days from now, by the database's clock (DATA-03). An object already recorded keeps its time.
-- `files.delete_unreferenced_objects`, every hour, takes the recorded objects whose time has passed, in batches of at most 1,000, deletes from storage each that still no row names, and removes each from `object_deletions`, whichever it did. An object that a row names again, as after a restore, stays.
+- `files.find_unreferenced_objects`, every day, lists the objects of the bucket and of its copy, and records in `object_deletions` each that no row names, with `deletable_at` `FILE_DELETION_DELAY_DAYS` days from now, by the database's clock (DATA-03). An object already recorded keeps its time.
+- `files.delete_unreferenced_objects`, every hour, takes the recorded objects whose time has passed, in batches of at most 1,000, deletes from the copy, then from the bucket, each that still no row names, and removes each from `object_deletions`, whichever it did. An object that a row names again, as after a restore, stays.
 
 Both span every workspace by nature, so they select objects by key alone (DATA-16), and scheduled maintenance isn't audited (DATA-22). After a restore to an earlier moment, the objects of uploads made since then have no row, and go after the delay; `object_deletions` may have lost what it recorded since then, which the next run records again.
+
+### Restoring from the copy
+
+A bundled bucket that lost objects, as a new server's does, which starts empty, gets them back from its copy while the API serves (OPS-15, D99, D100). `restore-files`, a subcommand that a restore runs once the database is restored, and a deploy runs with `--when-empty` before its replicas start, reads the rows and the lists of both buckets, each in the order of the objects' keys, so it holds no whole list in memory:
+
+1. A file whose object neither the bucket nor the copy holds can never be downloaded, as when the server was lost after the file's row had reached the database's backups and before its object had reached the copy. Its row is deleted, with the entry `file.lost` in its workspace's log, and the subcommand prints how many files each workspace lost (FILES-015). It publishes no event, as a row that the server's loss took publishes none.
+2. When the copy holds an object that the bucket doesn't, the subcommand marks the bucket as restoring from its copy, and the deployment brings back every object of the copy while the replicas serve, then removes the mark ([platform spec](platform.md#storage)). Until a file's object is back, its download answers 503 `files.restoring` with `Retry-After` (FILES-014).
+
+With `--when-empty`, it lists one object of the bucket, and does nothing when there is one, so that only a deploy onto a new server, whose bucket holds nothing yet, lists the buckets.
 
 ### Recording and events
 
