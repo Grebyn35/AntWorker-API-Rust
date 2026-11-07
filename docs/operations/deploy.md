@@ -163,7 +163,7 @@ Each service the API depends on is bundled or a provider's, chosen by one settin
 | | `managed` | The collector alone, which sends every signal to a managed backend, into whose Grafana each deploy imports the dashboards and the alert rules ([observability.md](observability.md#a-managed-backend)) |
 | | `off` | Nothing: the API's logs go only to its containers' output |
 
-Files' bytes always go to a provider's bucket, off the server, as the backups do: a bucket on the server would lose what it holds with the server, so it would need its own backup off the server (D94, [the files bucket](#the-files-bucket)).
+Files' bytes go to a provider's bucket, off the server ([the files bucket](#the-files-bucket)). The choice of a files bucket bundled on the server, whose objects a bucket of its own off the server copies, joins the deployment with `files`' bundled bucket, as [architecture §9](../architecture.md#9-runtime-topology) plans (D98).
 
 ## The files bucket
 
