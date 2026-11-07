@@ -328,53 +328,6 @@ pub async fn seed(router: Router) -> Result<SeedReport, SeedError> {
     })
 }
 
-/// What `restore-files` did (FILES-015).
-#[derive(Debug, PartialEq, Eq)]
-pub enum FilesRestored {
-    /// With `--when-empty`, the bucket held an object, so nothing was read.
-    NotEmpty,
-    /// The files it removed, counted by their workspace's ID, and whether it marked the bucket
-    /// as restoring from its copy.
-    Checked {
-        lost: Vec<(String, u64)>,
-        restoring: bool,
-    },
-}
-
-/// What `restore-files` is asked to do (FILES-015).
-#[derive(Clone, Copy, Debug, Default)]
-pub struct RestoreFiles {
-    /// Do nothing while the bucket holds an object, as a deploy asks.
-    pub when_empty: bool,
-    /// Remove the files whose bytes neither bucket holds even while the copy holds no object
-    /// that a file's row names.
-    pub allow_lost_files: bool,
-}
-
-/// Removes the files whose bytes neither the bucket nor its copy holds, and marks the bucket as
-/// restoring from its copy when the copy holds an object that it lacks; with `when_empty`, only
-/// when the bucket holds no object (FILES-015, the files spec's "Restoring from the copy").
-pub async fn restore_files(
-    database: &Database,
-    storage: &Storage,
-    asked: RestoreFiles,
-) -> Result<FilesRestored, Internal> {
-    let asked = files::Restore {
-        when_empty: asked.when_empty,
-        allow_lost_files: asked.allow_lost_files,
-    };
-    Ok(match files::restore(database, storage, asked).await? {
-        files::Restored::NotEmpty => FilesRestored::NotEmpty,
-        files::Restored::Checked { lost, restoring } => FilesRestored::Checked {
-            lost: lost
-                .into_iter()
-                .map(|(workspace, count)| (workspace.to_string(), count))
-                .collect(),
-            restoring,
-        },
-    })
-}
-
 /// The permission matrix of `access`: each permission's name, with the names of the roles that
 /// hold it, which the generated test of every workspace route reads (TEST-08).
 pub fn permissions() -> Vec<(&'static str, Vec<&'static str>)> {

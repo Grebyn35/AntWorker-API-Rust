@@ -610,12 +610,20 @@ async fn ops_14_a_deploy_restarts_the_bundled_database_only_for_other_files_and_
 
 #[tokio::test]
 async fn ops_14_a_secret_that_the_setup_replaced_recreates_the_services_that_read_it() {
-    let deployment = Deployment::bundled(&[]).with_bundled_files(&[]);
+    let deployment = Deployment::bundled(&[]);
+    let backend = deployment.server.start_otlp_backend();
+    let mut managed = vec![("TELEMETRY", "managed")];
+    managed.extend(
+        backend
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str())),
+    );
+    deployment.set(&managed);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
-    let (postgres, copier) = (
+    let (postgres, collector) = (
         deployment.server.running("postgres"),
-        deployment.server.running("files-copy"),
+        deployment.server.running("collector-managed"),
     );
     // As `just server-setup` writes a secret: a new file, renamed into place.
     let replace = |name: &str, value: &str| {
@@ -628,13 +636,10 @@ async fn ops_14_a_secret_that_the_setup_replaced_recreates_the_services_that_rea
         .shell_ok(&format!("cat {DEPLOYMENT}/secrets/backup_s3_key_secret"));
 
     let unchanged = deployment.apply(&deployment.api, &[]).await;
-    let kept_copier = deployment.server.running("files-copy");
-    replace(
-        "files_copy_cipher_pass",
-        "a passphrase that the setup replaced",
-    );
-    let new_passphrase = deployment.apply(&deployment.api, &[]).await;
-    let new_copier = deployment.server.running("files-copy");
+    let kept_collector = deployment.server.running("collector-managed");
+    replace("managed_otlp_token", "a token that the setup replaced");
+    let new_token = deployment.apply(&deployment.api, &[]).await;
+    let new_collector = deployment.server.running("collector-managed");
     replace("backup_s3_key_secret", "a secret that the setup replaced");
     let refused = deployment.apply(&deployment.api, &[]).await;
     let refused_postgres = deployment.server.running("postgres");
@@ -643,14 +648,10 @@ async fn ops_14_a_secret_that_the_setup_replaced_recreates_the_services_that_rea
     let same_again = deployment.apply(&deployment.api, &[]).await;
 
     assert!(unchanged.status.success(), "{}", lossy(&unchanged));
-    assert_eq!(kept_copier, copier);
-    assert!(
-        new_passphrase.status.success(),
-        "{}",
-        lossy(&new_passphrase)
-    );
-    assert_eq!(new_copier.len(), 1);
-    assert_ne!(new_copier, copier);
+    assert_eq!(kept_collector, collector);
+    assert!(new_token.status.success(), "{}", lossy(&new_token));
+    assert_eq!(new_collector.len(), 1);
+    assert_ne!(new_collector, collector);
     assert!(!refused.status.success(), "{}", lossy(&refused));
     assert!(
         lossy(&refused).contains("this deploy changes postgres"),

@@ -61,12 +61,7 @@ impl Deployment {
     pub fn managed(changes: &[(&str, &str)]) -> Self {
         // The server first, so the shares of memory bound how many databases' servers run, and
         // the server holds its database's, so its share goes once both have.
-        Self::managed_on(Server::start(), changes)
-    }
-
-    /// A deployment whose managed database is on a new Postgres server, as `managed` makes one,
-    /// on `server`, which holds the database's server.
-    pub fn managed_on(mut server: Server, changes: &[(&str, &str)]) -> Self {
+        let mut server = Server::start();
         let database = database_server(server.in_memory());
         let host = database.inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
         server.hold_database(database);
@@ -104,23 +99,11 @@ impl Deployment {
         Self::on(server, &kind, changes)
     }
 
-    /// This deployment with its files bucket bundled, its copy in the stand-in's bucket
-    /// `files-copy`, and `changes` to its settings, which it writes.
-    pub fn with_bundled_files(mut self, changes: &[(&str, &str)]) -> Self {
-        let copy = self.server.start_files_copy_bucket();
-        self.base
-            .retain(|(name, _)| copy.iter().all(|(copied, _)| copied != name));
-        self.base.extend(copy);
-        self.base.sort();
-        self.set(changes);
-        self
-    }
-
     /// A deployment of this one's kind on `server`, a new one, set up as backups.md says after
     /// losing a server: with this one's settings, and the copies of its secrets and of the
-    /// buckets' authority, so it backs up to this one's bucket, and gets its files from this one's
-    /// copy. A managed database stays this one's, on the server that this one holds.
+    /// bucket's authority, so it backs up to this one's bucket. The database must be bundled.
     pub fn on_a_new_server(&self, server: Server) -> Self {
+        assert!(self.server.database().is_none(), "a bundled database");
         let deployment = Self {
             server,
             api: self.api.clone(),
@@ -151,9 +134,6 @@ impl Deployment {
             // The tests' traffic comes from one address, far faster than a client's limit allows;
             // the integration tests cover the limit (PLATFORM-054).
             ("RATE_LIMIT_IP_REQUESTS", "1000000"),
-            // A provider's bucket, the stand-in's, unless a test bundles the files bucket, which
-            // runs two services more.
-            ("FILES", "managed"),
         ]
         .iter()
         .chain(kind)

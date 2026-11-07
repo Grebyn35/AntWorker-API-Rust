@@ -28,12 +28,12 @@ encode() { base64 < "$1" | tr -d '\n'; }
         printf 'e2e-token' > /root/setup/token
         printf 'secret backup_s3_key %s\n' "$(encode /root/setup/key)"
         printf 'secret backup_s3_key_secret %s\n' "$(encode /root/setup/key_secret)"
-        printf 'secret files_copy_s3_key %s\n' "$(encode /root/setup/key)"
-        printf 'secret files_copy_s3_key_secret %s\n' "$(encode /root/setup/key_secret)"
+        printf 'secret files_s3_key %s\n' "$(encode /root/setup/key)"
+        printf 'secret files_s3_key_secret %s\n' "$(encode /root/setup/key_secret)"
         printf 'https://hooks.example.invalid/page' > /root/setup/page_url
         printf 'secret alertmanager/page_url %s\n' "$(encode /root/setup/page_url)"
         printf 'cert backup-ca.crt %s\n' "$(encode /root/bucket/ca.crt)"
-        printf 'cert files-copy-ca.crt %s\n' "$(encode /root/bucket/ca.crt)"
+        printf 'cert files-ca.crt %s\n' "$(encode /root/bucket/ca.crt)"
         printf 'login registry:5000 e2e %s\n' "$(encode /root/setup/token)"
         if [ -s /root/setup/postgres_password ]; then
             printf 'secret postgres_password %s\n' "$(encode /root/setup/postgres_password)"
@@ -53,8 +53,7 @@ fn as_deploy(server: &Server, command: &str) -> std::process::Output {
 }
 
 /// A new server, with a stand-in bucket, the setup's script and its settings: the bundled
-/// database, which backs up to the bucket, the bundled files bucket, whose copy goes to the
-/// bucket's stand-in too, and no telemetry. Returns the server and the settings.
+/// database, which backs up to the bucket, and no telemetry. Returns the server and the settings.
 fn new_server() -> (Server, String) {
     let server = Server::start();
     let mut settings = format!(
@@ -65,7 +64,7 @@ fn new_server() -> (Server, String) {
     for (name, value) in server
         .start_bucket()
         .into_iter()
-        .chain(server.start_files_copy_bucket())
+        .chain(server.start_files_bucket())
     {
         settings.push_str(&format!("{name}={value}\n"));
     }
@@ -99,11 +98,7 @@ fn assert_set_up(
     ] {
         assert!(output.contains(line), "{line}: {output}");
     }
-    for name in [
-        "backup_cipher_pass",
-        "postgres_password",
-        "files_copy_cipher_pass",
-    ] {
+    for name in ["backup_cipher_pass", "postgres_password"] {
         let value = server.shell_ok(&format!("cat {DEPLOYMENT}/secrets/{name}"));
         let shown = output
             .lines()
@@ -139,12 +134,7 @@ async fn ops_19_a_new_server_that_the_setup_prepares_passes_the_check_and_runs_a
     server.write("/root/setup/postgres_password", LOST_PASSWORD);
 
     let first = server.shell("sh /root/setup/set-up.sh secrets");
-    let passphrase = assert_set_up(
-        &server,
-        &first,
-        &settings,
-        &["backup_cipher_pass", "files_copy_cipher_pass"],
-    );
+    let passphrase = assert_set_up(&server, &first, &settings, &["backup_cipher_pass"]);
     let again = server.shell("sh /root/setup/set-up.sh");
     let before = as_deploy(&server, &check);
     let deployed = as_deploy(
@@ -209,9 +199,7 @@ fn assert_checked(output: &std::process::Output, holds: &str) {
         "check: ok    the server pulls",
         &format!("check: ok    the bucket backups answers to its key pair, and {holds}"),
         "check: ok    the backups' bucket, backups, keeps no versions",
-        "check: ok    openssl, which issues the bundled files bucket's certificate",
-        "check: ok    the bucket files-copy of the files' copy answers to its key pair",
-        "check: ok    the bucket of the files' copy, files-copy, keeps no versions",
+        "check: ok    the files bucket, files, keeps no versions",
         "check: note  whether the disk is encrypted",
         "deploy: every check on the server passed",
     ] {
@@ -230,11 +218,7 @@ async fn ops_19_the_check_finds_a_bucket_that_keeps_versions_a_key_pair_it_refus
         &server,
         &set_up,
         &settings,
-        &[
-            "backup_cipher_pass",
-            "postgres_password",
-            "files_copy_cipher_pass",
-        ],
+        &["backup_cipher_pass", "postgres_password"],
     );
     let check = || {
         as_deploy(
@@ -243,15 +227,15 @@ async fn ops_19_the_check_finds_a_bucket_that_keeps_versions_a_key_pair_it_refus
         )
     };
 
-    // The copy's bucket keeps versions, as Backblaze B2's every bucket does, with no rule that
+    // The files bucket keeps versions, as Backblaze B2's every bucket does, with no rule that
     // expires them, then with the rule that B2's "Keep only the last version" stands for.
-    configure_copy_bucket(
+    configure_files_bucket(
         &server,
         "versioning",
         "<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>",
     );
     let keeps_versions = check();
-    configure_copy_bucket(
+    configure_files_bucket(
         &server,
         "lifecycle",
         "<LifecycleConfiguration><Rule><ID>keep-only-the-last-version</ID><Filter><Prefix></Prefix>\
@@ -272,8 +256,8 @@ async fn ops_19_the_check_finds_a_bucket_that_keeps_versions_a_key_pair_it_refus
         &keeps_versions,
         false,
         &[
-            "check: FAIL  the bucket of the files' copy, files-copy, keeps versions, and no \
-             enabled lifecycle rule of the whole bucket expires its noncurrent ones after a day",
+            "check: FAIL  the files bucket, files, keeps versions, and no enabled lifecycle rule \
+             of the whole bucket expires its noncurrent ones after a day",
             "1 of the checks on the server failed",
         ],
     );
@@ -281,8 +265,8 @@ async fn ops_19_the_check_finds_a_bucket_that_keeps_versions_a_key_pair_it_refus
         &expires_them,
         true,
         &[
-            "check: ok    the bucket of the files' copy, files-copy, keeps versions, and a \
-           lifecycle rule expires its noncurrent ones after a day",
+            "check: ok    the files bucket, files, keeps versions, and a lifecycle rule expires its \
+           noncurrent ones after a day",
         ],
     );
     assert_found(
@@ -309,11 +293,11 @@ fn assert_found(output: &std::process::Output, passed: bool, lines: &[&str]) {
     }
 }
 
-/// Sends the stand-in's bucket `files-copy` the configuration `body` of its `query`, such as
+/// Sends the stand-in's bucket `files` the configuration `body` of its `query`, such as
 /// `versioning`, as S3's PUT of a bucket's configuration does.
-fn configure_copy_bucket(server: &Server, query: &str, body: &str) {
+fn configure_files_bucket(server: &Server, query: &str, body: &str) {
     server.shell_ok(&format!(
         "docker exec bucket curl --silent --show-error --fail --aws-sigv4 aws:amz:us-east-1:s3 \
-         --user e2e:e2e-secret -X PUT --data '{body}' 'http://localhost:8333/files-copy?{query}'"
+         --user e2e:e2e-secret -X PUT --data '{body}' 'http://localhost:8333/files?{query}'"
     ));
 }

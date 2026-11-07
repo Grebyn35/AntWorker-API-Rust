@@ -2,10 +2,9 @@
 # Postgres with its backups (D44), and the telemetry path (D42). deploy.sh runs it on its server,
 # from the deployment's directory, with the settings in settings.env, which
 # settings.env.example lists, and the values it derives in state/deploy.env. Profiles choose the
-# optional services: `database` for the bundled Postgres, `files` for the bundled files bucket and
-# its copy, `telemetry` for the collector, `observability` for the self-hosted stack, and
-# `managed-telemetry` for the collector that sends to a managed backend instead.
-# docs/operations/deploy.md describes the deployment.
+# optional services: `database` for the bundled Postgres, `telemetry` for the collector,
+# `observability` for the self-hosted stack, and `managed-telemetry` for the collector that sends
+# to a managed backend instead. docs/operations/deploy.md describes the deployment.
 
 name: deployment
 
@@ -17,29 +16,6 @@ x-logging: &logging
   options:
     max-size: 20m
     max-file: "5"
-
-# The settings of the bucket of files' bytes, and of its copy, which the replicas and
-# restore-files read (PLATFORM-076, PLATFORM-077), from the values deploy.sh derives in
-# state/deploy.env: the bundled bucket's with FILES=bundled, with its copy's, or a provider's with
-# FILES=managed, which has no copy, so that the copy's settings are empty. An empty value counts
-# as unset (PLATFORM-064).
-x-files-settings: &files-settings
-  S3_ENDPOINT: ${FILES_ENDPOINT:?the files bucket's endpoint, in state/deploy.env}
-  S3_REGION: ${FILES_REGION:?the files bucket's region, in state/deploy.env}
-  S3_BUCKET: ${FILES_BUCKET:?the files bucket's name, in state/deploy.env}
-  S3_URI_STYLE: ${FILES_URI_STYLE:?the files bucket's URI style, in state/deploy.env}
-  S3_ACCESS_KEY_ID_FILE: /run/secrets/files_s3_key
-  S3_SECRET_ACCESS_KEY_FILE: /run/secrets/files_s3_key_secret
-  # Empty, as deploy.sh writes it when certs/ holds no authority for the bucket, the bucket's
-  # certificate is checked against the operating system's authorities alone (PLATFORM-076).
-  S3_CA_PATH: ${FILES_CA_FILE:-}
-  S3_COPY_ENDPOINT: ${FILES_COPY_ENDPOINT:-}
-  S3_COPY_REGION: ${FILES_COPY_REGION:-}
-  S3_COPY_BUCKET: ${FILES_COPY_BUCKET:-}
-  S3_COPY_URI_STYLE: ${FILES_COPY_URI_STYLE:-}
-  S3_COPY_ACCESS_KEY_ID_FILE: ${FILES_COPY_KEY_FILE:-}
-  S3_COPY_SECRET_ACCESS_KEY_FILE: ${FILES_COPY_KEY_SECRET_FILE:-}
-  S3_COPY_CA_PATH: ${FILES_COPY_CA_FILE:-}
 
 # An API replica. The two colors differ only in their image.
 x-api: &api
@@ -91,12 +67,20 @@ x-api: &api
     JOB_DEAD_LETTER_RETENTION_DAYS: ${JOB_DEAD_LETTER_RETENTION_DAYS:-14}
     STREAM_HEARTBEAT_SECONDS: ${STREAM_HEARTBEAT_SECONDS:-15}
     STREAM_RECHECK_SECONDS: ${STREAM_RECHECK_SECONDS:-60}
-    <<: *files-settings
+    S3_ENDPOINT: https://${FILES_S3_ENDPOINT:?the files bucket's host, in settings.env}:${FILES_S3_PORT:-443}
+    S3_REGION: ${FILES_S3_REGION:?the files bucket's region, in settings.env}
+    S3_BUCKET: ${FILES_S3_BUCKET:?the files bucket's name, in settings.env}
+    S3_URI_STYLE: ${FILES_S3_URI_STYLE:-host}
+    S3_ACCESS_KEY_ID_FILE: /run/secrets/files_s3_key
+    S3_SECRET_ACCESS_KEY_FILE: /run/secrets/files_s3_key_secret
+    # Empty, as deploy.sh writes it when certs/ holds no authority for the bucket, the bucket's
+    # certificate is checked against the operating system's authorities alone (PLATFORM-076).
+    S3_CA_PATH: ${FILES_CA_FILE:-}
     FILE_MAX_BYTES: ${FILE_MAX_BYTES:-10485760}
     FILE_DELETION_DELAY_DAYS: ${FILE_DELETION_DELAY:-35}
   volumes:
     - ./certs:/etc/deployment-certs:ro
-  secrets: [database_url, hmac_key, smtp_password, files_s3_key, files_s3_key_secret, files_copy_s3_key, files_copy_s3_key_secret]
+  secrets: [database_url, hmac_key, smtp_password, files_s3_key, files_s3_key_secret]
   # The shutdown delay and the drain take at most 15 seconds, and writing out telemetry the time
   # that the platform spec's Telemetry export bounds it to, which fits in the rest.
   stop_grace_period: 30s
@@ -105,7 +89,7 @@ x-api: &api
       limits:
         cpus: "${API_CPUS:-1}"
         memory: ${API_MEMORY:-512M}
-  networks: [edge, data, files, telemetry]
+  networks: [edge, data, telemetry]
   restart: unless-stopped
 
 # pgBackRest's settings, from the deployment's (deploy/postgres/pgbackrest.conf has the rest).
@@ -212,26 +196,6 @@ services:
       - collector-managed-state:/var/lib/collector-managed
     network_mode: none
 
-  # Removes the files whose bytes neither the bundled bucket nor its copy holds, and marks the
-  # bucket as restoring from its copy when the copy holds what it lacks (FILES-015): a restore runs
-  # it once the database is restored, and a deploy, with --when-empty, before its replicas start.
-  restore-files:
-    image: ${API_IMAGE_NEW:?the release's image, in state/deploy.env}
-    logging: *logging
-    profiles: [tasks]
-    command: ["restore-files"]
-    read_only: true
-    environment:
-      <<: *files-settings
-      ENVIRONMENT: production
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${API_TELEMETRY_ENDPOINT:-}
-      DATABASE_URL_FILE: /run/secrets/database_url
-    volumes:
-      - ./certs:/etc/deployment-certs:ro
-    secrets: [database_url, files_s3_key, files_s3_key_secret, files_copy_s3_key, files_copy_s3_key_secret]
-    networks: [data, files, telemetry]
-
   migrate:
     image: ${API_IMAGE_NEW:?the release's image, in state/deploy.env}
     logging: *logging
@@ -308,155 +272,8 @@ services:
     networks: [data]
     restart: unless-stopped
 
-  # The bundled files bucket (D98, the files spec's "Storage"): SeaweedFS, which serves S3 over TLS
-  # alone, on the network `files`, with the certificate that deploy.sh issues from an authority of
-  # the deployment's own, to the key pair of its identities file. Its master, volume and filer
-  # servers listen on the container's loopback address alone; its Iceberg and Lance servers and its
-  # IAM API are off, and it reports nothing to SeaweedFS's makers. The port of its S3 gRPC service,
-  # which SeaweedFS binds with S3's, answers on the network too, which only services that hold the
-  # bucket's key pair share. SeaweedFS reads the certificate and its key from one directory, and
-  # the key its filer signs with from security.toml. Its health check creates the bucket `files`,
-  # and passes once it exists.
-  #
-  # Its volumes hold 1,024 megabytes each, so compacting one, which writes its live objects anew,
-  # needs that much free disk at most, and it may make 10,000, more than a server's disk holds, so
-  # the disk alone bounds what it stores. It makes 7 volumes at once for each collection, the
-  # bucket's and its own, which its filer writes to a minute after it starts; counted from the free
-  # disk, as SeaweedFS does by default, a disk of a few gigabytes left the bucket 2, which refused
-  # uploads at a fifth of the disk.
-  #
-  # Its memory is bounded: its S3 server holds at most 128 megabytes of uploads and 64 of reads at
-  # once, and the others wait, and Go's runtime keeps its heap within GOMEMLIMIT, under the
-  # container's limit. Unbounded, 16 uploads of 100 megabytes at once took it to 3.2 gigabytes;
-  # bounded, 32 uploads and 64 reads of 100 megabytes at once took 355 megabytes.
-  files:
-    image: chrislusf/seaweedfs:4.50@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
-    logging: *logging
-    profiles: [files]
-    command:
-      - server
-      - -dir=/data
-      - -ip=127.0.0.1
-      - -ip.bind=127.0.0.1
-      - -master.telemetry=false
-      - -master.volumeSizeLimitMB=1024
-      - -volume.max=10000
-      - -s3
-      - -s3.ip.bind=0.0.0.0
-      - -s3.port=8334
-      - -s3.port.iceberg=0
-      - -s3.port.lance=0
-      - -s3.iam=false
-      - -s3.concurrentUploadLimitMB=128
-      - -s3.readerCacheSizeMB=64
-      - -s3.cert.file=/run/secrets/bundled_files_tls_certificate
-      - -s3.key.file=/run/secrets/bundled_files_tls_key
-      - -s3.config=/run/secrets/bundled_files_s3_config
-    environment:
-      GOMEMLIMIT: 512MiB
-      # The fingerprint of its certificate, key, identities and security.toml, which it reads as
-      # it starts, so a deploy that changes one restarts the bucket.
-      SECRETS_FINGERPRINT: ${BUNDLED_FILES_SECRETS:-}
-    volumes:
-      - files:/data
-    secrets:
-      - bundled_files_tls_certificate
-      - bundled_files_tls_key
-      - bundled_files_s3_config
-      - source: bundled_files_security
-        target: /etc/seaweedfs/security.toml
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - echo 's3.bucket.create -name files' | weed shell -master=localhost:9333 -filer=localhost:8888 2>&1 | grep -q -e 'created bucket files' -e 'bucket files already exists'
-      interval: 60s
-      timeout: 10s
-      start_period: 60s
-      start_interval: 1s
-      retries: 3
-    stop_grace_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 768M
-    networks: [files]
-    restart: unless-stopped
-
-  # The copy of the bundled files bucket, off the server (OPS-15, D101): rclone, which moves what
-  # the bucket's queue holds to the copy's bucket, encrypting each object with its crypt, keeping
-  # its key, and brings the copy's objects back while the bucket is restoring from it
-  # (files/copy.sh). It writes how its passes went to its status files, which the collector reads.
-  # Bringing back 16 objects of 100 megabytes, 16 at once, took rclone 374 megabytes, and copying
-  # them, 8 at once, 268; it copies 8 at once each way, and Go's runtime keeps its heap within
-  # GOMEMLIMIT, under the container's limit.
-  files-copy:
-    extends: { file: tools/compose.yaml, service: rclone }
-    logging: *logging
-    profiles: [files]
-    entrypoint: ["sh", "/etc/files-copy/copy.sh"]
-    environment:
-      FILES_COPY_ENDPOINT: ${FILES_COPY_ENDPOINT:-}
-      FILES_COPY_REGION: ${FILES_COPY_REGION:-}
-      FILES_COPY_BUCKET: ${FILES_COPY_BUCKET:-}
-      FILES_COPY_URI_STYLE: ${FILES_COPY_URI_STYLE:-}
-      FILES_COPY_CA_FILE: ${FILES_COPY_CA_FILE:-}
-      GOMEMLIMIT: 384MiB
-      # The fingerprint of the key pairs and the passphrase it reads as it starts, so a deploy
-      # after `just server-setup` replaced one restarts it.
-      SECRETS_FINGERPRINT: ${FILES_COPY_SECRETS:-}
-    read_only: true
-    tmpfs: [/tmp]
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    volumes:
-      - ./files:/etc/files-copy:ro
-      - ./certs:/etc/deployment-certs:ro
-      - files-copy-status:/var/lib/files-copy-status
-    secrets: [bundled_files_s3_key, bundled_files_s3_key_secret, files_copy_s3_key, files_copy_s3_key_secret, files_copy_cipher_pass]
-    depends_on:
-      files:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-    networks: [files]
-    restart: unless-stopped
-
-  # Copies the files' objects from the bucket that FILES left to the one it chooses, which a deploy
-  # that changes FILES runs before its replicas start, and again once the replicas that used the
-  # bucket it leaves have stopped (files/move.sh, D104). It reaches both buckets, with both key
-  # pairs, and deletes nothing.
-  files-move:
-    extends: { file: tools/compose.yaml, service: rclone }
-    logging: *logging
-    profiles: [tasks]
-    entrypoint: ["sh", "/etc/files-copy/move.sh"]
-    environment:
-      FILES_MOVE_FROM: ${FILES_MOVE_FROM:-}
-      FILES_MOVE_ENDPOINT: ${FILES_MOVE_ENDPOINT:-}
-      FILES_MOVE_REGION: ${FILES_MOVE_REGION:-}
-      FILES_MOVE_BUCKET: ${FILES_MOVE_BUCKET:-}
-      FILES_MOVE_URI_STYLE: ${FILES_MOVE_URI_STYLE:-}
-      FILES_MOVE_CA_FILE: ${FILES_MOVE_CA_FILE:-}
-      GOMEMLIMIT: 384MiB
-    read_only: true
-    tmpfs: [/tmp]
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    volumes:
-      - ./files:/etc/files-copy:ro
-      - ./certs:/etc/deployment-certs:ro
-    secrets: [bundled_files_s3_key, bundled_files_s3_key_secret, provider_files_s3_key, provider_files_s3_key_secret]
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-    networks: [files]
-
-  # The collector, which every telemetry path keeps (D42). It reads the backups' and the files
-  # copy's status files, and Caddy's log, with the proxy's configuration
-  # (observability/collector/proxy.yaml).
+  # The collector, which every telemetry path keeps (D42). It reads the backups' status files,
+  # and Caddy's log, with the proxy's configuration (observability/collector/proxy.yaml).
   collector:
     extends: { file: observability/compose.yaml, service: collector }
     logging: *logging
@@ -464,7 +281,6 @@ services:
     command: ["--config=/etc/collector/config.yaml", "--config=/etc/collector/proxy.yaml"]
     volumes:
       - backup-status:/var/lib/backup-status:ro
-      - files-copy-status:/var/lib/files-copy-status:ro
       - caddy-logs:/var/log/caddy:ro
       - collector-state:/var/lib/collector
     networks: [telemetry]
@@ -492,7 +308,6 @@ services:
       SECRETS_FINGERPRINT: ${MANAGED_OTLP_SECRETS:-}
     volumes:
       - backup-status:/var/lib/backup-status:ro
-      - files-copy-status:/var/lib/files-copy-status:ro
       - ./certs:/etc/deployment-certs:ro
       - caddy-logs:/var/log/caddy:ro
       # A state of its own, since both collectors run for a moment while a deploy moves from one
@@ -559,8 +374,6 @@ networks:
   edge:
   # The replicas, the one-shot subcommands, Postgres and its backups.
   data:
-  # The bundled files bucket, its copy, the replicas and restore-files.
-  files:
   # Everything that sends or stores telemetry.
   telemetry:
 
@@ -573,8 +386,6 @@ volumes:
   postgres:
   postgres-socket:
   backup-status:
-  files:
-  files-copy-status:
   prometheus:
   alertmanager:
   loki:
@@ -582,12 +393,8 @@ volumes:
   grafana:
 
 # The secret files, in secrets/ of the deployment's directory. deploy.sh writes the URLs of the
-# bundled Postgres, the API's HMAC key, Grafana's password, the bundled files bucket's key pair,
-# certificate key, identities and security.toml, and an empty SMTP password when the mail server
-# takes none; `just server-setup` writes the others (docs/operations/deploy.md). files_s3_key and
-# files_s3_key_secret are the files bucket's key pair that the replicas use: the bundled bucket's
-# with FILES=bundled, which state/deploy.env names with FILES_SECRETS_PREFIX, and a provider's
-# otherwise; files-move reads both.
+# bundled Postgres, the API's HMAC key and Grafana's password, and an empty SMTP password when the
+# mail server takes none; `just server-setup` writes the others (docs/operations/deploy.md).
 secrets:
   database_url:
     file: ./secrets/database_url
@@ -602,31 +409,9 @@ secrets:
   postgres_password:
     file: ./secrets/postgres_password
   files_s3_key:
-    file: ./secrets/${FILES_SECRETS_PREFIX:-}files_s3_key
-  files_s3_key_secret:
-    file: ./secrets/${FILES_SECRETS_PREFIX:-}files_s3_key_secret
-  bundled_files_s3_key:
-    file: ./secrets/bundled_files_s3_key
-  bundled_files_s3_key_secret:
-    file: ./secrets/bundled_files_s3_key_secret
-  provider_files_s3_key:
     file: ./secrets/files_s3_key
-  provider_files_s3_key_secret:
+  files_s3_key_secret:
     file: ./secrets/files_s3_key_secret
-  files_copy_s3_key:
-    file: ./secrets/files_copy_s3_key
-  files_copy_s3_key_secret:
-    file: ./secrets/files_copy_s3_key_secret
-  files_copy_cipher_pass:
-    file: ./secrets/files_copy_cipher_pass
-  bundled_files_tls_certificate:
-    file: ./certs/bundled-files.crt
-  bundled_files_tls_key:
-    file: ./secrets/bundled_files_tls_key
-  bundled_files_s3_config:
-    file: ./secrets/bundled_files_s3_config
-  bundled_files_security:
-    file: ./secrets/bundled_files_security
   backup_s3_key:
     file: ./secrets/backup_s3_key
   backup_s3_key_secret:

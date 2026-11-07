@@ -59,7 +59,7 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Capacity, overload and load shedding | D20, D81 |
 | Background work | D13 |
 | Schema evolution | D15, D24 |
-| Backups and disaster recovery | D30, D44, D102, and for files' bytes D98 to D101, D104 and D105 |
+| Backups and disaster recovery | D30, D44, D102, and for files' bytes D106 |
 | Runbooks | D19 (one per alert), D30 |
 
 ## Engineering foundations

@@ -153,21 +153,7 @@ fn settings_read<R>(read: R) -> std::collections::BTreeSet<String>
 where
     R: for<'a> Fn(&Recording<'a>) -> Result<(), platform::config::ConfigError>,
 {
-    settings_read_with(&[], read)
-}
-
-/// The settings that `read` asks for, as `settings_read` finds them, given `.env.example`'s
-/// values with `extra` beside them.
-fn settings_read_with<R>(extra: &[(&str, &str)], read: R) -> std::collections::BTreeSet<String>
-where
-    R: for<'a> Fn(&Recording<'a>) -> Result<(), platform::config::ConfigError>,
-{
-    let mut values = example_settings();
-    values.extend(
-        extra
-            .iter()
-            .map(|(name, value)| ((*name).to_owned(), OsString::from(value))),
-    );
+    let values = example_settings();
     let asked = std::cell::RefCell::new(std::collections::BTreeSet::new());
     let env: Lookup<'_> = Box::new(|name: &str| {
         asked.borrow_mut().insert(name.to_owned());
@@ -206,21 +192,6 @@ fn subcommand_settings(subcommand: &str) -> Option<std::collections::BTreeSet<St
             settings.migrate()?;
             Ok(())
         }),
-        // It requires a copy of the bucket, which development has none of (PLATFORM-077).
-        "restore-files" => settings_read_with(
-            &[
-                ("S3_COPY_ENDPOINT", "http://127.0.0.1:8333"),
-                ("S3_COPY_REGION", "us-east-1"),
-                ("S3_COPY_BUCKET", "files-copy"),
-                ("S3_COPY_ACCESS_KEY_ID", "development"),
-                ("S3_COPY_SECRET_ACCESS_KEY", "development"),
-            ],
-            |settings| {
-                settings.telemetry()?;
-                settings.restore_files()?;
-                Ok(())
-            },
-        ),
         _ => return None,
     })
 }
@@ -242,15 +213,14 @@ fn container_settings(service: &serde_json::Value) -> std::collections::BTreeSet
     reason = "a test may block (CODE-05), and reads the deployment's Compose file"
 )]
 fn ops_02_each_setting_the_api_reads_is_documented_and_each_container_gets_only_its_own() {
-    let read: std::collections::BTreeSet<String> =
-        ["serve", "bootstrap", "migrate", "restore-files"]
-            .into_iter()
-            .flat_map(|subcommand| subcommand_settings(subcommand).unwrap_or_default())
-            .chain(settings_read(|settings| {
-                settings.health()?;
-                Ok(())
-            }))
-            .collect();
+    let read: std::collections::BTreeSet<String> = ["serve", "bootstrap", "migrate"]
+        .into_iter()
+        .flat_map(|subcommand| subcommand_settings(subcommand).unwrap_or_default())
+        .chain(settings_read(|settings| {
+            settings.health()?;
+            Ok(())
+        }))
+        .collect();
     let documented: std::collections::BTreeSet<String> = example_settings()
         .into_keys()
         .filter(|name| name != COMPOSE_SETTING)
@@ -300,7 +270,7 @@ fn ops_02_each_setting_the_api_reads_is_documented_and_each_container_gets_only_
     }
     assert_eq!(
         subcommands,
-        ["bootstrap", "migrate", "restore-files", "serve"].into(),
+        ["bootstrap", "migrate", "serve"].into(),
         "the services that run the API's image"
     );
 }

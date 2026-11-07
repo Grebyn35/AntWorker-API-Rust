@@ -43,20 +43,6 @@ status() {
                 printf "  %-26s %s\n" "${entry#*:}" "$when"
             done'
     fi
-    container=$(running files-copy)
-    if [ -n "$container" ]; then
-        echo "the files' copy:"
-        # shellcheck disable=SC2016 # The container's shell expands its own variables.
-        docker exec "$container" sh -c '
-            for entry in "files-copied:last copied" "files-copy-failed:copy last failed" "files-restored:last restored from it" "files-restore-failed:restore last failed"; do
-                file=/var/lib/files-copy-status/${entry%%:*}
-                if [ -f "$file" ]; then when=$(date -u -r "$file" "+%Y-%m-%d %H:%M:%S UTC"); else when=never; fi
-                printf "  %-26s %s\n" "${entry#*:}" "$when"
-            done
-            if [ -f /var/lib/files-copy-status/files-restoring ]; then
-                printf "  %-26s %s\n" "restoring from it since" "$(date -u -r /var/lib/files-copy-status/files-restoring "+%Y-%m-%d %H:%M:%S UTC")"
-            fi'
-    fi
     # The data that each restore moved aside, which stays, so a restore that failed can be put
     # back, until the operator removes it as docs/operations/backups.md says; a restore that
     # succeeded is undone by another. It is read from the volume, whether

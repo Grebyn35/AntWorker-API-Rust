@@ -9,12 +9,10 @@ receivers:
         endpoint: 0.0.0.0:4318
   # The times of the bundled database's backup status files, which its pgBackRest wrapper and
   # its backup schedule set: when an archive of the write-ahead log last succeeded and last
-  # failed, and when a base backup last completed; and of the bundled files bucket's copy's, which
-  # files-copy sets: when a pass last copied and last failed, and when objects last came back from
-  # the copy and last failed to. The alerts on backups and on the copy read them (OBS-14). In
-  # development, and with a managed database and a provider's bucket, the directories hold no file.
+  # failed, and when a base backup last completed. The alerts on backups read them (OBS-14). In
+  # development, and with a managed database, the directory holds no file.
   file_stats/backups:
-    include: /var/lib/{backup,files-copy}-status/*
+    include: /var/lib/backup-status/*
     collection_interval: 60s
     metrics:
       file.size:

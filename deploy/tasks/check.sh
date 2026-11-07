@@ -59,21 +59,12 @@ check() {
             postgres_image=""
         fi
     fi
-    # Each bucket's versions, once the check of its key pair passed, if one checks it.
+    # Each bucket's versions: the backups', once the check of its key pair passed, and the files
+    # bucket's, which also checks its key pair.
     if [ "$settled" = yes ] && [ "$database" = bundled ] && [ -n "$postgres_image" ] && check_bucket; then
         check_versions BACKUP_S3 backup_s3_key backup-ca.crt "the backups' bucket"
     fi
-    if [ "$settled" = yes ] && [ "$files" = bundled ]; then
-        if command -v openssl > /dev/null; then
-            passed "openssl, which issues the bundled files bucket's certificate"
-        else
-            failed "openssl isn't installed, and a deploy issues the bundled files bucket's certificate with it (docs/operations/deploy.md#what-a-server-needs)"
-        fi
-        if [ "$docker_answers" = yes ] && check_files_copy; then
-            check_versions FILES_COPY_S3 files_copy_s3_key files-copy-ca.crt "the bucket of the files' copy"
-        fi
-    fi
-    if [ "$settled" = yes ] && [ "$files" = managed ] && [ "$docker_answers" = yes ]; then
+    if [ "$settled" = yes ] && [ "$docker_answers" = yes ]; then
         check_versions FILES_S3 files_s3_key files-ca.crt "the files bucket"
     fi
     if [ "$settled" = yes ] && [ "$telemetry" = managed ] && [ "$docker_answers" = yes ]; then check_backend; fi
@@ -106,19 +97,17 @@ check_release() {
 }
 
 # Fails the check unless the server has the memory that the services the settings choose need:
-# 1 gigabyte, 1 more with the self-hosted stack, and 1 more with the bundled files bucket
-# (docs/operations/deploy.md). A server sold with that much reports a little less, the share its
-# kernel keeps.
+# about 2 gigabytes with the self-hosted stack, and 1 otherwise (docs/operations/deploy.md). A
+# server sold with that much reports a little less, the share its kernel keeps.
 check_memory() {
     needed=1
-    if [ "$telemetry" = self-hosted ]; then needed=$((needed + 1)); fi
-    if [ "$files" = bundled ]; then needed=$((needed + 1)); fi
+    if [ "$telemetry" = self-hosted ]; then needed=2; fi
     kilobytes=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)
     gigabytes=$(awk -v kilobytes="$kilobytes" 'BEGIN { printf "%.1f", kilobytes * 1024 / 1e9 }')
     if awk -v kilobytes="$kilobytes" -v needed="$needed" 'BEGIN { exit !(kilobytes * 1024 >= needed * 0.9e9) }'; then
-        passed "memory: $gigabytes GB, for the $needed GB that TELEMETRY=$telemetry and FILES=$files need"
+        passed "memory: $gigabytes GB, for the $needed GB that TELEMETRY=$telemetry needs"
     else
-        failed "memory: $gigabytes GB, less than the $needed GB that TELEMETRY=$telemetry and FILES=$files need (docs/operations/deploy.md#what-a-server-needs)"
+        failed "memory: $gigabytes GB, less than the $needed GB that TELEMETRY=$telemetry needs (docs/operations/deploy.md#what-a-server-needs)"
     fi
 }
 
@@ -176,39 +165,6 @@ bucket_request() {
         --volume "$deployment/certs:/run/certs:ro" "$curl" --silent --show-error --fail-with-body $trust \
         --aws-sigv4 "aws:amz:$(setting "$1_REGION"):s3" --variable key@/run/key --variable secret@/run/secret \
         --expand-user '{{key:trim}}:{{secret:trim}}' "$4" 2>&1
-}
-
-# Fails the check, and returns 1, unless rclone, as the service files-copy runs it, lists the
-# bucket of the bundled files bucket's copy with its key pair, through the authority that the
-# copy's settings name, if any. Listing changes nothing.
-check_files_copy() {
-    authorities="--ca-cert /etc/ssl/certs/ca-certificates.crt"
-    if [ -f "$deployment/certs/files-copy-ca.crt" ]; then authorities="$authorities --ca-cert /etc/deployment-certs/files-copy-ca.crt"; fi
-    if [ "$(setting FILES_COPY_S3_URI_STYLE host)" = path ]; then path_style=true; else path_style=false; fi
-    bucket=$(setting FILES_COPY_S3_BUCKET)
-    secrets=$deployment/secrets
-    # shellcheck disable=SC2016 # The container's shell expands its own variables.
-    if answer=$(docker run --rm --read-only --tmpfs /tmp --entrypoint sh \
-        --env RCLONE_CONFIG_COPY_TYPE=s3 --env RCLONE_CONFIG_COPY_PROVIDER=Other \
-        --env RCLONE_CONFIG_COPY_ENDPOINT="https://$(setting FILES_COPY_S3_ENDPOINT):$(setting FILES_COPY_S3_PORT 443)" \
-        --env RCLONE_CONFIG_COPY_REGION="$(setting FILES_COPY_S3_REGION)" \
-        --env RCLONE_CONFIG_COPY_FORCE_PATH_STYLE="$path_style" \
-        --volume "$secrets/files_copy_s3_key:/run/secrets/files_copy_s3_key:ro" \
-        --volume "$secrets/files_copy_s3_key_secret:/run/secrets/files_copy_s3_key_secret:ro" \
-        --volume "$deployment/certs:/etc/deployment-certs:ro" \
-        "$(docker compose --file "$here/tools/compose.yaml" config --images rclone)" -c '
-            RCLONE_CONFIG_COPY_ACCESS_KEY_ID=$(cat /run/secrets/files_copy_s3_key)
-            RCLONE_CONFIG_COPY_SECRET_ACCESS_KEY=$(cat /run/secrets/files_copy_s3_key_secret)
-            export RCLONE_CONFIG_COPY_ACCESS_KEY_ID RCLONE_CONFIG_COPY_SECRET_ACCESS_KEY
-            : > /tmp/rclone.conf
-            # shellcheck disable=SC2086 # $1 holds one option and its value per pair of words.
-            RCLONE_CONFIG=/tmp/rclone.conf rclone $1 lsf --max-depth 1 "copy:$2" > /dev/null' sh "$authorities" "$bucket" 2>&1); then
-        passed "the bucket $bucket of the files' copy answers to its key pair"
-    else
-        failed "rclone can't list the bucket $bucket of the files' copy with its key pair, and says:"
-        printf '%s\n' "$answer" | tail -n 5 | sed 's/^/        /'
-        return 1
-    fi
 }
 
 # Fails the check, and returns 1, unless the release's pgBackRest reads the bucket, as the bundled

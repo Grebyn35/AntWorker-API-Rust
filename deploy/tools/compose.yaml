@@ -2,9 +2,7 @@
 # checks the signatures, when it verifies a release (OPS-12): compose.yaml at the root extends
 # them for the release tasks, and deploy.sh reads their names from this file and runs
 # deploy/verify-release.sh before it pulls a release. curl and yq import the release's dashboards
-# and alert rules into a managed Grafana (D42), through deploy/import-grafana.sh. rclone copies
-# the bundled files bucket off the server (D101): the service files-copy of compose.yaml extends it,
-# and `just server-check` reads the copy's bucket with it.
+# and alert rules into a managed Grafana (D42), through deploy/import-grafana.sh.
 
 services:
   crane:
@@ -18,6 +16,3 @@ services:
 
   yq:
     image: mikefarah/yq:4.54.1@sha256:4b3d9475d65571d28cbb19544d3820ec2945e4c8b2f18279394282b8dc3a592e
-
-  rclone:
-    image: rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5

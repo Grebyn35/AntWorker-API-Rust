@@ -410,7 +410,7 @@ mod tests {
     const NEW_SERVER: &[&str] = &[
         // IMAGE_REPOSITORY, SOURCE, API_ADDRESS, then Enter for the rest of the settings,
         // until Grafana's address: TRUSTED_PROXIES, CORS_ALLOWED_ORIGINS, the two rate limits,
-        // the replicas', DATABASE, FILES, POSTGRES_MAX_CONNECTIONS and TELEMETRY.
+        // the replicas', DATABASE, POSTGRES_MAX_CONNECTIONS and TELEMETRY.
         "",
         "",
         "api.example.com",
@@ -424,12 +424,10 @@ mod tests {
         "",
         "",
         "",
-        "",
         "grafana.example.com",
         // No email, so no question about a mail server.
         "off",
-        // The bucket of the bundled files bucket's copy, then Enter for the uploads' limit and the
-        // deletion's delay.
+        // The files bucket, then Enter for the uploads' limit and the deletion's delay.
         "files.example.com",
         "",
         "eu-1",
@@ -461,12 +459,10 @@ mod tests {
         "",
         "",
         "",
-        // The key pair of the bucket of the files' copy, then Enter leaves its passphrase to be
-        // generated; the backup bucket's key pair, then Enter leaves the passphrase and the
-        // superuser's password to be generated.
+        // The files bucket's key pair; the backup bucket's key pair, then Enter leaves the
+        // passphrase and the superuser's password to be generated.
         "files-key",
         "files-secret",
-        "",
         "key",
         "secret",
         "",
@@ -508,13 +504,8 @@ mod tests {
         assert_eq!(get(&settings, "SOURCE"), "https://github.com/Owner/Name");
         assert_eq!(get(&settings, "API_ADDRESS"), "api.example.com");
         assert_eq!(get(&settings, "GRAFANA_ADDRESS"), "grafana.example.com");
-        assert_eq!(get(&settings, "FILES"), "bundled");
-        assert_eq!(
-            get(&settings, "FILES_COPY_S3_ENDPOINT"),
-            "files.example.com"
-        );
-        assert_eq!(get(&settings, "FILES_COPY_S3_BUCKET"), "files");
-        assert_eq!(get(&settings, "FILES_S3_ENDPOINT"), "");
+        assert_eq!(get(&settings, "FILES_S3_ENDPOINT"), "files.example.com");
+        assert_eq!(get(&settings, "FILES_S3_BUCKET"), "files");
         assert_eq!(get(&settings, "BACKUP_S3_ENDPOINT"), "s3.example.com");
         assert_eq!(get(&settings, "BACKUP_S3_PORT"), "443");
         assert_eq!(get(&settings, "BACKUP_S3_BUCKET"), "backups");
@@ -530,11 +521,8 @@ mod tests {
         assert_eq!(
             setup.secrets,
             vec![
-                ("files_copy_s3_key".to_owned(), "files-key".to_owned()),
-                (
-                    "files_copy_s3_key_secret".to_owned(),
-                    "files-secret".to_owned()
-                ),
+                ("files_s3_key".to_owned(), "files-key".to_owned()),
+                ("files_s3_key_secret".to_owned(), "files-secret".to_owned()),
                 ("backup_s3_key".to_owned(), "key".to_owned()),
                 ("backup_s3_key_secret".to_owned(), "secret".to_owned()),
             ]
@@ -562,7 +550,7 @@ mod tests {
     fn ops_19_a_server_that_was_set_up_keeps_what_each_empty_answer_leaves() {
         let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
                     API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=off\n\
-                    FILES=managed\nFILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n\
+                    FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n\
                     FORK_SETTING=kept\n";
         let state = State {
             user: "deploy".to_owned(),
@@ -610,7 +598,7 @@ mod tests {
     #[test]
     fn ops_19_email_through_a_mail_server_with_a_user_name_is_asked_for_its_password() {
         let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
-                    API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=smtp\nFILES=managed\n\
+                    API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=smtp\n\
                     SMTP_HOST=smtp.example.com\nSMTP_USERNAME=api\n\
                     EMAIL_FROM=AntWorker <noreply@example.com>\n\
                     FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n";
@@ -653,7 +641,7 @@ mod tests {
     fn ops_19_the_self_hosted_stack_is_asked_for_each_credential_its_alert_integrations_read() {
         let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
                     API_ADDRESS=api.example.com\nGRAFANA_ADDRESS=grafana.example.com\n\
-                    DATABASE=managed\nTELEMETRY=self-hosted\nEMAIL=off\nFILES=managed\n\
+                    DATABASE=managed\nTELEMETRY=self-hosted\nEMAIL=off\n\
                     FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n";
         let state = State {
             user: "deploy".to_owned(),

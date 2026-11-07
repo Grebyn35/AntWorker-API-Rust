@@ -22,12 +22,8 @@ fn managed_database(settings: &[(String, String)]) -> bool {
     get(settings, "DATABASE") == "managed"
 }
 
-fn bundled_files(settings: &[(String, String)]) -> bool {
-    matches!(get(settings, "FILES"), "bundled" | "")
-}
-
-fn managed_files(settings: &[(String, String)]) -> bool {
-    get(settings, "FILES") == "managed"
+fn always(_: &[(String, String)]) -> bool {
+    true
 }
 
 fn managed_telemetry(settings: &[(String, String)]) -> bool {
@@ -70,34 +66,13 @@ pub(super) const SECRETS: &[File] = &[
         name: "files_s3_key",
         what: "The access key of the files bucket's key pair, which reaches only that bucket.",
         generated: false,
-        needed: managed_files,
+        needed: always,
     },
     File {
         name: "files_s3_key_secret",
         what: "The secret key of the files bucket's key pair.",
         generated: false,
-        needed: managed_files,
-    },
-    File {
-        name: "files_copy_s3_key",
-        what: "The access key of the key pair of the bucket that the bundled files bucket's copy \
-               goes to, which reaches only that bucket.",
-        generated: false,
-        needed: bundled_files,
-    },
-    File {
-        name: "files_copy_s3_key_secret",
-        what: "The secret key of that key pair.",
-        generated: false,
-        needed: bundled_files,
-    },
-    File {
-        name: "files_copy_cipher_pass",
-        what: "The passphrase that encrypts the bundled files bucket's copy. Enter generates one \
-               on the server, the first time, which the setup shows once; type a lost server's \
-               to bring its files back (docs/operations/backups.md).",
-        generated: true,
-        needed: bundled_files,
+        needed: always,
     },
     File {
         name: "backup_s3_key",
@@ -156,15 +131,7 @@ pub(super) const CERTS: &[File] = &[
         what: "The certificate of the private authority that signed the files bucket's \
                certificate, for a bucket of your own; none for a provider's.",
         generated: false,
-        needed: managed_files,
-    },
-    File {
-        name: "files-copy-ca.crt",
-        what: "The certificate of the private authority that signed the certificate of the \
-               bucket that the files' copy goes to, for a bucket of your own; none for a \
-               provider's.",
-        generated: false,
-        needed: bundled_files,
+        needed: always,
     },
     File {
         name: "backup-ca.crt",

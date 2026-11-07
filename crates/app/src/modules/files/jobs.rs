@@ -1,9 +1,8 @@
 //! The periodic jobs of `files` (OPS-09, FILES-011), which delete the objects that no file's row
 //! names, once no restore of the database can bring such a row back (the files spec's "Deleting
-//! bytes"), from the bucket and from its copy, when it has one (PLATFORM-078):
-//! `files.find_unreferenced_objects` records each such object that either holds with when its
-//! bytes may go, and `files.delete_unreferenced_objects` deletes those whose time has passed and
-//! that still no row names. Both span every workspace by nature, so they select objects by key alone, which
+//! bytes"): `files.find_unreferenced_objects` records each such object with when its bytes may
+//! go, and `files.delete_unreferenced_objects` deletes those whose time has passed and that still
+//! no row names. Both span every workspace by nature, so they select objects by key alone, which
 //! `check-tenancy` lets this file alone do (DATA-16). Scheduled maintenance isn't audited
 //! (DATA-22). A second run of either finds nothing more to do.
 
@@ -60,9 +59,9 @@ impl Files {
     }
 }
 
-/// Records each object of the bucket or its copy that no row names, a page of their merged list at
-/// a time, with when its bytes may go: `FILE_DELETION_DELAY_DAYS` from now, by the database's
-/// clock. An object already recorded keeps its time.
+/// Records each object of the bucket that no row names, a page of the bucket's list at a time,
+/// with when its bytes may go: `FILE_DELETION_DELAY_DAYS` from now, by the database's clock. An
+/// object already recorded keeps its time.
 async fn find(files: &Files, context: &JobContext) -> Result<(), Internal> {
     let delay = i32::try_from(files.settings.deletion_delay_days).map_err(Internal::new)?;
     let mut pages = files
@@ -92,8 +91,8 @@ async fn find(files: &Files, context: &JobContext) -> Result<(), Internal> {
     Ok(())
 }
 
-/// Deletes the recorded objects whose time has passed, a batch at a time: from the copy, then the
-/// bucket, each that still no row names, then each from `object_deletions`, whichever it did. The batch is read
+/// Deletes the recorded objects whose time has passed, a batch at a time: from the bucket each
+/// that still no row names, then each from `object_deletions`, whichever it did. The batch is read
 /// in a transaction that ends before the bucket is asked (DATA-21). A deletion that fails ends the
 /// run, keeping what it hadn't removed for the next run.
 async fn delete(files: &Files, context: &JobContext) -> Result<(), Internal> {

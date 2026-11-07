@@ -275,18 +275,6 @@ restore() {
     if [ -n "$live" ]; then
         API_IMAGE_NEW=$live_image compose --profile tasks run --rm --no-deps --quiet-pull migrate
         compose up --detach --wait --quiet-pull --no-deps --scale "api-$live=$replicas" "api-$live"
-        # The files whose bytes neither the bundled files bucket nor its copy holds go, and the
-        # bucket gets back what it lacks of its copy (FILES-015), once the replicas serve: on a
-        # server that wasn't lost, the bucket holds every file's bytes that the restored rows name
-        # (FILES-011), so a check that fails only warns. On a new server, the deploy after the
-        # restore checks the bucket, which holds nothing yet, once its bootstrap has given the
-        # restored database the server's passwords.
-        if [ "$files" = bundled ]; then
-            say "checking the files' rows against the bundled files bucket and its copy"
-            if ! API_IMAGE_NEW=$live_image compose --profile tasks run --rm --no-deps --quiet-pull restore-files; then
-                say "couldn't check the files' rows against the bundled files bucket and its copy, with the error above"
-            fi
-        fi
     fi
     # Online, as the scheduled backups are, while the replicas serve, so a later restore starts
     # from the restored database's timeline. Postgres archives what they write meanwhile.
