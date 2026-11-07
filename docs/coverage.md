@@ -55,11 +55,11 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Area | Covered by |
 |---|---|
 | Monitoring, alerting, tracing | D10, D19, D42 |
-| Release engineering | D15, D21, D45 |
+| Release engineering | D15, D21, D45, D103 |
 | Capacity, overload and load shedding | D20, D81 |
 | Background work | D13 |
 | Schema evolution | D15, D24 |
-| Backups and disaster recovery | D30, D44, and for files' bytes D98 to D101 |
+| Backups and disaster recovery | D30, D44, D102, and for files' bytes D98 to D101, D104 and D105 |
 | Runbooks | D19 (one per alert), D30 |
 
 ## Engineering foundations

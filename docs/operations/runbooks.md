@@ -123,7 +123,7 @@ With a managed database, run the same query in the provider's console. Add `payl
 
 **Look first.** `just logs <host> postgres` shows pgBackRest's error for each attempt, such as a key pair the bucket refuses, an endpoint that doesn't answer, or a certificate the deployment doesn't trust.
 
-**What to do.** Fix what the error names: the bucket's key pair or its settings, with `just server-setup`, or the bucket itself; `just server-check` reads the bucket as Postgres does. Postgres retries on its own, and the alert clears with the next archive that succeeds. Then take a base backup with `just backup`, so a restore needs no segment from before the failure.
+**What to do.** Fix what the error names: the bucket itself, after which Postgres retries on its own, or the bucket's key pair or its settings, with `just server-setup`, then `just deploy <host> --allow-restart`, since Postgres reads them only as it starts ([deploy.md](deploy.md#restarting-postgres-or-caddy)); `just server-check` reads the bucket as Postgres does. The alert clears with the next archive that succeeds. Then take a base backup with `just backup`, so a restore needs no segment from before the failure.
 
 ## BaseBackupTooOld
 
@@ -139,7 +139,7 @@ With a managed database, run the same query in the provider's console. Add `payl
 
 **Look first.** `just logs <host> files-copy` shows rclone's error for each pass that failed, such as a key pair the copy's bucket refuses, an endpoint that doesn't answer, or a certificate the deployment doesn't trust. `just status <host>` shows when the copy last succeeded and last failed, and whether `files-copy` runs.
 
-**What to do.** Fix what the error names: the copy bucket's key pair or its settings, with `just server-setup`, or the bucket itself; `just server-check` lists the copy's bucket with its key pair, as `files-copy` reaches it. `files-copy` tries again every few seconds, and the alert clears with the next pass that succeeds.
+**What to do.** Fix what the error names: the bucket itself, after which `files-copy` tries again every few seconds, or the copy bucket's key pair or its settings, with `just server-setup`, then `just deploy <host>`, which restarts `files-copy` with them, since it reads them only as it starts; `just server-check` lists the copy's bucket with its key pair, as `files-copy` reaches it. The alert clears with the next pass that succeeds.
 
 ## FilesRestoreFailing
 

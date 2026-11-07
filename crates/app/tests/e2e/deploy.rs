@@ -609,6 +609,60 @@ async fn ops_14_a_deploy_restarts_the_bundled_database_only_for_other_files_and_
 }
 
 #[tokio::test]
+async fn ops_14_a_secret_that_the_setup_replaced_recreates_the_services_that_read_it() {
+    let deployment = Deployment::bundled(&[]).with_bundled_files(&[]);
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    let (postgres, copier) = (
+        deployment.server.running("postgres"),
+        deployment.server.running("files-copy"),
+    );
+    // As `just server-setup` writes a secret: a new file, renamed into place.
+    let replace = |name: &str, value: &str| {
+        deployment.server.shell_ok(&format!(
+            "cd {DEPLOYMENT}/secrets && printf '%s' '{value}' > {name}.next && mv {name}.next {name}"
+        ));
+    };
+    let key_secret = deployment
+        .server
+        .shell_ok(&format!("cat {DEPLOYMENT}/secrets/backup_s3_key_secret"));
+
+    let unchanged = deployment.apply(&deployment.api, &[]).await;
+    let kept_copier = deployment.server.running("files-copy");
+    replace(
+        "files_copy_cipher_pass",
+        "a passphrase that the setup replaced",
+    );
+    let new_passphrase = deployment.apply(&deployment.api, &[]).await;
+    let new_copier = deployment.server.running("files-copy");
+    replace("backup_s3_key_secret", "a secret that the setup replaced");
+    let refused = deployment.apply(&deployment.api, &[]).await;
+    let refused_postgres = deployment.server.running("postgres");
+    // The same secret again, in a new file: its fingerprint is its content's.
+    replace("backup_s3_key_secret", key_secret.trim_end());
+    let same_again = deployment.apply(&deployment.api, &[]).await;
+
+    assert!(unchanged.status.success(), "{}", lossy(&unchanged));
+    assert_eq!(kept_copier, copier);
+    assert!(
+        new_passphrase.status.success(),
+        "{}",
+        lossy(&new_passphrase)
+    );
+    assert_eq!(new_copier.len(), 1);
+    assert_ne!(new_copier, copier);
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains("this deploy changes postgres"),
+        "{}",
+        lossy(&refused)
+    );
+    assert_eq!(refused_postgres, postgres);
+    assert!(same_again.status.success(), "{}", lossy(&same_again));
+    assert_eq!(deployment.server.running("postgres"), postgres);
+}
+
+#[tokio::test]
 async fn ops_14_a_deploy_gives_the_bundled_database_its_own_secrets_once_the_settings_choose_it() {
     let deployment = Deployment::managed(&[]);
     let first = deployment.apply(&deployment.api, &[]).await;

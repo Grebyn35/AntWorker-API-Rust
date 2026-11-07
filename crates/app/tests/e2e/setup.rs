@@ -208,8 +208,10 @@ fn assert_checked(output: &std::process::Output, holds: &str) {
         "check: ok    memory",
         "check: ok    the server pulls",
         &format!("check: ok    the bucket backups answers to its key pair, and {holds}"),
+        "check: ok    the backups' bucket, backups, keeps no versions",
         "check: ok    openssl, which issues the bundled files bucket's certificate",
         "check: ok    the bucket files-copy of the files' copy answers to its key pair",
+        "check: ok    the bucket of the files' copy, files-copy, keeps no versions",
         "check: note  whether the disk is encrypted",
         "deploy: every check on the server passed",
     ] {
@@ -218,7 +220,8 @@ fn assert_checked(output: &std::process::Output, holds: &str) {
 }
 
 #[tokio::test]
-async fn ops_19_the_check_finds_a_key_pair_the_bucket_refuses_and_a_missing_setting() {
+async fn ops_19_the_check_finds_a_bucket_that_keeps_versions_a_key_pair_it_refuses_and_a_missing_setting()
+ {
     let (server, settings) = new_server();
     let api = Pushed::api().in_network();
     let postgres = Pushed::postgres().in_network();
@@ -240,6 +243,22 @@ async fn ops_19_the_check_finds_a_key_pair_the_bucket_refuses_and_a_missing_sett
         )
     };
 
+    // The copy's bucket keeps versions, as Backblaze B2's every bucket does, with no rule that
+    // expires them, then with the rule that B2's "Keep only the last version" stands for.
+    configure_copy_bucket(
+        &server,
+        "versioning",
+        "<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>",
+    );
+    let keeps_versions = check();
+    configure_copy_bucket(
+        &server,
+        "lifecycle",
+        "<LifecycleConfiguration><Rule><ID>keep-only-the-last-version</ID><Filter><Prefix></Prefix>\
+         </Filter><Status>Enabled</Status><NoncurrentVersionExpiration><NoncurrentDays>1\
+         </NoncurrentDays></NoncurrentVersionExpiration></Rule></LifecycleConfiguration>",
+    );
+    let expires_them = check();
     server.shell_ok(&format!(
         "printf wrong > {DEPLOYMENT}/secrets/backup_s3_key_secret"
     ));
@@ -249,26 +268,52 @@ async fn ops_19_the_check_finds_a_key_pair_the_bucket_refuses_and_a_missing_sett
     ));
     let missing_setting = check();
 
-    assert!(!refused_key.status.success(), "{}", lossy(&refused_key));
-    assert!(
-        lossy(&refused_key)
-            .contains("check: FAIL  pgBackRest can't read the bucket backups with its key pair"),
-        "{}",
-        lossy(&refused_key)
+    assert_found(
+        &keeps_versions,
+        false,
+        &[
+            "check: FAIL  the bucket of the files' copy, files-copy, keeps versions, and no \
+             enabled lifecycle rule of the whole bucket expires its noncurrent ones after a day",
+            "1 of the checks on the server failed",
+        ],
     );
-    assert!(
-        lossy(&refused_key).contains("1 of the checks on the server failed"),
-        "{}",
-        lossy(&refused_key)
+    assert_found(
+        &expires_them,
+        true,
+        &[
+            "check: ok    the bucket of the files' copy, files-copy, keeps versions, and a \
+           lifecycle rule expires its noncurrent ones after a day",
+        ],
     );
-    assert!(
-        !missing_setting.status.success(),
-        "{}",
-        lossy(&missing_setting)
+    assert_found(
+        &refused_key,
+        false,
+        &[
+            "check: FAIL  pgBackRest can't read the bucket backups with its key pair",
+            "1 of the checks on the server failed",
+        ],
     );
-    assert!(
-        lossy(&missing_setting).contains("check: FAIL  API_ADDRESS is required"),
-        "{}",
-        lossy(&missing_setting)
+    assert_found(
+        &missing_setting,
+        false,
+        &["check: FAIL  API_ADDRESS is required"],
     );
+}
+
+/// Asserts that the check that wrote `output` passed, or failed, as `passed` says, and wrote each
+/// of `lines`.
+fn assert_found(output: &std::process::Output, passed: bool, lines: &[&str]) {
+    assert_eq!(output.status.success(), passed, "{}", lossy(output));
+    for line in lines {
+        assert!(lossy(output).contains(line), "{line}: {}", lossy(output));
+    }
+}
+
+/// Sends the stand-in's bucket `files-copy` the configuration `body` of its `query`, such as
+/// `versioning`, as S3's PUT of a bucket's configuration does.
+fn configure_copy_bucket(server: &Server, query: &str, body: &str) {
+    server.shell_ok(&format!(
+        "docker exec bucket curl --silent --show-error --fail --aws-sigv4 aws:amz:us-east-1:s3 \
+         --user e2e:e2e-secret -X PUT --data '{body}' 'http://localhost:8333/files-copy?{query}'"
+    ));
 }

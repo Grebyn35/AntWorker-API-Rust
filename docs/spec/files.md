@@ -104,7 +104,7 @@ No statement deletes bytes when it deletes a row: a row may also go with its wor
 - `files.find_unreferenced_objects`, every day, lists the objects of the bucket and of its copy, and records in `object_deletions` each that no row names, with `deletable_at` `FILE_DELETION_DELAY_DAYS` days from now, by the database's clock (DATA-03). An object already recorded keeps its time.
 - `files.delete_unreferenced_objects`, every hour, takes the recorded objects whose time has passed, in batches of at most 1,000, deletes from the copy, then from the bucket, each that still no row names, and removes each from `object_deletions`, whichever it did. An object that a row names again, as after a restore, stays.
 
-Both span every workspace by nature, so they select objects by key alone (DATA-16), and scheduled maintenance isn't audited (DATA-22). After a restore to an earlier moment, the objects of uploads made since then have no row, and go after the delay; `object_deletions` may have lost what it recorded since then, which the next run records again.
+Both span every workspace by nature, so they select objects by key alone (DATA-16), and scheduled maintenance isn't audited (DATA-22). A bucket with versioning keeps a deleted object's bytes as a noncurrent version, so every bucket of the deployment keeps none for more than a day, as [deploy.md](../operations/deploy.md#what-a-server-needs) requires and `just server-check` checks (D102). After a restore to an earlier moment, the objects of uploads made since then have no row, and go after the delay; `object_deletions` may have lost what it recorded since then, which the next run records again.
 
 ### Restoring from the copy
 

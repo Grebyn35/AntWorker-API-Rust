@@ -264,3 +264,93 @@ async fn ops_15_a_new_server_with_a_managed_database_gets_the_bundled_files_back
     assert_eq!(downloaded, (200, "kept off the server".to_owned()));
     assert_eq!(account.names(&new), ["notes.txt"]);
 }
+
+#[tokio::test]
+async fn files_001_the_bundled_bucket_on_a_small_disk_stores_uploads_once_its_own_volumes_grew() {
+    let deployment = Deployment::managed(&[]).with_bundled_files(&[]);
+    // A disk of 2 gigabytes for the bucket's data, of which SeaweedFS's own collection, which its
+    // filer writes to a minute after it starts, takes 7 volumes at once, as does the bucket's.
+    deployment.server.shell_ok(
+        "docker volume create --driver local --opt type=tmpfs --opt device=tmpfs \
+         --opt o=size=2g deployment_files > /dev/null",
+    );
+    let applied = deployment.apply(&deployment.api, &[]).await;
+    assert!(applied.status.success(), "{}", lossy(&applied));
+    let account = Account::register(&deployment);
+    // Until the filer's own collection has its volumes, which come before the bucket's.
+    deployment.server.shell_ok(
+        "timeout 180 sh -c \"until echo volume.list | docker exec --interactive deployment-files-1 \
+         weed shell -master=localhost:9333 2> /dev/null | grep -q 'Collection:,'; do sleep 2; done\"",
+    );
+
+    let ids: Vec<String> = (1..=3)
+        .map(|n| account.upload(&deployment, &format!("notes-{n}.txt"), &format!("note {n}")))
+        .collect();
+    let downloaded: Vec<(u16, String)> = ids
+        .iter()
+        .map(|id| account.download(&deployment, id))
+        .collect();
+    let errors = deployment
+        .server
+        .shell_ok("docker logs deployment-files-1 2>&1 | grep -E '^[EF][0-9]{4} ' || true");
+
+    assert_eq!(
+        downloaded,
+        (1..=3)
+            .map(|n| (200, format!("note {n}")))
+            .collect::<Vec<_>>()
+    );
+    // The bucket logs no error that asks for no one (OBS-03), from its start until now.
+    assert!(errors.trim().is_empty(), "{errors}");
+}
+
+#[tokio::test]
+async fn ops_14_a_deploy_that_changes_files_moves_the_files_into_the_bucket_it_chooses() {
+    let deployment = Deployment::managed(&[]).with_bundled_files(&[]);
+    let applied = deployment.apply(&deployment.api, &[]).await;
+    assert!(applied.status.success(), "{}", lossy(&applied));
+    let account = Account::register(&deployment);
+    let bundled = account.upload(&deployment, "bundled.txt", "uploaded to the bundled bucket");
+    let bundled_key = object_key(&deployment, &bundled);
+
+    deployment.set(&[("FILES", "managed")]);
+    let to_managed = deployment.apply(&deployment.api, &[]).await;
+    let in_provider = deployment.server.stand_in_object("files", &bundled_key);
+    let from_provider = account.download(&deployment, &bundled);
+    let managed = account.upload(
+        &deployment,
+        "managed.txt",
+        "uploaded to the provider's bucket",
+    );
+    deployment.set(&[]);
+    let to_bundled = deployment.apply(&deployment.api, &[]).await;
+    let both_back = (
+        account.download(&deployment, &bundled),
+        account.download(&deployment, &managed),
+    );
+    let stopped = deployment.server.running("files").is_empty();
+
+    assert!(to_managed.status.success(), "{}", lossy(&to_managed));
+    assert!(
+        lossy(&to_managed).contains("copying the files' objects to it"),
+        "{}",
+        lossy(&to_managed)
+    );
+    assert_eq!(
+        in_provider.as_deref(),
+        Some(b"uploaded to the bundled bucket".as_slice())
+    );
+    assert_eq!(
+        from_provider,
+        (200, "uploaded to the bundled bucket".to_owned())
+    );
+    assert!(to_bundled.status.success(), "{}", lossy(&to_bundled));
+    assert_eq!(
+        both_back,
+        (
+            (200, "uploaded to the bundled bucket".to_owned()),
+            (200, "uploaded to the provider's bucket".to_owned()),
+        )
+    );
+    assert!(!stopped);
+}

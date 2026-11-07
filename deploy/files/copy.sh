@@ -18,31 +18,17 @@
 # files-restoring while that runs (docs/operations/runbooks.md).
 set -eu
 
+# shellcheck disable=SC2034 # here names the directory of the file it sources, which check-shell inlines.
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/remotes.sh"
+
 status=/var/lib/files-copy-status
 mark=copy-restoring
 
-secret() { cat "/run/secrets/$1"; }
-
-# The bundled bucket, over TLS, with the certificate that the deployment's own authority signed.
-export RCLONE_CONFIG_BUNDLED_TYPE=s3
-export RCLONE_CONFIG_BUNDLED_PROVIDER=SeaweedFS
-export RCLONE_CONFIG_BUNDLED_ENDPOINT=https://files:8334
-export RCLONE_CONFIG_BUNDLED_REGION=us-east-1
-export RCLONE_CONFIG_BUNDLED_FORCE_PATH_STYLE=true
-RCLONE_CONFIG_BUNDLED_ACCESS_KEY_ID=$(secret files_s3_key)
-RCLONE_CONFIG_BUNDLED_SECRET_ACCESS_KEY=$(secret files_s3_key_secret)
-export RCLONE_CONFIG_BUNDLED_ACCESS_KEY_ID RCLONE_CONFIG_BUNDLED_SECRET_ACCESS_KEY
-
-# The copy's bucket, at its provider.
-export RCLONE_CONFIG_PROVIDER_TYPE=s3
-export RCLONE_CONFIG_PROVIDER_PROVIDER=Other
-export RCLONE_CONFIG_PROVIDER_ENDPOINT="$FILES_COPY_ENDPOINT"
-export RCLONE_CONFIG_PROVIDER_REGION="$FILES_COPY_REGION"
-if [ "$FILES_COPY_URI_STYLE" = path ]; then path_style=true; else path_style=false; fi
-export RCLONE_CONFIG_PROVIDER_FORCE_PATH_STYLE=$path_style
-RCLONE_CONFIG_PROVIDER_ACCESS_KEY_ID=$(secret files_copy_s3_key)
-RCLONE_CONFIG_PROVIDER_SECRET_ACCESS_KEY=$(secret files_copy_s3_key_secret)
-export RCLONE_CONFIG_PROVIDER_ACCESS_KEY_ID RCLONE_CONFIG_PROVIDER_SECRET_ACCESS_KEY
+# The bundled bucket, and the copy's bucket at its provider, reached with the bundled bucket's key
+# pair and the copy's.
+bundled_remote
+provider_remote "$FILES_COPY_ENDPOINT" "$FILES_COPY_REGION" "$FILES_COPY_URI_STYLE" files_copy_s3_key files_copy_s3_key_secret
 
 # The copy: the provider's bucket through crypt, which encrypts each object's bytes with a key
 # from the passphrase, and keeps the object's key, so that the API reaches it by the same key.
@@ -51,20 +37,11 @@ export RCLONE_CONFIG_COPY_REMOTE="provider:$FILES_COPY_BUCKET"
 export RCLONE_CONFIG_COPY_FILENAME_ENCRYPTION=off
 export RCLONE_CONFIG_COPY_DIRECTORY_NAME_ENCRYPTION=false
 export RCLONE_CONFIG_COPY_SUFFIX=none
-RCLONE_CONFIG_COPY_PASSWORD=$(secret files_copy_cipher_pass | rclone obscure -)
+RCLONE_CONFIG_COPY_PASSWORD=$(rclone obscure - < /run/secrets/files_copy_cipher_pass)
 export RCLONE_CONFIG_COPY_PASSWORD
 
-# Both buckets exist, and objects never change, so their sizes tell whether a bucket holds one.
-export RCLONE_S3_NO_CHECK_BUCKET=true
-# Every remote is in the environment, so rclone's file is empty.
-export RCLONE_CONFIG=/tmp/rclone.conf
-export HOME=/tmp
-: > "$RCLONE_CONFIG"
-
-# The certificates that rclone checks the buckets' against, which replace the system's: the
-# deployment's authority, the system's, and the copy's private authority, when it has one.
-authorities="--ca-cert /etc/deployment-certs/bundled-files-ca.crt --ca-cert /etc/ssl/certs/ca-certificates.crt"
-if [ -n "$FILES_COPY_CA_FILE" ]; then authorities="$authorities --ca-cert $FILES_COPY_CA_FILE"; fi
+rclone_environment
+authorities=$(authorities "$FILES_COPY_CA_FILE")
 
 # rclone, comparing objects by their sizes. Each pass that moves the queue logs only its errors;
 # the longer copies log their progress every minute.
@@ -106,7 +83,7 @@ restore_all() {
     touch "$status/files-restoring"
     echo "files-copy: the bucket is restoring from its copy; bringing back each object it lacks"
     # shellcheck disable=SC2086 # $progress holds one option per word.
-    if run copy copy: bundled:files --transfers 16 --checkers 32 $progress && run deletefile "bundled:files/$mark"; then
+    if run copy copy: bundled:files --transfers 8 --checkers 16 $progress && run deletefile "bundled:files/$mark"; then
         touch "$status/files-restored"
         rm -f "$status/files-restoring"
         echo "files-copy: the bucket holds every object of its copy again"

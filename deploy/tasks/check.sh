@@ -59,14 +59,22 @@ check() {
             postgres_image=""
         fi
     fi
-    if [ "$settled" = yes ] && [ "$database" = bundled ] && [ -n "$postgres_image" ]; then check_bucket; fi
+    # Each bucket's versions, once the check of its key pair passed, if one checks it.
+    if [ "$settled" = yes ] && [ "$database" = bundled ] && [ -n "$postgres_image" ] && check_bucket; then
+        check_versions BACKUP_S3 backup_s3_key backup-ca.crt "the backups' bucket"
+    fi
     if [ "$settled" = yes ] && [ "$files" = bundled ]; then
         if command -v openssl > /dev/null; then
             passed "openssl, which issues the bundled files bucket's certificate"
         else
             failed "openssl isn't installed, and a deploy issues the bundled files bucket's certificate with it (docs/operations/deploy.md#what-a-server-needs)"
         fi
-        if [ "$docker_answers" = yes ]; then check_files_copy; fi
+        if [ "$docker_answers" = yes ] && check_files_copy; then
+            check_versions FILES_COPY_S3 files_copy_s3_key files-copy-ca.crt "the bucket of the files' copy"
+        fi
+    fi
+    if [ "$settled" = yes ] && [ "$files" = managed ] && [ "$docker_answers" = yes ]; then
+        check_versions FILES_S3 files_s3_key files-ca.crt "the files bucket"
     fi
     if [ "$settled" = yes ] && [ "$telemetry" = managed ] && [ "$docker_answers" = yes ]; then check_backend; fi
     noted "whether the disk is encrypted can't be seen from the server; confirm it with the provider (docs/operations/deploy.md#what-a-server-needs)"
@@ -98,23 +106,81 @@ check_release() {
 }
 
 # Fails the check unless the server has the memory that the services the settings choose need:
-# about 2 gigabytes with the self-hosted stack, and 1 otherwise (docs/operations/deploy.md). A
-# server sold with that much reports a little less, the share its kernel keeps.
+# 1 gigabyte, 1 more with the self-hosted stack, and 1 more with the bundled files bucket
+# (docs/operations/deploy.md). A server sold with that much reports a little less, the share its
+# kernel keeps.
 check_memory() {
     needed=1
-    if [ "$telemetry" = self-hosted ]; then needed=2; fi
+    if [ "$telemetry" = self-hosted ]; then needed=$((needed + 1)); fi
+    if [ "$files" = bundled ]; then needed=$((needed + 1)); fi
     kilobytes=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)
     gigabytes=$(awk -v kilobytes="$kilobytes" 'BEGIN { printf "%.1f", kilobytes * 1024 / 1e9 }')
     if awk -v kilobytes="$kilobytes" -v needed="$needed" 'BEGIN { exit !(kilobytes * 1024 >= needed * 0.9e9) }'; then
-        passed "memory: $gigabytes GB, for the $needed GB that TELEMETRY=$telemetry needs"
+        passed "memory: $gigabytes GB, for the $needed GB that TELEMETRY=$telemetry and FILES=$files need"
     else
-        failed "memory: $gigabytes GB, less than the $needed GB that TELEMETRY=$telemetry needs (docs/operations/deploy.md#what-a-server-needs)"
+        failed "memory: $gigabytes GB, less than the $needed GB that TELEMETRY=$telemetry and FILES=$files need (docs/operations/deploy.md#what-a-server-needs)"
     fi
 }
 
-# Fails the check unless rclone, as the service files-copy runs it, lists the bucket of the bundled
-# files bucket's copy with its key pair, through the authority that the copy's settings name, if
-# any. Listing changes nothing.
+# Fails the check unless a provider's bucket keeps no noncurrent version for more than a day, S3's
+# name for the old version that a bucket with versioning keeps of an object deleted or replaced,
+# as docs/operations/deploy.md requires of every bucket of the deployment: its versioning is off,
+# or an enabled lifecycle rule of the whole bucket expires them after 1 day. The bucket's settings
+# start with $1, its key pair is in the secret files $2 and $2_secret, the authority of a private
+# bucket's certificate in certs/$3, and $4 names it. It reads the bucket's versioning and its
+# lifecycle with S3's GetBucketVersioning and GetBucketLifecycleConfiguration, which change nothing.
+check_versions() {
+    bucket=$(setting "$1_BUCKET")
+    if [ "$(setting "$1_URI_STYLE" host)" = path ]; then
+        url="https://$(setting "$1_ENDPOINT"):$(setting "$1_PORT" 443)/$bucket"
+    else
+        url="https://$bucket.$(setting "$1_ENDPOINT"):$(setting "$1_PORT" 443)/"
+    fi
+    if versioning=$(bucket_request "$1" "$2" "$3" "$url?versioning"); then
+        :
+    elif printf '%s' "$versioning" | grep -q '<Code>NotImplemented</Code>'; then
+        noted "$4, $bucket, can't say whether it keeps noncurrent versions; with a provider that keeps them, give it a lifecycle rule that expires them after a day (docs/operations/deploy.md#what-a-server-needs)"
+        return
+    else
+        failed "S3 can't read the versioning of $4, $bucket, with its key pair, and says: $versioning"
+        return
+    fi
+    if ! printf '%s' "$versioning" | grep -q -e '<Status>Enabled</Status>' -e '<Status>Suspended</Status>'; then
+        passed "$4, $bucket, keeps no versions"
+        return
+    fi
+    lifecycle=$(bucket_request "$1" "$2" "$3" "$url?lifecycle") || true
+    # Each rule on a line of its own, then those that are enabled, expire noncurrent versions
+    # after a day, and cover the whole bucket.
+    expiring=$(printf '%s' "$lifecycle" | tr -d '\r\n' | sed 's/<Rule>/\
+<Rule>/g' | grep '^<Rule>' | grep '<Status>Enabled</Status>' |
+        grep '<NoncurrentDays>[[:space:]]*1[[:space:]]*</NoncurrentDays>' |
+        grep -v -e '<Prefix>[^<]' -e '<Tag>' -e '<And>' -e '<ObjectSize' || true)
+    if [ -n "$expiring" ]; then
+        passed "$4, $bucket, keeps versions, and a lifecycle rule expires its noncurrent ones after a day"
+    else
+        failed "$4, $bucket, keeps versions, and no enabled lifecycle rule of the whole bucket expires its noncurrent ones after a day, so it keeps the bytes of what the deployment deletes; give it one, such as Backblaze B2's \"Keep only the last version of the file\" (docs/operations/deploy.md#what-a-server-needs)"
+    fi
+}
+
+# Prints the answer of the bucket whose settings start with $1 to a GET of the URL $4, signed with
+# S3's signature version 4 and the key pair in the secret files $2 and $2_secret, trusting the
+# authority in certs/$3, if any, besides the system's; fails, printing the answer's body, when the
+# bucket refuses it.
+bucket_request() {
+    curl=$(docker compose --file "$here/tools/compose.yaml" config --images curl)
+    trust=""
+    if [ -f "$deployment/certs/$3" ]; then trust="--cacert /run/certs/$3"; fi
+    # shellcheck disable=SC2086 # $trust is an option and its value, or nothing.
+    docker run --rm --quiet --volume "$deployment/secrets/$2:/run/key:ro" --volume "$deployment/secrets/$2_secret:/run/secret:ro" \
+        --volume "$deployment/certs:/run/certs:ro" "$curl" --silent --show-error --fail-with-body $trust \
+        --aws-sigv4 "aws:amz:$(setting "$1_REGION"):s3" --variable key@/run/key --variable secret@/run/secret \
+        --expand-user '{{key:trim}}:{{secret:trim}}' "$4" 2>&1
+}
+
+# Fails the check, and returns 1, unless rclone, as the service files-copy runs it, lists the
+# bucket of the bundled files bucket's copy with its key pair, through the authority that the
+# copy's settings name, if any. Listing changes nothing.
 check_files_copy() {
     authorities="--ca-cert /etc/ssl/certs/ca-certificates.crt"
     if [ -f "$deployment/certs/files-copy-ca.crt" ]; then authorities="$authorities --ca-cert /etc/deployment-certs/files-copy-ca.crt"; fi
@@ -141,11 +207,13 @@ check_files_copy() {
     else
         failed "rclone can't list the bucket $bucket of the files' copy with its key pair, and says:"
         printf '%s\n' "$answer" | tail -n 5 | sed 's/^/        /'
+        return 1
     fi
 }
 
-# Fails the check unless the release's pgBackRest reads the bucket, as the bundled Postgres would,
-# with the key pair, the passphrase and the authority it would use. `info` changes nothing.
+# Fails the check, and returns 1, unless the release's pgBackRest reads the bucket, as the bundled
+# Postgres would, with the key pair, the passphrase and the authority it would use. `info` changes
+# nothing.
 check_bucket() {
     authority=/etc/ssl/certs/ca-certificates.crt
     if [ -f "$deployment/certs/backup-ca.crt" ]; then authority=/etc/deployment-certs/backup-ca.crt; fi
@@ -175,7 +243,7 @@ check_bucket() {
         *)
             failed "pgBackRest can't read the bucket $bucket with its key pair and the passphrase, and says:"
             printf '%s\n' "$answer" | sed 's/^/        /'
-            return
+            return 1
             ;;
     esac
     # A database's record in the bucket, on a server without the database's volume, as after the

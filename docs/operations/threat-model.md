@@ -25,6 +25,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | Postgres to the bucket | The write-ahead log and the base backups | Encrypted before they leave the server (OPS-17); a key pair that reaches only the bucket ([the bucket](backups.md#the-bucket)) |
 | The replicas to the files bucket | Files' bytes | TLS that verifies the bucket's certificate (OPS-17, PLATFORM-076); a key pair that reaches only the bucket; the bundled one on a network that only the deployment's services that use it share, serving S3 over TLS alone ([the files bucket](deploy.md#the-files-bucket)) |
 | `files-copy` to the copy's bucket | Each file's bytes | Encrypted before they leave the server, with each object's key kept (OPS-17, D101); a key pair that reaches only the copy's bucket |
+| `files-move` between the bundled files bucket and a provider's, as a deploy changes `FILES` | Each file's bytes | TLS that verifies each bucket's certificate (OPS-17); a provider's files bucket that encrypts at rest ([the files bucket](deploy.md#the-files-bucket)); each bucket's own key pair (D104) |
 | The collector to an observability backend | Logs, traces and metrics | No personal data or secret in telemetry (OBS-04); TLS (OPS-17) |
 | CI to the registry to the server | The images, and the deploy's tools | Everything pinned (OPS-11); one build whose digest is tested, signed and promoted (OPS-12); advisories block the build (SEC-15); a minimal, unprivileged image (OPS-13) |
 | The operator to the server | Deploys, backups, restores and settings | Secure Shell (SSH) from the developer's machine (OPS-19); secrets in files, one per secret ([the files on the server](deploy.md#the-files-on-the-server)), held so that nothing prints them (SEC-01) |
@@ -75,6 +76,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | Personal data in telemetry, audit details or rate-limit keys | No personal data in telemetry (OBS-04); audit entries hold only IP address and user agent (SEC-18); bucket keys are HMACs (PLATFORM-057) |
 | Data read in transit, or from a stolen disk | TLS for every connection that leaves the server, and encryption at rest (OPS-17) |
 | A bucket's provider reading the backups or the files' copy | Both are encrypted before they leave the server (OPS-17, D101) |
+| A bucket keeping what the deployment deleted, such as a deleted file's bytes or an expired backup, as a noncurrent version | Every bucket of the deployment keeps none for more than a day, which `just server-check` checks ([deploy.md](deploy.md#what-a-server-needs), D102) |
 | Losing data, or a change that shouldn't have happened | Continuous backups, restores to any moment the retention covers, and a restore that another undoes (OPS-15) |
 | Tampering with audit history | `app` may only insert and read audit entries (AUDIT-005), which commit with the change they record (AUDIT-001) |
 
@@ -85,6 +87,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | A flood of requests | The IP and per-user limits (SEC-13), which clients can see (API-15); a concurrency limit and timeouts (OPS-07, PLATFORM-039, PLATFORM-042) |
 | A client that holds streams open, or reads them slowly | A cap of streams per user on a replica (REALTIME-006); a stream that falls behind closes (PLATFORM-032) |
 | Exhausting the database's connections | The connection budget fits the server (OPS-18) |
+| A burst of uploads or downloads exhausting the server's memory through the bundled files bucket | The bucket's uploads and reads in flight are bounded, and it and its copy run under memory limits of their own ([deploy.md](deploy.md#what-a-server-needs)) |
 
 ### Supply chain and operations
 

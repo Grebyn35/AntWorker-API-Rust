@@ -4,8 +4,8 @@
 
 # Writes the secrets the deployment generates, once those the operator holds are there: the
 # passwords of the bundled Postgres's other roles and the URLs made from them, the API's HMAC
-# key, Grafana's administrator password, and the bundled files bucket's key pair, identities and
-# certificate. The files may be read by every user of a container, as Compose mounts them, so the
+# key, Grafana's administrator password, and the bundled files bucket's key pair, identities,
+# signing key and certificate. The files may be read by every user of a container, as Compose mounts them, so the
 # directory admits only the deployment's owner.
 write_secrets() {
     secrets=$deployment/secrets
@@ -54,13 +54,11 @@ write_secrets() {
     for name in database_url database_owner_url database_admin_url; do
         if [ ! -f "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
     done
-    for name in files_s3_key files_s3_key_secret; do
-        if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md#the-files-bucket)"; fi
-    done
     # Compose checks every secret file it declares, so the ones this choice of services doesn't
     # use exist empty.
     for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass grafana_admin_password managed_otlp_token \
-        files_copy_s3_key files_copy_s3_key_secret files_copy_cipher_pass bundled_files_tls_key bundled_files_s3_config; do
+        files_s3_key files_s3_key_secret files_copy_s3_key files_copy_s3_key_secret files_copy_cipher_pass \
+        bundled_files_s3_key bundled_files_s3_key_secret bundled_files_tls_key bundled_files_s3_config bundled_files_security; do
         if [ ! -f "$secrets/$name" ]; then : > "$secrets/$name"; fi
     done
     if [ ! -f "$deployment/certs/bundled-files.crt" ]; then : > "$deployment/certs/bundled-files.crt"; fi
@@ -90,10 +88,10 @@ check_secrets() {
             if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md#the-files-bucket)"; fi
         done
     fi
-    # Replicas that a deploy to a provider's bucket starts with the bundled bucket's key pair
-    # would reach no bucket.
-    if [ "$files" = managed ] && grep -q '^bundled-' "$secrets/files_s3_key" 2> /dev/null; then
-        fail "$secrets/files_s3_key holds the bundled files bucket's key pair; write the provider's bucket's key pair into files_s3_key and files_s3_key_secret first (docs/operations/deploy.md#the-files-bucket)"
+    if [ "$files" = managed ]; then
+        for name in files_s3_key files_s3_key_secret; do
+            if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md#the-files-bucket)"; fi
+        done
     fi
     if [ "$telemetry" = managed ] && [ ! -s "$secrets/managed_otlp_token" ]; then
         fail "$secrets/managed_otlp_token is missing (docs/operations/observability.md)"
@@ -151,9 +149,8 @@ write_deploy_env() {
             echo "FILES_COPY_KEY_FILE=/run/secrets/files_copy_s3_key"
             echo "FILES_COPY_KEY_SECRET_FILE=/run/secrets/files_copy_s3_key_secret"
             if [ -f "$deployment/certs/files-copy-ca.crt" ]; then echo "FILES_COPY_CA_FILE=/etc/deployment-certs/files-copy-ca.crt"; fi
-            # The certificate's fingerprint, so a deploy that issues a new one restarts the
-            # bucket, which reads it as it starts.
-            printf '%s\n' "BUNDLED_FILES_CERTIFICATE=$(cksum < "$deployment/certs/bundled-files.crt" | cut -d ' ' -f 1)"
+            # The replicas' key pair of the files bucket is the bundled bucket's own.
+            echo "FILES_SECRETS_PREFIX=bundled_"
         else
             printf '%s\n' "FILES_ENDPOINT=https://$(setting FILES_S3_ENDPOINT):$(setting FILES_S3_PORT 443)"
             printf '%s\n' "FILES_REGION=$(setting FILES_S3_REGION)"
@@ -167,7 +164,22 @@ write_deploy_env() {
         if [ -z "$delay" ] && [ "$database" = bundled ]; then delay=$(($(setting BACKUP_RETENTION_DAYS 28) + 7)); fi
         printf '%s\n' "FILE_DELETION_DELAY=${delay:-35}"
         if [ -f "$deployment/certs/managed-otlp-ca.crt" ]; then echo "MANAGED_OTLP_CA_FILE=/etc/deployment-certs/managed-otlp-ca.crt"; fi
+        # The fingerprints of the files that each long-running service reads as it starts, in its
+        # environment, so a deploy recreates it once one changes: a running container keeps the
+        # file it started with, which `just server-setup` replaces with a new one.
+        printf '%s\n' "BACKUP_SECRETS=$(fingerprint_files "$secrets/backup_s3_key" "$secrets/backup_s3_key_secret" "$secrets/backup_cipher_pass")"
+        printf '%s\n' "BUNDLED_FILES_SECRETS=$(fingerprint_files "$deployment/certs/bundled-files.crt" "$secrets/bundled_files_tls_key" "$secrets/bundled_files_s3_config" "$secrets/bundled_files_security")"
+        printf '%s\n' "FILES_COPY_SECRETS=$(fingerprint_files "$secrets/bundled_files_s3_key" "$secrets/bundled_files_s3_key_secret" "$secrets/files_copy_s3_key" "$secrets/files_copy_s3_key_secret" "$secrets/files_copy_cipher_pass")"
+        printf '%s\n' "MANAGED_OTLP_SECRETS=$(fingerprint_files "$secrets/managed_otlp_token" "$deployment/certs/managed-otlp-ca.crt")"
+        printf '%s\n' "ALERTMANAGER_SECRETS=$(fingerprint_files "$secrets"/alertmanager/*)"
     } > "$1"
+}
+
+# The fingerprint of the files $@: their SHA-256, keyed by the API's HMAC key, so it tells when any
+# of them changes, and reveals nothing of them where state/deploy.env and the containers'
+# environments show it. A file that doesn't exist counts as empty.
+fingerprint_files() {
+    cat "$deployment/secrets/hmac_key" "$@" 2> /dev/null | sha256sum | cut -c 1-16
 }
 
 # Writes the sites Caddy serves and the replicas it names, for this choice of services.
@@ -296,7 +308,7 @@ apply() {
     changed=$(changed_single_services)
     if [ -n "$changed" ] && [ "$allow_restart" != yes ]; then
         cp "$state/deploy.env.previous" "$state/deploy.env"
-        fail "this release changes $(printf '%s\n' "$changed" | tr '\n' ' ')which runs once, so deploying it restarts it and interrupts requests for a few seconds. Deploy it again with --allow-restart when that's acceptable"
+        fail "this deploy changes $(printf '%s\n' "$changed" | tr '\n' ' ')which runs once, so it restarts it and interrupts requests for a few seconds: the release changes it, or a setting or a secret it reads. Deploy again with --allow-restart when that's acceptable"
     fi
     write_caddy_state
 
@@ -324,6 +336,9 @@ apply() {
     say "running bootstrap and migrate from $api_image"
     compose --profile tasks run --rm --no-deps --quiet-pull bootstrap
     compose --profile tasks run --rm --no-deps --quiet-pull migrate
+    # The files' objects, when FILES chooses another bucket than the serving replicas use (D104),
+    # before restore-files, which would find the bucket empty.
+    move_files_before
     # A bundled files bucket that holds nothing, as a new server's, while the database holds
     # files' rows, as a managed database's does after losing the server, gets the copy's objects
     # back, and the files whose bytes the copy lacks go (FILES-015). One that holds an object is
@@ -354,6 +369,7 @@ apply() {
     # The release's replicas serve, so its files stay, whatever follows.
     rm -rf "$state/previous"
     printf '%s\n' "$target" > "$state/live"
+    move_files_after
     stop_unused_services
     remove_unused
     say "deployed $api_image: $replicas $target replicas serve"
