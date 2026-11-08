@@ -54,7 +54,8 @@ static REQUESTS: Counter<1> = Counter::new(
     "{request}",
     "Calls to the bucket, a write, a read, a deletion or a listing each, by how each ended: ok, \
      not_found, failed, when the bucket refused it or answered what the client couldn't read, or \
-     unavailable, when it didn't answer (FILES-012).",
+     unavailable, when it didn't answer (FILES-012). A read whose bytes then fail or stop counts \
+     again, by that failure.",
     [names::STORAGE_OUTCOME],
 );
 
