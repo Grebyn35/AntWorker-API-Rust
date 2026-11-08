@@ -21,9 +21,9 @@ use crate::{
 /// How long opening the connection to clamd may take.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// How long a scan may take from its start until clamd's answer, the connection included: enough for the 19
-/// seconds that 20 MiB of a Word document take on the development server, within the upload
-/// route's 60 seconds (the files spec's "Scanning").
+/// How long a scan may take from its start until clamd's answer, the connection included: enough
+/// for a scan of the largest `FILE_MAX_BYTES` of the slowest kind, within the upload route's 60
+/// seconds (the files spec's "Scanning").
 const SCAN_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The most bytes a chunk of the stream holds.
@@ -41,8 +41,8 @@ static SCANS: Counter<1> = Counter::new(
     "{scan}",
     "Scans by the malware scanner, by how each ended: clean, found, when it named a signature, \
      failed, when it answered with an error or with what the client couldn't read, or \
-     unavailable, when it couldn't be reached, closed the connection, or didn't answer in time \
-     (PLATFORM-077).",
+     unavailable, when it couldn't be reached, closed the connection, or didn't answer in time; a \
+     scan that its request's timeout cuts short counts in none (PLATFORM-077).",
     [names::SCANNER_OUTCOME],
 );
 
@@ -107,7 +107,8 @@ impl Scanner {
     }
 
     /// Has clamd scan `bytes`, on a connection of its own, in the scan's client span (OBS-06),
-    /// within 30 seconds of its start on the clock, and counts how it ended.
+    /// within 30 seconds of its start on the clock, and counts how it ended, unless it is dropped
+    /// first, as by its request's timeout.
     pub async fn scan(&self, bytes: &[u8]) -> Result<Verdict, ScanError> {
         let deadline = self.clock.sleep(SCAN_TIMEOUT);
         let scanning = async {

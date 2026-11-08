@@ -37,8 +37,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// answer (FILES-012).
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(4);
 
-/// How long the bucket has to take a write and answer it: the upload route's 60 seconds leave 18
-/// once a body of 10 MiB has come at 2 megabits a second (PLATFORM-074).
+/// How long the bucket has to take a write and answer it: its share of the upload route's 60
+/// seconds, after the body and its scan (PLATFORM-074, the files spec's "Scanning").
 const WRITE_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// How long a failed request is retried, from its first attempt: long enough for the failures

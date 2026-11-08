@@ -9,6 +9,7 @@ use serde_json::Value;
 use crate::{
     deployment::{Deployment, Workspace, streaming_client},
     docker::lossy,
+    support,
 };
 
 /// How long the tests wait for each answer.
@@ -76,18 +77,13 @@ async fn files_001_the_deployed_api_stores_a_file_in_its_bucket_and_serves_it_ba
 #[tokio::test]
 async fn files_005_the_deployed_api_refuses_a_file_in_which_its_scanner_finds_a_signature() {
     // The deployment's scanner holds the one signature of the EICAR test file, which the server
-    // gave it (Server::seed_signatures), put together here so no file of the repository holds it.
-    let eicar = [
-        "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR",
-        "-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*",
-    ]
-    .concat();
+    // gave it (Server::seed_signatures).
     let deployment = Deployment::managed(&[]);
     let applied = deployment.apply(&deployment.api, &[]).await;
     assert!(applied.status.success(), "{}", lossy(&applied));
     let workspace = deployment.workspace();
 
-    let (refused, problem) = upload(&workspace, "eicar.txt", eicar.into_bytes());
+    let (refused, problem) = upload(&workspace, "eicar.txt", support::scanner::eicar());
     let (stored, file) = upload(&workspace, "notes.txt", b"harmless".to_vec());
 
     assert_eq!(refused, 422, "{problem}");

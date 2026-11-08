@@ -136,6 +136,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of b35b321..05bde6f | TEST-06: whether, and how, an end-to-end test's harness waits for a turn that another test holds, such as a share of the servers' memory or the heavy turn, which TEST-06's three ways of waiting for a state don't name; a turn that no machine could give fails at once | 6, with the review of the whole codebase |
 | Conformance review of b35b321..05bde6f | CODE-06: its sentence that every wait goes through the clock's `sleep` names waits on time, while untimed waits, such as a condition variable's, a semaphore's or a child process's, wait on no time | 6, with the review of the whole codebase |
 | Conformance review of 1834298..0046098 | ARCH-07: `client_telemetry` is registered only in `composition.rs`, while a module that `just new-module` writes is registered in ten shared files: how the part stays removable when it is built from the templates, or whether it is built without them | 5, with `client_telemetry` |
+| Conformance review of 7d1c801..b46ee54 | SEC-15: whether the image scans also cover the third-party images that the reference deployment runs by digest, ClamAV's first, since it parses every upload's bytes, while Dependabot only moves their pins and no scan reads them | 6, with the pass against ASVS Level 2 |
 
 
 ## Conformance reviews

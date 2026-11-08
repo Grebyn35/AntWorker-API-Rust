@@ -2,13 +2,14 @@
 
 use platform::telemetry::{metrics::Counter, names};
 
-/// Uploads that reached the check of their bytes, by how each ended.
+/// Uploads that reached the check of their bytes and ended within their route's timeout, by how
+/// each ended.
 static UPLOADS: Counter<1> = Counter::new(
     "files.uploads",
     "{upload}",
-    "Uploads that reached the check of their bytes, by how each ended: stored, \
-     unsupported_type, malware_detected, or failed, which a scanner that doesn't answer counts \
-     in too (FILES-013).",
+    "Uploads that reached the check of their bytes and ended within their route's timeout, by \
+     how each ended: stored, unsupported_type, malware_detected, or failed, which a scanner that \
+     doesn't answer counts in too (FILES-013).",
     [names::FILES_OUTCOME],
 );
 

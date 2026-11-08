@@ -416,7 +416,6 @@ async fn files_005_while_the_scanner_doesn_t_answer_an_upload_answers_503_and_st
     // Nothing listens on port 9 of the loopback address.
     let api = Api::with(Options::default().set("CLAMD_ADDRESS", "127.0.0.1:9")).await;
     let (workspace, ada, _) = acme(&api, "member").await;
-    let failed = uploads("failed");
 
     let response = upload(&api, &ada, &workspace, "a.txt", b"hello", None).await;
 
@@ -428,8 +427,6 @@ async fn files_005_while_the_scanner_doesn_t_answer_an_upload_answers_503_and_st
     let errors = errors_of(&response);
     assert_eq!(errors.len(), 1, "{errors:#?}");
     assert!(errors[0].to_string().contains("scanner"), "{errors:#?}");
-    // Tests running alongside upload too, so the count grows by at least this (FILES-013).
-    assert!(uploads("failed") >= failed + 1.0);
 }
 
 #[tokio::test]
@@ -1330,21 +1327,20 @@ async fn files_012_a_request_that_the_bucket_refuses_answers_500_naming_no_key()
 async fn files_013_uploads_are_counted_by_how_they_ended() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
-    let count = |outcome: &'static str| {
-        testing::recorded("files.uploads")
-            .into_iter()
-            .filter(|point| point.labels.get("files.outcome").map(String::as_str) == Some(outcome))
-            .map(|point| point.value)
-            .sum::<f64>()
-    };
-    let (stored, unsupported) = (count("stored"), count("unsupported_type"));
+    let (stored, unsupported, detected) = (
+        uploads("stored"),
+        uploads("unsupported_type"),
+        uploads("malware_detected"),
+    );
 
     upload(&api, &ada, &workspace, "a.txt", b"hello", None).await;
     upload(&api, &ada, &workspace, "a.png", b"hello", None).await;
+    upload(&api, &ada, &workspace, "eicar.txt", &scanner::eicar(), None).await;
 
     // Tests running alongside upload too, so the counts grow by at least these.
-    assert!(count("stored") >= stored + 1.0);
-    assert!(count("unsupported_type") >= unsupported + 1.0);
+    assert!(uploads("stored") >= stored + 1.0);
+    assert!(uploads("unsupported_type") >= unsupported + 1.0);
+    assert!(uploads("malware_detected") >= detected + 1.0);
 }
 
 #[tokio::test]
@@ -1352,20 +1348,27 @@ async fn files_013_an_upload_that_the_bucket_doesn_t_take_counts_as_failed() {
     // Nothing listens on port 9 of the loopback address.
     let api = Api::with(Options::default().set("S3_ENDPOINT", "http://127.0.0.1:9")).await;
     let (workspace, ada, _) = acme(&api, "member").await;
-    let failed = || {
-        testing::recorded("files.uploads")
-            .into_iter()
-            .filter(|point| point.labels.get("files.outcome").map(String::as_str) == Some("failed"))
-            .map(|point| point.value)
-            .sum::<f64>()
-    };
-    let before = failed();
+    let before = uploads("failed");
 
     let response = upload(&api, &ada, &workspace, "a.txt", b"hello", None).await;
 
     assert_eq!(response.status, 503);
     // Tests running alongside upload too, so the count grows by at least this.
-    assert!(failed() >= before + 1.0);
+    assert!(uploads("failed") >= before + 1.0);
+}
+
+#[tokio::test]
+async fn files_013_an_upload_whose_scanner_doesn_t_answer_counts_as_failed() {
+    // Nothing listens on port 9 of the loopback address.
+    let api = Api::with(Options::default().set("CLAMD_ADDRESS", "127.0.0.1:9")).await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let before = uploads("failed");
+
+    let response = upload(&api, &ada, &workspace, "a.txt", b"hello", None).await;
+
+    assert_eq!(response.status, 503);
+    // Tests running alongside upload too, so the count grows by at least this.
+    assert!(uploads("failed") >= before + 1.0);
 }
 
 #[tokio::test]

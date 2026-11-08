@@ -90,9 +90,9 @@ pub struct TelemetryConfig {
     pub otlp_endpoint: Option<OtlpEndpoint>,
 }
 
-/// The drain's default deadline, in seconds: the longest timeout of a route, an upload's, so a
-/// deploy cuts short no request that its route would let finish (OPS-06).
-const DRAIN_DEFAULT_SECONDS: u32 = 60;
+/// The drain's default deadline, and its least, in seconds: the longest timeout of a route, an
+/// upload's, so a deploy cuts short no request that its route would let finish (OPS-06).
+const DRAIN: u32 = 60;
 
 /// The settings `serve` reads.
 #[derive(Clone, Debug)]
@@ -294,7 +294,7 @@ where
             database_max_connections: self.number("DATABASE_MAX_CONNECTIONS", 10, 1..=1000)?,
             max_concurrent_requests: self.number("MAX_CONCURRENT_REQUESTS", 100, 1..=100_000)?,
             shutdown_delay: self.seconds("SHUTDOWN_DELAY_SECONDS", 5)?,
-            shutdown_drain: self.seconds("SHUTDOWN_DRAIN_SECONDS", DRAIN_DEFAULT_SECONDS)?,
+            shutdown_drain: self.duration("SHUTDOWN_DRAIN_SECONDS", DRAIN, DRAIN..=300)?,
             hmac_key: self.with("HMAC_KEY", HMAC_KEY_EXPECTED, web::hmac_key)?,
             trusted_proxies: self
                 .optional_with("TRUSTED_PROXIES", PROXIES_EXPECTED, web::proxies)?
@@ -660,8 +660,23 @@ mod tests {
     }
 
     #[test]
-    fn ops_06_the_drain_s_deadline_defaults_to_the_longest_timeout_of_a_route() {
+    fn ops_06_the_drain_s_deadline_defaults_to_the_longest_timeout_of_a_route_and_is_no_shorter() {
+        let longest = crate::http::UPLOAD_TIMEOUT.as_secs();
         let config = settings(&SERVER, &[]).server().unwrap();
+        assert_eq!(config.shutdown_drain, crate::http::UPLOAD_TIMEOUT);
+
+        let shorter: &'static str = (longest - 1).to_string().leak();
+        let error = settings(&with(&SERVER, &[("SHUTDOWN_DRAIN_SECONDS", shorter)]), &[])
+            .server()
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("SHUTDOWN_DRAIN_SECONDS must be a whole number from {longest} to 300")
+        );
+        let longest: &'static str = longest.to_string().leak();
+        let config = settings(&with(&SERVER, &[("SHUTDOWN_DRAIN_SECONDS", longest)]), &[])
+            .server()
+            .unwrap();
         assert_eq!(config.shutdown_drain, crate::http::UPLOAD_TIMEOUT);
     }
 
@@ -685,7 +700,7 @@ mod tests {
             ("MAX_CONCURRENT_REQUESTS", "0", "1 to 100000"),
             ("MAX_CONCURRENT_REQUESTS", "100001", "1 to 100000"),
             ("SHUTDOWN_DELAY_SECONDS", "301", "0 to 300"),
-            ("SHUTDOWN_DRAIN_SECONDS", "-1", "0 to 300"),
+            ("SHUTDOWN_DRAIN_SECONDS", "301", "60 to 300"),
         ] {
             let error = settings(&with(&SERVER, &[(name, value)]), &[])
                 .server()

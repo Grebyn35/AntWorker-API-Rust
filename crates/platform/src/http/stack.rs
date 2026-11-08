@@ -52,10 +52,9 @@ const GROUP_TIMEOUT: Duration = Duration::from_secs(10);
 /// The largest body a request of those groups may carry (API-08).
 const GROUP_BODY_LIMIT: usize = 64 * 1024;
 
-/// How long an upload may run, its body's transfer, its scan and its write included: a body of
-/// 10 MiB takes 34 seconds at 2.5 megabits a second, its scan up to about 9, and the bucket's write
-/// up to 15 (PLATFORM-074, the files spec's "Scanning"). The longest timeout of a route, which the
-/// drain's deadline defaults to (OPS-06).
+/// How long an upload may run, its body's transfer, its scan and its write included, as the files
+/// spec's "Scanning" shares it out (PLATFORM-074). The longest timeout of a route, which the
+/// drain's deadline defaults to, and its least (OPS-06).
 pub(crate) const UPLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The method of a request whose method HTTP's specifications don't define, and the error type
