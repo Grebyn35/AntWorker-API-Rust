@@ -3,6 +3,7 @@
 use bytes::Bytes;
 use platform::{
     authz::{Authorize, Authorized},
+    blocking::Workers,
     db::{Database, UnitOfWork},
     errors::Internal,
     idempotency::{Claimed, IdempotencyKey},
@@ -26,21 +27,29 @@ use crate::modules::{
 /// The prefix of the keys of workspaces' files in the bucket.
 pub(super) const WORKSPACE_PREFIX: &str = "workspaces/";
 
-/// What the routes and jobs of `files` share: the database, the bucket, and the module's
-/// settings.
+/// What the routes and jobs of `files` share: the database, the bucket, the turns of the
+/// instance's CPU-heavy work, which reading and checking an upload's bytes take, and the
+/// module's settings.
 #[derive(Clone)]
 pub(crate) struct Files {
     pub(super) database: Database,
     pub(super) storage: Storage,
+    pub(super) workers: Workers,
     pub(super) settings: Settings,
 }
 
 impl Files {
-    /// The module's state, on `database` and `storage`.
-    pub(crate) fn new(database: Database, storage: Storage, settings: Settings) -> Self {
+    /// The module's state, on `database`, `storage` and `workers`.
+    pub(crate) fn new(
+        database: Database,
+        storage: Storage,
+        workers: Workers,
+        settings: Settings,
+    ) -> Self {
         Self {
             database,
             storage,
+            workers,
             settings,
         }
     }
@@ -61,7 +70,18 @@ pub(crate) async fn upload(
     if bytes.is_empty() {
         return Err(FilesError::Empty);
     }
-    let Some(kind) = Kind::of_name(name.as_str()).filter(|kind| kind.holds(&bytes)) else {
+    // A text's check reads every byte, so the check is CPU-heavy work (CODE-05).
+    let checked = bytes.clone();
+    let kind = files
+        .workers
+        .run("upload kind check", move || {
+            Kind::of_name(name.as_str())
+                .filter(|kind| kind.holds(&checked))
+                .map(|kind| (kind, name))
+        })
+        .await
+        .map_err(Internal::new)?;
+    let Some((kind, name)) = kind else {
         metrics::upload(Upload::UnsupportedType);
         return Err(FilesError::UnsupportedType);
     };

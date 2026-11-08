@@ -100,12 +100,13 @@ A resource a client can edit returns an `ETag` built from its `version`. An upda
 - Check: `test`.
 
 ### API-14 Every route declares its access level in its type
-Every route except the health probes (OPS-05) and the API reference that development serves (PLATFORM-052) is registered through one of three builders:
+Every route except the health probes (OPS-05) and the API reference that development serves (PLATFORM-052) is registered through one of four builders:
 - `public`: no authentication.
 - `user`: requires a `Principal`.
 - `workspace::<P>`: requires `Authorized<P>` for the workspace in the path, where `P` is a permission.
+- `workspace_upload::<P>`: the same, for a route whose body is a file's bytes, which its handler reads through `Upload` once `Authorize::check` has authorized the caller, in a group of its own (PLATFORM-073, PLATFORM-074).
 
-A caller who isn't a member of the workspace gets 404. A member without permission `P` gets 403.
+A caller who isn't a member of the workspace gets 404. A member without permission `P` gets 403. Both workspace builders give their routes the access level `workspace`.
 - Why: no route can forget authentication or authorization, and non-members learn nothing (D2, D3).
 - Check: `clippy` (`disallowed_methods` bans the routing methods of axum and utoipa-axum outside `platform::http`), plus `test`: a generated test calls every `user` route without a credential and expects 401, and TEST-08 covers the `workspace` routes.
 

@@ -22,16 +22,22 @@ async fn ops_01_a_setting_that_isnt_unicode_fails_startup() {
     }
 }
 
-/// Each setting of `.env.example` whose type is a whole number in a range, with its range: the
-/// `Type:` line of its comment, then the setting it describes.
+/// Each setting of `.env.example` whose type is a whole number in a range, with its range.
+fn ranged_settings() -> Vec<(String, i64, i64)> {
+    ranged(".env.example")
+}
+
+/// Each setting of the example `example`, a path from the repository's root, whose type is a
+/// whole number in a range, with its range: the `Type:` line of its comment, then the setting it
+/// describes.
 #[expect(
     clippy::disallowed_methods,
     reason = "a test may block (CODE-05), and reads the settings' documentation"
 )]
-fn ranged_settings() -> Vec<(String, i64, i64)> {
+fn ranged(example: &str) -> Vec<(String, i64, i64)> {
     let example =
-        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.env.example"))
-            .expect("read .env.example");
+        std::fs::read_to_string(format!("{}/../../{example}", env!("CARGO_MANIFEST_DIR")))
+            .expect("read the example");
     let typed = example
         .lines()
         .filter(|line| line.starts_with("# Type: whole number"))
@@ -61,6 +67,24 @@ fn ranged_settings() -> Vec<(String, i64, i64)> {
         "a whole number's range wasn't read: {found:?}"
     );
     found
+}
+
+#[test]
+fn ops_01_the_deletion_delay_that_a_deploy_derives_is_one_that_the_api_takes() {
+    let api = ranged(".env.example");
+    let deployment = ranged("deploy/settings.env.example");
+    let highest = |settings: &[(String, i64, i64)], name: &str| {
+        settings
+            .iter()
+            .find(|(each, _, _)| each == name)
+            .map(|(_, _, high)| *high)
+            .unwrap()
+    };
+
+    let delay = highest(&api, "FILE_DELETION_DELAY_DAYS");
+    // Left empty, the delay is BACKUP_RETENTION_DAYS plus 7 (deploy/tasks/apply.sh).
+    assert!(highest(&deployment, "BACKUP_RETENTION_DAYS") + 7 <= delay);
+    assert_eq!(highest(&deployment, "FILE_DELETION_DELAY_DAYS"), delay);
 }
 
 #[test]

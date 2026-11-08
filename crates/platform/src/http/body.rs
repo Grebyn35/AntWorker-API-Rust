@@ -17,6 +17,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::docs::IDEMPOTENCY_KEY;
 use crate::{
+    blocking::Workers,
     errors::{BodyFault, FieldError, Internal, PlatformError, Problem, RequestError},
     idempotency::IdempotencyKey,
     types::Invalid,
@@ -203,8 +204,10 @@ impl Upload {
 
     /// Waits for one of the replica's turns, then reads the body, up to `limit` bytes: 413
     /// `request.payload_too_large` for a body that declares more or grows past it (PLATFORM-048,
-    /// PLATFORM-050), and 400 `request.invalid_body` for one that stops before its end.
-    pub async fn read(self, limit: usize) -> Result<Uploaded, PlatformError> {
+    /// PLATFORM-050), and 400 `request.invalid_body` for one that stops before its end. A keyed
+    /// upload's digest of the bytes, for its key's fingerprint, is CPU-heavy work, which runs
+    /// through `workers` (CODE-05).
+    pub async fn read(self, limit: usize, workers: &Workers) -> Result<Uploaded, PlatformError> {
         self.refuse_declared(limit)?;
         // The semaphore is never closed, so waiting for a turn ends only with one.
         let turn = self.turns.0.acquire_owned().await.map_err(Internal::new)?;
@@ -213,20 +216,25 @@ impl Upload {
             Err(error) if is_too_large(&*error) => return Err(RequestError::PayloadTooLarge.into()),
             Err(_) => return Err(RequestError::InvalidBody(BodyFault::Syntax).into()),
         };
-        let digest: [u8; 32] = Sha256::digest(&bytes).into();
-        let key = self
-            .key
-            .map(|value| {
-                IdempotencyKey::parse(
+        let key = match self.key {
+            None => None,
+            Some(value) => {
+                let digested = bytes.clone();
+                let digest: [u8; 32] = workers
+                    .run("upload digest", move || Sha256::digest(&digested).into())
+                    .await
+                    .map_err(Internal::new)?;
+                let key = IdempotencyKey::parse(
                     value.as_bytes(),
                     &self.method,
                     &self.path,
                     &self.query,
                     &digest,
                 )
-                .ok_or(RequestError::InvalidIdempotencyKey)
-            })
-            .transpose()?;
+                .ok_or(RequestError::InvalidIdempotencyKey)?;
+                Some(key)
+            }
+        };
         Ok(Uploaded {
             bytes,
             key,
@@ -354,12 +362,48 @@ impl FieldErrors {
 
 #[cfg(test)]
 mod tests {
+    use futures_util::FutureExt;
+
     use super::*;
 
     /// Whether a request sent with `content_type` sends `media_type`.
     fn sent(content_type: Option<&'static str>, media_type: &str) -> bool {
         let header = content_type.map(axum::http::HeaderValue::from_static);
         is_media_type(header.as_ref(), media_type)
+    }
+
+    /// An upload of `body`, sharing `turns`, as the extractor makes it.
+    fn upload(body: &'static str, turns: &UploadTurns) -> Upload {
+        Upload {
+            body: Body::from(body),
+            declared: None,
+            method: "POST".to_owned(),
+            path: "/v1/uploads".to_owned(),
+            query: String::new(),
+            key: None,
+            turns: turns.clone(),
+        }
+    }
+
+    #[tokio::test]
+    async fn platform_074_a_replica_reads_four_uploads_at_once_and_a_fifth_waits_for_a_turn() {
+        let turns = UploadTurns::new();
+        let workers = Workers::new();
+        let mut read = Vec::new();
+        for _ in 0..4 {
+            read.push(upload("x", &turns).read(1, &workers).await.unwrap());
+        }
+
+        // Every turn is held while its bytes are, so a fifth upload's body waits, unread.
+        let mut fifth = std::pin::pin!(upload("y", &turns).read(1, &workers));
+        assert!((&mut fifth).now_or_never().is_none());
+        drop(read.pop());
+        let fifth = fifth.await.unwrap();
+
+        assert_eq!(&fifth.bytes[..], b"y");
+        assert_eq!(turns.0.available_permits(), 0);
+        drop((read, fifth));
+        assert_eq!(turns.0.available_permits(), UPLOADS_AT_ONCE);
     }
 
     #[test]

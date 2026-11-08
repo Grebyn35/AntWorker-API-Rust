@@ -131,6 +131,17 @@ groups:
           summary: An instance's listener, its own connection to the database, stopped answering its checks.
           runbook: docs/operations/runbooks.md#databaseunreachable
 
+      - alert: StorageUnreachable
+        expr: |
+          sum(increase(platform_storage_requests_total{storage_outcome="unavailable"}[5m])) > 0
+            unless sum(increase(platform_storage_requests_total{storage_outcome=~"ok|not_found|failed"}[5m])) > 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: The bucket of files' bytes answered none of the API's calls for 5 minutes, while some went unanswered.
+          runbook: docs/operations/runbooks.md#storageunreachable
+
       - alert: ApiTelemetryMissing
         expr: absent_over_time(platform_database_reachable[2m])
         for: 3m
@@ -215,6 +226,9 @@ groups:
           runbook: docs/operations/runbooks.md#jobsdeadlettered
 
       - alert: PeriodicJobFailing
+        # Each sum counts a job's runs of one outcome within the window, those of a series that
+        # began within it included, which `increase` alone leaves out. The second condition is a
+        # daily job's, whose runs are a day apart.
         expr: |
           sum by (job_kind) (
             (increase(platform_job_runs_total{job_outcome="failed"}[3h])
@@ -222,10 +236,24 @@ groups:
             or (platform_job_runs_total{job_outcome="failed"}
               unless platform_job_runs_total{job_outcome="failed"} offset 3h)
           ) >= 2
+          or (
+            sum by (job_kind) (
+              (increase(platform_job_runs_total{job_outcome="failed"}[25h])
+                and platform_job_runs_total{job_outcome="failed"} offset 25h)
+              or (platform_job_runs_total{job_outcome="failed"}
+                unless platform_job_runs_total{job_outcome="failed"} offset 25h)
+            ) >= 2
+            unless sum by (job_kind) (
+              (increase(platform_job_runs_total{job_outcome="succeeded"}[25h])
+                and platform_job_runs_total{job_outcome="succeeded"} offset 25h)
+              or (platform_job_runs_total{job_outcome="succeeded"}
+                unless platform_job_runs_total{job_outcome="succeeded"} offset 25h)
+            ) > 0
+          )
         labels:
           severity: ticket
         annotations:
-          summary: A periodic job failed at least twice within 3 hours.
+          summary: A periodic job failed at least twice within 3 hours, or twice within 25 hours with no run that succeeded.
           runbook: docs/operations/runbooks.md#periodicjobfailing
 
       # The bundled database's backups (OBS-14): the times of the status files that its archiving

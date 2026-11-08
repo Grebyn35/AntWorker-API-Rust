@@ -1,7 +1,7 @@
 {
   "uid": "api-files",
   "title": "Files",
-  "description": "How uploads end, which a client that sends files the API doesn't accept, or a bucket that stops answering, changes (the files spec).",
+  "description": "How uploads end, which a client that sends files the API doesn't accept, or a bucket that stops answering, changes, and whether the bucket answers the API's calls (the files spec).",
   "tags": [
     "api"
   ],
@@ -70,8 +70,48 @@
       "id": 1,
       "gridPos": {
         "h": 8,
-        "w": 24,
+        "w": 12,
         "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Does the bucket answer?",
+      "description": "Calls to the bucket of files' bytes in the last 5 minutes, writes, reads, deletions and listings, by how each ended: ok, not_found, failed, when the bucket refused the call or answered what the client couldn't read, or unavailable, when it didn't answer in time or answered that it can't serve now (FILES-012). Only unavailable calls, with no answered one, are the alert StorageUnreachable.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (storage_outcome) (increase(platform_storage_requests_total[5m]))",
+          "legendFormat": "{{storage_outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 2,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
         "y": 0
       }
     }

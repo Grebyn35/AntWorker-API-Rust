@@ -106,6 +106,38 @@ tests:
               summary: An instance's listener, its own connection to the database, stopped answering its checks.
               runbook: docs/operations/runbooks.md#databaseunreachable
 
+  # The bucket answers the first calls, then none from the third minute on.
+  - interval: 1m
+    input_series:
+      - series: 'platform_storage_requests_total{job="api", instance="a", storage_outcome="ok"}'
+        values: "1 2 2 2 2 2 2 2 2 2 2 2"
+      - series: 'platform_storage_requests_total{job="api", instance="a", storage_outcome="unavailable"}'
+        values: "0 0 1 2 3 4 5 6 7 8 9 10"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: StorageUnreachable
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: StorageUnreachable
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: The bucket of files' bytes answered none of the API's calls for 5 minutes, while some went unanswered.
+              runbook: docs/operations/runbooks.md#storageunreachable
+
+  # A bucket that refuses some calls still answers.
+  - interval: 1m
+    input_series:
+      - series: 'platform_storage_requests_total{job="api", instance="a", storage_outcome="failed"}'
+        values: "0 1 2 3 4 5 6 7 8 9 10 11"
+      - series: 'platform_storage_requests_total{job="api", instance="a", storage_outcome="unavailable"}'
+        values: "0 1 2 3 4 5 6 7 8 9 10 11"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: StorageUnreachable
+        exp_alerts: []
+
   # The last instance stops exporting after 3 minutes.
   - interval: 1m
     input_series:
@@ -392,7 +424,33 @@ tests:
               severity: ticket
               job_kind: platform.expire_idempotency_records
             exp_annotations:
-              summary: A periodic job failed at least twice within 3 hours.
+              summary: A periodic job failed at least twice within 3 hours, or twice within 25 hours with no run that succeeded.
+              runbook: docs/operations/runbooks.md#periodicjobfailing
+
+  # A daily job succeeds, then fails on each of the next two days; another fails on two days
+  # with a run that succeeded between them.
+  - interval: 1h
+    input_series:
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="files.find_unreferenced_objects", job_outcome="succeeded"}'
+        values: "1x50"
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="files.find_unreferenced_objects", job_outcome="failed"}'
+        values: "_x24 1x23 2x3"
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.daily_other", job_outcome="succeeded"}'
+        values: "1x35 2x15"
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.daily_other", job_outcome="failed"}'
+        values: "_x24 1x23 2x3"
+    alert_rule_test:
+      - eval_time: 30h
+        alertname: PeriodicJobFailing
+        exp_alerts: []
+      - eval_time: 48h
+        alertname: PeriodicJobFailing
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job_kind: files.find_unreferenced_objects
+            exp_annotations:
+              summary: A periodic job failed at least twice within 3 hours, or twice within 25 hours with no run that succeeded.
               runbook: docs/operations/runbooks.md#periodicjobfailing
 
   # A server with 8 gigabytes of memory, of which 500 megabytes stay available.

@@ -9,7 +9,8 @@ use platform::{
     authz::Authorize,
     errors::Problem,
     http::{
-        Download, FieldErrors, Query, ResourceResponse, Routes, Upload, disposition_name, path_id,
+        Download, FieldErrors, FileBytes, Query, ResourceResponse, Routes, Upload,
+        disposition_name, path_id,
     },
     idempotency::IdempotencyKey,
     lists::{Cursor, Limit, List, Page, Search},
@@ -55,7 +56,7 @@ pub(crate) fn routes() -> Routes<Files> {
     post,
     path = "/v1/workspaces/{workspace_id}/files",
     tag = "files",
-    request_body(content = Vec<u8>, content_type = "application/octet-stream",
+    request_body(content = FileBytes, content_type = "application/octet-stream",
         description = "The file's bytes. Its kind comes from its name's extension and its bytes alone (FILES-003)."),
     params(
         ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
@@ -84,7 +85,10 @@ async fn upload_file(
     let name = FileName::parse(&name).map_err(|invalid| FilesError::InvalidName(Some(invalid)))?;
     // The turn the bytes hold lasts until `uploaded` is dropped, once the file is stored
     // (PLATFORM-074).
-    let uploaded = upload.read(limit).await.map_err(FilesError::from)?;
+    let uploaded = upload
+        .read(limit, &files.workers)
+        .await
+        .map_err(FilesError::from)?;
     let file = service::upload(
         &files,
         authorize,
@@ -183,17 +187,17 @@ async fn read_file(
     responses(
         (status = 200, description = "The file's bytes, as its media type.",
             content(
-                (Vec<u8> = "image/png"),
-                (Vec<u8> = "image/jpeg"),
-                (Vec<u8> = "image/gif"),
-                (Vec<u8> = "image/webp"),
-                (Vec<u8> = "application/pdf"),
-                (Vec<u8> = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
-                (Vec<u8> = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-                (Vec<u8> = "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
-                (Vec<u8> = "text/plain"),
-                (Vec<u8> = "text/csv"),
-                (Vec<u8> = "text/markdown"),
+                (FileBytes = "image/png"),
+                (FileBytes = "image/jpeg"),
+                (FileBytes = "image/gif"),
+                (FileBytes = "image/webp"),
+                (FileBytes = "application/pdf"),
+                (FileBytes = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                (FileBytes = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                (FileBytes = "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+                (FileBytes = "text/plain"),
+                (FileBytes = "text/csv"),
+                (FileBytes = "text/markdown"),
             ),
             headers(
                 ("content-disposition" = String, description = "`inline` for an image and `attachment` for every other kind, with the file's name (FILES-009)."),

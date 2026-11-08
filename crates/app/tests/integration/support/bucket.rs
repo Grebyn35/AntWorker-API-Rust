@@ -3,16 +3,18 @@
 //! one test's files never meet another's objects, and its database's drop empties and deletes it,
 //! so the tests leave nothing in the bucket (OPS-21).
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use futures_util::TryStreamExt;
 use platform::{
+    clock::TestClock,
     storage::{Storage, StorageConfig},
     types::Secret,
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    net::{TcpListener, TcpStream},
+    task::JoinHandle,
 };
 
 /// The address of the SeaweedFS that `just services` starts.
@@ -28,17 +30,21 @@ pub fn name(database: &str) -> String {
     database.to_lowercase().replace('_', "-")
 }
 
-/// The client of the bucket `bucket`, as the API builds it.
+/// The client of the bucket `bucket`, as the API builds it, on a clock that never moves, so it
+/// waits for each answer as long as the bucket takes.
 pub fn storage(bucket: &str) -> Storage {
-    Storage::new(&StorageConfig {
-        endpoint: ENDPOINT.parse().unwrap(),
-        region: "us-east-1".to_owned(),
-        bucket: bucket.to_owned(),
-        access_key_id: "test".to_owned(),
-        secret_access_key: Secret::new("test".to_owned()),
-        path_style: true,
-        ca_path: None,
-    })
+    Storage::new(
+        &StorageConfig {
+            endpoint: ENDPOINT.parse().unwrap(),
+            region: "us-east-1".to_owned(),
+            bucket: bucket.to_owned(),
+            access_key_id: "test".to_owned(),
+            secret_access_key: Secret::new("test".to_owned()),
+            path_style: true,
+            ca_path: None,
+        },
+        Arc::new(TestClock::default()),
+    )
     .unwrap()
 }
 
@@ -78,4 +84,69 @@ async fn request(method: &str, bucket: &str) -> u16 {
         .nth(1)
         .and_then(|status| status.parse().ok())
         .unwrap_or_default()
+}
+
+/// A stand-in for a bucket that fails as the tests need, in place of SeaweedFS (TEST-04).
+pub struct Scripted {
+    /// Its endpoint, for `S3_ENDPOINT`.
+    pub endpoint: String,
+    server: JoinHandle<()>,
+}
+
+impl Drop for Scripted {
+    fn drop(&mut self) {
+        self.server.abort();
+    }
+}
+
+/// A bucket that reads each request whole and answers it with `status`, or, with `None`, never
+/// answers, holding each connection open until the bucket is dropped.
+pub async fn scripted(status: Option<u16>) -> Scripted {
+    let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(answer(stream, status));
+        }
+    });
+    Scripted { endpoint, server }
+}
+
+/// Reads each request on `stream`, its body included, and answers it with `status`, or never.
+async fn answer(stream: TcpStream, status: Option<u16>) {
+    let mut stream = BufReader::new(stream);
+    loop {
+        let mut length = 0;
+        loop {
+            let mut line = String::new();
+            if stream.read_line(&mut line).await.unwrap_or(0) == 0 {
+                return;
+            }
+            let line = line.trim_end().to_ascii_lowercase();
+            if line.is_empty() {
+                break;
+            }
+            if let Some(value) = line.strip_prefix("content-length:") {
+                length = value.trim().parse().unwrap_or(0);
+            }
+        }
+        let mut body = vec![0; length];
+        if stream.read_exact(&mut body).await.is_err() {
+            return;
+        }
+        let Some(status) = status else {
+            // Holds the connection, answering nothing.
+            std::future::pending::<()>().await;
+            return;
+        };
+        let answer = format!("HTTP/1.1 {status} Scripted\r\nContent-Length: 0\r\n\r\n");
+        if stream.get_mut().write_all(answer.as_bytes()).await.is_err() {
+            return;
+        }
+    }
 }

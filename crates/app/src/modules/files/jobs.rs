@@ -1,10 +1,14 @@
-//! The periodic jobs of `files` (OPS-09, FILES-011), which delete the objects that no file's row
-//! names, once no restore of the database can bring such a row back (the files spec's "Deleting
-//! bytes"): `files.find_unreferenced_objects` records each such object with when its bytes may
-//! go, and `files.delete_unreferenced_objects` deletes those whose time has passed and that still
-//! no row names. Both span every workspace by nature, so they select objects by key alone, which
-//! `check-tenancy` lets this file alone do (DATA-16). Scheduled maintenance isn't audited
-//! (DATA-22). A second run of either finds nothing more to do.
+//! The periodic jobs of `files` (OPS-09, FILES-011), owned by `files`, which delete the objects
+//! that no file's row names, once no restore of the database can bring such a row back (the files
+//! spec's "Deleting bytes"): `files.find_unreferenced_objects`, run every day, lists the bucket's
+//! objects under `workspaces/` and records each that no row of `workspace_files` names in
+//! `object_deletions`, with when its bytes may go; and `files.delete_unreferenced_objects`, run
+//! every hour, deletes from the bucket those of `object_deletions` whose time has passed and that
+//! still no row of `workspace_files` names, then removes them from `object_deletions`. Both touch
+//! those two tables alone, and the bucket. Both span every workspace by nature, so they select
+//! objects by key alone, which `check-tenancy` lets this file alone do (DATA-16). Scheduled
+//! maintenance isn't audited (DATA-22). A second run of either finds nothing more to do, and a
+//! deletion of an object that a run before deleted, whose record it didn't remove, succeeds.
 
 use std::time::Duration;
 

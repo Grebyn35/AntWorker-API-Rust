@@ -16,8 +16,8 @@ where
     E: Fn(&str) -> Option<OsString>,
     F: Fn(&Path) -> io::Result<String>,
 {
-    /// The bucket's settings: every one required but `S3_URI_STYLE`, and an `https` endpoint
-    /// outside development and test (SEC-10).
+    /// The bucket's settings: every one required but `S3_URI_STYLE` and `S3_CA_PATH`, and an
+    /// `https` endpoint outside development and test (SEC-10).
     pub(super) fn storage(&self, environment: Environment) -> Result<StorageConfig, ConfigError> {
         let plain_allowed = matches!(environment, Environment::Development | Environment::Test);
         let endpoint = self.with("S3_ENDPOINT", ENDPOINT_EXPECTED, |value| {
@@ -119,6 +119,7 @@ mod tests {
             "https://s3.example.com/bucket",
             "https://key:secret@s3.example.com",
             "https://s3.example.com?x=1",
+            "https://s3.example.com#bucket",
             "s3.example.com",
         ] {
             let other = changed("S3_ENDPOINT", &[("S3_ENDPOINT", endpoint)]);

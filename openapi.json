@@ -222,6 +222,11 @@
         ],
         "type": "object"
       },
+      "FileBytes": {
+        "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+        "format": "binary",
+        "type": "string"
+      },
       "FileChanged": {
         "description": "The payload of each file event: which file changed, which a client reads through\nits route, since a name is personal data (API-19).",
         "properties": {
@@ -6485,12 +6490,7 @@
           "content": {
             "application/octet-stream": {
               "schema": {
-                "items": {
-                  "format": "int32",
-                  "minimum": 0,
-                  "type": "integer"
-                },
-                "type": "array"
+                "$ref": "#/components/schemas/FileBytes"
               }
             }
           },
@@ -7665,112 +7665,57 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "items": {
-                    "format": "int32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/FileBytes"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "items": {
-                    "format": "int32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/FileBytes"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "items": {
-                    "format": "int32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/FileBytes"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "items": {
-                    "format": "int32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/FileBytes"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "items": {
-                    "format": "int32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/FileBytes"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "items": {
-                    "format": "int32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/FileBytes"
                 }
               },
               "image/png": {
                 "schema": {
-                  "items": {
-                    "format": "int32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/FileBytes"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "items": {
-                    "format": "int32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/FileBytes"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "items": {
-                    "format": "int32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/FileBytes"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "items": {
-                    "format": "int32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/FileBytes"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "items": {
-                    "format": "int32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/FileBytes"
                 }
               }
             },

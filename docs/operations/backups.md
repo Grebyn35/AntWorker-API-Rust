@@ -33,7 +33,7 @@ The bucket is any provider's that speaks the S3 protocol over HTTPS, on another 
 - a key pair that reaches only this bucket, in `secrets/backup_s3_key` and `secrets/backup_s3_key_secret`;
 - the settings `BACKUP_S3_ENDPOINT`, `BACKUP_S3_REGION` and `BACKUP_S3_BUCKET`, and `BACKUP_S3_URI_STYLE=path` for a provider whose bucket names don't appear in its host names, which [deploy/settings.env.example](../../deploy/settings.env.example) describes.
 
-pgBackRest manages what the bucket holds, and deletes the backups that retention lets go, so set no lifecycle rule that deletes the bucket's current files. Like every bucket of the deployment, it keeps no noncurrent versions for more than a day, which `just server-check` checks ([deploy.md](deploy.md#what-a-server-needs)): they restore nothing, and the bucket would go on storing every backup that retention let go. A bucket of the operator's own, whose certificate a private authority signed, is trusted through that authority's certificate in `certs/backup-ca.crt` of the deployment's directory.
+pgBackRest manages what the bucket holds, and deletes the backups that retention lets go, so set no lifecycle rule that deletes the bucket's current files. Like every bucket of the deployment, it has versioning off, or expires each noncurrent version a day after it becomes one, which `just server-check` checks ([deploy.md](deploy.md#what-a-server-needs)): they restore nothing, and the bucket would go on storing every backup that retention let go. A bucket of the operator's own, whose certificate a private authority signed, is trusted through that authority's certificate in `certs/backup-ca.crt` of the deployment's directory.
 
 ## Taking a backup
 
@@ -95,7 +95,7 @@ Putting the data back by hand is for a restore whose database didn't start only:
 
 ### Restoring onto a new server
 
-After losing the server, set up a new one with `just server-setup`, as [deploy.md](deploy.md#setting-up-a-server) says, answering with the lost server's settings, its bucket's key pair, and its copies of `backup_cipher_pass` and `postgres_password`, which the restored database keeps, and deploy the release that ran. The deploy stops before its replicas start, because the new server's database, which Postgres has just created empty, isn't the one whose backups the bucket holds: pgBackRest refuses it. Then run `just restore` without a moment, and `just deploy` again. CI does the same, on a new server of its own set up from a lost one's settings, secrets and bucket, and checks that the first deploy stops before any replica starts, and that the deploy after the restore serves the lost server's data (OPS-15).
+After losing the server, set up a new one with `just server-setup`, as [deploy.md](deploy.md#setting-up-a-server) says, answering with the lost server's settings, its backups' bucket's key pair and its files bucket's, which the restored rows' files are in, and its copies of `backup_cipher_pass` and `postgres_password`, which the restored database keeps, and deploy the release that ran. The deploy stops before its replicas start, because the new server's database, which Postgres has just created empty, isn't the one whose backups the bucket holds: pgBackRest refuses it. Then run `just restore` without a moment, and `just deploy` again. CI does the same, on a new server of its own set up from a lost one's settings, secrets and bucket, and checks that the first deploy stops before any replica starts, and that the deploy after the restore serves the lost server's data (OPS-15).
 
 ## What to keep off the server
 
@@ -103,7 +103,7 @@ Keep a copy of these where the server's loss doesn't reach them, such as a passw
 
 - **`secrets/backup_cipher_pass`.** Without it, no backup can be read, by you or anyone else.
 - **`secrets/postgres_password`**, the database's superuser password, which a restored database keeps. `bootstrap` sets the other roles' passwords from the URLs that the deploy writes.
-- **The bucket's key pair**, and **`settings.env`**, unless you can make them again.
+- **The key pairs of the backups' bucket and of the files bucket**, and **`settings.env`**, unless you can make them again, as a provider makes a new key pair for its bucket.
 
 ## Alerts
 

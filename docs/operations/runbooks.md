@@ -47,6 +47,14 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **What to do.** If every instance lost the database, check Postgres itself: whether it runs, whether it accepts connections, and whether its disk is full. If one instance did, check that instance's network path to the database, and restart the instance if it doesn't recover.
 
+## StorageUnreachable
+
+**What it means.** For 5 minutes, the bucket of files' bytes answered none of the API's calls, while some went unanswered: each wait for its answer ran out, the connection to it failed, or it answered with a 5xx or a 429, that it can't serve now ([platform spec](../spec/platform.md#storage)). Uploads and downloads answer 503 `files.storage_unavailable` meanwhile (FILES-012), while every other route serves.
+
+**Look first.** The Files dashboard: "Does the bucket answer?" shows when the calls stopped being answered. The `ERROR` lines of the 503s name the S3 operation and the failure, such as a connection's or a status.
+
+**What to do.** Check the provider's status page, and that the server reaches the bucket's endpoint: `just server-check` reads the bucket with the deployment's key pair. A provider's outage clears with it; uploads that failed meanwhile were stored nowhere, so their clients send them again.
+
 ## ApiTelemetryMissing
 
 **What it means.** No instance of the API exported metrics for five minutes. Either no instance runs, or their telemetry doesn't reach Prometheus.
@@ -111,11 +119,11 @@ With a managed database, run the same query in the provider's console. Add `payl
 
 ## PeriodicJobFailing
 
-**What it means.** A periodic job, such as one of the hourly sweeps, failed at least twice within 3 hours. Each failed run waits for its next interval, so what it deletes stays meanwhile; nothing a request reads changes ([platform spec](../spec/platform.md#the-job-queue)).
+**What it means.** A periodic job failed at least twice within 3 hours, as an hourly job that keeps failing does, or twice within 25 hours with no run that succeeded, as a daily job that keeps failing does, such as `files.find_unreferenced_objects`. Each failed run waits for its next interval, so what it deletes stays meanwhile; nothing a request reads changes ([platform spec](../spec/platform.md#the-job-queue)).
 
 **Look first.** The API's `WARN` line "periodic job failed, and runs again at its next interval" names the job and the failure.
 
-**What to do.** A failure of the database clears with it: follow [DatabaseUnreachable](#databaseunreachable). A run that passes its 5 minutes' time limit deletes in batches, so the next run continues where it stopped. The alert clears 3 hours after the last failure.
+**What to do.** A failure of the database clears with it: follow [DatabaseUnreachable](#databaseunreachable); one of the files bucket, with it: follow [StorageUnreachable](#storageunreachable). A run that passes its time limit, which its job's declaration sets, stops where it was: the sweeps and `files.delete_unreferenced_objects` delete in batches, and `files.find_unreferenced_objects` records what it found so far, so the next run continues. The alert clears 3 hours after the last failure, or, for a daily job, once a run succeeds.
 
 ## BackupArchivingFailing
 

@@ -116,16 +116,30 @@ fn untested_events(repo: &Repo) -> Vec<Finding> {
     findings
 }
 
-/// Adds to `strings` each string that the body of a function named `sec_19_*` among `tokens`
-/// holds, at any depth, inside macros too.
+/// Adds to `strings` each string that the body of a test named `sec_19_*` among `tokens` holds,
+/// at any depth, inside macros too.
 fn sec_19_strings(tokens: &[TokenTree], strings: &mut BTreeSet<String>) {
+    // Whether the item being read carries a test's attribute, such as `#[tokio::test]`.
+    let mut tested = false;
     for (at, token) in tokens.iter().enumerate() {
         match token {
+            TokenTree::Punct(punct) if punct.as_char() == '#' => {
+                if let Some(TokenTree::Group(attribute)) = tokens.get(at + 1)
+                    && attribute.delimiter() == Delimiter::Bracket
+                    && attribute.stream().into_iter().last().is_some_and(
+                        |last| matches!(last, TokenTree::Ident(ident) if ident == "test"),
+                    )
+                {
+                    tested = true;
+                }
+            }
+            TokenTree::Punct(punct) if punct.as_char() == ';' => tested = false,
             TokenTree::Ident(ident) if ident == "fn" => {
-                let proves = matches!(
-                    tokens.get(at + 1),
-                    Some(TokenTree::Ident(name)) if name.to_string().starts_with(SEC_19)
-                );
+                let proves = std::mem::take(&mut tested)
+                    && matches!(
+                        tokens.get(at + 1),
+                        Some(TokenTree::Ident(name)) if name.to_string().starts_with(SEC_19)
+                    );
                 let body = tokens.iter().skip(at + 2).find_map(|token| match token {
                     TokenTree::Group(group) if group.delimiter() == Delimiter::Brace => Some(group),
                     _ => None,
@@ -333,6 +347,9 @@ mod tests {
                      #[tokio::test]\n\
                      async fn widgets_001_names_the_other() {\n\
                      \x20   let _ = \"thing.gone\";\n\
+                     }\n\
+                     fn sec_19_helper() -> &'static str {\n\
+                     \x20   \"thing.gone\"\n\
                      }\n\
                      }\n";
         let outcome = run(&[

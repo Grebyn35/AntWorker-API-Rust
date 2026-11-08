@@ -89,6 +89,8 @@ pub const AUTH_OUTCOME: &str = "auth.outcome";
 /// How an upload that reached the check of its bytes ended, such as `stored` or
 /// `unsupported_type` (FILES-013).
 pub const FILES_OUTCOME: &str = "files.outcome";
+/// How a call to the bucket of files' bytes ended, such as `ok` or `unavailable` (FILES-012).
+pub const STORAGE_OUTCOME: &str = "storage.outcome";
 /// A job's kind, or a periodic job's name, such as `platform.send_email` (PLATFORM-020).
 pub const JOB_KIND: &str = "job.kind";
 /// A queued job's ID, or the claim of a periodic job's run.

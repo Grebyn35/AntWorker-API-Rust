@@ -24,7 +24,7 @@ use utoipa_axum::router::{OpenApiRouter, UtoipaMethodRouter};
 
 pub use body::{FieldErrors, Idempotent, Json, MergePatch, Upload, Uploaded};
 pub use browsers::{Cookies, Origins, expired_cookie, session_cookie};
-pub use files::{Download, disposition_name};
+pub use files::{Download, FileBytes, disposition_name};
 pub use precondition::IfMatch;
 pub use query::Query;
 pub use resource::{ResourceResponse, path_id};

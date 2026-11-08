@@ -1,34 +1,62 @@
 //! The client of the S3-compatible bucket that holds files' bytes (D1, D14, the files spec's
-//! "Storage"). It reports a bucket that didn't answer as unavailable, and every other failure as
+//! "Storage"). It reports a bucket that doesn't answer as unavailable, and every other failure as
 //! internal, neither naming the key, so no error of the library leaves it (ERR-04).
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 pub use bytes::Bytes;
-use futures_util::{StreamExt, TryStreamExt, stream::BoxStream};
+use futures_util::{
+    StreamExt,
+    future::{Either, select},
+    stream::{self, BoxStream},
+};
 use object_store::{
     Attribute, Attributes, ClientOptions, ObjectStore, ObjectStoreExt, PutOptions, PutPayload,
     RetryConfig,
     aws::{AmazonS3, AmazonS3Builder},
-    client::{HttpClient, HttpConnector},
+    client::{HttpClient, HttpConnector, HttpError, HttpErrorKind},
     path::Path,
 };
+use tracing::Instrument;
 use url::Url;
 
-use crate::{errors::Internal, random, types::Secret};
-
-/// How long one request to the bucket may take, its retries aside.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+use crate::{
+    clock::SharedClock,
+    errors::Internal,
+    random,
+    telemetry::{metrics::Counter, names},
+    types::Secret,
+};
 
 /// How long connecting to the bucket may take.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// How long a request is retried, from its first attempt, before the bucket counts as
-/// unavailable: short enough that an upload or a download answers within its route's timeout.
-const RETRY_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long the bucket has to answer a read, a deletion or a page of a listing, and to send each
+/// next chunk of an object's bytes once they are asked for, before it counts as not answering:
+/// short enough that a download, whose route has 10 seconds, answers 503 while the bucket doesn't
+/// answer (FILES-012).
+const ANSWER_TIMEOUT: Duration = Duration::from_secs(4);
+
+/// How long the bucket has to take a write and answer it: the upload route's 60 seconds leave 18
+/// once a body of 10 MiB has come at 2 megabits a second (PLATFORM-074).
+const WRITE_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// How long a failed request is retried, from its first attempt: long enough for the failures
+/// that come at once, such as a refused connection or a busy bucket's 503: the waits above bound
+/// each call, its retries included.
+const RETRY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// How many times a request is retried.
 const RETRIES: usize = 2;
+
+static REQUESTS: Counter<1> = Counter::new(
+    "platform.storage_requests",
+    "{request}",
+    "Calls to the bucket, a write, a read, a deletion or a listing each, by how each ended: ok, \
+     not_found, failed, when the bucket refused it or answered what the client couldn't read, or \
+     unavailable, when it didn't answer (FILES-012).",
+    [names::STORAGE_OUTCOME],
+);
 
 /// What reaching the bucket takes (PLATFORM-076).
 #[derive(Clone, Debug)]
@@ -52,9 +80,22 @@ pub struct StorageConfig {
 }
 
 /// The bucket.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Storage {
     store: Arc<AmazonS3>,
+    clock: SharedClock,
+    host: Arc<str>,
+    port: u16,
+}
+
+impl std::fmt::Debug for Storage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Storage")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .finish_non_exhaustive()
+    }
 }
 
 /// A failure to reach the bucket.
@@ -63,7 +104,8 @@ pub enum StorageError {
     /// The bucket holds no object of the key.
     #[error("the bucket holds no object of the key")]
     NotFound,
-    /// The bucket didn't answer, after the client's retries (FILES-012).
+    /// The bucket didn't answer in time, the connection to it failed, or it answered that it
+    /// can't serve now, with a 5xx or a 429, after the client's retries (FILES-012).
     #[error("the bucket didn't answer")]
     Unavailable(#[source] Internal),
     /// The bucket refused the request, or answered what the client couldn't read.
@@ -108,14 +150,42 @@ pub struct Object {
     pub bytes: ObjectBytes,
 }
 
+/// A call to the bucket, which names its span and its failures' causes.
+#[derive(Clone, Copy, Debug)]
+enum Call {
+    Put,
+    Get,
+    Delete,
+    List,
+}
+
+impl Call {
+    /// The S3 operation, which names the call's span.
+    fn operation(self) -> &'static str {
+        match self {
+            Self::Put => "S3 PutObject",
+            Self::Get => "S3 GetObject",
+            Self::Delete => "S3 DeleteObject",
+            Self::List => "S3 ListObjectsV2",
+        }
+    }
+
+    /// How long the bucket has to answer it.
+    fn timeout(self) -> Duration {
+        match self {
+            Self::Put => WRITE_TIMEOUT,
+            Self::Get | Self::Delete | Self::List => ANSWER_TIMEOUT,
+        }
+    }
+}
+
 impl Storage {
-    /// The client of the bucket that `config` describes. It reaches the bucket only when asked,
-    /// so a bucket that doesn't answer at startup keeps no route from serving.
-    pub fn new(config: &StorageConfig) -> Result<Self, Internal> {
-        let options = ClientOptions::new()
-            .with_timeout(REQUEST_TIMEOUT)
-            .with_connect_timeout(CONNECT_TIMEOUT)
-            .with_allow_http(config.endpoint.scheme() == "http");
+    /// The client of the bucket that `config` describes, whose waits for the bucket's answers are
+    /// measured by `clock`. It reaches the bucket only when asked, so a bucket that doesn't
+    /// answer at startup keeps no route from serving. Building it reads the certificates it
+    /// trusts from their files, once (the platform spec's Storage).
+    pub fn new(config: &StorageConfig, clock: SharedClock) -> Result<Self, Internal> {
+        let options = ClientOptions::new().with_allow_http(config.endpoint.scheme() == "http");
         let retry = RetryConfig {
             max_retries: RETRIES,
             retry_timeout: RETRY_TIMEOUT,
@@ -137,8 +207,15 @@ impl Storage {
             })
             .build()
             .map_err(Internal::new)?;
+        let host = config
+            .endpoint
+            .host_str()
+            .ok_or_else(|| Internal::new("the bucket's endpoint has no host"))?;
         Ok(Self {
             store: Arc::new(store),
+            clock,
+            host: host.into(),
+            port: config.endpoint.port_or_known_default().unwrap_or(443),
         })
     }
 
@@ -155,42 +232,152 @@ impl Storage {
             attributes,
             ..PutOptions::default()
         };
-        self.store
-            .put_opts(&path(key), PutPayload::from_bytes(bytes), options)
-            .await
-            .map(drop)
-            .map_err(classify)
+        let path = path(key);
+        let put = self
+            .store
+            .put_opts(&path, PutPayload::from_bytes(bytes), options);
+        self.answer(Call::Put, put).await.map(drop)
     }
 
-    /// The object `key`'s bytes, as the bucket streams them.
+    /// The object `key`'s bytes, as the bucket streams them. The bucket has as long for each
+    /// next chunk as for its first answer, counted from when the chunk is asked for, so a client
+    /// that reads slowly never cuts its download short.
     pub async fn get(&self, key: &ObjectKey) -> Result<Object, StorageError> {
-        let found = self.store.get(&path(key)).await.map_err(classify)?;
+        let path = path(key);
+        let found = self.answer(Call::Get, self.store.get(&path)).await?;
         let size = found.meta.size;
-        let bytes = found.into_stream().map_err(Internal::new).boxed();
+        let bytes = answered(found.into_stream(), self.clock.clone(), Call::Get)
+            .map(|chunk| chunk.map_err(StorageError::into_cause))
+            .boxed();
         Ok(Object { size, bytes })
     }
 
     /// Deletes the object `key`. An object that isn't there counts as deleted, so a second
     /// deletion of it succeeds.
     pub async fn delete(&self, key: &ObjectKey) -> Result<(), StorageError> {
-        match self.store.delete(&path(key)).await.map_err(classify) {
+        let path = path(key);
+        match self.answer(Call::Delete, self.store.delete(&path)).await {
             Ok(()) | Err(StorageError::NotFound) => Ok(()),
             Err(error) => Err(error),
         }
     }
 
-    /// The keys of the objects under `prefix`, as the bucket lists them, a page at a time.
+    /// The keys of the objects under `prefix`, as the bucket lists them, a page at a time, in
+    /// the listing's client span (OBS-06). The bucket has as long for each page as for any other
+    /// answer, and the listing counts once, as it ends or fails.
     pub fn list(&self, prefix: &str) -> BoxStream<'static, Result<ObjectKey, StorageError>> {
         let prefix = Path::from(prefix.trim_end_matches('/'));
-        self.store
+        let listed = self
+            .store
             .list(Some(&prefix))
-            .map(|listed| {
-                listed
-                    .map(|meta| ObjectKey(meta.location.to_string()))
-                    .map_err(classify)
-            })
-            .boxed()
+            .map(|listed| listed.map(|meta| ObjectKey(meta.location.to_string())));
+        let keys = answered(listed, self.clock.clone(), Call::List);
+        stream::unfold(Some((keys, self.span(Call::List))), |state| async move {
+            let (mut keys, span) = state?;
+            match keys.next().instrument(span.clone()).await {
+                None => {
+                    count(None);
+                    None
+                }
+                Some(Ok(key)) => Some((Ok(key), Some((keys, span)))),
+                Some(Err(error)) => {
+                    count(Some(&error));
+                    Some((Err(error), None))
+                }
+            }
+        })
+        .boxed()
     }
+
+    /// Waits for the bucket's answer to `call`, which `answering` awaits, in the call's client
+    /// span (OBS-06), for at most the call's timeout on the clock, and counts how it ended.
+    async fn answer<T>(
+        &self,
+        call: Call,
+        answering: impl Future<Output = object_store::Result<T>> + Send,
+    ) -> Result<T, StorageError> {
+        let wait = self.clock.sleep(call.timeout());
+        let answered = async {
+            match select(std::pin::pin!(answering), wait).await {
+                Either::Left((answer, _)) => answer.map_err(|error| classify(&error, call)),
+                Either::Right(((), _)) => Err(StorageError::Unavailable(Internal::new(format!(
+                    "the bucket didn't answer a {} within {} seconds",
+                    call.operation(),
+                    call.timeout().as_secs()
+                )))),
+            }
+        }
+        .instrument(self.span(call))
+        .await;
+        count(answered.as_ref().map(drop).err());
+        answered
+    }
+
+    /// The client span of `call` (OBS-06), which names the bucket's address and never the key.
+    fn span(&self, call: Call) -> tracing::Span {
+        tracing::info_span!(
+            "s3",
+            { names::OTEL_NAME } = call.operation(),
+            { names::OTEL_KIND } = "client",
+            { names::SERVER_ADDRESS } = &*self.host,
+            { names::SERVER_PORT } = self.port,
+        )
+    }
+}
+
+impl StorageError {
+    /// The cause of the failure, for the logs, which names no key.
+    fn into_cause(self) -> Internal {
+        match self {
+            Self::NotFound => Internal::new("the bucket holds no object of the key it streamed"),
+            Self::Unavailable(cause) | Self::Failed(cause) => cause,
+        }
+    }
+}
+
+/// Counts a call to the bucket that ended with `failure`, or with none.
+fn count(failure: Option<&StorageError>) {
+    let outcome = match failure {
+        None => "ok",
+        Some(StorageError::NotFound) => "not_found",
+        Some(StorageError::Failed(_)) => "failed",
+        Some(StorageError::Unavailable(_)) => "unavailable",
+    };
+    REQUESTS.add(1, [outcome.into()]);
+}
+
+/// `items`, the answers of `call`, each of which the bucket has `ANSWER_TIMEOUT` on `clock` to
+/// give, counted from when it is asked for, so a stream that waits on its reader isn't cut short.
+/// The stream ends after its first failure.
+fn answered<T: Send + 'static>(
+    items: impl futures_util::Stream<Item = object_store::Result<T>> + Send + 'static,
+    clock: SharedClock,
+    call: Call,
+) -> BoxStream<'static, Result<T, StorageError>> {
+    stream::unfold(Some(items.boxed()), move |items| {
+        let clock = clock.clone();
+        async move {
+            let mut items = items?;
+            let wait = clock.sleep(ANSWER_TIMEOUT);
+            let next = match select(items.next(), wait).await {
+                Either::Left((next, _)) => next,
+                Either::Right(((), _)) => {
+                    return Some((
+                        Err(StorageError::Unavailable(Internal::new(format!(
+                            "the bucket sent nothing more within {} seconds",
+                            ANSWER_TIMEOUT.as_secs()
+                        )))),
+                        None,
+                    ));
+                }
+            };
+            match next? {
+                Ok(item) => Some((Ok(item), Some(items))),
+                Err(error) => Some((Err(classify(&error, call)), None)),
+            }
+        }
+    })
+    .boxed()
 }
 
 /// The bucket's path of `key`.
@@ -198,21 +385,70 @@ fn path(key: &ObjectKey) -> Path {
     Path::from(key.0.as_str())
 }
 
-/// The failure `error` stands for: an object that isn't there, a request the bucket refused, or
-/// one it didn't answer, after the client's retries, which the library reports as a generic
-/// failure.
-fn classify(error: object_store::Error) -> StorageError {
-    match error {
-        object_store::Error::NotFound { .. } => StorageError::NotFound,
-        object_store::Error::Generic { .. } => StorageError::Unavailable(Internal::new(error)),
-        _ => StorageError::Failed(Internal::new(error)),
+/// The failure `error` stands for, with a cause written here, since the library's own text names
+/// the request's URL, and with it the key (ERR-04): an object that isn't there; a bucket that
+/// didn't answer, as the library's error of a connection, a request, a timeout or an interruption
+/// says, or that answered a 5xx or a 429, which say it can't serve now; or a request it refused,
+/// or an answer the client couldn't read.
+fn classify(error: &object_store::Error, call: Call) -> StorageError {
+    let operation = call.operation();
+    if let object_store::Error::NotFound { .. } = error {
+        return StorageError::NotFound;
     }
+    if let Some(kind) = transport(error) {
+        let failure = format!("the request {operation} to the bucket failed: {kind:?}");
+        return match kind {
+            HttpErrorKind::Connect
+            | HttpErrorKind::Request
+            | HttpErrorKind::Timeout
+            | HttpErrorKind::Interrupted => StorageError::Unavailable(Internal::new(failure)),
+            _ => StorageError::Failed(Internal::new(failure)),
+        };
+    }
+    if let Some(status) = status(error) {
+        let failure = Internal::new(format!("the bucket answered {operation} with {status}"));
+        return if status >= 500 || status == 429 {
+            StorageError::Unavailable(failure)
+        } else {
+            StorageError::Failed(failure)
+        };
+    }
+    let what = match error {
+        object_store::Error::PermissionDenied { .. } => "refused the key pair's permission",
+        object_store::Error::Unauthenticated { .. } => "refused the key pair",
+        object_store::Error::Precondition { .. } => "refused a precondition",
+        object_store::Error::AlreadyExists { .. } => "answered that the object exists",
+        _ => "gave an answer the client couldn't read",
+    };
+    StorageError::Failed(Internal::new(format!("the bucket {what}, for {operation}")))
+}
+
+/// The kind of the connection's failure that `error` holds, if any.
+fn transport(error: &object_store::Error) -> Option<HttpErrorKind> {
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(error) = source {
+        if let Some(failed) = error.downcast_ref::<HttpError>() {
+            return Some(failed.kind());
+        }
+        source = error.source();
+    }
+    None
+}
+
+/// The status of the bucket's answer that `error` reports, if it reports one. The library keeps
+/// the status in a type it doesn't export, so it is read from the error's text, `status code:`
+/// and three digits, which the tests of this module pin.
+fn status(error: &object_store::Error) -> Option<u16> {
+    let text = error.to_string();
+    let (_, after) = text.split_once("status code: ")?;
+    after.get(..3)?.parse().ok()
 }
 
 /// The library's HTTP client, with TLS through rustls with its ring provider (SEC-16), which
 /// verifies an `https` bucket against the operating system's certificates, or the files that
 /// `SSL_CERT_FILE` and `SSL_CERT_DIR` name, as a verified database connection does (D38), and
-/// against those of `S3_CA_PATH`, if it names a file.
+/// against those of `S3_CA_PATH`, if it names a file. Its only timeout is the connection's: the
+/// waits for the bucket's answers are the clock's, in [`Storage`].
 #[derive(Debug)]
 struct Connector {
     ca_path: Option<PathBuf>,
@@ -227,36 +463,10 @@ impl HttpConnector for Connector {
             };
         let tls = crate::tls::client_config(true, self.ca_path.as_deref()).map_err(failed)?;
         let client = reqwest::Client::builder()
-            .timeout(REQUEST_TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)
             .tls_backend_preconfigured(tls)
             .build()
             .map_err(|error| failed(Box::new(error)))?;
         Ok(HttpClient::new(client))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A bucket's settings, with `ca_path`.
-    fn config(ca_path: Option<PathBuf>) -> StorageConfig {
-        StorageConfig {
-            endpoint: "https://s3.example.com".parse().unwrap(),
-            region: "us-east-1".to_owned(),
-            bucket: "files".to_owned(),
-            access_key_id: "key".to_owned(),
-            secret_access_key: Secret::new("secret".to_owned()),
-            path_style: false,
-            ca_path,
-        }
-    }
-
-    #[test]
-    fn platform_076_the_client_trusts_the_authorities_of_s3_ca_path() {
-        assert!(Storage::new(&config(None)).is_ok());
-        let missing = PathBuf::from("/nonexistent/files-ca.crt");
-        assert!(Storage::new(&config(Some(missing))).is_err());
     }
 }

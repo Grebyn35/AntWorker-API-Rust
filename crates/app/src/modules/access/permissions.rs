@@ -107,38 +107,59 @@ pub(crate) fn matrix() -> Vec<(&'static str, Vec<&'static str>)> {
 mod tests {
     use super::*;
 
+    /// Each row of the access spec's matrix: the permission, and whether `owner`, `admin` and
+    /// `member` hold it, as its cells say `yes`.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test may block (CODE-05), and reads the matrix the spec gives"
+    )]
+    fn spec_matrix() -> Vec<(String, [bool; 3])> {
+        let spec = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/spec/access.md"
+        ))
+        .expect("read the access spec");
+        let (_, section) = spec
+            .split_once("### Roles and permissions")
+            .expect("the spec's matrix");
+        section
+            .lines()
+            .skip_while(|line| !line.starts_with("| Permission |"))
+            .skip(2)
+            .take_while(|line| line.starts_with('|'))
+            .map(|line| {
+                let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+                let held = |cell: &str| cell.starts_with("yes");
+                (
+                    cells[1].trim_matches('`').to_owned(),
+                    [held(cells[3]), held(cells[4]), held(cells[5])],
+                )
+            })
+            .collect()
+    }
+
     #[test]
     fn access_002_a_role_grants_exactly_the_matrix_s_permissions() {
-        let held = |role| {
-            [
-                "workspace.read",
-                "workspace.update",
-                "members.read",
-                "members.remove",
-                // part: invitations
-                "invitations.create",
-                // end part: invitations
-                "unlisted.read",
-            ]
-            .into_iter()
-            .filter(|permission| grants(role, permission))
-            .collect::<Vec<_>>()
-        };
-        let all = vec![
-            "workspace.read",
-            "workspace.update",
-            "members.read",
-            "members.remove",
-            // part: invitations
-            "invitations.create",
-            // end part: invitations
-        ];
-        assert_eq!(held(Role::Owner), all);
-        assert_eq!(held(Role::Admin), all);
-        assert_eq!(held(Role::Member), ["workspace.read", "members.read"]);
-        assert_eq!(WorkspaceRead::NAME, "workspace.read");
-        assert_eq!(WorkspaceUpdate::NAME, "workspace.update");
-        assert_eq!(MembersRead::NAME, "members.read");
-        assert_eq!(MembersRemove::NAME, "members.remove");
+        let rows = spec_matrix();
+        assert!(!rows.is_empty(), "the spec's matrix has no rows");
+        for (permission, holders) in &rows {
+            for (role, holds) in [Role::Owner, Role::Admin, Role::Member]
+                .into_iter()
+                .zip(holders)
+            {
+                assert_eq!(
+                    grants(role, permission),
+                    *holds,
+                    "{permission} for {}",
+                    role.name()
+                );
+            }
+        }
+        let mut listed: Vec<&str> = rows.iter().map(|(name, _)| name.as_str()).collect();
+        let mut granted: Vec<&str> = MATRIX.iter().map(|(name, _)| *name).collect();
+        listed.sort_unstable();
+        granted.sort_unstable();
+        assert_eq!(granted, listed, "the code's matrix holds other permissions");
+        assert!(!grants(Role::Owner, "unlisted.read"));
     }
 }

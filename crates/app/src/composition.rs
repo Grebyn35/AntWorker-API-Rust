@@ -120,7 +120,7 @@ impl Config {
                     1..=104_857_600,
                 )?)
                 .unwrap_or(usize::MAX),
-                deletion_delay_days: settings.number("FILE_DELETION_DELAY_DAYS", 35, 1..=3_650)?,
+                deletion_delay_days: settings.number("FILE_DELETION_DELAY_DAYS", 35, 1..=3_657)?,
             },
             // part: invitations
             invitations: invitations::Settings {
@@ -192,7 +192,8 @@ pub async fn compose(
     mail.register(&mut jobs).map_err(Internal::new)?;
     let files = Files::new(
         database.clone(),
-        Storage::new(&server.storage)?,
+        Storage::new(&server.storage, clock.clone())?,
+        workers.clone(),
         config.files,
     );
     files.register(&mut jobs).map_err(Internal::new)?;

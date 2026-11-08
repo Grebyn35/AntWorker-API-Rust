@@ -367,16 +367,28 @@ impl Call<'_> {
 
     /// Checks a typed body against the document, sends the request, and checks the response
     /// against the document.
-    pub async fn send(self) -> Response {
+    pub async fn send(mut self) -> Response {
         if self.typed {
             self.api
                 .contract
                 .check_request(&self.method, &self.path, &self.headers, &self.body);
         }
+        let body = Body::from(std::mem::take(&mut self.body));
+        self.dispatch(body).await
+    }
+
+    /// Sends the request with `body`, a stream that the test feeds, in place of a raw body, and
+    /// checks the response against the document.
+    pub async fn send_streamed(self, body: Body) -> Response {
+        self.dispatch(body).await
+    }
+
+    /// Sends the request with `body`, and checks the response against the document.
+    async fn dispatch(self, body: Body) -> Response {
         let mut request = Request::builder()
             .method(self.method.clone())
             .uri(&self.path)
-            .body(Body::from(self.body))
+            .body(body)
             .unwrap();
         *request.headers_mut() = self.headers;
         request.extensions_mut().insert(ConnectInfo(self.peer));

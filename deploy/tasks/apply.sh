@@ -139,11 +139,12 @@ write_deploy_env() {
     } > "$1"
 }
 
-# The fingerprint of the files $@: their SHA-256, keyed by the API's HMAC key, so it tells when any
-# of them changes, and reveals nothing of them where state/deploy.env and the containers'
-# environments show it. A file that doesn't exist counts as empty.
+# The fingerprint of the files $@: the SHA-256 of their SHA-256 sums, each beside its path, so it
+# tells when any of them changes, appears or goes, and a byte that moves from one file to the next
+# changes it too. It shows in state/deploy.env and in the environments of the containers that
+# mount the files, which only those who can read the files themselves can read (D103).
 fingerprint_files() {
-    cat "$deployment/secrets/hmac_key" "$@" 2> /dev/null | sha256sum | cut -c 1-16
+    sha256sum "$@" 2> /dev/null | sha256sum | cut -c 1-16
 }
 
 # Writes the sites Caddy serves and the replicas it names, for this choice of services.

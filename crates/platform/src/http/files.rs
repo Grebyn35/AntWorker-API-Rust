@@ -11,6 +11,12 @@ use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_perc
 
 use crate::errors::{Internal, Problem};
 
+/// A file's bytes, as an upload sends them and a download serves them, which the document
+/// describes as a binary string, not as JSON (API-17).
+#[derive(utoipa::ToSchema)]
+#[schema(value_type = String, format = Binary)]
+pub struct FileBytes(pub Vec<u8>);
+
 /// The name in an upload's `Content-Disposition`: its `filename*` parameter, whose value RFC 8187
 /// encodes in UTF-8, or else its `filename` parameter, a token or a quoted string, whatever the
 /// disposition's type. `None` when the header is absent, isn't text, or names no file

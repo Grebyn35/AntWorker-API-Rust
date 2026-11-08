@@ -111,10 +111,10 @@ check_memory() {
     fi
 }
 
-# Fails the check unless a provider's bucket keeps no noncurrent version for more than a day, S3's
-# name for the old version that a bucket with versioning keeps of an object deleted or replaced,
-# as docs/operations/deploy.md requires of every bucket of the deployment: its versioning is off,
-# or an enabled lifecycle rule of the whole bucket expires them after 1 day. The bucket's settings
+# Fails the check unless a provider's bucket expires each noncurrent version a day after it
+# becomes one, S3's name for the old version that a bucket with versioning keeps of an object
+# deleted or replaced, as docs/operations/deploy.md requires of every bucket of the deployment:
+# its versioning is off, or an enabled lifecycle rule of the whole bucket expires them after 1 day. The bucket's settings
 # start with $1, its key pair is in the secret files $2 and $2_secret, the authority of a private
 # bucket's certificate in certs/$3, and $4 names it. It reads the bucket's versioning and its
 # lifecycle with S3's GetBucketVersioning and GetBucketLifecycleConfiguration, which change nothing.
@@ -139,17 +139,25 @@ check_versions() {
         return
     fi
     lifecycle=$(bucket_request "$1" "$2" "$3" "$url?lifecycle") || true
-    # Each rule on a line of its own, then those that are enabled, expire noncurrent versions
-    # after a day, and cover the whole bucket.
-    expiring=$(printf '%s' "$lifecycle" | tr -d '\r\n' | sed 's/<Rule>/\
-<Rule>/g' | grep '^<Rule>' | grep '<Status>Enabled</Status>' |
-        grep '<NoncurrentDays>[[:space:]]*1[[:space:]]*</NoncurrentDays>' |
-        grep -v -e '<Prefix>[^<]' -e '<Tag>' -e '<And>' -e '<ObjectSize' || true)
-    if [ -n "$expiring" ]; then
+    if [ -n "$(expiring_rules "$lifecycle")" ]; then
         passed "$4, $bucket, keeps versions, and a lifecycle rule expires its noncurrent ones after a day"
     else
         failed "$4, $bucket, keeps versions, and no enabled lifecycle rule of the whole bucket expires its noncurrent ones after a day, so it keeps the bytes of what the deployment deletes; give it one, such as Backblaze B2's \"Keep only the last version of the file\" (docs/operations/deploy.md#what-a-server-needs)"
     fi
+}
+
+# Prints the NoncurrentVersionExpiration of each rule of the lifecycle configuration $1 that
+# expires every noncurrent version of the whole bucket a day after it became noncurrent: an
+# enabled rule with no filter but an empty prefix, whose NoncurrentVersionExpiration has
+# NoncurrentDays 1 and keeps no newer noncurrent versions, as NewerNoncurrentVersions would. A
+# transition of noncurrent versions deletes none.
+expiring_rules() {
+    printf '%s' "$1" | tr -d '\r\n' | sed 's/<Rule>/\
+<Rule>/g' | grep '^<Rule>' | grep '<Status>Enabled</Status>' |
+        grep -v -e '<Prefix>[^<]' -e '<Tag>' -e '<And>' -e '<ObjectSize' |
+        sed -n 's|.*<NoncurrentVersionExpiration>\(.*\)</NoncurrentVersionExpiration>.*|\1|p' |
+        grep '<NoncurrentDays>[[:space:]]*1[[:space:]]*</NoncurrentDays>' |
+        grep -v '<NewerNoncurrentVersions>' || true
 }
 
 # Prints the answer of the bucket whose settings start with $1 to a GET of the URL $4, signed with

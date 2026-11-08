@@ -41,8 +41,8 @@ None. No other module uses `files` yet.
 | FILES-008 | Reading a file answers 200 with the file as FILES-001 gives it. A file ID that names no file of the workspace, or isn't a UUID, answers 404 `files.not_found`, here and in FILES-009 and FILES-010. | API-04, DATA-16, PLATFORM-072 | `files_008_` |
 | FILES-009 | Downloading a file answers 200 with its bytes, `Content-Type` its media type, `Content-Length` its size, `Content-Disposition` `inline` for a kind that Accepted kinds serves inline and `attachment` for every other, with its name, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox` and `Cache-Control: no-store`. A file whose bytes the bucket doesn't hold, or holds at another size than its row's, as when they were cut short, answers 500 `request.internal_error`, whose cause the request log writes with the file's ID (ERR-10). | SEC-11, SEC-12, ERR-10, D63 | `files_009_` |
 | FILES-010 | Deleting a file deletes its row and answers 204. It records `file.deleted` in the workspace's log, and publishes the workspace event `file.deleted`, which requires `files.read`. Its bytes stay until FILES-011 deletes them. The owner and admins may delete; a member gets 403 `request.permission_denied`. | API-04, DATA-06, DATA-22, SEC-19 | `files_010_` |
-| FILES-011 | An object that no file's row names, whatever removed or never committed its row, is deleted from storage once `FILE_DELETION_DELAY_DAYS` (1 to 3,650, default 35) have passed since the periodic job `files.find_unreferenced_objects` first found it so, and never while a row names it. | D1, D30, OPS-15 | `files_011_` |
-| FILES-012 | While the storage doesn't answer, a route that reads or writes bytes answers 503 `files.storage_unavailable`, with `Retry-After`. | ERR-03, ERR-04 | `files_012_` |
+| FILES-011 | An object that no file's row names, whatever removed or never committed its row, is deleted from storage once `FILE_DELETION_DELAY_DAYS` (1 to 3,657, the longest backup retention plus 7, default 35) have passed since the periodic job `files.find_unreferenced_objects` first found it so, and never while a row names it. | D1, D30, OPS-15 | `files_011_` |
+| FILES-012 | While the storage doesn't answer in time, or answers that it can't serve now, with a 5xx or a 429, a route that reads or writes bytes answers 503 `files.storage_unavailable`, with `Retry-After`, a download within its route's timeout. A request that the storage refuses answers 500 `request.internal_error`. Neither cause, which the request log writes, names an object's key. | ERR-03, ERR-04, ERR-10 | `files_012_` |
 | FILES-013 | `files.uploads` counts the uploads that reached the check of their bytes, by outcome: `stored`, `unsupported_type`, `malware_detected`, or `failed`. | OBS-11, OBS-14 | `files_013_` |
 
 ## Design
@@ -69,7 +69,7 @@ The list lives in `model/kinds.rs` as one table, so a fork adds a kind as one ro
 
 ### Storage
 
-`platform::storage` holds the client of an S3-compatible bucket, a provider's off the server in the reference deployment (D106), which the settings `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_URI_STYLE` and `S3_CA_PATH` configure, each required but the last two: `S3_URI_STYLE` is `host` unless it is `path`, and `S3_CA_PATH` names a file of certificates that a bucket of the operator's own may chain to (OPS-01, SEC-01, PLATFORM-076). The endpoint must be `https` outside development and test (SEC-10). The client reports a bucket that doesn't answer as unavailable, and every other failure as internal, neither naming the key (ERR-04). Readiness doesn't wait on the bucket: replicas that couldn't reach it would all leave the load balancer, and every route would fail with them, rather than only those of FILES-012.
+`platform::storage` holds the client of an S3-compatible bucket, a provider's off the server in the reference deployment (D106), which the settings `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_URI_STYLE` and `S3_CA_PATH` configure, each required but the last two: `S3_URI_STYLE` is `host` unless it is `path`, and `S3_CA_PATH` names a file of certificates that a bucket of the operator's own may chain to (OPS-01, SEC-01, PLATFORM-076). The endpoint must be `https` outside development and test (SEC-10). The client reports a bucket that doesn't answer in time, or answers that it can't serve now, as unavailable, and every other failure as internal, neither naming the key (ERR-04), as the [platform spec's Storage](platform.md#storage) says. Readiness doesn't wait on the bucket: replicas that couldn't reach it would all leave the load balancer, and every route would fail with them, rather than only those of FILES-012.
 
 An object's key is 128 random bits from the operating system's source, in hexadecimal, under the prefix `workspaces/`, so it names no row and reveals nothing (DATA-08, CODE-06). An object is written once and never replaced.
 
@@ -77,7 +77,7 @@ An object's key is 128 random bits from the operating system's source, in hexade
 
 1. The handler refuses a body whose `Content-Length` declares more than `FILE_MAX_BYTES` (FILES-004), then checks that the caller may upload, in a short unit of work of its own that authorizes them and commits nothing, and records a refusal as any workspace route does (FILES-006, D96).
 2. It reads the name from `Content-Disposition` (FILES-002), then the body, in one of the replica's turns (PLATFORM-074).
-3. It finds the kind from the name's extension, and checks the bytes against it (FILES-003), then sends them to the scanner (FILES-005).
+3. It finds the kind from the name's extension, and checks the bytes against it through `Workers`, since a text's check reads every byte (FILES-003, CODE-05), then sends them to the scanner (FILES-005).
 4. It writes the object, outside any transaction (DATA-21).
 5. The unit of work opens with `Authorize<FilesUpload>`, which authorizes the caller again, claims the `Idempotency-Key`, inserts the row, records the entry and publishes the event, then commits (FILES-001).
 
@@ -91,7 +91,7 @@ The scanner is ClamAV's daemon, `clamd`, which the setting `CLAMD_ADDRESS`, a ho
 
 ### Downloading
 
-The download reads the row through the workspace from the proof, then streams the object from the bucket, so a replica holds at most a chunk of it at a time. `Content-Disposition` gives the name twice: as `filename*`, the name in UTF-8 percent-encoded as RFC 8187 says, and as `filename`, an ASCII fallback in which every other character, `"` and `\` become `_`, as RFC 6266 recommends (ASVS 5.4.2). The API serves no ranges, so `Range` is ignored, as RFC 9110 allows.
+The download reads the row through the workspace from the proof, then streams the object from the bucket, so a replica holds at most a chunk of it at a time. `Content-Disposition` gives the name twice: as `filename*`, the name in UTF-8 percent-encoded as RFC 8187 says, and as `filename`, an ASCII fallback in which every other character, `"`, `\` and `%`, which some browsers decode, become `_`, as RFC 6266 recommends (ASVS 5.4.2). The API serves no ranges, so `Range` is ignored, as RFC 9110 allows.
 
 ### Deleting bytes
 
@@ -102,7 +102,7 @@ No statement deletes bytes when it deletes a row: a row may also go with its wor
 - `files.find_unreferenced_objects`, every day, lists the bucket's objects, and records in `object_deletions` each that no row names, with `deletable_at` `FILE_DELETION_DELAY_DAYS` days from now, by the database's clock (DATA-03). An object already recorded keeps its time.
 - `files.delete_unreferenced_objects`, every hour, takes the recorded objects whose time has passed, in batches of at most 1,000, deletes from storage each that still no row names, and removes each from `object_deletions`, whichever it did. An object that a row names again, as after a restore, stays.
 
-Both span every workspace by nature, so they select objects by key alone (DATA-16), and scheduled maintenance isn't audited (DATA-22). A bucket with versioning keeps a deleted object's bytes as a noncurrent version, so every bucket of the deployment keeps none for more than a day, as [deploy.md](../operations/deploy.md#what-a-server-needs) requires and `just server-check` checks (D102). After a restore to an earlier moment, the objects of uploads made since then have no row, and go after the delay; `object_deletions` may have lost what it recorded since then, which the next run records again.
+Both span every workspace by nature, so they select objects by key alone (DATA-16), and scheduled maintenance isn't audited (DATA-22). A bucket with versioning keeps a deleted object's bytes as a noncurrent version, so every bucket of the deployment has versioning off, or expires each noncurrent version a day after it becomes one, as [deploy.md](../operations/deploy.md#what-a-server-needs) requires and `just server-check` checks (D102). After a restore to an earlier moment, the objects of uploads made since then have no row, and go after the delay; `object_deletions` may have lost what it recorded since then, which the next run records again.
 
 ### Recording and events
 

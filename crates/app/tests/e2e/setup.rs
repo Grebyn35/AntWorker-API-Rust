@@ -284,6 +284,59 @@ async fn ops_19_the_check_finds_a_bucket_that_keeps_versions_a_key_pair_it_refus
     );
 }
 
+#[test]
+fn ops_19_the_check_takes_only_a_rule_that_deletes_noncurrent_versions_after_a_day() {
+    let check = concat!(env!("CARGO_MANIFEST_DIR"), "/../../deploy/tasks/check.sh");
+    let expiring = |rules: &str| {
+        let lifecycle = format!("<LifecycleConfiguration>{rules}</LifecycleConfiguration>");
+        let output = std::process::Command::new("sh")
+            .args([
+                "-c",
+                ". \"$1\" && expiring_rules \"$2\"",
+                "sh",
+                check,
+                &lifecycle,
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", lossy(&output));
+        !output.stdout.is_empty()
+    };
+    let rule = |filter: &str, status: &str, action: &str| {
+        format!("<Rule><ID>r</ID>{filter}<Status>{status}</Status>{action}</Rule>")
+    };
+    let whole = "<Filter><Prefix></Prefix></Filter>";
+    let expire = "<NoncurrentVersionExpiration><NoncurrentDays>1</NoncurrentDays>\
+                  </NoncurrentVersionExpiration>";
+
+    // Backblaze B2's "Keep only the last version of the file".
+    assert!(expiring(&rule(whole, "Enabled", expire)));
+    assert!(!expiring(&rule(whole, "Disabled", expire)));
+    assert!(!expiring(&rule(
+        "<Filter><Prefix>workspaces/</Prefix></Filter>",
+        "Enabled",
+        expire
+    )));
+    assert!(!expiring(&rule(
+        whole,
+        "Enabled",
+        "<NoncurrentVersionTransition><NoncurrentDays>1</NoncurrentDays>\
+         <StorageClass>GLACIER</StorageClass></NoncurrentVersionTransition>"
+    )));
+    assert!(!expiring(&rule(
+        whole,
+        "Enabled",
+        "<NoncurrentVersionExpiration><NoncurrentDays>1</NoncurrentDays>\
+         <NewerNoncurrentVersions>3</NewerNoncurrentVersions></NoncurrentVersionExpiration>"
+    )));
+    assert!(!expiring(&rule(
+        whole,
+        "Enabled",
+        "<NoncurrentVersionExpiration><NoncurrentDays>7</NoncurrentDays>\
+         </NoncurrentVersionExpiration>"
+    )));
+}
+
 /// Asserts that the check that wrote `output` passed, or failed, as `passed` says, and wrote each
 /// of `lines`.
 fn assert_found(output: &std::process::Output, passed: bool, lines: &[&str]) {

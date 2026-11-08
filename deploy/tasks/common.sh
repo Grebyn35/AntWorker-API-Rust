@@ -237,7 +237,7 @@ read_settings() {
     esac
     whole_number FILE_MAX_BYTES "$(setting FILE_MAX_BYTES 10485760)" 1 104857600
     if [ -n "$(setting FILE_DELETION_DELAY_DAYS)" ]; then
-        whole_number FILE_DELETION_DELAY_DAYS "$(setting FILE_DELETION_DELAY_DAYS)" 1 3650
+        whole_number FILE_DELETION_DELAY_DAYS "$(setting FILE_DELETION_DELAY_DAYS)" 1 3657
     fi
     profiles=""
     case $database in

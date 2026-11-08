@@ -73,7 +73,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | Data read in transit, or from a stolen disk | TLS for every connection that leaves the server, and encryption at rest (OPS-17) |
 | The bucket's provider reading the backups | They are encrypted before they leave the server (OPS-17) |
 | The files bucket's provider reading the files | Nothing in the API: the provider encrypts them at rest with keys of its own (OPS-17), and is trusted with their bytes, as a managed database's provider is with its data (D106) |
-| A bucket keeping what the deployment deleted, such as a deleted file's bytes or an expired backup, as a noncurrent version | Every bucket of the deployment keeps none for more than a day, which `just server-check` checks ([deploy.md](deploy.md#what-a-server-needs), D102) |
+| A bucket keeping what the deployment deleted, such as a deleted file's bytes or an expired backup, as a noncurrent version | Every bucket of the deployment has versioning off, or expires each noncurrent version a day after it becomes one, which `just server-check` checks ([deploy.md](deploy.md#what-a-server-needs), D102) |
 | Losing data, or a change that shouldn't have happened | Continuous backups, restores to any moment the retention covers, and a restore that another undoes (OPS-15) |
 | Tampering with audit history | `app` may only insert and read audit entries (AUDIT-005), which commit with the change they record (AUDIT-001) |
 
