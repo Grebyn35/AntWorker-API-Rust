@@ -216,6 +216,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 1834298..919157a: step 5's `just new-module`, `check-new-module` and the guide to adding a module (D91, D92), with `platform`'s `one_line`, `ResourceResponse` and `path_id` (PLATFORM-072), and TEST-08's fixtures of a module's rows | 1 | 11 (9, 6, 4 shared) | 4 | 0 | `next pass`: 34ac029 |
 | 1834298..34ac029: as above, with pass 1's fixes | 2 | 10 (8, 3, 1 shared) | 2 | 0 | `next pass`: 0046098 |
 | 1834298..0046098: as above, with pass 2's fixes | 3 | 7 (4, 3, 0 shared) | 2 | 1 | `stopped: no progress`: fd512cc |
+| 61f1da8..d642041: `files`' first part, with `platform`'s storage, uploads and downloads, the bucket at a provider in every deployment (D106), buckets that keep no noncurrent versions (D102), the recreation of services whose secrets changed (D103), and `check-test-map`'s check of SEC-19 | 1 | 29 (26, 17, 14 shared) | 19 | 0 | `next pass` |
 
 ## Decisions
 
