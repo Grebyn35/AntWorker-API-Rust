@@ -139,7 +139,7 @@ copy_release() {
     else
         rm -rf "$2/tasks"
     fi
-    for directory in caddy observability tools; do
+    for directory in caddy observability scanner tools; do
         sync_directory "$1/$directory" "$2/$directory"
     done
 }
@@ -235,7 +235,7 @@ read_settings() {
         host | path) ;;
         *) fail "FILES_S3_URI_STYLE is host or path, not '$(setting FILES_S3_URI_STYLE)'" ;;
     esac
-    whole_number FILE_MAX_BYTES "$(setting FILE_MAX_BYTES 10485760)" 1 104857600
+    whole_number FILE_MAX_BYTES "$(setting FILE_MAX_BYTES 10485760)" 1 20971520
     if [ -n "$(setting FILE_DELETION_DELAY_DAYS)" ]; then
         whole_number FILE_DELETION_DELAY_DAYS "$(setting FILE_DELETION_DELAY_DAYS)" 1 3657
     fi

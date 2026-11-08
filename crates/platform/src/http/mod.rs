@@ -28,6 +28,8 @@ pub use files::{Download, FileBytes, disposition_name};
 pub use precondition::IfMatch;
 pub use query::Query;
 pub use resource::{ResourceResponse, path_id};
+#[cfg(test)]
+pub(crate) use stack::UPLOAD_TIMEOUT;
 
 use crate::{
     authn::{Authenticator, SessionVerifier},

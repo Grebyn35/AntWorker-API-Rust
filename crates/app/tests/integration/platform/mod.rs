@@ -14,5 +14,6 @@ mod limits;
 mod logging;
 mod mail;
 mod migrations;
+mod scanner;
 mod startup;
 mod telemetry;

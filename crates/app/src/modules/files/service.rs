@@ -8,6 +8,7 @@ use platform::{
     errors::Internal,
     idempotency::{Claimed, IdempotencyKey},
     lists::{List, Page, Search, key},
+    scanner::{ScanError, Scanner, Verdict},
     storage::{Object, ObjectKey, Storage, StorageError},
 };
 
@@ -27,39 +28,42 @@ use crate::modules::{
 /// The prefix of the keys of workspaces' files in the bucket.
 pub(super) const WORKSPACE_PREFIX: &str = "workspaces/";
 
-/// What the routes and jobs of `files` share: the database, the bucket, the turns of the
-/// instance's CPU-heavy work, which reading and checking an upload's bytes take, and the
-/// module's settings.
+/// What the routes and jobs of `files` share: the database, the bucket, the malware scanner,
+/// the turns of the instance's CPU-heavy work, which reading and checking an upload's bytes take,
+/// and the module's settings.
 #[derive(Clone)]
 pub(crate) struct Files {
     pub(super) database: Database,
     pub(super) storage: Storage,
+    pub(super) scanner: Scanner,
     pub(super) workers: Workers,
     pub(super) settings: Settings,
 }
 
 impl Files {
-    /// The module's state, on `database`, `storage` and `workers`.
+    /// The module's state, on `database`, `storage`, `scanner` and `workers`.
     pub(crate) fn new(
         database: Database,
         storage: Storage,
+        scanner: Scanner,
         workers: Workers,
         settings: Settings,
     ) -> Self {
         Self {
             database,
             storage,
+            scanner,
             workers,
             settings,
         }
     }
 }
 
-/// Stores the file `name`, with `bytes`, in the caller's workspace: checks its kind, writes its
-/// object outside any transaction, then opens the unit of work with `authorize`, which authorizes
-/// the caller again and claims `key`, so a retry with the same key and request answers the same
-/// file. The row, its audit entry and the members' event commit together (FILES-001, FILES-003,
-/// FILES-004, DATA-21, PLATFORM-036).
+/// Stores the file `name`, with `bytes`, in the caller's workspace: checks its kind, has the
+/// scanner scan its bytes, writes its object outside any transaction, then opens the unit of work
+/// with `authorize`, which authorizes the caller again and claims `key`, so a retry with the same
+/// key and request answers the same file. The row, its audit entry and the members' event commit
+/// together (FILES-001, FILES-003, FILES-004, FILES-005, DATA-21, PLATFORM-036).
 pub(crate) async fn upload(
     files: &Files,
     authorize: Authorize<FilesUpload>,
@@ -85,6 +89,20 @@ pub(crate) async fn upload(
         metrics::upload(Upload::UnsupportedType);
         return Err(FilesError::UnsupportedType);
     };
+    match files.scanner.scan(&bytes).await {
+        Ok(Verdict::Clean) => {}
+        Ok(Verdict::Found(_)) => {
+            metrics::upload(Upload::MalwareDetected);
+            return Err(FilesError::MalwareDetected);
+        }
+        Err(error) => {
+            metrics::upload(Upload::Failed);
+            return Err(match error {
+                ScanError::Unavailable(cause) => FilesError::ScannerUnavailable(Some(cause)),
+                ScanError::Failed(cause) => FilesError::Internal(cause),
+            });
+        }
+    }
     let stored = store(files, authorize, name, kind, bytes, key).await;
     metrics::upload(if stored.is_ok() {
         Upload::Stored

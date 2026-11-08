@@ -18,6 +18,16 @@ receivers:
       file.size:
         enabled: false
 
+  # The time of the malware scanner's daily signatures, which freshclam writes each time it
+  # downloads new ones, several times a day: the alert on old signatures reads it (OBS-14). In
+  # development, which scans with one signature of the repository's own, the directory holds none.
+  file_stats/scanner:
+    include: /var/lib/scanner-signatures/daily.c[lv]d
+    collection_interval: 60s
+    metrics:
+      file.size:
+        enabled: false
+
   # The host's CPU, memory and filesystems, read from its filesystem mounted at /hostfs: the
   # server's, or in development the machine that runs Docker. The alerts on a server whose disk
   # fills or whose memory runs low read them (OBS-14). The filesystems leave out those of the
@@ -108,6 +118,6 @@ service:
       processors: [memory_limiter, batch]
       exporters: [otlp_http/loki]
     metrics:
-      receivers: [otlp, file_stats/backups, host_metrics]
+      receivers: [otlp, file_stats/backups, file_stats/scanner, host_metrics]
       processors: [memory_limiter, batch]
       exporters: [otlp_http/prometheus]

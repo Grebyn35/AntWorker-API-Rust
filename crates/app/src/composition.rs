@@ -19,6 +19,7 @@ use platform::{
     lifecycle::Readiness,
     mail::Mail,
     rate_limit::{Bucket, RateLimiter},
+    scanner::Scanner,
     storage::Storage,
     telemetry::Service,
 };
@@ -117,7 +118,7 @@ impl Config {
                 max_bytes: usize::try_from(settings.number(
                     "FILE_MAX_BYTES",
                     10_485_760,
-                    1..=104_857_600,
+                    1..=20_971_520,
                 )?)
                 .unwrap_or(usize::MAX),
                 deletion_delay_days: settings.number("FILE_DELETION_DELAY_DAYS", 35, 1..=3_657)?,
@@ -193,6 +194,7 @@ pub async fn compose(
     let files = Files::new(
         database.clone(),
         Storage::new(&server.storage, clock.clone())?,
+        Scanner::new(&server.scanner, clock.clone()),
         workers.clone(),
         config.files,
     );

@@ -1,6 +1,6 @@
 # Threat model
 
-What the API and its reference deployment protect, from whom, and which rules and behaviors stop each threat. The bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS), but for its requirement 6.3.3, as [the security rules](../standards/security.md) say (D26, D63). Each mitigation is stated in its home, a rule or a behavior, which this file cites by ID rather than restating it (DOC-07), and a change that adds a threat, or changes what stops one, changes this file in the same commit. Parts not built yet, such as a user's own files, public files, the scanning of uploads and second factors, are listed with the rules that already bind them, and arrive with step 5 of [the migration](../MIGRATION.md#build-order).
+What the API and its reference deployment protect, from whom, and which rules and behaviors stop each threat. The bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS), but for its requirement 6.3.3, as [the security rules](../standards/security.md) say (D26, D63). Each mitigation is stated in its home, a rule or a behavior, which this file cites by ID rather than restating it (DOC-07), and a change that adds a threat, or changes what stops one, changes this file in the same commit. Parts not built yet, such as a user's own files, public files and second factors, are listed with the rules that already bind them, and arrive with step 5 of [the migration](../MIGRATION.md#build-order).
 
 ## What it protects
 
@@ -23,6 +23,8 @@ What the API and its reference deployment protect, from whom, and which rules an
 | The API to Postgres | Every query, as the role `app` | Two roles, the API's with least privilege (DATA-12, DATA-13, DATA-19); queries checked at compile time (DATA-14); every query filters by tenant (DATA-16) |
 | The API to other systems | Email, and later OAuth providers | One of two outbound clients (SEC-10); TLS that verifies the certificate (OPS-17) |
 | The replicas to the files bucket | Files' bytes, written, read and deleted by keys that name no row | The object storage adapter's client, with its endpoint from configuration (SEC-10); TLS that verifies the certificate (OPS-17); a key pair that reaches only that bucket ([the files bucket](deploy.md#the-files-bucket)) |
+| The replicas to the scanner | Each upload's bytes, before they are stored | The deployment's private network, which only the replicas and the scanner join, since clamd speaks no TLS (PLATFORM-077, OPS-17); the scanner runs as its image's own user on a read-only root, keeping what it scans in memory ([the scanner](deploy.md#the-scanner)) |
+| The scanner to ClamAV's mirrors | The signatures, downloaded | HTTPS that verifies the certificate (OPS-17), and ClamAV's own signature of each database, which freshclam checks before it keeps it |
 | Postgres to the bucket | The write-ahead log and the base backups | Encrypted before they leave the server (OPS-17); a key pair that reaches only the bucket ([the bucket](backups.md#the-bucket)) |
 | The collector to an observability backend | Logs, traces and metrics | No personal data or secret in telemetry (OBS-04); TLS (OPS-17) |
 | CI to the registry to the server | The images, and the deploy's tools | Everything pinned (OPS-11); one build whose digest is tested, signed and promoted (OPS-12); advisories block the build (SEC-15); a minimal, unprivileged image (OPS-13) |
@@ -61,7 +63,8 @@ What the API and its reference deployment protect, from whom, and which rules an
 | SQL injection | Queries are checked at compile time, and the functions that take SQL text are banned (DATA-14) |
 | Malformed, unexpected or oversized input | Strict bodies and query parameters (API-08, API-09), domain types at the boundary (API-10), and body limits (PLATFORM-048, PLATFORM-050), an upload's among them, refused by its declared length before anything reads it (PLATFORM-074, FILES-004) |
 | An uploaded file that runs in a browser | Only kinds whose bytes a check reads are accepted, never Scalable Vector Graphics (SVG) or HTML (FILES-003), and each is served so that it can't run (SEC-11, FILES-009) |
-| An uploaded file that carries malware | Not stopped yet: the scan of every upload arrives with `files`' next part (FILES-005, a known gap) |
+| An uploaded file that carries malware | Every upload is scanned before it is stored, and refused when the scanner names a signature, or when its contents pass what the scanner scans whole, such as a decompression bomb (FILES-005); signatures that age past 2 days raise ScannerSignaturesOutdated ([runbooks](runbooks.md#scannersignaturesoutdated)) |
+| An image crafted for a flaw in a viewer's decoder | Stored as it came, never decoded on the server; left to the scanner's signatures of known exploits and the viewer's own updates ([files spec](../spec/files.md#accepted-kinds)) |
 | Errors that leak internals | Internal errors expose nothing, and `detail` never carries internals (ERR-08, ERR-09) |
 | Framing, sniffing and caching of responses | Security headers on every response (SEC-12) |
 | Server-side request forgery | Outbound requests go through one of two clients, the one that reaches addresses a user gives refusing private ones (SEC-10) |
@@ -88,6 +91,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | A client that holds streams open, or reads them slowly | A cap of streams per user on a replica (REALTIME-006); a stream that falls behind closes (PLATFORM-032) |
 | Uploads that fill a replica's memory, or hold it with slow bodies | At most 4 uploads' bodies in memory on a replica at once, each at most `FILE_MAX_BYTES`, and the upload route's timeout (PLATFORM-074) |
 | A files bucket that doesn't answer | The routes of files' bytes answer 503 in time, every other route serves (FILES-012), and StorageUnreachable pages ([runbooks](runbooks.md#storageunreachable)) |
+| A scanner that doesn't answer, or a burst of uploads that keeps it busy | Uploads answer 503 within their route's timeout, every other route serves (FILES-005, PLATFORM-077); the scans use at most `SCANNER_CPUS`, so the replicas and Postgres keep the rest of the server ([the scanner](deploy.md#the-scanner)); ScannerUnreachable pages ([runbooks](runbooks.md#scannerunreachable)) |
 | Exhausting the database's connections | The connection budget fits the server (OPS-18) |
 
 ### Supply chain and operations

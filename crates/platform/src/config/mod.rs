@@ -13,6 +13,7 @@ use std::{
 
 mod error;
 mod mail;
+mod scanner;
 mod storage;
 mod web;
 
@@ -24,8 +25,8 @@ use ipnet::IpNet;
 pub use web::Origin;
 
 use crate::{
-    db::DatabaseUrl, hashing::HmacKey, mail::MailConfig, storage::StorageConfig,
-    telemetry::OtlpEndpoint,
+    db::DatabaseUrl, hashing::HmacKey, mail::MailConfig, scanner::ScannerConfig,
+    storage::StorageConfig, telemetry::OtlpEndpoint,
 };
 
 /// Where the API runs. Every deployment sets it explicitly.
@@ -89,6 +90,10 @@ pub struct TelemetryConfig {
     pub otlp_endpoint: Option<OtlpEndpoint>,
 }
 
+/// The drain's default deadline, in seconds: the longest timeout of a route, an upload's, so a
+/// deploy cuts short no request that its route would let finish (OPS-06).
+const DRAIN_DEFAULT_SECONDS: u32 = 60;
+
 /// The settings `serve` reads.
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
@@ -121,6 +126,8 @@ pub struct ServerConfig {
     pub mail: MailConfig,
     /// The bucket that holds files' bytes (PLATFORM-076).
     pub storage: StorageConfig,
+    /// The malware scanner that every upload's bytes go to (PLATFORM-077).
+    pub scanner: ScannerConfig,
     /// How often the hub re-checks each open stream's session and memberships (PLATFORM-031).
     pub stream_recheck: Duration,
 }
@@ -287,7 +294,7 @@ where
             database_max_connections: self.number("DATABASE_MAX_CONNECTIONS", 10, 1..=1000)?,
             max_concurrent_requests: self.number("MAX_CONCURRENT_REQUESTS", 100, 1..=100_000)?,
             shutdown_delay: self.seconds("SHUTDOWN_DELAY_SECONDS", 5)?,
-            shutdown_drain: self.seconds("SHUTDOWN_DRAIN_SECONDS", 10)?,
+            shutdown_drain: self.seconds("SHUTDOWN_DRAIN_SECONDS", DRAIN_DEFAULT_SECONDS)?,
             hmac_key: self.with("HMAC_KEY", HMAC_KEY_EXPECTED, web::hmac_key)?,
             trusted_proxies: self
                 .optional_with("TRUSTED_PROXIES", PROXIES_EXPECTED, web::proxies)?
@@ -303,6 +310,7 @@ where
             ),
             mail: self.mail()?,
             storage: self.storage(environment)?,
+            scanner: self.scanner()?,
             stream_recheck: self.duration("STREAM_RECHECK_SECONDS", 60, 10..=3_600)?,
         })
     }
@@ -494,7 +502,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    const SERVER: [(&str, &str); 10] = [
+    const SERVER: [(&str, &str); 11] = [
         ("ENVIRONMENT", "test"),
         ("LISTEN_ADDR", "0.0.0.0:8080"),
         ("DATABASE_URL", "postgres://app:secret@localhost:5432/api"),
@@ -505,6 +513,7 @@ mod tests {
         ("S3_BUCKET", "files"),
         ("S3_ACCESS_KEY_ID", "key"),
         ("S3_SECRET_ACCESS_KEY", "secret"),
+        ("CLAMD_ADDRESS", "127.0.0.1:3310"),
     ];
 
     fn settings(
@@ -647,7 +656,13 @@ mod tests {
         assert_eq!(config.database_max_connections, 10);
         assert_eq!(config.max_concurrent_requests, 100);
         assert_eq!(config.shutdown_delay, Duration::from_secs(5));
-        assert_eq!(config.shutdown_drain, Duration::from_secs(10));
+        assert_eq!(config.shutdown_drain, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn ops_06_the_drain_s_deadline_defaults_to_the_longest_timeout_of_a_route() {
+        let config = settings(&SERVER, &[]).server().unwrap();
+        assert_eq!(config.shutdown_drain, crate::http::UPLOAD_TIMEOUT);
     }
 
     #[test]

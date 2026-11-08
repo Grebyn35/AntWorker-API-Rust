@@ -1,7 +1,7 @@
 {
   "uid": "api-files",
   "title": "Files",
-  "description": "How uploads end, which a client that sends files the API doesn't accept, or a bucket that stops answering, changes, and whether the bucket answers the API's calls (the files spec).",
+  "description": "How uploads end, which a client that sends files the API doesn't accept or that hold malware, a scanner or a bucket that stops answering, changes, whether the scanner and the bucket answer the API's calls, and how old the scanner's signatures are (the files spec).",
   "tags": [
     "api"
   ],
@@ -38,7 +38,7 @@
     {
       "type": "timeseries",
       "title": "How do uploads end?",
-      "description": "Uploads in the last 5 minutes that reached the check of their bytes, by how each ended: stored, unsupported_type, its bytes of no kind the API accepts, or failed, as when the bucket doesn't answer (FILES-013). A rise in failed beside 503s on the upload route is the bucket's.",
+      "description": "Uploads in the last 5 minutes that reached the check of their bytes, by how each ended: stored, unsupported_type, its bytes of no kind the API accepts, malware_detected, when the scanner refused them, or failed, as when the scanner or the bucket doesn't answer (FILES-013). A rise in failed beside 503s on the upload route is the scanner's or the bucket's, which the panels beside tell apart.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -113,6 +113,86 @@
         "w": 12,
         "x": 12,
         "y": 0
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Does the scanner answer?",
+      "description": "Scans by the malware scanner in the last 5 minutes, by how each ended: clean, found, when it named a signature, failed, when it answered with an error or with what the client couldn't read, or unavailable, when it couldn't be reached, closed the connection, or didn't answer within 30 seconds (PLATFORM-077). Only unavailable scans, with no answered one, are the alert ScannerUnreachable.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (scanner_outcome) (increase(platform_scans_total[5m]))",
+          "legendFormat": "{{scanner_outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 3,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "How old are the scanner's signatures?",
+      "description": "How long ago freshclam last wrote the scanner's daily signatures, which ClamAV publishes several times a day. Over 2 days is the alert ScannerSignaturesOutdated. Empty in development and the tests, which scan with one signature of the repository's own.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "time() - max(file_mtime_seconds{file_name=~\"daily.c[lv]d\"})",
+          "legendFormat": "age"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 4,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
       }
     }
   ]

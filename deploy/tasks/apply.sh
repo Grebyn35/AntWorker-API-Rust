@@ -136,6 +136,7 @@ write_deploy_env() {
         printf '%s\n' "BACKUP_SECRETS=$(fingerprint_files "$secrets/backup_s3_key" "$secrets/backup_s3_key_secret" "$secrets/backup_cipher_pass")"
         printf '%s\n' "MANAGED_OTLP_SECRETS=$(fingerprint_files "$secrets/managed_otlp_token" "$deployment/certs/managed-otlp-ca.crt")"
         printf '%s\n' "ALERTMANAGER_SECRETS=$(fingerprint_files "$secrets"/alertmanager/*)"
+        printf '%s\n' "SCANNER_CONFIGURATION=$(fingerprint_files "$deployment"/scanner/*)"
     } > "$1"
 }
 
@@ -170,8 +171,8 @@ write_caddy_state() {
 # running ones'. The bundled Postgres counts only while the settings choose it: otherwise the deploy
 # stops it instead.
 changed_single_services() {
-    services=caddy
-    if [ "$database" = bundled ]; then services="caddy postgres"; fi
+    services="caddy scanner"
+    if [ "$database" = bundled ]; then services="caddy scanner postgres"; fi
     for service in $services; do
         container=$(running "$service")
         if [ -z "$container" ]; then continue; fi
@@ -271,13 +272,13 @@ apply() {
     changed=$(changed_single_services)
     if [ -n "$changed" ] && [ "$allow_restart" != yes ]; then
         cp "$state/deploy.env.previous" "$state/deploy.env"
-        fail "this deploy changes $(printf '%s\n' "$changed" | tr '\n' ' ')which runs once, so it restarts it and interrupts requests for a few seconds: the release changes it, or a setting or a secret it reads. Deploy again with --allow-restart when that's acceptable"
+        fail "this deploy changes $(printf '%s\n' "$changed" | tr '\n' ' ')which runs once, so it restarts it and interrupts requests: for a few seconds, or, for the scanner, the uploads until it has loaded its signatures, about half a minute. The release changes it, or a setting, a secret or a file it reads. Deploy again with --allow-restart when that's acceptable"
     fi
     write_caddy_state
 
     stale=$(stale_services)
     say "starting the services the replicas use"
-    single="caddy"
+    single="caddy scanner"
     shared=""
     if [ "$database" = bundled ]; then single="$single postgres" shared="$shared backup"; fi
     if [ "$telemetry" = self-hosted ]; then shared="$shared collector prometheus alertmanager loki tempo grafana"; fi
@@ -359,7 +360,7 @@ stop_unused_services() {
         if [ -z "$container" ]; then continue; fi
         say "stopping $service, which DATABASE=$database and TELEMETRY=$telemetry don't use; its volumes stay"
         if [ "$service" = postgres ]; then left=$(docker inspect --format '{{ .Config.Image }}' "$container"); fi
-        # As long as Compose would give Postgres, the longest of the services' grace periods.
+        # As long as Compose would give Postgres, the longest grace period of these services.
         docker stop --time 60 "$container" > /dev/null
         docker rm "$container" > /dev/null
     done

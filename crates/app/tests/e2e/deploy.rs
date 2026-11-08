@@ -7,7 +7,9 @@ use std::time::Duration;
 use platform::errors::{ErrorCode, RequestError};
 
 use crate::{
-    deployment::{API_ADDRESS, Deployment, Traffic, assert_all_succeeded, get, get_within},
+    deployment::{
+        API_ADDRESS, Deployment, Traffic, assert_all_succeeded, get, get_within, streaming_client,
+    },
     docker::lossy,
     server::DEPLOYMENT,
 };
@@ -31,6 +33,106 @@ async fn ops_14_a_deploy_replaces_every_replica_while_every_request_succeeds() {
     assert_eq!(deployment.server.running("api-green").len(), 2);
     assert!(deployment.server.running("api-blue").is_empty());
     assert_all_succeeded(&outcomes);
+}
+
+/// A body that sends `first`, then waits for the rest, which arrives on `rest`, telling `started`
+/// once its first part is read.
+struct Coming {
+    parts: std::vec::IntoIter<Vec<u8>>,
+    current: std::io::Cursor<Vec<u8>>,
+    rest: std::sync::mpsc::Receiver<Vec<u8>>,
+    started: Option<std::sync::mpsc::Sender<()>>,
+}
+
+impl std::io::Read for Coming {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            let read = self.current.read(buffer)?;
+            if read > 0 {
+                if let Some(started) = self.started.take() {
+                    started
+                        .send(())
+                        .expect("the test waits for the upload's start");
+                }
+                return Ok(read);
+            }
+            let next = match self.parts.next() {
+                Some(part) => part,
+                // Waits for the rest, then ends.
+                None => match self.rest.recv() {
+                    Ok(part) => part,
+                    Err(_) => return Ok(0),
+                },
+            };
+            self.current = std::io::Cursor::new(next);
+        }
+    }
+}
+
+#[tokio::test]
+async fn ops_06_an_upload_whose_body_still_comes_once_its_replica_stopped_accepting_is_stored() {
+    let deployment = Deployment::managed(&[]);
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    let workspace = deployment.workspace();
+    let (start, rest) = (b"stored ".to_vec(), b"across a deploy".to_vec());
+    let length = u64::try_from(start.len() + rest.len()).unwrap();
+    let (send_rest, coming) = std::sync::mpsc::channel();
+    let (started, upload_started) = std::sync::mpsc::channel();
+    let body = Coming {
+        parts: vec![start].into_iter(),
+        current: std::io::Cursor::new(Vec::new()),
+        rest: coming,
+        started: Some(started),
+    };
+    let upload = {
+        let (root, files, token) = (
+            workspace.root.clone(),
+            workspace.files.clone(),
+            workspace.token,
+        );
+        std::thread::spawn(move || {
+            let response = streaming_client(&root, Duration::from_secs(120))
+                .post(&files)
+                .bearer_auth(token)
+                .header("content-type", "application/octet-stream")
+                .header("content-disposition", "attachment; filename=\"notes.txt\"")
+                .body(reqwest::blocking::Body::sized(body, length))
+                .send()
+                .expect("an answer");
+            (
+                response.status().as_u16(),
+                response.text().expect("the body"),
+            )
+        })
+    };
+    upload_started.recv().expect("the upload's start");
+
+    let running = deployment
+        .apply_until(&deployment.api, "stopping the blue replicas")
+        .await;
+    // Each blue replica has stopped accepting connections, so its drain has begun, or has stopped
+    // altogether, as one with no request in flight does.
+    deployment.server.shell_ok(
+        "timeout 60 sh -c 'for replica in 1 2; do \
+             until answer=$(docker exec deployment-api-blue-$replica /usr/local/bin/antworker-api health 2>&1); \
+                 case $answer in *\"can'\\''t reach\"* | *\"is not running\"* | *\"No such container\"*) true ;; *) false ;; esac; do \
+                 sleep 0.2; \
+             done; \
+         done'",
+    );
+    send_rest
+        .send(rest)
+        .expect("the upload still reads its body");
+    let (deployed, written) = running.finish();
+    let (status, file) = upload.join().expect("the upload");
+
+    assert!(deployed, "{written}");
+    assert_eq!(status, 201, "{file}");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&file).unwrap()["size_bytes"],
+        length
+    );
 }
 
 #[tokio::test]
@@ -111,6 +213,39 @@ async fn ops_14_a_deploy_restarts_the_proxy_only_when_the_operator_allows_it() {
     let restarted = deployment.server.running("caddy");
     assert_eq!(restarted.len(), 1);
     assert_ne!(restarted, caddy);
+}
+
+#[tokio::test]
+async fn ops_14_a_deploy_restarts_the_scanner_only_for_its_changed_files_and_with_consent() {
+    let deployment = Deployment::managed(&[]);
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    let scanner = deployment.server.running("scanner");
+
+    let same = deployment.apply(&deployment.api, &[]).await;
+    let kept = deployment.server.running("scanner");
+    deployment
+        .server
+        .shell_ok("echo '# A changed configuration.' >> /root/release/scanner/clamd.conf");
+    let refused = deployment.apply(&deployment.api, &[]).await;
+    let refused_scanner = deployment.server.running("scanner");
+    let allowed = deployment
+        .apply(&deployment.api, &["--allow-restart"])
+        .await;
+
+    assert!(same.status.success(), "{}", lossy(&same));
+    assert_eq!(kept, scanner);
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains("changes scanner"),
+        "{}",
+        lossy(&refused)
+    );
+    assert_eq!(refused_scanner, scanner);
+    assert!(allowed.status.success(), "{}", lossy(&allowed));
+    let restarted = deployment.server.running("scanner");
+    assert_eq!(restarted.len(), 1);
+    assert_ne!(restarted, scanner);
 }
 
 #[tokio::test]
@@ -502,6 +637,7 @@ async fn ops_14_every_container_of_a_deployment_keeps_a_capped_log() {
     for service in [
         "caddy",
         "api-blue",
+        "scanner",
         "postgres",
         "backup",
         "collector",

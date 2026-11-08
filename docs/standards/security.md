@@ -60,7 +60,7 @@ A member can change or remove only members at roles below their own, and can ass
 ## Requests and responses
 
 ### SEC-10 Outbound requests go through one of two clients
-All outbound HTTP that application code makes uses one of the two clients in `platform::outbound`. The object storage and telemetry adapters use their libraries' own clients, with endpoints from configuration. The probe that the `health` subcommand sends to the instance's own address (PLATFORM-063) reaches no other service, so neither client applies to it.
+All outbound HTTP that application code makes uses one of the two clients in `platform::outbound`. The object storage and telemetry adapters use their libraries' own clients, with endpoints from configuration. The probe that the `health` subcommand sends to the instance's own address (PLATFORM-063) reaches no other service, and the malware scanner's adapter speaks clamd's own protocol, not HTTP, over TCP to the address that configuration names (PLATFORM-077), so neither client applies to them.
 - The configured client calls URLs that come from configuration, such as OAuth endpoints. It requires HTTPS, unless the environment is development or test.
 - The untrusted client calls URLs that come from a third party, such as an OAuth avatar. It:
   - allows HTTPS only

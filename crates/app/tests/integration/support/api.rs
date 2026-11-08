@@ -23,7 +23,7 @@ use tower::ServiceExt;
 use super::{Proxy, TestDatabase, contract::Contract};
 
 /// The service the tests' OpenAPI documents name. The name and version don't affect a check.
-const SERVICE: Service = Service {
+pub(crate) const SERVICE: Service = Service {
     name: "api",
     version: "0.0.0",
 };
@@ -96,6 +96,9 @@ fn environment(options: &Options) -> HashMap<String, String> {
         ("S3_URI_STYLE", "path"),
         ("S3_ACCESS_KEY_ID", "test"),
         ("S3_SECRET_ACCESS_KEY", "test"),
+        // The malware scanner that `just services` starts, which knows only the EICAR test file
+        // (the files spec's "Scanning").
+        ("CLAMD_ADDRESS", super::scanner::ADDRESS),
     ]
     .into_iter()
     .map(|(name, value)| (name.to_owned(), value.to_owned()))

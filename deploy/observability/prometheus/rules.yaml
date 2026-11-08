@@ -142,6 +142,17 @@ groups:
           summary: The bucket of files' bytes answered none of the API's calls for 5 minutes, while some went unanswered.
           runbook: docs/operations/runbooks.md#storageunreachable
 
+      - alert: ScannerUnreachable
+        expr: |
+          sum(increase(platform_scans_total{scanner_outcome="unavailable"}[5m])) > 0
+            unless sum(increase(platform_scans_total{scanner_outcome=~"clean|found|failed"}[5m])) > 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: The malware scanner answered none of the API's scans for 5 minutes, while some went unanswered, so no upload is stored.
+          runbook: docs/operations/runbooks.md#scannerunreachable
+
       - alert: ApiTelemetryMissing
         expr: absent_over_time(platform_database_reachable[2m])
         for: 3m
@@ -278,6 +289,15 @@ groups:
         annotations:
           summary: The bundled database's newest base backup completed more than 26 hours ago, though one runs every day.
           runbook: docs/operations/runbooks.md#basebackuptooold
+
+      - alert: ScannerSignaturesOutdated
+        expr: time() - max(file_mtime_seconds{file_name=~"daily.c[lv]d"}) > 2 * 86400
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: The malware scanner's daily signatures are more than 2 days old, though ClamAV publishes new ones several times a day.
+          runbook: docs/operations/runbooks.md#scannersignaturesoutdated
 
       - alert: ObservabilityServiceDown
         expr: up{job=~"collector|loki|tempo|alertmanager"} == 0

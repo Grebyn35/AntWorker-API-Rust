@@ -104,6 +104,7 @@ fn ops_01_each_number_setting_is_refused_just_outside_its_range() {
         ("S3_BUCKET", "files"),
         ("S3_ACCESS_KEY_ID", "key"),
         ("S3_SECRET_ACCESS_KEY", "secret"),
+        ("CLAMD_ADDRESS", "127.0.0.1:3310"),
     ];
 
     for (name, low, high) in &ranged {

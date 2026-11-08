@@ -29,6 +29,7 @@ pub mod jobs;
 pub mod lists;
 pub mod mailbox;
 pub mod proxy;
+pub mod scanner;
 pub mod streams;
 pub mod users;
 pub mod workspaces;

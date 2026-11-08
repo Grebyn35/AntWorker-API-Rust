@@ -31,7 +31,7 @@ updates:
   - package-ecosystem: docker-compose
     # Development's services and the tasks' tools, and the reference deployment's, with the
     # services and tools both share.
-    directories: [/, /deploy, /deploy/observability, /deploy/tools]
+    directories: [/, /deploy, /deploy/observability, /deploy/scanner, /deploy/tools]
     schedule:
       interval: weekly
     groups:

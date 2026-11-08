@@ -6782,7 +6782,8 @@
                         "code": {
                           "enum": [
                             "request.idempotency_key_reused",
-                            "files.unsupported_type"
+                            "files.unsupported_type",
+                            "files.malware_detected"
                           ],
                           "type": "string"
                         }
@@ -6793,7 +6794,7 @@
                 }
               }
             },
-            "description": "`request.idempotency_key_reused`: Idempotency key already used. `files.unsupported_type`: Unsupported file type.",
+            "description": "`request.idempotency_key_reused`: Idempotency key already used. `files.unsupported_type`: Unsupported file type. `files.malware_detected`: Malware detected.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -6894,6 +6895,7 @@
                             "request.timed_out",
                             "request.overloaded",
                             "request.unavailable",
+                            "files.scanner_unavailable",
                             "files.storage_unavailable"
                           ],
                           "type": "string"
@@ -6905,7 +6907,7 @@
                 }
               }
             },
-            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer. `files.storage_unavailable`: Storage unavailable.",
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer. `files.scanner_unavailable`: Scanner unavailable. `files.storage_unavailable`: Storage unavailable.",
             "headers": {
               "retry-after": {
                 "description": "How many seconds to wait before trying again.",

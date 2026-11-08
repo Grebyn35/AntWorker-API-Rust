@@ -1,0 +1,14 @@
+# The malware scanner's service (the files spec's "Scanning"), which the reference deployment runs
+# (deploy/compose.yaml), and development and the tests too (compose.yaml), each with its own
+# entrypoint and signatures: ClamAV's daemon, clamd, as the image's own user, on a read-only root,
+# keeping each stream it scans in memory, and answering on port 3310.
+services:
+  scanner:
+    image: clamav/clamav-debian:1.5.4_base@sha256:1474f1d18827ec86ec2142a6e3d590008e755b415ad765db32bf829063653a95
+    user: clamav
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]

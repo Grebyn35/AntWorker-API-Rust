@@ -41,7 +41,7 @@ sha2.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 time.workspace = true
-tokio = { workspace = true, features = ["fs", "sync", "time"] }
+tokio = { workspace = true, features = ["fs", "io-util", "sync", "time"] }
 tower = { workspace = true, features = ["limit", "load-shed", "timeout"] }
 tower-http = { workspace = true, features = ["catch-panic", "set-header"] }
 tracing.workspace = true

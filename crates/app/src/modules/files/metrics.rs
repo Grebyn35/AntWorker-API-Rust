@@ -7,7 +7,8 @@ static UPLOADS: Counter<1> = Counter::new(
     "files.uploads",
     "{upload}",
     "Uploads that reached the check of their bytes, by how each ended: stored, \
-     unsupported_type or failed (FILES-013).",
+     unsupported_type, malware_detected, or failed, which a scanner that doesn't answer counts \
+     in too (FILES-013).",
     [names::FILES_OUTCOME],
 );
 
@@ -18,7 +19,10 @@ pub(super) enum Upload {
     Stored,
     /// Its bytes aren't of an accepted kind's (FILES-003).
     UnsupportedType,
-    /// Anything else stopped it: the storage, the database, or a refusal of its unit of work.
+    /// The scanner refused its bytes (FILES-005).
+    MalwareDetected,
+    /// Anything else stopped it: the scanner, the storage, the database, or a refusal of its unit
+    /// of work.
     Failed,
 }
 
@@ -27,6 +31,7 @@ pub(super) fn upload(outcome: Upload) {
     let label = match outcome {
         Upload::Stored => "stored",
         Upload::UnsupportedType => "unsupported_type",
+        Upload::MalwareDetected => "malware_detected",
         Upload::Failed => "failed",
     };
     UPLOADS.add(1, [label.into()]);

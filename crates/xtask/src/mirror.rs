@@ -14,7 +14,11 @@ use std::{
 use crate::{repo::Repo, stack};
 
 /// The Compose files of the reference deployment, whose images a server pulls when it deploys.
-const DEPLOYMENT: [&str; 2] = ["deploy/compose.yaml", "deploy/observability/compose.yaml"];
+const DEPLOYMENT: [&str; 3] = [
+    "deploy/compose.yaml",
+    "deploy/observability/compose.yaml",
+    "deploy/scanner/compose.yaml",
+];
 /// The services of other Compose files that the tests run on a server: the stand-ins for the
 /// bucket and the mail server, and the tools of a deploy's import into a managed Grafana. The
 /// tools that verify a release come from other registries, and a test's deploy doesn't verify one.

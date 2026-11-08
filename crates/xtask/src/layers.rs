@@ -13,7 +13,8 @@
 //!   another system, such as `sqlx::Error` (ERR-04).
 //! - The code of `platform` and `app` names an HTTP client library, or a TCP stream through
 //!   which it could write HTTP itself, only in `platform::outbound`, the object storage and
-//!   telemetry adapters, and the health subcommand's probe (SEC-10).
+//!   telemetry adapters, the health subcommand's probe, and the malware scanner's adapter, which
+//!   speaks clamd's protocol (SEC-10).
 //!
 //! It reads each file as a token stream, with the paths its `use` declarations import (`rust`).
 
@@ -84,9 +85,13 @@ const CLIENTS_ALLOWED: [&str; 5] = [
     "crates/platform/src/telemetry/",
 ];
 
-/// The health subcommand's probe, which writes its request to the instance's own address over
-/// TCP itself (SEC-10).
-const PROBE: &str = "crates/platform/src/lifecycle.rs";
+/// Where SEC-10 allows a TCP stream beside the places of `CLIENTS_ALLOWED`: the health
+/// subcommand's probe, which writes its request to the instance's own address itself, and the
+/// malware scanner's adapter, which speaks clamd's protocol to the address configuration names.
+const TCP_ALLOWED: [&str; 2] = [
+    "crates/platform/src/lifecycle.rs",
+    "crates/platform/src/scanner.rs",
+];
 
 /// Checks every Rust file of `platform` and `app`.
 pub fn check(repo: &Repo) -> Outcome {
@@ -366,7 +371,9 @@ fn clients(source: &Source) -> Vec<Finding> {
         let client = match path.as_slice() {
             [root, ..] if HTTP_CLIENTS.contains(root) => true,
             ["hyper" | "hyper_util", "client", ..] => true,
-            ["std" | "tokio" | "async_std", "net", "TcpStream", ..] => source.path != PROBE,
+            ["std" | "tokio" | "async_std", "net", "TcpStream", ..] => {
+                !TCP_ALLOWED.contains(&source.path)
+            }
             _ => false,
         };
         if client {
@@ -374,7 +381,7 @@ fn clients(source: &Source) -> Vec<Finding> {
                 source.path,
                 line,
                 format!(
-                    "`{}` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters and the health probe (SEC-10)",
+                    "`{}` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters, the health probe and the scanner's adapter (SEC-10)",
                     path.join("::")
                 ),
             ));
@@ -545,8 +552,8 @@ mod tests {
         assert_eq!(
             findings("crates/app/src/modules/auth/providers/google.rs", code),
             [
-                "`std::net::TcpStream` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters and the health probe (SEC-10)",
-                "`reqwest::Client::builder` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters and the health probe (SEC-10)",
+                "`std::net::TcpStream` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters, the health probe and the scanner's adapter (SEC-10)",
+                "`reqwest::Client::builder` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters, the health probe and the scanner's adapter (SEC-10)",
             ]
         );
         assert_eq!(
@@ -557,12 +564,15 @@ mod tests {
             findings("crates/platform/src/outbound/untrusted.rs", code),
             Vec::<String>::new()
         );
-        assert_eq!(
-            findings(PROBE, code),
-            [
-                "`reqwest::Client::builder` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters and the health probe (SEC-10)"
-            ]
-        );
+        for place in TCP_ALLOWED {
+            assert_eq!(
+                findings(place, code),
+                [
+                    "`reqwest::Client::builder` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters, the health probe and the scanner's adapter (SEC-10)"
+                ],
+                "{place}"
+            );
+        }
         assert_eq!(
             findings("crates/xtask/src/load.rs", code),
             Vec::<String>::new(),

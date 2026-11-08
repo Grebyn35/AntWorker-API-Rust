@@ -39,6 +39,8 @@ pub(crate) fn routes() -> Routes<Files> {
                 &FilesError::InvalidName(None),
                 &FilesError::Empty,
                 &FilesError::UnsupportedType,
+                &FilesError::MalwareDetected,
+                &FilesError::ScannerUnavailable(None),
                 &FilesError::StorageUnavailable(None),
             ],
         )

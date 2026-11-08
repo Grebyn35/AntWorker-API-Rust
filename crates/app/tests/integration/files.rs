@@ -21,6 +21,7 @@ use crate::support::{
     events::{self, Event},
     files, fixtures,
     lists::{field, pages},
+    scanner::{self, Script},
     streams,
     users::{self, SignedIn},
     workspaces,
@@ -159,18 +160,48 @@ async fn published(api: &Api, name: &str) -> Vec<String> {
 
 /// A ZIP archive whose entries, stored empty, are named `names`, as an Office document is one.
 fn archive(names: &[&str]) -> Vec<u8> {
+    let entries: Vec<(&str, &[u8])> = names.iter().map(|name| (*name, &[][..])).collect();
+    archive_of(&entries)
+}
+
+/// The CRC-32 of `bytes`, as ZIP's headers hold it.
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = u32::MAX;
+    for byte in bytes {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            crc = if crc & 1 == 1 {
+                (crc >> 1) ^ 0xEDB8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    !crc
+}
+
+/// A ZIP archive of `entries`, each a name and the bytes it stores, uncompressed.
+fn archive_of(entries: &[(&str, &[u8])]) -> Vec<u8> {
     let mut bytes = Vec::new();
     let mut directory = Vec::new();
-    for name in names {
+    for (name, stored) in entries {
         let offset = u32::try_from(bytes.len()).unwrap();
         let length = u16::try_from(name.len()).unwrap();
+        let size = u32::try_from(stored.len()).unwrap();
+        // The CRC-32 and the sizes, compressed and not, which are equal for a stored entry.
+        let mut sums = crc32(stored).to_le_bytes().to_vec();
+        sums.extend_from_slice(&size.to_le_bytes());
+        sums.extend_from_slice(&size.to_le_bytes());
         bytes.extend_from_slice(b"PK\x03\x04");
-        bytes.extend_from_slice(&[0; 22]);
+        bytes.extend_from_slice(&[0; 10]);
+        bytes.extend_from_slice(&sums);
         bytes.extend_from_slice(&length.to_le_bytes());
         bytes.extend_from_slice(&[0, 0]);
         bytes.extend_from_slice(name.as_bytes());
+        bytes.extend_from_slice(stored);
         directory.extend_from_slice(b"PK\x01\x02");
-        directory.extend_from_slice(&[0; 24]);
+        directory.extend_from_slice(&[0; 12]);
+        directory.extend_from_slice(&sums);
         directory.extend_from_slice(&length.to_le_bytes());
         directory.extend_from_slice(&[0; 12]);
         directory.extend_from_slice(&offset.to_le_bytes());
@@ -178,7 +209,7 @@ fn archive(names: &[&str]) -> Vec<u8> {
     }
     let offset = u32::try_from(bytes.len()).unwrap();
     let size = u32::try_from(directory.len()).unwrap();
-    let count = u16::try_from(names.len()).unwrap();
+    let count = u16::try_from(entries.len()).unwrap();
     bytes.extend_from_slice(&directory);
     bytes.extend_from_slice(b"PK\x05\x06\0\0\0\0");
     bytes.extend_from_slice(&count.to_le_bytes());
@@ -320,6 +351,127 @@ async fn files_004_a_body_over_the_limit_answers_413_and_an_empty_one_400() {
     assert_eq!(empty.status, 400);
     assert_eq!(empty.json()["code"], "files.empty");
     assert_eq!(stored_names(&api, &workspace).await, ["a.txt"]);
+}
+
+/// How many uploads ended as `outcome`, in every test that runs alongside.
+fn uploads(outcome: &str) -> f64 {
+    testing::recorded("files.uploads")
+        .into_iter()
+        .filter(|point| point.labels.get("files.outcome").map(String::as_str) == Some(outcome))
+        .map(|point| point.value)
+        .sum()
+}
+
+#[tokio::test]
+async fn files_005_an_upload_in_which_the_scanner_finds_a_signature_is_refused() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let detected = uploads("malware_detected");
+
+    let response = upload(&api, &ada, &workspace, "eicar.txt", &scanner::eicar(), None).await;
+
+    assert_eq!(response.status, 422);
+    assert_eq!(response.json()["code"], "files.malware_detected");
+    assert!(stored_names(&api, &workspace).await.is_empty());
+    assert!(objects(&api).await.is_empty());
+    assert!(entries(&api, "file.uploaded").await.is_empty());
+    // Tests running alongside upload too, so the count grows by at least this.
+    assert!(uploads("malware_detected") >= detected + 1.0);
+}
+
+#[tokio::test]
+async fn files_005_a_document_whose_archives_nest_past_the_scanner_s_limit_is_refused() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    // clamd scans archives nested 17 deep at most (the files spec's "Scanning").
+    let mut nested = archive_of(&[("a.txt", b"hello")]);
+    for _ in 0..20 {
+        nested = archive_of(&[("inner.zip", &nested)]);
+    }
+    let document = archive_of(&[
+        ("[Content_Types].xml", b"<Types/>"),
+        ("word/document.xml", b"<w:document/>"),
+        ("word/embeddings/nested.zip", &nested),
+    ]);
+    let shallow = archive_of(&[
+        ("[Content_Types].xml", b"<Types/>"),
+        ("word/document.xml", b"<w:document/>"),
+        (
+            "word/embeddings/one.zip",
+            &archive_of(&[("a.txt", b"hello")]),
+        ),
+    ]);
+
+    let refused = upload(&api, &ada, &workspace, "deep.docx", &document, None).await;
+    let stored = upload(&api, &ada, &workspace, "shallow.docx", &shallow, None).await;
+
+    assert_eq!(refused.status, 422);
+    assert_eq!(refused.json()["code"], "files.malware_detected");
+    assert_eq!(stored.status, 201, "{:?}", stored.json());
+    assert_eq!(stored_names(&api, &workspace).await, ["shallow.docx"]);
+}
+
+#[tokio::test]
+async fn files_005_while_the_scanner_doesn_t_answer_an_upload_answers_503_and_stores_nothing() {
+    // Nothing listens on port 9 of the loopback address.
+    let api = Api::with(Options::default().set("CLAMD_ADDRESS", "127.0.0.1:9")).await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let failed = uploads("failed");
+
+    let response = upload(&api, &ada, &workspace, "a.txt", b"hello", None).await;
+
+    assert_eq!(response.status, 503);
+    assert_eq!(response.json()["code"], "files.scanner_unavailable");
+    assert_eq!(response.header("retry-after"), "1");
+    assert!(stored_names(&api, &workspace).await.is_empty());
+    assert!(objects(&api).await.is_empty());
+    let errors = errors_of(&response);
+    assert_eq!(errors.len(), 1, "{errors:#?}");
+    assert!(errors[0].to_string().contains("scanner"), "{errors:#?}");
+    // Tests running alongside upload too, so the count grows by at least this (FILES-013).
+    assert!(uploads("failed") >= failed + 1.0);
+}
+
+#[tokio::test]
+async fn files_005_a_scanner_that_doesn_t_answer_within_its_time_answers_503() {
+    let stand_in = scanner::scripted(Script::Never).await;
+    let api = Api::with(Options::default().set("CLAMD_ADDRESS", &stand_in.address)).await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let clock = api.clock();
+    // A scan has 30 seconds (the platform spec's Scanner).
+    let wait = Duration::from_secs(30);
+
+    let (response, ()) = tokio::join!(
+        upload(&api, &ada, &workspace, "a.txt", b"hello", None),
+        async {
+            stand_in.read.notified().await;
+            clock.sleeping(wait).await;
+            clock.advance(wait);
+        }
+    );
+
+    assert_eq!(response.status, 503);
+    assert_eq!(response.json()["code"], "files.scanner_unavailable");
+    assert!(stored_names(&api, &workspace).await.is_empty());
+}
+
+#[tokio::test]
+async fn files_005_a_scan_that_fails_otherwise_answers_500() {
+    let stand_in = scanner::scripted(Script::Answer("Can't allocate memory ERROR")).await;
+    let api = Api::with(Options::default().set("CLAMD_ADDRESS", &stand_in.address)).await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+
+    let response = upload(&api, &ada, &workspace, "a.txt", b"hello", None).await;
+
+    assert_eq!(response.status, 500);
+    assert_eq!(response.json()["code"], "request.internal_error");
+    assert!(stored_names(&api, &workspace).await.is_empty());
+    let errors = errors_of(&response);
+    assert_eq!(errors.len(), 1, "{errors:#?}");
+    assert!(
+        errors[0].to_string().contains("allocate memory"),
+        "{errors:#?}"
+    );
 }
 
 #[tokio::test]

@@ -138,6 +138,38 @@ tests:
         alertname: StorageUnreachable
         exp_alerts: []
 
+  # The scanner answers the first scans, then none from the third minute on.
+  - interval: 1m
+    input_series:
+      - series: 'platform_scans_total{job="api", instance="a", scanner_outcome="clean"}'
+        values: "1 2 2 2 2 2 2 2 2 2 2 2"
+      - series: 'platform_scans_total{job="api", instance="a", scanner_outcome="unavailable"}'
+        values: "0 0 1 2 3 4 5 6 7 8 9 10"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ScannerUnreachable
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: ScannerUnreachable
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: The malware scanner answered none of the API's scans for 5 minutes, while some went unanswered, so no upload is stored.
+              runbook: docs/operations/runbooks.md#scannerunreachable
+
+  # A scanner that fails some scans still answers.
+  - interval: 1m
+    input_series:
+      - series: 'platform_scans_total{job="api", instance="a", scanner_outcome="failed"}'
+        values: "0 1 2 3 4 5 6 7 8 9 10 11"
+      - series: 'platform_scans_total{job="api", instance="a", scanner_outcome="unavailable"}'
+        values: "0 1 2 3 4 5 6 7 8 9 10 11"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ScannerUnreachable
+        exp_alerts: []
+
   # The last instance stops exporting after 3 minutes.
   - interval: 1m
     input_series:
@@ -259,6 +291,25 @@ tests:
             exp_annotations:
               summary: The bundled database's newest base backup completed more than 26 hours ago, though one runs every day.
               runbook: docs/operations/runbooks.md#basebackuptooold
+
+  # The scanner's daily signatures last changed at the start, and never since: freshclam stopped
+  # reaching ClamAV's mirrors.
+  - interval: 1m
+    input_series:
+      - series: 'file_mtime_seconds{file_name="daily.cld"}'
+        values: "0x3000"
+    alert_rule_test:
+      - eval_time: 47h
+        alertname: ScannerSignaturesOutdated
+        exp_alerts: []
+      - eval_time: 49h
+        alertname: ScannerSignaturesOutdated
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: The malware scanner's daily signatures are more than 2 days old, though ClamAV publishes new ones several times a day.
+              runbook: docs/operations/runbooks.md#scannersignaturesoutdated
 
   # A disk 86% full that loses a megabyte a minute, and one 97% full that doesn't change, such as a
   # boot partition.

@@ -55,6 +55,22 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **What to do.** Check the provider's status page, and that the server reaches the bucket's endpoint: `just server-check` reads the bucket with the deployment's key pair. A provider's outage clears with it; uploads that failed meanwhile were stored nowhere, so their clients send them again.
 
+## ScannerUnreachable
+
+**What it means.** For 5 minutes, the malware scanner answered none of the API's scans, while some went unanswered: the connection to it failed, it closed the connection before its answer, or it took more than its 30 seconds ([platform spec](../spec/platform.md#scanner)). Uploads answer 503 `files.scanner_unavailable` meanwhile, and store nothing (FILES-005), while every other route serves.
+
+**Look first.** `just status`, which shows whether the `scanner` container runs and is healthy, then `just logs <host> scanner`. A scanner that restarted loads its signatures again for about half a minute; one that has none yet, as on a new server, downloads them first, and its log says so. The Files dashboard: "Does the scanner answer?" shows when the scans stopped being answered, and the `ERROR` lines of the 503s name the failure.
+
+**What to do.** A scanner that runs but answers late is short of CPU: a burst of large Word, Excel or PowerPoint files takes about 0.9 seconds a MiB each, one processor apiece, up to `SCANNER_CPUS` at once ([deploy.md](deploy.md#the-scanner)). Raise `SCANNER_CPUS` on a server with processors to spare, and deploy with `--allow-restart`. A scanner that stopped, such as one the kernel killed for its memory while it loaded new signatures, restarts on its own; give the server the memory that [deploy.md](deploy.md#what-a-server-needs) asks for. Uploads that failed meanwhile were stored nowhere, so their clients send them again.
+
+## ScannerSignaturesOutdated
+
+**What it means.** The malware scanner's daily signatures haven't changed for 2 days, though ClamAV publishes new ones several times a day, so it misses the malware found since. freshclam, beside clamd in the `scanner` container, checks for them 12 times a day ([deploy.md](deploy.md#the-scanner)).
+
+**Look first.** `just logs <host> scanner`: freshclam's lines name each check that failed, such as a name it couldn't resolve, a connection it couldn't make, or ClamAV's mirrors refusing the server for checking too often, which they answer with 429 and a time to wait.
+
+**What to do.** A server that can't reach `database.clamav.net` needs its firewall or its DNS fixed. A server that ClamAV's mirrors refuse waits out the time they gave, and checks again on its own; one whose address a provider shares with many others may stay refused, and a fork then runs a private mirror, as [ClamAV's documentation](https://docs.clamav.net/manual/Usage/Configuration.html) describes, and names it in deploy/scanner/freshclam.conf. Uploads go on being scanned with the signatures the scanner has meanwhile.
+
 ## ApiTelemetryMissing
 
 **What it means.** No instance of the API exported metrics for five minutes. Either no instance runs, or their telemetry doesn't reach Prometheus.
@@ -131,7 +147,7 @@ With a managed database, run the same query in the provider's console. Add `payl
 
 **Look first.** `just logs <host> postgres` shows pgBackRest's error for each attempt, such as a key pair the bucket refuses, an endpoint that doesn't answer, or a certificate the deployment doesn't trust.
 
-**What to do.** Fix what the error names: the bucket itself, after which Postgres retries on its own, or the bucket's key pair or its settings, with `just server-setup`, then `just deploy <host> --allow-restart`, since Postgres reads them only as it starts ([deploy.md](deploy.md#restarting-postgres-or-caddy)); `just server-check` reads the bucket as Postgres does. The alert clears with the next archive that succeeds. Then take a base backup with `just backup`, so a restore needs no segment from before the failure.
+**What to do.** Fix what the error names: the bucket itself, after which Postgres retries on its own, or the bucket's key pair or its settings, with `just server-setup`, then `just deploy <host> --allow-restart`, since Postgres reads them only as it starts ([deploy.md](deploy.md#restarting-postgres-caddy-or-the-scanner)); `just server-check` reads the bucket as Postgres does. The alert clears with the next archive that succeeds. Then take a base backup with `just backup`, so a restore needs no segment from before the failure.
 
 ## BaseBackupTooOld
 

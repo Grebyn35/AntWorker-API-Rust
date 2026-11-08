@@ -167,6 +167,12 @@ impl Server {
             // Hub itself is out of reach (TEST-06).
             "--add-host",
             "registry-1.docker.io:127.0.0.1",
+            // No name outside the test environment resolves on the server, for its Docker or its
+            // containers, so none reaches outside it, such as the scanner's freshclam, whose
+            // mirrors are ClamAV's (TEST-06). Compose's names still resolve, through Docker's own
+            // resolver.
+            "--dns",
+            "127.0.0.1",
             &image,
             // Docker listens only on its socket. Named with its own arguments, dockerd gets no
             // listener from the image's entrypoint, which otherwise adds a TCP one without TLS,
@@ -184,13 +190,36 @@ impl Server {
             &deploy.to_string_lossy(),
             &format!("{}:{RELEASE}", container.id()),
         ]);
-        Self {
+        let server = Self {
             container,
             database: None,
             share,
             heavy: OnceLock::new(),
             buckets: OnceLock::new(),
-        }
+        };
+        server.seed_signatures();
+        server
+    }
+
+    /// Gives the deployment's scanner one signature, which names the EICAR test file, in the
+    /// volume where a deploy's scanner keeps ClamAV's, as Compose would create it: its freshclam
+    /// reaches no mirror from the server, so the scanner starts with that one (the files spec's
+    /// "Scanning").
+    fn seed_signatures(&self) {
+        let image = compose(&[
+            "--file",
+            "../../deploy/scanner/compose.yaml",
+            "config",
+            "--images",
+            "scanner",
+        ]);
+        self.shell_ok(&format!(
+            "set -e
+            docker volume create --label com.docker.compose.project=deployment \
+                --label com.docker.compose.volume=scanner-signatures deployment_scanner-signatures > /dev/null
+            docker run --rm --quiet --user clamav --volume deployment_scanner-signatures:/var/lib/clamav \
+                --volume {RELEASE}/scanner/eicar.ndb:/eicar.ndb:ro --entrypoint cp {image} /eicar.ndb /var/lib/clamav/"
+        ));
     }
 
     /// Waits for the heavy turn, unless the server holds it already, and raises its memory

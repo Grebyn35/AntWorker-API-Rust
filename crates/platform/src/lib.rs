@@ -20,6 +20,7 @@ pub mod lists;
 pub mod mail;
 pub mod random;
 pub mod rate_limit;
+pub mod scanner;
 pub mod storage;
 pub mod telemetry;
 mod tls;

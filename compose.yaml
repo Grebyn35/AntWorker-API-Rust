@@ -1,7 +1,7 @@
 # The services the API needs on a developer's machine, and the images of the tools the tasks run.
-# `just services` starts Postgres, Mailpit and the bucket of files' bytes, and `just dev observe`
-# the observability stack too, whose services carry the `observability` profile. Every port is
-# published on 127.0.0.1 only.
+# `just services` starts Postgres, Mailpit, the bucket of files' bytes and the malware scanner,
+# and `just dev observe` the observability stack too, whose services carry the `observability`
+# profile. Every port is published on 127.0.0.1 only.
 
 services:
   postgres:
@@ -70,6 +70,23 @@ services:
       start_period: 60s
       start_interval: 1s
       retries: 3
+
+  # The malware scanner of development and the tests, from the service that
+  # deploy/scanner/compose.yaml defines for every environment: clamd alone, with the
+  # configuration of every environment and one signature, which names the EICAR test file, so it
+  # starts in seconds with little memory, and nothing reaches ClamAV's mirrors (TEST-06).
+  scanner:
+    extends: { file: deploy/scanner/compose.yaml, service: scanner }
+    entrypoint: ["clamd", "--config-file=/etc/scanner/clamd.conf"]
+    volumes:
+      - ./deploy/scanner/clamd.conf:/etc/scanner/clamd.conf:ro
+      - ./deploy/scanner/eicar.ndb:/var/lib/clamav/eicar.ndb:ro
+    ports:
+      - "127.0.0.1:3310:3310"
+    healthcheck:
+      interval: 2s
+      timeout: 5s
+      retries: 30
 
   # The observability stack, in the same topology as in production (D19), from the services that
   # deploy/observability/compose.yaml defines for both: docs/operations/observability.md describes

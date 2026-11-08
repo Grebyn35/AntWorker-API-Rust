@@ -23,6 +23,14 @@ pub(crate) enum FilesError {
     /// (FILES-003).
     #[error("the upload isn't of a kind the API accepts")]
     UnsupportedType,
+    /// The scanner found a signature in the upload, or its contents pass what it scans whole
+    /// (FILES-005).
+    #[error("the scanner found malware in the upload")]
+    MalwareDetected,
+    /// The scanner didn't answer (FILES-005). The documentation of a route lists it without its
+    /// cause.
+    #[error("the scanner is unavailable")]
+    ScannerUnavailable(#[source] Option<Internal>),
     /// The bucket didn't answer (FILES-012). The documentation of a route lists it without its
     /// cause.
     #[error("the storage is unavailable")]
@@ -57,6 +65,8 @@ impl ErrorCode for FilesError {
             Self::InvalidName(_) => "files.invalid_name",
             Self::Empty => "files.empty",
             Self::UnsupportedType => "files.unsupported_type",
+            Self::MalwareDetected => "files.malware_detected",
+            Self::ScannerUnavailable(_) => "files.scanner_unavailable",
             Self::StorageUnavailable(_) => "files.storage_unavailable",
             Self::Platform(error) => error.code(),
             Self::Internal(error) => error.code(),
@@ -69,6 +79,8 @@ impl ErrorCode for FilesError {
             Self::InvalidName(_) => "Invalid file name",
             Self::Empty => "Empty file",
             Self::UnsupportedType => "Unsupported file type",
+            Self::MalwareDetected => "Malware detected",
+            Self::ScannerUnavailable(_) => "Scanner unavailable",
             Self::StorageUnavailable(_) => "Storage unavailable",
             Self::Platform(error) => error.title(),
             Self::Internal(error) => error.title(),
@@ -79,8 +91,8 @@ impl ErrorCode for FilesError {
         match self {
             Self::NotFound => Category::NotFound,
             Self::InvalidName(_) | Self::Empty => Category::Validation,
-            Self::UnsupportedType => Category::BusinessRule,
-            Self::StorageUnavailable(_) => Category::Unavailable,
+            Self::UnsupportedType | Self::MalwareDetected => Category::BusinessRule,
+            Self::ScannerUnavailable(_) | Self::StorageUnavailable(_) => Category::Unavailable,
             Self::Platform(error) => error.category(),
             Self::Internal(error) => error.category(),
         }
@@ -96,6 +108,9 @@ impl ErrorCode for FilesError {
             Self::UnsupportedType => Some(
                 "The file's extension must be one the API accepts, and its contents of that type."
                     .to_owned(),
+            ),
+            Self::MalwareDetected => Some(
+                "The malware scanner refused the file, so it wasn't stored.".to_owned(),
             ),
             Self::Platform(error) => error.detail(),
             _ => None,

@@ -15,7 +15,7 @@ use std::{
 };
 
 use rustls::pki_types::{CertificateDer, pem::PemObject};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::{
     docker::{Container, compose, docker, lossy, postgres_network},
@@ -513,6 +513,45 @@ fn database_server(in_memory: bool) -> Container {
     let container = Container::start(&args);
     assert_eq!(container.health(), "healthy", "{}", container.logs());
     container
+}
+
+/// A workspace on a deployed API, whose owner is signed in: its files' URL, the owner's access
+/// token, and the root certificate, in PEM, that a client trusts.
+pub struct Workspace {
+    pub root: String,
+    pub files: String,
+    pub token: String,
+}
+
+impl Deployment {
+    /// Registers an owner on the deployed API, and creates their workspace.
+    pub fn workspace(&self) -> Workspace {
+        let root = self.server.caddy_root();
+        let (registered, session) = post(
+            root.clone(),
+            self.url("https", 443, "/v1/users"),
+            json!({ "email": "ada@example.com", "password": "plum-tractor-41-quiet", "name": "Ada" })
+                .to_string(),
+        );
+        assert_eq!(registered, 201, "{session}");
+        let token = serde_json::from_str::<Value>(&session).unwrap()["access_token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let (created, workspace) = post_as(
+            root.clone(),
+            self.url("https", 443, "/v1/workspaces"),
+            Some(token.clone()),
+            json!({ "name": "Acme" }).to_string(),
+        );
+        assert_eq!(created, 201, "{workspace}");
+        let workspace = serde_json::from_str::<Value>(&workspace).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let files = self.url("https", 443, &format!("/v1/workspaces/{workspace}/files"));
+        Workspace { root, files, token }
+    }
 }
 
 /// Requests sent to the API one after another, from a thread of their own, until stopped.

@@ -1,5 +1,5 @@
-# The single-host reference deployment (D15, D20, D45): Caddy, the API in two colors, the bundled
-# Postgres with its backups (D44), and the telemetry path (D42). deploy.sh runs it on its server,
+# The single-host reference deployment (D15, D20, D45): Caddy, the API in two colors, the malware
+# scanner, the bundled Postgres with its backups (D44), and the telemetry path (D42). deploy.sh runs it on its server,
 # from the deployment's directory, with the settings in settings.env, which
 # settings.env.example lists, and the values it derives in state/deploy.env. Profiles choose the
 # optional services: `database` for the bundled Postgres, `telemetry` for the collector,
@@ -36,7 +36,8 @@ x-api: &api
     # Caddy stops sending requests to a draining replica within its health checks' interval and
     # timeout (deploy/caddy/sites/api.caddy), so the replica keeps serving for longer (OPS-06).
     SHUTDOWN_DELAY_SECONDS: "5"
-    SHUTDOWN_DRAIN_SECONDS: "10"
+    # The longest timeout of a route, an upload's, so a deploy cuts no request short (OPS-06).
+    SHUTDOWN_DRAIN_SECONDS: "60"
     # Only the deployment's own containers reach a replica, on its private networks, so every
     # private peer is Caddy, and the proxies Caddy trusts are trusted too (PLATFORM-053).
     TRUSTED_PROXIES: "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7, ${TRUSTED_PROXIES:-}"
@@ -78,18 +79,19 @@ x-api: &api
     S3_CA_PATH: ${FILES_CA_FILE:-}
     FILE_MAX_BYTES: ${FILE_MAX_BYTES:-10485760}
     FILE_DELETION_DELAY_DAYS: ${FILE_DELETION_DELAY:-35}
+    CLAMD_ADDRESS: scanner:3310
   volumes:
     - ./certs:/etc/deployment-certs:ro
   secrets: [database_url, hmac_key, smtp_password, files_s3_key, files_s3_key_secret]
-  # The shutdown delay and the drain take at most 15 seconds, and writing out telemetry the time
-  # that the platform spec's Telemetry export bounds it to, which fits in the rest.
-  stop_grace_period: 30s
+  # The shutdown delay and the drain take at most 65 seconds, and writing out telemetry the 9 that
+  # the platform spec's Telemetry export bounds it to, which fit in the rest.
+  stop_grace_period: 90s
   deploy:
     resources:
       limits:
         cpus: "${API_CPUS:-1}"
         memory: ${API_MEMORY:-512M}
-  networks: [edge, data, telemetry]
+  networks: [edge, data, scanning, telemetry]
   restart: unless-stopped
 
 # pgBackRest's settings, from the deployment's (deploy/postgres/pgbackrest.conf has the rest).
@@ -164,6 +166,40 @@ services:
   api-green:
     <<: *api
     image: ${API_IMAGE_GREEN:?the image of the green replicas, in state/deploy.env}
+
+  # The malware scanner (the files spec's "Scanning"), from the service scanner/compose.yaml
+  # defines: clamd beside freshclam, which downloads ClamAV's signatures into its volume when it
+  # holds none, as on a new server, before clamd starts, and checks for new ones 12 times a day,
+  # which clamd loads while it goes on scanning with the old (scanner/start.sh). It holds about a
+  # gigabyte of memory, and twice that while it loads new signatures. It runs once, and only the
+  # replicas reach it.
+  scanner:
+    extends: { file: scanner/compose.yaml, service: scanner }
+    logging: *logging
+    entrypoint: ["sh", "/etc/scanner/start.sh"]
+    environment:
+      # The fingerprint of the files in scanner/, which it reads as it starts, so a deploy that
+      # changes them recreates it, with --allow-restart.
+      CONFIGURATION_FINGERPRINT: ${SCANNER_CONFIGURATION:-}
+    volumes:
+      - ./scanner:/etc/scanner:ro
+      - scanner-signatures:/var/lib/clamav
+    # A new server's scanner downloads its signatures before clamd answers, so its first start may
+    # take minutes, which it is checked every second through.
+    healthcheck:
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10m
+      start_interval: 1s
+    # Its scans take at most this many CPUs, so a burst of uploads leaves the rest to the
+    # replicas and Postgres.
+    deploy:
+      resources:
+        limits:
+          cpus: "${SCANNER_CPUS:-1}"
+    networks: [scanning]
+    restart: unless-stopped
 
   # The one-shot subcommands that a deploy runs with the release's image, before its replicas.
   bootstrap:
@@ -272,8 +308,9 @@ services:
     networks: [data]
     restart: unless-stopped
 
-  # The collector, which every telemetry path keeps (D42). It reads the backups' status files,
-  # and Caddy's log, with the proxy's configuration (observability/collector/proxy.yaml).
+  # The collector, which every telemetry path keeps (D42). It reads the backups' status files, when
+  # the scanner's signatures last changed, and Caddy's log, with the proxy's configuration
+  # (observability/collector/proxy.yaml).
   collector:
     extends: { file: observability/compose.yaml, service: collector }
     logging: *logging
@@ -281,6 +318,7 @@ services:
     command: ["--config=/etc/collector/config.yaml", "--config=/etc/collector/proxy.yaml"]
     volumes:
       - backup-status:/var/lib/backup-status:ro
+      - scanner-signatures:/var/lib/scanner-signatures:ro
       - caddy-logs:/var/log/caddy:ro
       - collector-state:/var/lib/collector
     networks: [telemetry]
@@ -308,6 +346,7 @@ services:
       SECRETS_FINGERPRINT: ${MANAGED_OTLP_SECRETS:-}
     volumes:
       - backup-status:/var/lib/backup-status:ro
+      - scanner-signatures:/var/lib/scanner-signatures:ro
       - ./certs:/etc/deployment-certs:ro
       - caddy-logs:/var/log/caddy:ro
       # A state of its own, since both collectors run for a moment while a deploy moves from one
@@ -374,6 +413,8 @@ networks:
   edge:
   # The replicas, the one-shot subcommands, Postgres and its backups.
   data:
+  # The replicas and the scanner, which reaches ClamAV's mirrors through it.
+  scanning:
   # Everything that sends or stores telemetry.
   telemetry:
 
@@ -386,6 +427,7 @@ volumes:
   postgres:
   postgres-socket:
   backup-status:
+  scanner-signatures:
   prometheus:
   alertmanager:
   loki:

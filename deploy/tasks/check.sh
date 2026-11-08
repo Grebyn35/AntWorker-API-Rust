@@ -97,11 +97,12 @@ check_release() {
 }
 
 # Fails the check unless the server has the memory that the services the settings choose need:
-# about 2 gigabytes with the self-hosted stack, and 1 otherwise (docs/operations/deploy.md). A
-# server sold with that much reports a little less, the share its kernel keeps.
+# about 4 gigabytes with the self-hosted stack, and 3 otherwise, 2 of them the scanner's while it
+# loads new signatures (docs/operations/deploy.md). A server sold with that much reports a little
+# less, the share its kernel keeps.
 check_memory() {
-    needed=1
-    if [ "$telemetry" = self-hosted ]; then needed=2; fi
+    needed=3
+    if [ "$telemetry" = self-hosted ]; then needed=4; fi
     kilobytes=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)
     gigabytes=$(awk -v kilobytes="$kilobytes" 'BEGIN { printf "%.1f", kilobytes * 1024 / 1e9 }')
     if awk -v kilobytes="$kilobytes" -v needed="$needed" 'BEGIN { exit !(kilobytes * 1024 >= needed * 0.9e9) }'; then
