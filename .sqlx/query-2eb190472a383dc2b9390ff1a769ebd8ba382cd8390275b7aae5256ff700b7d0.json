@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO object_deletions (object_key, deletable_at)\n            SELECT key, now() + make_interval(days => $3)\n            FROM unnest($1::text[], $2::timestamptz[]) AS listed (key, written_at)\n            WHERE written_at <= now() - make_interval(secs => $4)\n                AND NOT EXISTS (SELECT 1 FROM workspace_files WHERE object_key = key)\n            ON CONFLICT (object_key) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TimestamptzArray",
+        "Int4",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2eb190472a383dc2b9390ff1a769ebd8ba382cd8390275b7aae5256ff700b7d0"
+}

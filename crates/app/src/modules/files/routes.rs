@@ -57,7 +57,7 @@ pub(crate) fn routes() -> Routes<Files> {
     path = "/v1/workspaces/{workspace_id}/files",
     tag = "files",
     request_body(content = FileBytes, content_type = "application/octet-stream",
-        description = "The file's bytes. Its kind comes from its name's extension and its bytes alone (FILES-003)."),
+        description = "The file's bytes, at most `FILE_MAX_BYTES` (FILES-004). Its kind comes from its name's extension and its bytes alone (FILES-003)."),
     params(
         ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
         ("Content-Disposition" = String, Header,
@@ -246,4 +246,38 @@ async fn delete_file(
     let id = id.ok_or(FilesError::NotFound)?;
     service::delete(uow, &authorized, id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use platform::telemetry::Service;
+
+    use super::*;
+
+    #[test]
+    fn files_009_the_download_documents_the_media_type_of_every_kind() {
+        let document = routes().openapi(Service {
+            name: "api",
+            version: "0.0.0",
+        });
+        let document = serde_json::to_value(&document).unwrap();
+        let content = &document["paths"]["/v1/workspaces/{workspace_id}/files/{file_id}/content"]["get"]
+            ["responses"]["200"]["content"];
+        let mut documented: Vec<&str> = content
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        // A kind's stored type with its parameters, such as `text/plain; charset=utf-8`, is
+        // documented as its essence, `text/plain`.
+        let mut stored: Vec<&str> = Kind::every()
+            .iter()
+            .map(|kind| kind.media_type().split(';').next().unwrap_or_default())
+            .collect();
+        documented.sort_unstable();
+        stored.sort_unstable();
+
+        assert_eq!(documented, stored);
+    }
 }

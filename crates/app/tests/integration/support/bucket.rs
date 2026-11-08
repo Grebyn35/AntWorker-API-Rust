@@ -57,9 +57,9 @@ pub async fn create(bucket: &str) {
 /// Deletes every object of the bucket `bucket`, then the bucket, which S3 deletes only empty.
 pub async fn remove(bucket: &str) {
     let storage = storage(bucket);
-    let keys: Vec<_> = storage.list("").try_collect().await.unwrap();
-    for key in keys {
-        storage.delete(&key).await.unwrap();
+    let listed: Vec<_> = storage.list("").try_collect().await.unwrap();
+    for object in listed {
+        storage.delete(&object.key).await.unwrap();
     }
     let status = request("DELETE", bucket).await;
     assert!(
@@ -86,7 +86,7 @@ async fn request(method: &str, bucket: &str) -> u16 {
         .unwrap_or_default()
 }
 
-/// A stand-in for a bucket that fails as the tests need, in place of SeaweedFS (TEST-04).
+/// A stand-in for a bucket that answers as the tests need, in place of SeaweedFS (TEST-04).
 pub struct Scripted {
     /// Its endpoint, for `S3_ENDPOINT`.
     pub endpoint: String,
@@ -99,9 +99,33 @@ impl Drop for Scripted {
     }
 }
 
-/// A bucket that reads each request whole and answers it with `status`, or, with `None`, never
-/// answers, holding each connection open until the bucket is dropped.
+/// A bucket that reads each request whole and answers it with `status` and no body, or, with
+/// `None`, never answers, holding each connection open until the bucket is dropped.
 pub async fn scripted(status: Option<u16>) -> Scripted {
+    serve(status.map(|status| (status, String::new()))).await
+}
+
+/// A bucket that answers every request with a listing of `objects`, each a key and when the
+/// bucket wrote it, as S3 writes a time: in UTC, to the millisecond, as RFC 3339 allows.
+pub async fn listing(objects: &[(&str, &str)]) -> Scripted {
+    let contents: String = objects
+        .iter()
+        .map(|(key, written)| {
+            format!(
+                "<Contents><Key>{key}</Key><LastModified>{written}</LastModified>\
+                 <ETag>\"e\"</ETag><Size>5</Size></Contents>"
+            )
+        })
+        .collect();
+    let body = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ListBucketResult>\
+         <IsTruncated>false</IsTruncated>{contents}</ListBucketResult>"
+    );
+    serve(Some((200, body))).await
+}
+
+/// Serves each connection with `answer`, a status and a body, or no answer.
+async fn serve(answer: Option<(u16, String)>) -> Scripted {
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .await
         .unwrap();
@@ -111,14 +135,14 @@ pub async fn scripted(status: Option<u16>) -> Scripted {
             let Ok((stream, _)) = listener.accept().await else {
                 return;
             };
-            tokio::spawn(answer(stream, status));
+            tokio::spawn(answering(stream, answer.clone()));
         }
     });
     Scripted { endpoint, server }
 }
 
-/// Reads each request on `stream`, its body included, and answers it with `status`, or never.
-async fn answer(stream: TcpStream, status: Option<u16>) {
+/// Reads each request on `stream`, its body included, and answers it with `answer`, or never.
+async fn answering(stream: TcpStream, answer: Option<(u16, String)>) {
     let mut stream = BufReader::new(stream);
     loop {
         let mut length = 0;
@@ -139,12 +163,15 @@ async fn answer(stream: TcpStream, status: Option<u16>) {
         if stream.read_exact(&mut body).await.is_err() {
             return;
         }
-        let Some(status) = status else {
+        let Some((status, body)) = &answer else {
             // Holds the connection, answering nothing.
             std::future::pending::<()>().await;
             return;
         };
-        let answer = format!("HTTP/1.1 {status} Scripted\r\nContent-Length: 0\r\n\r\n");
+        let answer = format!(
+            "HTTP/1.1 {status} Scripted\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
         if stream.get_mut().write_all(answer.as_bytes()).await.is_err() {
             return;
         }

@@ -41,7 +41,7 @@ None. No other module uses `files` yet.
 | FILES-008 | Reading a file answers 200 with the file as FILES-001 gives it. A file ID that names no file of the workspace, or isn't a UUID, answers 404 `files.not_found`, here and in FILES-009 and FILES-010. | API-04, DATA-16, PLATFORM-072 | `files_008_` |
 | FILES-009 | Downloading a file answers 200 with its bytes, `Content-Type` its media type, `Content-Length` its size, `Content-Disposition` `inline` for a kind that Accepted kinds serves inline and `attachment` for every other, with its name, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox` and `Cache-Control: no-store`. A file whose bytes the bucket doesn't hold, or holds at another size than its row's, as when they were cut short, answers 500 `request.internal_error`, whose cause the request log writes with the file's ID (ERR-10). | SEC-11, SEC-12, ERR-10, D63 | `files_009_` |
 | FILES-010 | Deleting a file deletes its row and answers 204. It records `file.deleted` in the workspace's log, and publishes the workspace event `file.deleted`, which requires `files.read`. Its bytes stay until FILES-011 deletes them. The owner and admins may delete; a member gets 403 `request.permission_denied`. | API-04, DATA-06, DATA-22, SEC-19 | `files_010_` |
-| FILES-011 | An object that no file's row names, whatever removed or never committed its row, is deleted from storage once `FILE_DELETION_DELAY_DAYS` (1 to 3,657, the longest backup retention plus 7, default 35) have passed since the periodic job `files.find_unreferenced_objects` first found it so, and never while a row names it. | D1, D30, OPS-15 | `files_011_` |
+| FILES-011 | An object that no file's row names, whatever removed or never committed its row, is deleted from storage once `FILE_DELETION_DELAY_DAYS` (1 to 3,657, the longest backup retention plus 7, default 35) have passed since the periodic job `files.find_unreferenced_objects` first found it so, an hour or more after the bucket wrote it, and never while a row names it. | D1, D30, OPS-15 | `files_011_` |
 | FILES-012 | While the storage doesn't answer in time, or answers that it can't serve now, with a 5xx or a 429, a route that reads or writes bytes answers 503 `files.storage_unavailable`, with `Retry-After`, a download within its route's timeout. A request that the storage refuses answers 500 `request.internal_error`. Neither cause, which the request log writes, names an object's key. | ERR-03, ERR-04, ERR-10 | `files_012_` |
 | FILES-013 | `files.uploads` counts the uploads that reached the check of their bytes, by outcome: `stored`, `unsupported_type`, `malware_detected`, or `failed`. | OBS-11, OBS-14 | `files_013_` |
 
@@ -65,7 +65,7 @@ Requirement 5.1.1 of the Application Security Verification Standard (ASVS) asks 
 | CSV | `csv` | `text/csv; charset=utf-8` | as Text | attachment |
 | Markdown | `md` | `text/markdown; charset=utf-8` | as Text | attachment |
 
-The list lives in `model/kinds.rs` as one table, so a fork adds a kind as one row and its check. A kind is added only when its bytes can be checked: Scalable Vector Graphics (SVG) and HTML are left out, since a browser runs the scripts they hold, and a format that a check can't tell from any other bytes is left out too.
+The list lives in `model/kinds.rs` as one table, so a fork adds a kind as one row and its check, and its media type to the download's documented responses in `routes.rs`, which a test compares with the table. A kind is added only when its bytes can be checked: Scalable Vector Graphics (SVG) and HTML are left out, since a browser runs the scripts they hold, and a format that a check can't tell from any other bytes is left out too.
 
 ### Storage
 
@@ -83,7 +83,7 @@ An object's key is 128 random bits from the operating system's source, in hexade
 
 An upload that stops after its object is written, whether a refusal at step 5, a failed commit or a stopped replica, leaves an object no row names, which FILES-011 deletes. The handler doesn't delete it itself: when a commit's answer is lost, the row may exist, and deleting its object would leave a row without bytes. A retry whose `Idempotency-Key` already committed writes its object, then answers the first result, leaving its own object to FILES-011 too.
 
-The fingerprint of a keyed upload covers a SHA-256 digest of its body, as of any keyed route (API-12).
+The fingerprint of a keyed upload covers a SHA-256 digest of its body, as of any keyed route, and its `Content-Disposition`, so a retry under another name is another request (API-12).
 
 ### Scanning
 
@@ -99,7 +99,7 @@ The bytes of a file outlive its row, so that a restore of the database to a mome
 
 No statement deletes bytes when it deletes a row: a row may also go with its workspace's deletion, which cascades (DATA-05), or never commit, and the schema holds no trigger that could record either (DATA-07). Instead, two periodic jobs compare the bucket with the rows:
 
-- `files.find_unreferenced_objects`, every day, lists the bucket's objects, and records in `object_deletions` each that no row names, with `deletable_at` `FILE_DELETION_DELAY_DAYS` days from now, by the database's clock (DATA-03). An object already recorded keeps its time.
+- `files.find_unreferenced_objects`, every day, lists the bucket's objects, and records in `object_deletions` each that no row names and that the bucket wrote an hour ago or more, by the database's clock (DATA-03), with `deletable_at` `FILE_DELETION_DELAY_DAYS` days from now. An object already recorded keeps its time. An object written within the hour may belong to an upload whose row hasn't committed yet: recorded then, its delay would start before its row's deletion, and a restore to a moment while the row existed could find no bytes. An upload commits its row within its route's 60 seconds, and the rest of the hour leaves room for the bucket's clock and the database's to differ, so a recorded object is one that no row named since an hour after it was written.
 - `files.delete_unreferenced_objects`, every hour, takes the recorded objects whose time has passed, in batches of at most 1,000, deletes from storage each that still no row names, and removes each from `object_deletions`, whichever it did. An object that a row names again, as after a restore, stays.
 
 Both span every workspace by nature, so they select objects by key alone (DATA-16), and scheduled maintenance isn't audited (DATA-22). A bucket with versioning keeps a deleted object's bytes as a noncurrent version, so every bucket of the deployment has versioning off, or expires each noncurrent version a day after it becomes one, as [deploy.md](../operations/deploy.md#what-a-server-needs) requires and `just server-check` checks (D102). After a restore to an earlier moment, the objects of uploads made since then have no row, and go after the delay; `object_deletions` may have lost what it recorded since then, which the next run records again.

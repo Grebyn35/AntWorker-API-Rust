@@ -30,13 +30,15 @@ impl std::fmt::Debug for IdempotencyKey {
 
 impl IdempotencyKey {
     /// The key in the header's `value`, a String of structured fields (RFC 9651) of 1 to 255
-    /// characters, for the request whose method, path, query and body digest are given, or
-    /// `None` when the value isn't one (PLATFORM-037).
+    /// characters, for the request whose method, path, query, `named` part, the name an upload
+    /// gives in `Content-Disposition` or nothing, and body digest are given, or `None` when the
+    /// value isn't one (PLATFORM-037).
     pub(crate) fn parse(
         value: &[u8],
         method: &str,
         path: &str,
         query: &str,
+        named: &[u8],
         body_digest: &[u8; 32],
     ) -> Option<Self> {
         let key = structured_string(value)?;
@@ -45,7 +47,7 @@ impl IdempotencyKey {
             return None;
         }
         let mut hasher = Sha256::new();
-        for part in [method.as_bytes(), path.as_bytes(), query.as_bytes()] {
+        for part in [method.as_bytes(), path.as_bytes(), query.as_bytes(), named] {
             // Each part's length comes first, so no two requests' parts run together the same.
             hasher.update(u64::try_from(part.len()).unwrap_or(u64::MAX).to_be_bytes());
             hasher.update(part);
@@ -166,8 +168,15 @@ mod tests {
     use super::*;
 
     fn key(value: &str) -> Option<String> {
-        IdempotencyKey::parse(value.as_bytes(), "POST", "/v1/workspaces", "", &[0; 32])
-            .map(|key| key.key)
+        IdempotencyKey::parse(
+            value.as_bytes(),
+            "POST",
+            "/v1/workspaces",
+            "",
+            b"",
+            &[0; 32],
+        )
+        .map(|key| key.key)
     }
 
     #[test]
@@ -202,16 +211,23 @@ mod tests {
 
     #[test]
     fn platform_036_the_fingerprint_covers_the_method_the_path_the_query_and_the_body() {
-        let fingerprint = |method: &str, path: &str, query: &str, body: u8| {
-            IdempotencyKey::parse(br#""k""#, method, path, query, &[body; 32])
+        let named = |method: &str, path: &str, query: &str, name: &[u8], body: u8| {
+            IdempotencyKey::parse(br#""k""#, method, path, query, name, &[body; 32])
                 .unwrap()
                 .fingerprint
         };
+        let fingerprint =
+            |method: &str, path: &str, query: &str, body: u8| named(method, path, query, b"", body);
         let first = fingerprint("POST", "/v1/a", "b=1", 0);
         assert_eq!(first, fingerprint("POST", "/v1/a", "b=1", 0));
         assert_ne!(first, fingerprint("PUT", "/v1/a", "b=1", 0));
         assert_ne!(first, fingerprint("POST", "/v1/ab", "=1", 0));
         assert_ne!(first, fingerprint("POST", "/v1/a", "b=2", 0));
         assert_ne!(first, fingerprint("POST", "/v1/a", "b=1", 1));
+        assert_ne!(first, named("POST", "/v1/a", "b=1", b"a.txt", 0));
+        assert_ne!(
+            named("POST", "/v1/a", "b=1", b"a", 0),
+            named("POST", "/v1/a", "b=", b"1a", 0)
+        );
     }
 }

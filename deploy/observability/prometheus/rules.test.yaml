@@ -424,7 +424,7 @@ tests:
               severity: ticket
               job_kind: platform.expire_idempotency_records
             exp_annotations:
-              summary: A periodic job failed at least twice within 3 hours, or twice within 25 hours with no run that succeeded.
+              summary: A periodic job failed at least twice within 3 hours, or twice within 49 hours with no run that succeeded.
               runbook: docs/operations/runbooks.md#periodicjobfailing
 
   # A daily job succeeds, then fails on each of the next two days; another fails on two days
@@ -432,25 +432,36 @@ tests:
   - interval: 1h
     input_series:
       - series: 'platform_job_runs_total{job="api", instance="a", job_kind="files.find_unreferenced_objects", job_outcome="succeeded"}'
-        values: "1x50"
+        values: "1x75"
       - series: 'platform_job_runs_total{job="api", instance="a", job_kind="files.find_unreferenced_objects", job_outcome="failed"}'
-        values: "_x24 1x23 2x3"
+        values: "_x24 1x23 2x24 3x3"
       - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.daily_other", job_outcome="succeeded"}'
-        values: "1x35 2x15"
+        values: "1x35 2x40"
       - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.daily_other", job_outcome="failed"}'
-        values: "_x24 1x23 2x3"
+        values: "_x24 1x23 2x24 3x3"
     alert_rule_test:
       - eval_time: 30h
         alertname: PeriodicJobFailing
         exp_alerts: []
-      - eval_time: 48h
+      # Once the run that succeeded leaves the window, an hour after the second failure.
+      - eval_time: 50h
         alertname: PeriodicJobFailing
         exp_alerts:
           - exp_labels:
               severity: ticket
               job_kind: files.find_unreferenced_objects
             exp_annotations:
-              summary: A periodic job failed at least twice within 3 hours, or twice within 25 hours with no run that succeeded.
+              summary: A periodic job failed at least twice within 3 hours, or twice within 49 hours with no run that succeeded.
+              runbook: docs/operations/runbooks.md#periodicjobfailing
+      # It goes on firing between the daily runs while each fails.
+      - eval_time: 60h
+        alertname: PeriodicJobFailing
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job_kind: files.find_unreferenced_objects
+            exp_annotations:
+              summary: A periodic job failed at least twice within 3 hours, or twice within 49 hours with no run that succeeded.
               runbook: docs/operations/runbooks.md#periodicjobfailing
 
   # A server with 8 gigabytes of memory, of which 500 megabytes stay available.

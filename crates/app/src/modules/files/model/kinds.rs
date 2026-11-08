@@ -118,6 +118,13 @@ impl Kind {
     pub(crate) fn inline(self) -> bool {
         self.inline
     }
+
+    /// Every kind an upload accepts, for the test that compares them with the download's
+    /// documented media types.
+    #[cfg(test)]
+    pub(crate) fn every() -> &'static [Self] {
+        KINDS
+    }
 }
 
 /// Whether `bytes` are UTF-8 text with no control character but tab, line feed and carriage

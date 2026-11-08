@@ -60,7 +60,7 @@ An error response, except from the health probes (OPS-05), has `Content-Type: ap
 - Check: `compiler` (ERR-07), plus `test`.
 
 ### API-08 Request bodies are strict
-JSON bodies reject unknown fields. Each route group has a body size limit, and an oversized body gets the 413 problem before it is buffered. Uploads are the only non-JSON bodies.
+JSON bodies reject unknown fields. Each route group has a body size limit, and an oversized body gets the 413 problem before it is buffered. Uploads are the only non-JSON bodies: an upload route's group has no body limit of its own, since its handler refuses a caller before it reads the body, which it reads through `Upload` with the limit its module's setting gives, refusing an oversized body as a group's limit would (PLATFORM-074).
 - Why: a mistyped field fails loudly instead of being silently ignored (D8, D12).
 - Check: `ci: check-layers` (every type in a module's routes that derives `Deserialize` carries `#[serde(deny_unknown_fields)]`), plus `test`.
 
@@ -84,7 +84,7 @@ Timestamps are RFC 3339 in UTC with a `Z` suffix, at microsecond precision. IDs 
 ### API-12 Idempotency keys follow the IETF draft
 `POST` routes marked idempotent in their module spec accept `Idempotency-Key`, as the IETF's draft-ietf-httpapi-idempotency-key-header-08 defines it, which isn't an RFC yet: the key is a string of structured fields, such as `Idempotency-Key: "8e03978e-40d5-43e8-bc93-6894a57f9324"`, of 1 to 255 characters.
 - A key is unique per authenticated user, across their sessions.
-- The fingerprint covers the method, the path, the query and a digest of the body.
+- The fingerprint covers the method, the path, the query and a digest of the body, and, on an upload route, whose body is a file's bytes alone, its `Content-Disposition`, which names the file.
 - The same key with the same fingerprint returns the stored result of the first request. A different fingerprint gets 422. A key whose first request is still running gets 409.
 - A committed change always has its stored result, so a retry never repeats it. A request that failed without committing can be retried.
 - Stored results expire after 24 hours.
@@ -121,7 +121,7 @@ Every response except the health probes (OBS-15), including streams and download
 - Check: `test`.
 
 ### API-17 The OpenAPI document is generated and committed
-`openapi.json` is generated from code and committed, and a test fails if the document the binary writes differs from it. Every route under `/v1` documents its requests, responses, error codes and access level, and a response header the document lists is one the API always sends with that response. Each operation's `operationId` is its own, and each schema is one type's, so no operation documents another's request or response. The stream of server-sent events documents every frame it sends, in its event catalog (REALTIME-008). Every field and every parameter typed with a domain type, a header's among them, such as `Idempotency-Key`, carries that type's limits in the schema (D25), and every string of a request body has a `maxLength`.
+`openapi.json` is generated from code and committed, and a test fails if the document the binary writes differs from it. Every route under `/v1` documents its requests, responses, error codes and access level, and a response header the document lists is one the API always sends with that response. Each operation's `operationId` is its own, and each schema is one type's, so no operation documents another's request or response. The stream of server-sent events documents every frame it sends, in its event catalog (REALTIME-008). Every field and every parameter typed with a domain type, a header's among them, such as `Idempotency-Key`, carries that type's limits in the schema (D25), and every string of a JSON request body has a `maxLength`. An upload's body, a binary string, states its limit, the setting that gives it, in its description.
 - Why: the contract is reviewed in pull requests, and clients are built against it (D8).
 - Check: `clippy` (only the builders of API-14 register routes, each at a path its documentation names), `test` (every documented path serves, of the methods OpenAPI can document, exactly those it documents, the committed document is the one the code writes, and every request an integration test sends through the test support's typed calls, every response the in-process API gives it, and every frame of a stream it reads are checked against the document of the routes that answered it; a test of malformed input sends its body raw, unchecked), plus `ci: check-openapi` (each operation's access level and response descriptions, each `operationId` its own and each schema name one type's, every reference in the document resolves, every string of a request body has a `maxLength`, and every event a module declares is in the event catalog), plus `review` (fields and parameters of domain types carry their limits).
 

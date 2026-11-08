@@ -6494,7 +6494,7 @@
               }
             }
           },
-          "description": "The file's bytes. Its kind comes from its name's extension and its bytes alone (FILES-003).",
+          "description": "The file's bytes, at most `FILE_MAX_BYTES` (FILES-004). Its kind comes from its name's extension and its bytes alone (FILES-003).",
           "required": true
         },
         "responses": {

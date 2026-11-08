@@ -1,8 +1,8 @@
 //! The periodic jobs of `files` (OPS-09, FILES-011), owned by `files`, which delete the objects
 //! that no file's row names, once no restore of the database can bring such a row back (the files
 //! spec's "Deleting bytes"): `files.find_unreferenced_objects`, run every day, lists the bucket's
-//! objects under `workspaces/` and records each that no row of `workspace_files` names in
-//! `object_deletions`, with when its bytes may go; and `files.delete_unreferenced_objects`, run
+//! objects under `workspaces/` and records each that no row of `workspace_files` names, and that
+//! the bucket wrote an hour ago or more, in `object_deletions`, with when its bytes may go; and `files.delete_unreferenced_objects`, run
 //! every hour, deletes from the bucket those of `object_deletions` whose time has passed and that
 //! still no row of `workspace_files` names, then removes them from `object_deletions`. Both touch
 //! those two tables alone, and the bucket. Both span every workspace by nature, so they select
@@ -37,6 +37,12 @@ const DELETE_TIME_LIMIT: Duration = Duration::from_secs(900);
 /// The most objects one statement records, or one batch deletes.
 const BATCH: usize = 1_000;
 
+/// How long ago the bucket must have written an object before the comparison records it: an
+/// upload commits the row that names its object within its route's 60 seconds, and the rest of
+/// the hour leaves room for the bucket's clock and the database's to differ. An object recorded
+/// before its row commits would start its delay before that row's deletion (FILES-011).
+const SETTLED: Duration = Duration::from_secs(3_600);
+
 impl Files {
     /// Registers the two jobs.
     pub(crate) fn register(&self, jobs: &mut Jobs) -> Result<(), Duplicate> {
@@ -63,30 +69,35 @@ impl Files {
     }
 }
 
-/// Records each object of the bucket that no row names, a page of the bucket's list at a time,
-/// with when its bytes may go: `FILE_DELETION_DELAY_DAYS` from now, by the database's clock. An
-/// object already recorded keeps its time.
+/// Records each object of the bucket that no row names, and that the bucket wrote at least
+/// `SETTLED` ago, by the database's clock, a page of the bucket's list at a time, with when its
+/// bytes may go: `FILE_DELETION_DELAY_DAYS` from now. An object already recorded keeps its time.
 async fn find(files: &Files, context: &JobContext) -> Result<(), Internal> {
     let delay = i32::try_from(files.settings.deletion_delay_days).map_err(Internal::new)?;
+    let settled = f64::from(u32::try_from(SETTLED.as_secs()).map_err(Internal::new)?);
     let mut pages = files
         .storage
         .list(WORKSPACE_PREFIX)
         .try_chunks(BATCH)
         .boxed();
     while let Some(page) = pages.next().await {
-        let keys: Vec<String> = page
+        let (keys, written): (Vec<String>, Vec<time::OffsetDateTime>) = page
             .map_err(|error| Internal::new(error.1))?
             .into_iter()
-            .map(|key| key.as_str().to_owned())
-            .collect();
+            .map(|listed| (listed.key.as_str().to_owned(), listed.written_at))
+            .unzip();
         let mut uow = files.database.for_job(context).await?;
         sqlx::query!(
             "INSERT INTO object_deletions (object_key, deletable_at)
-            SELECT key, now() + make_interval(days => $2) FROM unnest($1::text[]) AS key
-            WHERE NOT EXISTS (SELECT 1 FROM workspace_files WHERE object_key = key)
+            SELECT key, now() + make_interval(days => $3)
+            FROM unnest($1::text[], $2::timestamptz[]) AS listed (key, written_at)
+            WHERE written_at <= now() - make_interval(secs => $4)
+                AND NOT EXISTS (SELECT 1 FROM workspace_files WHERE object_key = key)
             ON CONFLICT (object_key) DO NOTHING",
             &keys,
+            &written,
             delay,
+            settled,
         )
         .execute(uow.executor())
         .await?;

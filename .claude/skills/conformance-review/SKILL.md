@@ -30,6 +30,8 @@ The caller states the scope. Without one, ask the owner.
 4. **Record the pass** as a new row of "Conformance reviews" in `docs/MIGRATION.md`, before changing any code. The row's result is the outcome under "When the review stops": `next pass`, `clean`, `stopped: no progress` or `stopped: six passes`. Once the pass is acted on, the commits that acted on it follow the outcome, and their messages hold the details: each finding, its verification and its resolution (DOC-14). A commit can't name itself, so its hash goes into the row in the next commit, such as the next pass's record.
 5. **Act on the outcome:**
    - `next pass`: fix each finding, or turn it into a proposal as the README says. A code fix comes with a test that fails before it and passes after it, wherever a test can show the defect. Run `just ci`, commit, and start the next pass with those commits as its baseline.
+
+   A commit that acts on a pass names in its message each test it deletes or renames, with the test that proves its behavior now, since no check sees a clause lose its only test.
    - `clean`: apply the `should-fix` findings one by one, and check each. The review is complete.
    - `stopped: no progress` or `stopped: six passes`: give each remaining `must-fix` finding exactly one of the README's resolutions, and check each. The review is complete.
 

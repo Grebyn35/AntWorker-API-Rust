@@ -96,7 +96,7 @@ where
         let digest: [u8; 32] = Sha256::digest(&bytes).into();
         let key = header
             .map(|value| {
-                IdempotencyKey::parse(value.as_bytes(), &method, &path, &query, &digest)
+                IdempotencyKey::parse(value.as_bytes(), &method, &path, &query, b"", &digest)
                     .ok_or(Problem(RequestError::InvalidIdempotencyKey))
             })
             .transpose()?;
@@ -137,6 +137,9 @@ pub struct Upload {
     path: String,
     query: String,
     key: Option<HeaderValue>,
+    /// The request's `Content-Disposition`, which names the file, and so is part of a keyed
+    /// upload's fingerprint (API-12).
+    disposition: Option<HeaderValue>,
     turns: UploadTurns,
 }
 
@@ -169,6 +172,7 @@ impl<S: Send + Sync> FromRequest<S> for Upload {
         });
         Ok(Self {
             declared,
+            disposition: request.headers().get(header::CONTENT_DISPOSITION).cloned(),
             method: request.method().as_str().to_owned(),
             path: request.uri().path().to_owned(),
             query: request.uri().query().unwrap_or_default().to_owned(),
@@ -224,11 +228,16 @@ impl Upload {
                     .run("upload digest", move || Sha256::digest(&digested).into())
                     .await
                     .map_err(Internal::new)?;
+                let named = self
+                    .disposition
+                    .as_ref()
+                    .map_or(&b""[..], HeaderValue::as_bytes);
                 let key = IdempotencyKey::parse(
                     value.as_bytes(),
                     &self.method,
                     &self.path,
                     &self.query,
+                    named,
                     &digest,
                 )
                 .ok_or(RequestError::InvalidIdempotencyKey)?;
@@ -381,6 +390,7 @@ mod tests {
             path: "/v1/uploads".to_owned(),
             query: String::new(),
             key: None,
+            disposition: None,
             turns: turns.clone(),
         }
     }

@@ -1,14 +1,15 @@
 # Threat model
 
-What the API and its reference deployment protect, from whom, and which rules and behaviors stop each threat. The bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS), but for its requirement 6.3.3, as [the security rules](../standards/security.md) say (D26, D63). Each mitigation is stated in its home, a rule or a behavior, which this file cites by ID rather than restating it (DOC-07), and a change that adds a threat, or changes what stops one, changes this file in the same commit. Parts not built yet, such as uploaded files and second factors, are listed with the rules that already bind them, and arrive with step 5 of [the migration](../MIGRATION.md#build-order).
+What the API and its reference deployment protect, from whom, and which rules and behaviors stop each threat. The bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS), but for its requirement 6.3.3, as [the security rules](../standards/security.md) say (D26, D63). Each mitigation is stated in its home, a rule or a behavior, which this file cites by ID rather than restating it (DOC-07), and a change that adds a threat, or changes what stops one, changes this file in the same commit. Parts not built yet, such as a user's own files, public files, the scanning of uploads and second factors, are listed with the rules that already bind them, and arrive with step 5 of [the migration](../MIGRATION.md#build-order).
 
 ## What it protects
 
 - **Accounts and sessions:** password hashes, and the tokens of sessions, which act as their user.
 - **Workspaces:** what each holds, who belongs to it, and with which role.
+- **Files:** the bytes of the files that a workspace's members upload, in the files bucket off the server, and their names, which are personal data ([files spec](../spec/files.md)).
 - **Personal data:** email addresses and names, and the client IP addresses and user agents that audit entries record (SEC-18).
 - **The audit logs:** who did what, which an attacker would want to change or erase.
-- **Secrets:** the key of every keyed hash, such as a rate-limit bucket's key (PLATFORM-057), the database roles' passwords, the password of the mail server, reached over the Simple Mail Transfer Protocol (SMTP), the backups' encryption passphrase, the bucket's key pair, and Grafana's credentials (SEC-01).
+- **Secrets:** the key of every keyed hash, such as a rate-limit bucket's key (PLATFORM-057), the database roles' passwords, the password of the mail server, reached over the Simple Mail Transfer Protocol (SMTP), the backups' encryption passphrase, the key pairs of the backups' bucket and of the files bucket, and Grafana's credentials (SEC-01).
 - **The backups**, which hold the database, and so all of the above but the secrets, in a bucket off the server ([what is backed up](backups.md#what-is-backed-up)).
 - **The deployment's server**, its Postgres, and its observability stack.
 
@@ -21,6 +22,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | A client to the API | Credentials, tokens, and every request's input | Authentication (SEC-06, SEC-07, API-14), authorization (SEC-08, SEC-09), strict input (API-08, API-09, API-10), rate limits (SEC-13) and load shedding (OPS-07) |
 | The API to Postgres | Every query, as the role `app` | Two roles, the API's with least privilege (DATA-12, DATA-13, DATA-19); queries checked at compile time (DATA-14); every query filters by tenant (DATA-16) |
 | The API to other systems | Email, and later OAuth providers | One of two outbound clients (SEC-10); TLS that verifies the certificate (OPS-17) |
+| The replicas to the files bucket | Files' bytes, written, read and deleted by keys that name no row | The object storage adapter's client, with its endpoint from configuration (SEC-10); TLS that verifies the certificate (OPS-17); a key pair that reaches only that bucket ([the files bucket](deploy.md#the-files-bucket)) |
 | Postgres to the bucket | The write-ahead log and the base backups | Encrypted before they leave the server (OPS-17); a key pair that reaches only the bucket ([the bucket](backups.md#the-bucket)) |
 | The collector to an observability backend | Logs, traces and metrics | No personal data or secret in telemetry (OBS-04); TLS (OPS-17) |
 | CI to the registry to the server | The images, and the deploy's tools | Everything pinned (OPS-11); one build whose digest is tested, signed and promoted (OPS-12); advisories block the build (SEC-15); a minimal, unprivileged image (OPS-13) |
@@ -57,8 +59,9 @@ What the API and its reference deployment protect, from whom, and which rules an
 | Threat | What stops it |
 |---|---|
 | SQL injection | Queries are checked at compile time, and the functions that take SQL text are banned (DATA-14) |
-| Malformed, unexpected or oversized input | Strict bodies and query parameters (API-08, API-09), domain types at the boundary (API-10), and body limits (PLATFORM-048, PLATFORM-050) |
-| An uploaded file that runs in a browser | Uploaded content is served so that it can't (SEC-11), with the `files` module |
+| Malformed, unexpected or oversized input | Strict bodies and query parameters (API-08, API-09), domain types at the boundary (API-10), and body limits (PLATFORM-048, PLATFORM-050), an upload's among them, refused by its declared length before anything reads it (PLATFORM-074, FILES-004) |
+| An uploaded file that runs in a browser | Only kinds whose bytes a check reads are accepted, never Scalable Vector Graphics (SVG) or HTML (FILES-003), and each is served so that it can't run (SEC-11, FILES-009) |
+| An uploaded file that carries malware | Not stopped yet: the scan of every upload arrives with `files`' next part (FILES-005, a known gap) |
 | Errors that leak internals | Internal errors expose nothing, and `detail` never carries internals (ERR-08, ERR-09) |
 | Framing, sniffing and caching of responses | Security headers on every response (SEC-12) |
 | Server-side request forgery | Outbound requests go through one of two clients, the one that reaches addresses a user gives refusing private ones (SEC-10) |
@@ -83,6 +86,8 @@ What the API and its reference deployment protect, from whom, and which rules an
 |---|---|
 | A flood of requests | The IP and per-user limits (SEC-13), which clients can see (API-15); a concurrency limit and timeouts (OPS-07, PLATFORM-039, PLATFORM-042) |
 | A client that holds streams open, or reads them slowly | A cap of streams per user on a replica (REALTIME-006); a stream that falls behind closes (PLATFORM-032) |
+| Uploads that fill a replica's memory, or hold it with slow bodies | At most 4 uploads' bodies in memory on a replica at once, each at most `FILE_MAX_BYTES`, and the upload route's timeout (PLATFORM-074) |
+| A files bucket that doesn't answer | The routes of files' bytes answer 503 in time, every other route serves (FILES-012), and StorageUnreachable pages ([runbooks](runbooks.md#storageunreachable)) |
 | Exhausting the database's connections | The connection budget fits the server (OPS-18) |
 
 ### Supply chain and operations

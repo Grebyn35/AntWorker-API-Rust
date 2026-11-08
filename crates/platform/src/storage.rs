@@ -4,7 +4,7 @@
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-pub use bytes::Bytes;
+use bytes::Bytes;
 use futures_util::{
     StreamExt,
     future::{Either, select},
@@ -138,6 +138,15 @@ impl ObjectKey {
     }
 }
 
+/// An object that a listing gives: its key, and when the bucket wrote it, by the bucket's clock.
+#[derive(Clone, Debug)]
+pub struct Listed {
+    /// Its key.
+    pub key: ObjectKey,
+    /// When the bucket wrote it.
+    pub written_at: time::OffsetDateTime,
+}
+
 /// An object's bytes, a chunk at a time, as the bucket streams them. A failure while they stream
 /// ends the stream.
 pub type ObjectBytes = BoxStream<'static, Result<Bytes, Internal>>;
@@ -246,8 +255,15 @@ impl Storage {
         let path = path(key);
         let found = self.answer(Call::Get, self.store.get(&path)).await?;
         let size = found.meta.size;
+        // A stream that the bucket stops sending, or that fails, counts again, by its failure,
+        // so a bucket that answers and then stalls still shows (OBS-14).
         let bytes = answered(found.into_stream(), self.clock.clone(), Call::Get)
-            .map(|chunk| chunk.map_err(StorageError::into_cause))
+            .map(|chunk| {
+                chunk.map_err(|failure| {
+                    count(Some(&failure));
+                    failure.into_cause()
+                })
+            })
             .boxed();
         Ok(Object { size, bytes })
     }
@@ -262,15 +278,21 @@ impl Storage {
         }
     }
 
-    /// The keys of the objects under `prefix`, as the bucket lists them, a page at a time, in
-    /// the listing's client span (OBS-06). The bucket has as long for each page as for any other
-    /// answer, and the listing counts once, as it ends or fails.
-    pub fn list(&self, prefix: &str) -> BoxStream<'static, Result<ObjectKey, StorageError>> {
+    /// The objects under `prefix`, as the bucket lists them, a page at a time, in the listing's
+    /// client span (OBS-06). The bucket has as long for each page as for any other answer, and
+    /// the listing counts once, as it ends or fails.
+    pub fn list(&self, prefix: &str) -> BoxStream<'static, Result<Listed, StorageError>> {
         let prefix = Path::from(prefix.trim_end_matches('/'));
-        let listed = self
-            .store
-            .list(Some(&prefix))
-            .map(|listed| listed.map(|meta| ObjectKey(meta.location.to_string())));
+        let listed = self.store.list(Some(&prefix)).map(|listed| {
+            listed.map(|meta| Listed {
+                key: ObjectKey(meta.location.to_string()),
+                // A time S3 gives is a whole second's, which a timestamp in seconds always holds.
+                written_at: time::OffsetDateTime::from_unix_timestamp(
+                    meta.last_modified.timestamp(),
+                )
+                .unwrap_or(time::OffsetDateTime::UNIX_EPOCH),
+            })
+        });
         let keys = answered(listed, self.clock.clone(), Call::List);
         stream::unfold(Some((keys, self.span(Call::List))), |state| async move {
             let (mut keys, span) = state?;
@@ -437,7 +459,7 @@ fn transport(error: &object_store::Error) -> Option<HttpErrorKind> {
 
 /// The status of the bucket's answer that `error` reports, if it reports one. The library keeps
 /// the status in a type it doesn't export, so it is read from the error's text, `status code:`
-/// and three digits, which the tests of this module pin.
+/// and three digits, which the tests of FILES-012 pin.
 fn status(error: &object_store::Error) -> Option<u16> {
     let text = error.to_string();
     let (_, after) = text.split_once("status code: ")?;

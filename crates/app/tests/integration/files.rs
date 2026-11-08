@@ -3,10 +3,13 @@
 use std::{sync::Arc, time::Duration};
 
 use axum::body::Body;
+use bytes::Bytes;
 use futures_util::{TryStreamExt, stream};
 use platform::{
-    storage::{Bytes, ObjectKey},
+    clock::TestClock,
+    storage::{ObjectKey, Storage, StorageConfig},
     telemetry::testing,
+    types::Secret,
 };
 use serde_json::{Value, json};
 use tokio::sync::Notify;
@@ -112,7 +115,7 @@ async fn stored_names(api: &Api, workspace: &str) -> Vec<String> {
 async fn objects(api: &Api) -> Vec<String> {
     let mut keys: Vec<String> = bucket::storage(&api.database().bucket().await)
         .list("")
-        .map_ok(|key| key.as_str().to_owned())
+        .map_ok(|listed| listed.key.as_str().to_owned())
         .try_collect()
         .await
         .unwrap();
@@ -418,33 +421,73 @@ fn upload_streamed(
     })
 }
 
-#[tokio::test]
-async fn platform_074_a_declared_length_over_the_limit_answers_413_before_the_body_is_read() {
+/// The answer to an upload whose `Content-Length` declares 11 bytes, over a limit of 10, with a
+/// body that fails once it is read, so a 413 shows that nothing read it.
+async fn declared_over_the_limit() -> Response {
     let api = Api::with(Options::default().set("FILE_MAX_BYTES", 10)).await;
     let (workspace, ada, _) = acme(&api, "member").await;
-    // A body that fails once it is read, so a 413 shows that nothing read it.
     let unread = Body::from_stream(stream::once(async {
         Err::<Bytes, _>(std::io::Error::other("the body was read"))
     }));
+    api.request(
+        http::Method::POST,
+        &format!("/v1/workspaces/{workspace}/files"),
+    )
+    .header("content-type", "application/octet-stream")
+    .header("content-disposition", "attachment; filename=\"a.txt\"")
+    .header("content-length", "11")
+    .bearer(&ada.access)
+    .send_streamed(unread)
+    .await
+}
 
-    let response = api
-        .request(
-            http::Method::POST,
-            &format!("/v1/workspaces/{workspace}/files"),
-        )
-        .header("content-type", "application/octet-stream")
-        .header("content-disposition", "attachment; filename=\"a.txt\"")
-        .header("content-length", "11")
-        .bearer(&ada.access)
-        .send_streamed(unread)
-        .await;
+#[tokio::test]
+async fn platform_074_a_declared_length_over_the_limit_answers_413_before_the_body_is_read() {
+    let response = declared_over_the_limit().await;
 
     assert_eq!(response.status, 413);
     assert_eq!(response.json()["code"], "request.payload_too_large");
 }
 
 #[tokio::test]
-async fn platform_074_an_upload_runs_for_at_most_60_seconds() {
+async fn files_004_a_declared_length_over_the_limit_answers_413() {
+    let response = declared_over_the_limit().await;
+
+    assert_eq!(response.status, 413);
+    assert_eq!(response.json()["code"], "request.payload_too_large");
+}
+
+#[tokio::test]
+async fn platform_074_a_body_that_grows_past_the_limit_answers_413() {
+    let api = Api::with(Options::default().set("FILE_MAX_BYTES", 10)).await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+
+    // The in-process client declares no length, so the limit stops the body as it is read.
+    let over = upload(&api, &ada, &workspace, "a.txt", b"0123456789A", None).await;
+
+    assert_eq!(over.status, 413);
+    assert_eq!(over.json()["code"], "request.payload_too_large");
+    assert!(stored_names(&api, &workspace).await.is_empty());
+}
+
+#[tokio::test]
+async fn platform_074_a_key_s_fingerprint_covers_the_bytes_and_the_name() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+
+    let first = upload(&api, &ada, &workspace, "a.txt", b"one", Some("\"k1\"")).await;
+    let other_bytes = upload(&api, &ada, &workspace, "a.txt", b"two", Some("\"k1\"")).await;
+    let other_name = upload(&api, &ada, &workspace, "b.txt", b"one", Some("\"k1\"")).await;
+
+    assert_eq!(first.status, 201);
+    for reused in [&other_bytes, &other_name] {
+        assert_eq!(reused.status, 422);
+        assert_eq!(reused.json()["code"], "request.idempotency_key_reused");
+    }
+}
+
+#[tokio::test]
+async fn platform_074_an_upload_past_its_timeout_answers_503() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
     let reading = Arc::new(Notify::new());
@@ -453,21 +496,17 @@ async fn platform_074_an_upload_runs_for_at_most_60_seconds() {
     reading.notified().await;
 
     // Paused once the handler reads the body, after its check in the database, so tokio's time
-    // moves only as the test moves it, and then runs to the route's timeout, the only timer left.
+    // runs straight to the route's timeout, the only timer left, as platform_042's test does.
     tokio::time::pause();
-    tokio::time::advance(Duration::from_secs(59)).await;
-    for _ in 0..8 {
-        tokio::task::yield_now().await;
-    }
-    assert!(!request.is_finished(), "the upload ended within 59 seconds");
     let response = request.await.unwrap();
 
     assert_eq!(response.status, 503);
     assert_eq!(response.json()["code"], "request.timed_out");
 }
 
-#[tokio::test]
-async fn platform_073_the_upload_s_unit_of_work_authorizes_the_caller_again() {
+/// The answer to Grace's upload, a member's, whose membership ends once her check has passed,
+/// while its body is read, and the names the workspace's files then hold.
+async fn left_while_uploading() -> (Response, Vec<String>) {
     let api = Api::new().await;
     let (workspace, _, grace) = acme(&api, "member").await;
     let (reading, go) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
@@ -476,7 +515,6 @@ async fn platform_073_the_upload_s_unit_of_work_authorizes_the_caller_again() {
     let request = upload_streamed(&api, path, &grace.access, body);
     reading.notified().await;
 
-    // Grace leaves once her check has passed, while her upload's body is read.
     api.database()
         .owner_executes(&format!(
             "DELETE FROM workspace_memberships \
@@ -486,10 +524,24 @@ async fn platform_073_the_upload_s_unit_of_work_authorizes_the_caller_again() {
         .await;
     go.notify_one();
     let response = request.await.unwrap();
+    (response, stored_names(&api, &workspace).await)
+}
+
+#[tokio::test]
+async fn platform_073_the_upload_s_unit_of_work_authorizes_the_caller_again() {
+    let (response, stored) = left_while_uploading().await;
 
     assert_eq!(response.status, 404);
     assert_eq!(response.json()["code"], "request.not_found");
-    assert!(stored_names(&api, &workspace).await.is_empty());
+    assert!(stored.is_empty());
+}
+
+#[tokio::test]
+async fn files_006_the_upload_s_unit_of_work_authorizes_the_caller_again() {
+    let (response, stored) = left_while_uploading().await;
+
+    assert_eq!(response.status, 404);
+    assert!(stored.is_empty());
 }
 
 #[tokio::test]
@@ -747,6 +799,22 @@ async fn files_009_a_download_serves_each_kind_so_that_it_can_t_run() {
 }
 
 #[tokio::test]
+async fn api_16_a_download_carries_its_trace_context() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let id = files::arrange(api.database(), &workspace, "Blue").await;
+
+    let response = download(&api, &ada, &workspace, &id).await;
+
+    assert_eq!(response.status, 200);
+    // `server-timing: trace;desc=00-<trace ID>-<span ID>-<flags>`.
+    let traceparent = response.header("server-timing");
+    let parts: Vec<&str> = traceparent["trace;desc=".len()..].split('-').collect();
+    assert!(traceparent.starts_with("trace;desc=00-"), "{traceparent}");
+    assert_eq!((parts[1].len(), parts[2].len()), (32, 16), "{traceparent}");
+}
+
+#[tokio::test]
 async fn files_009_a_file_whose_bytes_the_bucket_lacks_answers_500_and_its_cause_names_it() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
@@ -846,32 +914,41 @@ async fn files_010_a_member_may_not_delete_and_the_owner_may() {
 }
 
 #[tokio::test]
-async fn files_011_an_unreferenced_object_goes_once_its_delay_has_passed() {
-    let api = Api::with(Options::default().set("FILE_DELETION_DELAY_DAYS", 3)).await;
-    let (workspace, ada, _) = acme(&api, "member").await;
+async fn files_011_the_comparison_records_each_object_no_row_names_written_an_hour_ago() {
+    // The bucket lists three objects: two written long ago, one of which a row names, and one
+    // written later than the database's clock reads now, as one whose upload may still commit.
+    let bucket = bucket::listing(&[
+        ("workspaces/settled", "2020-01-01T00:00:00.000Z"),
+        ("workspaces/named", "2020-01-01T00:00:00.000Z"),
+        ("workspaces/recent", "2999-01-01T00:00:00.000Z"),
+    ])
+    .await;
+    let api = Api::with(
+        Options::default()
+            .set("S3_ENDPOINT", &bucket.endpoint)
+            .set("FILE_DELETION_DELAY_DAYS", 3),
+    )
+    .await;
+    let (workspace, _, _) = acme(&api, "member").await;
     let db = api.database();
-    let kept = files::arrange(db, &workspace, "Kept").await;
-    let kept = object_key(&api, &kept).await;
-    let deleted = files::arrange(db, &workspace, "Deleted").await;
-    let orphan = object_key(&api, &deleted).await;
-    delete(&api, &ada, &workspace, &deleted).await;
+    db.owner_executes(&format!(
+        "INSERT INTO workspace_files (workspace_id, name, media_type, size_bytes, object_key) \
+         VALUES ('{workspace}', 'Named', 'text/plain; charset=utf-8', 5, 'workspaces/named')"
+    ))
+    .await;
 
     api.run_periodic("files.find_unreferenced_objects").await;
 
-    // Recorded 3 days from now, by the database's clock, and only the object no row names.
+    // Recorded 3 days from now, by the database's clock, and only the settled object no row
+    // names.
     assert_eq!(
         db.owner_reads(
             "SELECT object_key || ' ' || (deletable_at - now() BETWEEN interval '3 days' - \
              interval '1 minute' AND interval '3 days') FROM object_deletions"
         )
         .await,
-        [format!("{orphan} true")]
+        ["workspaces/settled true"]
     );
-    // Before its time, nothing goes.
-    api.run_periodic("files.delete_unreferenced_objects").await;
-    let mut both = vec![kept.clone(), orphan.clone()];
-    both.sort();
-    assert_eq!(objects(&api).await, both);
     // A later run keeps the time it recorded.
     db.owner_executes("UPDATE object_deletions SET deletable_at = now() + interval '1 hour'")
         .await;
@@ -883,6 +960,30 @@ async fn files_011_an_unreferenced_object_goes_once_its_delay_has_passed() {
         .await,
         ["true"]
     );
+}
+
+#[tokio::test]
+async fn files_011_an_unreferenced_object_goes_once_its_delay_has_passed() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let db = api.database();
+    let kept = files::arrange(db, &workspace, "Kept").await;
+    let kept = object_key(&api, &kept).await;
+    let deleted = files::arrange(db, &workspace, "Deleted").await;
+    let orphan = object_key(&api, &deleted).await;
+    delete(&api, &ada, &workspace, &deleted).await;
+    // The comparison recorded the object, with its time still to come.
+    db.owner_executes(&format!(
+        "INSERT INTO object_deletions (object_key, deletable_at) \
+         VALUES ('{orphan}', now() + interval '1 hour')"
+    ))
+    .await;
+
+    // Before its time, nothing goes.
+    api.run_periodic("files.delete_unreferenced_objects").await;
+    let mut both = vec![kept.clone(), orphan.clone()];
+    both.sort();
+    assert_eq!(objects(&api).await, both);
 
     db.owner_executes("UPDATE object_deletions SET deletable_at = now() - interval '1 second'")
         .await;
@@ -990,18 +1091,37 @@ async fn files_012_a_bucket_that_doesn_t_answer_makes_the_routes_of_bytes_answer
 
 #[tokio::test]
 async fn files_012_a_bucket_that_answers_it_can_t_serve_counts_as_not_answering() {
-    let bucket = bucket::scripted(Some(503)).await;
-    let api = Api::with(Options::default().set("S3_ENDPOINT", &bucket.endpoint)).await;
-    let (workspace, ada, _) = acme(&api, "member").await;
-    let id = files::arrange_row(api.database(), &workspace, "Blue").await;
+    for status in [500, 503, 429] {
+        let bucket = bucket::scripted(Some(status)).await;
+        let api = Api::with(Options::default().set("S3_ENDPOINT", &bucket.endpoint)).await;
+        let (workspace, ada, _) = acme(&api, "member").await;
+        let id = files::arrange_row(api.database(), &workspace, "Blue").await;
 
-    let uploaded = upload(&api, &ada, &workspace, "a.txt", b"hello", None).await;
-    let downloaded = download(&api, &ada, &workspace, &id).await;
+        let uploaded = upload(&api, &ada, &workspace, "a.txt", b"hello", None).await;
+        let downloaded = download(&api, &ada, &workspace, &id).await;
 
-    for response in [&uploaded, &downloaded] {
-        assert_eq!(response.status, 503);
-        assert_eq!(response.json()["code"], "files.storage_unavailable");
+        for response in [&uploaded, &downloaded] {
+            assert_eq!(response.status, 503, "{status}");
+            assert_eq!(response.json()["code"], "files.storage_unavailable");
+        }
     }
+}
+
+#[test]
+fn platform_076_the_client_refuses_to_start_without_its_authorities_file() {
+    let config = |ca_path: Option<&str>| StorageConfig {
+        endpoint: "https://s3.example.com".parse().unwrap(),
+        region: "us-east-1".to_owned(),
+        bucket: "files".to_owned(),
+        access_key_id: "key".to_owned(),
+        secret_access_key: Secret::new("secret".to_owned()),
+        path_style: false,
+        ca_path: ca_path.map(std::path::PathBuf::from),
+    };
+    let clock = Arc::new(TestClock::default());
+
+    assert!(Storage::new(&config(None), clock.clone()).is_ok());
+    assert!(Storage::new(&config(Some("/nonexistent/files-ca.crt")), clock).is_err());
 }
 
 #[tokio::test]

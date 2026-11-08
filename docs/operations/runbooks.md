@@ -119,11 +119,11 @@ With a managed database, run the same query in the provider's console. Add `payl
 
 ## PeriodicJobFailing
 
-**What it means.** A periodic job failed at least twice within 3 hours, as an hourly job that keeps failing does, or twice within 25 hours with no run that succeeded, as a daily job that keeps failing does, such as `files.find_unreferenced_objects`. Each failed run waits for its next interval, so what it deletes stays meanwhile; nothing a request reads changes ([platform spec](../spec/platform.md#the-job-queue)).
+**What it means.** A periodic job failed at least twice within 3 hours, as an hourly job that keeps failing does, or twice within 49 hours with no run that succeeded, as a daily job that keeps failing does from an hour after its second failure, such as `files.find_unreferenced_objects`. Each failed run waits for its next interval, so what it deletes stays meanwhile; nothing a request reads changes ([platform spec](../spec/platform.md#the-job-queue)).
 
 **Look first.** The API's `WARN` line "periodic job failed, and runs again at its next interval" names the job and the failure.
 
-**What to do.** A failure of the database clears with it: follow [DatabaseUnreachable](#databaseunreachable); one of the files bucket, with it: follow [StorageUnreachable](#storageunreachable). A run that passes its time limit, which its job's declaration sets, stops where it was: the sweeps and `files.delete_unreferenced_objects` delete in batches, and `files.find_unreferenced_objects` records what it found so far, so the next run continues. The alert clears 3 hours after the last failure, or, for a daily job, once a run succeeds.
+**What to do.** A failure of the database clears with it: follow [DatabaseUnreachable](#databaseunreachable); one of the files bucket, with it: follow [StorageUnreachable](#storageunreachable). A run that passes its time limit, which its job's declaration sets, stops where it was. The sweeps and `files.delete_unreferenced_objects` delete in batches, so the next run continues where it stopped. `files.find_unreferenced_objects` keeps what it recorded, but its next run lists the bucket from its start again, so a bucket whose listing takes longer than the hour has objects that it never reaches, which no deletion then removes: its runs fail each day, and the job needs a longer limit or a listing that resumes. The alert clears 3 hours after the last failure, or, for a daily job, once a run succeeds.
 
 ## BackupArchivingFailing
 
