@@ -390,3 +390,33 @@ async fn auth_020_a_session_that_doesn_t_exist_proves_none() {
     assert_eq!(response.status, 401);
     assert_eq!(response.json()["code"], "request.unauthenticated");
 }
+
+#[tokio::test]
+async fn files_021_a_list_links_each_private_file_for_the_caller_s_session() {
+    let api = Api::new().await;
+    let (workspace, ada, grace) = acme(&api, "member").await;
+    uploaded(&api, &ada, &workspace, "").await;
+    upload_own(&api, &grace, "mine.txt", b"mine", "", None).await;
+
+    let listed = api
+        .get(&format!("/v1/workspaces/{workspace}/files"))
+        .bearer(&grace.access)
+        .send()
+        .await
+        .json();
+    let own = api
+        .get("/v1/users/me/files")
+        .bearer(&grace.access)
+        .send()
+        .await
+        .json();
+
+    for item in [&listed["items"][0], &own["items"][0]] {
+        assert_eq!(item["visibility"], "private");
+        let url = item["content_url"].as_str().unwrap();
+        assert_eq!(parameter(url, "session"), grace.session_id);
+        assert!(item["content_url_expires_at"].is_string(), "{item}");
+        let response = api.get(url).send().await;
+        assert_eq!(response.status, 200, "{url}");
+    }
+}

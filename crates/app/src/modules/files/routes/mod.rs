@@ -135,8 +135,8 @@ pub(super) fn page(query: &Query<ListQuery>) -> Result<(Page, Option<Search>), F
 /// How long a shared cache may keep a public file's download (FILES-023).
 const PUBLIC_FOR: Duration = Duration::from_secs(300);
 
-/// The response that serves what `downloaded` holds: a public file's, which has no name, may stay
-/// in shared caches (FILES-009, FILES-023, PLATFORM-081).
+/// The response that serves what `downloaded` holds: a public download's may stay in shared
+/// caches (FILES-009, FILES-023, PLATFORM-081).
 pub(super) fn response(downloaded: Downloaded) -> Download<ObjectBytes> {
     let Downloaded {
         file,
@@ -145,7 +145,7 @@ pub(super) fn response(downloaded: Downloaded) -> Download<ObjectBytes> {
     } = downloaded;
     Download {
         inline: Kind::of_media_type(&file.media_type).is_some_and(Kind::inline),
-        public_for: file.name.is_none().then_some(PUBLIC_FOR),
+        public_for: file.public.then_some(PUBLIC_FOR),
         tag: file.id.to_string(),
         media_type: file.media_type,
         size: file.size_bytes,

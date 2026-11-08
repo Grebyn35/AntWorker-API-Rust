@@ -67,6 +67,7 @@
 		header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		header X-Content-Type-Options nosniff
 		header Referrer-Policy no-referrer
+		header Cache-Control no-store
 		header -Server
 		@probe path /health/*
 		handle @probe {

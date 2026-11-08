@@ -141,6 +141,117 @@ async fn files_016_an_upload_without_a_credential_answers_401_with_the_body_unre
     assert_eq!(response.json()["code"], "request.unauthenticated");
 }
 
+/// Sends `bytes` to `user`'s own files, with `headers` as the request's only headers but its
+/// credential.
+async fn send_own(api: &Api, user: &SignedIn, headers: &[(&str, &str)], bytes: &[u8]) -> Response {
+    let mut call = api
+        .request(http::Method::POST, "/v1/users/me/files")
+        .body(bytes.to_vec())
+        .bearer(&user.access);
+    for (name, value) in headers {
+        call = call.header(name, value);
+    }
+    call.send().await
+}
+
+#[tokio::test]
+async fn files_002_an_upload_to_one_s_own_files_takes_its_name_from_content_disposition() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let octets = ("content-type", "application/octet-stream");
+
+    let named = send_own(
+        &api,
+        &ada,
+        &[
+            octets,
+            (
+                "content-disposition",
+                "attachment; filename*=UTF-8''caf%C3%A9.txt",
+            ),
+        ],
+        b"x",
+    )
+    .await;
+    let unnamed = send_own(&api, &ada, &[octets], b"x").await;
+    let control = send_own(
+        &api,
+        &ada,
+        &[
+            octets,
+            (
+                "content-disposition",
+                "attachment; filename*=UTF-8''a%07b.txt",
+            ),
+        ],
+        b"x",
+    )
+    .await;
+
+    assert_eq!(named.status, 201);
+    assert_eq!(named.json()["name"], "caf\u{e9}.txt");
+    for refused in [&unnamed, &control] {
+        assert_eq!(refused.status, 400);
+        assert_eq!(refused.json()["code"], "files.invalid_name");
+    }
+    assert_eq!(own_names(&api, &ada.user_id).await, ["caf\u{e9}.txt"]);
+}
+
+#[tokio::test]
+async fn files_004_an_upload_to_one_s_own_files_over_the_limit_answers_413_and_an_empty_one_400() {
+    let api = Api::with(Options::default().set("FILE_MAX_BYTES", 10)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let fits = upload_own(&api, &ada, "a.txt", b"0123456789", "", None).await;
+    let over = upload_own(&api, &ada, "b.txt", b"0123456789A", "", None).await;
+    let empty = upload_own(&api, &ada, "c.txt", b"", "", None).await;
+
+    assert_eq!(fits.status, 201);
+    assert_eq!(over.status, 413);
+    assert_eq!(over.json()["code"], "request.payload_too_large");
+    assert_eq!(empty.status, 400);
+    assert_eq!(empty.json()["code"], "files.empty");
+    assert_eq!(own_names(&api, &ada.user_id).await, ["a.txt"]);
+}
+
+#[tokio::test]
+async fn files_020_an_upload_to_one_s_own_files_of_another_visibility_answers_400_unread() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    // An empty body would be refused once read: the query's refusal comes first.
+    let response = upload_own(&api, &ada, "a.txt", b"", "?visibility=everyone", None).await;
+
+    assert_eq!(response.status, 400);
+    assert_eq!(response.json()["code"], "request.invalid_query");
+    assert_eq!(response.json()["errors"][0]["field"], "/visibility");
+    assert!(own_names(&api, &ada.user_id).await.is_empty());
+}
+
+#[tokio::test]
+async fn platform_074_a_user_s_upload_takes_only_application_octet_stream_and_a_valid_key() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let typed = send_own(
+        &api,
+        &ada,
+        &[
+            ("content-type", "text/plain"),
+            ("content-disposition", "attachment; filename=\"a.txt\""),
+        ],
+        b"hello",
+    )
+    .await;
+    let keyed = upload_own(&api, &ada, "a.txt", b"hello", "", Some("not a key")).await;
+
+    assert_eq!(typed.status, 400);
+    assert_eq!(typed.json()["code"], "request.invalid_body");
+    assert_eq!(keyed.status, 400);
+    assert_eq!(keyed.json()["code"], "request.invalid_idempotency_key");
+    assert!(own_names(&api, &ada.user_id).await.is_empty());
+}
+
 #[tokio::test]
 async fn files_003_an_upload_to_one_s_own_files_takes_only_an_accepted_kind() {
     let api = Api::new().await;
@@ -300,13 +411,18 @@ async fn files_018_reading_one_s_own_file_gives_it_and_another_s_answers_404() {
         assert_eq!(response.status, 404, "{path}");
         assert_eq!(response.json()["code"], "files.not_found", "{path}");
     }
-    let deleted = api
-        .request(http::Method::DELETE, &format!("/v1/users/me/files/{id}"))
-        .bearer(&grace.access)
-        .send()
-        .await;
-    assert_eq!(deleted.status, 404);
-    assert_eq!(deleted.json()["code"], "files.not_found");
+    for path in [
+        format!("/v1/users/me/files/{id}"),
+        "/v1/users/me/files/not-a-uuid".to_owned(),
+    ] {
+        let deleted = api
+            .request(http::Method::DELETE, &path)
+            .bearer(&grace.access)
+            .send()
+            .await;
+        assert_eq!(deleted.status, 404, "{path}");
+        assert_eq!(deleted.json()["code"], "files.not_found", "{path}");
+    }
     assert_eq!(own_names(&api, &ada.user_id).await, ["a.txt"]);
 }
 

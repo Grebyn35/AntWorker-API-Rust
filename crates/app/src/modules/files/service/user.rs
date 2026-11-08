@@ -48,9 +48,12 @@ pub(in crate::modules::files) async fn upload(
         bytes,
         async move |written: Written| {
             let mut uow = files.database.begin(client).await?;
-            let until = link_expiry(&mut uow).await?;
             let user = principal.user_id();
-            if let Claimed::Replay(file) = uow.claim::<Recorded<OfUser>>(user, key).await? {
+            // The claim is the unit of work's first statement (the platform spec's
+            // Idempotency).
+            let claimed = uow.claim::<Recorded<OfUser>>(user, key).await?;
+            let until = link_expiry(&mut uow).await?;
+            if let Claimed::Replay(file) = claimed {
                 let link = files.user_link(&file, principal.session_id(), until);
                 return Ok(UserFile::linked(file, link));
             }
@@ -144,6 +147,7 @@ pub(in crate::modules::files) async fn download(
         size_bytes: file.size_bytes,
         object_key: stored.object_key,
         name: Some(file.name.as_str().to_owned()),
+        public: false,
     };
     serve(files, serving, wanted).await
 }

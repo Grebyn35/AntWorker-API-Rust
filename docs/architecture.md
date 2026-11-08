@@ -229,8 +229,9 @@ sequenceDiagram
   P->>P: security headers, trace context, request log,<br/>panics, client, CORS, load shedding, IP rate limit, cross-site check
   P->>H: routed request
   H->>H: timeout, body limit, query check, Principal (authn),<br/>user rate limit, idempotency key, parse to domain types
-  H->>DB: BEGIN, and on workspace routes authorize (authz)
+  H->>DB: on a workspace route, BEGIN and authorize (authz)
   H->>S: call with domain types, and the unit of work on a workspace route
+  S->>DB: on every other route, BEGIN
   S->>DB: domain writes + audit entries + events + jobs
   S->>DB: COMMIT
   DB-->>P: NOTIFY (events)

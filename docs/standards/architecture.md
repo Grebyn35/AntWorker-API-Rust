@@ -68,7 +68,7 @@ A handler in `routes.rs` extracts its inputs, receives its authorization through
 - Check: `ci: check-layers` (no `sqlx` in a module's routes, no handler calls `check` on the `RateLimits` it extracts, which the service counts, no handler calls a second method of what its `State` extracts, or a second function of its module's `service`, no function that no `routes!` registers calls either, and the routes call no `begin`), plus `review`.
 
 ### ARCH-09 Services contain no HTTP types
-`service.rs` doesn't use `axum`, `http`, or request and response types.
+`service.rs` doesn't use `axum`, `http`, or request and response types. A domain type that a handler reads from its request, as `storage::Wanted` holds what a download asks of a file's bytes, isn't one: a job or a test builds it without a request.
 - Why: business rules can be called from jobs and tests without HTTP.
 - Check: `ci: check-layers`.
 

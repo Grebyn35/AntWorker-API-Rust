@@ -297,6 +297,7 @@ async fn ops_05_while_no_replica_runs_the_proxy_answers_at_once_with_the_api_s_5
     for answer in [&headers, &probe_headers] {
         assert_eq!(answer["x-content-type-options"], "nosniff");
         assert_eq!(answer["referrer-policy"], "no-referrer");
+        assert_eq!(answer["cache-control"], "no-store");
     }
     let problem: serde_json::Value = serde_json::from_str(&body).expect("a problem");
     let unavailable = RequestError::Unavailable;

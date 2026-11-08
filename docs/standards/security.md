@@ -78,7 +78,7 @@ Stored files are served with:
 - `Content-Security-Policy: sandbox`
 - `Content-Disposition: attachment`, unless the type is an allowlisted image type
 
-Public files never expose their original file name (D7).
+A public file's original name reaches only those who may read the file, its workspace's members with `files.read` or the user whose file it is: its public download, which anyone may make, gives none (D7, D115).
 - Why: an uploaded file can't execute as a page from the API's origin.
 - Check: `test`.
 

@@ -5,7 +5,7 @@ use super::{acme, own::upload_own, stored_names};
 use crate::support::{
     Api,
     api::{Options, Response},
-    files, users,
+    files, users, workspaces,
 };
 
 /// Uploads a PNG to `workspace` as `user`, with `query` as the request's query, and the body
@@ -50,6 +50,22 @@ async fn files_020_an_upload_is_private_unless_its_visibility_is_public() {
     let own = upload_own(&api, &ada, "a.txt", b"hello", "?visibility=public", None).await;
     assert_eq!(own.status, 201);
     assert_eq!(own.json()["visibility"], "public");
+}
+
+#[tokio::test]
+async fn files_001_a_member_and_an_admin_may_upload_a_public_file() {
+    let api = Api::new().await;
+    let (workspace, _, grace) = acme(&api, "member").await;
+    let alan = users::register(&api, "alan@example.com").await;
+    workspaces::join(api.database(), &workspace, &alan.user_id, "admin").await;
+
+    for uploader in [&grace, &alan] {
+        let response = upload_query(&api, uploader, &workspace, "?visibility=public", PNG).await;
+
+        assert_eq!(response.status, 201);
+        assert_eq!(response.json()["visibility"], "public");
+        assert_eq!(response.json()["uploader_id"], uploader.user_id);
+    }
 }
 
 #[tokio::test]

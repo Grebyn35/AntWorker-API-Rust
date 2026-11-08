@@ -47,6 +47,7 @@ pub(in crate::modules::files) async fn download(
         size_bytes,
         object_key,
         name: None,
+        public: true,
     };
     serve(files, serving, wanted).await
 }
