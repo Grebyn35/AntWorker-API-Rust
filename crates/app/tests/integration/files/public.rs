@@ -74,7 +74,7 @@ async fn files_020_another_visibility_answers_400_with_the_body_unread() {
 }
 
 #[tokio::test]
-async fn files_023_anyone_downloads_a_public_file_without_its_name() {
+async fn files_023_anyone_downloads_a_public_file_under_its_id_and_its_kind_s_extension() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
     let uploaded = upload_query(&api, &ada, &workspace, "?visibility=public", PNG)
@@ -92,7 +92,23 @@ async fn files_023_anyone_downloads_a_public_file_without_its_name() {
     .await
     .json();
     let own_id = own["id"].as_str().unwrap();
+    // A JPEG named with its kind's second extension.
+    let photo = upload_queried(
+        &api,
+        &ada,
+        &workspace,
+        "?visibility=public",
+        "photo.jpeg",
+        b"\xff\xd8\xff\xe0 a photo",
+    )
+    .await
+    .json();
+    let photo_id = photo["id"].as_str().unwrap();
 
+    let jpeg = api
+        .get(&format!("/v1/public/workspace-files/{photo_id}"))
+        .send()
+        .await;
     let image = api
         .get(&format!("/v1/public/workspace-files/{id}"))
         .send()
@@ -105,11 +121,24 @@ async fn files_023_anyone_downloads_a_public_file_without_its_name() {
     assert_eq!(image.status, 200);
     assert_eq!(image.body, PNG);
     assert_eq!(image.header("content-type"), "image/png");
-    assert_eq!(image.header("content-disposition"), "inline");
+    // Each is named by its ID and its kind's first extension, so every browser saves it with
+    // that extension, and never by its own name (D115).
+    assert_eq!(
+        image.header("content-disposition"),
+        format!("inline; filename=\"{id}.png\"; filename*=UTF-8''{id}.png")
+    );
+    assert_eq!(jpeg.status, 200);
+    assert_eq!(
+        jpeg.header("content-disposition"),
+        format!("inline; filename=\"{photo_id}.jpg\"; filename*=UTF-8''{photo_id}.jpg")
+    );
     assert_eq!(text.status, 200);
     assert_eq!(text.body, b"hello");
-    assert_eq!(text.header("content-disposition"), "attachment");
-    for response in [&image, &text] {
+    assert_eq!(
+        text.header("content-disposition"),
+        format!("attachment; filename=\"{own_id}.txt\"; filename*=UTF-8''{own_id}.txt")
+    );
+    for response in [&image, &text, &jpeg] {
         assert_eq!(response.header("cache-control"), "public, max-age=300");
         assert_eq!(response.header("x-content-type-options"), "nosniff");
         assert_eq!(
@@ -118,7 +147,11 @@ async fn files_023_anyone_downloads_a_public_file_without_its_name() {
         );
         assert_eq!(response.header("accept-ranges"), "bytes");
         // The name is personal data, which a public download withholds (SEC-11).
-        assert!(!format!("{:?}", response.headers).contains("notes"));
+        let headers = format!("{:?}", response.headers);
+        assert!(
+            !headers.contains("notes") && !headers.contains("photo"),
+            "{headers}"
+        );
     }
     assert_eq!(image.header("etag"), format!("\"{id}\""));
 }

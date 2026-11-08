@@ -232,14 +232,14 @@ where
 }
 
 /// The file a download serves: its ID, its media type and size, the key of its object, the name
-/// it is saved under, or none for a public download, which withholds it, and whether it is that
-/// download, which shared caches may keep (FILES-009, FILES-023).
+/// it is saved under, and whether it is a public download, which shared caches may keep and which
+/// gives no file's own name (FILES-009, FILES-023).
 pub(super) struct Serving {
     pub(super) id: uuid::Uuid,
     pub(super) media_type: String,
     pub(super) size_bytes: u64,
     pub(super) object_key: String,
-    pub(super) name: Option<String>,
+    pub(super) name: String,
     pub(super) public: bool,
 }
 

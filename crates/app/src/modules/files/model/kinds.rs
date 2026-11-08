@@ -114,6 +114,11 @@ impl Kind {
         self.media_type
     }
 
+    /// The extension of its names that a public download gives it: its first (FILES-023).
+    pub(crate) fn extension(self) -> &'static str {
+        self.extensions.first().copied().unwrap_or_default()
+    }
+
     /// Whether a browser may show it in place (SEC-11).
     pub(crate) fn inline(self) -> bool {
         self.inline

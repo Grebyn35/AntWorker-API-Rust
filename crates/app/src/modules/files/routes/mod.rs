@@ -179,7 +179,7 @@ impl utoipa::IntoResponses for DownloadResponses {
             .header(
                 "content-disposition",
                 HeaderBuilder::new().schema(Some(text())).description(Some(
-                    "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                    "`inline` for an image and `attachment` for every other kind, with the file's name, or, on a public download, its ID and its kind's extension (FILES-009, FILES-023).",
                 )).build(),
             )
             .header(

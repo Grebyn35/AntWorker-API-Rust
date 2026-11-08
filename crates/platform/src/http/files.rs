@@ -128,7 +128,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Wanted {
 
 /// A stored file's bytes, or a range of them, as a response that a browser can't run:
 /// `Content-Disposition` is `attachment` unless the file's kind may be shown in place, and gives
-/// the name twice, as RFC 6266 recommends, or none, for a public file; `Content-Security-Policy`
+/// the name twice, as RFC 6266 recommends; `Content-Security-Policy`
 /// sandboxes the file and lets it load nothing; `ETag` names its bytes, and `Accept-Ranges` says
 /// that a request may ask for a range of them. The security headers add
 /// `X-Content-Type-Options: nosniff`, and `Cache-Control: no-store` unless the download sets its
@@ -142,9 +142,8 @@ pub struct Download<S> {
     pub served: Served,
     /// Whether a browser may show it in place, rather than save it: only for images (SEC-11).
     pub inline: bool,
-    /// The name it is saved under, or `None` for a file whose name the response withholds, as a
-    /// public file's (SEC-11).
-    pub name: Option<String>,
+    /// The name it is saved under.
+    pub name: String,
     /// What names its bytes, which never change, as its entity tag, unquoted.
     pub tag: String,
     /// How long a shared cache may keep it: `None` for a file that no cache may keep.
@@ -196,7 +195,7 @@ where
         headers.insert(header::CONTENT_LENGTH, HeaderValue::from(length));
         headers.insert(
             header::CONTENT_DISPOSITION,
-            disposition(self.inline, self.name.as_deref()),
+            disposition(self.inline, &self.name),
         );
         headers.insert(
             header::CONTENT_SECURITY_POLICY,
@@ -208,13 +207,9 @@ where
 }
 
 /// `Content-Disposition` for a file named `name`: its type, then the name as `filename`, an ASCII
-/// fallback, and as `filename*`, in UTF-8 percent-encoded as RFC 8187 says (RFC 6266), or its
-/// type alone for a file whose name is withheld.
-fn disposition(inline: bool, name: Option<&str>) -> HeaderValue {
+/// fallback, and as `filename*`, in UTF-8 percent-encoded as RFC 8187 says (RFC 6266).
+fn disposition(inline: bool, name: &str) -> HeaderValue {
     let kind = if inline { "inline" } else { "attachment" };
-    let Some(name) = name else {
-        return HeaderValue::from_static(kind);
-    };
     let value = format!(
         "{kind}; filename=\"{}\"; filename*=UTF-8''{}",
         fallback(name),
@@ -298,26 +293,20 @@ mod tests {
     }
 
     #[test]
-    fn sec_11_a_withheld_name_leaves_the_disposition_s_type_alone() {
-        assert_eq!(disposition(true, None).to_str().unwrap(), "inline");
-        assert_eq!(disposition(false, None).to_str().unwrap(), "attachment");
-    }
-
-    #[test]
     fn sec_11_a_name_is_served_in_ascii_and_in_utf_8() {
-        let value = disposition(false, Some("Ré\"port 100%.pdf"));
+        let value = disposition(false, "Ré\"port 100%.pdf");
         assert_eq!(
             value.to_str().unwrap(),
             "attachment; filename=\"R__port 100_.pdf\"; filename*=UTF-8''R%C3%A9%22port%20100%25.pdf"
         );
         assert!(
-            disposition(true, Some("a.png"))
+            disposition(true, "a.png")
                 .to_str()
                 .unwrap()
                 .starts_with("inline; ")
         );
         // A name that names a header or a parameter stays inside the parameters.
-        let value = disposition(false, Some("a.txt\r\nSet-Cookie: x; filename=evil"));
+        let value = disposition(false, "a.txt\r\nSet-Cookie: x; filename=evil");
         assert!(!value.to_str().unwrap().contains('\n'));
         assert_eq!(
             name(value.to_str().unwrap()).unwrap(),

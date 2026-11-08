@@ -149,7 +149,7 @@ pub(in crate::modules::files) async fn download(
         media_type: file.media_type,
         size_bytes: file.size_bytes,
         object_key: stored.object_key,
-        name: Some(file.name.as_str().to_owned()),
+        name: file.name.as_str().to_owned(),
         public: false,
     };
     serve(files, serving, wanted).await

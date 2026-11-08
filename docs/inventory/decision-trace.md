@@ -16,7 +16,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | Decision | Recommendation text | The rule that refines it |
 |---|---|---|
 | D6 | Audit every successful state change | DATA-22: platform bookkeeping and scheduled maintenance, such as the invitation expiry sweep, aren't audited |
-| D7 | Public files never expose their original file name, on any route | SEC-11 (D115): a public file's name reaches only those who may read the file; its public download, which anyone may make, gives none |
+| D7 | Public files never expose their original file name, on any route | SEC-11 (D115): a public file's name reaches only those who may read the file; its public download, which anyone may make, names it by its ID and its kind's extension alone (D116) |
 | D8 | Constraint violations map to 4xx | ERR-05: each constraint a repository relies on maps to a domain outcome; an unexpected violation is `Internal` |
 | D8, D10, D11 | Every response is a problem with a trace ID; the SDK samples every trace; an IP limit applies to every route | API-07, API-16, OBS-08, OBS-15, SEC-13 and OPS-05 exempt the health probes |
 | D10 | Every log line carries the trace and span IDs | OBS-02: a line written inside a span carries them |

@@ -6,6 +6,7 @@ use platform::{storage::Wanted, types::Client};
 use super::{Downloaded, Files, Serving, serve};
 use crate::modules::files::{
     error::FilesError,
+    model::Kind,
     repo::public::{self as repo, Public},
 };
 
@@ -41,12 +42,18 @@ pub(in crate::modules::files) async fn download(
         size_bytes,
         object_key,
     } = found.ok_or(FilesError::NotFound)?;
+    // The file's ID and its kind's extension, so every browser saves it with that extension,
+    // while its own name reaches only those who may read the file (FILES-023, D115).
+    let name = match Kind::of_media_type(&media_type) {
+        Some(kind) => format!("{id}.{}", kind.extension()),
+        None => id.to_string(),
+    };
     let serving = Serving {
         id,
         media_type,
         size_bytes,
         object_key,
-        name: None,
+        name,
         public: true,
     };
     serve(files, serving, wanted).await

@@ -2239,7 +2239,7 @@
                 }
               },
               "content-disposition": {
-                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, or, on a public download, its ID and its kind's extension (FILES-009, FILES-023).",
                 "schema": {
                   "type": "string"
                 }
@@ -2365,7 +2365,7 @@
                 }
               },
               "content-disposition": {
-                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, or, on a public download, its ID and its kind's extension (FILES-009, FILES-023).",
                 "schema": {
                   "type": "string"
                 }
@@ -2800,7 +2800,7 @@
                 }
               },
               "content-disposition": {
-                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, or, on a public download, its ID and its kind's extension (FILES-009, FILES-023).",
                 "schema": {
                   "type": "string"
                 }
@@ -2926,7 +2926,7 @@
                 }
               },
               "content-disposition": {
-                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, or, on a public download, its ID and its kind's extension (FILES-009, FILES-023).",
                 "schema": {
                   "type": "string"
                 }
@@ -6288,7 +6288,7 @@
                 }
               },
               "content-disposition": {
-                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, or, on a public download, its ID and its kind's extension (FILES-009, FILES-023).",
                 "schema": {
                   "type": "string"
                 }
@@ -6408,7 +6408,7 @@
                 }
               },
               "content-disposition": {
-                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, or, on a public download, its ID and its kind's extension (FILES-009, FILES-023).",
                 "schema": {
                   "type": "string"
                 }
@@ -11256,7 +11256,7 @@
                 }
               },
               "content-disposition": {
-                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, or, on a public download, its ID and its kind's extension (FILES-009, FILES-023).",
                 "schema": {
                   "type": "string"
                 }
@@ -11376,7 +11376,7 @@
                 }
               },
               "content-disposition": {
-                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, or, on a public download, its ID and its kind's extension (FILES-009, FILES-023).",
                 "schema": {
                   "type": "string"
                 }
