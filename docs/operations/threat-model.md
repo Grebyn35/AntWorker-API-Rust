@@ -81,6 +81,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | The files bucket's provider reading the files | Nothing in the API: the provider encrypts them at rest with keys of its own (OPS-17), and is trusted with their bytes, as a managed database's provider is with its data (D106) |
 | A bucket keeping what the deployment deleted, such as a deleted file's bytes or an expired backup, as a noncurrent version | Every bucket of the deployment has versioning off, or expires each noncurrent version a day after it becomes one, which `just server-check` checks ([deploy.md](deploy.md#what-a-server-needs), D102) |
 | Losing data, or a change that shouldn't have happened | Continuous backups, restores to any moment the retention covers, and a restore that another undoes (OPS-15) |
+| Someone who holds the server, or its buckets' key pairs, deleting the backups and the files' bytes with the data | Nothing yet: each key pair on the server may delete what its bucket holds, and no bucket keeps a version longer than a day (D102), so the copies a restore needs go with the data. Whether each bucket keeps what such a key deletes, for a while that the key can't shorten, is decided at step 6 ([Rule proposals](../MIGRATION.md#rule-proposals)) |
 | Tampering with audit history | `app` may only insert and read audit entries (AUDIT-005), which commit with the change they record (AUDIT-001) |
 
 ### Availability
