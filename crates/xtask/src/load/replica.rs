@@ -25,7 +25,7 @@ pub(super) fn prepare(root: &Path, image: &str) -> Result<(String, Vec<String>),
         ],
     )
     .map_err(|error| format!("Postgres isn't running; run `just services`: {error}"))?;
-    let settings = settings()?;
+    let settings = settings(root)?;
     for task in ["bootstrap", "migrate"] {
         let mut args = vec!["run", "--rm", "--network", &network];
         for setting in &settings {
@@ -230,29 +230,22 @@ pub(super) fn limits(root: &Path) -> Result<(String, String), String> {
     Ok((value("API_CPUS")?, value("API_MEMORY")?))
 }
 
-/// The replica's settings: the database's and the HMAC key of .env, with Compose's Postgres as
-/// `postgres`, and IP and user limits that the load, from one address and one user, never
-/// reaches, so the test measures the replica rather than the limits, while every request still
-/// counts in them.
-pub(super) fn settings() -> Result<Vec<String>, String> {
+/// The settings of the image run alone, which the end-to-end tests of the image share, so a
+/// setting that `serve` comes to require fails those tests, which CI runs, until it is there.
+const IMAGE_SETTINGS: &str = "crates/app/tests/e2e/image.env";
+
+/// The replica's settings: those of `IMAGE_SETTINGS`, the database's and the HMAC key of .env,
+/// with Compose's Postgres as `postgres`, and IP and user limits that the load, from one address
+/// and one user, never reaches, so the test measures the replica rather than the limits, while
+/// every request still counts in them.
+pub(super) fn settings(root: &Path) -> Result<Vec<String>, String> {
     let key = std::env::var("HMAC_KEY").map_err(|_| "HMAC_KEY is unset; run `just setup`")?;
-    // The load sends no email, so the replicas turn email off, which `serve` requires them to
-    // say (PLATFORM-024). It stores no file either, so the bucket's and the scanner's addresses
-    // name no host (RFC 6761), which `serve` requires and reaches only when asked (PLATFORM-076,
-    // PLATFORM-077).
-    let mut settings = vec![
-        "ENVIRONMENT=production".to_owned(),
+    let mut settings = image_settings(root)?;
+    settings.extend([
         format!("HMAC_KEY={key}"),
-        "EMAIL=off".to_owned(),
-        "S3_ENDPOINT=https://bucket.invalid".to_owned(),
-        "S3_REGION=us-east-1".to_owned(),
-        "S3_BUCKET=files".to_owned(),
-        "S3_ACCESS_KEY_ID=load".to_owned(),
-        "S3_SECRET_ACCESS_KEY=load".to_owned(),
-        "CLAMD_ADDRESS=scanner.invalid:3310".to_owned(),
         "RATE_LIMIT_IP_REQUESTS=1000000".to_owned(),
         "RATE_LIMIT_USER_REQUESTS=1000000".to_owned(),
-    ];
+    ]);
     for name in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
         let value =
             std::env::var(name).map_err(|_| format!("{name} is unset; run `just setup`"))?;
@@ -264,9 +257,39 @@ pub(super) fn settings() -> Result<Vec<String>, String> {
     Ok(settings)
 }
 
+/// The settings of `IMAGE_SETTINGS`: each line that is neither empty nor a comment.
+fn image_settings(root: &Path) -> Result<Vec<String>, String> {
+    let settings = read(&root.join(IMAGE_SETTINGS))
+        .map_err(|error| format!("can't read {IMAGE_SETTINGS}: {error}"))?;
+    Ok(settings
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_owned)
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ops_16_the_replica_takes_the_settings_of_the_image_run_alone() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let settings = image_settings(&root).unwrap();
+        assert!(
+            settings
+                .iter()
+                .any(|setting| setting.starts_with("ENVIRONMENT=")),
+            "{settings:?}"
+        );
+        assert!(
+            settings.iter().all(|setting| setting
+                .split_once('=')
+                .is_some_and(|(name, _)| !name.is_empty())),
+            "{settings:?}"
+        );
+    }
 
     #[test]
     fn ops_21_a_load_test_holds_the_machine_so_that_another_fails_at_once() {

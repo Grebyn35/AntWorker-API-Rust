@@ -71,26 +71,19 @@ impl Image {
 }
 
 /// The settings of a container of the image, which reaches `database` as `postgres` on
-/// Compose's network.
+/// Compose's network: those of image.env, which the load test's replica shares, with the port it
+/// binds, a key only the tests use, 32 bytes of 7, and the database's.
 pub fn settings(database: &TestDatabase) -> Vec<String> {
-    let mut settings = vec![
-        "ENVIRONMENT=production".to_owned(),
+    let mut settings: Vec<String> = include_str!("image.env")
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_owned)
+        .collect();
+    settings.extend([
         format!("LISTEN_ADDR=0.0.0.0:{PORT}"),
-        // 32 bytes of 7, a key only the tests use.
         "HMAC_KEY=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=".to_owned(),
-        // No test of the image alone sends email; PLATFORM-021's sends it from a deployment.
-        "EMAIL=off".to_owned(),
-        // No test of the image alone stores a file, so its bucket's address names no host
-        // (RFC 6761): the client reaches the bucket only when asked (PLATFORM-076).
-        "S3_ENDPOINT=https://bucket.invalid".to_owned(),
-        "S3_REGION=us-east-1".to_owned(),
-        "S3_BUCKET=files".to_owned(),
-        "S3_ACCESS_KEY_ID=e2e".to_owned(),
-        "S3_SECRET_ACCESS_KEY=e2e-secret".to_owned(),
-        // Nor does one upload a file, so the scanner's address names no host either: the client
-        // reaches the scanner only when asked (PLATFORM-077).
-        "CLAMD_ADDRESS=scanner.invalid:3310".to_owned(),
-    ];
+    ]);
     for setting in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
         let mut url = url::Url::parse(&std::env::var(setting).expect(setting)).expect(setting);
         url.set_host(Some("postgres")).expect("a host");
