@@ -71,7 +71,7 @@ async fn files_001_the_deployed_api_stores_a_file_in_its_bucket_and_serves_it_ba
         let response = client
             .get(format!("{files}/{id}/content"))
             .bearer_auth(&token)
-            .header("range", "bytes=10-")
+            .header("range", "bytes=7-")
             .send()
             .expect("an answer");
         let ranged = (
