@@ -427,11 +427,13 @@ mod tests {
         "grafana.example.com",
         // No email, so no question about a mail server.
         "off",
-        // The files bucket, then Enter for the uploads' limit and the deletion's delay.
+        // The files bucket, then Enter for the uploads' limit, the scanner's CPUs and the
+        // deletion's delay.
         "files.example.com",
         "",
         "eu-1",
         "files",
+        "",
         "",
         "",
         "",

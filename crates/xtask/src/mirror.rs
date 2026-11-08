@@ -153,9 +153,16 @@ mod tests {
     image: mikefarah/yq:4.54.1@{DIGEST}
 "
         );
+        let scanner = format!(
+            "services:
+  scanner:
+    image: clamav/clamav-debian:1.5.4_base@{DIGEST}
+"
+        );
         Repo::of(&[
             ("deploy/compose.yaml", deployment),
             ("deploy/observability/compose.yaml", observability),
+            ("deploy/scanner/compose.yaml", &scanner),
             ("deploy/tools/compose.yaml", &tools),
             ("compose.yaml", compose),
         ])
@@ -201,6 +208,7 @@ mod tests {
                 format!("axllent/mailpit@{DIGEST}"),
                 format!("library/caddy@{DIGEST}"),
                 format!("chrislusf/seaweedfs@{DIGEST}"),
+                format!("clamav/clamav-debian@{DIGEST}"),
                 format!("curlimages/curl@{DIGEST}"),
                 format!("grafana/grafana@{DIGEST}"),
                 format!("mikefarah/yq@{DIGEST}"),
