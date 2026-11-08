@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT now() + $1::text::interval AS \"until!\"",
+  "query": "SELECT now() + make_interval(secs => $1) AS \"until!\"",
   "describe": {
     "columns": [
       {
@@ -12,12 +12,12 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Float8"
       ]
     },
     "nullable": [
       null
     ]
   },
-  "hash": "ed78d9438c2ee83bcf9918a7cef9e029efe16a7c5f65659b1eb0972fbd2b50c2"
+  "hash": "a605cc5c10a89bceb169c85f1572f20a7548ad9c60078dc84add0d3b4178d465"
 }

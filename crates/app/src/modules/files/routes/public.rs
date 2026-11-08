@@ -4,13 +4,13 @@
 use axum::extract::{RawPathParams, State};
 use platform::{
     errors::Problem,
-    http::{Download, DownloadRequest, Routes, path_id},
-    storage::ObjectBytes,
+    http::{Download, Routes, path_id},
+    storage::{ObjectBytes, Wanted},
     types::Client,
 };
 use utoipa_axum::routes;
 
-use super::{DOWNLOAD_ERRORS, Downloaded, download};
+use super::{DOWNLOAD_ERRORS, DownloadResponses, response};
 use crate::modules::files::{
     error::FilesError,
     service::{
@@ -36,17 +36,17 @@ pub(super) fn routes() -> Routes<Files> {
     params(
         ("file_id" = uuid::Uuid, Path, description = "The public file."),
     ),
-    responses(Downloaded)
+    responses(DownloadResponses)
 )]
 async fn download_public_workspace_file(
     State(files): State<Files>,
     client: Client,
     params: RawPathParams,
-    request: DownloadRequest,
+    wanted: Wanted,
 ) -> Result<Download<ObjectBytes>, Problem<FilesError>> {
     let id = path_id(&params, "file_id").ok_or(FilesError::NotFound)?;
-    let file = service::download(&files, &client, Owner::Workspace, id).await?;
-    Ok(download(&files, file, &request).await?)
+    let downloaded = service::download(&files, &client, Owner::Workspace, id, &wanted).await?;
+    Ok(response(downloaded))
 }
 
 /// Downloads a public file of a user's own, without signing in: its bytes, or a range of them,
@@ -59,15 +59,15 @@ async fn download_public_workspace_file(
     params(
         ("file_id" = uuid::Uuid, Path, description = "The public file."),
     ),
-    responses(Downloaded)
+    responses(DownloadResponses)
 )]
 async fn download_public_user_file(
     State(files): State<Files>,
     client: Client,
     params: RawPathParams,
-    request: DownloadRequest,
+    wanted: Wanted,
 ) -> Result<Download<ObjectBytes>, Problem<FilesError>> {
     let id = path_id(&params, "file_id").ok_or(FilesError::NotFound)?;
-    let file = service::download(&files, &client, Owner::User, id).await?;
-    Ok(download(&files, file, &request).await?)
+    let downloaded = service::download(&files, &client, Owner::User, id, &wanted).await?;
+    Ok(response(downloaded))
 }

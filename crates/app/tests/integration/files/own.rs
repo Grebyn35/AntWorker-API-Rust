@@ -2,10 +2,10 @@
 
 use serde_json::json;
 
-use super::{objects, without_links};
+use super::{objects, uploads, without_links};
 use crate::support::{
     Api,
-    api::Response,
+    api::{Options, Response},
     files,
     lists::{field, pages},
     scanner,
@@ -142,18 +142,64 @@ async fn files_016_an_upload_without_a_credential_answers_401_with_the_body_unre
 }
 
 #[tokio::test]
-async fn files_003_an_upload_to_one_s_own_files_takes_only_an_accepted_kind_and_a_clean_scan() {
+async fn files_003_an_upload_to_one_s_own_files_takes_only_an_accepted_kind() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
 
     let svg = upload_own(&api, &ada, "a.svg", b"<svg/>", "", None).await;
-    let eicar = upload_own(&api, &ada, "a.txt", &scanner::eicar(), "", None).await;
 
     assert_eq!(svg.status, 422);
     assert_eq!(svg.json()["code"], "files.unsupported_type");
+    assert!(own_names(&api, &ada.user_id).await.is_empty());
+}
+
+#[tokio::test]
+async fn files_005_an_upload_to_one_s_own_files_in_which_the_scanner_finds_a_signature_is_refused()
+{
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let eicar = upload_own(&api, &ada, "a.txt", &scanner::eicar(), "", None).await;
+
     assert_eq!(eicar.status, 422);
     assert_eq!(eicar.json()["code"], "files.malware_detected");
     assert!(own_names(&api, &ada.user_id).await.is_empty());
+    assert!(objects(&api).await.is_empty());
+}
+
+#[tokio::test]
+async fn files_013_an_upload_to_one_s_own_files_counts_as_stored() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let stored = uploads("stored");
+
+    let response = upload_own(&api, &ada, "a.txt", b"hello", "", None).await;
+
+    assert_eq!(response.status, 201);
+    // Tests running alongside upload too, so the count grows by at least this.
+    assert!(uploads("stored") >= stored + 1.0);
+}
+
+#[tokio::test]
+async fn files_012_a_bucket_that_doesn_t_answer_makes_one_s_own_upload_and_download_answer_503() {
+    // Nothing listens on port 9 of the loopback address.
+    let api = Api::with(Options::default().set("S3_ENDPOINT", "http://127.0.0.1:9")).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let id = files::arrange_own(api.database(), &ada.user_id, "Blue").await;
+
+    let uploaded = upload_own(&api, &ada, "a.txt", b"hello", "", None).await;
+    let downloaded = api
+        .get(&format!("/v1/users/me/files/{id}/content"))
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    for response in [&uploaded, &downloaded] {
+        assert_eq!(response.status, 503);
+        assert_eq!(response.json()["code"], "files.storage_unavailable");
+        assert_eq!(response.header("retry-after"), "1");
+    }
+    assert_eq!(own_names(&api, &ada.user_id).await, ["Blue"]);
 }
 
 #[tokio::test]
@@ -208,6 +254,20 @@ async fn files_017_paging_returns_each_file_once_across_a_shared_upload_time() {
     let mut names: Vec<String> = pages.into_iter().flatten().collect();
     names.sort();
     assert_eq!(names, ["a", "b", "c", "d", "e"]);
+}
+
+#[tokio::test]
+async fn files_017_a_search_pages_through_its_matches() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    for name in ["Blue one", "Red", "Blue two", "Blue three"] {
+        files::arrange_own(db, &ada.user_id, name).await;
+    }
+
+    let pages = pages(&api, &ada, "/v1/users/me/files?search=BLUE&limit=2", "name").await;
+
+    assert_eq!(pages, [vec!["Blue three", "Blue two"], vec!["Blue one"]]);
 }
 
 #[tokio::test]
@@ -355,4 +415,34 @@ async fn files_011_a_deleted_own_file_s_object_goes_once_its_delay_has_passed() 
     api.run_periodic("files.delete_unreferenced_objects").await;
 
     assert!(objects(&api).await.is_empty());
+}
+
+#[tokio::test]
+async fn files_011_a_recorded_object_that_a_user_s_row_names_stays() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let id = files::arrange_own(db, &ada.user_id, "Kept").await;
+    let key = db
+        .owner_reads(&format!(
+            "SELECT object_key FROM user_files WHERE id = '{id}'"
+        ))
+        .await
+        .remove(0);
+    // A comparison recorded the object while no row named it, as before a restore brought the
+    // row back, and its time has passed.
+    db.owner_executes(&format!(
+        "INSERT INTO object_deletions (object_key, deletable_at) \
+         VALUES ('{key}', now() - interval '1 second')"
+    ))
+    .await;
+
+    api.run_periodic("files.delete_unreferenced_objects").await;
+
+    assert_eq!(objects(&api).await, [key]);
+    assert!(
+        db.owner_reads("SELECT object_key FROM object_deletions")
+            .await
+            .is_empty()
+    );
 }

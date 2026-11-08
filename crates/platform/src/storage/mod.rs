@@ -3,6 +3,10 @@
 //! internal, neither naming the key, so no error of the library leaves it (ERR-04).
 
 mod failures;
+mod wanted;
+
+pub(crate) use wanted::quoted;
+pub use wanted::{ByteRange, Served, Wanted};
 
 use std::{ops::Range, path::PathBuf, sync::Arc, time::Duration};
 

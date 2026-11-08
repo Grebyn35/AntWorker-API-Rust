@@ -6,9 +6,13 @@ use platform::{
     db::UnitOfWork,
     idempotency::Claimed,
     lists::{List, Page, Search, key},
+    storage::Wanted,
 };
 
-use super::{Files, Sent, Serving, WORKSPACE_PREFIX, Written, upload as checked_upload};
+use super::{
+    Downloaded, Files, Sent, Serving, WORKSPACE_PREFIX, Written, link_expiry, serve,
+    upload as checked_upload,
+};
 use crate::modules::{
     access::{FilesDelete, FilesRead, FilesUpload},
     audit::{self as log, Entry},
@@ -45,7 +49,7 @@ pub(in crate::modules::files) async fn upload(
         async move |written: Written| {
             let (mut uow, authorized) = authorize.open().await?;
             let principal = authorized.principal().clone();
-            let until = repo::link_expiry(&mut uow).await?;
+            let until = link_expiry(&mut uow).await?;
             let user = principal.user_id();
             if let Claimed::Replay(file) = uow.claim::<Recorded<InWorkspace>>(user, key).await? {
                 let link = files.workspace_link(&file, principal.session_id(), until);
@@ -91,7 +95,7 @@ pub(in crate::modules::files) async fn list(
     page: &Page,
 ) -> Result<List<File>, FilesError> {
     let rows = repo::page(uow, authorized.workspace_id(), search, page).await?;
-    let until = repo::link_expiry(uow).await?;
+    let until = link_expiry(uow).await?;
     let session = authorized.principal().session_id();
     let list = page.list(rows, |file| key(file.created_at, file.id));
     Ok(List {
@@ -118,30 +122,33 @@ pub(in crate::modules::files) async fn read(
     let stored = repo::read(uow, authorized.workspace_id(), id)
         .await?
         .ok_or(FilesError::NotFound)?;
-    let until = repo::link_expiry(uow).await?;
+    let until = link_expiry(uow).await?;
     let link = files.workspace_link(&stored.file, authorized.principal().session_id(), until);
     Ok(File::linked(stored.file, link))
 }
 
-/// The file `id` of the caller's workspace, as its download serves it. The unit of work ends once
-/// the row is read, before the bucket is asked, so no transaction waits on it (FILES-009,
-/// DATA-21).
+/// What a download of the file `id` of the caller's workspace serves, as `wanted` asks for it.
+/// The unit of work ends once the row is read, before the bucket is asked, so no transaction
+/// waits on it (FILES-009, DATA-21).
 pub(in crate::modules::files) async fn download(
+    files: &Files,
     mut uow: UnitOfWork,
     authorized: &Authorized<FilesRead>,
     id: uuid::Uuid,
-) -> Result<Serving, FilesError> {
+    wanted: &Wanted,
+) -> Result<Downloaded, FilesError> {
     let stored = repo::read(&mut uow, authorized.workspace_id(), id).await?;
     drop(uow);
     let stored = stored.ok_or(FilesError::NotFound)?;
     let file = stored.file;
-    Ok(Serving {
+    let serving = Serving {
         id: file.id,
         media_type: file.media_type,
         size_bytes: file.size_bytes,
         object_key: stored.object_key,
         name: Some(file.name.as_str().to_owned()),
-    })
+    };
+    serve(files, serving, wanted).await
 }
 
 /// Deletes the file `id` of the caller's workspace, in the unit of work it was authorized in: the

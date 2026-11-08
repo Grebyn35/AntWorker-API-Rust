@@ -6,17 +6,18 @@ pub(super) mod public;
 pub(super) mod user;
 pub(super) mod workspace;
 
-use std::ops::Range;
+use std::{ops::Range, time::Duration};
 
 use bytes::Bytes;
 use platform::{
     blocking::Workers,
     db::Database,
+    db::UnitOfWork,
     errors::Internal,
     idempotency::IdempotencyKey,
     scanner::{ScanError, Scanner, Verdict},
     signed_urls::SignedUrls,
-    storage::{ObjectBytes, ObjectKey, Storage, StorageError},
+    storage::{ObjectBytes, ObjectKey, Served, Storage, StorageError, Wanted},
     types::{SessionId, Timestamp},
 };
 
@@ -24,7 +25,17 @@ use super::{
     error::FilesError,
     metrics::{self, Upload},
     model::{FileName, InWorkspace, Kind, Link, OfUser, Recorded, Settings, Visibility},
+    repo,
 };
+
+/// How long a private file's signed link lasts: an hour, the access token's default lifetime,
+/// fixed, since it bounds what a leaked link gives (FILES-021, the files spec's "Links").
+const LINK_LIFETIME: Duration = Duration::from_secs(3_600);
+
+/// When a link that a response makes in `uow` stops working (FILES-021).
+pub(super) async fn link_expiry(uow: &mut UnitOfWork) -> Result<Timestamp, FilesError> {
+    Ok(repo::after(uow, LINK_LIFETIME).await?)
+}
 
 /// The prefix of the keys of workspaces' files in the bucket.
 pub(super) const WORKSPACE_PREFIX: &str = "workspaces/";
@@ -231,11 +242,36 @@ pub(super) struct Serving {
     pub(super) name: Option<String>,
 }
 
+/// What a download serves of a file: the file, what of its bytes `Wanted` asked for, and those
+/// bytes, as the bucket streams them, or none when the client holds them (PLATFORM-081).
+pub(crate) struct Downloaded {
+    pub(super) file: Serving,
+    pub(super) served: Served,
+    pub(super) bytes: Option<ObjectBytes>,
+}
+
+/// What a download of `file` serves, as `wanted` asks for it: nothing when the client holds its
+/// bytes, as `If-None-Match` says, and otherwise its bytes, or the range of them that the request
+/// names, from the bucket (FILES-009, FILES-023, PLATFORM-081).
+async fn serve(files: &Files, file: Serving, wanted: &Wanted) -> Result<Downloaded, FilesError> {
+    let served = wanted.serve(file.size_bytes, &file.id.to_string());
+    let bytes = if served == Served::NotModified {
+        None
+    } else {
+        Some(bytes(files, &file, served.offsets()).await?)
+    };
+    Ok(Downloaded {
+        file,
+        served,
+        bytes,
+    })
+}
+
 /// The bytes of `file`, or those of `range` alone, offsets of its bytes, as the bucket streams
 /// them, once the bucket's answer shows its object at the row's size (FILES-009). A row whose
 /// object the bucket doesn't hold, or holds at another size, is an internal error, whose cause
 /// names the file, since only a fault of the bucket's leaves one (ERR-10).
-pub(super) async fn bytes(
+async fn bytes(
     files: &Files,
     file: &Serving,
     range: Option<Range<u64>>,

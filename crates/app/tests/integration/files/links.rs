@@ -331,3 +331,62 @@ async fn auth_020_a_signed_url_s_session_proves_its_user_while_it_lasts() {
         assert_eq!(response.json()["code"], "request.unauthenticated");
     }
 }
+
+#[tokio::test]
+async fn platform_080_a_signed_query_authenticates_alone_whatever_credential_comes_with_it() {
+    let api = Api::new().await;
+    let (workspace, ada, grace) = acme(&api, "member").await;
+    let file = uploaded(&api, &ada, &workspace, "").await;
+    let url = file["content_url"].as_str().unwrap();
+    let own = upload_own(&api, &ada, "mine.txt", b"mine", "", None)
+        .await
+        .json();
+    let own_url = own["content_url"].as_str().unwrap();
+    let signature = parameter(url, "signature");
+    let flipped = if signature.starts_with('A') { "B" } else { "A" };
+
+    // A query that doesn't sign the path refuses the request, though its Bearer header would
+    // authenticate it.
+    let partial = api
+        .get(&url.replace(&format!("&signature={signature}"), ""))
+        .bearer(&ada.access)
+        .send()
+        .await;
+    let tampered = api
+        .get(&url.replace(&signature, &format!("{flipped}{}", &signature[1..])))
+        .bearer(&ada.access)
+        .send()
+        .await;
+    // A signed URL acts for its session's user, whose own file it serves to whoever sends it,
+    // another user's Bearer header with it.
+    let other = api.get(own_url).bearer(&grace.access).send().await;
+
+    for refused in [&partial, &tampered] {
+        assert_eq!(refused.status, 401);
+        assert_eq!(refused.json()["code"], "request.unauthenticated");
+    }
+    assert_eq!(other.status, 200);
+    assert_eq!(other.body, b"mine");
+}
+
+#[tokio::test]
+async fn auth_020_a_session_that_doesn_t_exist_proves_none() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let own = upload_own(&api, &ada, "mine.txt", b"mine", "", None)
+        .await
+        .json();
+    let path = format!("/v1/users/me/files/{}/content", own["id"].as_str().unwrap());
+    // A time long to come by the database's clock, signed for a session that no row holds.
+    let later =
+        Timestamp::from_database(time::OffsetDateTime::from_unix_timestamp(4_102_444_800).unwrap());
+    let nobody = SessionId::from_uuid(uuid::Uuid::from_u128(7));
+
+    let response = api
+        .get(&signer().sign(&path, nobody, later).url)
+        .send()
+        .await;
+
+    assert_eq!(response.status, 401);
+    assert_eq!(response.json()["code"], "request.unauthenticated");
+}

@@ -113,7 +113,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 
 Requirement 6.1.1 of ASVS asks how the controls defend against credential stuffing and password guessing, how they are configured, and how they keep an attacker from locking an account's owner out. A password sign-in passes the IP limit, then the sign-in limits, which count every attempt before the account is read (SEC-13, AUTH-006). `.env.example` gives each setting below its range and its default:
 
-- **The IP limit** of each client address (PLATFORM-054): `RATE_LIMIT_IP_REQUESTS` requests of any kind in each `RATE_LIMIT_WINDOW_SECONDS`.
+- **The IP limit** of each client address (PLATFORM-054): `RATE_LIMIT_IP_REQUESTS` requests of every kind but public files' downloads, which count apart, in each `RATE_LIMIT_WINDOW_SECONDS`.
 - **The email from one address** (AUTH-006): `SIGN_IN_ATTEMPTS` attempts at one email from one client address in each `SIGN_IN_WINDOW_SECONDS`.
 - **The email from every address** (AUTH-006): `SIGN_IN_EMAIL_ATTEMPTS` attempts at one email in the same window, which counts only what the limit of the email from one address lets through.
 - **A device token** (AUTH-019): a sign-in that brings one valid for its email counts only in that token's own limit, `SIGN_IN_ATTEMPTS` in each window, and in neither of the two above (AUTH-006).

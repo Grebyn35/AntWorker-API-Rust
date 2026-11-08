@@ -10,7 +10,7 @@ Every route lives under `/v1`, except the health probes `/health/live` and `/hea
 - Check: `ci: check-openapi` (a path lint over the committed document).
 
 ### API-02 The scope of a resource is in its path
-Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller's own resources under `/v1/users/me/`. What anyone may read without signing in, such as a public file's bytes, lives under `/v1/public/`. No header selects a workspace.
+Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller's own resources under `/v1/users/me/`. A public file's bytes, which anyone may download without signing in, live under `/v1/public/`, which holds nothing else, and whose requests count in a bucket of the IP limit of their own (PLATFORM-054). No header selects a workspace.
 - Why: every request names exactly what it acts on, and authorization checks that name (D3).
 - Check: `ci: check-openapi`, plus `clippy` (API-14).
 
@@ -106,7 +106,7 @@ Every route except the health probes (OPS-05) and the API reference that develop
 - `public`: no authentication.
 - `user`: requires a `Principal`.
 - `workspace::<P>`: requires `Authorized<P>` for the workspace in the path, where `P` is a permission.
-- `workspace_upload::<P>` and `user_upload`: as `workspace::<P>` and `user`, for a route whose body is a file's bytes, which its handler reads through `Upload`, once `Authorize::check` has authorized a member, in a group of its own (PLATFORM-073, PLATFORM-074).
+- `workspace_upload::<P>` and `user_upload`: as `workspace::<P>` and `user`, for a route whose body is a file's bytes, which its handler reads through `Upload` in a group of its own: once `Authorize::check` has authorized a member, on a workspace's, and once `Principal` has authenticated the caller, on a user's (PLATFORM-073, PLATFORM-074).
 - `workspace_download::<P>`, `user_download` and `public_download`: as `workspace::<P>`, `user` and `public`, for a route that serves a file's bytes, or a range of them (PLATFORM-081). On the first two, a signed URL may also prove the `Principal` (PLATFORM-080), and the last serves under `/v1/public/`.
 
 A caller who isn't a member of the workspace gets 404. A member without permission `P` gets 403. Each workspace builder gives its routes the access level `workspace`, each user builder the access level `user`, and each public builder the access level `public`.

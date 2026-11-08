@@ -20,6 +20,9 @@ const WORKSPACE: &str = "/v1/workspaces/{workspace_id}";
 /// The prefix of the caller's own resources (API-02).
 const CALLER: &str = "/v1/users/me";
 
+/// The prefix of public files' bytes, which anyone may download (API-02).
+const PUBLIC: &str = "/v1/public";
+
 /// Every way the document's operations break API-02 to API-04.
 pub fn check(document: &Value) -> Vec<Problem> {
     let empty = Map::new();
@@ -60,7 +63,10 @@ fn problems(
 }
 
 /// API-02: a workspace's resources are under `/v1/workspaces/{workspace_id}/`, the caller's own
-/// under `/v1/users/me/`, and no header selects a workspace.
+/// under `/v1/users/me/`, a public file's bytes under `/v1/public/`, and no header selects a
+/// workspace. A public file's download is a public operation that serves a range, a 206, which
+/// `Routes::public_download` documents (API-14), so each such operation is under `/v1/public/`,
+/// and every operation there is one.
 fn scope(
     document: &Value,
     path: &str,
@@ -84,6 +90,17 @@ fn scope(
     if under(CALLER) && access == "public" {
         messages.push(format!(
             "{here} acts on the caller's own resources, so it isn't public (API-02)"
+        ));
+    }
+    let download = access == "public" && operation["responses"].get("206").is_some();
+    if download && !under(PUBLIC) {
+        messages.push(format!(
+            "{here} downloads a public file, so its path starts with {PUBLIC} (API-02)"
+        ));
+    }
+    if under(PUBLIC) && !download {
+        messages.push(format!(
+            "{here} is under {PUBLIC}, which holds public files' downloads alone (API-02)"
         ));
     }
     for parameter in parameters(document, operation, shared) {
@@ -277,6 +294,32 @@ mod tests {
         let members = json!({ "x-access": "workspace", "responses": { "200": ok(true) } });
         assert_eq!(
             messages("/v1/workspaces/{workspace_id}/members", "get", &members),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn api_02_public_files_downloads_are_under_v1_public_and_nothing_else_is() {
+        let download = json!({ "x-access": "public", "responses": { "200": ok(true), "206": { "description": "x", "headers": { "Content-Range": {} }, "content": { "application/octet-stream": {} } } } });
+        assert_eq!(
+            messages("/v1/files/{file_id}", "get", &download),
+            [
+                "GET /v1/files/{file_id} downloads a public file, so its path starts with /v1/public (API-02)"
+            ]
+        );
+        assert_eq!(
+            messages("/v1/public/files/{file_id}", "get", &download),
+            Vec::<String>::new()
+        );
+        let read = json!({ "x-access": "public", "responses": { "200": ok(true) } });
+        assert_eq!(
+            messages("/v1/public/capabilities", "get", &read),
+            [
+                "GET /v1/public/capabilities is under /v1/public, which holds public files' downloads alone (API-02)"
+            ]
+        );
+        assert_eq!(
+            messages("/v1/capabilities", "get", &read),
             Vec::<String>::new()
         );
     }

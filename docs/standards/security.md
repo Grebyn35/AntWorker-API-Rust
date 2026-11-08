@@ -5,7 +5,7 @@ The security bar is Level 2 of version 5.0.0 of the Application Security Verific
 ## Secrets
 
 ### SEC-01 Secrets arrive by environment or file, and stay wrapped
-A secret is read from an environment variable, or from a file named by `<NAME>_FILE`. It is held in `platform::types::Secret`, which never prints its value through `Debug`, `Display` or serialization, or in a type of its own that never prints it either, such as `platform::hashing::HmacKey`. A setting that carries a secret, such as a database URL with its password, is a secret setting as a whole: it is read the same way, its secret part is held in `Secret`, and the setting is never printed. Secrets never appear in images, error details, or the URLs the API sends or serves, and telemetry holds none (OBS-04).
+A secret is read from an environment variable, or from a file named by `<NAME>_FILE`. It is held in `platform::types::Secret`, which never prints its value through `Debug`, `Display` or serialization, or in a type of its own that never prints it either, such as `platform::hashing::HmacKey`. A setting that carries a secret, such as a database URL with its password, is a secret setting as a whole: it is read the same way, its secret part is held in `Secret`, and the setting is never printed. Secrets never appear in images, error details, or the URLs the API sends or serves, and telemetry holds none (OBS-04). A signed URL's signature isn't one: it is a keyed hash, under `HMAC_KEY`, which never leaves the API, and proves only its session's download of one file, for an hour (PLATFORM-080, D61).
 - Why: the standard delivery paths for containers, and no accidental disclosure (D26).
 - Check: `compiler` (`Secret` has no way to print its value), plus `review`.
 

@@ -8,19 +8,17 @@ use axum::{
 use platform::{
     authz::Authorize,
     errors::Problem,
-    http::{
-        Download, DownloadRequest, FileBytes, Query, ResourceResponse, Routes, Upload, path_id,
-    },
+    http::{Download, FileBytes, Query, ResourceResponse, Routes, Upload, path_id},
     idempotency::IdempotencyKey,
     lists::List,
-    storage::ObjectBytes,
+    storage::{ObjectBytes, Wanted},
     types::WorkspaceId,
 };
 use utoipa_axum::routes;
 
 use super::{
-    DOWNLOAD_ERRORS, Downloaded, ListQuery, UPLOAD_ERRORS, UploadQuery, download, name, page,
-    visibility,
+    DOWNLOAD_ERRORS, DownloadResponses, ListQuery, UPLOAD_ERRORS, UploadQuery, name, page,
+    response, visibility,
 };
 use crate::modules::{
     access::{FilesDelete, FilesRead, FilesUpload},
@@ -151,19 +149,19 @@ async fn read_file(
         ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
         ("file_id" = uuid::Uuid, Path, description = "The file."),
     ),
-    responses(Downloaded)
+    responses(DownloadResponses)
 )]
 async fn download_file(
     State(files): State<Files>,
     authorize: Authorize<FilesRead>,
     params: RawPathParams,
-    request: DownloadRequest,
+    wanted: Wanted,
 ) -> Result<Download<ObjectBytes>, Problem<FilesError>> {
     let id = path_id(&params, "file_id");
     let (uow, authorized) = authorize.open().await.map_err(FilesError::from)?;
     let id = id.ok_or(FilesError::NotFound)?;
-    let file = service::download(uow, &authorized, id).await?;
-    Ok(download(&files, file, &request).await?)
+    let downloaded = service::download(&files, uow, &authorized, id, &wanted).await?;
+    Ok(response(downloaded))
 }
 
 /// Deletes a file of the workspace.

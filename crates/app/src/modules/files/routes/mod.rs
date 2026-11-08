@@ -11,10 +11,7 @@ use std::{collections::BTreeMap, time::Duration};
 use axum::http::HeaderMap;
 use platform::{
     errors::ErrorCode,
-    http::{
-        Download, DownloadRequest, FieldErrors, FileBytes, Query, Routes, Served, Upload,
-        disposition_name,
-    },
+    http::{Download, FieldErrors, FileBytes, Query, Routes, Upload, disposition_name},
     lists::{Cursor, Limit, Page, Search, parameter},
     storage::ObjectBytes,
 };
@@ -34,7 +31,7 @@ use super::{
     error::FilesError,
     events::{FILE_DELETED, FILE_UPLOADED, USER_FILE_DELETED, USER_FILE_UPLOADED},
     model::{FileName, Kind, Visibility},
-    service::{self, Files, Serving},
+    service::{Downloaded, Files},
 };
 
 /// The module's routes, and the events they publish.
@@ -138,40 +135,32 @@ pub(super) fn page(query: &Query<ListQuery>) -> Result<(Page, Option<Search>), F
 /// How long a shared cache may keep a public file's download (FILES-023).
 const PUBLIC_FOR: Duration = Duration::from_secs(300);
 
-/// What a download serves of `file`, as `request` asks for it: nothing when the client holds its
-/// bytes, and otherwise its bytes, or the range of them that the request names, as the bucket
-/// streams them. A file without a name is a public one's, which shared caches may keep
-/// (FILES-009, FILES-023, PLATFORM-081).
-pub(super) async fn download(
-    files: &Files,
-    file: Serving,
-    request: &DownloadRequest,
-) -> Result<Download<ObjectBytes>, FilesError> {
-    let tag = file.id.to_string();
-    let served = request.serve(file.size_bytes, &tag);
-    let bytes = if served == Served::NotModified {
-        None
-    } else {
-        Some(service::bytes(files, &file, served.offsets()).await?)
-    };
-    Ok(Download {
+/// The response that serves what `downloaded` holds: a public file's, which has no name, may stay
+/// in shared caches (FILES-009, FILES-023, PLATFORM-081).
+pub(super) fn response(downloaded: Downloaded) -> Download<ObjectBytes> {
+    let Downloaded {
+        file,
+        served,
+        bytes,
+    } = downloaded;
+    Download {
         inline: Kind::of_media_type(&file.media_type).is_some_and(Kind::inline),
         public_for: file.name.is_none().then_some(PUBLIC_FOR),
+        tag: file.id.to_string(),
         media_type: file.media_type,
         size: file.size_bytes,
         served,
         name: file.name,
-        tag,
         bytes,
-    })
+    }
 }
 
 /// The 200 of every download: the file's bytes, as the media type of one of the accepted kinds,
 /// which the table of kinds lists (FILES-009, FILES-023). Each download's builder adds what a
 /// range and a revalidation answer (PLATFORM-081).
-pub(super) struct Downloaded;
+pub(super) struct DownloadResponses;
 
-impl utoipa::IntoResponses for Downloaded {
+impl utoipa::IntoResponses for DownloadResponses {
     fn responses() -> BTreeMap<String, RefOr<Response>> {
         let mut response =
             ResponseBuilder::new().description("The file's bytes, as its media type.");

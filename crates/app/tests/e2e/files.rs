@@ -41,71 +41,87 @@ fn upload(workspace: &Workspace, name: &str, bytes: Vec<u8>) -> (u16, String) {
     .expect("the upload")
 }
 
-#[tokio::test]
-async fn files_001_the_deployed_api_stores_a_file_in_its_bucket_and_serves_it_back() {
+/// The bytes of the file that the tests of a download store.
+const STORED: &str = "stored in the bucket";
+
+/// A deployment, with a workspace, in which its owner stored a text file of [`STORED`], and the
+/// file, as the upload answered it.
+async fn stored() -> (Deployment, Workspace, Value) {
     let deployment = Deployment::managed(&[]);
     let applied = deployment.apply(&deployment.api, &[]).await;
     assert!(applied.status.success(), "{}", lossy(&applied));
     let workspace = deployment.workspace();
-
-    let (uploaded, file) = upload(&workspace, "notes.txt", b"stored in the bucket".to_vec());
-
+    let (uploaded, file) = upload(&workspace, "notes.txt", STORED.as_bytes().to_vec());
     assert_eq!(uploaded, 201, "{file}");
     let file = serde_json::from_str::<Value>(&file).unwrap();
-    let id = file["id"].as_str().unwrap().to_owned();
-    let signed = file["content_url"].as_str().unwrap().to_owned();
-    let Workspace { root, files, token } = workspace;
-    let (downloaded, bytes, ranged, rest, unsigned, from_link) = thread::spawn(move || {
-        let client = streaming_client(&root, ANSWER);
-        let response = client
-            .get(format!("{files}/{id}/content"))
-            .bearer_auth(&token)
-            .send()
-            .expect("an answer");
-        let downloaded = (
-            response.status().as_u16(),
-            response.text().expect("the body"),
-        );
-        // The proxy passes a range, and a signed URL's path and query, as they came
-        // (PLATFORM-081, FILES-022).
-        let response = client
-            .get(format!("{files}/{id}/content"))
-            .bearer_auth(&token)
-            .header("range", "bytes=7-")
-            .send()
-            .expect("an answer");
-        let ranged = (
-            response.status().as_u16(),
-            response.text().expect("the body"),
-        );
-        // A link is a path after the API's address, which the files' address begins with.
-        let address = &files[..files.find("/v1/").expect("the files' path")];
-        let response = client
-            .get(format!("{address}{signed}"))
-            .send()
-            .expect("an answer");
-        let from_link = (
-            response.status().as_u16(),
-            response.text().expect("the body"),
-        );
+    (deployment, workspace, file)
+}
+
+/// Sends `GET` to `url` through the deployment's proxy, with the workspace owner's token if
+/// `signed_in`, and `range` as its `Range` if given, and returns the answer's status and body.
+fn get(workspace: &Workspace, url: String, signed_in: bool, range: Option<&str>) -> (u16, String) {
+    let (root, token) = (workspace.root.clone(), workspace.token.clone());
+    let range = range.map(str::to_owned);
+    thread::spawn(move || {
+        let mut request = streaming_client(&root, ANSWER).get(url);
+        if signed_in {
+            request = request.bearer_auth(token);
+        }
+        if let Some(range) = range {
+            request = request.header("range", range);
+        }
+        let response = request.send().expect("an answer");
         (
-            downloaded.0,
-            downloaded.1,
-            ranged.0,
-            ranged.1,
-            from_link.0,
-            from_link.1,
+            response.status().as_u16(),
+            response.text().expect("the body"),
         )
     })
     .join()
-    .expect("the downloads");
+    .expect("the download")
+}
+
+#[tokio::test]
+async fn files_001_the_deployed_api_stores_a_file_in_its_bucket_and_serves_it_back() {
+    let (_deployment, workspace, file) = stored().await;
+    let url = format!(
+        "{}/{}/content",
+        workspace.files,
+        file["id"].as_str().unwrap()
+    );
+
+    let (downloaded, bytes) = get(&workspace, url, true, None);
 
     assert_eq!(downloaded, 200, "{bytes}");
-    assert_eq!(bytes, "stored in the bucket");
+    assert_eq!(bytes, STORED);
+}
+
+#[tokio::test]
+async fn platform_081_the_deployed_proxy_passes_a_download_s_range() {
+    let (_deployment, workspace, file) = stored().await;
+    let url = format!(
+        "{}/{}/content",
+        workspace.files,
+        file["id"].as_str().unwrap()
+    );
+
+    let (ranged, rest) = get(&workspace, url, true, Some("bytes=7-"));
+
     assert_eq!(ranged, 206, "{rest}");
     assert_eq!(rest, "in the bucket");
-    assert_eq!(unsigned, 200, "{from_link}");
-    assert_eq!(from_link, "stored in the bucket");
+}
+
+#[tokio::test]
+async fn files_022_the_deployed_proxy_passes_a_signed_link_s_path_and_query() {
+    let (_deployment, workspace, file) = stored().await;
+    // A link is a path after the API's address, which the files' address begins with.
+    let files = &workspace.files;
+    let address = &files[..files.find("/v1/").expect("the files' path")];
+    let url = format!("{address}{}", file["content_url"].as_str().unwrap());
+
+    let (downloaded, bytes) = get(&workspace, url, false, None);
+
+    assert_eq!(downloaded, 200, "{bytes}");
+    assert_eq!(bytes, STORED);
 }
 
 #[tokio::test]

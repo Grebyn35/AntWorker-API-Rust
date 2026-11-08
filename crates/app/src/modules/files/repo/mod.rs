@@ -6,6 +6,8 @@
 pub(super) mod public;
 pub(super) mod user;
 
+use std::time::Duration;
+
 use platform::{
     db::UnitOfWork,
     errors::Internal,
@@ -16,9 +18,6 @@ use platform::{
 
 use super::model::{FileName, InWorkspace, Recorded, Stored, Visibility};
 
-/// How long a private file's signed link lasts, as an interval of Postgres (FILES-021).
-const LINK_LIFETIME: &str = "1 hour";
-
 /// What an upload's row holds besides its owner.
 pub(super) struct NewRow<'a> {
     pub(super) name: &'a FileName,
@@ -28,12 +27,12 @@ pub(super) struct NewRow<'a> {
     pub(super) object_key: &'a ObjectKey,
 }
 
-/// When a link that a response makes now stops working: an hour from now, by the database's
-/// clock (FILES-021, DATA-03).
-pub(super) async fn link_expiry(uow: &mut UnitOfWork) -> Result<Timestamp, Internal> {
+/// The moment `lifetime` from now, by the database's clock, for a link that a response makes
+/// (FILES-021, DATA-03).
+pub(super) async fn after(uow: &mut UnitOfWork, lifetime: Duration) -> Result<Timestamp, Internal> {
     let until = sqlx::query_scalar!(
-        r#"SELECT now() + $1::text::interval AS "until!""#,
-        LINK_LIFETIME,
+        r#"SELECT now() + make_interval(secs => $1) AS "until!""#,
+        lifetime.as_secs_f64(),
     )
     .fetch_one(uow.executor())
     .await?;

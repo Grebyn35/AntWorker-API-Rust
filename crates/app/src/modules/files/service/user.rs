@@ -3,13 +3,16 @@
 
 use platform::{
     authn::Principal,
-    db::UnitOfWork,
     idempotency::Claimed,
     lists::{List, Page, Search, key},
+    storage::Wanted,
     types::Client,
 };
 
-use super::{Files, Sent, Serving, USER_PREFIX, Written, upload as checked_upload};
+use super::{
+    Downloaded, Files, Sent, Serving, USER_PREFIX, Written, link_expiry, serve,
+    upload as checked_upload,
+};
 use crate::modules::{
     audit::{self as log, Entry},
     files::{
@@ -17,7 +20,7 @@ use crate::modules::{
         error::FilesError,
         events as published,
         model::{OfUser, Recorded, UserFile},
-        repo::{NewRow, link_expiry, user as repo},
+        repo::{NewRow, user as repo},
     },
 };
 
@@ -77,16 +80,18 @@ pub(in crate::modules::files) async fn upload(
 }
 
 /// A page of the caller's own files, the latest uploaded first, kept to those whose name contains
-/// `search`, each with its links for the caller's session (FILES-017, FILES-021).
+/// `search`, each with its links for the caller's session, read in a unit of work of `client`'s
+/// request (FILES-017, FILES-021).
 pub(in crate::modules::files) async fn list(
     files: &Files,
-    uow: &mut UnitOfWork,
+    client: &Client,
     principal: &Principal,
     search: Option<&Search>,
     page: &Page,
 ) -> Result<List<UserFile>, FilesError> {
-    let rows = repo::page(uow, principal.user_id(), search, page).await?;
-    let until = link_expiry(uow).await?;
+    let mut uow = files.database.begin(client).await?;
+    let rows = repo::page(&mut uow, principal.user_id(), search, page).await?;
+    let until = link_expiry(&mut uow).await?;
     let list = page.list(rows, |file| key(file.created_at, file.id));
     Ok(List {
         items: list
@@ -101,50 +106,58 @@ pub(in crate::modules::files) async fn list(
     })
 }
 
-/// The file `id` of the caller's own, with its links for the caller's session (FILES-018,
-/// FILES-021).
+/// The file `id` of the caller's own, with its links for the caller's session, read in a unit of
+/// work of `client`'s request (FILES-018, FILES-021).
 pub(in crate::modules::files) async fn read(
     files: &Files,
-    uow: &mut UnitOfWork,
+    client: &Client,
     principal: &Principal,
     id: uuid::Uuid,
 ) -> Result<UserFile, FilesError> {
-    let stored = repo::read(uow, principal.user_id(), id)
+    let mut uow = files.database.begin(client).await?;
+    let stored = repo::read(&mut uow, principal.user_id(), id)
         .await?
         .ok_or(FilesError::NotFound)?;
-    let until = link_expiry(uow).await?;
+    let until = link_expiry(&mut uow).await?;
     let link = files.user_link(&stored.file, principal.session_id(), until);
     Ok(UserFile::linked(stored.file, link))
 }
 
-/// The file `id` of the caller's own, as its download serves it. The unit of work ends once the
-/// row is read, before the bucket is asked (FILES-009, DATA-21).
+/// What a download of the file `id` of the caller's own serves, as `wanted` asks for it. The
+/// unit of work, of `client`'s request, ends once the row is read, before the bucket is asked
+/// (FILES-009, DATA-21).
 pub(in crate::modules::files) async fn download(
-    mut uow: UnitOfWork,
+    files: &Files,
+    client: &Client,
     principal: &Principal,
     id: uuid::Uuid,
-) -> Result<Serving, FilesError> {
+    wanted: &Wanted,
+) -> Result<Downloaded, FilesError> {
+    let mut uow = files.database.begin(client).await?;
     let stored = repo::read(&mut uow, principal.user_id(), id).await?;
     drop(uow);
     let stored = stored.ok_or(FilesError::NotFound)?;
     let file = stored.file;
-    Ok(Serving {
+    let serving = Serving {
         id: file.id,
         media_type: file.media_type,
         size_bytes: file.size_bytes,
         object_key: stored.object_key,
         name: Some(file.name.as_str().to_owned()),
-    })
+    };
+    serve(files, serving, wanted).await
 }
 
-/// Deletes the file `id` of the caller's own: the row, its audit entry in their own log and their
-/// event commit together. Its object stays until the deletion of unreferenced objects deletes it
-/// (FILES-019, FILES-011).
+/// Deletes the file `id` of the caller's own, in a unit of work of `client`'s request: the row,
+/// its audit entry in their own log and their event commit together. Its object stays until the
+/// deletion of unreferenced objects deletes it (FILES-019, FILES-011).
 pub(in crate::modules::files) async fn delete(
-    mut uow: UnitOfWork,
+    files: &Files,
+    client: &Client,
     principal: &Principal,
     id: uuid::Uuid,
 ) -> Result<(), FilesError> {
+    let mut uow = files.database.begin(client).await?;
     let user = principal.user_id();
     if !repo::delete(&mut uow, user, id).await? {
         return Err(FilesError::NotFound);

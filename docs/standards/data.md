@@ -91,7 +91,7 @@ The server refuses to start unless it connects as the role `app`, and that role 
 
 ### DATA-19 Least privilege in grants
 - `EXECUTE` is revoked from `PUBLIC` on every function in the application schema, including through default privileges.
-- `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no data definition statements (DDL) and no `TRUNCATE`. On `audit_entries` it has only `INSERT` and `SELECT` (AUDIT-005), and on each table whose rows are never edited, and which so has no `updated_at` or `version` (DATA-02), no `UPDATE`: `device_tokens` (AUTH-019), and `workspace_files` and `object_deletions` (the files spec's Owns). On a sequence that a mechanism of `platform` draws from, such as `events_position_seq`, it has `USAGE` alone, which takes the next value, and can't set one.
+- `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no data definition statements (DDL) and no `TRUNCATE`. On `audit_entries` it has only `INSERT` and `SELECT` (AUDIT-005), and on each table whose rows are never edited, and which so has no `updated_at` or `version` (DATA-02), no `UPDATE`: `device_tokens` (AUTH-019), and `workspace_files`, `user_files` and `object_deletions` (the files spec's Owns). On a sequence that a mechanism of `platform` draws from, such as `events_position_seq`, it has `USAGE` alone, which takes the next value, and can't set one.
 - `app` has `statement_timeout` and `idle_in_transaction_session_timeout` set at the role level.
 - Why: a role can do only what its job needs, and a stuck transaction can't hold locks indefinitely.
 - Check: `ci: check-schema`.
@@ -125,7 +125,7 @@ A row ID alone never addresses tenant data. These reads are exempt:
 - scheduled jobs that span tenants, which select rows by their own criteria, such as expiry
 - a public file's download, which reads its row by its ID and its visibility alone, since whoever holds a public file's ID may read it ([files spec](../spec/files.md#visibility))
 - Why: there is no row-level security, so the application's filters are the only guard between tenants, and they are checked by machine and by test (D4).
-- Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, unless it belongs to a listed cross-tenant job, and every other table is listed), `test` (TEST-08 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
+- Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, unless it belongs to a listed cross-tenant job or to the listed file of public files' reads, and every other table is listed), `test` (TEST-08 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
 
 ### DATA-17 Lists use keyset pagination on an index
 A list query filters by the cursor's sort key, with the ID as tiebreaker, and never uses `OFFSET`. An index matches its tenant filter and its order. A `search` (API-20) narrows the rows that index reaches, without an index of its own until a load test asks for one.

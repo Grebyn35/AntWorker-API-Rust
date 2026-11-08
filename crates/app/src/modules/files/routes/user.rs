@@ -8,19 +8,17 @@ use axum::{
 use platform::{
     authn::Principal,
     errors::Problem,
-    http::{
-        Download, DownloadRequest, FileBytes, Query, ResourceResponse, Routes, Upload, path_id,
-    },
+    http::{Download, FileBytes, Query, ResourceResponse, Routes, Upload, path_id},
     idempotency::IdempotencyKey,
     lists::List,
-    storage::ObjectBytes,
+    storage::{ObjectBytes, Wanted},
     types::Client,
 };
 use utoipa_axum::routes;
 
 use super::{
-    DOWNLOAD_ERRORS, Downloaded, ListQuery, UPLOAD_ERRORS, UploadQuery, download, name, page,
-    visibility,
+    DOWNLOAD_ERRORS, DownloadResponses, ListQuery, UPLOAD_ERRORS, UploadQuery, name, page,
+    response, visibility,
 };
 use crate::modules::files::{
     error::FilesError,
@@ -105,12 +103,7 @@ async fn list_own_files(
     query: Query<ListQuery>,
 ) -> Result<axum::Json<List<UserFile>>, Problem<FilesError>> {
     let (page, search) = page(&query)?;
-    let mut uow = files
-        .database
-        .begin(&client)
-        .await
-        .map_err(FilesError::from)?;
-    let list = service::list(&files, &mut uow, &principal, search.as_ref(), &page).await?;
+    let list = service::list(&files, &client, &principal, search.as_ref(), &page).await?;
     Ok(axum::Json(list))
 }
 
@@ -133,12 +126,7 @@ async fn read_own_file(
     params: RawPathParams,
 ) -> Result<ResourceResponse<UserFile>, Problem<FilesError>> {
     let id = path_id(&params, "file_id").ok_or(FilesError::NotFound)?;
-    let mut uow = files
-        .database
-        .begin(&client)
-        .await
-        .map_err(FilesError::from)?;
-    let file = service::read(&files, &mut uow, &principal, id).await?;
+    let file = service::read(&files, &client, &principal, id).await?;
     Ok(ResourceResponse::ok(file))
 }
 
@@ -152,23 +140,18 @@ async fn read_own_file(
     params(
         ("file_id" = uuid::Uuid, Path, description = "The file."),
     ),
-    responses(Downloaded)
+    responses(DownloadResponses)
 )]
 async fn download_own_file(
     State(files): State<Files>,
     principal: Principal,
     client: Client,
     params: RawPathParams,
-    request: DownloadRequest,
+    wanted: Wanted,
 ) -> Result<Download<ObjectBytes>, Problem<FilesError>> {
     let id = path_id(&params, "file_id").ok_or(FilesError::NotFound)?;
-    let uow = files
-        .database
-        .begin(&client)
-        .await
-        .map_err(FilesError::from)?;
-    let file = service::download(uow, &principal, id).await?;
-    Ok(download(&files, file, &request).await?)
+    let downloaded = service::download(&files, &client, &principal, id, &wanted).await?;
+    Ok(response(downloaded))
 }
 
 /// Deletes a file of the caller's own.
@@ -190,11 +173,6 @@ async fn delete_own_file(
     params: RawPathParams,
 ) -> Result<StatusCode, Problem<FilesError>> {
     let id = path_id(&params, "file_id").ok_or(FilesError::NotFound)?;
-    let uow = files
-        .database
-        .begin(&client)
-        .await
-        .map_err(FilesError::from)?;
-    service::delete(uow, &principal, id).await?;
+    service::delete(&files, &client, &principal, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

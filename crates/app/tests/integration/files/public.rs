@@ -198,3 +198,26 @@ async fn platform_054_a_request_under_the_public_prefix_counts_in_a_bucket_of_it
     assert_eq!(elsewhere.status, 200);
     assert_eq!(elsewhere.header("ratelimit-policy"), "\"ip\";q=100;w=60");
 }
+
+#[tokio::test]
+async fn files_012_a_bucket_that_doesn_t_answer_makes_a_public_download_answer_503() {
+    // Nothing listens on port 9 of the loopback address.
+    let api = Api::with(Options::default().set("S3_ENDPOINT", "http://127.0.0.1:9")).await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let db = api.database();
+    let public = files::arrange(db, &workspace, "Public").await;
+    files::publish(db, "workspace_files", &public).await;
+    let own = files::arrange_own(db, &ada.user_id, "Own").await;
+    files::publish(db, "user_files", &own).await;
+
+    for path in [
+        format!("/v1/public/workspace-files/{public}"),
+        format!("/v1/public/user-files/{own}"),
+    ] {
+        let response = api.get(&path).send().await;
+
+        assert_eq!(response.status, 503, "{path}");
+        assert_eq!(response.json()["code"], "files.storage_unavailable");
+        assert_eq!(response.header("retry-after"), "1");
+    }
+}
