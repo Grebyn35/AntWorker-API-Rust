@@ -1,15 +1,14 @@
 //! Public files: an upload's visibility, and the downloads that anyone may make (FILES-020,
 //! FILES-023), counted in a bucket of their own (PLATFORM-054).
 
-use super::{acme, own::upload_own, stored_names};
+use super::{acme, own::upload_own, stored_names, upload_queried};
 use crate::support::{
     Api,
     api::{Options, Response},
     files, users, workspaces,
 };
 
-/// Uploads a PNG to `workspace` as `user`, with `query` as the request's query, and the body
-/// `bytes`.
+/// Uploads `bytes`, a PNG's name, to `workspace` as `user`, with `query` as the request's query.
 async fn upload_query(
     api: &Api,
     user: &users::SignedIn,
@@ -17,16 +16,7 @@ async fn upload_query(
     query: &str,
     bytes: &[u8],
 ) -> Response {
-    api.request(
-        http::Method::POST,
-        &format!("/v1/workspaces/{workspace}/files{query}"),
-    )
-    .header("content-type", "application/octet-stream")
-    .header("content-disposition", "attachment; filename=\"a.png\"")
-    .body(bytes.to_vec())
-    .bearer(&user.access)
-    .send()
-    .await
+    upload_queried(api, user, workspace, query, "a.png", bytes).await
 }
 
 /// The smallest PNG's bytes: its signature, then its header chunk.
@@ -236,4 +226,66 @@ async fn files_012_a_bucket_that_doesn_t_answer_makes_a_public_download_answer_5
         assert_eq!(response.json()["code"], "files.storage_unavailable");
         assert_eq!(response.header("retry-after"), "1");
     }
+}
+
+#[tokio::test]
+async fn files_020_a_file_s_visibility_never_changes() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let db = api.database();
+    files::arrange(db, &workspace, "Private").await;
+    files::arrange_own(db, &ada.user_id, "Own").await;
+
+    // The API's role may change no file's row, and no route of a file takes a change.
+    for statement in [
+        "UPDATE workspace_files SET visibility = 'public'",
+        "UPDATE user_files SET visibility = 'public'",
+    ] {
+        let refused = db.try_execute(&db.app_url(), statement).await;
+
+        assert!(
+            refused.is_err_and(|error| error.contains("permission denied")),
+            "{statement}"
+        );
+    }
+    for (path, item) in api.document()["paths"].as_object().unwrap() {
+        if path.contains("files") {
+            assert!(
+                item.get("patch").is_none() && item.get("put").is_none(),
+                "{path}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn files_023_a_public_download_counts_in_the_bucket_of_public_downloads() {
+    let api = Api::with(Options::default().set("RATE_LIMIT_PUBLIC_REQUESTS", 7)).await;
+    let (workspace, _, _) = acme(&api, "member").await;
+    let db = api.database();
+    let public = files::arrange(db, &workspace, "Public").await;
+    files::publish(db, "workspace_files", &public).await;
+
+    let response = api
+        .get(&format!("/v1/public/workspace-files/{public}"))
+        .send()
+        .await;
+
+    assert_eq!(response.status, 200);
+    assert_eq!(response.header("ratelimit-policy"), "\"public\";q=7;w=60");
+}
+
+#[tokio::test]
+async fn platform_056_a_request_under_the_public_prefix_names_the_public_bucket() {
+    let api = Api::with(Options::default().set("RATE_LIMIT_PUBLIC_REQUESTS", 5)).await;
+
+    // An ID that names no public file answers 404, which the bucket counted too.
+    let response = api
+        .get("/v1/public/user-files/00000000-0000-0000-0000-000000000000")
+        .send()
+        .await;
+
+    assert_eq!(response.status, 404);
+    assert_eq!(response.header("ratelimit-policy"), "\"public\";q=5;w=60");
+    assert_eq!(response.header("ratelimit"), "\"public\";r=4;t=60");
 }

@@ -77,7 +77,7 @@ Each module goes through these stages, in order:
 | `invitations` | WS, MAIL | first slice | first slice | first slice | first slice | first slice |
 | `audit` | AUDIT | first slice | first slice | the writer, the security event sink | the writer, the security event sink | the writer, the security event sink |
 | `realtime` | RT | first slice | first slice | first slice | first slice | first slice |
-| `files` | FILE | workspace files, user files, public files, signed URLs | workspace files, user files, public files, signed URLs | workspace files, user files, public files, signed URLs | workspace files, user files, public files, signed URLs | workspace files |
+| `files` | FILE | workspace files, user files, public files, signed URLs | workspace files, user files, public files, signed URLs | workspace files, user files, public files, signed URLs | workspace files, user files, public files, signed URLs | workspace files, user files, public files, signed URLs |
 | `client_telemetry` | OBS | | | | | |
 | `superadmins` | none: a new part (D62) | | | | | |
 | `system` | HTTP, OPS | capabilities, seed | capabilities, seed | capabilities, seed | capabilities, seed | capabilities, seed |
@@ -143,6 +143,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 13bda32..0664e84 | API-12: whether `UnitOfWork::claim` refuses to run after another statement of its unit of work, so the claim's being first holds by test rather than by review | 6, with the review of the whole codebase |
 | Conformance review of 13bda32..0664e84 | API-11: whether `check-openapi` requires `format: date-time` of a query or path parameter that names a time, but a signed URL's `expires` | 6, with the review of the whole codebase |
 | Conformance review of 13bda32..0664e84 | OPS-06: whether an end-to-end scenario cuts a download short with a replica's drain, and resumes it from another, rather than the integration test that resumes a download it reads in part | 6, with the review of the whole codebase |
+| Conformance review of 13bda32..859ef0e | PLATFORM-081: whether a `HEAD` of a download asks the bucket for the object's metadata alone, rather than a `GET` whose bytes it drops once the head is sent | 6, with the review of the whole codebase |
 
 
 ## Conformance reviews

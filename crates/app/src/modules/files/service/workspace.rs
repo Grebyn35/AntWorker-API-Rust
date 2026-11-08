@@ -50,8 +50,8 @@ pub(in crate::modules::files) async fn upload(
             let (mut uow, authorized) = authorize.open().await?;
             let principal = authorized.principal().clone();
             let user = principal.user_id();
-            // The claim is the unit of work's first statement (the platform spec's
-            // Idempotency).
+            // The claim is the unit of work's first statement after the authorization that opened
+            // it (the platform spec's Idempotency).
             let claimed = uow.claim::<Recorded<InWorkspace>>(user, key).await?;
             let until = link_expiry(&mut uow).await?;
             if let Claimed::Replay(file) = claimed {

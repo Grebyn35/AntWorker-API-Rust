@@ -2,13 +2,14 @@
 //! - a behavior's or rule's test prefix, such as `workspaces_001`, names an ID that exists
 //!   (DOC-12);
 //! - a path to a Rust file, such as `events/hub.rs`, names a file that exists (DOC-01);
-//! - no document or comment names the old codebase, and only the places DOC-13 lists point into
-//!   the inventory (DOC-13).
+//! - no document or comment names a codebase this one replaces, by its name or by a phrase, and
+//!   only the places DOC-13 lists point into the inventory (DOC-13).
 //!
 //! It reads every Markdown document, and every comment of a file whose comments `text` can find,
-//! but the inventory's, whose IDs are its own, for test prefixes and Rust paths; and every text file but the migration
-//! workspace's, whose tracker and inventory record the old codebase, for its name and the
-//! inventory's paths, outside a comment as well as in one.
+//! but the inventory's, whose IDs are its own, for test prefixes and Rust paths; and every text
+//! file but the migration workspace's, whose tracker and inventory record the codebase this one
+//! replaces, for its name, the phrases that name it and the inventory's paths, outside a comment
+//! as well as in one.
 
 use crate::{Finding, catalog::Catalog, repo::Repo, text};
 
@@ -28,6 +29,10 @@ const INVENTORY_POINTERS: [&str; 4] = [
 
 /// The names of the codebases this one replaces (DOC-13).
 const OLD_NAMES: [&str; 1] = ["AntWorker-API"];
+
+/// The phrases that name the codebases this one replaces without their names (DOC-13). CLAUDE.md,
+/// a pointer into the inventory, may say what the inventory describes.
+const OLD_PHRASES: [&str; 3] = ["the old API", "the old client", "the old codebase"];
 
 /// Every test prefix, Rust path, old name and inventory path that the documents and comments name
 /// wrongly.
@@ -86,6 +91,13 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
                 if named {
                     found(format!(
                         "`{name}` names the old codebase, which a fork never saw (DOC-13)"
+                    ));
+                }
+            }
+            for phrase in OLD_PHRASES {
+                if text::has_phrase(text, phrase) && !INVENTORY_POINTERS.contains(&path) {
+                    found(format!(
+                        "\"{phrase}\" names the old codebase, which a fork never saw (DOC-13)"
                     ));
                 }
             }
@@ -198,7 +210,7 @@ mod tests {
                 "docs/guide.md",
                 "Proven by `things_001_` and `things_002_`, in events/hub.rs and events/gone.rs.\n\
                  The old AntWorker-API did it; AntWorker-API-Rust does it.\n\
-                 See [the trace](inventory/decision-trace.md).\n",
+                 See [the trace](inventory/decision-trace.md).\nThe old API never did.\n",
             ),
             (
                 "crates/app/src/lib.rs",
@@ -225,11 +237,12 @@ mod tests {
             .map(|finding| format!("{}:{}", finding.path, finding.message))
             .collect();
 
-        assert_eq!(messages.len(), 10, "{messages:#?}");
+        assert_eq!(messages.len(), 11, "{messages:#?}");
         for expected in [
             "docs/guide.md:`things_002` is the test prefix of THINGS-002",
             "docs/guide.md:`events/gone.rs` names no file",
             "docs/guide.md:`AntWorker-API` names the old codebase",
+            "docs/guide.md:\"the old API\" names the old codebase",
             "docs/guide.md:a path into the inventory",
             "crates/app/src/lib.rs:`things_009` is the test prefix",
             "docs/MIGRATION.md:`things_005` is the test prefix",

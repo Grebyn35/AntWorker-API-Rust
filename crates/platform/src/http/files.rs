@@ -298,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_081_a_public_file_s_disposition_holds_no_name() {
+    fn sec_11_a_withheld_name_leaves_the_disposition_s_type_alone() {
         assert_eq!(disposition(true, None).to_str().unwrap(), "inline");
         assert_eq!(disposition(false, None).to_str().unwrap(), "attachment");
     }

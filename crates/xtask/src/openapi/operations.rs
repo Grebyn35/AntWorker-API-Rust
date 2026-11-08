@@ -158,6 +158,38 @@ fn meaning(path: &str, method: &str, operation: &Value, here: &str) -> Vec<Strin
     messages
 }
 
+/// API-04 and API-17: a 206 serves a range's bytes with `Content-Range`, and its operation
+/// documents the `Range` that asks for it.
+fn ranged(operation: &Value, response: &Value, content: bool, here: &str) -> Vec<String> {
+    let mut messages = Vec::new();
+    let range = response["headers"].as_object().is_some_and(|headers| {
+        headers
+            .keys()
+            .any(|h| h.eq_ignore_ascii_case("content-range"))
+    });
+    if !range || !content {
+        messages.push(format!(
+            "{here} answers 206 without the range's bytes and its Content-Range (API-04)"
+        ));
+    }
+    let asked = operation["parameters"]
+        .as_array()
+        .is_some_and(|parameters| {
+            parameters.iter().any(|parameter| {
+                parameter["in"] == "header"
+                    && parameter["name"]
+                        .as_str()
+                        .is_some_and(|name| name.eq_ignore_ascii_case("range"))
+            })
+        });
+    if !asked {
+        messages.push(format!(
+            "{here} answers 206 without documenting the Range that asks for it (API-17)"
+        ));
+    }
+    messages
+}
+
 /// API-04: a read answers 200, or 206 with `Content-Range` for a range of a download's bytes, a
 /// create 201 with `Location` and the resource, a delete or an action with nothing to return 204
 /// with no body, and accepted work 202.
@@ -212,18 +244,7 @@ fn statuses(method: &str, operation: &Value, here: &str) -> Vec<String> {
             "204" if content => {
                 messages.push(format!("{here} answers 204 with a body (API-04)"));
             }
-            "206" => {
-                let range = response["headers"].as_object().is_some_and(|headers| {
-                    headers
-                        .keys()
-                        .any(|h| h.eq_ignore_ascii_case("content-range"))
-                });
-                if !range || !content {
-                    messages.push(format!(
-                        "{here} answers 206 without the range's bytes and its Content-Range (API-04)"
-                    ));
-                }
-            }
+            "206" => messages.extend(ranged(operation, response, content, here)),
             "200" if !content => {
                 messages.push(format!(
                     "{here} answers 200 with no body: an outcome with nothing to return answers 204 (API-04)"
@@ -300,7 +321,7 @@ mod tests {
 
     #[test]
     fn api_02_public_files_downloads_are_under_v1_public_and_nothing_else_is() {
-        let download = json!({ "x-access": "public", "responses": { "200": ok(true), "206": { "description": "x", "headers": { "Content-Range": {} }, "content": { "application/octet-stream": {} } } } });
+        let download = json!({ "x-access": "public", "parameters": [{ "name": "Range", "in": "header" }], "responses": { "200": ok(true), "206": { "description": "x", "headers": { "Content-Range": {} }, "content": { "application/octet-stream": {} } } } });
         assert_eq!(
             messages("/v1/files/{file_id}", "get", &download),
             [
@@ -417,7 +438,7 @@ mod tests {
             messages("/v1/things", "post", &none),
             ["POST /v1/things answers 207, which API-04 doesn't list (API-04)"]
         );
-        let ranged = json!({ "responses": { "206": { "description": "x", "headers": { "Content-Range": {} }, "content": { "application/octet-stream": {} } } } });
+        let ranged = json!({ "parameters": [{ "name": "Range", "in": "header" }], "responses": { "206": { "description": "x", "headers": { "Content-Range": {} }, "content": { "application/octet-stream": {} } } } });
         assert_eq!(
             messages("/v1/things", "post", &ranged),
             ["POST /v1/things answers 206, which its method's outcome doesn't (API-04)"]
@@ -426,7 +447,8 @@ mod tests {
         assert_eq!(
             messages("/v1/things/{thing_id}/content", "get", &bare),
             [
-                "GET /v1/things/{thing_id}/content answers 206 without the range's bytes and its Content-Range (API-04)"
+                "GET /v1/things/{thing_id}/content answers 206 without the range's bytes and its Content-Range (API-04)",
+                "GET /v1/things/{thing_id}/content answers 206 without documenting the Range that asks for it (API-17)",
             ]
         );
         let nothing = json!({ "responses": { "404": ok(true) } });

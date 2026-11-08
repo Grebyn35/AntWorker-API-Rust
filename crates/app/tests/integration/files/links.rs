@@ -8,7 +8,7 @@ use platform::{
 };
 use serde_json::Value;
 
-use super::{acme, delete, own::upload_own, upload};
+use super::{acme, delete, own::upload_own, upload, upload_queried};
 use crate::support::{
     Api,
     api::Options,
@@ -22,13 +22,7 @@ fn signer() -> SignedUrls {
 
 /// A text file that `ada` uploaded to `workspace`, as the upload answered it.
 async fn uploaded(api: &Api, ada: &SignedIn, workspace: &str, query: &str) -> Value {
-    let path = format!("/v1/workspaces/{workspace}/files{query}");
-    api.request(http::Method::POST, &path)
-        .header("content-type", "application/octet-stream")
-        .header("content-disposition", "attachment; filename=\"a.txt\"")
-        .body(b"hello".to_vec())
-        .bearer(&ada.access)
-        .send()
+    upload_queried(api, ada, workspace, query, "a.txt", b"hello")
         .await
         .json()
 }

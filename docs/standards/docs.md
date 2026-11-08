@@ -118,7 +118,7 @@ Documents and comments describe only this codebase. The one exception is the mig
 
 When the migration completes, the workspace is deleted, and these exceptions with it.
 - Why: a fork's developers never saw any other codebase, so references to one mean nothing to them.
-- Check: `ci: check-docs` (known names of other codebases, and a path into the inventory, in any file but the places above and a Rust file's code, which names what a check checks), plus `review`.
+- Check: `ci: check-docs` (known names of other codebases, the phrases that name one, and a path into the inventory, in any file but the places above and a Rust file's code, which names what a check checks), plus `review`.
 
 ### DOC-14 The tracker holds status, not content
 While the migration runs, `docs/MIGRATION.md` records its progress, which DOC-01 otherwise forbids. It holds status and pointers. Every other fact lives in its home (DOC-07). Its sections, in this order:

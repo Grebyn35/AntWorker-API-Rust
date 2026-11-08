@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use super::{acme, download};
+use super::{acme, download, upload_queried};
 use crate::support::{Api, api::Response, users::SignedIn};
 
 /// The bytes of the file the tests download.
@@ -12,17 +12,9 @@ const TEXT: &[u8] = b"hello world";
 /// A text file of [`TEXT`] that `ada` uploaded to `workspace`, as `query` says, as the upload
 /// answered it.
 async fn uploaded(api: &Api, ada: &SignedIn, workspace: &str, query: &str) -> Value {
-    api.request(
-        http::Method::POST,
-        &format!("/v1/workspaces/{workspace}/files{query}"),
-    )
-    .header("content-type", "application/octet-stream")
-    .header("content-disposition", "attachment; filename=\"a.txt\"")
-    .body(TEXT.to_vec())
-    .bearer(&ada.access)
-    .send()
-    .await
-    .json()
+    upload_queried(api, ada, workspace, query, "a.txt", TEXT)
+        .await
+        .json()
 }
 
 /// The download of the file at `path` as `ada`, with `headers`.
@@ -60,6 +52,19 @@ async fn platform_081_one_range_of_a_download_answers_206_with_those_bytes() {
         assert_eq!(response.header("etag"), format!("\"{tag}\""));
         assert_eq!(response.header("accept-ranges"), "bytes");
         assert_eq!(response.header("content-type"), "text/plain; charset=utf-8");
+        assert_eq!(
+            response.header("content-security-policy"),
+            "default-src 'none'; sandbox"
+        );
+        assert_eq!(response.header("x-content-type-options"), "nosniff");
+        // A download sets no cache's lifetime of its own but a public one's, so the security
+        // headers' no-store stands.
+        let cache = if path.starts_with("/v1/public/") {
+            "public, max-age=300"
+        } else {
+            "no-store"
+        };
+        assert_eq!(response.header("cache-control"), cache, "{path}");
     }
     let suffix = ranged(&api, &ada, &path, &[("range", "bytes=-5")]).await;
     assert_eq!(suffix.body, b"world");

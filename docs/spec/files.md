@@ -23,13 +23,13 @@ None. No other module uses `files` yet.
 | `POST /v1/workspaces/{workspace_id}/files` | `workspace::<FilesUpload>` | FILES-001 to FILES-006, FILES-012, FILES-013, FILES-020, FILES-021 |
 | `GET /v1/workspaces/{workspace_id}/files` | `workspace::<FilesRead>` | FILES-007, FILES-021 |
 | `GET /v1/workspaces/{workspace_id}/files/{file_id}` | `workspace::<FilesRead>` | FILES-008, FILES-021 |
-| `GET /v1/workspaces/{workspace_id}/files/{file_id}/content` | `workspace::<FilesRead>`, or its signed URL | FILES-009, FILES-012, FILES-022 |
-| `DELETE /v1/workspaces/{workspace_id}/files/{file_id}` | `workspace::<FilesDelete>` | FILES-010 |
+| `GET /v1/workspaces/{workspace_id}/files/{file_id}/content` | `workspace::<FilesRead>`, or its signed URL | FILES-008, FILES-009, FILES-012, FILES-022 |
+| `DELETE /v1/workspaces/{workspace_id}/files/{file_id}` | `workspace::<FilesDelete>` | FILES-008, FILES-010 |
 | `POST /v1/users/me/files` | user | FILES-002 to FILES-005, FILES-012, FILES-013, FILES-016, FILES-020, FILES-021 |
 | `GET /v1/users/me/files` | user | FILES-017, FILES-021 |
 | `GET /v1/users/me/files/{file_id}` | user | FILES-018, FILES-021 |
-| `GET /v1/users/me/files/{file_id}/content` | user, or its signed URL | FILES-009, FILES-012, FILES-022 |
-| `DELETE /v1/users/me/files/{file_id}` | user | FILES-019 |
+| `GET /v1/users/me/files/{file_id}/content` | user, or its signed URL | FILES-009, FILES-012, FILES-018, FILES-022 |
+| `DELETE /v1/users/me/files/{file_id}` | user | FILES-018, FILES-019 |
 | `GET /v1/public/workspace-files/{file_id}` | public | FILES-012, FILES-023 |
 | `GET /v1/public/user-files/{file_id}` | public | FILES-012, FILES-023 |
 
@@ -158,4 +158,4 @@ A workspace's routes are workspace routes, so `Authorized<P>` proves the caller'
 |---|---|
 | How an avatar and a workspace's picture are stored: as files of their user or workspace, which the lists and the deletion of files then leave out, or as objects of their own, and which kinds they accept | the spec of the full `accounts` module |
 | How the avatar that an OAuth provider gives a new account is fetched and stored, through the untrusted client (SEC-10) | the spec of the full `auth` module, with the first OAuth provider |
-| Whether a user's own files, or a workspace's, are bounded in their count or their bytes, which the old API never bounded, beside the rate limits and `FILE_MAX_BYTES`: a capability, so the owner's | the pass against ASVS Level 2, at step 6 |
+| Whether a user's own files, or a workspace's, are bounded in their count or their bytes, beside the rate limits and `FILE_MAX_BYTES`: a capability, so the owner's | the pass against ASVS Level 2, at step 6 |

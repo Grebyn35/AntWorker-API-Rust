@@ -240,7 +240,8 @@ impl UnitOfWork {
         Ok(self.tx.commit().await?)
     }
 
-    /// Claims `key` for `user`, as the unit of work's first statement, so the key's record
+    /// Claims `key` for `user`, as the unit of work's first statement after a workspace route's
+    /// authorization, if one opened it, so the key's record
     /// commits or rolls back with the operation (PLATFORM-036). With no key, or no operation
     /// committed under it in the last 24 hours, the operation runs. The result of the one that
     /// committed with the same fingerprint answers instead, and another fingerprint is refused

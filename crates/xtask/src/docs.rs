@@ -3,8 +3,9 @@
 //! document belongs to the documentation set (DOC-05); documents spell out acronyms where they
 //! first use them (DOC-06, in `acronyms`); specs, rules, tables and the tracker keep their
 //! formats (DOC-07, DOC-08 and DOC-14, in `formats`); each spec's Routes table matches `openapi.json`
-//! (DOC-08, in `routes`); and test prefixes, paths to Rust files, the old codebase's name and
-//! paths into the inventory are named only where they resolve or DOC-13 allows (`references`).
+//! (DOC-08, in `routes`); and test prefixes, paths to Rust files, the name of a codebase this one
+//! replaces, and paths into the inventory are named only where they resolve or DOC-13 allows
+//! (`references`).
 
 use std::collections::{BTreeMap, BTreeSet};
 

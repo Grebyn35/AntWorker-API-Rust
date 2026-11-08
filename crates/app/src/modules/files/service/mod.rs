@@ -292,8 +292,23 @@ async fn bytes(
         Err(StorageError::NotFound) => Err(FilesError::Internal(Internal::new(format!(
             "the row of the file {id} names an object that the bucket doesn't hold"
         )))),
+        // A range that the row's size holds and the object doesn't, as when its bytes were cut
+        // short, is one way the bucket refuses a read, whose cause names the file too.
+        Err(StorageError::Failed(cause)) => {
+            Err(FilesError::Internal(Internal::new(Refused { id, cause })))
+        }
         Err(error) => Err(unavailable(error)),
     }
+}
+
+/// A read of a file's bytes that the bucket refused, whose cause names the file and keeps the
+/// bucket's own as its source (FILES-009, ERR-10).
+#[derive(Debug, thiserror::Error)]
+#[error("the bucket refused the read of the bytes of the file {id}")]
+struct Refused {
+    id: uuid::Uuid,
+    #[source]
+    cause: Internal,
 }
 
 /// The module's failure for a failure of the bucket: unavailable when it didn't answer

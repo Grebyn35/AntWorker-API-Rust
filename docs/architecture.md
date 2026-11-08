@@ -254,7 +254,7 @@ sequenceDiagram
    - Its route group's timeout and body size limit apply (OPS-07, API-08).
    - Query parameters that the route's documentation doesn't list are refused (API-09).
    - `Principal` authenticates the caller, by the Bearer header or a browser's cookie, or, on a download route, by the signed URL its query holds, in place of either (D18, D61, D113).
-   - The per-user rate limit, in its own short transaction, then the `Idempotency-Key` of a keyed `POST`, which the unit of work claims as its first statement, so the key's record commits or rolls back with the operation (D12).
+   - The per-user rate limit, in its own short transaction, then the `Idempotency-Key` of a keyed `POST`, which the unit of work claims as its first statement, after the authorization that opens a workspace route's, so the key's record commits or rolls back with the operation (D12).
    - The body is parsed into request types, then domain types (D25).
    - On an upload route, whose group has a timeout and no body limit of its own, the order differs: the handler refuses a declared length over its module's limit, then, on a workspace's, checks that the caller may upload, through `Authorize::check`, in a short transaction that writes nothing, and only then reads the body, through `Upload`, in one of the replica's turns, before the unit of work opens and authorizes the caller again (PLATFORM-073, PLATFORM-074).
    - The unit of work opens last, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one. On workspace routes, opening it produces `Authorized<P>`: inside the unit of work, the caller's membership in the workspace from the path is loaded and permission `P` checked (D2, D3). A missing membership is a 404, so the response never reveals whether the workspace exists. On other routes, the service opens it, once any per-action limit it checks has counted, such as the sign-in's (AUTH-006), after a read, in a transaction of its own that writes nothing, of what decides which limit counts, such as the sign-in's device token (ARCH-11).
@@ -272,7 +272,7 @@ Nothing runs after the response except background work driven by committed rows.
 - **Database roles:**
   - `owner` runs migrations and owns the tables. It is never used at runtime.
   - `app` serves every request and runs every job. It can read and change data, but not the schema, and it is never a superuser (DATA-12, DATA-13).
-- **Tenancy is enforced by the application (D4).** There is no row-level security. Every query on tenant data filters by tenant itself (DATA-16): workspace data by the workspace ID from `Authorized<P>` or a job's recorded scope, and user data by the caller's ID. Three things keep that true:
+- **Tenancy is enforced by the application (D4).** There is no row-level security. Every query on tenant data filters by tenant itself, but the reads that DATA-16 exempts, such as a public file's by its ID (DATA-16): workspace data by the workspace ID from `Authorized<P>` or a job's recorded scope, and user data by the caller's ID. Three things keep that true:
   - Repository functions for workspace data take the workspace ID as a parameter.
   - A CI check fails any query on a workspace table that doesn't filter by `workspace_id`, or by `user_id` on a table that also has one (DATA-16).
   - A generated test sends every workspace route an ID from another workspace the caller belongs to (TEST-08).

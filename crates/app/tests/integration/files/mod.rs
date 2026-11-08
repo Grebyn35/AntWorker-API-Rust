@@ -55,6 +55,31 @@ async fn upload(
     .await
 }
 
+/// Uploads `bytes` as the file `name` to `workspace` as `user`, with `query` as the request's
+/// query, such as `?visibility=public`.
+async fn upload_queried(
+    api: &Api,
+    user: &SignedIn,
+    workspace: &str,
+    query: &str,
+    name: &str,
+    bytes: &[u8],
+) -> Response {
+    api.request(
+        http::Method::POST,
+        &format!("/v1/workspaces/{workspace}/files{query}"),
+    )
+    .header("content-type", "application/octet-stream")
+    .header(
+        "content-disposition",
+        &format!("attachment; filename=\"{name}\""),
+    )
+    .body(bytes.to_vec())
+    .bearer(&user.access)
+    .send()
+    .await
+}
+
 /// Uploads `bytes` to `workspace` as `user`, with `headers` beside its media type, and `key` as
 /// its idempotency key if given.
 async fn upload_with(
@@ -1036,6 +1061,42 @@ async fn files_009_a_file_whose_object_has_another_size_answers_500_and_its_caus
         .collect();
     assert_eq!(errors.len(), 1, "{errors:#?}");
     assert!(errors[0].to_string().contains(&id), "{errors:#?}");
+}
+
+#[tokio::test]
+async fn files_009_a_range_past_a_cut_short_object_s_end_answers_500_and_its_cause_names_it() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let id = files::arrange_row(api.database(), &workspace, "Blue").await;
+    let key = object_key(&api, &id).await;
+    // The file's bytes, cut short by one, and a resume from the byte that was cut.
+    let short = files::BYTES.len() - 1;
+    bucket::storage(&api.database().bucket().await)
+        .put(
+            &ObjectKey::from_stored(&key),
+            Bytes::from(vec![0; short]),
+            "application/octet-stream",
+        )
+        .await
+        .unwrap();
+
+    let response = api
+        .get(&format!("/v1/workspaces/{workspace}/files/{id}/content"))
+        .header("range", &format!("bytes={short}-"))
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(response.status, 500);
+    assert_eq!(response.json()["code"], "request.internal_error");
+    let trace_id = response.json()["trace_id"].as_str().unwrap().to_owned();
+    let errors: Vec<Value> = testing::logged(&trace_id)
+        .into_iter()
+        .filter(|line| line["level"] == "ERROR")
+        .collect();
+    assert_eq!(errors.len(), 1, "{errors:#?}");
+    assert!(errors[0].to_string().contains(&id), "{errors:#?}");
+    assert!(!errors[0].to_string().contains(&key), "{errors:#?}");
 }
 
 #[tokio::test]

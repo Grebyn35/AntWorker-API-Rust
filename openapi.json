@@ -2114,6 +2114,33 @@
               "format": "uuid",
               "type": "string"
             }
+          },
+          {
+            "description": "One range of the file's bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
+            "in": "header",
+            "name": "Range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The entity tag of the bytes a client holds part of: the range is served only while it names them.",
+            "in": "header",
+            "name": "If-Range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The entity tags of bytes the client holds, or `*`: a 304 answers while one names them.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2646,6 +2673,33 @@
             "required": true,
             "schema": {
               "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "One range of the file's bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
+            "in": "header",
+            "name": "Range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The entity tag of the bytes a client holds part of: the range is served only while it names them.",
+            "in": "header",
+            "name": "If-Range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The entity tags of bytes the client holds, or `*`: a 304 answers while one names them.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
               "type": "string"
             }
           }
@@ -6083,6 +6137,33 @@
             "required": true,
             "schema": {
               "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "One range of the file's bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
+            "in": "header",
+            "name": "Range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The entity tag of the bytes a client holds part of: the range is served only while it names them.",
+            "in": "header",
+            "name": "If-Range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The entity tags of bytes the client holds, or `*`: a 304 answers while one names them.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
               "type": "string"
             }
           },
@@ -11024,6 +11105,33 @@
             "required": true,
             "schema": {
               "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "One range of the file's bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
+            "in": "header",
+            "name": "Range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The entity tag of the bytes a client holds part of: the range is served only while it names them.",
+            "in": "header",
+            "name": "If-Range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The entity tags of bytes the client holds, or `*`: a 304 answers while one names them.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
               "type": "string"
             }
           },
