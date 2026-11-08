@@ -36,7 +36,7 @@ services:
   # web page and API on 8025. It keeps the latest 10,000 emails, so the tests' emails stay until
   # each test has read its own.
   mailpit:
-    image: axllent/mailpit:v1.31.6@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387
+    image: axllent/mailpit:v1.33.0@sha256:9b3a463be15354c0f0eba91697d80e3e0d8a5623ef0e627cacc836bc17fd5231
     environment:
       MP_MAX_MESSAGES: "10000"
     ports:
@@ -59,7 +59,7 @@ services:
   # dev` uses, and passes once it exists; each test that runs the API creates a bucket of its own,
   # and deletes it when it ends.
   storage:
-    image: chrislusf/seaweedfs:4.50@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
+    image: chrislusf/seaweedfs:4.52@sha256:57877e32bb90073b37dc109b438ba66e84fd5ed9ced5f5c04f56444ef243ce59
     command: ["server", "-dir=/data", "-volume.max=1000", "-s3", "-s3.port=8333"]
     ports:
       - "127.0.0.1:8333:8333"
@@ -181,7 +181,7 @@ services:
   # so a scan writes to disk only the database that a new day's first scan downloads.
   grype:
     profiles: [tools]
-    image: anchore/grype:v0.121.0@sha256:621d56d1d68106b787022c81546f7e0a36202a25d1239f0c20195fab8c16f7ea
+    image: anchore/grype:v0.121.2@sha256:6a36234da13f9faa327306ac0b3dab3405cfa2b4eb20c8f904125a8707863913
     environment:
       GRYPE_DB_CACHE_DIR: /cache
     tmpfs:
@@ -205,7 +205,7 @@ services:
   # their server: SeaweedFS, which serves the S3 protocol (OPS-15).
   bucket:
     profiles: [tools]
-    image: chrislusf/seaweedfs:4.50@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
+    image: chrislusf/seaweedfs:4.52@sha256:57877e32bb90073b37dc109b438ba66e84fd5ed9ced5f5c04f56444ef243ce59
 
   # k6, which `just load-test` runs to measure one replica's capacity (OPS-16). It reaches the
   # collector, on the same network, to count the spans the collector accepted.
@@ -230,7 +230,7 @@ services:
   # The image tasks pass their names to Docker's builder.
   buildkit:
     profiles: [tools]
-    image: moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+    image: moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
 
   sbom-generator:
     profiles: [tools]
