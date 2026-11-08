@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** `files`' next part: a user's own files, public files with their own rate-limit bucket (D11), and signed download URLs (D61), which also settle the long-download gap (OPS-06); then step 5's other modules. Nothing waits on the owner. The trial server runs 0.1.0-rc.11; its Grafana Cloud alerts reach no contact point. Its next release needs a files bucket at Backblaze B2 beside the backups', with its own key pair and "Keep only the last version of the file", and `--allow-restart`, for the new Postgres image and its secrets' fingerprint; its first deploy downloads ClamAV's signatures, which proves the scanner's first start, and writes an object with `UNSIGNED-PAYLOAD`, settling the platform spec's open question. The first restore after it measures a restore's downtime, and refuses a moment before the recorded beginnings of timelines from before D85 until those backups expire. The owner releases when it needs `main`.
+**Next:** step 5's other modules: `files` is built and reviewed, with a user's own files, public files and signed download URLs. Nothing waits on the owner. The trial server runs 0.1.0-rc.11; its Grafana Cloud alerts reach no contact point. Its next release needs a files bucket at Backblaze B2 beside the backups', with its own key pair and "Keep only the last version of the file", and `--allow-restart`, for the new Postgres image and its secrets' fingerprint; its first deploy downloads ClamAV's signatures, which proves the scanner's first start, and writes an object with `UNSIGNED-PAYLOAD`, settling the platform spec's open question. The first restore after it measures a restore's downtime, and refuses a moment before the recorded beginnings of timelines from before D85 until those backups expire. The owner releases when it needs `main`.
 
 ## Build order
 
@@ -230,7 +230,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 7d1c801..9558419: as above, with pass 1's fixes, and the settings the load test's replica shares with the image's tests | 2 | 7 (6, 2, 1 shared) | 0 | 0 | `clean`: 75127a9 |
 | 13bda32..7bf3156: `files`' next part: a user's own files, public files with a bucket of the IP limit of their own (D114), signed download URLs (D113, PLATFORM-080, AUTH-020) and ranged downloads (D112, PLATFORM-081, OPS-06) | 1 | 20 (17, 15, 10 shared) | 9 | 0 | `next pass`: 0664e84 |
 | 13bda32..0664e84: as above, with pass 1's fixes | 2 | 9 (7, 3, 1 shared) | 7 | 0 | `next pass`: 859ef0e |
-| 13bda32..859ef0e: as above, with pass 2's fixes | 3 | 10 (6, 4, 0 shared) | 4 | 1 | `stopped: no progress` |
+| 13bda32..859ef0e: as above, with pass 2's fixes | 3 | 10 (6, 4, 0 shared) | 4 | 1 | `stopped: no progress`: 1911eb6 |
 
 ## Decisions
 
