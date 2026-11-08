@@ -84,7 +84,7 @@
         "properties": {
           "features": {
             "$ref": "#/components/schemas/Features",
-            "description": "One member per feature a deployment can turn off, `true` while the feature is on. A\nfeature this API doesn't have is absent."
+            "description": "One member per feature a deployment can turn off, `true` while the feature is on, and one\nper optional part that changes what a client offers, `true` while the fork keeps it. A\nfeature or a part this API doesn't have is absent."
           }
         },
         "required": [
@@ -135,15 +135,25 @@
         "type": "string"
       },
       "Features": {
-        "description": "Each feature a deployment can turn off, and whether it is on.",
+        "description": "Each feature a deployment can turn off, and whether it is on, and each optional part that the\nfork keeps and that changes what a client offers (D118).",
         "properties": {
           "email": {
             "description": "Whether the deployment sends email (PLATFORM-022). While it is off, a client hides what\nneeds email, such as a way to reset a password.",
             "type": "boolean"
+          },
+          "files": {
+            "description": "The fork keeps `files`, so users upload files, avatars and workspace pictures.",
+            "type": "boolean"
+          },
+          "invitations": {
+            "description": "The fork keeps `invitations`, so a workspace's members invite others.",
+            "type": "boolean"
           }
         },
         "required": [
-          "email"
+          "email",
+          "invitations",
+          "files"
         ],
         "type": "object"
       },

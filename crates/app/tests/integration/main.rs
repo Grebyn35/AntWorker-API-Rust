@@ -13,7 +13,9 @@ mod audit;
 #[cfg(test)]
 mod auth;
 #[cfg(test)]
+// part: files
 mod files;
+// end part: files
 // part: invitations
 #[cfg(test)]
 mod invitations;

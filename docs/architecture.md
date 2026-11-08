@@ -13,8 +13,10 @@ flowchart LR
   client[Clients] --> caddy[Caddy<br/>TLS, load balancing,<br/>health checks]
   caddy --> api[API replicas<br/>1..N]
   api --> pg[(PostgreSQL 18)]
+  %% part: files
   api --> s3[(S3-compatible<br/>object storage)]
   api --> clamd[ClamAV's daemon<br/>malware scanning]
+  %% end part: files
   api --> smtp[SMTP]
   api --> oauth[OAuth providers<br/>Google, GitHub]
   api --> otel[OpenTelemetry<br/>Collector]
@@ -24,8 +26,8 @@ flowchart LR
 ```
 
 - PostgreSQL is the system of record and the only coordination point between replicas (OPS-08). It holds rate limits, idempotency records, job leases, the job queue and the event log. There is no Redis, Valkey or other shared store, and adding one to the template needs an architecture decision record (ADR) showing Postgres can't cope. What commits with a unit of work stays in Postgres in any fork, since a store outside the transaction can't commit with it (D1): events, jobs, audit entries and idempotency results. What doesn't, the rate-limit counts and any cache, sits behind one type of `platform` each, so a fork that moves one to a shared store changes that type and the composition root, and no module.
-- Object storage holds file bytes. Uploads and downloads use it during the request, and deletions go through background jobs.
-- ClamAV's daemon scans each upload for malware during its request, before the upload is stored.
+- Object storage holds file bytes. Uploads and downloads use it during the request, and deletions go through background jobs. <!-- part: files -->
+- ClamAV's daemon scans each upload for malware during its request, before the upload is stored. <!-- part: files -->
 - The Simple Mail Transfer Protocol (SMTP) delivers email, and only background jobs reach it. No request waits for an email to send (D1).
 - The observability stack is always part of the codebase, and turning it on at runtime is optional.
 
@@ -73,16 +75,17 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `jobs` | A durable job queue with retry, backoff and dead letters, which every instance's dispatcher polls, plus a scheduler that runs each periodic job once per interval across the fleet. A job records the user or workspace it was enqueued for, and its handler filters by them. | D1, D13 |
 | `events` | The event log and the real-time hub. A unit of work publishes events, which take their positions in the log in the order their units of work commit. The hub listens on the listener, and loads each new event once and delivers it to the streams allowed to receive it (SEC-19). It also replays what a reconnecting stream missed, closes streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). | D1, D5, D20 |
 | `rate_limit` | The buckets that count requests in windows, in the database every replica shares: the IP and user limits that the request pipeline applies, and the per-action limits a module checks, such as sign-in's. | D11 |
-| `http` | The route builders and the OpenAPI document they produce, the middleware stack with trace context, timeouts, load shedding, cross-origin resource sharing (CORS) and the protection against cross-site request forgery (CSRF), extractors (JSON, a keyed route's JSON with its `Idempotency-Key`, a JSON Merge Patch, an update's `If-Match`, an upload's bytes, which a replica reads 4 at a time, path, query), the response that serves a stored file, or a range of its bytes, a path's row IDs, the response that answers a resource, with its `Location` and `ETag`, and rate limiting. | D8, D10, D11, D12, D20, D61 |
-| `authn` | Reads a request's access token from the Bearer header, for clients that set their own headers, such as the desktop client, or otherwise from an `HttpOnly` cookie, for browsers. It verifies the token through the `SessionVerifier` that `auth` implements, producing a `Principal`. A download's signed URL proves its session in place of a token, for a client that can't send one with it, such as an `<img>`. | D18, D61, D113 |
+| `http` | The route builders and the OpenAPI document they produce, the middleware stack with trace context, timeouts, load shedding, cross-origin resource sharing (CORS) and the protection against cross-site request forgery (CSRF), extractors (JSON, a keyed route's JSON with its `Idempotency-Key`, a JSON Merge Patch, an update's `If-Match`, path, query), a path's row IDs, the response that answers a resource, with its `Location` and `ETag`, and rate limiting. | D8, D10, D11, D12, D20, D61 |
+| `http::upload` and `http::files` | The extractor of an upload's bytes, which a replica reads 4 at a time, and the response that serves a stored file, or a range of its bytes. | D107, D112 <!-- part: files --> |
+| `authn` | Reads a request's access token from the Bearer header, for clients that set their own headers, such as the desktop client, or otherwise from an `HttpOnly` cookie, for browsers. It verifies the token through the `SessionVerifier` that `auth` implements, producing a `Principal`. | D18, D61 |
 | `idempotency` | The `Idempotency-Key` of a keyed route, read as draft-08 of the IETF's draft defines it, with the fingerprint of its request, which a unit of work claims. | D12 |
 | `lists` | A page's `limit` and cursor, a list's `search`, and the body of a page, which a route reads from its query and hands its service. | D8 |
 | `authz` | The `Authorized<P>` proof and the `Memberships` type, generic over the `Permission` trait. Producing `Authorized<P>` opens the request's unit of work and asks the `AccessPolicy` that `access` implements inside it. Refusals are reported to the `SecurityEventSink` that `audit` implements. | D2, D3, D6 |
 | `errors` | Error categories, the `ErrorCode` trait, and the single conversion to an HTTP response. | D17 |
 | `telemetry` | The logging and tracing setup, the export of spans, logs and metrics over the OpenTelemetry Protocol (OTLP), the list of telemetry names, and the metric declarations. | D10, D19 |
-| `storage` | The client of the S3-compatible bucket that holds files' bytes, which reads an object, or a range of its bytes, as a stream. | D1, D14, D106, D112 |
-| `signed_urls` | The signed URLs of downloads: a path, the session it acts for and when it stops working, signed with a hash-based message authentication code (HMAC) under `HMAC_KEY`, which a client that can't send a credential with a request, such as an `<img>`, sends in its place. | D61, D113 |
-| `scanner` | The client of ClamAV's daemon, which scans an upload's bytes for malware. | D26, D63, D107 |
+| `storage` | The client of the S3-compatible bucket that holds files' bytes, which reads an object, or a range of its bytes, as a stream. | D1, D14, D106, D112 <!-- part: files --> |
+| `signed_urls` | The signed URLs of downloads: a path, the session it acts for and when it stops working, signed with a hash-based message authentication code (HMAC) under `HMAC_KEY`, which a client that can't send a credential with a request, such as an `<img>`, sends in its place. | D61, D113 <!-- part: files --> |
+| `scanner` | The client of ClamAV's daemon, which scans an upload's bytes for malware. | D26, D63, D107 <!-- part: files --> |
 | `mail` | Sending email: `Mail` enqueues a module's rendered email in a unit of work, and the job `platform.send_email` sends it through the SMTP transport, which the email settings configure, with a client span for each send. Each module's emails, and their templates, live in the module (§5). | D1, D9 |
 | `outbound` | The only HTTP clients: one for URLs from configuration, and one for URLs supplied by third parties, with protection against server-side request forgery (SSRF) (SEC-10). | D26 |
 | `types` | Shared domain types: `Secret`, `EmailAddress`, `Timestamp`, a row's `Version`, the ID types, and `one_line`, the normalization of one line of text a user writes, which a module's domain types of such text, such as a name, build on. | D7, D25 |
@@ -104,7 +107,7 @@ crates/app/
     composition.rs     the composition root: builds every service once at startup and mounts every module's routes
     modules/           one directory per module (§5)
   templates/           each module's email templates, in a directory named after the module
-  tests/               integration tests over HTTP, against real Postgres and S3, and end-to-end tests in tests/e2e/
+  tests/               integration tests over HTTP, against the real services, and end-to-end tests in tests/e2e/
 ```
 
 ## 5. Modules
@@ -116,10 +119,10 @@ crates/app/
 | `access` | `workspace_memberships` | Roles, the permission matrix, the permission types used with `Authorized<P>`, and the `AccessPolicy` implementation (D2). It has no routes of its own. |
 | `audit` | `audit_entries` | Recording entries inside a unit of work, the read endpoints, the action catalog, retention, and the `SecurityEventSink` implementation that records refused requests (D6). |
 | `realtime` | none | The endpoint of server-sent events (SSE), the frames it sends, and the event catalog. Delivery, replay and stream closing are handled by `platform::events` (D5). |
-| `files` | `workspace_files`, `user_files`, `object_deletions` | Upload, list, download and delete of user and workspace files, the types each upload accepts and its scan for malware, public files, signed download URLs, and the deletion of the bytes that no file's row names. |
-| `accounts` | `users`, `user_preferences`, `data_exports` | Profile, preferences and consent, avatar, and account deletion and export, which it orchestrates across modules through the personal data contract (D16, D31). |
+| `files` | `workspace_files`, `user_files`, `object_deletions` | Upload, list, download and delete of user and workspace files, the types each upload accepts and its scan for malware, public files, signed download URLs, and the deletion of the bytes that no file's row names, with the avatars and the workspace pictures that the full `accounts` and `workspaces` modules add (D117). <!-- part: files --> |
+| `accounts` | `users`, `user_preferences`, `data_exports` | Profile, preferences and consent, and account deletion and export, which it orchestrates across modules through the personal data contract (D16, D31). |
 | `auth` | `sessions`, `device_tokens`, `verification_codes`, `identities`, `provider_tokens`, `pending_email_changes` | Registration, sign-in with a password or OAuth, refresh, sign-out, sessions, password reset and change, email verification and change, identity linking, and re-authentication for sensitive actions. Account deletion is confirmed here, then carried out by `accounts`. One file per OAuth provider in `auth/providers/`. Implements `SessionVerifier`. |
-| `workspaces` | `workspaces`, `setup_runs` | Creating workspaces in each shape (below), updating, transferring and deleting them, the members endpoints (list, change role, remove, leave), and the workspace picture. |
+| `workspaces` | `workspaces`, `setup_runs` | Creating workspaces in each shape (below), updating, transferring and deleting them, and the members endpoints (list, change role, remove, leave). |
 | `invitations` | `invitations` | Invite, list, resend, cancel, accept, decline, and expiry. <!-- part: invitations --> |
 | `superadmins` | `superadmins` | The deployment's superadmins (D62): users who see every workspace's name, creation time, member count and owner, but not its content, delete any workspace, and create workspaces, which they then own ([workspace shapes](#workspace-shapes)). Its routes are authorized by the caller being a superadmin, never by a membership, and it records each action in the superadmin's own log, since deleting a workspace deletes the workspace's log. Its subcommand adds an account to the superadmins or removes it, which the API can't. |
 | `client_telemetry` | none | The telemetry proxy for clients, enforcing consent on the server (D7). |
@@ -163,13 +166,19 @@ An arrow means "uses the public API of".
 
 ```mermaid
 flowchart TD
-  workspaces --> access & accounts & files & audit
+  workspaces --> access & accounts & audit
+  %% part: files
+  workspaces --> files
+  %% end part: files
   %% part: invitations
   invitations --> access & accounts & workspaces & audit
   %% end part: invitations
   auth --> accounts & audit
-  accounts --> files & audit
+  accounts --> audit
+  %% part: files
+  accounts --> files
   files --> access & audit
+  %% end part: files
   audit --> access
   client_telemetry --> accounts
   superadmins --> workspaces & access & accounts & audit
@@ -214,7 +223,7 @@ The layers have strict jobs (ARCH-08 to ARCH-10):
 
 A module that outgrows a file splits it into a directory with the same name, such as `service/` (ARCH-03, CODE-08).
 
-A trait that abstracts a dependency either inverts a dependency the crate or module graph forbids, as the four traits above do, or covers an external system with more than one implementation, such as object storage, email transport or the clock (ARCH-13). Nothing gets a trait just so it can be mocked, because tests run against the real database (D23).
+A trait that abstracts a dependency either inverts a dependency the crate or module graph forbids, as the four traits above do, or covers an external system with more than one implementation, such as email transport or the clock (ARCH-13). Nothing gets a trait just so it can be mocked, because tests run against the real database (D23).
 
 ## 6. Request lifecycle
 
@@ -253,10 +262,11 @@ sequenceDiagram
 3. **The route** prepares the request, in this order:
    - Its route group's timeout and body size limit apply (OPS-07, API-08).
    - Query parameters that the route's documentation doesn't list are refused (API-09).
-   - `Principal` authenticates the caller, by the Bearer header or a browser's cookie, or, on a download route, by the signed URL its query holds, in place of either (D18, D61, D113).
+   - `Principal` authenticates the caller, by the Bearer header or a browser's cookie (D18, D61).
+     On a download route, the signed URL its query holds authenticates it in place of either (D113). <!-- part: files -->
    - The per-user rate limit, in its own short transaction, then the `Idempotency-Key` of a keyed `POST`, which the unit of work claims as its first statement, after the authorization that opens a workspace route's, so the key's record commits or rolls back with the operation (D12).
    - The body is parsed into request types, then domain types (D25).
-   - On an upload route, whose group has a timeout and no body limit of its own, the order differs: the handler refuses a declared length over its module's limit, then, on a workspace's, checks that the caller may upload, through `Authorize::check`, in a short transaction that writes nothing, and only then reads the body, through `Upload`, in one of the replica's turns, before the unit of work opens and authorizes the caller again (PLATFORM-073, PLATFORM-074).
+   - On an upload route, whose group has a timeout and no body limit of its own, the order differs: the handler refuses a declared length over its module's limit, then, on a workspace's, checks that the caller may upload, through `Authorize::check`, in a short transaction that writes nothing, and only then reads the body, through `Upload`, in one of the replica's turns, before the unit of work opens and authorizes the caller again (PLATFORM-073, PLATFORM-074). <!-- part: files -->
    - The unit of work opens last, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one. On workspace routes, opening it produces `Authorized<P>`: inside the unit of work, the caller's membership in the workspace from the path is loaded and permission `P` checked (D2, D3). A missing membership is a 404, so the response never reveals whether the workspace exists. On other routes, the service opens it, once any per-action limit it checks has counted, such as the sign-in's (AUTH-006), after a read, in a transaction of its own that writes nothing, of what decides which limit counts, such as the sign-in's device token (ARCH-11).
 4. **The handler** calls the service with domain types only.
 5. **The service** performs its writes in its unit of work, and in the same transaction records audit entries, publishes events and enqueues jobs (D1, D6). For a request with an `Idempotency-Key`, the same transaction stores the operation's result under the key (API-12). Then it commits.
@@ -272,7 +282,7 @@ Nothing runs after the response except background work driven by committed rows.
 - **Database roles:**
   - `owner` runs migrations and owns the tables. It is never used at runtime.
   - `app` serves every request and runs every job. It can read and change data, but not the schema, and it is never a superuser (DATA-12, DATA-13).
-- **Tenancy is enforced by the application (D4).** There is no row-level security. Every query on tenant data filters by tenant itself, but the reads that DATA-16 exempts, such as a public file's by its ID (DATA-16): workspace data by the workspace ID from `Authorized<P>` or a job's recorded scope, and user data by the caller's ID. Three things keep that true:
+- **Tenancy is enforced by the application (D4).** There is no row-level security. Every query on tenant data filters by tenant itself, but the reads that DATA-16 exempts (DATA-16): workspace data by the workspace ID from `Authorized<P>` or a job's recorded scope, and user data by the caller's ID. Three things keep that true:
   - Repository functions for workspace data take the workspace ID as a parameter.
   - A CI check fails any query on a workspace table that doesn't filter by `workspace_id`, or by `user_id` on a table that also has one (DATA-16).
   - A generated test sends every workspace route an ID from another workspace the caller belongs to (TEST-08).
@@ -299,7 +309,9 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 
 - **Errors (D17).** Each module has its own error enum. Every variant of an error that a route can answer declares a stable code and a category, and the category alone sets the HTTP status. Infrastructure errors never leave their adapter. An error is logged once, where it is handled.
 - **Validation (D25).** Request types reject unknown fields and convert at the boundary into domain types that can only hold valid values. Code past the boundary accepts only those types.
-- **Authentication (D5, D18, D61, D63, D113).** Sessions slide on refresh but have an absolute maximum lifetime. Desktop and web clients are both supported: credentials arrive in the Bearer header from a client that sets its own headers, or in an `HttpOnly` cookie from a browser, whose requests CSRF protection guards, from the origins that the CORS allowlist names. A download also takes a URL signed for a session, whose user it authorizes as any caller's. Every user may add a second factor, and every superadmin must. Revoking a session closes its streams.
+- **Authentication (D5, D18, D61, D63).** Sessions slide on refresh but have an absolute maximum lifetime. Desktop and web clients are both supported: credentials arrive in the Bearer header from a client that sets its own headers, or in an `HttpOnly` cookie from a browser, whose requests CSRF protection guards, from the origins that the CORS allowlist names.
+  A download also takes a URL signed for a session, whose user it authorizes as any caller's (D113). <!-- part: files -->
+  Every user may add a second factor, and every superadmin must. Revoking a session closes its streams.
 - **Authorization (D2, D62).** One permission matrix, in `access/permissions.rs`, maps roles to permissions. Every workspace route declares its permission in its type. Role rank limits who may change whom. A route of `superadmins` is authorized by the caller being a superadmin instead, and reaches no workspace's content.
 - **Observability (D10, D19).** Every response except the health probes carries a trace ID that leads to its logs, and to its trace whenever the request ended in an error. Metrics are declared in code. The metric catalog is generated from the declarations, and CI checks the dashboards and alerts against it.
 - **Configuration (D9).** Strict and typed, with no defaults that are unsafe in production. A disabled feature answers 503 and is advertised by the capabilities endpoint.
@@ -321,16 +333,20 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 - **The single-host reference deployment** runs on one Linux server, in Docker Compose (D15, D20, D45):
   - Caddy terminates TLS for the API's address and Grafana's, with certificates it obtains through the Automatic Certificate Management Environment (ACME), and sets HTTP Strict Transport Security (HSTS) (SEC-12). It sets `X-Forwarded-For` from the connection, or keeps the one a configured trusted proxy sends, such as a content delivery network in front of the server (SEC-13). It balances requests across the replicas its own health checks find ready (OPS-05).
   - The API runs in two colors, blue and green, of N replicas each, every replica with the deployment's limits on CPU and memory. Caddy names every replica of both colors and checks each one's readiness, so a replica that isn't running fails its check and gets no request. Between deploys, one color runs.
-  - The scanner, ClamAV's daemon beside the updater of its signatures, runs once, from ClamAV's own image, and only the replicas reach it ([deploy.md](operations/deploy.md#the-scanner)).
+  - The scanner, ClamAV's daemon beside the updater of its signatures, runs once, from ClamAV's own image, and only the replicas reach it ([deploy.md](operations/deploy.md#the-scanner)). <!-- part: files -->
   - The bundled Postgres runs from an image that the pipeline builds beside the API's: the official image with pgBackRest (D44). Only the deployment's private network reaches it. It archives its write-ahead log continuously, and takes scheduled base backups, encrypted, to an S3-compatible bucket off the server (OPS-15).
   - Telemetry goes where D42 says, below.
-  - The database and telemetry are each bundled or a provider's, and one setting of the deployment chooses which, with no file to edit: the deployment then runs only the services that choice needs, and the API's settings change only in the addresses and credentials they hold. The database is the bundled Postgres, or a managed one, whose provider then gives the point-in-time recovery (OPS-15). Telemetry goes to the self-hosted stack or to a managed backend (D42). Files' bytes and the backups each go to a bucket that a provider holds off the server, at any provider that speaks S3, in every deployment, with no setting that bundles one (D106): a bucket on the server would lose what it holds with the server, so it would need a backup off the server of its own.
-- **A deploy** takes a release by its version, the latest release's unless the developer names one. `just deploy`, on a developer's machine, refuses a version that no release has, with a pointer to [release.md](operations/release.md), so a developer who deploys learns there that a release comes first. It verifies the release's images as `verify-release` does, and gives the server only what the release published: the images, which the server pulls by digest, and the deployment's files from the release's tag, never a checkout of the repository. On the server, the deploy runs `bootstrap` and `migrate`, starts the idle color, waits until Caddy finds every new replica ready, then stops the live color, whose replicas drain (OPS-06), and removes what earlier deploys left and nothing uses: the other releases' files, and their images but the previous release's API image, which stays for a rollback, so the server's disk doesn't fill with them, while every container's log is capped (D57). A new replica that doesn't become ready rolls the deploy back: the deploy removes the idle color, and the live one never stopped (OPS-14). Migrations follow expand and contract, so both colors work during the switch (DATA-10). Postgres, Caddy and the scanner each run once, so restarting one interrupts requests, uploads alone for the scanner, and a deploy restarts them only when the operator allows it. One deploy runs at a time, so two `bootstrap` runs never overlap.
+  - The database and telemetry are each bundled or a provider's, and one setting of the deployment chooses which, with no file to edit: the deployment then runs only the services that choice needs, and the API's settings change only in the addresses and credentials they hold. The database is the bundled Postgres, or a managed one, whose provider then gives the point-in-time recovery (OPS-15). Telemetry goes to the self-hosted stack or to a managed backend (D42). The backups go to a bucket that a provider holds off the server, at any provider that speaks S3, with no setting that bundles one (D44): a bucket on the server would lose what it holds with the server, so it would need a backup off the server of its own.
+    Files' bytes go to such a bucket too, in every deployment. <!-- part: files -->
+- **A deploy** takes a release by its version, the latest release's unless the developer names one. `just deploy`, on a developer's machine, refuses a version that no release has, with a pointer to [release.md](operations/release.md), so a developer who deploys learns there that a release comes first. It verifies the release's images as `verify-release` does, and gives the server only what the release published: the images, which the server pulls by digest, and the deployment's files from the release's tag, never a checkout of the repository. On the server, the deploy runs `bootstrap` and `migrate`, starts the idle color, waits until Caddy finds every new replica ready, then stops the live color, whose replicas drain (OPS-06), and removes what earlier deploys left and nothing uses: the other releases' files, and their images but the previous release's API image, which stays for a rollback, so the server's disk doesn't fill with them, while every container's log is capped (D57). A new replica that doesn't become ready rolls the deploy back: the deploy removes the idle color, and the live one never stopped (OPS-14). Migrations follow expand and contract, so both colors work during the switch (DATA-10). Postgres and Caddy each run once, so restarting one interrupts requests, and a deploy restarts them only when the operator allows it.
+  The scanner runs once too, and its restart interrupts uploads alone. <!-- part: files -->
+  One deploy runs at a time, so two `bootstrap` runs never overlap.
 - **Telemetry in a deployment** goes to one of two places (D42):
   - The self-hosted stack, the default. Grafana answers on an HTTPS address of its own behind Caddy, and every viewer signs in; nobody views it anonymously.
   - A managed backend that accepts OTLP, such as Grafana Cloud, instead of Prometheus, Loki, Tempo, Grafana and Alertmanager. The collector still runs beside the API, keeps its receivers and processors, tail sampling among them (OBS-08), and holds the backend's credentials. It exports to the backend, and does there what the stack's Prometheus does: it scrapes its own metrics, and turns resource attributes into labels. The API's configuration is the same. Grafana Cloud is the worked example, into which the dashboards and the rules are imported. With another vendor, the telemetry arrives the same way, and a fork rebuilds the dashboards and alerts in the vendor's tools.
 - **Scaling out** means adding replicas. An instance opens at most its pool's size plus the listener, and logs that number when it starts. While a deploy runs, both colors do, and a deploy refuses replicas whose connections wouldn't fit within Postgres's, as [deploy.md](operations/deploy.md#scaling) works out (OPS-18). The listener needs a direct connection, which rules out PgBouncer in transaction mode. Under load, each replica sheds requests with 503 and `Retry-After` instead of queuing without bound (D20).
-- **Multiple hosts.** The image and its environment contract don't depend on a platform. The operations docs state what any platform must provide: Postgres that the replicas share, with point-in-time recovery, on a server that holds no other deployment's database, a bucket for files' bytes, a malware scanner that only a private network reaches, readiness checks that stop traffic before an instance drains, a grace period longer than its shutdown, and TLS and encryption at rest (OPS-17).
+- **Multiple hosts.** The image and its environment contract don't depend on a platform. The operations docs state what any platform must provide: Postgres that the replicas share, with point-in-time recovery, on a server that holds no other deployment's database, readiness checks that stop traffic before an instance drains, a grace period longer than its shutdown, and TLS and encryption at rest (OPS-17).
+  With `files`, it also needs a bucket for files' bytes, and a malware scanner that only a private network reaches. <!-- part: files -->
 
 ## 10. Technology
 
@@ -361,8 +377,8 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | Reverse proxy and TLS | Caddy | It obtains and renews certificates through the ACME protocol on its own, and checks the replicas' readiness before it sends them requests (OPS-14, OPS-17) |
 | Deployment | Docker Compose on one server, set up by `deploy/server-setup.sh` and driven by `deploy/deploy.sh`, scripts for any shell of the Portable Operating System Interface (POSIX), which `just server-setup`, `just server-check`, `just deploy`, `just backup`, `just restore`, `just status` and `just logs` run over Secure Shell (SSH) from a developer's machine (OPS-19) | The server needs only Docker, which the setup installs; the release's files and its signed images are all a deploy takes, with no agent and no checkout on the server (D45, D51) |
 | Load testing | k6 | Constant-arrival-rate scenarios measure the rate a replica serves within the latency objective (OPS-16) |
-| Malware scanning | ClamAV's daemon, `clamd`, from ClamAV's own Debian image, which serves amd64 and arm64, beside `freshclam` for its signatures in the reference deployment; with one signature of the repository's own, for the test file of the European Institute for Computer Antivirus Research (EICAR), in development and the tests; reached through a client of `platform`'s own over TCP | The open-source scanner that the antivirus signatures ASVS 5.4.3 asks for come with, updated several times a day; its protocol is a few lines, which a client written here bounds by the clock and counts ([platform spec](spec/platform.md#scanner)) |
-| Object storage | `object_store`, signing with `ring` and sending through a `reqwest` client on `rustls` with its ring provider; SeaweedFS in development and the tests (D28) | The Apache Arrow project's client of S3-compatible buckets, which reads an object as a stream; SeaweedFS serves S3 without credentials in one container, as the end-to-end tests' backup bucket already does ([platform spec](spec/platform.md#storage)) |
+| Malware scanning | ClamAV's daemon, `clamd`, from ClamAV's own Debian image, which serves amd64 and arm64, beside `freshclam` for its signatures in the reference deployment; with one signature of the repository's own, for the test file of the European Institute for Computer Antivirus Research (EICAR), in development and the tests; reached through a client of `platform`'s own over TCP | The open-source scanner that the antivirus signatures ASVS 5.4.3 asks for come with, updated several times a day; its protocol is a few lines, which a client written here bounds by the clock and counts ([platform spec](spec/platform.md#scanner)) <!-- part: files --> |
+| Object storage | `object_store`, signing with `ring` and sending through a `reqwest` client on `rustls` with its ring provider; SeaweedFS in development and the tests (D28) | The Apache Arrow project's client of S3-compatible buckets, which reads an object as a stream; SeaweedFS serves S3 without credentials in one container, as the end-to-end tests' backup bucket already does ([platform spec](spec/platform.md#storage)) <!-- part: files --> |
 | Backups | pgBackRest, in the reference deployment's image of the official Postgres | Continuous archiving of the write-ahead log, and point-in-time recovery from an S3-compatible bucket, encrypted, with retention (D44) |
 | Image scan | Grype | It reads both the base's packages and the crates the binary records (SEC-15) |
 | Shell linting | shellcheck | The standard linter for shell, run on the recipes of the justfile and the files it imports, and the deployment's scripts (CODE-07) |
@@ -389,13 +405,13 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 
 | Term | Meaning |
 |---|---|
-| User | A person with an account. Owns their profile, sessions, identities and user files. |
+| User | A person with an account. Owns their profile, sessions and identities, and the data they keep apart from any workspace. |
 | Identity | One way a user signs in: a password, or a linked OAuth provider account. A user who registered has one or more. An account an operator creates for its owner has none until the owner sets a password ([the setup subcommand](spec/workspaces.md#the-setup-subcommand)). |
 | Session | One signed-in device or client, holding an access token and a refresh token. |
 | Provider token | A credential from an OAuth provider, stored encrypted (SEC-02). It is revoked when the session or identity that needs it ends. |
 | Device token | A token that a registration or a sign-in gives the device, for the account's email, so that the device's next sign-in to that account counts only in a limit of its own, which no attempt from elsewhere fills (AUTH-019). |
 | Principal | The authenticated caller of a request, produced by `platform::authn` (D18). |
-| Workspace | A space whose members share its data: a team's, an organization's, or one user's own (§5). Owns workspace files and its audit log. |
+| Workspace | A space whose members share its data: a team's, an organization's, or one user's own (§5). Owns the data its members share, and its audit log. |
 | Workspace shape | How a product uses workspaces: who creates them and who joins them, which the optional parts a fork keeps decide (§5). |
 | Membership | A user's place in a workspace, with exactly one role. Owned by `access`. |
 | Owner | The one role per workspace that can transfer or delete it. A superadmin can also delete it. |
@@ -413,7 +429,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Listener | The instance's own connection to the database, outside its pool, on which the hub listens for what commits and readiness checks the database (OPS-05, OPS-18). |
 | Workers | The turns of an instance's CPU-heavy work, such as a password's hash: one per processor it may use, each held by one work at once, which `platform::blocking::Workers` hands out (PLATFORM-060). |
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |
-| File | Stored bytes plus metadata. A user file or a workspace file, each private or public. |
+| File | Stored bytes plus metadata. A user file or a workspace file, each private or public. <!-- part: files --> |
 | Personal data contract | A module's export and erasure of the personal data it stores (D31). |
 | Release | A version that `just release` asked for, which a run of CI on `main` then signed and tagged `v<version>` (OPS-12). A final release is `X.Y.Z`. A prerelease, `X.Y.Z-rc.N`, comes before the final release of the same number, and is a version to try: a final release fixes the HTTP contract, the error codes and the applied migrations (API-18, ERR-02, DATA-09), and a prerelease doesn't. |
 | Digest | The hash of an image's content, which names exactly that image. A tag can move to another image; a digest can't. |

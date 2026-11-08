@@ -3,7 +3,8 @@
   "title": "Server",
   "description": "The server the deployment runs on: how full its disks are, how much of its memory is available, and how busy its CPUs are.",
   "tags": [
-    "server"
+    "server",
+    "area"
   ],
   "editable": false,
   "schemaVersion": 41,

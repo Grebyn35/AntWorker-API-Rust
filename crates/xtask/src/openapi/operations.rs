@@ -20,8 +20,10 @@ const WORKSPACE: &str = "/v1/workspaces/{workspace_id}";
 /// The prefix of the caller's own resources (API-02).
 const CALLER: &str = "/v1/users/me";
 
+// part: files
 /// The prefix of public files' bytes, which anyone may download (API-02).
 const PUBLIC: &str = "/v1/public";
+// end part: files
 
 /// Every way the document's operations break API-02 to API-04.
 pub fn check(document: &Value) -> Vec<Problem> {
@@ -63,10 +65,12 @@ fn problems(
 }
 
 /// API-02: a workspace's resources are under `/v1/workspaces/{workspace_id}/`, the caller's own
-/// under `/v1/users/me/`, a public file's bytes under `/v1/public/`, and no header selects a
-/// workspace. A public file's download is a public operation that serves a range, a 206, which
-/// `Routes::public_download` documents (API-14), so each such operation is under `/v1/public/`,
-/// and every operation there is one.
+/// under `/v1/users/me/`, and no header selects a workspace.
+// part: files
+/// A public file's bytes are under `/v1/public/`: a public file's download is a public operation
+/// that serves a range, a 206, which `Routes::public_download` documents (API-14), so each such
+/// operation is under `/v1/public/`, and every operation there is one.
+// end part: files
 fn scope(
     document: &Value,
     path: &str,
@@ -92,6 +96,7 @@ fn scope(
             "{here} acts on the caller's own resources, so it isn't public (API-02)"
         ));
     }
+    // part: files
     let download = access == "public" && operation["responses"].get("206").is_some();
     if download && !under(PUBLIC) {
         messages.push(format!(
@@ -103,6 +108,7 @@ fn scope(
             "{here} is under {PUBLIC}, which holds public files' downloads alone (API-02)"
         ));
     }
+    // end part: files
     for parameter in parameters(document, operation, shared) {
         let name = parameter["name"].as_str().unwrap_or_default();
         if parameter["in"] == "header" && name.to_ascii_lowercase().contains("workspace") {
@@ -190,7 +196,7 @@ fn ranged(operation: &Value, response: &Value, content: bool, here: &str) -> Vec
     messages
 }
 
-/// API-04: a read answers 200, or 206 with `Content-Range` for a range of a download's bytes, a
+/// API-04: a read answers 200, or 206 with `Content-Range` for a range of its bytes, a
 /// create 201 with `Location` and the resource, a delete or an action with nothing to return 204
 /// with no body, and accepted work 202.
 fn statuses(method: &str, operation: &Value, here: &str) -> Vec<String> {
@@ -307,9 +313,9 @@ mod tests {
             "responses": { "200": ok(true) },
         });
         assert_eq!(
-            messages("/v1/files", "get", &header),
+            messages("/v1/notes", "get", &header),
             [
-                "GET /v1/files takes the header X-Workspace-Id: the path names the workspace, never a header (API-02)"
+                "GET /v1/notes takes the header X-Workspace-Id: the path names the workspace, never a header (API-02)"
             ]
         );
         let members = json!({ "x-access": "workspace", "responses": { "200": ok(true) } });
@@ -319,6 +325,7 @@ mod tests {
         );
     }
 
+    // part: files
     #[test]
     fn api_02_public_files_downloads_are_under_v1_public_and_nothing_else_is() {
         let download = json!({ "x-access": "public", "parameters": [{ "name": "Range", "in": "header" }], "responses": { "200": ok(true), "206": { "description": "x", "headers": { "Content-Range": {} }, "content": { "application/octet-stream": {} } } } });
@@ -344,6 +351,7 @@ mod tests {
             Vec::<String>::new()
         );
     }
+    // end part: files
 
     #[test]
     fn api_02_the_caller_s_own_resources_need_a_caller() {

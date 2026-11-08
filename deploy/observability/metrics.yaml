@@ -30,7 +30,7 @@ metrics:
   - name: file_mtime_seconds
     kind: gauge
     producer: the collector's file_stats receiver
-    description: When a backup status file, or the malware scanner's daily signatures, last changed, in seconds since the Unix epoch, by file_name.
+    description: When a file that the collector watches last changed, such as a backup status file, in seconds since the Unix epoch, by file_name.
   - name: otelcol_receiver_refused_spans_total
     kind: counter
     producer: the collector

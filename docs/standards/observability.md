@@ -82,14 +82,15 @@ Every metric is declared once, as a `static` of one of the declaration types in 
 ## Dashboards and alerts
 
 ### OBS-13 Dashboards answer named questions
-Dashboards are the files in `deploy/observability/grafana/`, and read-only in Grafana: the self-hosted Grafana provisions them, and a managed Grafana, which can't read provisioning files, imports them into a folder that only the import and the managed Grafana's administrators may change (D42). One overview dashboard links to one dashboard per area. Each panel's title is the question it answers.
+Dashboards are the files in `deploy/observability/grafana/`, and read-only in Grafana: the self-hosted Grafana provisions them, and a managed Grafana, which can't read provisioning files, imports them into a folder that only the import and the managed Grafana's administrators may change (D42). One overview dashboard links to one dashboard per area, by the tag `area` that each of them carries, so a dashboard that an optional part owns leaves no link behind once the part is removed (ARCH-07, D119). Each panel's title is the question it answers.
 - Why: a dashboard is read under pressure, and must say what it shows (D19). Whichever Grafana shows them, the files are the dashboards, and the checks read the files.
-- Check: `ci: check-metrics` (queries, titles that end in a question mark, read-only provisioning, and an overview that links to every other dashboard), `ci: e2e` (the import into a managed Grafana), plus `review` (what each title asks, and one dashboard per area).
+- Check: `ci: check-metrics` (queries, titles that end in a question mark, read-only provisioning, and an overview that links to every other dashboard, by its address or by its tags), `ci: e2e` (the import into a managed Grafana), plus `review` (what each title asks, and one dashboard per area).
 
 ### OBS-14 Alerts fire on symptoms and have runbooks
 Alerts are of two kinds:
 - Burn-rate alerts against the service-level objectives for availability and latency.
-- Cause alerts for a dependency that is down, dead-lettered jobs, jobs that wait long past their time, periodic jobs that keep failing, events delivered late or not loaded at all, telemetry that is dropped, that stops arriving, or that a service of the stack can't receive because it is down, backups whose archiving of the write-ahead log fails or whose newest base backup is older than their schedule allows, a malware scanner whose signatures are older than their updates allow, and a server whose disk fills or whose memory runs low.
+- Cause alerts for a dependency that is down, dead-lettered jobs, jobs that wait long past their time, periodic jobs that keep failing, events delivered late or not loaded at all, telemetry that is dropped, that stops arriving, or that a service of the stack can't receive because it is down, backups whose archiving of the write-ahead log fails or whose newest base backup is older than their schedule allows, and a server whose disk fills or whose memory runs low.
+  Also a malware scanner whose signatures are older than their updates allow. <!-- part: files -->
 
 Every alert has a severity (`page` or `ticket`), a runbook section in `docs/operations/runbooks.md` and a `promtool` test. The rules are the file `deploy/observability/prometheus/rules.yaml`, which the self-hosted Prometheus reads and a managed Grafana imports as rules of its own.
 - Why: an alert means action, and the action is written down (D19). A backup that fails silently is found only when it is needed (D30).

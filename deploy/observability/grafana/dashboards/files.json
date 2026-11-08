@@ -3,7 +3,8 @@
   "title": "Files",
   "description": "How uploads end, which a client that sends files the API doesn't accept or that hold malware, a scanner or a bucket that stops answering, changes, whether the scanner and the bucket answer the API's calls, and how old the scanner's signatures are (the files spec).",
   "tags": [
-    "api"
+    "api",
+    "area"
   ],
   "editable": false,
   "schemaVersion": 41,

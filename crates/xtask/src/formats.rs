@@ -342,6 +342,8 @@ fn rule_blocks(text: &str) -> Vec<Block<'_>> {
             open = false;
         } else if open
             && !line.trim().is_empty()
+            // A part's marker alone on its line is no part of the rule's text (ARCH-07).
+            && crate::parts::unmarked(line).is_some()
             && let Some(block) = blocks.last_mut()
         {
             block.body.push((index + 1, line));
@@ -608,6 +610,25 @@ mod tests {
                 "docs/standards/style.md:19: STYLE-04's `Check` line doesn't start with a kind of check the standards README lists (DOC-08)",
                 "docs/standards/style.md:21: `### Not a rule` isn't a rule heading: a rule ID, then the rule's name (DOC-08)"
             ]
+        );
+    }
+
+    #[test]
+    fn doc_08_a_part_s_marker_alone_on_its_line_is_no_line_of_a_rule() {
+        // The markers are built, so the source of these tests holds none.
+        let rules = format!(
+            "# Style\n\n\
+             ### STYLE-01 A rule\nThe statement.\n- Why: a reason.\n- Check: `review`.\n\
+             <!-- {0} offers -->\n\
+             ### STYLE-02 A part's rule\nThe statement.\n- Why: a reason.\n- Check: `review`.\n\
+             <!-- end {0} offers -->\n",
+            "part:"
+        )
+        .leak();
+
+        assert!(
+            findings(&[("docs/standards/style.md", rules)]).is_empty(),
+            "{rules}"
         );
     }
 

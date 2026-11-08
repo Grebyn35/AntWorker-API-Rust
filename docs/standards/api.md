@@ -10,7 +10,9 @@ Every route lives under `/v1`, except the health probes `/health/live` and `/hea
 - Check: `ci: check-openapi` (a path lint over the committed document).
 
 ### API-02 The scope of a resource is in its path
-Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller's own resources under `/v1/users/me/`. A public file's bytes, which anyone may download without signing in, live under `/v1/public/`, which holds nothing else, and whose requests count in a bucket of the IP limit of their own (PLATFORM-054). No header selects a workspace.
+Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller's own resources under `/v1/users/me/`.
+A public file's bytes, which anyone may download without signing in, live under `/v1/public/`, which holds nothing else, and whose requests count in a bucket of the IP limit of their own (PLATFORM-082). <!-- part: files -->
+No header selects a workspace.
 - Why: every request names exactly what it acts on, and authorization checks that name (D3).
 - Check: `ci: check-openapi`, plus `clippy` (API-14).
 
@@ -27,8 +29,8 @@ Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller'
 | Outcome | Status |
 |---|---|
 | A read, or an update that returns the resource | 200 |
-| A range of a download's bytes, with `Content-Range` (PLATFORM-081) | 206 |
-| A download whose bytes the client holds, as its `If-None-Match` names them (PLATFORM-081) | 304 |
+| A range of a download's bytes, with `Content-Range` (PLATFORM-081) | 206 <!-- part: files --> |
+| A download whose bytes the client holds, as its `If-None-Match` names them (PLATFORM-081) | 304 <!-- part: files --> |
 | A create, with a `Location` header and the created resource | 201 |
 | Asynchronous work accepted, such as a data export | 202 |
 | A delete, or an action with nothing to return | 204 |
@@ -62,7 +64,8 @@ An error response, except from the health probes (OPS-05), has `Content-Type: ap
 - Check: `compiler` (ERR-07), plus `test`.
 
 ### API-08 Request bodies are strict
-JSON bodies reject unknown fields. Each route group has a body size limit, and an oversized body gets the 413 problem before it is buffered. Uploads are the only non-JSON bodies: an upload route's group has no body limit of its own, since its handler refuses a caller before it reads the body, which it reads through `Upload` with the limit its module's setting gives, refusing an oversized body as a group's limit would (PLATFORM-074).
+JSON bodies reject unknown fields. Each route group has a body size limit, and an oversized body gets the 413 problem before it is buffered.
+Uploads are the only non-JSON bodies: an upload route's group has no body limit of its own, since its handler refuses a caller before it reads the body, which it reads through `Upload` with the limit its module's setting gives, refusing an oversized body as a group's limit would (PLATFORM-074). <!-- part: files -->
 - Why: a mistyped field fails loudly instead of being silently ignored (D8, D12).
 - Check: `ci: check-layers` (every type in a module's routes that derives `Deserialize` carries `#[serde(deny_unknown_fields)]`), plus `test`.
 
@@ -77,7 +80,9 @@ A module's routes convert each request's input into the domain types its service
 - Check: `test` (each route's invalid-input test asserts that every invalid field is reported), plus `review`.
 
 ### API-11 Scalar formats
-Timestamps are RFC 3339 in UTC with a `Z` suffix, at microsecond precision, but for a signed URL's `expires`, the Unix time in seconds, which its signature covers, while the file that gives the URL gives the same time as RFC 3339 (PLATFORM-080, FILES-021). IDs are UUID strings, which the database generates (DATA-08), with two exceptions: a trace ID is the 32 lowercase hexadecimal digits of W3C Trace Context (API-07, API-16), and a device ID is the string its client chooses for its installation, which the auth spec bounds (AUTH-017). Closed sets are `snake_case` strings. Two kinds of string that a schema lists aren't closed sets of this rule: a problem's codes, which ERR-02 shapes, and the type of a frame of the stream, which API-19 shapes.
+Timestamps are RFC 3339 in UTC with a `Z` suffix, at microsecond precision.
+A signed URL's `expires` is the exception, the Unix time in seconds, which its signature covers, while the file that gives the URL gives the same time as RFC 3339 (PLATFORM-080, FILES-021). <!-- part: files -->
+IDs are UUID strings, which the database generates (DATA-08), with two exceptions: a trace ID is the 32 lowercase hexadecimal digits of W3C Trace Context (API-07, API-16), and a device ID is the string its client chooses for its installation, which the auth spec bounds (AUTH-017). Closed sets are `snake_case` strings. Two kinds of string that a schema lists aren't closed sets of this rule: a problem's codes, which ERR-02 shapes, and the type of a frame of the stream, which API-19 shapes.
 - Why: one representation per kind of value.
 - Check: `ci: check-openapi` (formats in the committed schema), plus `review` (the shared serializers in `platform::types` are used).
 
@@ -86,7 +91,8 @@ Timestamps are RFC 3339 in UTC with a `Z` suffix, at microsecond precision, but 
 ### API-12 Idempotency keys follow the IETF draft
 `POST` routes marked idempotent in their module spec accept `Idempotency-Key`, as the IETF's draft-ietf-httpapi-idempotency-key-header-08 defines it, which isn't an RFC yet: the key is a string of structured fields, such as `Idempotency-Key: "8e03978e-40d5-43e8-bc93-6894a57f9324"`, of 1 to 255 characters.
 - A key is unique per authenticated user, across their sessions.
-- The fingerprint covers the method, the path, the query and a digest of the body, and, on an upload route, whose body is a file's bytes alone, its `Content-Disposition`, which names the file.
+- The fingerprint covers the method, the path, the query and a digest of the body.
+  On an upload route, whose body is a file's bytes alone, it also covers its `Content-Disposition`, which names the file. <!-- part: files -->
 - The same key with the same fingerprint returns the stored result of the first request. A different fingerprint gets 422. A key whose first request is still running gets 409.
 - A committed change always has its stored result, so a retry never repeats it. A request that failed without committing can be retried.
 - Stored results expire after 24 hours.
@@ -106,8 +112,8 @@ Every route except the health probes (OPS-05) and the API reference that develop
 - `public`: no authentication.
 - `user`: requires a `Principal`.
 - `workspace::<P>`: requires `Authorized<P>` for the workspace in the path, where `P` is a permission.
-- `workspace_upload::<P>` and `user_upload`: as `workspace::<P>` and `user`, for a route whose body is a file's bytes, which its handler reads through `Upload` in a group of its own: once `Authorize::check` has authorized a member, on a workspace's, and once `Principal` has authenticated the caller, on a user's (PLATFORM-073, PLATFORM-074).
-- `workspace_download::<P>`, `user_download` and `public_download`: as `workspace::<P>`, `user` and `public`, for a route that serves a file's bytes, or a range of them (PLATFORM-081). On the first two, a signed URL may also prove the `Principal` (PLATFORM-080), and the last serves under `/v1/public/`.
+- `workspace_upload::<P>` and `user_upload`: as `workspace::<P>` and `user`, for a route whose body is a file's bytes, which its handler reads through `Upload` in a group of its own: once `Authorize::check` has authorized a member, on a workspace's, and once `Principal` has authenticated the caller, on a user's (PLATFORM-073, PLATFORM-074). <!-- part: files -->
+- `workspace_download::<P>`, `user_download` and `public_download`: as `workspace::<P>`, `user` and `public`, for a route that serves a file's bytes, or a range of them (PLATFORM-081). On the first two, a signed URL may also prove the `Principal` (PLATFORM-080), and the last serves under `/v1/public/`. <!-- part: files -->
 
 A caller who isn't a member of the workspace gets 404. A member without permission `P` gets 403. Each workspace builder gives its routes the access level `workspace`, each user builder the access level `user`, and each public builder the access level `public`.
 - Why: no route can forget authentication or authorization, and non-members learn nothing (D2, D3).
@@ -119,12 +125,13 @@ Rate-limited responses carry the `RateLimit` and `RateLimit-Policy` headers of t
 - Check: `test`.
 
 ### API-16 Every response carries its trace ID
-Every response except the health probes (OBS-15), including streams and downloads, carries its trace context in `server-timing: trace;desc=<traceparent value>`, the form the W3C Trace Context editors' draft defines. Error bodies also carry `trace_id` (API-07).
+Every response except the health probes (OBS-15), including streams, carries its trace context in `server-timing: trace;desc=<traceparent value>`, the form the W3C Trace Context editors' draft defines. Error bodies also carry `trace_id` (API-07).
 - Why: any response leads back to its trace and logs (D10).
 - Check: `test`.
 
 ### API-17 The OpenAPI document is generated and committed
-`openapi.json` is generated from code and committed, and a test fails if the document the binary writes differs from it. Every route under `/v1` documents its requests, responses, error codes and access level, and a response header the document lists is one the API always sends with that response. Each operation's `operationId` is its own, and each schema is one type's, so no operation documents another's request or response. The stream of server-sent events documents every frame it sends, in its event catalog (REALTIME-008). Every field and every parameter typed with a domain type, a header's among them, such as `Idempotency-Key`, carries that type's limits in the schema (D25), and every string of a JSON request body has a `maxLength`. An upload's body, a binary string, states its limit, the setting that gives it, in its description.
+`openapi.json` is generated from code and committed, and a test fails if the document the binary writes differs from it. Every route under `/v1` documents its requests, responses, error codes and access level, and a response header the document lists is one the API always sends with that response. Each operation's `operationId` is its own, and each schema is one type's, so no operation documents another's request or response. The stream of server-sent events documents every frame it sends, in its event catalog (REALTIME-008). Every field and every parameter typed with a domain type, a header's among them, such as `Idempotency-Key`, carries that type's limits in the schema (D25), and every string of a JSON request body has a `maxLength`.
+An upload's body, a binary string, states its limit, the setting that gives it, in its description. <!-- part: files -->
 - Why: the contract is reviewed in pull requests, and clients are built against it (D8).
 - Check: `clippy` (only the builders of API-14 register routes, each at a path its documentation names), `test` (every documented path serves, of the methods OpenAPI can document, exactly those it documents, the committed document is the one the code writes, and every request an integration test sends through the test support's typed calls, every response the in-process API gives it, and every frame of a stream it reads are checked against the document of the routes that answered it; a test of malformed input sends its body raw, unchecked), plus `ci: check-openapi` (each operation's access level and response descriptions, each `operationId` its own and each schema name one type's, every reference in the document resolves, every string of a request body has a `maxLength`, and every event a module declares is in the event catalog), plus `review` (fields and parameters of domain types carry their limits).
 

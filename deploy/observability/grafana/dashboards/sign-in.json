@@ -3,7 +3,8 @@
   "title": "Sign-in",
   "description": "How sign-in attempts end, which a credential-stuffing attack changes (the auth spec).",
   "tags": [
-    "api"
+    "api",
+    "area"
   ],
   "editable": false,
   "schemaVersion": 41,

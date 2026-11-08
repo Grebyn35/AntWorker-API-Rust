@@ -168,9 +168,8 @@ impl Server {
             "--add-host",
             "registry-1.docker.io:127.0.0.1",
             // No name outside the test environment resolves on the server, for its Docker or its
-            // containers, so none reaches outside it, such as the scanner's freshclam, whose
-            // mirrors are ClamAV's (TEST-06). Compose's names still resolve, through Docker's own
-            // resolver.
+            // containers, so none reaches outside it (TEST-06). Compose's names still resolve,
+            // through Docker's own resolver.
             "--dns",
             "127.0.0.1",
             &image,
@@ -190,17 +189,16 @@ impl Server {
             &deploy.to_string_lossy(),
             &format!("{}:{RELEASE}", container.id()),
         ]);
-        let server = Self {
+        Self {
             container,
             database: None,
             share,
             heavy: OnceLock::new(),
             buckets: OnceLock::new(),
-        };
-        server.seed_signatures();
-        server
+        }
     }
 
+    // part: files
     /// Gives the deployment's scanner one signature, which names the EICAR test file, in the
     /// volume where a deploy's scanner keeps ClamAV's, as Compose would create it: its freshclam
     /// reaches no mirror from the server, so the scanner starts with that one (the files spec's
@@ -221,6 +219,7 @@ impl Server {
                 --volume {RELEASE}/scanner/eicar.ndb:/eicar.ndb:ro --entrypoint cp {image} /eicar.ndb /var/lib/clamav/"
         ));
     }
+    // end part: files
 
     /// Waits for the heavy turn, unless the server holds it already, and raises its memory
     /// limit by the turn's reserve (memory.rs). Its test then holds no other turn it waits on.
@@ -784,9 +783,12 @@ impl Server {
     /// Starts the stand-in for the provider of the deployment's buckets on the server, once:
     /// SeaweedFS, serving S3 over HTTPS on the server's own address, with a certificate for that
     /// address from an authority of the test's own, which the deployment trusts as
-    /// certs/backup-ca.crt and certs/files-ca.crt, and with two buckets, `backups` for the bundled
-    /// database's backups and `files` for files' bytes. Writes both buckets' secrets, and returns
-    /// the address the buckets answer at.
+    /// certs/backup-ca.crt, and with the bucket `backups` for the bundled database's backups.
+    /// Writes the buckets' secrets, and returns the address the buckets answer at.
+    // part: files
+    /// It also holds `files`, for files' bytes, whose certificate the deployment trusts as
+    /// certs/files-ca.crt.
+    // end part: files
     fn start_buckets(&self) -> String {
         if let Some(address) = self.buckets.get() {
             return address.clone();
@@ -803,30 +805,48 @@ impl Server {
             chmod 644 ./*
             mkdir -p {DEPLOYMENT}/certs
             cp ca.crt {DEPLOYMENT}/certs/backup-ca.crt
-            cp ca.crt {DEPLOYMENT}/certs/files-ca.crt
             # SeaweedFS grows 7 volumes at once for each collection, its own default one included,
             # which it writes to about a minute after it starts, while each bucket's objects take a
             # collection of their own: a deployment's first backup after that would find room for
             # one volume of the 8 it allows by default, and fail.
             docker run --detach --quiet --name bucket --publish 8334:8334 --volume /root/bucket:/bucket:ro {image} \
                 server -dir=/data -volume.max=100 -s3 -s3.port=8333 -s3.port.https=8334 \
-                -s3.cert.file=/bucket/server.crt -s3.key.file=/bucket/server.key -s3.config=/bucket/s3.json > /dev/null
-            # SeaweedFS takes a few seconds to start, and the shell can't create a bucket before it
-            # answers. Named the filer, the shell reaches it at once, rather than waiting for the
-            # master to list it.
-            for bucket in backups files; do
-                timeout 120 sh -c \"until echo s3.bucket.create -name $bucket | docker exec --interactive bucket weed shell -master=localhost:9333 -filer=localhost:8888 2> /dev/null | grep -q created; do sleep 1; done\"
-            done"
+                -s3.cert.file=/bucket/server.crt -s3.key.file=/bucket/server.key -s3.config=/bucket/s3.json > /dev/null"
         ));
-        for (secret, value) in [
+        self.create_bucket("backups");
+        let secrets = vec![
             ("backup_s3_key", "e2e"),
             ("backup_s3_key_secret", "e2e-secret"),
-            ("files_s3_key", "e2e"),
-            ("files_s3_key_secret", "e2e-secret"),
-        ] {
+        ];
+        // part: files
+        self.shell_ok(&format!(
+            "cp /root/bucket/ca.crt {DEPLOYMENT}/certs/files-ca.crt"
+        ));
+        self.create_bucket("files");
+        // A deployment whose replicas reach the files bucket runs the scanner too.
+        self.seed_signatures();
+        let secrets = [
+            secrets,
+            vec![
+                ("files_s3_key", "e2e"),
+                ("files_s3_key_secret", "e2e-secret"),
+            ],
+        ]
+        .concat();
+        // end part: files
+        for (secret, value) in secrets {
             self.write(&format!("{DEPLOYMENT}/secrets/{secret}"), value);
         }
         self.buckets.get_or_init(|| address).clone()
+    }
+
+    /// Creates the bucket `name` in the buckets' stand-in. SeaweedFS takes a few seconds to
+    /// start, and its shell can't create a bucket before it answers. Named the filer, the shell
+    /// reaches it at once, rather than waiting for the master to list it.
+    fn create_bucket(&self, name: &str) {
+        self.shell_ok(&format!(
+            "timeout 120 sh -c \"until echo s3.bucket.create -name {name} | docker exec --interactive bucket weed shell -master=localhost:9333 -filer=localhost:8888 2> /dev/null | grep -q created; do sleep 1; done\""
+        ));
     }
 
     /// Starts the buckets' stand-in, as `start_buckets` does, and writes the bundled database's
@@ -854,6 +874,7 @@ impl Server {
         .collect()
     }
 
+    // part: files
     /// Starts the buckets' stand-in, as `start_buckets` does, and returns the settings of its
     /// files bucket, which every deployment's replicas reach (the files spec's "Storage").
     pub fn start_files_bucket(&self) -> Vec<(String, String)> {
@@ -869,4 +890,5 @@ impl Server {
         .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
         .collect()
     }
+    // end part: files
 }

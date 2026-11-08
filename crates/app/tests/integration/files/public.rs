@@ -209,7 +209,7 @@ async fn files_023_a_member_s_download_of_a_public_file_is_no_one_else_s_to_keep
 }
 
 #[tokio::test]
-async fn platform_054_a_request_under_the_public_prefix_counts_in_a_bucket_of_its_own() {
+async fn platform_082_a_request_under_the_public_prefix_counts_in_a_bucket_of_its_own() {
     let api = Api::with(
         Options::default()
             .set("RATE_LIMIT_PUBLIC_REQUESTS", 2)
@@ -309,7 +309,7 @@ async fn files_023_a_public_download_counts_in_the_bucket_of_public_downloads() 
 }
 
 #[tokio::test]
-async fn platform_056_a_request_under_the_public_prefix_names_the_public_bucket() {
+async fn platform_082_a_request_under_the_public_prefix_names_the_public_bucket() {
     let api = Api::with(Options::default().set("RATE_LIMIT_PUBLIC_REQUESTS", 5)).await;
 
     // An ID that names no public file answers 404, which the bucket counted too.

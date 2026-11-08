@@ -13,11 +13,13 @@ use crate::hashing::{self, HmacKey};
 /// The limits on the requests of one client IP, and of one user (PLATFORM-054).
 #[derive(Clone, Copy, Debug)]
 pub struct RateLimitConfig {
-    /// How many requests one client IP may send in a window, but under the public prefix.
+    /// How many requests one client IP may send in a window (PLATFORM-054).
     pub ip_requests: u32,
-    /// How many requests one client IP may send in a window under the public prefix, such as
-    /// public files' downloads.
+    // part: files
+    /// How many requests one client IP may send in a window under the public prefix, public
+    /// files' downloads, which count there in place of the IP's other limit (PLATFORM-082).
     pub public_requests: u32,
+    // end part: files
     /// How many requests one user may send in a window.
     pub user_requests: u32,
     /// The window's length.

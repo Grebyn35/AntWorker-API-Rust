@@ -13,8 +13,10 @@ use std::{
 
 mod error;
 mod mail;
+// part: files
 mod scanner;
 mod storage;
+// end part: files
 mod web;
 
 pub use error::ConfigError;
@@ -24,10 +26,10 @@ use ipnet::IpNet;
 
 pub use web::{Origin, RateLimitConfig};
 
-use crate::{
-    db::DatabaseUrl, hashing::HmacKey, mail::MailConfig, scanner::ScannerConfig,
-    storage::StorageConfig, telemetry::OtlpEndpoint,
-};
+use crate::{db::DatabaseUrl, hashing::HmacKey, mail::MailConfig, telemetry::OtlpEndpoint};
+// part: files
+use crate::{scanner::ScannerConfig, storage::StorageConfig};
+// end part: files
 
 /// Where the API runs. Every deployment sets it explicitly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,8 +92,8 @@ pub struct TelemetryConfig {
     pub otlp_endpoint: Option<OtlpEndpoint>,
 }
 
-/// The drain's default deadline, and its least, in seconds: the longest timeout of a route, an
-/// upload's, so a deploy cuts short no request that its route would let finish (OPS-06).
+/// The drain's default deadline, and its least, in seconds: no shorter than the longest timeout of
+/// a route, so a deploy cuts short no request that its route would let finish (OPS-06).
 const DRAIN: u32 = 60;
 
 /// The settings `serve` reads.
@@ -124,10 +126,12 @@ pub struct ServerConfig {
     pub job_dead_letter_retention: Duration,
     /// Whether email is sent, and through which server (PLATFORM-024).
     pub mail: MailConfig,
+    // part: files
     /// The bucket that holds files' bytes (PLATFORM-076).
     pub storage: StorageConfig,
     /// The malware scanner that every upload's bytes go to (PLATFORM-079).
     pub scanner: ScannerConfig,
+    // end part: files
     /// How often the hub re-checks each open stream's session and memberships (PLATFORM-031).
     pub stream_recheck: Duration,
 }
@@ -291,7 +295,9 @@ where
             cors_allowed_origins: self.origins()?,
             rate_limits: RateLimitConfig {
                 ip_requests: self.number("RATE_LIMIT_IP_REQUESTS", 600, 1..=1_000_000)?,
+                // part: files
                 public_requests: self.number("RATE_LIMIT_PUBLIC_REQUESTS", 1_200, 1..=1_000_000)?,
+                // end part: files
                 user_requests: self.number("RATE_LIMIT_USER_REQUESTS", 300, 1..=1_000_000)?,
                 window: self.duration("RATE_LIMIT_WINDOW_SECONDS", 60, 1..=86_400)?,
             },
@@ -299,8 +305,10 @@ where
                 u64::from(self.number("JOB_DEAD_LETTER_RETENTION_DAYS", 14, 1..=365)?) * 86_400,
             ),
             mail: self.mail()?,
+            // part: files
             storage: self.storage(environment)?,
             scanner: self.scanner()?,
+            // end part: files
             stream_recheck: self.duration("STREAM_RECHECK_SECONDS", 60, 10..=3_600)?,
         })
     }
@@ -492,19 +500,31 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    const SERVER: [(&str, &str); 11] = [
-        ("ENVIRONMENT", "test"),
-        ("LISTEN_ADDR", "0.0.0.0:8080"),
-        ("DATABASE_URL", "postgres://app:secret@localhost:5432/api"),
-        ("HMAC_KEY", "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="),
-        ("EMAIL", "off"),
-        ("S3_ENDPOINT", "https://bucket.invalid"),
-        ("S3_REGION", "us-east-1"),
-        ("S3_BUCKET", "files"),
-        ("S3_ACCESS_KEY_ID", "key"),
-        ("S3_SECRET_ACCESS_KEY", "secret"),
-        ("CLAMD_ADDRESS", "127.0.0.1:3310"),
-    ];
+    /// The settings that `serve` requires.
+    fn server_vars() -> Vec<(&'static str, &'static str)> {
+        let vars = [
+            ("ENVIRONMENT", "test"),
+            ("LISTEN_ADDR", "0.0.0.0:8080"),
+            ("DATABASE_URL", "postgres://app:secret@localhost:5432/api"),
+            ("HMAC_KEY", "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="),
+            ("EMAIL", "off"),
+        ];
+        // part: files
+        let vars = [
+            &vars[..],
+            &[
+                ("S3_ENDPOINT", "https://bucket.invalid"),
+                ("S3_REGION", "us-east-1"),
+                ("S3_BUCKET", "files"),
+                ("S3_ACCESS_KEY_ID", "key"),
+                ("S3_SECRET_ACCESS_KEY", "secret"),
+                ("CLAMD_ADDRESS", "127.0.0.1:3310"),
+            ],
+        ]
+        .concat();
+        // end part: files
+        vars.to_vec()
+    }
 
     fn settings(
         vars: &[(&str, &str)],
@@ -544,9 +564,12 @@ mod tests {
 
     #[test]
     fn platform_064_values_are_trimmed() {
-        let config = settings(&with(&SERVER, &[("LISTEN_ADDR", " 0.0.0.0:8080\n")]), &[])
-            .server()
-            .unwrap();
+        let config = settings(
+            &with(&server_vars(), &[("LISTEN_ADDR", " 0.0.0.0:8080\n")]),
+            &[],
+        )
+        .server()
+        .unwrap();
         assert_eq!(config.listen_addr.to_string(), "0.0.0.0:8080");
         let logging = settings(&[("ENVIRONMENT", "  production ")], &[])
             .telemetry()
@@ -564,7 +587,7 @@ mod tests {
 
     #[test]
     fn platform_064_a_missing_required_setting_is_an_error() {
-        let error = settings(&with(&SERVER, &[("DATABASE_URL", "")]), &[])
+        let error = settings(&with(&server_vars(), &[("DATABASE_URL", "")]), &[])
             .server()
             .unwrap_err();
         assert_eq!(error.to_string(), "DATABASE_URL is required");
@@ -573,7 +596,10 @@ mod tests {
     #[test]
     fn platform_064_an_invalid_value_names_the_setting_and_not_the_value() {
         let error = settings(
-            &with(&SERVER, &[("DATABASE_URL", "postgres://app@localhost/api")]),
+            &with(
+                &server_vars(),
+                &[("DATABASE_URL", "postgres://app@localhost/api")],
+            ),
             &[],
         )
         .server()
@@ -589,7 +615,7 @@ mod tests {
     fn platform_064_a_file_setting_is_read_and_trimmed() {
         let config = settings(
             &with(
-                &SERVER,
+                &server_vars(),
                 &[
                     ("DATABASE_URL", ""),
                     ("DATABASE_URL_FILE", "/run/secrets/db"),
@@ -604,9 +630,12 @@ mod tests {
 
     #[test]
     fn platform_064_an_unreadable_file_names_the_file_setting() {
-        let error = settings(&with(&SERVER, &[("DATABASE_URL_FILE", "/missing")]), &[])
-            .server()
-            .unwrap_err();
+        let error = settings(
+            &with(&server_vars(), &[("DATABASE_URL_FILE", "/missing")]),
+            &[],
+        )
+        .server()
+        .unwrap_err();
         assert_eq!(
             error.to_string(),
             "DATABASE_URL_FILE names a file that can't be read"
@@ -642,7 +671,7 @@ mod tests {
             .unwrap();
         assert_eq!(telemetry.level, LogLevel::Info);
         assert!(telemetry.otlp_endpoint.is_none());
-        let config = settings(&SERVER, &[]).server().unwrap();
+        let config = settings(&server_vars(), &[]).server().unwrap();
         assert_eq!(config.database_max_connections, 10);
         assert_eq!(config.max_concurrent_requests, 100);
         assert_eq!(config.shutdown_delay, Duration::from_secs(5));
@@ -650,32 +679,44 @@ mod tests {
     }
 
     #[test]
-    fn ops_06_the_drain_s_deadline_defaults_to_the_longest_timeout_of_a_route_and_is_no_shorter() {
-        let longest = crate::http::UPLOAD_TIMEOUT.as_secs();
-        let config = settings(&SERVER, &[]).server().unwrap();
-        assert_eq!(config.shutdown_drain, crate::http::UPLOAD_TIMEOUT);
+    fn ops_06_the_drain_s_deadline_is_no_shorter_than_the_longest_timeout_of_a_route() {
+        let least = Duration::from_secs(u64::from(DRAIN));
+        assert!(least >= crate::http::GROUP_TIMEOUT);
+        // part: files
+        assert!(least >= crate::http::UPLOAD_TIMEOUT);
+        // end part: files
+        let config = settings(&server_vars(), &[]).server().unwrap();
+        assert_eq!(config.shutdown_drain, least);
 
-        let shorter: &'static str = (longest - 1).to_string().leak();
-        let error = settings(&with(&SERVER, &[("SHUTDOWN_DRAIN_SECONDS", shorter)]), &[])
-            .server()
-            .unwrap_err();
+        let shorter: &'static str = (DRAIN - 1).to_string().leak();
+        let error = settings(
+            &with(&server_vars(), &[("SHUTDOWN_DRAIN_SECONDS", shorter)]),
+            &[],
+        )
+        .server()
+        .unwrap_err();
         assert_eq!(
             error.to_string(),
-            format!("SHUTDOWN_DRAIN_SECONDS must be a whole number from {longest} to 300")
+            format!("SHUTDOWN_DRAIN_SECONDS must be a whole number from {DRAIN} to 300")
         );
-        let longest: &'static str = longest.to_string().leak();
-        let config = settings(&with(&SERVER, &[("SHUTDOWN_DRAIN_SECONDS", longest)]), &[])
-            .server()
-            .unwrap();
-        assert_eq!(config.shutdown_drain, crate::http::UPLOAD_TIMEOUT);
+        let config = settings(
+            &with(&server_vars(), &[("SHUTDOWN_DRAIN_SECONDS", "60")]),
+            &[],
+        )
+        .server()
+        .unwrap();
+        assert_eq!(config.shutdown_drain, least);
     }
 
     #[test]
     fn ops_01_numbers_are_range_checked() {
         for value in ["0", "1001", "-1", "ten"] {
-            let error = settings(&with(&SERVER, &[("DATABASE_MAX_CONNECTIONS", value)]), &[])
-                .server()
-                .unwrap_err();
+            let error = settings(
+                &with(&server_vars(), &[("DATABASE_MAX_CONNECTIONS", value)]),
+                &[],
+            )
+            .server()
+            .unwrap_err();
             assert_eq!(
                 error.to_string(),
                 "DATABASE_MAX_CONNECTIONS must be a whole number from 1 to 1000",
@@ -692,7 +733,7 @@ mod tests {
             ("SHUTDOWN_DELAY_SECONDS", "301", "0 to 300"),
             ("SHUTDOWN_DRAIN_SECONDS", "301", "60 to 300"),
         ] {
-            let error = settings(&with(&SERVER, &[(name, value)]), &[])
+            let error = settings(&with(&server_vars(), &[(name, value)]), &[])
                 .server()
                 .unwrap_err();
             assert_eq!(
@@ -702,7 +743,7 @@ mod tests {
         }
         let config = settings(
             &with(
-                &SERVER,
+                &server_vars(),
                 &[
                     ("SHUTDOWN_DELAY_SECONDS", "0"),
                     ("SHUTDOWN_DRAIN_SECONDS", "300"),
@@ -728,7 +769,7 @@ mod tests {
         .migrate()
         .unwrap();
         assert_eq!(migrate.owner_url.database(), "api");
-        let error = settings(&SERVER, &[]).bootstrap().unwrap_err();
+        let error = settings(&server_vars(), &[]).bootstrap().unwrap_err();
         assert_eq!(error.to_string(), "DATABASE_ADMIN_URL is required");
     }
 
@@ -745,7 +786,7 @@ mod tests {
         ] {
             // The driver reads a variable that is set to an empty value, too.
             for value in ["x", "", "  "] {
-                let error = settings(&with(&SERVER, &[(name, value)]), &[])
+                let error = settings(&with(&server_vars(), &[(name, value)]), &[])
                     .server()
                     .unwrap_err();
                 assert_eq!(
@@ -769,14 +810,14 @@ mod tests {
         )
         .migrate();
         assert!(migrate.is_err());
-        let overridden = settings(&with(&SERVER, &[("PGHOST", "elsewhere")]), &[]).server();
+        let overridden = settings(&with(&server_vars(), &[("PGHOST", "elsewhere")]), &[]).server();
         assert!(overridden.is_ok(), "the URL always sets the host");
     }
 
     #[test]
     fn ops_01_the_certificate_variables_of_the_tls_library_are_left_to_it() {
         for name in ["SSL_CERT_FILE", "SSL_CERT_DIR"] {
-            let config = settings(&with(&SERVER, &[(name, "/etc/certs")]), &[]).server();
+            let config = settings(&with(&server_vars(), &[(name, "/etc/certs")]), &[]).server();
 
             assert!(config.is_ok(), "{name}: {:?}", config.err());
         }

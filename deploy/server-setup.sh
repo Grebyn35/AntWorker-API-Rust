@@ -203,7 +203,10 @@ write() {
                 ;;
             cert)
                 case $first in
-                    backup-ca.crt | files-ca.crt | managed-otlp-ca.crt | managed-grafana-ca.crt) ;;
+                    backup-ca.crt | managed-otlp-ca.crt | managed-grafana-ca.crt) ;;
+                    # part: files
+                    files-ca.crt) ;;
+                    # end part: files
                     *) fail "no certificate is named $first" ;;
                 esac
                 write_file "$deployment/certs/$first" "$second"

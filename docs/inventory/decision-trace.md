@@ -16,7 +16,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | Decision | Recommendation text | The rule that refines it |
 |---|---|---|
 | D6 | Audit every successful state change | DATA-22: platform bookkeeping and scheduled maintenance, such as the invitation expiry sweep, aren't audited |
-| D7 | Public files never expose their original file name, on any route | SEC-11 (D115): a public file's name reaches only those who may read the file; its public download, which anyone may make, names it by its ID and its kind's extension alone (D116) |
+| D7 | Public files never expose their original file name, on any route | SEC-11 (D115): a public file's name reaches only those who may read the file; its public download, which anyone may make, names it by its ID and its kind's extension alone (D116) <!-- part: files --> |
 | D8 | Constraint violations map to 4xx | ERR-05: each constraint a repository relies on maps to a domain outcome; an unexpected violation is `Internal` |
 | D8, D10, D11 | Every response is a problem with a trace ID; the SDK samples every trace; an IP limit applies to every route | API-07, API-16, OBS-08, OBS-15, SEC-13 and OPS-05 exempt the health probes |
 | D10 | Every log line carries the trace and span IDs | OBS-02: a line written inside a span carries them |
@@ -42,7 +42,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D13 | The outbox dispatcher is one of the periodic jobs, each of which runs once per interval across the fleet | The platform spec's Jobs: every replica runs a dispatcher that claims each queued job under a lease of its own, so queued jobs spread over the replicas, and only periodic jobs run once per interval across the fleet |
 | D35 | The server closes or re-filters the affected streams | PLATFORM-031: the hub closes them, and the client's reconnect reads the memberships as they then stand, so every change of access takes the path of a reconnect and its replay |
 | D11 | Each user holds a capped number of concurrent streams | REALTIME-006: at most 10 on each replica, which that replica's hub counts |
-| D30 | Bucket versioning for object storage is recommended and documented | [deploy.md](../operations/deploy.md#what-a-server-needs) (D102): every bucket of the deployment has versioning off, or expires each noncurrent version a day after it becomes one, since a version would keep each deleted file's bytes, and each expired backup, for as long as the bucket lasts; a deleted file's bytes stay instead for the reach of a restore, as the `files` spec's [Deleting bytes](../spec/files.md#deleting-bytes) says (D93) |
+| D30 | Bucket versioning for object storage is recommended and documented | [deploy.md](../operations/deploy.md#what-a-server-needs) (D102): every bucket of the deployment has versioning off, or expires each noncurrent version a day after it becomes one, since a version would keep each expired backup, and each deleted file's bytes, for as long as the bucket lasts |
 
 ## Contradictions in the first slice
 

@@ -46,7 +46,8 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Secure communication | D26 (TLS and HTTP Strict Transport Security (HSTS) at Caddy) |
 | Supply chain and malicious code | D21, D26 |
 | Business logic and anti-automation | D11, the spec of each module |
-| Files and outbound requests | D26 on server-side request forgery (SSRF), the `files` spec |
+| Outbound requests | D26 on server-side request forgery (SSRF) |
+| Files | the `files` spec, D106 <!-- part: files --> |
 | API and web services | D8, D12 |
 | Configuration and secrets | D9, D26 |
 
@@ -59,7 +60,7 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Capacity, overload and load shedding | D20, D81 |
 | Background work | D13 |
 | Schema evolution | D15, D24 |
-| Backups and disaster recovery | D30, D44, D102, and for files' bytes D106 |
+| Backups and disaster recovery | D30, D44, D102 |
 | Runbooks | D19 (one per alert), D30 |
 
 ## Engineering foundations

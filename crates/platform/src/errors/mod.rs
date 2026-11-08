@@ -376,7 +376,7 @@ mod tests {
 
     impl ErrorCode for StoreGone {
         fn code(&self) -> &'static str {
-            "files.store_gone"
+            "exports.store_gone"
         }
 
         fn title(&self) -> &'static str {
@@ -407,7 +407,7 @@ mod tests {
         assert_eq!(problem["type"], "/problems/request.internal_error");
         assert!(problem.get("detail").is_none());
         assert_eq!(
-            report.code, "files.store_gone",
+            report.code, "exports.store_gone",
             "the log keeps the error's own code"
         );
     }

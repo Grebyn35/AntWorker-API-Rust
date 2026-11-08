@@ -15,7 +15,10 @@ use std::{
 };
 
 use rustls::pki_types::{CertificateDer, pem::PemObject};
-use serde_json::{Value, json};
+use serde_json::Value;
+// part: files
+use serde_json::json;
+// end part: files
 
 use crate::{
     docker::{Container, compose, docker, lossy, postgres_network},
@@ -118,8 +121,6 @@ impl Deployment {
     }
 
     fn on(server: Server, kind: &[(&str, &str)], changes: &[(&str, &str)]) -> Self {
-        // Every deployment's replicas reach a files bucket (the files spec's "Storage").
-        let files = server.start_files_bucket();
         let mut base: Vec<(String, String)> = [
             ("IMAGE_REPOSITORY", "registry:5000/image"),
             ("SOURCE", "https://example.invalid/e2e"),
@@ -138,8 +139,11 @@ impl Deployment {
         .iter()
         .chain(kind)
         .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-        .chain(files)
         .collect();
+        // part: files
+        // Every deployment's replicas reach a files bucket (the files spec's "Storage").
+        base.extend(server.start_files_bucket());
+        // end part: files
         base.sort();
         let deployment = Self {
             server,
@@ -515,6 +519,7 @@ fn database_server(in_memory: bool) -> Container {
     container
 }
 
+// part: files
 /// A workspace on a deployed API, whose owner is signed in: its files' URL, the owner's access
 /// token, and the root certificate, in PEM, that a client trusts.
 pub struct Workspace {
@@ -553,6 +558,7 @@ impl Deployment {
         Workspace { root, files, token }
     }
 }
+// end part: files
 
 /// Requests sent to the API one after another, from a thread of their own, until stopped.
 pub struct Traffic {

@@ -59,14 +59,16 @@ check() {
             postgres_image=""
         fi
     fi
-    # Each bucket's versions: the backups', once the check of its key pair passed, and the files
-    # bucket's, which also checks its key pair.
+    # Each bucket's versions: the backups', once the check of its key pair passed.
     if [ "$settled" = yes ] && [ "$database" = bundled ] && [ -n "$postgres_image" ] && check_bucket; then
         check_versions BACKUP_S3 backup_s3_key backup-ca.crt "the backups' bucket"
     fi
+    # part: files
+    # The files bucket's, which also checks its key pair.
     if [ "$settled" = yes ] && [ "$docker_answers" = yes ]; then
         check_versions FILES_S3 files_s3_key files-ca.crt "the files bucket"
     fi
+    # end part: files
     if [ "$settled" = yes ] && [ "$telemetry" = managed ] && [ "$docker_answers" = yes ]; then check_backend; fi
     noted "whether the disk is encrypted can't be seen from the server; confirm it with the provider (docs/operations/deploy.md#what-a-server-needs)"
     if [ "$findings" -gt 0 ]; then fail "$findings of the checks on the server failed"; fi
@@ -97,12 +99,15 @@ check_release() {
 }
 
 # Fails the check unless the server has the memory that the services the settings choose need:
-# about 4 gigabytes with the self-hosted stack, and 3 otherwise, 2 of them the scanner's while it
-# loads new signatures (docs/operations/deploy.md). A server sold with that much reports a little
-# less, the share its kernel keeps.
+# about 2 gigabytes with the self-hosted stack, and 1 otherwise (docs/operations/deploy.md). A
+# server sold with that much reports a little less, the share its kernel keeps.
 check_memory() {
-    needed=3
-    if [ "$telemetry" = self-hosted ]; then needed=4; fi
+    needed=1
+    if [ "$telemetry" = self-hosted ]; then needed=2; fi
+    # part: files
+    # The scanner holds 2 more while it loads new signatures.
+    needed=$((needed + 2))
+    # end part: files
     kilobytes=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)
     gigabytes=$(awk -v kilobytes="$kilobytes" 'BEGIN { printf "%.1f", kilobytes * 1024 / 1e9 }')
     if awk -v kilobytes="$kilobytes" -v needed="$needed" 'BEGIN { exit !(kilobytes * 1024 >= needed * 0.9e9) }'; then

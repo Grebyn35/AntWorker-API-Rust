@@ -5,7 +5,8 @@ The security bar is Level 2 of version 5.0.0 of the Application Security Verific
 ## Secrets
 
 ### SEC-01 Secrets arrive by environment or file, and stay wrapped
-A secret is read from an environment variable, or from a file named by `<NAME>_FILE`. It is held in `platform::types::Secret`, which never prints its value through `Debug`, `Display` or serialization, or in a type of its own that never prints it either, such as `platform::hashing::HmacKey`. A setting that carries a secret, such as a database URL with its password, is a secret setting as a whole: it is read the same way, its secret part is held in `Secret`, and the setting is never printed. Secrets never appear in images, error details, or the URLs the API sends or serves, and telemetry holds none (OBS-04). A signed URL's signature isn't one: it is a keyed hash, under `HMAC_KEY`, which never leaves the API, and proves only its session's download of one file, for an hour (PLATFORM-080, D61).
+A secret is read from an environment variable, or from a file named by `<NAME>_FILE`. It is held in `platform::types::Secret`, which never prints its value through `Debug`, `Display` or serialization, or in a type of its own that never prints it either, such as `platform::hashing::HmacKey`. A setting that carries a secret, such as a database URL with its password, is a secret setting as a whole: it is read the same way, its secret part is held in `Secret`, and the setting is never printed. Secrets never appear in images, error details, or the URLs the API sends or serves, and telemetry holds none (OBS-04).
+A signed URL's signature isn't one: it is a keyed hash, under `HMAC_KEY`, which never leaves the API, and proves only its session's download of one file, for an hour (PLATFORM-080, D61). <!-- part: files -->
 - Why: the standard delivery paths for containers, and no accidental disclosure (D26).
 - Check: `compiler` (`Secret` has no way to print its value), plus `review`.
 
@@ -60,7 +61,8 @@ A member can change or remove only members at roles below their own, and can ass
 ## Requests and responses
 
 ### SEC-10 Outbound requests go through one of two clients
-All outbound HTTP that application code makes uses one of the two clients in `platform::outbound`. The object storage and telemetry adapters use their libraries' own clients, with endpoints from configuration. The probe that the `health` subcommand sends to the instance's own address (PLATFORM-063) reaches no other service, and the malware scanner's adapter speaks clamd's own protocol, not HTTP, over TCP to the address that configuration names (PLATFORM-079), so neither client applies to them.
+All outbound HTTP that application code makes uses one of the two clients in `platform::outbound`. The telemetry adapters use their libraries' own clients, with endpoints from configuration. The probe that the `health` subcommand sends to the instance's own address (PLATFORM-063) reaches no other service, so neither client applies to it.
+The object storage adapter uses its library's own client too, with its endpoint from configuration, and the malware scanner's adapter speaks clamd's own protocol, not HTTP, over TCP to the address that configuration names (PLATFORM-079), so neither client applies to them either. <!-- part: files -->
 - The configured client calls URLs that come from configuration, such as OAuth endpoints. It requires HTTPS, unless the environment is development or test.
 - The untrusted client calls URLs that come from a third party, such as an OAuth avatar. It:
   - allows HTTPS only
@@ -70,8 +72,9 @@ All outbound HTTP that application code makes uses one of the two clients in `pl
 
 In the test environment only, the untrusted client accepts one configured loopback address, so tests can reach a fake provider. Startup refuses that setting in any other environment.
 - Why: no server-side request forgery, while every path stays testable (D26).
-- Check: `ci: check-layers` (no HTTP client library or TCP stream is named outside `platform::outbound`, the object storage and telemetry adapters, the probe of the `health` subcommand and the scanner's adapter), plus `test` (including a test that the loopback setting is refused outside the test environment).
+- Check: `ci: check-layers` (no HTTP client library or TCP stream is named outside the places that this rule allows), plus `test` (including a test that the loopback setting is refused outside the test environment).
 
+<!-- part: files -->
 ### SEC-11 Uploaded content can't run in a browser
 Stored files are served with:
 - `X-Content-Type-Options: nosniff`
@@ -81,9 +84,12 @@ Stored files are served with:
 A public file's original name reaches only those who may read the file, its workspace's members with `files.read` or the user whose file it is: its public download, which anyone may make, names it by its ID and its kind's extension alone (D7, D115, D116).
 - Why: an uploaded file can't execute as a page from the API's origin.
 - Check: `test`.
+<!-- end part: files -->
 
 ### SEC-12 Security headers on every response
-Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`, and `Cache-Control: no-store`, except a public file's download, which needs no credential and holds no name, and which shared caches may keep for 5 minutes (FILES-023). The reverse proxy in front of the API terminates TLS and sets HTTP Strict Transport Security (HSTS).
+Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`, and `Cache-Control: no-store`.
+A public file's download is the one response without `no-store`: it needs no credential and holds no name, so shared caches may keep it for 5 minutes (FILES-023). <!-- part: files -->
+The reverse proxy in front of the API terminates TLS and sets HTTP Strict Transport Security (HSTS).
 - Why: browser-level defenses are on by default.
 - Check: `test`.
 

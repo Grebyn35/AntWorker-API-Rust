@@ -409,8 +409,7 @@ mod tests {
     /// call for, in the file's order, so a setting added there adds an answer here.
     const NEW_SERVER: &[&str] = &[
         // IMAGE_REPOSITORY, SOURCE, API_ADDRESS, then Enter for the rest of the settings,
-        // until Grafana's address: TRUSTED_PROXIES, CORS_ALLOWED_ORIGINS, the three rate limits,
-        // the replicas', DATABASE, POSTGRES_MAX_CONNECTIONS and TELEMETRY.
+        // until Grafana's address: TRUSTED_PROXIES, CORS_ALLOWED_ORIGINS, the IP and user limits,
         "",
         "",
         "api.example.com",
@@ -418,7 +417,11 @@ mod tests {
         "",
         "",
         "",
+        // part: files
+        // the public downloads' limit,
         "",
+        // end part: files
+        // the replicas', DATABASE, POSTGRES_MAX_CONNECTIONS and TELEMETRY.
         "",
         "",
         "",
@@ -428,6 +431,7 @@ mod tests {
         "grafana.example.com",
         // No email, so no question about a mail server.
         "off",
+        // part: files
         // The files bucket, then Enter for the uploads' limit, the scanner's CPUs and the
         // deletion's delay.
         "files.example.com",
@@ -438,6 +442,7 @@ mod tests {
         "",
         "",
         "",
+        // end part: files
         "s3.example.com",
         "",
         "eu-1",
@@ -462,17 +467,23 @@ mod tests {
         "",
         "",
         "",
-        // The files bucket's key pair; the backup bucket's key pair, then Enter leaves the
-        // passphrase and the superuser's password to be generated.
+        // part: files
+        // The files bucket's key pair.
         "files-key",
         "files-secret",
+        // end part: files
+        // The backup bucket's key pair, then Enter leaves the passphrase and the superuser's
+        // password to be generated.
         "key",
         "secret",
         "",
         "",
-        // No private authority for either bucket, then the registry's token and its user.
+        // No private authority for the bucket, then the registry's token and its user.
         "",
+        // part: files
+        // Nor for the files bucket.
         "",
+        // end part: files
         "ghp_token",
         "",
     ];
@@ -507,8 +518,10 @@ mod tests {
         assert_eq!(get(&settings, "SOURCE"), "https://github.com/Owner/Name");
         assert_eq!(get(&settings, "API_ADDRESS"), "api.example.com");
         assert_eq!(get(&settings, "GRAFANA_ADDRESS"), "grafana.example.com");
+        // part: files
         assert_eq!(get(&settings, "FILES_S3_ENDPOINT"), "files.example.com");
         assert_eq!(get(&settings, "FILES_S3_BUCKET"), "files");
+        // end part: files
         assert_eq!(get(&settings, "BACKUP_S3_ENDPOINT"), "s3.example.com");
         assert_eq!(get(&settings, "BACKUP_S3_PORT"), "443");
         assert_eq!(get(&settings, "BACKUP_S3_BUCKET"), "backups");
@@ -524,8 +537,10 @@ mod tests {
         assert_eq!(
             setup.secrets,
             vec![
+                // part: files
                 ("files_s3_key".to_owned(), "files-key".to_owned()),
                 ("files_s3_key_secret".to_owned(), "files-secret".to_owned()),
+                // end part: files
                 ("backup_s3_key".to_owned(), "key".to_owned()),
                 ("backup_s3_key_secret".to_owned(), "secret".to_owned()),
             ]
@@ -551,10 +566,14 @@ mod tests {
 
     #[test]
     fn ops_19_a_server_that_was_set_up_keeps_what_each_empty_answer_leaves() {
-        let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
-                    API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=off\n\
-                    FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n\
-                    FORK_SETTING=kept\n";
+        let held = concat!(
+            "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n",
+            "API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=off\n",
+            // part: files
+            "FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n",
+            // end part: files
+            "FORK_SETTING=kept\n",
+        );
         let state = State {
             user: "deploy".to_owned(),
             settings: Some(held.to_owned()),
@@ -562,14 +581,20 @@ mod tests {
                 "database_admin_url".to_owned(),
                 "database_owner_url".to_owned(),
                 "database_url".to_owned(),
+                // part: files
                 "files_s3_key".to_owned(),
                 "files_s3_key_secret".to_owned(),
+                // end part: files
             ],
             certs: Vec::new(),
         };
-        // An empty answer to every setting, every secret, the files bucket's authority, and the
-        // registry's token.
-        let answers = vec![""; setting_questions(held) + 5 + 1 + 1];
+        // An empty answer to every setting, every secret, and the registry's token.
+        let asked = setting_questions(held) + 3 + 1;
+        // part: files
+        // The files bucket's key pair and its authority.
+        let asked = asked + 2 + 1;
+        // end part: files
+        let answers = vec![""; asked];
         let mut script = Script::new(&answers);
 
         let setup = ask(&release(&example()), &state, &[], &mut script, no_file).unwrap();
@@ -600,11 +625,15 @@ mod tests {
 
     #[test]
     fn ops_19_email_through_a_mail_server_with_a_user_name_is_asked_for_its_password() {
-        let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
-                    API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=smtp\n\
-                    SMTP_HOST=smtp.example.com\nSMTP_USERNAME=api\n\
-                    EMAIL_FROM=AntWorker <noreply@example.com>\n\
-                    FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n";
+        let held = concat!(
+            "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n",
+            "API_ADDRESS=api.example.com\nDATABASE=managed\nTELEMETRY=off\nEMAIL=smtp\n",
+            "SMTP_HOST=smtp.example.com\nSMTP_USERNAME=api\n",
+            "EMAIL_FROM=AntWorker <noreply@example.com>\n",
+            // part: files
+            "FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n",
+            // end part: files
+        );
         let state = State {
             user: "deploy".to_owned(),
             settings: Some(held.to_owned()),
@@ -612,15 +641,27 @@ mod tests {
                 "database_admin_url".to_owned(),
                 "database_owner_url".to_owned(),
                 "database_url".to_owned(),
+                // part: files
                 "files_s3_key".to_owned(),
                 "files_s3_key_secret".to_owned(),
+                // end part: files
             ],
             certs: Vec::new(),
         };
-        // Enter for every setting, the database's URLs and the files bucket's key pair, the mail
-        // server's password, then Enter for the files bucket's authority and the registry's token.
-        let mut answers = vec![""; setting_questions(held) + 5];
-        answers.extend(["the password", "", ""]);
+        // Enter for every setting and the database's URLs, the mail server's password, then Enter
+        // for the registry's token.
+        let asked = setting_questions(held) + 3;
+        // part: files
+        // The files bucket's key pair.
+        let asked = asked + 2;
+        // end part: files
+        let mut answers = vec![""; asked];
+        answers.push("the password");
+        // part: files
+        // Enter for the files bucket's authority.
+        answers.push("");
+        // end part: files
+        answers.push("");
         let mut script = Script::new(&answers);
 
         let setup = ask(&release(&example()), &state, &[], &mut script, no_file).unwrap();
@@ -642,10 +683,14 @@ mod tests {
 
     #[test]
     fn ops_19_the_self_hosted_stack_is_asked_for_each_credential_its_alert_integrations_read() {
-        let held = "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n\
-                    API_ADDRESS=api.example.com\nGRAFANA_ADDRESS=grafana.example.com\n\
-                    DATABASE=managed\nTELEMETRY=self-hosted\nEMAIL=off\n\
-                    FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n";
+        let held = concat!(
+            "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n",
+            "API_ADDRESS=api.example.com\nGRAFANA_ADDRESS=grafana.example.com\n",
+            "DATABASE=managed\nTELEMETRY=self-hosted\nEMAIL=off\n",
+            // part: files
+            "FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n",
+            // end part: files
+        );
         let state = State {
             user: "deploy".to_owned(),
             settings: Some(held.to_owned()),
@@ -653,8 +698,10 @@ mod tests {
                 "database_admin_url".to_owned(),
                 "database_owner_url".to_owned(),
                 "database_url".to_owned(),
+                // part: files
                 "files_s3_key".to_owned(),
                 "files_s3_key_secret".to_owned(),
+                // end part: files
                 "alertmanager/held_url".to_owned(),
             ],
             certs: Vec::new(),
@@ -665,11 +712,20 @@ mod tests {
                            \x20     - url_file: /etc/alertmanager-secrets/new_url\n\
                            \x20     - url_file: /etc/alertmanager-secrets/held_url\n",
         };
-        // Enter for every setting, the database's URLs and the files bucket's key pair, a new
-        // credential and Enter for the held one, then Enter for the files bucket's authority and
-        // the registry's token.
-        let mut answers = vec![""; setting_questions(held) + 5];
-        answers.extend(["https://hooks.example.com/page", "", "", ""]);
+        // Enter for every setting and the database's URLs, a new credential and Enter for the
+        // held one, then Enter for the registry's token.
+        let asked = setting_questions(held) + 3;
+        // part: files
+        // The files bucket's key pair.
+        let asked = asked + 2;
+        // end part: files
+        let mut answers = vec![""; asked];
+        answers.extend(["https://hooks.example.com/page", ""]);
+        // part: files
+        // Enter for the files bucket's authority.
+        answers.push("");
+        // end part: files
+        answers.push("");
         let mut script = Script::new(&answers);
 
         let setup = ask(&alerting, &state, &[], &mut script, no_file).unwrap();
@@ -697,21 +753,17 @@ mod tests {
             user: "deploy".to_owned(),
             ..State::default()
         };
-        let mut script = Script::new(&[
-            "",
-            "",
-            "",
-            "api.example.com",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "postgres",
-        ]);
+        // IMAGE_REPOSITORY and SOURCE, an empty API_ADDRESS, then API_ADDRESS again.
+        let mut answers = vec!["", "", "", "api.example.com"];
+        // TRUSTED_PROXIES, CORS_ALLOWED_ORIGINS, and the IP and user limits.
+        answers.extend(["", "", "", ""]);
+        // part: files
+        // The public downloads' limit.
+        answers.push("");
+        // end part: files
+        // The replicas', then a database that isn't a choice.
+        answers.extend(["", "", "", "postgres"]);
+        let mut script = Script::new(&answers);
 
         let asked = ask(&release(&example()), &state, &[], &mut script, no_file);
 

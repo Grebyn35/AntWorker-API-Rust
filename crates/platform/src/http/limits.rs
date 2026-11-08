@@ -16,19 +16,21 @@ use crate::{
     types::Client,
 };
 
-/// The IP limit's limiter and its two buckets.
+/// The IP limit's limiter and its buckets.
 pub(super) struct IpLimit {
     pub(super) limiter: RateLimiter,
-    /// The bucket of every request but those under the public prefix.
+    /// The bucket of every request that no other bucket of the IP limit counts.
     pub(super) bucket: Bucket,
-    /// The bucket of the requests under the public prefix, such as public files' downloads.
+    // part: files
+    /// The bucket of the requests under [`super::PUBLIC_PREFIX`], public files' downloads
+    /// (PLATFORM-082).
     pub(super) public_bucket: Bucket,
+    // end part: files
 }
 
-/// Counts the request in its client IP's bucket, the public one for a path under
-/// [`super::PUBLIC_PREFIX`] and the other for every other, refuses it with 429 once the bucket is
-/// full, and describes on the response the bucket closest to refusing it, of every bucket that
-/// counted it (PLATFORM-054).
+/// Counts the request in its client IP's bucket, refuses it with 429 once the bucket is full, and
+/// describes on the response the bucket closest to refusing it, of every bucket that counted it
+/// (PLATFORM-054).
 pub(super) async fn ip_limit(
     State(limit): State<Arc<IpLimit>>,
     mut request: Request,
@@ -40,11 +42,14 @@ pub(super) async fn ip_limit(
     let counted = Counted::default();
     request.extensions_mut().insert(counted.clone());
     request.extensions_mut().insert(limit.limiter.clone());
+    let bucket = limit.bucket;
+    // part: files
     let bucket = if request.uri().path().starts_with(super::PUBLIC_PREFIX) {
         limit.public_bucket
     } else {
-        limit.bucket
+        bucket
     };
+    // end part: files
     let count = match limit.limiter.count(bucket, &rate_limit::address(ip)).await {
         Ok(count) => count,
         Err(error) => return Problem(error).into_response(),

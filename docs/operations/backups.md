@@ -13,7 +13,8 @@ A restore starts from a base backup that ended before the moment it restores to,
 
 pgBackRest compresses everything with zstd, and encrypts it with AES-256 before it leaves the server, with the passphrase in `secrets/backup_cipher_pass` (OPS-17). The bucket's provider sees nothing it can read.
 
-The backups don't hold the deployment's settings and secrets, which the next sections say to keep elsewhere, nor the bytes of the files users upload, which stay in their own bucket, off the server ([deploy.md](deploy.md#the-files-bucket)), nor the observability stack's metrics, logs and traces, which a new server starts without. Caddy obtains new certificates on its own.
+The backups don't hold the deployment's settings and secrets, which the next sections say to keep elsewhere, nor the observability stack's metrics, logs and traces, which a new server starts without. Caddy obtains new certificates on its own.
+Nor do they hold the bytes of the files users upload, which stay in their own bucket, off the server ([deploy.md](deploy.md#the-files-bucket)). <!-- part: files -->
 
 ## Recovery targets
 
@@ -103,7 +104,8 @@ Keep a copy of these where the server's loss doesn't reach them, such as a passw
 
 - **`secrets/backup_cipher_pass`.** Without it, no backup can be read, by you or anyone else.
 - **`secrets/postgres_password`**, the database's superuser password, which a restored database keeps. `bootstrap` sets the other roles' passwords from the URLs that the deploy writes.
-- **The key pairs of the backups' bucket and of the files bucket**, and **`settings.env`**, unless you can make them again, as a provider makes a new key pair for its bucket.
+- **The key pair of the backups' bucket**, and **`settings.env`**, unless you can make them again, as a provider makes a new key pair for its bucket.
+  The files bucket's key pair too. <!-- part: files -->
 
 ## Alerts
 

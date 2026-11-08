@@ -47,6 +47,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **What to do.** If every instance lost the database, check Postgres itself: whether it runs, whether it accepts connections, and whether its disk is full. If one instance did, check that instance's network path to the database, and restart the instance if it doesn't recover.
 
+<!-- part: files -->
 ## StorageUnreachable
 
 **What it means.** For 5 minutes, the bucket of files' bytes answered none of the API's calls, while some went unanswered: each wait for its answer ran out, the connection to it failed, or it answered with a 5xx or a 429, that it can't serve now ([platform spec](../spec/platform.md#storage)). Uploads and downloads answer 503 `files.storage_unavailable` meanwhile (FILES-012), while every other route serves.
@@ -71,6 +72,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **What to do.** A server that can't reach `database.clamav.net` needs its firewall or its DNS fixed. A server that ClamAV's mirrors refuse waits out the time they gave, and checks again on its own; one whose address a provider shares with many others may stay refused, and a fork then runs a private mirror, as [ClamAV's documentation](https://docs.clamav.net/manual/Usage/Configuration.html) describes, and names it in deploy/scanner/freshclam.conf. Uploads go on being scanned with the signatures the scanner has meanwhile.
 
+<!-- end part: files -->
 ## ApiTelemetryMissing
 
 **What it means.** No instance of the API exported metrics for five minutes. Either no instance runs, or their telemetry doesn't reach Prometheus.
@@ -139,7 +141,11 @@ With a managed database, run the same query in the provider's console. Add `payl
 
 **Look first.** The API's `WARN` line "periodic job failed, and runs again at its next interval" names the job and the failure.
 
-**What to do.** A failure of the database clears with it: follow [DatabaseUnreachable](#databaseunreachable); one of the files bucket, with it: follow [StorageUnreachable](#storageunreachable). A run that passes its time limit, which its job's declaration sets, stops where it was. The sweeps and `files.delete_unreferenced_objects` delete in batches, so the next run continues where it stopped. `files.find_unreferenced_objects` keeps what it recorded, but its next run lists the bucket from its start again, so a bucket whose listing takes longer than the hour has objects that it never reaches, which no deletion then removes: its runs fail each day, and the job needs a longer limit or a listing that resumes. The alert clears 3 hours after the last failure, or, for a daily job, once a run succeeds.
+**What to do.** A failure of the database clears with it: follow [DatabaseUnreachable](#databaseunreachable).
+One of the files bucket clears with it: follow [StorageUnreachable](#storageunreachable). <!-- part: files -->
+A run that passes its time limit, which its job's declaration sets, stops where it was. The sweeps delete in batches, so the next run continues where it stopped.
+So does `files.delete_unreferenced_objects`. `files.find_unreferenced_objects` keeps what it recorded, but its next run lists the bucket from its start again, so a bucket whose listing takes longer than the hour has objects that it never reaches, which no deletion then removes: its runs fail each day, and the job needs a longer limit or a listing that resumes. <!-- part: files -->
+The alert clears 3 hours after the last failure, or, for a daily job, once a run succeeds.
 
 ## BackupArchivingFailing
 
@@ -147,7 +153,7 @@ With a managed database, run the same query in the provider's console. Add `payl
 
 **Look first.** `just logs <host> postgres` shows pgBackRest's error for each attempt, such as a key pair the bucket refuses, an endpoint that doesn't answer, or a certificate the deployment doesn't trust.
 
-**What to do.** Fix what the error names: the bucket itself, after which Postgres retries on its own, or the bucket's key pair or its settings, with `just server-setup`, then `just deploy <host> --allow-restart`, since Postgres reads them only as it starts ([deploy.md](deploy.md#restarting-postgres-caddy-or-the-scanner)); `just server-check` reads the bucket as Postgres does. The alert clears with the next archive that succeeds. Then take a base backup with `just backup`, so a restore needs no segment from before the failure.
+**What to do.** Fix what the error names: the bucket itself, after which Postgres retries on its own, or the bucket's key pair or its settings, with `just server-setup`, then `just deploy <host> --allow-restart`, since Postgres reads them only as it starts ([deploy.md](deploy.md#restarting-a-service-that-runs-once)); `just server-check` reads the bucket as Postgres does. The alert clears with the next archive that succeeds. Then take a base backup with `just backup`, so a restore needs no segment from before the failure.
 
 ## BaseBackupTooOld
 

@@ -30,9 +30,9 @@ impl std::fmt::Debug for IdempotencyKey {
 
 impl IdempotencyKey {
     /// The key in the header's `value`, a String of structured fields (RFC 9651) of 1 to 255
-    /// characters, for the request whose method, path, query, `named` part, the name an upload
-    /// gives in `Content-Disposition` or nothing, and body digest are given, or `None` when the
-    /// value isn't one (PLATFORM-037).
+    /// characters, for the request whose method, path, query, `named` part, a header that names
+    /// its body or nothing, and body digest are given, or `None` when the value isn't one
+    /// (PLATFORM-037).
     pub(crate) fn parse(
         value: &[u8],
         method: &str,
@@ -59,11 +59,13 @@ impl IdempotencyKey {
         })
     }
 
+    // part: files
     /// Whether the header's `value` is a key, whatever request it came with (PLATFORM-037).
     pub(crate) fn is_key(value: &[u8]) -> bool {
         structured_string(value)
             .is_some_and(|key| (1..=KEY_MAX_CHARS).contains(&key.chars().count()))
     }
+    // end part: files
 
     /// The key.
     pub(crate) fn key(&self) -> &str {

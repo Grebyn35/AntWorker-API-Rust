@@ -106,6 +106,7 @@ tests:
               summary: An instance's listener, its own connection to the database, stopped answering its checks.
               runbook: docs/operations/runbooks.md#databaseunreachable
 
+  # part: files
   # The bucket answers the first calls, then none from the third minute on.
   - interval: 1m
     input_series:
@@ -169,6 +170,7 @@ tests:
       - eval_time: 10m
         alertname: ScannerUnreachable
         exp_alerts: []
+  # end part: files
 
   # The last instance stops exporting after 3 minutes.
   - interval: 1m
@@ -292,6 +294,7 @@ tests:
               summary: The bundled database's newest base backup completed more than 26 hours ago, though one runs every day.
               runbook: docs/operations/runbooks.md#basebackuptooold
 
+  # part: files
   # The scanner's daily signatures last changed at the start, and never since: freshclam stopped
   # reaching ClamAV's mirrors.
   - interval: 1m
@@ -310,6 +313,7 @@ tests:
             exp_annotations:
               summary: The malware scanner's daily signatures are more than 2 days old, though ClamAV publishes new ones several times a day.
               runbook: docs/operations/runbooks.md#scannersignaturesoutdated
+  # end part: files
 
   # A disk 86% full that loses a megabyte a minute, and one 97% full that doesn't change, such as a
   # boot partition.

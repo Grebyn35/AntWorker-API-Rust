@@ -2,7 +2,8 @@
 
 ## Purpose
 
-`workspaces` owns the workspace itself and the members endpoints. This spec covers creating a workspace, listing the caller's workspaces, reading and renaming one, listing members, and removing a member. The picture, transfer, leaving, deletion and the setup subcommand arrive with the full module.
+`workspaces` owns the workspace itself and the members endpoints. This spec covers creating a workspace, listing the caller's workspaces, reading and renaming one, listing members, and removing a member. Transfer, leaving, deletion and the setup subcommand arrive with the full module.
+So does the workspace's picture, which `files` stores (D117). <!-- part: files -->
 
 ## Owns
 
@@ -85,7 +86,7 @@ A name is text a user writes, so it is personal data (the glossary in [architect
 
 | Question | Settled by |
 |---|---|
-| How a rename's patch takes a second editable member, such as the picture: `name` is required while it is the only one (D88), and from the first final release API-18 adds only optional request fields, so whether `name` becomes optional first, with an empty patch specified | the spec of the full `workspaces` module, before the first final release |
+| How a rename's patch takes a second editable member: `name` is required while it is the only one (D88), and from the first final release API-18 adds only optional request fields, so whether `name` becomes optional first, with an empty patch specified | the spec of the full `workspaces` module, before the first final release |
 | How the setup subcommand opens its unit of work, as which role (DATA-12), and which actor its audit entries record, since it runs with no `Principal` (AUDIT-002), and creates an account without a password, which no route does, so it can't send the API requests as `seed` does ([system spec](system.md#seed)); and with it, the same for the superadmin subcommand ([architecture §9](../architecture.md#9-runtime-topology)) | the spec of the full `workspaces` module |
 | How the read of every workspace that `superadmins` asks of this module, which no tenant filters, meets DATA-16 and `check-tenancy` (D62) | the spec of `superadmins`, in step 5 |
 | How the owner sets their first password in a deployment with email turned off (PLATFORM-022), where password reset can't send its code | the spec of the full `auth` module, with password reset |

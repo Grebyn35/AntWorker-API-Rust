@@ -3,7 +3,8 @@
   "title": "API platform",
   "description": "The health of each instance's mechanisms: its listener, its panics and the errors it ignored, its refusals, and its background jobs.",
   "tags": [
-    "api"
+    "api",
+    "area"
   ],
   "editable": false,
   "schemaVersion": 41,

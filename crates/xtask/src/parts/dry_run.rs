@@ -84,10 +84,7 @@ fn remove(repo: &Repo, parts: &[Part], run: &Run) -> (String, Vec<Finding>) {
     let mut findings = Vec::new();
     let mut kept = Vec::new();
     let mut edited = 0;
-    for file in repo
-        .files()
-        .filter(|file| !owned.contains(&file.path) && !is_migration(&file.path))
-    {
+    for file in repo.files().filter(|file| !owned.contains(&file.path)) {
         let Ok(lines) = markers::kept(&file.text, &removing, &known) else {
             continue;
         };

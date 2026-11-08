@@ -91,7 +91,9 @@ The server refuses to start unless it connects as the role `app`, and that role 
 
 ### DATA-19 Least privilege in grants
 - `EXECUTE` is revoked from `PUBLIC` on every function in the application schema, including through default privileges.
-- `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no data definition statements (DDL) and no `TRUNCATE`. On `audit_entries` it has only `INSERT` and `SELECT` (AUDIT-005), and on each table whose rows are never edited, and which so has no `updated_at` or `version` (DATA-02), no `UPDATE`: `device_tokens` (AUTH-019), and `workspace_files`, `user_files` and `object_deletions` (the files spec's Owns). On a sequence that a mechanism of `platform` draws from, such as `events_position_seq`, it has `USAGE` alone, which takes the next value, and can't set one.
+- `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no data definition statements (DDL) and no `TRUNCATE`. On `audit_entries` it has only `INSERT` and `SELECT` (AUDIT-005), and on each table whose rows are never edited, and which so has no `updated_at` or `version` (DATA-02), no `UPDATE`, such as `device_tokens` (AUTH-019).
+  `workspace_files`, `user_files` and `object_deletions` are such tables too (the files spec's Owns). <!-- part: files -->
+  On a sequence that a mechanism of `platform` draws from, such as `events_position_seq`, it has `USAGE` alone, which takes the next value, and can't set one.
 - `app` has `statement_timeout` and `idle_in_transaction_session_timeout` set at the role level.
 - Why: a role can do only what its job needs, and a stuck transaction can't hold locks indefinitely.
 - Check: `ci: check-schema`.
@@ -109,23 +111,23 @@ A repository function takes `&mut UnitOfWork`, never a pool or connection. Pools
 - Check: `clippy` (`disallowed_types` bans sqlx's pools and pool options, its pooled and plain connections, its transactions and its listener, with their Postgres aliases; `disallowed_methods` bans opening a connection, and opening a transaction from one; `platform::db` and the test support allow them through `#[expect]`), plus `review` (where an `#[expect]` allows them).
 
 ### DATA-16 Every query filters by tenant itself
-Tenancy is enforced by the application, and every query on user or workspace data carries its own filter (D3, D4). Data a module adds for its product lives in a workspace, in a table with a `workspace_id` (D39); a table without one holds account data, keyed by a user, such as `sessions`, or is `workspaces` itself, or is a module's bookkeeping of what it keeps outside the database, which holds no tenant's data, such as `object_deletions`, the keys of objects that no file's row names. `platform`'s bookkeeping, such as `jobs` and `events`, is platform data whatever its columns: a job's `workspace_id` and `user_id` record whom it runs for, which its handler filters by, while the queue selects jobs by their state; an event's record whom it reaches, which the replay of a stream filters by, while the hub loads events by their position. `check-tenancy` lists the tables of each kind.
+Tenancy is enforced by the application, and every query on user or workspace data carries its own filter (D3, D4). Data a module adds for its product lives in a workspace, in a table with a `workspace_id` (D39); a table without one holds account data, keyed by a user, such as `sessions`, or is `workspaces` itself, or is a module's bookkeeping of what it keeps outside the database, which holds no tenant's data. `platform`'s bookkeeping, such as `jobs` and `events`, is platform data whatever its columns: a job's `workspace_id` and `user_id` record whom it runs for, which its handler filters by, while the queue selects jobs by their state; an event's record whom it reaches, which the replay of a stream filters by, while the hub loads events by their position. `check-tenancy` lists the tables of each kind.
 - Workspace data is filtered by the workspace ID from the proof the operation runs under: `Authorized<P>`, or the `JobContext` of a job enqueued for a workspace. A repository function takes that ID as a parameter.
 - User data is filtered by the acting user's ID. The hub acts for each open stream's caller, whose memberships and sessions it reads again by their IDs (SEC-06).
 - A lookup by a presented token's hash, or of a user by an email address, goes through a unique index:
   - before sign-in, by the token or the sign-in email
   - when inviting, by the invitee's email <!-- part: invitations -->
   - in the setup subcommand, by its owner's email
-  - for a signed URL, of its session by the ID that its signature proves the API gave (PLATFORM-080)
+  - for a signed URL, of its session by the ID that its signature proves the API gave (PLATFORM-080) <!-- part: files -->
 - Rows addressed to a user by an email address are filtered by the caller's email.
 
 A row ID alone never addresses tenant data. These reads are exempt:
 - batch reads by IDs that came from a query filtered by tenant in the calling module: of display data, such as names, for example a workspace's member list, or of which of those IDs match a search, as `accounts::matching` and `workspaces::matching` find them (API-20)
 - the position of the event that a stream's `Last-Event-ID` names, read by the event's ID alone, so a client resumes after the last event it received even from a workspace it has since left; the replay after that position filters by tenant, and the lookup tells a caller only whether an event ID it holds names an event, which a UUIDv7's random bits keep anyone from guessing (REALTIME-004)
 - scheduled jobs that span tenants, which select rows by their own criteria, such as expiry
-- a public file's download, which reads its row by its ID and its visibility alone, since whoever holds a public file's ID may read it ([files spec](../spec/files.md#visibility))
+- a public file's download, which reads its row by its ID and its visibility alone, since whoever holds a public file's ID may read it ([files spec](../spec/files.md#visibility)) <!-- part: files -->
 - Why: there is no row-level security, so the application's filters are the only guard between tenants, and they are checked by machine and by test (D4).
-- Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, unless it belongs to a listed cross-tenant job or to the listed file of public files' reads, and every other table is listed), `test` (TEST-08 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
+- Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, unless it belongs to a listed cross-tenant job or to a listed file of the reads that this rule exempts, and every other table is listed), `test` (TEST-08 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
 
 ### DATA-17 Lists use keyset pagination on an index
 A list query filters by the cursor's sort key, with the ID as tiebreaker, and never uses `OFFSET`. An index matches its tenant filter and its order. A `search` (API-20) narrows the rows that index reaches, without an index of its own until a load test asks for one.
@@ -145,7 +147,8 @@ Transactions use `READ COMMITTED`. An operation whose correctness depends on row
 - Check: `review`.
 
 ### DATA-21 No external calls inside a transaction
-A transaction never waits on HTTP, the Simple Mail Transfer Protocol (SMTP) or object storage. Uploads write the object before the transaction, and external effects are jobs (D1).
+A transaction never waits on HTTP or the Simple Mail Transfer Protocol (SMTP): external effects are jobs (D1).
+Nor does it wait on object storage: uploads write the object before the transaction. <!-- part: files -->
 - Why: a slow dependency can't hold database locks.
 - Check: `review`.
 

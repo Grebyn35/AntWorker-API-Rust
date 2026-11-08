@@ -1,15 +1,16 @@
 # Threat model
 
-What the API and its reference deployment protect, from whom, and which rules and behaviors stop each threat. The bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS), but for its requirement 6.3.3, as [the security rules](../standards/security.md) say (D26, D63). Each mitigation is stated in its home, a rule or a behavior, which this file cites by ID rather than restating it (DOC-07), and a change that adds a threat, or changes what stops one, changes this file in the same commit. Parts not built yet, such as a user's own files, public files and second factors, are listed with the rules that already bind them, and arrive with step 5 of [the migration](../MIGRATION.md#build-order).
+What the API and its reference deployment protect, from whom, and which rules and behaviors stop each threat. The bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS), but for its requirement 6.3.3, as [the security rules](../standards/security.md) say (D26, D63). Each mitigation is stated in its home, a rule or a behavior, which this file cites by ID rather than restating it (DOC-07), and a change that adds a threat, or changes what stops one, changes this file in the same commit. Parts not built yet, such as second factors, are listed with the rules that already bind them, and arrive with step 5 of [the migration](../MIGRATION.md#build-order).
 
 ## What it protects
 
 - **Accounts and sessions:** password hashes, and the tokens of sessions, which act as their user.
 - **Workspaces:** what each holds, who belongs to it, and with which role.
-- **Files:** the bytes of the files that a workspace's members upload, in the files bucket off the server, and their names, which are personal data ([files spec](../spec/files.md)).
+- **Files:** the bytes of the files that a workspace's members upload, in the files bucket off the server, and their names, which are personal data ([files spec](../spec/files.md)). <!-- part: files -->
 - **Personal data:** email addresses and names, and the client IP addresses and user agents that audit entries record (SEC-18).
 - **The audit logs:** who did what, which an attacker would want to change or erase.
-- **Secrets:** the key of every keyed hash, such as a rate-limit bucket's key (PLATFORM-057), the database roles' passwords, the password of the mail server, reached over the Simple Mail Transfer Protocol (SMTP), the backups' encryption passphrase, the key pairs of the backups' bucket and of the files bucket, and Grafana's credentials (SEC-01).
+- **Secrets:** the key of every keyed hash, such as a rate-limit bucket's key (PLATFORM-057), the database roles' passwords, the password of the mail server, reached over the Simple Mail Transfer Protocol (SMTP), the backups' encryption passphrase, the key pair of the backups' bucket, and Grafana's credentials (SEC-01).
+  The files bucket's key pair is one too. <!-- part: files -->
 - **The backups**, which hold the database, and so all of the above but the secrets, in a bucket off the server ([what is backed up](backups.md#what-is-backed-up)).
 - **The deployment's server**, its Postgres, and its observability stack.
 
@@ -22,9 +23,9 @@ What the API and its reference deployment protect, from whom, and which rules an
 | A client to the API | Credentials, tokens, and every request's input | Authentication (SEC-06, SEC-07, API-14), authorization (SEC-08, SEC-09), strict input (API-08, API-09, API-10), rate limits (SEC-13) and load shedding (OPS-07) |
 | The API to Postgres | Every query, as the role `app` | Two roles, the API's with least privilege (DATA-12, DATA-13, DATA-19); queries checked at compile time (DATA-14); every query filters by tenant (DATA-16) |
 | The API to other systems | Email, and later OAuth providers | One of two outbound clients (SEC-10); TLS that verifies the certificate (OPS-17) |
-| The replicas to the files bucket | Files' bytes, written, read and deleted by keys that name no row | The object storage adapter's client, with its endpoint from configuration (SEC-10); TLS that verifies the certificate (OPS-17); a key pair that reaches only that bucket ([the files bucket](deploy.md#the-files-bucket)) |
-| The replicas to the scanner | Each upload's bytes, before they are stored | The deployment's private network, which only the replicas and the scanner join, since clamd speaks no TLS (PLATFORM-079, OPS-17); the scanner runs as its image's own user on a read-only root, keeping what it scans in memory ([the scanner](deploy.md#the-scanner)) |
-| The scanner to ClamAV's mirrors | The signatures, downloaded | HTTPS that verifies the certificate (OPS-17), and ClamAV's own signature of each database, which freshclam checks before it keeps it ([the scanner](deploy.md#the-scanner)) |
+| The replicas to the files bucket | Files' bytes, written, read and deleted by keys that name no row | The object storage adapter's client, with its endpoint from configuration (SEC-10); TLS that verifies the certificate (OPS-17); a key pair that reaches only that bucket ([the files bucket](deploy.md#the-files-bucket)) <!-- part: files --> |
+| The replicas to the scanner | Each upload's bytes, before they are stored | The deployment's private network, which only the replicas and the scanner join, since clamd speaks no TLS (PLATFORM-079, OPS-17); the scanner runs as its image's own user on a read-only root, keeping what it scans in memory ([the scanner](deploy.md#the-scanner)) <!-- part: files --> |
+| The scanner to ClamAV's mirrors | The signatures, downloaded | HTTPS that verifies the certificate (OPS-17), and ClamAV's own signature of each database, which freshclam checks before it keeps it ([the scanner](deploy.md#the-scanner)) <!-- part: files --> |
 | Postgres to the bucket | The write-ahead log and the base backups | Encrypted before they leave the server (OPS-17); a key pair that reaches only the bucket ([the bucket](backups.md#the-bucket)) |
 | The collector to an observability backend | Logs, traces and metrics | No personal data or secret in telemetry (OBS-04); TLS (OPS-17) |
 | CI to the registry to the server | The images, and the deploy's tools | Everything pinned (OPS-11); one build whose digest is tested, signed and promoted (OPS-12); advisories block the build (SEC-15); a minimal, unprivileged image (OPS-13) |
@@ -55,19 +56,20 @@ What the API and its reference deployment protect, from whom, and which rules an
 | A removed member, or an ended session, still receiving events | Access changes close the affected streams at commit, and a re-check closes what a missed signal left (SEC-06, PLATFORM-031) |
 | Events reaching a member who may not see them, or from before they joined | Each event reaches only the streams whose memberships hold its permission, and had committed when it did (SEC-19) |
 | Forging an audit entry's actor | The actor and scope come from the unit of work's proof, never the request (AUDIT-002) |
-| A private file's signed URL leaking, as into a copied link | It reaches one file, for an hour at most, and only while its session lasts and its user may still read the file, whom the download authorizes again (FILES-022, PLATFORM-080); no log or trace of the API or of Caddy holds a URL's query (OBS-04) |
-| Learning a public file's name, or finding public files by guessing their IDs | A public download names the file by its ID and its kind's extension alone (SEC-11, FILES-023); a public file's ID holds 62 random bits, and the bucket of public downloads bounds each IP's guesses (PLATFORM-054) |
+| A private file's signed URL leaking, as into a copied link | It reaches one file, for an hour at most, and only while its session lasts and its user may still read the file, whom the download authorizes again (FILES-022, PLATFORM-080); no log or trace of the API or of Caddy holds a URL's query (OBS-04) <!-- part: files --> |
+| Learning a public file's name, or finding public files by guessing their IDs | A public download names the file by its ID and its kind's extension alone (SEC-11, FILES-023); a public file's ID holds 62 random bits, and the bucket of public downloads bounds each IP's guesses (PLATFORM-054) <!-- part: files --> |
 
 ### Input and output
 
 | Threat | What stops it |
 |---|---|
 | SQL injection | Queries are checked at compile time, and the functions that take SQL text are banned (DATA-14) |
-| Malformed, unexpected or oversized input | Strict bodies and query parameters (API-08, API-09), domain types at the boundary (API-10), and body limits (PLATFORM-048, PLATFORM-050), an upload's among them, refused by its declared length before anything reads it (PLATFORM-074, FILES-004) |
-| An uploaded file that runs in a browser | Only kinds whose bytes a check reads are accepted, never Scalable Vector Graphics (SVG) or HTML (FILES-003), and each is served so that it can't run (SEC-11, FILES-009) |
-| An uploaded file that carries malware | Every upload is scanned before it is stored, and refused when the scanner names a signature, or when its contents pass what the scanner scans whole, such as a decompression bomb (FILES-005); signatures that age past 2 days raise ScannerSignaturesOutdated ([runbooks](runbooks.md#scannersignaturesoutdated)) |
-| An image crafted for a flaw in a viewer's decoder | Stored as it came, never decoded on the server; left to the scanner's signatures of known exploits and the viewer's own updates ([files spec](../spec/files.md#accepted-kinds)) |
-| A public file that serves others content from the API's address, such as a phishing document | Only the accepted kinds, each scanned, never HTML or SVG (FILES-003, FILES-005), served sandboxed, with every kind but images as an attachment (SEC-11); a workspace's owner and admins delete what a member published (FILES-010), and shared caches drop it within 5 minutes (FILES-023) |
+| Malformed, unexpected or oversized input | Strict bodies and query parameters (API-08, API-09), domain types at the boundary (API-10), and body limits (PLATFORM-048, PLATFORM-050) |
+| An oversized upload | Its limit, which refuses it by its declared length before anything reads it (PLATFORM-074, FILES-004) <!-- part: files --> |
+| An uploaded file that runs in a browser | Only kinds whose bytes a check reads are accepted, never Scalable Vector Graphics (SVG) or HTML (FILES-003), and each is served so that it can't run (SEC-11, FILES-009) <!-- part: files --> |
+| An uploaded file that carries malware | Every upload is scanned before it is stored, and refused when the scanner names a signature, or when its contents pass what the scanner scans whole, such as a decompression bomb (FILES-005); signatures that age past 2 days raise ScannerSignaturesOutdated ([runbooks](runbooks.md#scannersignaturesoutdated)) <!-- part: files --> |
+| An image crafted for a flaw in a viewer's decoder | Stored as it came, never decoded on the server; left to the scanner's signatures of known exploits and the viewer's own updates ([files spec](../spec/files.md#accepted-kinds)) <!-- part: files --> |
+| A public file that serves others content from the API's address, such as a phishing document | Only the accepted kinds, each scanned, never HTML or SVG (FILES-003, FILES-005), served sandboxed, with every kind but images as an attachment (SEC-11); a workspace's owner and admins delete what a member published (FILES-010), and shared caches drop it within 5 minutes (FILES-023) <!-- part: files --> |
 | Errors that leak internals | Internal errors expose nothing, and `detail` never carries internals (ERR-08, ERR-09) |
 | Framing, sniffing and caching of responses | Security headers on every response (SEC-12) |
 | Server-side request forgery | Outbound requests go through one of two clients, the one that reaches addresses a user gives refusing private ones (SEC-10) |
@@ -81,10 +83,10 @@ What the API and its reference deployment protect, from whom, and which rules an
 | Personal data in telemetry, audit details or rate-limit keys | No personal data in telemetry (OBS-04); audit entries hold only IP address and user agent (SEC-18); bucket keys are HMACs (PLATFORM-057) |
 | Data read in transit, or from a stolen disk | TLS for every connection that leaves the server, and encryption at rest (OPS-17) |
 | The bucket's provider reading the backups | They are encrypted before they leave the server (OPS-17) |
-| The files bucket's provider reading the files | Nothing in the API: the provider encrypts them at rest with keys of its own (OPS-17), and is trusted with their bytes, as a managed database's provider is with its data (D106) |
-| A bucket keeping what the deployment deleted, such as a deleted file's bytes or an expired backup, as a noncurrent version | Every bucket of the deployment has versioning off, or expires each noncurrent version a day after it becomes one, which `just server-check` checks ([deploy.md](deploy.md#what-a-server-needs), D102) |
+| The files bucket's provider reading the files | Nothing in the API: the provider encrypts them at rest with keys of its own (OPS-17), and is trusted with their bytes, as a managed database's provider is with its data (D106) <!-- part: files --> |
+| A bucket keeping what the deployment deleted, such as an expired backup, as a noncurrent version | Every bucket of the deployment has versioning off, or expires each noncurrent version a day after it becomes one, which `just server-check` checks ([deploy.md](deploy.md#what-a-server-needs), D102) |
 | Losing data, or a change that shouldn't have happened | Continuous backups, restores to any moment the retention covers, and a restore that another undoes (OPS-15) |
-| Someone who holds the server, or its buckets' key pairs, deleting the backups and the files' bytes with the data | Nothing yet: each key pair on the server may delete what its bucket holds, and no bucket keeps a version longer than a day (D102), so the copies a restore needs go with the data. Whether each bucket keeps what such a key deletes, for a while that the key can't shorten, is decided at step 6 ([Rule proposals](../MIGRATION.md#rule-proposals)) |
+| Someone who holds the server, or its buckets' key pairs, deleting the backups with the data | Nothing yet: each key pair on the server may delete what its bucket holds, and no bucket keeps a version longer than a day (D102), so the copies a restore needs go with the data. Whether each bucket keeps what such a key deletes, for a while that the key can't shorten, is decided at step 6 ([Rule proposals](../MIGRATION.md#rule-proposals)) |
 | Tampering with audit history | `app` may only insert and read audit entries (AUDIT-005), which commit with the change they record (AUDIT-001) |
 
 ### Availability
@@ -93,10 +95,10 @@ What the API and its reference deployment protect, from whom, and which rules an
 |---|---|
 | A flood of requests | The IP and per-user limits (SEC-13), which clients can see (API-15); a concurrency limit and timeouts (OPS-07, PLATFORM-039, PLATFORM-042) |
 | A client that holds streams open, or reads them slowly | A cap of streams per user on a replica (REALTIME-006); a stream that falls behind closes (PLATFORM-032) |
-| A page of many public images using up a visitor's requests, or the reverse | Public downloads count in a bucket of the IP limit of their own, apart from the one that sign-in and every other request count in (PLATFORM-054, D114) |
-| Uploads that fill a replica's memory, or hold it with slow bodies | At most 4 uploads' bodies in memory on a replica at once, each at most `FILE_MAX_BYTES`, and the upload route's timeout (PLATFORM-074) |
-| A files bucket that doesn't answer | The routes of files' bytes answer 503 in time, every other route serves (FILES-012), and StorageUnreachable pages ([runbooks](runbooks.md#storageunreachable)) |
-| A scanner that doesn't answer, or a burst of uploads that keeps it busy | Uploads answer 503 within their route's timeout, every other route serves (FILES-005, PLATFORM-079); the scans use at most `SCANNER_CPUS`, so the replicas and Postgres keep the rest of the server ([the scanner](deploy.md#the-scanner)); ScannerUnreachable pages ([runbooks](runbooks.md#scannerunreachable)) |
+| A page of many public images using up a visitor's requests, or the reverse | Public downloads count in a bucket of the IP limit of their own, apart from the one that sign-in and every other request count in (PLATFORM-054, D114) <!-- part: files --> |
+| Uploads that fill a replica's memory, or hold it with slow bodies | At most 4 uploads' bodies in memory on a replica at once, each at most `FILE_MAX_BYTES`, and the upload route's timeout (PLATFORM-074) <!-- part: files --> |
+| A files bucket that doesn't answer | The routes of files' bytes answer 503 in time, every other route serves (FILES-012), and StorageUnreachable pages ([runbooks](runbooks.md#storageunreachable)) <!-- part: files --> |
+| A scanner that doesn't answer, or a burst of uploads that keeps it busy | Uploads answer 503 within their route's timeout, every other route serves (FILES-005, PLATFORM-079); the scans use at most `SCANNER_CPUS`, so the replicas and Postgres keep the rest of the server ([the scanner](deploy.md#the-scanner)); ScannerUnreachable pages ([runbooks](runbooks.md#scannerunreachable)) <!-- part: files --> |
 | Exhausting the database's connections | The connection budget fits the server (OPS-18) |
 
 ### Supply chain and operations
@@ -113,7 +115,8 @@ What the API and its reference deployment protect, from whom, and which rules an
 
 Requirement 6.1.1 of ASVS asks how the controls defend against credential stuffing and password guessing, how they are configured, and how they keep an attacker from locking an account's owner out. A password sign-in passes the IP limit, then the sign-in limits, which count every attempt before the account is read (SEC-13, AUTH-006). `.env.example` gives each setting below its range and its default:
 
-- **The IP limit** of each client address (PLATFORM-054): `RATE_LIMIT_IP_REQUESTS` requests of every kind but public files' downloads, which count apart, in each `RATE_LIMIT_WINDOW_SECONDS`.
+- **The IP limit** of each client address (PLATFORM-054): `RATE_LIMIT_IP_REQUESTS` requests in each `RATE_LIMIT_WINDOW_SECONDS`.
+  Public files' downloads count apart (PLATFORM-082). <!-- part: files -->
 - **The email from one address** (AUTH-006): `SIGN_IN_ATTEMPTS` attempts at one email from one client address in each `SIGN_IN_WINDOW_SECONDS`.
 - **The email from every address** (AUTH-006): `SIGN_IN_EMAIL_ATTEMPTS` attempts at one email in the same window, which counts only what the limit of the email from one address lets through.
 - **A device token** (AUTH-019): a sign-in that brings one valid for its email counts only in that token's own limit, `SIGN_IN_ATTEMPTS` in each window, and in neither of the two above (AUTH-006).

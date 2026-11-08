@@ -33,9 +33,11 @@ pub enum RequestError {
     /// The request's access token has expired (AUTH-009).
     #[error("the access token has expired")]
     AccessTokenExpired,
+    // part: files
     /// The request's signed URL is past its time (PLATFORM-080).
     #[error("the signed URL has expired")]
     SignedUrlExpired,
+    // end part: files
     /// A request that changes something comes from an origin that isn't listed, or a cookie
     /// authenticates it and it names no origin (PLATFORM-059).
     #[error("the request's origin isn't allowed")]
@@ -99,7 +101,9 @@ impl ErrorCode for RequestError {
             Self::PayloadTooLarge => "request.payload_too_large",
             Self::Unauthenticated => "request.unauthenticated",
             Self::AccessTokenExpired => "request.access_token_expired",
+            // part: files
             Self::SignedUrlExpired => "request.signed_url_expired",
+            // end part: files
             Self::OriginNotAllowed => "request.origin_not_allowed",
             Self::PermissionDenied => "request.permission_denied",
             Self::InvalidIdempotencyKey => "request.invalid_idempotency_key",
@@ -124,7 +128,9 @@ impl ErrorCode for RequestError {
             Self::PayloadTooLarge => "Body too large",
             Self::Unauthenticated => "Not authenticated",
             Self::AccessTokenExpired => "Access token expired",
+            // part: files
             Self::SignedUrlExpired => "Signed URL expired",
+            // end part: files
             Self::OriginNotAllowed => "Origin not allowed",
             Self::PermissionDenied => "Permission denied",
             Self::InvalidIdempotencyKey => "Invalid idempotency key",
@@ -148,9 +154,10 @@ impl ErrorCode for RequestError {
             | Self::InvalidFields(_)
             | Self::InvalidIdempotencyKey => Category::Validation,
             Self::PayloadTooLarge => Category::PayloadTooLarge,
-            Self::Unauthenticated | Self::AccessTokenExpired | Self::SignedUrlExpired => {
-                Category::Unauthenticated
-            }
+            Self::Unauthenticated | Self::AccessTokenExpired => Category::Unauthenticated,
+            // part: files
+            Self::SignedUrlExpired => Category::Unauthenticated,
+            // end part: files
             Self::OriginNotAllowed | Self::PermissionDenied => Category::Forbidden,
             Self::IdempotencyKeyReused => Category::BusinessRule,
             Self::IdempotencyKeyInFlight => Category::Conflict,
@@ -177,9 +184,11 @@ impl ErrorCode for RequestError {
             Self::IdempotencyKeyInFlight => {
                 Some("The key's first request is still running: retry later.".to_owned())
             }
+            // part: files
             Self::SignedUrlExpired => Some(
                 "The URL's time has passed: read the file again for a fresh one.".to_owned(),
             ),
+            // end part: files
             Self::PreconditionFailed => Some(
                 "If-Match names no current version of the resource: read it again, and send its ETag."
                     .to_owned(),
@@ -260,8 +269,8 @@ impl ErrorCode for PlatformError {
 impl RequestError {
     /// One value of every variant, so the OpenAPI document can list every code `platform`
     /// answers (ERR-13). A new variant is added here too.
-    pub fn every() -> [Self; 20] {
-        [
+    pub fn every() -> Vec<Self> {
+        let mut every = vec![
             Self::NotFound,
             Self::MethodNotAllowed,
             Self::InvalidQuery(Vec::new()),
@@ -270,7 +279,11 @@ impl RequestError {
             Self::PayloadTooLarge,
             Self::Unauthenticated,
             Self::AccessTokenExpired,
-            Self::SignedUrlExpired,
+        ];
+        // part: files
+        every.push(Self::SignedUrlExpired);
+        // end part: files
+        every.extend([
             Self::OriginNotAllowed,
             Self::PermissionDenied,
             Self::InvalidIdempotencyKey,
@@ -282,6 +295,7 @@ impl RequestError {
             Self::Overloaded,
             Self::Unavailable,
             Self::Panicked,
-        ]
+        ]);
+        every
     }
 }

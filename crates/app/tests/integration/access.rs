@@ -394,6 +394,7 @@ const FIXTURES: &[Fixture] = &[
         success: StatusCode::CREATED,
     },
     // end part: invitations
+    // part: files
     Fixture {
         method: "post",
         template: "/v1/workspaces/{workspace_id}/files",
@@ -439,6 +440,7 @@ const FIXTURES: &[Fixture] = &[
         headers: &[],
         success: StatusCode::NO_CONTENT,
     },
+    // end part: files
 ];
 
 /// The fixture of the route `method` `template`, if it has one.

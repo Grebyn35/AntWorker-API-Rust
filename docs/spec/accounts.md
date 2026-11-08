@@ -2,7 +2,8 @@
 
 ## Purpose
 
-`accounts` owns the user record: who a user is, and how they appear to others. Registration creates the record through `auth`, and other modules read display data through batch calls. Profile editing, preferences, avatars, account deletion and data export arrive with the full module (D16, D31).
+`accounts` owns the user record: who a user is, and how they appear to others. Registration creates the record through `auth`, and other modules read display data through batch calls. Profile editing, preferences, account deletion and data export arrive with the full module (D16, D31).
+So does each user's avatar, which `files` stores (D117). <!-- part: files -->
 
 ## Owns
 

@@ -14,9 +14,9 @@
 //! - No signature in a module's service or routes names an error of a library that reaches
 //!   another system, such as `sqlx::Error` (ERR-04).
 //! - The code of `platform` and `app` names an HTTP client library, or a TCP stream through
-//!   which it could write HTTP itself, only in `platform::outbound`, the object storage and
-//!   telemetry adapters, the health subcommand's probe, and the malware scanner's adapter, which
-//!   speaks clamd's protocol (SEC-10).
+//!   which it could write HTTP itself, only in `platform::outbound`, the telemetry adapters and
+//!   the health subcommand's probe, and the other places that [`CLIENTS_ALLOWED`] and
+//!   [`TCP_ALLOWED`] list (SEC-10).
 //!
 //! It reads each file as a token stream, with the paths its `use` declarations import (`rust`).
 
@@ -77,22 +77,25 @@ const HTTP_CLIENTS: [&str; 7] = [
 /// The code the API runs, which SEC-10 covers.
 const CODE: [&str; 2] = ["crates/platform/src/", "crates/app/src/"];
 
-/// Where SEC-10 allows an HTTP client: the two clients of `platform::outbound`, and the object
-/// storage and telemetry adapters, which use their libraries' own clients.
-const CLIENTS_ALLOWED: [&str; 5] = [
+/// Where SEC-10 allows an HTTP client: the two clients of `platform::outbound`, and the adapters
+/// that use their libraries' own clients, such as the telemetry adapters.
+const CLIENTS_ALLOWED: &[&str] = &[
     "crates/platform/src/outbound.rs",
     "crates/platform/src/outbound/",
+    // part: files
     "crates/platform/src/storage.rs",
     "crates/platform/src/storage/",
+    // end part: files
     "crates/platform/src/telemetry/",
 ];
 
-/// Where SEC-10 allows a TCP stream beside the places of `CLIENTS_ALLOWED`: the health
-/// subcommand's probe, which writes its request to the instance's own address itself, and the
-/// malware scanner's adapter, which speaks clamd's protocol to the address configuration names.
-const TCP_ALLOWED: [&str; 2] = [
+/// Where SEC-10 allows a TCP stream beside the places of `CLIENTS_ALLOWED`, such as the health
+/// subcommand's probe, which writes its request to the instance's own address itself.
+const TCP_ALLOWED: &[&str] = &[
     "crates/platform/src/lifecycle.rs",
+    // part: files
     "crates/platform/src/scanner.rs",
+    // end part: files
 ];
 
 /// Checks every Rust file of `platform` and `app`.
@@ -477,7 +480,7 @@ fn clients(source: &Source) -> Vec<Finding> {
                 source.path,
                 line,
                 format!(
-                    "`{}` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters, the health probe and the scanner's adapter (SEC-10)",
+                    "`{}` can make HTTP requests outside the places that SEC-10 allows, such as `platform::outbound` (SEC-10)",
                     path.join("::")
                 ),
             ));
@@ -685,8 +688,8 @@ mod tests {
         assert_eq!(
             findings("crates/app/src/modules/auth/providers/google.rs", code),
             [
-                "`std::net::TcpStream` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters, the health probe and the scanner's adapter (SEC-10)",
-                "`reqwest::Client::builder` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters, the health probe and the scanner's adapter (SEC-10)",
+                "`std::net::TcpStream` can make HTTP requests outside the places that SEC-10 allows, such as `platform::outbound` (SEC-10)",
+                "`reqwest::Client::builder` can make HTTP requests outside the places that SEC-10 allows, such as `platform::outbound` (SEC-10)",
             ]
         );
         assert_eq!(
@@ -701,7 +704,7 @@ mod tests {
             assert_eq!(
                 findings(place, code),
                 [
-                    "`reqwest::Client::builder` can make HTTP requests outside `platform::outbound`, the object storage and telemetry adapters, the health probe and the scanner's adapter (SEC-10)"
+                    "`reqwest::Client::builder` can make HTTP requests outside the places that SEC-10 allows, such as `platform::outbound` (SEC-10)"
                 ],
                 "{place}"
             );

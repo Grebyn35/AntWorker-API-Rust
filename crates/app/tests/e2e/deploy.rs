@@ -7,12 +7,13 @@ use std::time::Duration;
 use platform::errors::{ErrorCode, RequestError};
 
 use crate::{
-    deployment::{
-        API_ADDRESS, Deployment, Traffic, assert_all_succeeded, get, get_within, streaming_client,
-    },
+    deployment::{API_ADDRESS, Deployment, Traffic, assert_all_succeeded, get, get_within},
     docker::lossy,
     server::DEPLOYMENT,
 };
+// part: files
+use crate::deployment::streaming_client;
+// end part: files
 
 #[tokio::test]
 async fn ops_14_a_deploy_replaces_every_replica_while_every_request_succeeds() {
@@ -35,6 +36,7 @@ async fn ops_14_a_deploy_replaces_every_replica_while_every_request_succeeds() {
     assert_all_succeeded(&outcomes);
 }
 
+// part: files
 /// A body that sends `first`, then waits for the rest, which arrives on `rest`, telling `started`
 /// once its first part is read.
 struct Coming {
@@ -134,6 +136,7 @@ async fn ops_06_an_upload_whose_body_still_comes_once_its_replica_stopped_accept
         length
     );
 }
+// end part: files
 
 #[tokio::test]
 async fn ops_14_a_release_whose_replicas_never_become_ready_is_removed_while_the_live_ones_serve() {
@@ -215,6 +218,7 @@ async fn ops_14_a_deploy_restarts_the_proxy_only_when_the_operator_allows_it() {
     assert_ne!(restarted, caddy);
 }
 
+// part: files
 #[tokio::test]
 async fn ops_14_a_deploy_restarts_the_scanner_only_for_its_changed_files_and_with_consent() {
     let deployment = Deployment::managed(&[]);
@@ -247,6 +251,7 @@ async fn ops_14_a_deploy_restarts_the_scanner_only_for_its_changed_files_and_wit
     assert_eq!(restarted.len(), 1);
     assert_ne!(restarted, scanner);
 }
+// end part: files
 
 #[tokio::test]
 async fn ops_18_a_deploy_refuses_replicas_whose_connections_would_not_fit() {
@@ -635,15 +640,18 @@ async fn ops_14_every_container_of_a_deployment_keeps_a_capped_log() {
          | xargs docker inspect --format \
          '{{.Name}} {{.HostConfig.LogConfig.Type}} {{index .HostConfig.LogConfig.Config \"max-size\"}} {{index .HostConfig.LogConfig.Config \"max-file\"}}'",
     );
-    for service in [
+    let services = vec![
         "caddy",
         "api-blue",
-        "scanner",
         "postgres",
         "backup",
         "collector",
         "loki",
-    ] {
+    ];
+    // part: files
+    let services = [services, vec!["scanner"]].concat();
+    // end part: files
+    for service in services {
         assert!(logs.contains(&format!("-{service}-")), "{service}: {logs}");
     }
     for line in logs.lines() {

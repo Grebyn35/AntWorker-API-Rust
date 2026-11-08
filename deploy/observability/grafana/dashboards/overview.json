@@ -1,7 +1,7 @@
 {
   "uid": "api-overview",
   "title": "API overview",
-  "description": "Whether the API is up and serving well, and whether its telemetry arrives. Each area has a dashboard of its own, linked above.",
+  "description": "Whether the API is up and serving well, and whether its telemetry arrives. Each area has a dashboard of its own, tagged area and linked above.",
   "tags": [
     "api"
   ],
@@ -22,49 +22,14 @@
   },
   "links": [
     {
-      "title": "API requests",
-      "type": "link",
-      "url": "/d/api-requests",
+      "title": "Areas",
+      "type": "dashboards",
+      "tags": [
+        "area"
+      ],
       "keepTime": true,
       "targetBlank": false,
       "icon": "dashboard",
-      "tags": [],
-      "asDropdown": false,
-      "includeVars": false,
-      "tooltip": ""
-    },
-    {
-      "title": "API platform",
-      "type": "link",
-      "url": "/d/api-platform",
-      "keepTime": true,
-      "targetBlank": false,
-      "icon": "dashboard",
-      "tags": [],
-      "asDropdown": false,
-      "includeVars": false,
-      "tooltip": ""
-    },
-    {
-      "title": "Telemetry pipeline",
-      "type": "link",
-      "url": "/d/api-telemetry",
-      "keepTime": true,
-      "targetBlank": false,
-      "icon": "dashboard",
-      "tags": [],
-      "asDropdown": false,
-      "includeVars": false,
-      "tooltip": ""
-    },
-    {
-      "title": "Server",
-      "type": "link",
-      "url": "/d/server",
-      "keepTime": true,
-      "targetBlank": false,
-      "icon": "dashboard",
-      "tags": [],
       "asDropdown": false,
       "includeVars": false,
       "tooltip": ""
@@ -76,30 +41,6 @@
       "keepTime": false,
       "targetBlank": false,
       "icon": "bolt",
-      "tags": [],
-      "asDropdown": false,
-      "includeVars": false,
-      "tooltip": ""
-    },
-    {
-      "title": "Sign-in",
-      "type": "link",
-      "url": "/d/api-sign-in",
-      "keepTime": true,
-      "targetBlank": false,
-      "icon": "dashboard",
-      "tags": [],
-      "asDropdown": false,
-      "includeVars": false,
-      "tooltip": ""
-    },
-    {
-      "title": "Files",
-      "type": "link",
-      "url": "/d/api-files",
-      "keepTime": true,
-      "targetBlank": false,
-      "icon": "dashboard",
       "tags": [],
       "asDropdown": false,
       "includeVars": false,

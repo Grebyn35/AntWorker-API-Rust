@@ -1,7 +1,7 @@
 # The services the API needs on a developer's machine, and the images of the tools the tasks run.
-# `just services` starts Postgres, Mailpit, the bucket of files' bytes and the malware scanner,
-# and `just dev observe` the observability stack too, whose services carry the `observability`
-# profile. Every port is published on 127.0.0.1 only.
+# `just services` starts Postgres and Mailpit, and `just dev observe` the observability stack too,
+# whose services carry the `observability` profile. Every port is published on 127.0.0.1 only.
+# `just services` also starts the bucket of files' bytes and the malware scanner. # part: files
 
 services:
   postgres:
@@ -48,6 +48,7 @@ services:
       timeout: 5s
       retries: 30
 
+  # part: files
   # The bucket that holds files' bytes in development and in the tests (the files spec's
   # "Storage"): SeaweedFS's S3 server, which asks for no credentials while it is given none, so the
   # API's keys in .env reach it whatever they hold, as Mailpit takes no credentials. It runs every
@@ -90,6 +91,7 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+  # end part: files
 
   # The observability stack, in the same topology as in production (D19), from the services that
   # deploy/observability/compose.yaml defines for both: docs/operations/observability.md describes
@@ -236,7 +238,9 @@ services:
 
 volumes:
   postgres:
+  # part: files
   storage:
+  # end part: files
   grype:
   mirror:
   prometheus:

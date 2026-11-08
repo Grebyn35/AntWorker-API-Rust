@@ -52,9 +52,11 @@ write_secrets() {
     for name in database_url database_owner_url database_admin_url; do
         if [ ! -f "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
     done
+    # part: files
     for name in files_s3_key files_s3_key_secret; do
         if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md#the-files-bucket)"; fi
     done
+    # end part: files
     # Compose checks every secret file it declares, so the ones this choice of services doesn't
     # use exist empty.
     for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass grafana_admin_password managed_otlp_token; do
@@ -123,12 +125,14 @@ write_deploy_env() {
         if [ "$telemetry" = off ]; then echo "API_TELEMETRY_ENDPOINT="; else echo "API_TELEMETRY_ENDPOINT=http://collector:4318"; fi
         if [ "$telemetry" = off ]; then echo "PROXY_TRACES_EXPORTER=none"; else echo "PROXY_TRACES_EXPORTER=otlp"; fi
         if [ -f "$deployment/certs/backup-ca.crt" ]; then echo "BACKUP_CA_FILE=/etc/deployment-certs/backup-ca.crt"; fi
+        # part: files
         if [ -f "$deployment/certs/files-ca.crt" ]; then echo "FILES_CA_FILE=/etc/deployment-certs/files-ca.crt"; fi
         # How long the bytes of a file that no row names stay: the backups' reach with the bundled
         # database, so a restore finds every file's bytes it brings back (FILES-011).
         delay=$(setting FILE_DELETION_DELAY_DAYS)
         if [ -z "$delay" ] && [ "$database" = bundled ]; then delay=$(($(setting BACKUP_RETENTION_DAYS 28) + 7)); fi
         printf '%s\n' "FILE_DELETION_DELAY=${delay:-35}"
+        # end part: files
         if [ -f "$deployment/certs/managed-otlp-ca.crt" ]; then echo "MANAGED_OTLP_CA_FILE=/etc/deployment-certs/managed-otlp-ca.crt"; fi
         # The fingerprints of the files that each long-running service reads as it starts, in its
         # environment, so a deploy recreates it once one changes: a running container keeps the
@@ -136,7 +140,9 @@ write_deploy_env() {
         printf '%s\n' "BACKUP_SECRETS=$(fingerprint_files "$secrets/backup_s3_key" "$secrets/backup_s3_key_secret" "$secrets/backup_cipher_pass")"
         printf '%s\n' "MANAGED_OTLP_SECRETS=$(fingerprint_files "$secrets/managed_otlp_token" "$deployment/certs/managed-otlp-ca.crt")"
         printf '%s\n' "ALERTMANAGER_SECRETS=$(fingerprint_files "$secrets"/alertmanager/*)"
+        # part: files
         printf '%s\n' "SCANNER_CONFIGURATION=$(fingerprint_files "$deployment"/scanner/*)"
+        # end part: files
     } > "$1"
 }
 
@@ -171,8 +177,11 @@ write_caddy_state() {
 # running ones'. The bundled Postgres counts only while the settings choose it: otherwise the deploy
 # stops it instead.
 changed_single_services() {
-    services="caddy scanner"
-    if [ "$database" = bundled ]; then services="caddy scanner postgres"; fi
+    services="caddy"
+    # part: files
+    services="$services scanner"
+    # end part: files
+    if [ "$database" = bundled ]; then services="$services postgres"; fi
     for service in $services; do
         container=$(running "$service")
         if [ -z "$container" ]; then continue; fi
@@ -272,13 +281,20 @@ apply() {
     changed=$(changed_single_services)
     if [ -n "$changed" ] && [ "$allow_restart" != yes ]; then
         cp "$state/deploy.env.previous" "$state/deploy.env"
-        fail "this deploy changes $(printf '%s\n' "$changed" | tr '\n' ' ')which runs once, so it restarts it and interrupts requests: for a few seconds, or, for the scanner, the uploads until it has loaded its signatures. The release changes it, or a setting, a secret or a file it reads. Deploy again with --allow-restart when that's acceptable"
+        interrupted="for a few seconds"
+        # part: files
+        interrupted="$interrupted, or, for the scanner, the uploads until it has loaded its signatures"
+        # end part: files
+        fail "this deploy changes $(printf '%s\n' "$changed" | tr '\n' ' ')which runs once, so it restarts it and interrupts requests: $interrupted. The release changes it, or a setting, a secret or a file it reads. Deploy again with --allow-restart when that's acceptable"
     fi
     write_caddy_state
 
     stale=$(stale_services)
     say "starting the services the replicas use"
-    single="caddy scanner"
+    single="caddy"
+    # part: files
+    single="$single scanner"
+    # end part: files
     shared=""
     if [ "$database" = bundled ]; then single="$single postgres" shared="$shared backup"; fi
     if [ "$telemetry" = self-hosted ]; then shared="$shared collector prometheus alertmanager loki tempo grafana"; fi

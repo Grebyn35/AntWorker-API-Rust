@@ -78,7 +78,6 @@ fn environment(options: &Options) -> HashMap<String, String> {
         ("DATABASE_URL", "postgres://app:unused@127.0.0.1/api"),
         ("HMAC_KEY", HMAC_KEY),
         ("RATE_LIMIT_IP_REQUESTS", "1000000"),
-        ("RATE_LIMIT_PUBLIC_REQUESTS", "1000000"),
         ("RATE_LIMIT_USER_REQUESTS", "1000000"),
         ("SIGN_IN_ATTEMPTS", "1000"),
         ("SIGN_IN_EMAIL_ATTEMPTS", "100000"),
@@ -89,21 +88,30 @@ fn environment(options: &Options) -> HashMap<String, String> {
         ("SMTP_PORT", "1025"),
         ("SMTP_SECURITY", "none"),
         ("EMAIL_FROM", "AntWorker <noreply@example.com>"),
-        // The bucket of files' bytes, in the SeaweedFS that `just services` starts, which takes no
-        // credentials. A test that runs the API names a bucket of its own (`bucket`).
-        ("S3_ENDPOINT", super::bucket::ENDPOINT),
-        ("S3_REGION", "us-east-1"),
-        ("S3_BUCKET", "files"),
-        ("S3_URI_STYLE", "path"),
-        ("S3_ACCESS_KEY_ID", "test"),
-        ("S3_SECRET_ACCESS_KEY", "test"),
-        // The malware scanner that `just services` starts, which knows only the EICAR test file
-        // (the files spec's "Scanning").
-        ("CLAMD_ADDRESS", super::scanner::ADDRESS),
     ]
     .into_iter()
     .map(|(name, value)| (name.to_owned(), value.to_owned()))
     .collect();
+    // part: files
+    env.extend(
+        [
+            ("RATE_LIMIT_PUBLIC_REQUESTS", "1000000"),
+            // The bucket of files' bytes, in the SeaweedFS that `just services` starts, which
+            // takes no credentials. A test that runs the API names a bucket of its own
+            // (`bucket`).
+            ("S3_ENDPOINT", super::bucket::ENDPOINT),
+            ("S3_REGION", "us-east-1"),
+            ("S3_BUCKET", "files"),
+            ("S3_URI_STYLE", "path"),
+            ("S3_ACCESS_KEY_ID", "test"),
+            ("S3_SECRET_ACCESS_KEY", "test"),
+            // The malware scanner that `just services` starts, which knows only the EICAR test
+            // file (the files spec's "Scanning").
+            ("CLAMD_ADDRESS", super::scanner::ADDRESS),
+        ]
+        .map(|(name, value)| (name.to_owned(), value.to_owned())),
+    );
+    // end part: files
     for (name, value) in &options.settings {
         env.insert((*name).to_owned(), value.clone());
     }
@@ -201,10 +209,14 @@ impl Api {
         Self::connected(database, pool, options).await
     }
 
-    async fn connected(database: TestDatabase, pool: Database, mut options: Options) -> Self {
+    async fn connected(database: TestDatabase, pool: Database, options: Options) -> Self {
+        // part: files
         // The test's own bucket, unless the test names another setting of the bucket's.
-        let bucket = database.bucket().await;
-        options.settings.insert(0, ("S3_BUCKET", bucket));
+        let mut options = options;
+        options
+            .settings
+            .insert(0, ("S3_BUCKET", database.bucket().await));
+        // end part: files
         let database = Arc::new(database);
         let clock = Arc::new(TestClock::default());
         let readiness = Readiness::new();
@@ -221,6 +233,7 @@ impl Api {
         }
     }
 
+    // part: files
     /// Another instance of the API, on this one's database and bucket, with the default
     /// settings, as a deployment's other replica is.
     pub async fn replica(&self) -> Self {
@@ -242,6 +255,7 @@ impl Api {
             jobs: Arc::new(jobs),
         }
     }
+    // end part: files
 
     /// The pool the API's routes and its hub run on.
     pub fn pool(&self) -> &Database {
@@ -403,11 +417,13 @@ impl Call<'_> {
         self.dispatch(body).await
     }
 
+    // part: files
     /// Sends the request with `body`, a stream that the test feeds, in place of a raw body, and
     /// checks the response against the document.
     pub async fn send_streamed(self, body: Body) -> Response {
         self.dispatch(body).await
     }
+    // end part: files
 
     /// Sends the request with `body`, and checks the response against the document.
     async fn dispatch(self, body: Body) -> Response {

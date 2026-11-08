@@ -1,5 +1,6 @@
 //! The part of `check-metrics` that reads the dashboards as a whole (OBS-13): Grafana provisions
-//! them read-only, and one overview links to every other dashboard.
+//! them read-only, and one overview links to every other dashboard, by its address or by the tags
+//! it carries, so a dashboard that an optional part owns leaves no link behind (ARCH-07).
 
 use crate::{
     Finding,
@@ -51,11 +52,15 @@ pub fn check(repo: &Repo, dashboards: &Dashboards, findings: &mut Vec<Finding>) 
             .filter(|board| board.path != overview.path)
             .all(|board| {
                 let target = format!("/d/{}", board.uid);
-                overview.links.iter().any(|link| {
+                let by_address = overview.links.iter().any(|link| {
                     link == &target
                         || link.starts_with(&format!("{target}/"))
                         || link.starts_with(&format!("{target}?"))
-                })
+                });
+                let by_tags = overview.tag_links.iter().any(|tags| {
+                    !tags.is_empty() && tags.iter().all(|tag| board.tags.contains(tag))
+                });
+                by_address || by_tags
             })
     };
     if dashboards.boards.len() > 1 && !dashboards.boards.iter().any(links_all) {
@@ -117,6 +122,35 @@ mod tests {
             ],
         );
         assert!(read_only.is_empty(), "{read_only:?}");
+    }
+
+    #[test]
+    fn obs_13_an_overview_reaches_a_dashboard_by_the_tags_it_carries() {
+        let tagged = |uid: &str, tags: &[&str]| {
+            serde_json::json!({"uid": uid, "editable": false, "tags": tags, "links": [], "panels": []})
+                .to_string()
+        };
+        let overview = serde_json::json!({"uid": "overview", "editable": false, "panels": [],
+            "links": [{"type": "dashboards", "tags": ["area"]}]})
+        .to_string();
+
+        let reached = findings(
+            PROVIDED,
+            &[
+                ("overview", overview.clone()),
+                ("requests", tagged("requests", &["api", "area"])),
+            ],
+        );
+        let unreached = findings(
+            PROVIDED,
+            &[
+                ("overview", overview),
+                ("requests", tagged("requests", &["api"])),
+            ],
+        );
+
+        assert!(reached.is_empty(), "{reached:?}");
+        assert_eq!(unreached.len(), 1, "{unreached:?}");
     }
 
     #[test]

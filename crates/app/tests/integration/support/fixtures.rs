@@ -1,8 +1,10 @@
 //! Routes that only the tests serve, registered the way a module registers its own, for the
 //! behaviors of the pipeline that no route of the API shows, or that only an optional part's
 //! routes show: a request that waits, one that never ends, a panic, an internal error, a keyed
-//! operation that publishes an event, an email sent, and an upload's check of a permission that
-//! some role lacks (TEST-04).
+//! operation that publishes an event, and an email sent (TEST-04).
+// part: files
+//! They also serve an upload's check of a permission that some role lacks.
+// end part: files
 
 use std::sync::{
     Arc,
@@ -205,6 +207,7 @@ fn fixture_email(mailed: Mailed) -> Result<Email, PlatformError> {
     })
 }
 
+// part: files
 /// What the upload route of the fixtures requires: renaming the workspace, which a member lacks,
 /// while every role may upload a file.
 struct Updating;
@@ -226,6 +229,7 @@ async fn checked(authorize: Authorize<Updating>) -> Result<StatusCode, Problem<P
     authorize.check().await?;
     Ok(StatusCode::NO_CONTENT)
 }
+// end part: files
 
 /// The routes `POST /v1/mail` and `POST /v1/workspaces/{workspace_id}/mail`, which send their
 /// emails through `mail`, built from the settings of the API they are added to.
@@ -238,15 +242,17 @@ pub fn mailing(mail: Mail) -> Routes {
 
 /// The fixtures' routes, with `held` behind `GET /v1/gate`, which the tests add to the API's.
 pub fn routes(held: Arc<Gate>) -> Routes {
-    Routes::new()
+    let routes = Routes::new()
         .public(routes!(panics), &[])
         .merge(Routes::new().public(routes!(broken), &[]))
-        .merge(Routes::new().public(routes!(gate), &[]).with_state(held))
-        .merge(Routes::new().workspace_upload::<Updating>(routes!(checked), &[]))
-        .merge(
-            Routes::new()
-                .events(&[&KEYED_RAN])
-                .user(routes!(keyed), &[])
-                .with_state(Arc::new(AtomicU64::new(0))),
-        )
+        .merge(Routes::new().public(routes!(gate), &[]).with_state(held));
+    // part: files
+    let routes = routes.merge(Routes::new().workspace_upload::<Updating>(routes!(checked), &[]));
+    // end part: files
+    routes.merge(
+        Routes::new()
+            .events(&[&KEYED_RAN])
+            .user(routes!(keyed), &[])
+            .with_state(Arc::new(AtomicU64::new(0))),
+    )
 }

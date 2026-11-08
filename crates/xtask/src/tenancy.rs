@@ -5,8 +5,8 @@
 //!   `workspace_id`, or for a table that also has a `user_id`, a `user_id`, compared in its
 //!   `WHERE` or among the columns it inserts. A table of [`ADDRESSED`] is also reached by the
 //!   address of the user its rows are addressed to, which their own queries name instead. A file
-//!   of a scheduled job that spans tenants, in [`CROSS_TENANT`], is exempt, and so is the file of
-//!   the reads of public files by their ID alone, in [`PUBLIC_READS`].
+//!   of a scheduled job that spans tenants, in [`CROSS_TENANT`], is exempt, and so is a file of
+//!   reads by a row's ID alone, of rows that whoever holds the ID may read, in [`PUBLIC_READS`].
 //! - Every other table is listed below: as account data, keyed by a user; as platform data, whose
 //!   scope columns, if any, record whom its work is for; as a module's bookkeeping of what it keeps
 //!   outside the database, which holds no tenant's data; or as the workspaces themselves.
@@ -27,19 +27,21 @@ const MIGRATIONS: &str = "migrations/";
 const CODE: [&str; 2] = ["crates/platform/src/", "crates/app/src/"];
 
 /// Tables of account data, keyed by a user (DATA-16).
-const ACCOUNT_DATA: [&str; 5] = [
+const ACCOUNT_DATA: &[&str] = &[
     "users",
     "identities",
     "sessions",
     "device_tokens",
+    // part: files
     "user_files",
+    // end part: files
 ];
 
 /// Tables of `platform`'s own bookkeeping (DATA-16). A job records the workspace and the user it
 /// runs for, which its handler filters by, but the queue's own queries select jobs by their state
 /// (PLATFORM-013). An event records whom it reaches, which a stream's replay filters by, but the
 /// hub loads events by their position (PLATFORM-027).
-const PLATFORM_DATA: [&str; 5] = [
+const PLATFORM_DATA: &[&str] = &[
     "rate_limit_buckets",
     "idempotency_records",
     "jobs",
@@ -48,8 +50,13 @@ const PLATFORM_DATA: [&str; 5] = [
 ];
 
 /// Tables of a module's bookkeeping of what it keeps outside the database, which hold no tenant's
-/// data, such as the keys of objects that no file's row names (DATA-16).
-const BOOKKEEPING: [&str; 1] = ["object_deletions"];
+/// data (DATA-16).
+const BOOKKEEPING: &[&str] = &[
+    // part: files
+    // The keys of the objects that no file's row names.
+    "object_deletions",
+    // end part: files
+];
 
 /// Tables of workspace data whose rows are addressed to a user by email, with that column: the
 /// user's own queries of them filter by the caller's address (DATA-16).
@@ -61,20 +68,27 @@ const ADDRESSED: &[(&str, &str)] = &[
 
 /// The tenants themselves, whose rows a query reaches by IDs that came from a query filtered by
 /// tenant (DATA-16).
-const TENANTS: [&str; 1] = ["workspaces"];
+const TENANTS: &[&str] = &["workspaces"];
 
 /// The files of scheduled jobs that span tenants, which select rows by their own criteria, such
 /// as expiry (DATA-16).
 const CROSS_TENANT: &[&str] = &[
+    // part: files
     "crates/app/src/modules/files/jobs.rs",
+    // end part: files
     // part: invitations
     "crates/app/src/modules/invitations/jobs.rs",
     // end part: invitations
 ];
 
-/// The files of the reads of public files, by their ID and their visibility alone, since whoever
-/// holds a public file's ID may download it (DATA-16).
-const PUBLIC_READS: &[&str] = &["crates/app/src/modules/files/repo/public.rs"];
+/// The files of reads by a row's ID and its visibility alone, of rows that whoever holds the ID
+/// may read (DATA-16).
+const PUBLIC_READS: &[&str] = &[
+    // part: files
+    // The reads of public files, which whoever holds a public file's ID may download.
+    "crates/app/src/modules/files/repo/public.rs",
+    // end part: files
+];
 
 /// The `sqlx` macros that take SQL text (DATA-14).
 const MACROS: [&str; 6] = [
@@ -248,9 +262,9 @@ fn columns(body: &str) -> Vec<String> {
 fn placements(tables: &BTreeMap<String, Table>) -> Vec<Finding> {
     let listed: Vec<&str> = ACCOUNT_DATA
         .iter()
-        .chain(&PLATFORM_DATA)
-        .chain(&BOOKKEEPING)
-        .chain(&TENANTS)
+        .chain(PLATFORM_DATA)
+        .chain(BOOKKEEPING)
+        .chain(TENANTS)
         .copied()
         .collect();
     let mut findings: Vec<Finding> = tables
@@ -451,15 +465,18 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
         let migrations = format!(
             "{MIGRATION}CREATE TABLE users (id uuid);\nCREATE TABLE identities (id uuid);\n\
              CREATE TABLE sessions (id uuid);\nCREATE TABLE device_tokens (id uuid);\n\
-             CREATE TABLE user_files (id uuid, user_id uuid);\n\
              CREATE TABLE rate_limit_buckets (id uuid);\n\
              CREATE TABLE idempotency_records (id uuid);\nCREATE TABLE workspaces (id uuid);\n\
              CREATE TABLE jobs (id uuid, workspace_id uuid, user_id uuid);\n\
              CREATE TABLE job_schedules (id uuid);\n\
              CREATE TABLE events (id uuid, workspace_id uuid, user_id uuid);\n\
-             CREATE TABLE object_deletions (id uuid, object_key text);\n\
              CREATE TABLE offers (id uuid, workspace_id uuid, email text);\n"
         );
+        // part: files
+        let migrations = migrations
+            + "CREATE TABLE user_files (id uuid, user_id uuid);\n\
+               CREATE TABLE object_deletions (id uuid, object_key text);\n";
+        // end part: files
         let repo = Repo::of(&[
             ("migrations/1_things.sql", &migrations),
             ("crates/app/src/modules/things/repo.rs", code),
@@ -529,7 +546,8 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
     #[test]
     fn data_16_a_listed_table_that_no_migration_creates_is_found() {
         let tables = BTreeMap::new();
-        assert_eq!(placements(&tables).len(), 12);
+        let listed = ACCOUNT_DATA.len() + PLATFORM_DATA.len() + BOOKKEEPING.len() + TENANTS.len();
+        assert_eq!(placements(&tables).len(), listed);
     }
 
     #[test]

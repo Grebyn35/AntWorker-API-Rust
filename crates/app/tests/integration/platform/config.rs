@@ -69,6 +69,7 @@ fn ranged(example: &str) -> Vec<(String, i64, i64)> {
     found
 }
 
+// part: files
 #[test]
 fn ops_01_the_deletion_delay_that_a_deploy_derives_is_one_that_the_api_takes() {
     let api = ranged(".env.example");
@@ -86,6 +87,7 @@ fn ops_01_the_deletion_delay_that_a_deploy_derives_is_one_that_the_api_takes() {
     assert!(highest(&deployment, "BACKUP_RETENTION_DAYS") + 7 <= delay);
     assert_eq!(highest(&deployment, "FILE_DELETION_DELAY_DAYS"), delay);
 }
+// end part: files
 
 #[test]
 fn ops_01_each_number_setting_is_refused_just_outside_its_range() {
@@ -99,13 +101,21 @@ fn ops_01_each_number_setting_is_refused_just_outside_its_range() {
         ("SMTP_HOST", "127.0.0.1"),
         ("SMTP_SECURITY", "none"),
         ("EMAIL_FROM", "AntWorker <noreply@example.com>"),
-        ("S3_ENDPOINT", "https://bucket.invalid"),
-        ("S3_REGION", "us-east-1"),
-        ("S3_BUCKET", "files"),
-        ("S3_ACCESS_KEY_ID", "key"),
-        ("S3_SECRET_ACCESS_KEY", "secret"),
-        ("CLAMD_ADDRESS", "127.0.0.1:3310"),
     ];
+    // part: files
+    let base = [
+        &base[..],
+        &[
+            ("S3_ENDPOINT", "https://bucket.invalid"),
+            ("S3_REGION", "us-east-1"),
+            ("S3_BUCKET", "files"),
+            ("S3_ACCESS_KEY_ID", "key"),
+            ("S3_SECRET_ACCESS_KEY", "secret"),
+            ("CLAMD_ADDRESS", "127.0.0.1:3310"),
+        ],
+    ]
+    .concat();
+    // end part: files
 
     for (name, low, high) in &ranged {
         for value in [low - 1, high + 1] {

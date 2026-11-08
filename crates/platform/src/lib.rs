@@ -20,9 +20,11 @@ pub mod lists;
 pub mod mail;
 pub mod random;
 pub mod rate_limit;
+// part: files
 pub mod scanner;
 pub mod signed_urls;
 pub mod storage;
+// end part: files
 pub mod telemetry;
 mod tls;
 pub mod types;

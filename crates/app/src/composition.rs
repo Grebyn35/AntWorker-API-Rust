@@ -19,11 +19,11 @@ use platform::{
     lifecycle::Readiness,
     mail::Mail,
     rate_limit::{Bucket, RateLimiter},
-    scanner::Scanner,
-    signed_urls::SignedUrls,
-    storage::Storage,
     telemetry::Service,
 };
+// part: files
+use platform::{scanner::Scanner, signed_urls::SignedUrls, storage::Storage};
+// end part: files
 use sqlx::migrate::Migrator;
 use utoipa::openapi::OpenApi;
 
@@ -32,7 +32,9 @@ use crate::modules::{
     accounts,
     audit,
     auth,
+    // part: files
     files::{self, Files},
+    // end part: files
     // part: invitations
     invitations::{self, Invitations},
     // end part: invitations
@@ -48,7 +50,9 @@ pub static MIGRATIONS: Migrator = sqlx::migrate!("../../migrations");
 /// The settings of the modules, which `serve` reads before its async runtime starts (OPS-01).
 pub struct Config {
     auth: auth::Settings,
+    // part: files
     files: files::Settings,
+    // end part: files
     // part: invitations
     invitations: invitations::Settings,
     // end part: invitations
@@ -115,6 +119,7 @@ impl Config {
                     day..=5 * 365 * day,
                 )?,
             },
+            // part: files
             files: files::Settings {
                 max_bytes: usize::try_from(settings.number(
                     "FILE_MAX_BYTES",
@@ -124,6 +129,7 @@ impl Config {
                 .unwrap_or(usize::MAX),
                 deletion_delay_days: settings.number("FILE_DELETION_DELAY_DAYS", 35, 1..=3_657)?,
             },
+            // end part: files
             // part: invitations
             invitations: invitations::Settings {
                 expiry_days: settings.number("INVITATION_EXPIRY_DAYS", 7, 1..=90)?,
@@ -192,6 +198,7 @@ pub async fn compose(
     );
     let mail = Mail::new(server.mail.clone(), clock.clone())?;
     mail.register(&mut jobs).map_err(Internal::new)?;
+    // part: files
     let files = Files::new(
         database.clone(),
         Storage::new(&server.storage, clock.clone())?,
@@ -201,13 +208,12 @@ pub async fn compose(
         config.files,
     );
     files.register(&mut jobs).map_err(Internal::new)?;
+    // end part: files
     // part: invitations
     let invitations = Invitations::new(database.clone(), mail.clone(), config.invitations);
     invitations.register(&mut jobs).map_err(Internal::new)?;
     // end part: invitations
-    let features = system::Features {
-        email: mail.is_on(),
-    };
+    let features = system::Features::new(mail.is_on());
     let verifier: Arc<dyn SessionVerifier> = Arc::new(auth::Verifier(auth.clone()));
     let policy = Arc::new(access::Policy);
     let realtime = Realtime {
@@ -230,8 +236,10 @@ pub async fn compose(
         .merge(invitations::routes().with_state(invitations))
         // end part: invitations
         .merge(workspaces::routes().with_state(database.clone()))
-        .merge(files::routes().with_state(files))
         .merge(realtime::routes().with_state(realtime));
+    // part: files
+    let routes = routes.merge(files::routes().with_state(files));
+    // end part: files
     Ok(Services {
         routes,
         verifier,
@@ -275,7 +283,9 @@ pub fn pipeline(
         limiter: RateLimiter::new(resources.database.clone(), config.hmac_key.clone()),
         rate_limits: config.rate_limits,
         verifier: services.verifier.clone(),
+        // part: files
         signed_urls: SignedUrls::new(config.hmac_key.clone()),
+        // end part: files
         authorizer: services.authorizer.clone(),
         reference,
     }
@@ -293,7 +303,9 @@ pub fn openapi(service: Service) -> OpenApi {
         // part: invitations
         invitations::routes().openapi(service),
         // end part: invitations
+        // part: files
         files::routes().openapi(service),
+        // end part: files
     ])
 }
 

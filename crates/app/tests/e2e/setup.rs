@@ -18,7 +18,8 @@ const LOST_PASSWORD: &str = "a lost server's / + @ ? # % : password";
 /// and with `secrets` as its argument, the bucket's key pair, its authority, the registry's
 /// login, and the superuser's password in /root/setup/postgres_password if there is one, in the
 /// form that server-setup.sh's comment describes.
-const SET_UP: &str = r#"set -e
+const SET_UP: &str = concat!(
+    r#"set -e
 encode() { base64 < "$1" | tr -d '\n'; }
 {
     printf 'settings %s\n' "$(encode /root/setup/settings.env)"
@@ -28,13 +29,17 @@ encode() { base64 < "$1" | tr -d '\n'; }
         printf 'e2e-token' > /root/setup/token
         printf 'secret backup_s3_key %s\n' "$(encode /root/setup/key)"
         printf 'secret backup_s3_key_secret %s\n' "$(encode /root/setup/key_secret)"
-        printf 'secret files_s3_key %s\n' "$(encode /root/setup/key)"
-        printf 'secret files_s3_key_secret %s\n' "$(encode /root/setup/key_secret)"
         printf 'https://hooks.example.invalid/page' > /root/setup/page_url
         printf 'secret alertmanager/page_url %s\n' "$(encode /root/setup/page_url)"
         printf 'cert backup-ca.crt %s\n' "$(encode /root/bucket/ca.crt)"
+"#,
+    // part: files
+    r#"        printf 'secret files_s3_key %s\n' "$(encode /root/setup/key)"
+        printf 'secret files_s3_key_secret %s\n' "$(encode /root/setup/key_secret)"
         printf 'cert files-ca.crt %s\n' "$(encode /root/bucket/ca.crt)"
-        printf 'login registry:5000 e2e %s\n' "$(encode /root/setup/token)"
+"#,
+    // end part: files
+    r#"        printf 'login registry:5000 e2e %s\n' "$(encode /root/setup/token)"
         if [ -s /root/setup/postgres_password ]; then
             printf 'secret postgres_password %s\n' "$(encode /root/setup/postgres_password)"
         fi
@@ -43,7 +48,8 @@ encode() { base64 < "$1" | tr -d '\n'; }
 directory=$(mktemp -d)
 cp -r /root/release/. "$directory"
 sh "$directory/server-setup.sh" apply < /root/setup/payload
-"#;
+"#
+);
 
 /// Runs `command` in a shell of the deployment's user, with the deployment's directory.
 fn as_deploy(server: &Server, command: &str) -> std::process::Output {
@@ -61,11 +67,11 @@ fn new_server() -> (Server, String) {
          API_ADDRESS={API_ADDRESS}\nTELEMETRY=off\nEMAIL=off\nDATABASE=bundled\nAPI_REPLICAS=2\n\
          DATABASE_MAX_CONNECTIONS=2\n"
     );
-    for (name, value) in server
-        .start_bucket()
-        .into_iter()
-        .chain(server.start_files_bucket())
-    {
+    let buckets = server.start_bucket();
+    // part: files
+    let buckets = [buckets, server.start_files_bucket()].concat();
+    // end part: files
+    for (name, value) in buckets {
         settings.push_str(&format!("{name}={value}\n"));
     }
     server.write("/root/setup/settings.env", &settings);
@@ -199,7 +205,9 @@ fn assert_checked(output: &std::process::Output, holds: &str) {
         "check: ok    the server pulls",
         &format!("check: ok    the bucket backups answers to its key pair, and {holds}"),
         "check: ok    the backups' bucket, backups, keeps no versions",
+        // part: files
         "check: ok    the files bucket, files, keeps no versions",
+        // end part: files
         "check: note  whether the disk is encrypted",
         "deploy: every check on the server passed",
     ] {
@@ -208,8 +216,7 @@ fn assert_checked(output: &std::process::Output, holds: &str) {
 }
 
 #[tokio::test]
-async fn ops_19_the_check_finds_a_bucket_that_keeps_versions_a_key_pair_it_refuses_and_a_missing_setting()
- {
+async fn ops_19_the_check_finds_what_a_deploy_would_refuse_of_the_buckets_and_the_settings() {
     let (server, settings) = new_server();
     let api = Pushed::api().in_network();
     let postgres = Pushed::postgres().in_network();
@@ -227,6 +234,7 @@ async fn ops_19_the_check_finds_a_bucket_that_keeps_versions_a_key_pair_it_refus
         )
     };
 
+    // part: files
     // The files bucket keeps versions, as Backblaze B2's every bucket does, with no rule that
     // expires them, then with the rule that B2's "Keep only the last version" stands for.
     configure_files_bucket(
@@ -243,6 +251,7 @@ async fn ops_19_the_check_finds_a_bucket_that_keeps_versions_a_key_pair_it_refus
          </NoncurrentDays></NoncurrentVersionExpiration></Rule></LifecycleConfiguration>",
     );
     let expires_them = check();
+    // end part: files
     server.shell_ok(&format!(
         "printf wrong > {DEPLOYMENT}/secrets/backup_s3_key_secret"
     ));
@@ -252,6 +261,7 @@ async fn ops_19_the_check_finds_a_bucket_that_keeps_versions_a_key_pair_it_refus
     ));
     let missing_setting = check();
 
+    // part: files
     assert_found(
         &keeps_versions,
         false,
@@ -269,6 +279,7 @@ async fn ops_19_the_check_finds_a_bucket_that_keeps_versions_a_key_pair_it_refus
            noncurrent ones after a day",
         ],
     );
+    // end part: files
     assert_found(
         &refused_key,
         false,
@@ -346,6 +357,7 @@ fn assert_found(output: &std::process::Output, passed: bool, lines: &[&str]) {
     }
 }
 
+// part: files
 /// Sends the stand-in's bucket `files` the configuration `body` of its `query`, such as
 /// `versioning`, as S3's PUT of a bucket's configuration does.
 fn configure_files_bucket(server: &Server, query: &str, body: &str) {
@@ -354,3 +366,4 @@ fn configure_files_bucket(server: &Server, query: &str, body: &str) {
          --user e2e:e2e-secret -X PUT --data '{body}' 'http://localhost:8333/files?{query}'"
     ));
 }
+// end part: files

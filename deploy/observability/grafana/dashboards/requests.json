@@ -3,7 +3,8 @@
   "title": "API requests",
   "description": "Which routes the API serves, how they fail and how long they take, from the request metric http.server.request.duration.",
   "tags": [
-    "api"
+    "api",
+    "area"
   ],
   "editable": false,
   "schemaVersion": 41,

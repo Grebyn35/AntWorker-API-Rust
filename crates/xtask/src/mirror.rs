@@ -14,10 +14,12 @@ use std::{
 use crate::{repo::Repo, stack};
 
 /// The Compose files of the reference deployment, whose images a server pulls when it deploys.
-const DEPLOYMENT: [&str; 3] = [
+const DEPLOYMENT: &[&str] = &[
     "deploy/compose.yaml",
     "deploy/observability/compose.yaml",
+    // part: files
     "deploy/scanner/compose.yaml",
+    // end part: files
 ];
 /// The services of other Compose files that the tests run on a server: the stand-ins for the
 /// bucket and the mail server, and the tools of a deploy's import into a managed Grafana. The
@@ -153,16 +155,20 @@ mod tests {
     image: mikefarah/yq:4.54.1@{DIGEST}
 "
         );
+        // part: files
         let scanner = format!(
             "services:
   scanner:
     image: clamav/clamav-debian:1.5.4_base@{DIGEST}
 "
         );
+        // end part: files
         Repo::of(&[
             ("deploy/compose.yaml", deployment),
             ("deploy/observability/compose.yaml", observability),
+            // part: files
             ("deploy/scanner/compose.yaml", &scanner),
+            // end part: files
             ("deploy/tools/compose.yaml", &tools),
             ("compose.yaml", compose),
         ])
@@ -208,7 +214,9 @@ mod tests {
                 format!("axllent/mailpit@{DIGEST}"),
                 format!("library/caddy@{DIGEST}"),
                 format!("chrislusf/seaweedfs@{DIGEST}"),
+                // part: files
                 format!("clamav/clamav-debian@{DIGEST}"),
+                // end part: files
                 format!("curlimages/curl@{DIGEST}"),
                 format!("grafana/grafana@{DIGEST}"),
                 format!("mikefarah/yq@{DIGEST}"),

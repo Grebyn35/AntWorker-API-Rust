@@ -26,14 +26,15 @@ use tracing::{Instrument, Span, field::Empty};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::{
-    body::UploadTurns,
     browsers::{Origins, cors, cross_site},
     client::{TrustedProxies, client},
     docs::QueryNames,
     limits::{IpLimit, ip_limit},
     query::parameter_pointer,
-    signed::TakesSignedUrl,
 };
+// part: files
+use super::{signed::TakesSignedUrl, upload::UploadTurns};
+// end part: files
 use crate::{
     authn::Authenticator,
     authz::Authorizer,
@@ -48,15 +49,17 @@ use crate::{
 
 /// How long a request of the `public`, `user` and `workspace` groups may run: twice the five
 /// seconds an operation waits for a pooled connection (OPS-07).
-const GROUP_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const GROUP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The largest body a request of those groups may carry (API-08).
 const GROUP_BODY_LIMIT: usize = 64 * 1024;
 
+// part: files
 /// How long an upload may run, its body's transfer, its scan and its write included, as the files
 /// spec's "Scanning" shares it out (PLATFORM-074). The longest timeout of a route, which the
-/// drain's deadline defaults to, and its least (OPS-06).
+/// drain's deadline is no shorter than (OPS-06).
 pub(crate) const UPLOAD_TIMEOUT: Duration = Duration::from_secs(60);
+// end part: files
 
 /// The method of a request whose method HTTP's specifications don't define, and the error type
 /// of a 5xx whose error the request log doesn't know (PLATFORM-067).
@@ -95,7 +98,7 @@ pub(super) fn security_headers(router: Router) -> Router {
                 HeaderValue::from_static("no-referrer"),
             ))
             // No response may be kept by a cache: an authenticated one is the caller's alone, and
-            // a session's response holds its tokens. A public file sets its own.
+            // a session's response holds its tokens. A response that a cache may keep sets its own.
             .layer(SetResponseHeaderLayer::if_not_present(
                 header::CACHE_CONTROL,
                 HeaderValue::from_static("no-store"),
@@ -118,25 +121,26 @@ pub(super) struct Stack {
 /// of architecture §6: trace context, the request log, panic catching, the client, CORS, the
 /// concurrency limit, the IP limit and the cross-site check.
 pub(super) fn request(router: Router, stack: Stack) -> Router {
-    router.layer(
-        ServiceBuilder::new()
-            .layer(middleware::from_fn(trace))
-            .layer(middleware::from_fn_with_state(stack.clock, log))
-            .layer(CatchPanicLayer::custom(panicked))
-            .layer(middleware::from_fn_with_state(
-                stack.trusted_proxies,
-                client,
-            ))
-            .layer(middleware::from_fn_with_state(stack.origins.clone(), cors))
-            .layer(HandleErrorLayer::new(overloaded))
-            .layer(LoadShedLayer::new())
-            .layer(GlobalConcurrencyLimitLayer::new(stack.max_concurrent))
-            .layer(middleware::from_fn_with_state(stack.ip_limit, ip_limit))
-            .layer(middleware::from_fn_with_state(stack.origins, cross_site))
-            .layer(Extension(stack.authenticator))
-            .layer(Extension(stack.authorizer))
-            .layer(Extension(UploadTurns::new())),
-    )
+    let layers = ServiceBuilder::new()
+        .layer(middleware::from_fn(trace))
+        .layer(middleware::from_fn_with_state(stack.clock, log))
+        .layer(CatchPanicLayer::custom(panicked))
+        .layer(middleware::from_fn_with_state(
+            stack.trusted_proxies,
+            client,
+        ))
+        .layer(middleware::from_fn_with_state(stack.origins.clone(), cors))
+        .layer(HandleErrorLayer::new(overloaded))
+        .layer(LoadShedLayer::new())
+        .layer(GlobalConcurrencyLimitLayer::new(stack.max_concurrent))
+        .layer(middleware::from_fn_with_state(stack.ip_limit, ip_limit))
+        .layer(middleware::from_fn_with_state(stack.origins, cross_site))
+        .layer(Extension(stack.authenticator))
+        .layer(Extension(stack.authorizer));
+    // part: files
+    let layers = layers.layer(Extension(UploadTurns::new()));
+    // end part: files
+    router.layer(layers)
 }
 
 /// The layers of a route group: its timeout and body limit, and the check of its query
@@ -154,6 +158,7 @@ where
     )
 }
 
+// part: files
 /// The layers of an upload route: its timeout, and the check of its query parameters against its
 /// documentation. It sets no body limit: the handler reads the body through `Upload`, with the
 /// limit its module sets (PLATFORM-074).
@@ -177,6 +182,7 @@ where
 {
     route_group(route, queries).layer(Extension(TakesSignedUrl))
 }
+// end part: files
 
 /// Opens the request's server span, as the child of a valid inbound `traceparent`, and writes
 /// the span's trace context into `server-timing` (PLATFORM-041, API-16).

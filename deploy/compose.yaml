@@ -1,6 +1,7 @@
-# The single-host reference deployment (D15, D20, D45): Caddy, the API in two colors, the malware
-# scanner, the bundled Postgres with its backups (D44), and the telemetry path (D42). deploy.sh runs it on its server,
-# from the deployment's directory, with the settings in settings.env, which
+# The single-host reference deployment (D15, D20, D45): Caddy, the API in two colors, the bundled
+# Postgres with its backups (D44), and the telemetry path (D42).
+# It also runs the malware scanner. # part: files
+# deploy.sh runs it on its server, from the deployment's directory, with the settings in settings.env, which
 # settings.env.example lists, and the values it derives in state/deploy.env. Profiles choose the
 # optional services: `database` for the bundled Postgres, `telemetry` for the collector,
 # `observability` for the self-hosted stack, and `managed-telemetry` for the collector that sends
@@ -36,7 +37,7 @@ x-api: &api
     # Caddy stops sending requests to a draining replica within its health checks' interval and
     # timeout (deploy/caddy/sites/api.caddy), so the replica keeps serving for longer (OPS-06).
     SHUTDOWN_DELAY_SECONDS: "5"
-    # The longest timeout of a route, an upload's, so a deploy cuts no request short (OPS-06).
+    # No shorter than the longest timeout of a route, so a deploy cuts no request short (OPS-06).
     SHUTDOWN_DRAIN_SECONDS: "60"
     # Only the deployment's own containers reach a replica, on its private networks, so every
     # private peer is Caddy, and the proxies Caddy trusts are trusted too (PLATFORM-053).
@@ -44,7 +45,9 @@ x-api: &api
     CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
     RATE_LIMIT_IP_REQUESTS: ${RATE_LIMIT_IP_REQUESTS:-600}
     RATE_LIMIT_USER_REQUESTS: ${RATE_LIMIT_USER_REQUESTS:-300}
+    # part: files
     RATE_LIMIT_PUBLIC_REQUESTS: ${RATE_LIMIT_PUBLIC_REQUESTS:-1200}
+    # end part: files
     RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
     ACCESS_TOKEN_SECONDS: ${ACCESS_TOKEN_SECONDS:-3600}
     REFRESH_TOKEN_SECONDS: ${REFRESH_TOKEN_SECONDS:-2592000}
@@ -69,6 +72,7 @@ x-api: &api
     JOB_DEAD_LETTER_RETENTION_DAYS: ${JOB_DEAD_LETTER_RETENTION_DAYS:-14}
     STREAM_HEARTBEAT_SECONDS: ${STREAM_HEARTBEAT_SECONDS:-15}
     STREAM_RECHECK_SECONDS: ${STREAM_RECHECK_SECONDS:-60}
+    # part: files
     S3_ENDPOINT: https://${FILES_S3_ENDPOINT:?the files bucket's host, in settings.env}:${FILES_S3_PORT:-443}
     S3_REGION: ${FILES_S3_REGION:?the files bucket's region, in settings.env}
     S3_BUCKET: ${FILES_S3_BUCKET:?the files bucket's name, in settings.env}
@@ -81,9 +85,17 @@ x-api: &api
     FILE_MAX_BYTES: ${FILE_MAX_BYTES:-10485760}
     FILE_DELETION_DELAY_DAYS: ${FILE_DELETION_DELAY:-35}
     CLAMD_ADDRESS: scanner:3310
+    # end part: files
   volumes:
     - ./certs:/etc/deployment-certs:ro
-  secrets: [database_url, hmac_key, smtp_password, files_s3_key, files_s3_key_secret]
+  secrets:
+    - database_url
+    - hmac_key
+    - smtp_password
+    # part: files
+    - files_s3_key
+    - files_s3_key_secret
+    # end part: files
   # The shutdown delay and the drain take at most 65 seconds, and writing out telemetry the 9 that
   # the platform spec's Telemetry export bounds it to, which fit in the rest.
   stop_grace_period: 90s
@@ -92,7 +104,13 @@ x-api: &api
       limits:
         cpus: "${API_CPUS:-1}"
         memory: ${API_MEMORY:-512M}
-  networks: [edge, data, scanning, telemetry]
+  networks:
+    - edge
+    - data
+    # part: files
+    - scanning
+    # end part: files
+    - telemetry
   restart: unless-stopped
 
 # pgBackRest's settings, from the deployment's (deploy/postgres/pgbackrest.conf has the rest).
@@ -168,6 +186,7 @@ services:
     <<: *api
     image: ${API_IMAGE_GREEN:?the image of the green replicas, in state/deploy.env}
 
+  # part: files
   # The malware scanner (the files spec's "Scanning"), from the service scanner/compose.yaml
   # defines: clamd beside freshclam, which downloads ClamAV's signatures into its volume when it
   # holds none, as on a new server, before clamd starts, and checks for new ones as freshclam.conf
@@ -201,6 +220,7 @@ services:
           cpus: "${SCANNER_CPUS:-1}"
     networks: [scanning]
     restart: unless-stopped
+  # end part: files
 
   # The one-shot subcommands that a deploy runs with the release's image, before its replicas.
   bootstrap:
@@ -309,9 +329,9 @@ services:
     networks: [data]
     restart: unless-stopped
 
-  # The collector, which every telemetry path keeps (D42). It reads the backups' status files, when
-  # the scanner's signatures last changed, and Caddy's log, with the proxy's configuration
-  # (observability/collector/proxy.yaml).
+  # The collector, which every telemetry path keeps (D42). It reads the backups' status files and
+  # Caddy's log, with the proxy's configuration (observability/collector/proxy.yaml).
+  # It also reads when the scanner's signatures last changed. # part: files
   collector:
     extends: { file: observability/compose.yaml, service: collector }
     logging: *logging
@@ -319,7 +339,9 @@ services:
     command: ["--config=/etc/collector/config.yaml", "--config=/etc/collector/proxy.yaml"]
     volumes:
       - backup-status:/var/lib/backup-status:ro
+      # part: files
       - scanner-signatures:/var/lib/scanner-signatures:ro
+      # end part: files
       - caddy-logs:/var/log/caddy:ro
       - collector-state:/var/lib/collector
     networks: [telemetry]
@@ -347,7 +369,9 @@ services:
       SECRETS_FINGERPRINT: ${MANAGED_OTLP_SECRETS:-}
     volumes:
       - backup-status:/var/lib/backup-status:ro
+      # part: files
       - scanner-signatures:/var/lib/scanner-signatures:ro
+      # end part: files
       - ./certs:/etc/deployment-certs:ro
       - caddy-logs:/var/log/caddy:ro
       # A state of its own, since both collectors run for a moment while a deploy moves from one
@@ -414,8 +438,10 @@ networks:
   edge:
   # The replicas, the one-shot subcommands, Postgres and its backups.
   data:
+  # part: files
   # The replicas and the scanner, which reaches ClamAV's mirrors through it.
   scanning:
+  # end part: files
   # Everything that sends or stores telemetry.
   telemetry:
 
@@ -428,7 +454,9 @@ volumes:
   postgres:
   postgres-socket:
   backup-status:
+  # part: files
   scanner-signatures:
+  # end part: files
   prometheus:
   alertmanager:
   loki:
@@ -451,10 +479,12 @@ secrets:
     file: ./secrets/database_admin_url
   postgres_password:
     file: ./secrets/postgres_password
+  # part: files
   files_s3_key:
     file: ./secrets/files_s3_key
   files_s3_key_secret:
     file: ./secrets/files_s3_key_secret
+  # end part: files
   backup_s3_key:
     file: ./secrets/backup_s3_key
   backup_s3_key_secret:

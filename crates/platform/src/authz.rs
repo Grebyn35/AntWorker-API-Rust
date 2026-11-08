@@ -338,6 +338,7 @@ impl<P: Permission> Authorize<P> {
         ))
     }
 
+    // part: files
     /// Authorizes the caller as [`Authorize::open`] does, refusals and their records included,
     /// in a unit of work of its own that commits nothing, for a route that refuses a caller
     /// before work it does outside any transaction, such as reading an upload's body
@@ -352,6 +353,7 @@ impl<P: Permission> Authorize<P> {
             refused => Err(self.refuse(workspace_id, refused).await),
         }
     }
+    // end part: files
 
     /// Opens a unit of work and asks the policy whether the caller holds `P` in the workspace
     /// of the path. A workspace ID that isn't a UUID names no workspace, which answers 404

@@ -22,9 +22,11 @@ fn managed_database(settings: &[(String, String)]) -> bool {
     get(settings, "DATABASE") == "managed"
 }
 
+// part: files
 fn always(_: &[(String, String)]) -> bool {
     true
 }
+// end part: files
 
 fn managed_telemetry(settings: &[(String, String)]) -> bool {
     get(settings, "TELEMETRY") == "managed"
@@ -62,6 +64,7 @@ pub(super) const SECRETS: &[File] = &[
         generated: false,
         needed: managed_database,
     },
+    // part: files
     File {
         name: "files_s3_key",
         what: "The access key of the files bucket's key pair, which reaches only that bucket.",
@@ -74,6 +77,7 @@ pub(super) const SECRETS: &[File] = &[
         generated: false,
         needed: always,
     },
+    // end part: files
     File {
         name: "backup_s3_key",
         what: "The access key of the backup bucket's key pair, which reaches only that bucket.",
@@ -126,6 +130,7 @@ pub(super) const SECRETS: &[File] = &[
 
 /// The certificates of private authorities that a deployment may trust.
 pub(super) const CERTS: &[File] = &[
+    // part: files
     File {
         name: "files-ca.crt",
         what: "The certificate of the private authority that signed the files bucket's \
@@ -133,6 +138,7 @@ pub(super) const CERTS: &[File] = &[
         generated: false,
         needed: always,
     },
+    // end part: files
     File {
         name: "backup-ca.crt",
         what: "The certificate of the private authority that signed the backup bucket's \

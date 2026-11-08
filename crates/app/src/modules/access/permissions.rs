@@ -42,6 +42,7 @@ impl Permission for InvitationsCreate {
 }
 // end part: invitations
 
+// part: files
 /// Listing, reading and downloading the workspace's files, and receiving their events.
 pub(crate) struct FilesRead;
 
@@ -62,6 +63,7 @@ pub(crate) struct FilesDelete;
 impl Permission for FilesDelete {
     const NAME: &'static str = "files.delete";
 }
+// end part: files
 
 /// Each permission, and the roles that hold it (ACCESS-002).
 const MATRIX: &[(&str, &[Role])] = &[
@@ -72,9 +74,11 @@ const MATRIX: &[(&str, &[Role])] = &[
     // part: invitations
     ("invitations.create", &[Role::Owner, Role::Admin]),
     // end part: invitations
+    // part: files
     ("files.read", &[Role::Owner, Role::Admin, Role::Member]),
     ("files.upload", &[Role::Owner, Role::Admin, Role::Member]),
     ("files.delete", &[Role::Owner, Role::Admin]),
+    // end part: files
 ];
 
 /// Whether `role` holds the permission named `permission`: exactly when the matrix says so

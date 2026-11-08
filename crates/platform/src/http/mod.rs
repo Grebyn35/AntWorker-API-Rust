@@ -5,14 +5,21 @@ mod body;
 mod browsers;
 mod client;
 mod docs;
+// part: files
 mod files;
+// end part: files
 mod limits;
 mod precondition;
 pub(crate) mod query;
 mod reference;
 mod resource;
+// part: files
 pub(crate) mod signed;
+// end part: files
 mod stack;
+// part: files
+mod upload;
+// end part: files
 
 use std::sync::Arc;
 
@@ -23,14 +30,19 @@ use axum::{
 use utoipa::openapi::{Info, OpenApi};
 use utoipa_axum::router::{OpenApiRouter, UtoipaMethodRouter};
 
-pub use body::{FieldErrors, Idempotent, Json, MergePatch, Upload, Uploaded};
+pub use body::{FieldErrors, Idempotent, Json, MergePatch};
 pub use browsers::{Cookies, Origins, expired_cookie, session_cookie};
-pub use files::{Download, FileBytes, disposition_name};
 pub use precondition::IfMatch;
 pub use query::Query;
 pub use resource::{ResourceResponse, path_id};
 #[cfg(test)]
+pub(crate) use stack::GROUP_TIMEOUT;
+// part: files
+pub use files::{Download, FileBytes, disposition_name};
+#[cfg(test)]
 pub(crate) use stack::UPLOAD_TIMEOUT;
+pub use upload::{Upload, Uploaded};
+// end part: files
 
 use crate::{
     authn::{Authenticator, SessionVerifier},
@@ -41,10 +53,12 @@ use crate::{
     events::Catalogued,
     lifecycle::{self, Readiness},
     rate_limit::{Bucket, RateLimiter},
-    signed_urls::SignedUrls,
     telemetry::Service,
 };
 use ipnet::IpNet;
+// part: files
+use crate::signed_urls::SignedUrls;
+// end part: files
 
 /// Who may call a route (API-14).
 #[derive(Clone, Copy, Debug)]
@@ -118,6 +132,7 @@ where
         self.add(Access::Workspace(P::NAME), route, errors)
     }
 
+    // part: files
     /// Adds an upload route that a member of the workspace in the path calls, whose handler
     /// extracts `Authorize<P>` and reads the file's bytes through [`Upload`], and which can answer
     /// `errors` besides the pipeline's own (ERR-13). Its group has the upload timeout, and no body
@@ -185,6 +200,7 @@ where
         docs::download(&mut route.1, true);
         self.add(Access::Public, route, errors)
     }
+    // end part: files
 
     /// Registers `events`, which the module's routes publish or send, in the event catalog of
     /// the routes' document (REALTIME-008).
@@ -295,8 +311,10 @@ pub struct Pipeline {
     pub rate_limits: RateLimitConfig,
     /// The verifier of access tokens, which `auth` implements (ARCH-13).
     pub verifier: Arc<dyn SessionVerifier>,
+    // part: files
     /// The checker of downloads' signed URLs (PLATFORM-080).
     pub signed_urls: SignedUrls,
+    // end part: files
     /// What authorizes workspace routes, with the policy `access` implements (ARCH-13).
     pub authorizer: Authorizer,
     /// The OpenAPI document, as JSON, which the API reference shows: only in development
@@ -307,12 +325,14 @@ pub struct Pipeline {
 /// The bucket of each client IP's requests (PLATFORM-054).
 const IP_BUCKET: &str = "ip";
 
-/// The bucket of each client IP's requests under [`PUBLIC_PREFIX`] (PLATFORM-054).
+// part: files
+/// The bucket of each client IP's requests under [`PUBLIC_PREFIX`] (PLATFORM-082).
 const PUBLIC_BUCKET: &str = "public";
 
-/// The prefix of the paths that anyone may read without signing in, such as a public file's
-/// download, whose requests count in [`PUBLIC_BUCKET`] (API-02, PLATFORM-054).
+/// The prefix of the paths of public files' downloads, which anyone may read without signing in,
+/// whose requests count in [`PUBLIC_BUCKET`] (API-02, PLATFORM-082).
 pub const PUBLIC_PREFIX: &str = "/v1/public/";
+// end part: files
 
 /// The bucket of each user's requests (PLATFORM-054).
 const USER_BUCKET: &str = "user";
@@ -348,15 +368,19 @@ pub fn app(routes: Routes, pipeline: Pipeline) -> Router {
                     limit: limits.ip_requests,
                     window: limits.window,
                 },
+                // part: files
                 public_bucket: Bucket {
                     name: PUBLIC_BUCKET,
                     limit: limits.public_requests,
                     window: limits.window,
                 },
+                // end part: files
             }),
             authenticator: Authenticator {
                 verifier: pipeline.verifier,
+                // part: files
                 signed: pipeline.signed_urls,
+                // end part: files
                 user_bucket: Bucket {
                     name: USER_BUCKET,
                     limit: limits.user_requests,

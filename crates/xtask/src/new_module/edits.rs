@@ -393,8 +393,8 @@ mod tests {
 
         let between = sorted(
             modules,
-            "files",
-            &["pub(crate) mod files;".to_owned()],
+            "items",
+            &["pub(crate) mod items;".to_owned()],
             declared,
         );
         let last = sorted(
@@ -406,7 +406,7 @@ mod tests {
 
         assert_eq!(
             between.unwrap(),
-            "//! Modules.\n\npub(crate) mod access;\npub(crate) mod files;\n\
+            "//! Modules.\n\npub(crate) mod access;\npub(crate) mod items;\n\
              // part: offers\npub(crate) mod offers;\n// end part: offers\n\
              pub(crate) mod realtime;\n"
         );
@@ -416,10 +416,10 @@ mod tests {
         );
         let tests = "#[cfg(test)]\nmod access;\n// part: offers\n#[cfg(test)]\nmod offers;\n\
                      // end part: offers\n";
-        let lines = ["#[cfg(test)]".to_owned(), "mod files;".to_owned()];
+        let lines = ["#[cfg(test)]".to_owned(), "mod items;".to_owned()];
         assert_eq!(
-            sorted(tests, "files", &lines, |line| entry(line, "mod ", ";")).unwrap(),
-            "#[cfg(test)]\nmod access;\n#[cfg(test)]\nmod files;\n// part: offers\n\
+            sorted(tests, "items", &lines, |line| entry(line, "mod ", ";")).unwrap(),
+            "#[cfg(test)]\nmod access;\n#[cfg(test)]\nmod items;\n// part: offers\n\
              #[cfg(test)]\nmod offers;\n// end part: offers\n"
         );
     }
@@ -433,15 +433,15 @@ mod tests {
                     system::routes().openapi(service),\n    ])\n}\n";
 
         assert_eq!(
-            composition(root, "files").unwrap(),
-            "use crate::modules::{\n    access,\n    files,\n    realtime::{self, Realtime},\n    \
+            composition(root, "items").unwrap(),
+            "use crate::modules::{\n    access,\n    items,\n    realtime::{self, Realtime},\n    \
              system,\n};\n\nfn compose() {\n    let routes = system::routes()\n        \
-             .merge(access::routes())\n        .merge(files::routes())\n        \
+             .merge(access::routes())\n        .merge(items::routes())\n        \
              .merge(realtime::routes());\n}\n\nfn openapi() {\n    platform::http::document([\n        \
-             system::routes().openapi(service),\n        files::routes().openapi(service),\n    \
+             system::routes().openapi(service),\n        items::routes().openapi(service),\n    \
              ])\n}\n"
         );
-        assert_eq!(composition("fn compose() {}\n", "files"), None);
+        assert_eq!(composition("fn compose() {}\n", "items"), None);
     }
 
     #[test]
@@ -456,7 +456,7 @@ mod tests {
             spec_index: String::new(),
             access_matrix: String::new(),
         };
-        let names = Names::new("files", None).unwrap();
+        let names = Names::new("items", None).unwrap();
 
         let missing = match edits(&names, &inserts, |path| {
             (path != "docs/spec/README.md").then(String::new)
@@ -467,7 +467,7 @@ mod tests {
 
         assert_eq!(missing.len(), 10);
         assert!(
-            missing[0].starts_with("crates/app/src/modules/mod.rs: add `pub(crate) mod files;`")
+            missing[0].starts_with("crates/app/src/modules/mod.rs: add `pub(crate) mod items;`")
         );
     }
 

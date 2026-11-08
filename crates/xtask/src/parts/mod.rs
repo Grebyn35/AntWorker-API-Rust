@@ -5,9 +5,11 @@
 mod cache;
 mod dry_run;
 mod markers;
+mod validate;
 
 pub use dry_run::check;
 pub use markers::unmarked;
+use validate::validate;
 
 use std::{path::Path, process::ExitCode};
 
@@ -26,8 +28,9 @@ const SPECS: &str = "docs/spec/";
 /// The list of the optional parts and of `check-removable`'s runs, from the repository root.
 const LIST: &str = "crates/xtask/parts.yaml";
 
-/// The migration workspace (DOC-13), which the migration's close deletes, so a removal neither
-/// edits it nor reads it (ARCH-07).
+/// The migration workspace (DOC-13), which the migration's close deletes, so a removal reads no
+/// word of a part in it, but deletes there what a part's markers mark, such as its decisions
+/// (ARCH-07).
 const MIGRATION: [&str; 2] = ["docs/inventory/", "docs/MIGRATION.md"];
 
 /// An optional part, as `parts.yaml` lists it.
@@ -86,69 +89,6 @@ fn list(repo: &Repo) -> Result<(Vec<Part>, Vec<Run>), String> {
 /// Whether `path` is one of the migration's own documents.
 fn is_migration(path: &str) -> bool {
     MIGRATION.iter().any(|kept| path.starts_with(kept))
-}
-
-/// Fails on each marker of the repository's files that names no part, each block that no end
-/// marker closes, and each test, in a file that a part owns whole, that another module's behavior
-/// names, since the removal would take it (ARCH-07).
-fn validate(repo: &Repo, parts: &[Part]) -> Vec<Finding> {
-    let known: Vec<&str> = parts.iter().map(|part| part.name.as_str()).collect();
-    let mut findings: Vec<Finding> = repo
-        .files()
-        .filter(|file| !is_migration(&file.path))
-        .filter_map(|file| {
-            markers::owners(&file.text, &known)
-                .err()
-                .map(|(line, message)| Finding::new(&file.path, line, message))
-        })
-        .collect();
-    for part in parts {
-        let Some(module) = &part.module else {
-            continue;
-        };
-        let owned = owned(repo, part);
-        for file in repo
-            .files()
-            .filter(|file| file.path.ends_with(".rs") && owned.contains(&file.path))
-        {
-            for (index, line) in file.text.lines().enumerate() {
-                let Some(name) = line
-                    .trim_start()
-                    .strip_prefix("async fn ")
-                    .or_else(|| line.trim_start().strip_prefix("fn "))
-                else {
-                    continue;
-                };
-                if let Some(other) = behavior_module(name).filter(|other| other != module) {
-                    findings.push(Finding::new(
-                        &file.path,
-                        index + 1,
-                        format!(
-                            "a test of `{other}`'s behavior is in a file that `{}` owns, so \
-                             removing the part would remove it: move it, or prove the behavior \
-                             without the part (TEST-04)",
-                            part.name
-                        ),
-                    ));
-                }
-            }
-        }
-    }
-    findings
-}
-
-/// The module whose behavior the function `name` is named after, as `workspaces` for
-/// `workspaces_005_...`: the words before its three-digit number.
-fn behavior_module(name: &str) -> Option<String> {
-    let name: String = name
-        .chars()
-        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-        .collect();
-    let words: Vec<&str> = name.split('_').collect();
-    let number = words
-        .iter()
-        .position(|word| word.len() == 3 && word.chars().all(|c| c.is_ascii_digit()))?;
-    (number > 0 && number + 1 < words.len()).then(|| words[..number].join("_"))
 }
 
 /// The files that `part` owns whole, text or not: its paths, and its module's migrations.
@@ -297,8 +237,8 @@ pub fn remove(names: &[String]) -> ExitCode {
 }
 
 /// Deletes the files that the parts `removed` own whole, and the lines their markers mark in every
-/// other file, but the migration's documents, writing "None." in each section of a spec that it
-/// empties; returns how many files it deleted and edited.
+/// other file, writing "None." in each section of a spec that it empties; returns how many files
+/// it deleted and edited.
 fn delete(repo: &Repo, removed: &[&Part], known: &[&str]) -> Result<(usize, usize), String> {
     let removing: Vec<&str> = removed.iter().map(|part| part.name.as_str()).collect();
     let deleted: Vec<String> = removed.iter().flat_map(|part| owned(repo, part)).collect();
@@ -306,10 +246,7 @@ fn delete(repo: &Repo, removed: &[&Part], known: &[&str]) -> Result<(usize, usiz
         repo::delete(path).map_err(|error| format!("can't delete {path}: {error}"))?;
     }
     let mut edited = 0;
-    for file in repo
-        .files()
-        .filter(|file| !is_migration(&file.path) && !deleted.contains(&file.path))
-    {
+    for file in repo.files().filter(|file| !deleted.contains(&file.path)) {
         let stripped = markers::strip(&file.text, &removing, known)
             .map_err(|(line, message)| format!("{}:{line}: {message}", file.path))?;
         if let Some(text) = stripped {
@@ -556,9 +493,41 @@ mod tests {
     fn arch_07_a_test_s_module_is_the_words_before_its_behavior_s_number() {
         let names = ["client_telemetry_002_x()", "ops_15_a_restore()"];
 
-        let modules: Vec<Option<String>> = names.iter().map(|name| behavior_module(name)).collect();
+        let behaviors: Vec<Option<(String, String)>> =
+            names.iter().map(|name| validate::behavior(name)).collect();
 
-        assert_eq!(modules, [Some("client_telemetry".to_owned()), None]);
+        assert_eq!(
+            behaviors,
+            [
+                Some(("client_telemetry".to_owned(), "002".to_owned())),
+                None
+            ]
+        );
+    }
+
+    #[test]
+    fn arch_07_a_part_s_file_may_hold_the_test_of_another_spec_s_behavior_that_goes_with_it() {
+        let tests = "#[tokio::test]\nasync fn platform_013_a_job_runs() {}\n\
+                     #[tokio::test]\nasync fn platform_014_an_offer_s_job_runs() {}\n";
+        // The spec's marker is built, so the source of these tests holds none.
+        let spec = format!(
+            "| PLATFORM-013 | A job runs. | | `platform_013_` |\n\
+             | PLATFORM-014 | An offer's job runs. | | `platform_014_` <!-- {} offers --> |\n",
+            "part:"
+        );
+        let repo = Repo::of(&[
+            (LIST, "parts:\n"),
+            ("crates/app/tests/integration/offers.rs", tests),
+            ("docs/spec/platform.md", spec.as_str()),
+        ]);
+
+        let findings = validate(&repo, &[offers()]);
+
+        let places: Vec<(&str, usize)> = findings
+            .iter()
+            .map(|finding| (finding.path.as_str(), finding.line))
+            .collect();
+        assert_eq!(places, [("crates/app/tests/integration/offers.rs", 2)]);
     }
 
     /// The part `offers`, which owns no file, with its word.
@@ -607,6 +576,23 @@ mod tests {
         let places = leftover_places(&repo);
 
         assert!(places.is_empty(), "{places:?}");
+    }
+
+    #[test]
+    fn arch_07_the_migration_s_documents_hold_markers_that_name_parts() {
+        // The markers are built, so the source of these tests holds none.
+        let tracker = format!(
+            "| D1 | An offer's decision. <!-- {0} offers --> |\n| D2 | Another. <!-- {0} gone --> |\n",
+            "part:"
+        );
+        let repo = Repo::of(&[(LIST, "parts:\n"), ("docs/MIGRATION.md", tracker.as_str())]);
+
+        let findings = validate(&repo, &[offers()]);
+        let kept = markers::kept(&tracker, &["offers"], &["offers", "gone"]).unwrap();
+
+        let places: Vec<usize> = findings.iter().map(|finding| finding.line).collect();
+        assert_eq!(places, [2]);
+        assert_eq!(kept.len(), 1, "{kept:?}");
     }
 
     #[test]

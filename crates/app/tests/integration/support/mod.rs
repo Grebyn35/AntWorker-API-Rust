@@ -17,10 +17,14 @@
 
 pub mod announcements;
 pub mod api;
+// part: files
 pub mod bucket;
+// end part: files
 mod contract;
 pub mod events;
+// part: files
 pub mod files;
+// end part: files
 pub mod fixtures;
 // part: invitations
 pub mod invitations;
@@ -29,7 +33,9 @@ pub mod jobs;
 pub mod lists;
 pub mod mailbox;
 pub mod proxy;
+// part: files
 pub mod scanner;
+// end part: files
 pub mod streams;
 pub mod users;
 pub mod workspaces;
@@ -98,8 +104,10 @@ pub struct TestDatabase {
     name: String,
     settings: BootstrapConfig,
     roles: Mutex<Vec<String>>,
+    // part: files
     /// The bucket of files' bytes that the test's API uses, once it has created it.
     bucket: OnceCell<String>,
+    // end part: files
 }
 
 impl TestDatabase {
@@ -133,7 +141,9 @@ impl TestDatabase {
             name,
             settings,
             roles: Mutex::default(),
+            // part: files
             bucket: OnceCell::new(),
+            // end part: files
         };
         let mut grants = Admin::connect(&database.admin_url())
             .await
@@ -146,6 +156,7 @@ impl TestDatabase {
         database
     }
 
+    // part: files
     /// The bucket of files' bytes of the test's API, named after the database, which the first
     /// call creates, and the database's drop empties and deletes (OPS-21).
     pub async fn bucket(&self) -> String {
@@ -158,6 +169,7 @@ impl TestDatabase {
             .await
             .clone()
     }
+    // end part: files
 
     /// The database's name.
     pub fn name(&self) -> &str {
@@ -225,14 +237,14 @@ impl TestDatabase {
         let mut command = Command::new(BINARY);
         // The development origins that `.env` lists are plain `http`, which every environment
         // but development refuses (PLATFORM-058), so a test names the origins it needs.
+        command.args(args).env("CORS_ALLOWED_ORIGINS", "");
+        // part: files
         // The development bucket's endpoint is plain `http`, which production refuses
         // (PLATFORM-076), so the binary's bucket names no host (RFC 6761), which `serve` reaches
         // only when asked; a test that stores a file runs the API in process.
-        command
-            .args(args)
-            .env("CORS_ALLOWED_ORIGINS", "")
-            .env("S3_ENDPOINT", "https://bucket.invalid")
-            .envs(env.iter().map(|(name, value)| (name, value)));
+        command.env("S3_ENDPOINT", "https://bucket.invalid");
+        // end part: files
+        command.envs(env.iter().map(|(name, value)| (name, value)));
         for setting in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
             let mut url =
                 url::Url::parse(&std::env::var(setting).expect(setting)).expect("a database URL");
@@ -408,7 +420,9 @@ impl Drop for TestDatabase {
         let admin = self.settings.admin.clone();
         let name = self.name.clone();
         let roles = std::mem::take(self.roles.get_mut().unwrap_or_else(PoisonError::into_inner));
+        // part: files
         let bucket = self.bucket.take();
+        // end part: files
         // Drop can't await, so the cleanup runs on a runtime of its own.
         let dropped = std::thread::spawn(move || -> Result<(), Box<dyn Error + Send + Sync>> {
             tokio::runtime::Builder::new_current_thread()
@@ -429,9 +443,11 @@ impl Drop for TestDatabase {
                             .await?;
                     }
                     conn.close().await?;
+                    // part: files
                     if let Some(bucket) = bucket {
                         bucket::remove(&bucket).await;
                     }
+                    // end part: files
                     Ok(())
                 })
         })
@@ -617,7 +633,9 @@ fn settings() -> BootstrapConfig {
 
 /// The name of the template database, which holds the API's migrations. The first test in a
 /// process creates the roles, and creates the template unless one with the same migrations
-/// exists, all under an advisory lock that other test processes wait on.
+/// exists, all under an advisory lock that other test processes wait on. Creating it drops the
+/// templates of other migrations, so two test runs whose migrations differ, such as the
+/// repository's and a copy's without a part, fail each other's tests when they run at once.
 async fn template(settings: &BootstrapConfig) -> &'static str {
     TEMPLATE
         .get_or_init(|| async {

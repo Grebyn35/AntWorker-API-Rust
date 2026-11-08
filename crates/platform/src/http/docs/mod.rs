@@ -16,16 +16,20 @@ use utoipa::{
     },
 };
 
+// part: files
 mod downloads;
 
 pub(super) use downloads::{download, signed};
+// end part: files
 
 use super::Access;
 use crate::{
     errors::{ErrorCode, ProblemBody, RequestError},
     events::catalog::EVENT_EXTENSION,
-    signed_urls::SIGNATURE,
 };
+// part: files
+use crate::signed_urls::SIGNATURE;
+// end part: files
 
 /// The component of the event catalog, which holds every frame type (REALTIME-008).
 const FRAME: &str = "Frame";
@@ -65,8 +69,10 @@ enum Place {
     Keyed,
     /// On every operation that takes an `If-Match` (PLATFORM-071).
     Conditional,
+    // part: files
     /// On every operation that takes a signed URL (PLATFORM-080).
     Signed,
+    // end part: files
     /// Among the components' responses: the router answers it when no operation matches.
     Fallback,
 }
@@ -81,7 +87,9 @@ fn place(error: &RequestError) -> Place {
         | RequestError::IdempotencyKeyInFlight => Place::Keyed,
         RequestError::PreconditionFailed => Place::Conditional,
         RequestError::Unauthenticated | RequestError::AccessTokenExpired => Place::Authenticated,
+        // part: files
         RequestError::SignedUrlExpired => Place::Signed,
+        // end part: files
         RequestError::InvalidBody(_) | RequestError::InvalidFields(_) => Place::Body,
         RequestError::InvalidQuery(_)
         | RequestError::PayloadTooLarge
@@ -103,7 +111,9 @@ fn applies(place: &Place, method: &Method, access: Access, operation: &Operation
         Place::Workspace => matches!(access, Access::Workspace(_)),
         Place::Keyed => takes_header(operation, IDEMPOTENCY_KEY),
         Place::Conditional => takes_header(operation, IF_MATCH),
+        // part: files
         Place::Signed => query_names(operation).contains(SIGNATURE),
+        // end part: files
         Place::Fallback => false,
     }
 }

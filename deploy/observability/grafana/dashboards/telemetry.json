@@ -3,7 +3,8 @@
   "title": "Telemetry pipeline",
   "description": "Whether the API's spans, log records and metrics reach their stores: what the API failed to export, and what the collector refused, failed to pass on or decided too early.",
   "tags": [
-    "api"
+    "api",
+    "area"
   ],
   "editable": false,
   "schemaVersion": 41,

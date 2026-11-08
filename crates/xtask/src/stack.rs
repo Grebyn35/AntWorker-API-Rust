@@ -74,6 +74,11 @@ pub struct Board {
     pub editable: bool,
     /// The address of each of its links.
     pub links: Vec<String>,
+    /// Its tags.
+    pub tags: Vec<String>,
+    /// The tags of each of its links to the dashboards that carry them all, which Grafana's link of
+    /// type `dashboards` lists.
+    pub tag_links: Vec<Vec<String>>,
 }
 
 /// Every dashboard, with its panel titles and queries.
@@ -85,6 +90,17 @@ pub struct Dashboards {
     pub titles: Vec<PanelTitle>,
     /// Each query of each panel.
     pub queries: Vec<PanelQuery>,
+}
+
+/// The strings of the JSON array `value`, or none.
+fn strings(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Reads every dashboard under [`DASHBOARDS`], adding a finding for one that isn't JSON.
@@ -110,6 +126,14 @@ pub fn dashboards(repo: &Repo, findings: &mut Vec<Finding>) -> Dashboards {
                 .into_iter()
                 .flatten()
                 .filter_map(|link| link["url"].as_str().map(str::to_owned))
+                .collect(),
+            tags: strings(&board["tags"]),
+            tag_links: board["links"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|link| link["type"] == "dashboards")
+                .map(|link| strings(&link["tags"]))
                 .collect(),
         });
         let mut panels: Vec<&Value> = Vec::new();

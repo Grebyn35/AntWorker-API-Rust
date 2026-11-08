@@ -1,5 +1,8 @@
-//! The verifier of access tokens and of signed URLs' sessions, which `platform::authn` asks to
-//! prove each protected request's principal (AUTH-009, AUTH-018, AUTH-020).
+//! The verifier of access tokens, which `platform::authn` asks to prove each protected request's
+//! principal (AUTH-009, AUTH-018).
+// part: files
+//! It also proves the principal of a signed URL's session (AUTH-020).
+// end part: files
 
 use std::{collections::HashSet, sync::Arc};
 
@@ -46,6 +49,7 @@ impl SessionVerifier for Verifier {
         })
     }
 
+    // part: files
     fn session<'a>(
         &'a self,
         session: SessionId,
@@ -74,6 +78,7 @@ impl SessionVerifier for Verifier {
             Ok(principal)
         })
     }
+    // end part: files
 
     fn lasting<'a>(
         &'a self,

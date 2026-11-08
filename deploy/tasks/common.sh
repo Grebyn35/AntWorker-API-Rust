@@ -139,7 +139,11 @@ copy_release() {
     else
         rm -rf "$2/tasks"
     fi
-    for directory in caddy observability scanner tools; do
+    directories="caddy observability tools"
+    # part: files
+    directories="$directories scanner"
+    # end part: files
+    for directory in $directories; do
         sync_directory "$1/$directory" "$2/$directory"
     done
 }
@@ -227,6 +231,7 @@ read_settings() {
     whole_number DATABASE_MAX_CONNECTIONS "$pool" 1 1000
     whole_number POSTGRES_MAX_CONNECTIONS "$connections" 20 10000
     if [ -z "$(setting API_ADDRESS)" ]; then fail "API_ADDRESS is required"; fi
+    # part: files
     for name in FILES_S3_ENDPOINT FILES_S3_REGION FILES_S3_BUCKET; do
         if [ -z "$(setting "$name")" ]; then fail "$name is required, for the bucket of files' bytes (docs/operations/deploy.md#the-files-bucket)"; fi
     done
@@ -239,6 +244,7 @@ read_settings() {
     if [ -n "$(setting FILE_DELETION_DELAY_DAYS)" ]; then
         whole_number FILE_DELETION_DELAY_DAYS "$(setting FILE_DELETION_DELAY_DAYS)" 1 3657
     fi
+    # end part: files
     profiles=""
     case $database in
         bundled)
