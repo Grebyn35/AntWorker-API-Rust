@@ -119,9 +119,7 @@ impl Kind {
         self.inline
     }
 
-    /// Every kind an upload accepts, for the test that compares them with the download's
-    /// documented media types.
-    #[cfg(test)]
+    /// Every kind an upload accepts, whose media types the downloads document.
     pub(crate) fn every() -> &'static [Self] {
         KINDS
     }

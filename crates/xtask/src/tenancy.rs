@@ -5,7 +5,8 @@
 //!   `workspace_id`, or for a table that also has a `user_id`, a `user_id`, compared in its
 //!   `WHERE` or among the columns it inserts. A table of [`ADDRESSED`] is also reached by the
 //!   address of the user its rows are addressed to, which their own queries name instead. A file
-//!   of a scheduled job that spans tenants, in [`CROSS_TENANT`], is exempt.
+//!   of a scheduled job that spans tenants, in [`CROSS_TENANT`], is exempt, and so is the file of
+//!   the reads of public files by their ID alone, in [`PUBLIC_READS`].
 //! - Every other table is listed below: as account data, keyed by a user; as platform data, whose
 //!   scope columns, if any, record whom its work is for; as a module's bookkeeping of what it keeps
 //!   outside the database, which holds no tenant's data; or as the workspaces themselves.
@@ -26,7 +27,13 @@ const MIGRATIONS: &str = "migrations/";
 const CODE: [&str; 2] = ["crates/platform/src/", "crates/app/src/"];
 
 /// Tables of account data, keyed by a user (DATA-16).
-const ACCOUNT_DATA: [&str; 4] = ["users", "identities", "sessions", "device_tokens"];
+const ACCOUNT_DATA: [&str; 5] = [
+    "users",
+    "identities",
+    "sessions",
+    "device_tokens",
+    "user_files",
+];
 
 /// Tables of `platform`'s own bookkeeping (DATA-16). A job records the workspace and the user it
 /// runs for, which its handler filters by, but the queue's own queries select jobs by their state
@@ -65,6 +72,10 @@ const CROSS_TENANT: &[&str] = &[
     // end part: invitations
 ];
 
+/// The files of the reads of public files, by their ID and their visibility alone, since whoever
+/// holds a public file's ID may download it (DATA-16).
+const PUBLIC_READS: &[&str] = &["crates/app/src/modules/files/repo/public.rs"];
+
 /// The `sqlx` macros that take SQL text (DATA-14).
 const MACROS: [&str; 6] = [
     "query",
@@ -100,7 +111,9 @@ fn check_with(repo: &Repo, addressed: &[(&str, &str)], cross_tenant: &[&str]) ->
     findings.extend(placements(&tables));
     for file in repo.files() {
         let in_code = CODE.iter().any(|code| file.path.starts_with(code));
-        if !file.path.ends_with(".rs") || !in_code || cross_tenant.contains(&file.path.as_str()) {
+        let exempt = cross_tenant.contains(&file.path.as_str())
+            || PUBLIC_READS.contains(&file.path.as_str());
+        if !file.path.ends_with(".rs") || !in_code || exempt {
             continue;
         }
         match Source::read(file) {
@@ -438,6 +451,7 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
         let migrations = format!(
             "{MIGRATION}CREATE TABLE users (id uuid);\nCREATE TABLE identities (id uuid);\n\
              CREATE TABLE sessions (id uuid);\nCREATE TABLE device_tokens (id uuid);\n\
+             CREATE TABLE user_files (id uuid, user_id uuid);\n\
              CREATE TABLE rate_limit_buckets (id uuid);\n\
              CREATE TABLE idempotency_records (id uuid);\nCREATE TABLE workspaces (id uuid);\n\
              CREATE TABLE jobs (id uuid, workspace_id uuid, user_id uuid);\n\
@@ -515,7 +529,7 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
     #[test]
     fn data_16_a_listed_table_that_no_migration_creates_is_found() {
         let tables = BTreeMap::new();
-        assert_eq!(placements(&tables).len(), 11);
+        assert_eq!(placements(&tables).len(), 12);
     }
 
     #[test]

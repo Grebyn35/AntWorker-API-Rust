@@ -12,7 +12,7 @@ use utoipa::{
         Response, Schema, Type,
         extensions::Extensions,
         header::HeaderBuilder,
-        path::{Operation, ParameterIn, PathItem, Paths},
+        path::{Operation, ParameterBuilder, ParameterIn, PathItem, Paths},
     },
 };
 
@@ -20,6 +20,7 @@ use super::Access;
 use crate::{
     errors::{ErrorCode, ProblemBody, RequestError},
     events::catalog::EVENT_EXTENSION,
+    signed_urls::{EXPIRES, SESSION, SIGNATURE},
 };
 
 /// The component of the event catalog, which holds every frame type (REALTIME-008).
@@ -60,6 +61,8 @@ enum Place {
     Keyed,
     /// On every operation that takes an `If-Match` (PLATFORM-071).
     Conditional,
+    /// On every operation that takes a signed URL (PLATFORM-080).
+    Signed,
     /// Among the components' responses: the router answers it when no operation matches.
     Fallback,
 }
@@ -74,6 +77,7 @@ fn place(error: &RequestError) -> Place {
         | RequestError::IdempotencyKeyInFlight => Place::Keyed,
         RequestError::PreconditionFailed => Place::Conditional,
         RequestError::Unauthenticated | RequestError::AccessTokenExpired => Place::Authenticated,
+        RequestError::SignedUrlExpired => Place::Signed,
         RequestError::InvalidBody(_) | RequestError::InvalidFields(_) => Place::Body,
         RequestError::InvalidQuery(_)
         | RequestError::PayloadTooLarge
@@ -95,6 +99,7 @@ fn applies(place: &Place, method: &Method, access: Access, operation: &Operation
         Place::Workspace => matches!(access, Access::Workspace(_)),
         Place::Keyed => takes_header(operation, IDEMPOTENCY_KEY),
         Place::Conditional => takes_header(operation, IF_MATCH),
+        Place::Signed => query_names(operation).contains(SIGNATURE),
         Place::Fallback => false,
     }
 }
@@ -153,6 +158,109 @@ pub(super) fn document(paths: &mut Paths, access: Access, errors: &[&dyn ErrorCo
         }
     }
     queries
+}
+
+/// Documents on each operation of `paths`, a download's, what PLATFORM-081 serves besides the 200
+/// that its handler documents: a 206 of a range of its bytes, with the 200's content and
+/// `Content-Range`, and a 304, and on all three its `ETag`, and `Accept-Ranges` on the two that
+/// serve bytes. A public download's responses also document `Cache-Control`, since shared caches
+/// may keep them.
+pub(super) fn download(paths: &mut Paths, public: bool) {
+    for item in paths.paths.values_mut() {
+        for (_, operation) in operations(item) {
+            let responses = &mut operation.responses.responses;
+            let Some(RefOr::T(whole)) = responses.get("200").cloned() else {
+                continue;
+            };
+            let mut range = whole.clone();
+            range.description = "A range of the file's bytes, as `Range` asked for it.".to_owned();
+            range.headers.insert(
+                "content-range".to_owned(),
+                header("The range served, and the file's size: `bytes <first>-<last>/<size>`.")
+                    .into(),
+            );
+            let mut not_modified =
+                Response::new("Nothing: the client holds the bytes its `If-None-Match` names.");
+            for response in [&mut range, &mut not_modified] {
+                response.headers.insert(
+                    "etag".to_owned(),
+                    header("The entity tag that names the file's bytes, which never change.")
+                        .into(),
+                );
+            }
+            let mut whole = whole;
+            for response in [&mut whole, &mut range] {
+                response.headers.insert(
+                    "etag".to_owned(),
+                    header("The entity tag that names the file's bytes, which never change.")
+                        .into(),
+                );
+                response.headers.insert(
+                    "accept-ranges".to_owned(),
+                    header("`bytes`: a request may ask for one range of them.").into(),
+                );
+            }
+            if public {
+                for response in [&mut whole, &mut range, &mut not_modified] {
+                    response.headers.insert(
+                        "cache-control".to_owned(),
+                        header("How long a shared cache may keep the download.").into(),
+                    );
+                }
+            }
+            responses.insert("200".to_owned(), RefOr::T(whole));
+            responses.insert("206".to_owned(), RefOr::T(range));
+            responses.insert("304".to_owned(), RefOr::T(not_modified));
+        }
+    }
+}
+
+/// Documents on each operation of `paths` the query parameters of its signed URL, which a
+/// download route takes in place of a credential (PLATFORM-080).
+pub(super) fn signed(paths: &mut Paths) {
+    let parameters = [
+        (
+            EXPIRES,
+            ObjectBuilder::new().schema_type(Type::Integer).build(),
+            "The Unix time, in seconds, at which the signed URL stops working.",
+        ),
+        (
+            SESSION,
+            ObjectBuilder::new()
+                .schema_type(Type::String)
+                .format(Some(utoipa::openapi::SchemaFormat::KnownFormat(
+                    utoipa::openapi::KnownFormat::Uuid,
+                )))
+                .build(),
+            "The session the signed URL acts for.",
+        ),
+        (
+            SIGNATURE,
+            ObjectBuilder::new()
+                .schema_type(Type::String)
+                .min_length(Some(43))
+                .max_length(Some(43))
+                .build(),
+            "The signed URL's signature, as the API gave it. With `expires` and `session`, it authenticates the request in place of a credential.",
+        ),
+    ];
+    for item in paths.paths.values_mut() {
+        for (_, operation) in operations(item) {
+            let list = operation.parameters.get_or_insert_default();
+            for (name, schema, description) in &parameters {
+                list.push(
+                    ParameterBuilder::new()
+                        .name(*name)
+                        .parameter_in(ParameterIn::Query)
+                        .required(utoipa::openapi::Required::False)
+                        .schema(Some(schema.clone()))
+                        .description(Some(*description))
+                        .build()
+                        .into(),
+                );
+            }
+        }
+    }
 }
 
 /// Adds the rate-limit headers to each of `operation`'s responses but the 5xx: a request that

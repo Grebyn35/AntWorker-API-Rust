@@ -1,4 +1,10 @@
-//! A workspace's files (the files spec).
+//! A workspace's files (the files spec), and in its modules a user's own, the links to files'
+//! bytes, public files, and ranges of a download's bytes.
+
+mod links;
+mod own;
+mod public;
+mod ranges;
 
 use std::{sync::Arc, time::Duration};
 
@@ -132,6 +138,15 @@ async fn object_key(api: &Api, file: &str) -> String {
         ))
         .await
         .remove(0)
+}
+
+/// `file` without its links, which are signed for each caller's session (FILES-021).
+pub(crate) fn without_links(file: &Value) -> Value {
+    let mut file = file.clone();
+    let fields = file.as_object_mut().unwrap();
+    assert!(fields.remove("content_url").is_some());
+    assert!(fields.remove("content_url_expires_at").is_some());
+    file
 }
 
 /// Each audit entry of `action`, as its log, workspace, actor, resource and details.
@@ -268,7 +283,8 @@ async fn files_001_a_retry_with_the_key_stores_one_file() {
 
     assert_eq!(first.status, 201);
     assert_eq!(retry.status, 201);
-    assert_eq!(retry.json(), first.json());
+    // The retry's links are made for it, so their time may be a later second's (FILES-021).
+    assert_eq!(without_links(&retry.json()), without_links(&first.json()));
     assert_eq!(retry.header("location"), first.header("location"));
     assert_eq!(other.status, 422);
     assert_eq!(other.json()["code"], "request.idempotency_key_reused");
@@ -820,7 +836,12 @@ async fn files_008_reading_a_file_gives_it() {
         .await;
 
     assert_eq!(read.status, 200);
-    assert_eq!(read.json(), uploaded);
+    // The links are signed for each caller's session (FILES-021).
+    let read = read.json();
+    assert_eq!(without_links(&read), without_links(&uploaded));
+    let path = format!("/v1/workspaces/{workspace}/files/{id}/content?");
+    assert!(read["content_url"].as_str().unwrap().starts_with(&path));
+    assert_ne!(read["content_url"], uploaded["content_url"]);
 }
 
 #[tokio::test]
@@ -1064,11 +1085,14 @@ async fn files_010_a_member_may_not_delete_and_the_owner_may() {
 
 #[tokio::test]
 async fn files_011_the_comparison_records_each_object_no_row_names_written_an_hour_ago() {
-    // The bucket lists three objects: two written long ago, one of which a row names, and one
-    // written later than the database's clock reads now, as one whose upload may still commit.
+    // The bucket lists five objects: four written long ago, of each prefix, one of which a
+    // workspace's row names and one a user's, and one written later than the database's clock
+    // reads now, as one whose upload may still commit.
     let bucket = bucket::listing(&[
         ("workspaces/settled", "2020-01-01T00:00:00.000Z"),
         ("workspaces/named", "2020-01-01T00:00:00.000Z"),
+        ("users/settled", "2020-01-01T00:00:00.000Z"),
+        ("users/named", "2020-01-01T00:00:00.000Z"),
         ("workspaces/recent", "2999-01-01T00:00:00.000Z"),
     ])
     .await;
@@ -1078,25 +1102,34 @@ async fn files_011_the_comparison_records_each_object_no_row_names_written_an_ho
             .set("FILE_DELETION_DELAY_DAYS", 3),
     )
     .await;
-    let (workspace, _, _) = acme(&api, "member").await;
+    let (workspace, ada, _) = acme(&api, "member").await;
     let db = api.database();
     db.owner_executes(&format!(
-        "INSERT INTO workspace_files (workspace_id, name, media_type, size_bytes, object_key) \
-         VALUES ('{workspace}', 'Named', 'text/plain; charset=utf-8', 5, 'workspaces/named')"
+        "INSERT INTO workspace_files \
+         (workspace_id, name, media_type, size_bytes, visibility, object_key) \
+         VALUES ('{workspace}', 'Named', 'text/plain; charset=utf-8', 5, 'private', \
+         'workspaces/named')"
+    ))
+    .await;
+    db.owner_executes(&format!(
+        "INSERT INTO user_files (user_id, name, media_type, size_bytes, visibility, object_key) \
+         VALUES ('{}', 'Named', 'text/plain; charset=utf-8', 5, 'private', 'users/named')",
+        ada.user_id
     ))
     .await;
 
     api.run_periodic("files.find_unreferenced_objects").await;
 
-    // Recorded 3 days from now, by the database's clock, and only the settled object no row
+    // Recorded 3 days from now, by the database's clock, and only the settled objects no row
     // names.
     assert_eq!(
         db.owner_reads(
             "SELECT object_key || ' ' || (deletable_at - now() BETWEEN interval '3 days' - \
-             interval '1 minute' AND interval '3 days') FROM object_deletions"
+             interval '1 minute' AND interval '3 days') FROM object_deletions \
+             ORDER BY object_key"
         )
         .await,
-        ["workspaces/settled true"]
+        ["users/settled true", "workspaces/settled true"]
     );
     // A later run keeps the time it recorded.
     db.owner_executes("UPDATE object_deletions SET deletable_at = now() + interval '1 hour'")
@@ -1107,7 +1140,7 @@ async fn files_011_the_comparison_records_each_object_no_row_names_written_an_ho
             "SELECT (deletable_at < now() + interval '2 hours')::text FROM object_deletions"
         )
         .await,
-        ["true"]
+        ["true", "true"]
     );
 }
 

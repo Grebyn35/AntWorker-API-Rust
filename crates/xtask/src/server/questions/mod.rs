@@ -409,11 +409,12 @@ mod tests {
     /// call for, in the file's order, so a setting added there adds an answer here.
     const NEW_SERVER: &[&str] = &[
         // IMAGE_REPOSITORY, SOURCE, API_ADDRESS, then Enter for the rest of the settings,
-        // until Grafana's address: TRUSTED_PROXIES, CORS_ALLOWED_ORIGINS, the two rate limits,
+        // until Grafana's address: TRUSTED_PROXIES, CORS_ALLOWED_ORIGINS, the three rate limits,
         // the replicas', DATABASE, POSTGRES_MAX_CONNECTIONS and TELEMETRY.
         "",
         "",
         "api.example.com",
+        "",
         "",
         "",
         "",
@@ -701,6 +702,7 @@ mod tests {
             "",
             "",
             "api.example.com",
+            "",
             "",
             "",
             "",

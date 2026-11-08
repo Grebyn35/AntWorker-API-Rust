@@ -83,7 +83,7 @@ Public files never expose their original file name (D7).
 - Check: `test`.
 
 ### SEC-12 Security headers on every response
-Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. Authenticated responses carry `Cache-Control: no-store`, except public files. The reverse proxy in front of the API terminates TLS and sets HTTP Strict Transport Security (HSTS).
+Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`, and `Cache-Control: no-store`, except a public file's download, which needs no credential and holds no name, and which shared caches may keep for 5 minutes (FILES-023). The reverse proxy in front of the API terminates TLS and sets HTTP Strict Transport Security (HSTS).
 - Why: browser-level defenses are on by default.
 - Check: `test`.
 

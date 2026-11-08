@@ -1,6 +1,7 @@
 //! Authentication: the `Principal` of a request, which the `SessionVerifier` that `auth`
 //! implements proves from the request's access token, read from the `Authorization` header or a
-//! browser's cookie (D18, D61), and the audit scope a proof gives an entry.
+//! browser's cookie (D18, D61), or, on a download route, from the session that its signed URL
+//! names (PLATFORM-080, D113), and the audit scope a proof gives an entry.
 
 use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
 
@@ -13,9 +14,13 @@ use axum::{
 use crate::{
     db::UnitOfWork,
     errors::{Internal, Problem, RequestError},
-    http::Cookies,
+    http::{
+        Cookies,
+        signed::{self, Presented, TakesSignedUrl},
+    },
     jobs::JobScope,
     rate_limit::{Bucket, LimitError, RateLimits},
+    signed_urls::SignedUrls,
     telemetry::names,
     types::{Client, SessionId, UserId, WorkspaceId},
 };
@@ -135,12 +140,12 @@ impl AuditScope {
     }
 }
 
-/// Why an access token proves no principal.
+/// Why an access token, or a signed URL's session, proves no principal.
 #[derive(Debug)]
 pub enum Unverified {
-    /// No session has the token.
+    /// No session has the token, or the signed URL's session doesn't last.
     Unknown,
-    /// The session's access token has expired.
+    /// The session's access token has expired, or the signed URL's time has passed.
     Expired,
     /// The check failed.
     Failed(Internal),
@@ -160,6 +165,17 @@ pub trait SessionVerifier: Send + Sync {
         client: &'a Client,
     ) -> BoxFuture<'a, Result<Principal, Unverified>>;
 
+    /// The principal of the session `session`, while it lasts, for a signed URL that acts for it
+    /// until `until`, for a request from `client`: [`Unverified::Expired`] once `until` has
+    /// passed, by the database's clock (DATA-03), and [`Unverified::Unknown`] for a session
+    /// that doesn't last (AUTH-020).
+    fn session<'a>(
+        &'a self,
+        session: SessionId,
+        until: time::OffsetDateTime,
+        client: &'a Client,
+    ) -> BoxFuture<'a, Result<Principal, Unverified>>;
+
     /// The sessions of `principals` that still last, read inside `uow`: those that can still be
     /// refreshed, for the hub's re-check of its streams (SEC-06).
     fn lasting<'a>(
@@ -169,11 +185,14 @@ pub trait SessionVerifier: Send + Sync {
     ) -> BoxFuture<'a, Result<HashSet<SessionId>, Internal>>;
 }
 
-/// What authenticating a request takes: the verifier, and the user's rate-limit bucket.
+/// What authenticating a request takes: the verifier, the checker of signed URLs, and the
+/// user's rate-limit bucket.
 #[derive(Clone)]
 pub struct Authenticator {
     /// The verifier of access tokens.
     pub verifier: Arc<dyn SessionVerifier>,
+    /// The checker of downloads' signed URLs (PLATFORM-080).
+    pub signed: SignedUrls,
     /// The bucket of each user's requests (PLATFORM-054).
     pub user_bucket: Bucket,
 }
@@ -185,17 +204,39 @@ impl<S: Send + Sync> FromRequestParts<S> for Principal {
         let Some(authenticator) = parts.extensions.get::<Authenticator>().cloned() else {
             return Err(internal("the request carries no authenticator"));
         };
-        let token = token(parts).map_err(rejection)?;
-        let client = Client::from_request_parts(parts, state).await?;
-        let principal = authenticator
-            .verifier
-            .verify(&token, &client)
-            .await
-            .map_err(|unverified| match unverified {
-                Unverified::Unknown => rejection(RequestError::Unauthenticated),
-                Unverified::Expired => rejection(RequestError::AccessTokenExpired),
-                Unverified::Failed(error) => Problem(error).into_response(),
-            })?;
+        let presented = if parts.extensions.get::<TakesSignedUrl>().is_some() {
+            signed::presented(parts)
+        } else {
+            Presented::None
+        };
+        let principal = match presented {
+            Presented::None => {
+                let token = token(parts).map_err(rejection)?;
+                let client = Client::from_request_parts(parts, state).await?;
+                authenticator
+                    .verifier
+                    .verify(&token, &client)
+                    .await
+                    .map_err(|unverified| {
+                        unverified_rejection(unverified, RequestError::AccessTokenExpired)
+                    })?
+            }
+            Presented::Malformed => return Err(rejection(RequestError::Unauthenticated)),
+            Presented::Signed(signature) => {
+                let until = signature
+                    .expires_at()
+                    .filter(|_| authenticator.signed.matches(parts.uri.path(), &signature))
+                    .ok_or_else(|| rejection(RequestError::Unauthenticated))?;
+                let client = Client::from_request_parts(parts, state).await?;
+                authenticator
+                    .verifier
+                    .session(signature.session(), until, &client)
+                    .await
+                    .map_err(|unverified| {
+                        unverified_rejection(unverified, RequestError::SignedUrlExpired)
+                    })?
+            }
+        };
         // The request's span carries the caller the session proved (OBS-09).
         tracing::Span::current().record(names::USER_ID, principal.user_id.to_string());
         let limits = RateLimits::from_request_parts(parts, state).await?;
@@ -231,6 +272,16 @@ fn token(parts: &Parts) -> Result<String, RequestError> {
 
 fn rejection(error: RequestError) -> Response {
     Problem(error).into_response()
+}
+
+/// The answer to a credential that proves no principal, `expired` being the one for a credential
+/// past its time.
+fn unverified_rejection(unverified: Unverified, expired: RequestError) -> Response {
+    match unverified {
+        Unverified::Unknown => rejection(RequestError::Unauthenticated),
+        Unverified::Expired => rejection(expired),
+        Unverified::Failed(error) => Problem(error).into_response(),
+    }
 }
 
 fn internal(reason: &'static str) -> Response {

@@ -116,12 +116,14 @@ Tenancy is enforced by the application, and every query on user or workspace dat
   - before sign-in, by the token or the sign-in email
   - when inviting, by the invitee's email <!-- part: invitations -->
   - in the setup subcommand, by its owner's email
+  - for a signed URL, of its session by the ID that its signature proves the API gave (PLATFORM-080)
 - Rows addressed to a user by an email address are filtered by the caller's email.
 
 A row ID alone never addresses tenant data. These reads are exempt:
 - batch reads by IDs that came from a query filtered by tenant in the calling module: of display data, such as names, for example a workspace's member list, or of which of those IDs match a search, as `accounts::matching` and `workspaces::matching` find them (API-20)
 - the position of the event that a stream's `Last-Event-ID` names, read by the event's ID alone, so a client resumes after the last event it received even from a workspace it has since left; the replay after that position filters by tenant, and the lookup tells a caller only whether an event ID it holds names an event, which a UUIDv7's random bits keep anyone from guessing (REALTIME-004)
 - scheduled jobs that span tenants, which select rows by their own criteria, such as expiry
+- a public file's download, which reads its row by its ID and its visibility alone, since whoever holds a public file's ID may read it ([files spec](../spec/files.md#visibility))
 - Why: there is no row-level security, so the application's filters are the only guard between tenants, and they are checked by machine and by test (D4).
 - Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, unless it belongs to a listed cross-tenant job, and every other table is listed), `test` (TEST-08 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
 

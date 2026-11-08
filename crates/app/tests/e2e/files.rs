@@ -51,27 +51,61 @@ async fn files_001_the_deployed_api_stores_a_file_in_its_bucket_and_serves_it_ba
     let (uploaded, file) = upload(&workspace, "notes.txt", b"stored in the bucket".to_vec());
 
     assert_eq!(uploaded, 201, "{file}");
-    let id = serde_json::from_str::<Value>(&file).unwrap()["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let file = serde_json::from_str::<Value>(&file).unwrap();
+    let id = file["id"].as_str().unwrap().to_owned();
+    let signed = file["content_url"].as_str().unwrap().to_owned();
     let Workspace { root, files, token } = workspace;
-    let (downloaded, bytes) = thread::spawn(move || {
-        let response = streaming_client(&root, ANSWER)
+    let (downloaded, bytes, ranged, rest, unsigned, from_link) = thread::spawn(move || {
+        let client = streaming_client(&root, ANSWER);
+        let response = client
             .get(format!("{files}/{id}/content"))
-            .bearer_auth(token)
+            .bearer_auth(&token)
             .send()
             .expect("an answer");
-        (
+        let downloaded = (
             response.status().as_u16(),
             response.text().expect("the body"),
+        );
+        // The proxy passes a range, and a signed URL's path and query, as they came
+        // (PLATFORM-081, FILES-022).
+        let response = client
+            .get(format!("{files}/{id}/content"))
+            .bearer_auth(&token)
+            .header("range", "bytes=10-")
+            .send()
+            .expect("an answer");
+        let ranged = (
+            response.status().as_u16(),
+            response.text().expect("the body"),
+        );
+        // A link is a path after the API's address, which the files' address begins with.
+        let address = &files[..files.find("/v1/").expect("the files' path")];
+        let response = client
+            .get(format!("{address}{signed}"))
+            .send()
+            .expect("an answer");
+        let from_link = (
+            response.status().as_u16(),
+            response.text().expect("the body"),
+        );
+        (
+            downloaded.0,
+            downloaded.1,
+            ranged.0,
+            ranged.1,
+            from_link.0,
+            from_link.1,
         )
     })
     .join()
-    .expect("the download");
+    .expect("the downloads");
 
     assert_eq!(downloaded, 200, "{bytes}");
     assert_eq!(bytes, "stored in the bucket");
+    assert_eq!(ranged, 206, "{rest}");
+    assert_eq!(rest, "in the bucket");
+    assert_eq!(unsigned, 200, "{from_link}");
+    assert_eq!(from_link, "stored in the bucket");
 }
 
 #[tokio::test]

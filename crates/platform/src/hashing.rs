@@ -43,6 +43,16 @@ impl HmacKey {
         mac.update(value);
         mac.finalize().into_bytes().into()
     }
+
+    /// Whether `tag` is the keyed hash of `value` as a value of `kind`, compared in constant
+    /// time, so a wrong tag's answer tells nothing of the right one.
+    pub fn verify(&self, kind: &str, value: &[u8], tag: &[u8]) -> bool {
+        let mut mac = self.0.clone();
+        mac.update(kind.as_bytes());
+        mac.update(&[0]);
+        mac.update(value);
+        mac.verify_slice(tag).is_ok()
+    }
 }
 
 impl fmt::Debug for HmacKey {

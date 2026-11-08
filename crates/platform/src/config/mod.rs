@@ -22,7 +22,7 @@ use error::Problem;
 
 use ipnet::IpNet;
 
-pub use web::Origin;
+pub use web::{Origin, RateLimitConfig};
 
 use crate::{
     db::DatabaseUrl, hashing::HmacKey, mail::MailConfig, scanner::ScannerConfig,
@@ -130,17 +130,6 @@ pub struct ServerConfig {
     pub scanner: ScannerConfig,
     /// How often the hub re-checks each open stream's session and memberships (PLATFORM-031).
     pub stream_recheck: Duration,
-}
-
-/// The limits on the requests of one client IP, and of one user (PLATFORM-054).
-#[derive(Clone, Copy, Debug)]
-pub struct RateLimitConfig {
-    /// How many requests one client IP may send in a window.
-    pub ip_requests: u32,
-    /// How many requests one user may send in a window.
-    pub user_requests: u32,
-    /// The window's length.
-    pub window: Duration,
 }
 
 /// The settings `health` reads.
@@ -302,6 +291,7 @@ where
             cors_allowed_origins: self.origins()?,
             rate_limits: RateLimitConfig {
                 ip_requests: self.number("RATE_LIMIT_IP_REQUESTS", 600, 1..=1_000_000)?,
+                public_requests: self.number("RATE_LIMIT_PUBLIC_REQUESTS", 1_200, 1..=1_000_000)?,
                 user_requests: self.number("RATE_LIMIT_USER_REQUESTS", 300, 1..=1_000_000)?,
                 window: self.duration("RATE_LIMIT_WINDOW_SECONDS", 60, 1..=86_400)?,
             },

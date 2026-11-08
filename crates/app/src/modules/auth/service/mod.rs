@@ -1,11 +1,10 @@
-//! Registration, sign-in, refresh and sign-out, and the verifier of access tokens. Each operation
-//! opens its own unit of work, after any per-action limit it counts first.
-
-use std::{collections::HashSet, sync::Arc};
+//! Registration, sign-in, refresh and sign-out, and, in `verifier.rs`, the verifier of access
+//! tokens and sessions. Each operation opens its own unit of work, after any per-action limit it
+//! counts first.
 
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use platform::{
-    authn::{AuditScope, BoxFuture, Principal, SessionVerifier, Unverified},
+    authn::{AuditScope, Principal},
     blocking::Workers,
     db::{Database, UnitOfWork},
     errors::Internal,
@@ -17,6 +16,9 @@ use platform::{
 };
 
 mod devices;
+mod verifier;
+
+pub(crate) use verifier::Verifier;
 
 use super::{
     audit,
@@ -434,51 +436,4 @@ async fn verify(
         })
         .await
         .map_err(Internal::new)
-}
-
-/// Proves the principal of an access token for `platform::authn` (AUTH-009).
-pub(crate) struct Verifier(pub(crate) Arc<Auth>);
-
-impl SessionVerifier for Verifier {
-    fn verify<'a>(
-        &'a self,
-        token: &'a str,
-        client: &'a Client,
-    ) -> BoxFuture<'a, Result<Principal, Unverified>> {
-        Box::pin(async move {
-            let mut uow = self
-                .0
-                .database
-                .begin(client)
-                .await
-                .map_err(Unverified::Failed)?;
-            let found = repo::by_access_token(&mut uow, &sha256(token.as_bytes()))
-                .await
-                .map_err(Unverified::Failed)?
-                .ok_or(Unverified::Unknown)?;
-            if found.expired {
-                return Err(Unverified::Expired);
-            }
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "auth builds the principal of a verified session (the auth spec)"
-            )]
-            let principal = Principal::new(found.user_id, found.id);
-            Ok(principal)
-        })
-    }
-
-    fn lasting<'a>(
-        &'a self,
-        uow: &'a mut UnitOfWork,
-        principals: &'a [Principal],
-    ) -> BoxFuture<'a, Result<HashSet<SessionId>, Internal>> {
-        Box::pin(async move {
-            let sessions: Vec<(UserId, SessionId)> = principals
-                .iter()
-                .map(|principal| (principal.user_id(), principal.session_id()))
-                .collect();
-            Ok(repo::lasting(uow, &sessions).await?.into_iter().collect())
-        })
-    }
 }

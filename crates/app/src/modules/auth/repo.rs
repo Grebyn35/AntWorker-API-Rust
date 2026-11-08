@@ -241,6 +241,25 @@ pub(super) async fn lasting(
     Ok(lasting.into_iter().map(SessionId::from_uuid).collect())
 }
 
+/// The user of the session `id`, if it lasts, as [`lasting`] decides, and whether `until`, a
+/// signed URL's time, has passed, by the database's clock (AUTH-020, DATA-03). The session's ID
+/// is one that a signed URL's signature proves the API gave (DATA-16).
+pub(super) async fn lasting_session(
+    uow: &mut UnitOfWork,
+    id: SessionId,
+    until: time::OffsetDateTime,
+) -> Result<Option<(UserId, bool)>, Internal> {
+    let row = sqlx::query!(
+        r#"SELECT user_id, $2::timestamptz <= now() AS "passed!" FROM sessions
+        WHERE id = $1 AND refresh_token_expires_at > now() AND expires_at > now()"#,
+        id.uuid(),
+        until,
+    )
+    .fetch_optional(uow.executor())
+    .await?;
+    Ok(row.map(|row| (UserId::from_uuid(row.user_id), row.passed)))
+}
+
 /// The session whose access token hashes to `hash`, and whether that token has expired.
 pub(super) async fn by_access_token(
     uow: &mut UnitOfWork,

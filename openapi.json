@@ -173,6 +173,21 @@
       "File": {
         "description": "A file of a workspace, as its routes answer it (FILES-001, FILES-008).",
         "properties": {
+          "content_url": {
+            "description": "The path of its bytes, after the API's address: its public download for a public file,\nand its download, signed for the caller's session, for a private one (FILES-021).",
+            "type": "string"
+          },
+          "content_url_expires_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp",
+                "description": "When `content_url` stops working, an hour after the response was made, or null for a\npublic file's, which never does (FILES-021)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "$ref": "#/components/schemas/Timestamp",
             "description": "When it was uploaded."
@@ -207,6 +222,10 @@
               }
             ]
           },
+          "visibility": {
+            "$ref": "#/components/schemas/Visibility",
+            "description": "Who may download it (FILES-020)."
+          },
           "workspace_id": {
             "$ref": "#/components/schemas/WorkspaceId",
             "description": "The workspace it belongs to."
@@ -218,6 +237,8 @@
           "name",
           "media_type",
           "size_bytes",
+          "visibility",
+          "content_url",
           "created_at"
         ],
         "type": "object"
@@ -373,6 +394,12 @@
             "$ref": "#/components/schemas/StreamOpenedFrame"
           },
           {
+            "$ref": "#/components/schemas/UserFileDeletedFrame"
+          },
+          {
+            "$ref": "#/components/schemas/UserFileUploadedFrame"
+          },
+          {
             "$ref": "#/components/schemas/WorkspaceRenamedFrame"
           }
         ]
@@ -514,6 +541,21 @@
             "items": {
               "description": "A file of a workspace, as its routes answer it (FILES-001, FILES-008).",
               "properties": {
+                "content_url": {
+                  "description": "The path of its bytes, after the API's address: its public download for a public file,\nand its download, signed for the caller's session, for a private one (FILES-021).",
+                  "type": "string"
+                },
+                "content_url_expires_at": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Timestamp",
+                      "description": "When `content_url` stops working, an hour after the response was made, or null for a\npublic file's, which never does (FILES-021)."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "created_at": {
                   "$ref": "#/components/schemas/Timestamp",
                   "description": "When it was uploaded."
@@ -548,6 +590,10 @@
                     }
                   ]
                 },
+                "visibility": {
+                  "$ref": "#/components/schemas/Visibility",
+                  "description": "Who may download it (FILES-020)."
+                },
                 "workspace_id": {
                   "$ref": "#/components/schemas/WorkspaceId",
                   "description": "The workspace it belongs to."
@@ -559,6 +605,8 @@
                 "name",
                 "media_type",
                 "size_bytes",
+                "visibility",
+                "content_url",
                 "created_at"
               ],
               "type": "object"
@@ -674,6 +722,89 @@
                 "inviter_name",
                 "role",
                 "expires_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "description": "The cursor of the next page, which `cursor` takes, or `null` on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "List_UserFile": {
+        "description": "A page of items, and the cursor of the next page, or `null` on the last (API-05).",
+        "properties": {
+          "items": {
+            "description": "The page's items.",
+            "items": {
+              "description": "A file of the caller's own, as its routes answer it (FILES-016, FILES-018).",
+              "properties": {
+                "content_url": {
+                  "description": "The path of its bytes, after the API's address: its public download for a public file,\nand its download, signed for the caller's session, for a private one (FILES-021).",
+                  "type": "string"
+                },
+                "content_url_expires_at": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Timestamp",
+                      "description": "When `content_url` stops working, an hour after the response was made, or null for a\npublic file's, which never does (FILES-021)."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "created_at": {
+                  "$ref": "#/components/schemas/Timestamp",
+                  "description": "When it was uploaded."
+                },
+                "id": {
+                  "description": "The file's ID.",
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "media_type": {
+                  "description": "The media type of its kind (FILES-003).",
+                  "type": "string"
+                },
+                "name": {
+                  "$ref": "#/components/schemas/FileName",
+                  "description": "Its name."
+                },
+                "size_bytes": {
+                  "description": "Its size, in bytes.",
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "user_id": {
+                  "$ref": "#/components/schemas/UserId",
+                  "description": "The user whose file it is: the caller."
+                },
+                "visibility": {
+                  "$ref": "#/components/schemas/Visibility",
+                  "description": "Who may download it (FILES-020)."
+                }
+              },
+              "required": [
+                "id",
+                "user_id",
+                "name",
+                "media_type",
+                "size_bytes",
+                "visibility",
+                "content_url",
+                "created_at"
               ],
               "type": "object"
             },
@@ -1436,8 +1567,186 @@
         "format": "date-time",
         "type": "string"
       },
+      "UserFile": {
+        "description": "A file of the caller's own, as its routes answer it (FILES-016, FILES-018).",
+        "properties": {
+          "content_url": {
+            "description": "The path of its bytes, after the API's address: its public download for a public file,\nand its download, signed for the caller's session, for a private one (FILES-021).",
+            "type": "string"
+          },
+          "content_url_expires_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp",
+                "description": "When `content_url` stops working, an hour after the response was made, or null for a\npublic file's, which never does (FILES-021)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp",
+            "description": "When it was uploaded."
+          },
+          "id": {
+            "description": "The file's ID.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "media_type": {
+            "description": "The media type of its kind (FILES-003).",
+            "type": "string"
+          },
+          "name": {
+            "$ref": "#/components/schemas/FileName",
+            "description": "Its name."
+          },
+          "size_bytes": {
+            "description": "Its size, in bytes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "user_id": {
+            "$ref": "#/components/schemas/UserId",
+            "description": "The user whose file it is: the caller."
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/Visibility",
+            "description": "Who may download it (FILES-020)."
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "name",
+          "media_type",
+          "size_bytes",
+          "visibility",
+          "content_url",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "UserFileChanged": {
+        "description": "The payload of each event of a user's own file: which file changed, which a client reads\nthrough its route, since a name is personal data (API-19).",
+        "properties": {
+          "file_id": {
+            "description": "The file.",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id"
+        ],
+        "type": "object"
+      },
+      "UserFileDeletedFrame": {
+        "description": "`user_file.deleted`, a user event: it reaches its user's streams.",
+        "properties": {
+          "data": {
+            "contentMediaType": "application/json",
+            "contentSchema": {
+              "properties": {
+                "data": {
+                  "$ref": "#/components/schemas/UserFileChanged"
+                },
+                "trace_id": {
+                  "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "data",
+                "trace_id"
+              ],
+              "type": "object"
+            },
+            "description": "JSON: the payload, and the trace ID of what sent it (REALTIME-002).",
+            "type": "string"
+          },
+          "event": {
+            "enum": [
+              "user_file.deleted"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "description": "What a client that reconnects names in `Last-Event-ID` (REALTIME-004).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "data",
+          "id"
+        ],
+        "type": "object",
+        "x-event": "user_file.deleted"
+      },
+      "UserFileUploadedFrame": {
+        "description": "`user_file.uploaded`, a user event: it reaches its user's streams.",
+        "properties": {
+          "data": {
+            "contentMediaType": "application/json",
+            "contentSchema": {
+              "properties": {
+                "data": {
+                  "$ref": "#/components/schemas/UserFileChanged"
+                },
+                "trace_id": {
+                  "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "data",
+                "trace_id"
+              ],
+              "type": "object"
+            },
+            "description": "JSON: the payload, and the trace ID of what sent it (REALTIME-002).",
+            "type": "string"
+          },
+          "event": {
+            "enum": [
+              "user_file.uploaded"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "description": "What a client that reconnects names in `Last-Event-ID` (REALTIME-004).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "data",
+          "id"
+        ],
+        "type": "object",
+        "x-event": "user_file.uploaded"
+      },
       "UserId": {
         "format": "uuid",
+        "type": "string"
+      },
+      "Visibility": {
+        "description": "Who may download a file: those who may read it, or anyone (FILES-020).",
+        "enum": [
+          "private",
+          "public"
+        ],
         "type": "string"
       },
       "Workspace": {
@@ -1788,6 +2097,1074 @@
         "summary": "Lists the features a deployment can turn off, and whether each one is on.",
         "tags": [
           "system"
+        ],
+        "x-access": "public"
+      }
+    },
+    "/v1/public/user-files/{file_id}": {
+      "get": {
+        "operationId": "download_public_user_file",
+        "parameters": [
+          {
+            "description": "The public file.",
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/markdown": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The file's bytes, as its media type.",
+            "headers": {
+              "accept-ranges": {
+                "description": "`bytes`: a request may ask for one range of them.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "cache-control": {
+                "description": "How long a shared cache may keep the download.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-disposition": {
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-security-policy": {
+                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "etag": {
+                "description": "The entity tag that names the file's bytes, which never change.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "206": {
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/markdown": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A range of the file's bytes, as `Range` asked for it.",
+            "headers": {
+              "accept-ranges": {
+                "description": "`bytes`: a request may ask for one range of them.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "cache-control": {
+                "description": "How long a shared cache may keep the download.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-disposition": {
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-range": {
+                "description": "The range served, and the file's size: `bytes <first>-<last>/<size>`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-security-policy": {
+                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "etag": {
+                "description": "The entity tag that names the file's bytes, which never change.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Nothing: the client holds the bytes its `If-None-Match` names.",
+            "headers": {
+              "cache-control": {
+                "description": "How long a shared cache may keep the download.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "etag": {
+                "description": "The entity tag that names the file's bytes, which never change.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "files.not_found"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`files.not_found`: File not found.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable",
+                            "files.storage_unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer. `files.storage_unavailable`: Storage unavailable.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Downloads a public file of a user's own, without signing in: its bytes, or a range of them,\nwithout its name, served so that a browser can't run them, which shared caches may keep for 5\nminutes.",
+        "tags": [
+          "files"
+        ],
+        "x-access": "public"
+      }
+    },
+    "/v1/public/workspace-files/{file_id}": {
+      "get": {
+        "operationId": "download_public_workspace_file",
+        "parameters": [
+          {
+            "description": "The public file.",
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/markdown": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The file's bytes, as its media type.",
+            "headers": {
+              "accept-ranges": {
+                "description": "`bytes`: a request may ask for one range of them.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "cache-control": {
+                "description": "How long a shared cache may keep the download.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-disposition": {
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-security-policy": {
+                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "etag": {
+                "description": "The entity tag that names the file's bytes, which never change.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "206": {
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/markdown": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A range of the file's bytes, as `Range` asked for it.",
+            "headers": {
+              "accept-ranges": {
+                "description": "`bytes`: a request may ask for one range of them.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "cache-control": {
+                "description": "How long a shared cache may keep the download.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-disposition": {
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-range": {
+                "description": "The range served, and the file's size: `bytes <first>-<last>/<size>`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-security-policy": {
+                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "etag": {
+                "description": "The entity tag that names the file's bytes, which never change.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Nothing: the client holds the bytes its `If-None-Match` names.",
+            "headers": {
+              "cache-control": {
+                "description": "How long a shared cache may keep the download.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "etag": {
+                "description": "The entity tag that names the file's bytes, which never change.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "files.not_found"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`files.not_found`: File not found.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable",
+                            "files.storage_unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer. `files.storage_unavailable`: Storage unavailable.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Downloads a public file of a workspace, without signing in: its bytes, or a range of them,\nwithout its name, served so that a browser can't run them, which shared caches may keep for 5\nminutes.",
+        "tags": [
+          "files"
         ],
         "x-access": "public"
       }
@@ -3303,6 +4680,1981 @@
         "summary": "Opens the caller's stream of events: their own, and those of their workspaces that their role\nmay receive, in the order they committed. A client that reconnects names the last event it\nreceived in `Last-Event-ID`, and receives every event after it first.",
         "tags": [
           "realtime"
+        ],
+        "x-access": "user"
+      }
+    },
+    "/v1/users/me/files": {
+      "get": {
+        "operationId": "list_own_files",
+        "parameters": [
+          {
+            "description": "How many files a page holds.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The `next_cursor` of the page before.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 38,
+              "minLength": 38,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the files whose name contains this, ignoring case (API-20).",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/List_UserFile"
+                }
+              }
+            },
+            "description": "A page of the caller's own files.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.unauthenticated",
+                            "request.access_token_expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Lists the caller's own files, the latest uploaded first.",
+        "tags": [
+          "files"
+        ],
+        "x-access": "user"
+      },
+      "post": {
+        "operationId": "upload_own_file",
+        "parameters": [
+          {
+            "description": "Who may download the file: `private`, those who may read it, unless it is `public`,\nanyone, without signing in (FILES-020).",
+            "in": "query",
+            "name": "visibility",
+            "required": false,
+            "schema": {
+              "description": "Who may download a file: those who may read it, or anyone (FILES-020).",
+              "enum": [
+                "private",
+                "public"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "The file's name, as `filename*`, encoded as RFC 8187 says, or `filename`, such as `attachment; filename*=UTF-8''report.pdf` (FILES-002).",
+            "in": "header",
+            "name": "Content-Disposition",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A key of the caller's own, as a quoted string, so a retry stores nothing twice (API-12).",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "pattern": "^ *\"(?:[ !#-\\[\\]-~]|\\\\[\"\\\\]){1,255}\" *$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "$ref": "#/components/schemas/FileBytes"
+              }
+            }
+          },
+          "description": "The file's bytes, at most `FILE_MAX_BYTES` (FILES-004). Its kind comes from its name's extension and its bytes alone (FILES-003).",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserFile"
+                }
+              }
+            },
+            "description": "The new file.",
+            "headers": {
+              "location": {
+                "description": "The new file: `/v1/users/me/files/{id}`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query",
+                            "request.invalid_body",
+                            "request.invalid_fields",
+                            "request.invalid_idempotency_key",
+                            "files.invalid_name",
+                            "files.empty"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query. `request.invalid_body`: Invalid body. `request.invalid_fields`: Invalid fields. `request.invalid_idempotency_key`: Invalid idempotency key. `files.invalid_name`: Invalid file name. `files.empty`: Empty file.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.unauthenticated",
+                            "request.access_token_expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.origin_not_allowed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.origin_not_allowed`: Origin not allowed.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.idempotency_key_in_flight"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.idempotency_key_in_flight`: A request is outstanding for this idempotency key.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.idempotency_key_reused",
+                            "files.unsupported_type",
+                            "files.malware_detected"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.idempotency_key_reused`: Idempotency key already used. `files.unsupported_type`: Unsupported file type. `files.malware_detected`: Malware detected.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable",
+                            "files.scanner_unavailable",
+                            "files.storage_unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer. `files.scanner_unavailable`: Scanner unavailable. `files.storage_unavailable`: Storage unavailable.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Uploads a file to the caller's own files: its bytes as the body, and its name in\n`Content-Disposition`.",
+        "tags": [
+          "files"
+        ],
+        "x-access": "user"
+      }
+    },
+    "/v1/users/me/files/{file_id}": {
+      "delete": {
+        "operationId": "delete_own_file",
+        "parameters": [
+          {
+            "description": "The file.",
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The file was deleted.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.unauthenticated",
+                            "request.access_token_expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.origin_not_allowed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.origin_not_allowed`: Origin not allowed.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "files.not_found"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`files.not_found`: File not found.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Deletes a file of the caller's own.",
+        "tags": [
+          "files"
+        ],
+        "x-access": "user"
+      },
+      "get": {
+        "operationId": "read_own_file",
+        "parameters": [
+          {
+            "description": "The file.",
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserFile"
+                }
+              }
+            },
+            "description": "The file.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.unauthenticated",
+                            "request.access_token_expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "files.not_found"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`files.not_found`: File not found.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Reads a file of the caller's own.",
+        "tags": [
+          "files"
+        ],
+        "x-access": "user"
+      }
+    },
+    "/v1/users/me/files/{file_id}/content": {
+      "get": {
+        "operationId": "download_own_file",
+        "parameters": [
+          {
+            "description": "The file.",
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The Unix time, in seconds, at which the signed URL stops working.",
+            "in": "query",
+            "name": "expires",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The session the signed URL acts for.",
+            "in": "query",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The signed URL's signature, as the API gave it. With `expires` and `session`, it authenticates the request in place of a credential.",
+            "in": "query",
+            "name": "signature",
+            "required": false,
+            "schema": {
+              "maxLength": 43,
+              "minLength": 43,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/markdown": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The file's bytes, as its media type.",
+            "headers": {
+              "accept-ranges": {
+                "description": "`bytes`: a request may ask for one range of them.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-disposition": {
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-security-policy": {
+                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "etag": {
+                "description": "The entity tag that names the file's bytes, which never change.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "206": {
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/markdown": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A range of the file's bytes, as `Range` asked for it.",
+            "headers": {
+              "accept-ranges": {
+                "description": "`bytes`: a request may ask for one range of them.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-disposition": {
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-range": {
+                "description": "The range served, and the file's size: `bytes <first>-<last>/<size>`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-security-policy": {
+                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "etag": {
+                "description": "The entity tag that names the file's bytes, which never change.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Nothing: the client holds the bytes its `If-None-Match` names.",
+            "headers": {
+              "etag": {
+                "description": "The entity tag that names the file's bytes, which never change.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.unauthenticated",
+                            "request.access_token_expired",
+                            "request.signed_url_expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired. `request.signed_url_expired`: Signed URL expired.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "files.not_found"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`files.not_found`: File not found.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable",
+                            "files.storage_unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer. `files.storage_unavailable`: Storage unavailable.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Downloads a file of the caller's own: its bytes, or a range of them, served so that a browser\ncan't run them. A signed URL, which the file's `content_url` gives, authenticates it in place\nof a credential.",
+        "tags": [
+          "files"
         ],
         "x-access": "user"
       }
@@ -6460,6 +9812,20 @@
             }
           },
           {
+            "description": "Who may download the file: `private`, those who may read it, unless it is `public`,\nanyone, without signing in (FILES-020).",
+            "in": "query",
+            "name": "visibility",
+            "required": false,
+            "schema": {
+              "description": "Who may download a file: those who may read it, or anyone (FILES-020).",
+              "enum": [
+                "private",
+                "public"
+              ],
+              "type": "string"
+            }
+          },
+          {
             "description": "The file's name, as `filename*`, encoded as RFC 8187 says, or `filename`, such as `attachment; filename*=UTF-8''report.pdf` (FILES-002).",
             "in": "header",
             "name": "Content-Disposition",
@@ -7660,6 +11026,36 @@
               "format": "uuid",
               "type": "string"
             }
+          },
+          {
+            "description": "The Unix time, in seconds, at which the signed URL stops working.",
+            "in": "query",
+            "name": "expires",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The session the signed URL acts for.",
+            "in": "query",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The signed URL's signature, as the API gave it. With `expires` and `session`, it authenticates the request in place of a credential.",
+            "in": "query",
+            "name": "signature",
+            "required": false,
+            "schema": {
+              "maxLength": 43,
+              "minLength": 43,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -7667,70 +11063,253 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileBytes"
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileBytes"
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileBytes"
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileBytes"
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileBytes"
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileBytes"
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileBytes"
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileBytes"
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileBytes"
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileBytes"
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileBytes"
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
                 }
               }
             },
             "description": "The file's bytes, as its media type.",
             "headers": {
+              "accept-ranges": {
+                "description": "`bytes`: a request may ask for one range of them.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "content-disposition": {
-                "description": "`inline` for an image and `attachment` for every other kind, with the file's name (FILES-009).",
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
                 "schema": {
                   "type": "string"
                 }
               },
               "content-security-policy": {
                 "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "etag": {
+                "description": "The entity tag that names the file's bytes, which never change.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "206": {
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/markdown": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A range of the file's bytes, as `Range` asked for it.",
+            "headers": {
+              "accept-ranges": {
+                "description": "`bytes`: a request may ask for one range of them.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-disposition": {
+                "description": "`inline` for an image and `attachment` for every other kind, with the file's name, but on a public download (FILES-009, FILES-023).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-range": {
+                "description": "The range served, and the file's size: `bytes <first>-<last>/<size>`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-security-policy": {
+                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "etag": {
+                "description": "The entity tag that names the file's bytes, which never change.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Nothing: the client holds the bytes its `If-None-Match` names.",
+            "headers": {
+              "etag": {
+                "description": "The entity tag that names the file's bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -7801,7 +11380,8 @@
                         "code": {
                           "enum": [
                             "request.unauthenticated",
-                            "request.access_token_expired"
+                            "request.access_token_expired",
+                            "request.signed_url_expired"
                           ],
                           "type": "string"
                         }
@@ -7812,7 +11392,7 @@
                 }
               }
             },
-            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired.",
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired. `request.signed_url_expired`: Signed URL expired.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -8053,7 +11633,7 @@
             }
           }
         },
-        "summary": "Downloads a file of the workspace: its bytes, served so that a browser can't run them.",
+        "summary": "Downloads a file of the workspace: its bytes, or a range of them, served so that a browser\ncan't run them. A signed URL, which the file's `content_url` gives, authenticates it in place\nof a credential.",
         "tags": [
           "files"
         ],

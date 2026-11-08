@@ -18,8 +18,9 @@ pub async fn arrange(db: &TestDatabase, workspace: &str, name: &str) -> String {
         .unwrap();
     let name = name.replace('\'', "''");
     db.owner_reads(&format!(
-        "INSERT INTO workspace_files (workspace_id, name, media_type, size_bytes, object_key) \
-         VALUES ('{workspace}', '{name}', 'text/plain; charset=utf-8', {}, '{}') \
+        "INSERT INTO workspace_files \
+         (workspace_id, name, media_type, size_bytes, visibility, object_key) \
+         VALUES ('{workspace}', '{name}', 'text/plain; charset=utf-8', {}, 'private', '{}') \
          RETURNING id::text",
         BYTES.len(),
         key.as_str()
@@ -34,12 +35,41 @@ pub async fn arrange_row(db: &TestDatabase, workspace: &str, name: &str) -> Stri
     let key = ObjectKey::random("workspaces/").unwrap();
     let name = name.replace('\'', "''");
     db.owner_reads(&format!(
-        "INSERT INTO workspace_files (workspace_id, name, media_type, size_bytes, object_key) \
-         VALUES ('{workspace}', '{name}', 'text/plain; charset=utf-8', {}, '{}') \
+        "INSERT INTO workspace_files \
+         (workspace_id, name, media_type, size_bytes, visibility, object_key) \
+         VALUES ('{workspace}', '{name}', 'text/plain; charset=utf-8', {}, 'private', '{}') \
          RETURNING id::text",
         BYTES.len(),
         key.as_str()
     ))
     .await
     .remove(0)
+}
+
+/// Creates a text file named `name` in `user`'s own files, with [`BYTES`] as its object in the
+/// test's bucket, and returns its ID.
+pub async fn arrange_own(db: &TestDatabase, user: &str, name: &str) -> String {
+    let key = ObjectKey::random("users/").unwrap();
+    bucket::storage(&db.bucket().await)
+        .put(&key, Bytes::from_static(BYTES), "text/plain; charset=utf-8")
+        .await
+        .unwrap();
+    let name = name.replace('\'', "''");
+    db.owner_reads(&format!(
+        "INSERT INTO user_files (user_id, name, media_type, size_bytes, visibility, object_key) \
+         VALUES ('{user}', '{name}', 'text/plain; charset=utf-8', {}, 'private', '{}') \
+         RETURNING id::text",
+        BYTES.len(),
+        key.as_str()
+    ))
+    .await
+    .remove(0)
+}
+
+/// Makes the file `id` of `table`, `workspace_files` or `user_files`, a public one.
+pub async fn publish(db: &TestDatabase, table: &str, id: &str) {
+    db.owner_executes(&format!(
+        "UPDATE {table} SET visibility = 'public' WHERE id = '{id}'"
+    ))
+    .await;
 }

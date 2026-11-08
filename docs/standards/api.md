@@ -10,7 +10,7 @@ Every route lives under `/v1`, except the health probes `/health/live` and `/hea
 - Check: `ci: check-openapi` (a path lint over the committed document).
 
 ### API-02 The scope of a resource is in its path
-Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller's own resources under `/v1/users/me/`. No header selects a workspace.
+Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller's own resources under `/v1/users/me/`. What anyone may read without signing in, such as a public file's bytes, lives under `/v1/public/`. No header selects a workspace.
 - Why: every request names exactly what it acts on, and authorization checks that name (D3).
 - Check: `ci: check-openapi`, plus `clippy` (API-14).
 
@@ -27,6 +27,8 @@ Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller'
 | Outcome | Status |
 |---|---|
 | A read, or an update that returns the resource | 200 |
+| A range of a download's bytes, with `Content-Range` (PLATFORM-081) | 206 |
+| A download whose bytes the client holds, as its `If-None-Match` names them (PLATFORM-081) | 304 |
 | A create, with a `Location` header and the created resource | 201 |
 | Asynchronous work accepted, such as a data export | 202 |
 | A delete, or an action with nothing to return | 204 |
@@ -100,13 +102,14 @@ A resource a client can edit returns an `ETag` built from its `version`. An upda
 - Check: `test`.
 
 ### API-14 Every route declares its access level in its type
-Every route except the health probes (OPS-05) and the API reference that development serves (PLATFORM-052) is registered through one of four builders:
+Every route except the health probes (OPS-05) and the API reference that development serves (PLATFORM-052) is registered through one of these builders:
 - `public`: no authentication.
 - `user`: requires a `Principal`.
 - `workspace::<P>`: requires `Authorized<P>` for the workspace in the path, where `P` is a permission.
-- `workspace_upload::<P>`: the same, for a route whose body is a file's bytes, which its handler reads through `Upload` once `Authorize::check` has authorized the caller, in a group of its own (PLATFORM-073, PLATFORM-074).
+- `workspace_upload::<P>` and `user_upload`: as `workspace::<P>` and `user`, for a route whose body is a file's bytes, which its handler reads through `Upload`, once `Authorize::check` has authorized a member, in a group of its own (PLATFORM-073, PLATFORM-074).
+- `workspace_download::<P>`, `user_download` and `public_download`: as `workspace::<P>`, `user` and `public`, for a route that serves a file's bytes, or a range of them (PLATFORM-081). On the first two, a signed URL may also prove the `Principal` (PLATFORM-080), and the last serves under `/v1/public/`.
 
-A caller who isn't a member of the workspace gets 404. A member without permission `P` gets 403. Both workspace builders give their routes the access level `workspace`.
+A caller who isn't a member of the workspace gets 404. A member without permission `P` gets 403. Each workspace builder gives its routes the access level `workspace`, each user builder the access level `user`, and each public builder the access level `public`.
 - Why: no route can forget authentication or authorization, and non-members learn nothing (D2, D3).
 - Check: `clippy` (`disallowed_methods` bans the routing methods of axum and utoipa-axum outside `platform::http`), plus `test`: a generated test calls every `user` route without a credential and expects 401, and TEST-08 covers the `workspace` routes.
 

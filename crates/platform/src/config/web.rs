@@ -1,7 +1,7 @@
 //! The settings of the API's web clients and of the requests that reach it: the origins of web
-//! clients, the proxies in front of it, and the key of its keyed hashes.
+//! clients, the proxies in front of it, the key of its keyed hashes, and its rate limits.
 
-use std::{fmt, net::IpAddr, str::FromStr};
+use std::{fmt, net::IpAddr, str::FromStr, time::Duration};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use ipnet::IpNet;
@@ -9,6 +9,20 @@ use url::{Host, Url};
 
 use super::Environment;
 use crate::hashing::{self, HmacKey};
+
+/// The limits on the requests of one client IP, and of one user (PLATFORM-054).
+#[derive(Clone, Copy, Debug)]
+pub struct RateLimitConfig {
+    /// How many requests one client IP may send in a window, but under the public prefix.
+    pub ip_requests: u32,
+    /// How many requests one client IP may send in a window under the public prefix, such as
+    /// public files' downloads.
+    pub public_requests: u32,
+    /// How many requests one user may send in a window.
+    pub user_requests: u32,
+    /// The window's length.
+    pub window: Duration,
+}
 
 /// The origin of a web client, such as `https://app.example.com` (PLATFORM-058): a scheme, a
 /// host and a port, as a browser sends it in `Origin`.

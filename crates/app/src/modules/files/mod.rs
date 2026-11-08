@@ -1,4 +1,5 @@
-//! A workspace's files ([spec](../../../../../docs/spec/files.md)).
+//! A workspace's files and a user's own, public files, and their downloads
+//! ([spec](../../../../../docs/spec/files.md)).
 
 mod audit;
 mod error;

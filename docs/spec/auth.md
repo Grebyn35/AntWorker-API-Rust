@@ -14,7 +14,7 @@
 
 ## Interface
 
-- `SessionVerifier`, implemented for `platform::authn`: `verify`, and `lasting`, for the hub's re-check of its streams (AUTH-018).
+- `SessionVerifier`, implemented for `platform::authn`: `verify`; `session`, for a signed URL (AUTH-020); and `lasting`, for the hub's re-check of its streams (AUTH-018).
 - The domain type `Password` (D25).
 - `Principal` is built here only, after a successful credential check or a registration: clippy bans its constructor, and `auth` alone allows it, through `#[expect]`.
 
@@ -53,6 +53,7 @@ No route takes an `Idempotency-Key` (API-12).
 | AUTH-017 | A device ID is a string the client chooses, of 1 to 64 letters, digits, underscores and hyphens, rather than a UUID the API issues (API-11). Any other answers 400 with `invalid_device_id` at `/device_id`. | API-10, API-11 | `auth_017_` |
 | AUTH-018 | `lasting` keeps, of the sessions it is given, those that exist and whose refresh token and absolute lifetime haven't expired, whether or not their access token has. | SEC-06, D5 | `auth_018_` |
 | AUTH-019 | A registration and each successful sign-in issue the device a device token for the account's email, a 256-bit random token returned once, as AUTH-015 delivers tokens, stored only as its SHA-256 hash, and lasting `DEVICE_TOKEN_SECONDS` (1 day to 5 years, default 365 days). A sign-in brings it in its body's `device_token`. A sign-in that succeeds with a valid one ends it, as it issues the next, and ends the account's expired ones; its audit entry is `device_token.issued`, whose target is the new token. One of another email, ended, expired or unknown counts as none, and refuses nothing. Signing out leaves it. | SEC-03, SEC-13, SEC-07 | `auth_019_` |
+| AUTH-020 | `session` proves the principal of the session with the ID it is given, for a signed URL (PLATFORM-080): its user's, while the session lasts as AUTH-018 says, whether or not its access token has expired. A session that doesn't exist, or whose refresh token or absolute lifetime has expired, proves none. | SEC-06, D5, D113 | `auth_020_` |
 
 ## Design
 

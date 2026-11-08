@@ -55,6 +55,8 @@ What the API and its reference deployment protect, from whom, and which rules an
 | A removed member, or an ended session, still receiving events | Access changes close the affected streams at commit, and a re-check closes what a missed signal left (SEC-06, PLATFORM-031) |
 | Events reaching a member who may not see them, or from before they joined | Each event reaches only the streams whose memberships hold its permission, and had committed when it did (SEC-19) |
 | Forging an audit entry's actor | The actor and scope come from the unit of work's proof, never the request (AUDIT-002) |
+| A private file's signed URL leaking, as into a copied link | It reaches one file, for an hour at most, and only while its session lasts and its user may still read the file, whom the download authorizes again (FILES-022, PLATFORM-080); no log or trace of the API or of Caddy holds a URL's query (OBS-04) |
+| Learning a public file's name, or finding public files by guessing their IDs | A public download gives no name (SEC-11, FILES-023); a public file's ID holds 62 random bits, and the bucket of public downloads bounds each IP's guesses (PLATFORM-054) |
 
 ### Input and output
 
@@ -65,6 +67,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | An uploaded file that runs in a browser | Only kinds whose bytes a check reads are accepted, never Scalable Vector Graphics (SVG) or HTML (FILES-003), and each is served so that it can't run (SEC-11, FILES-009) |
 | An uploaded file that carries malware | Every upload is scanned before it is stored, and refused when the scanner names a signature, or when its contents pass what the scanner scans whole, such as a decompression bomb (FILES-005); signatures that age past 2 days raise ScannerSignaturesOutdated ([runbooks](runbooks.md#scannersignaturesoutdated)) |
 | An image crafted for a flaw in a viewer's decoder | Stored as it came, never decoded on the server; left to the scanner's signatures of known exploits and the viewer's own updates ([files spec](../spec/files.md#accepted-kinds)) |
+| A public file that serves others content from the API's address, such as a phishing document | Only the accepted kinds, each scanned, never HTML or SVG (FILES-003, FILES-005), served sandboxed, with every kind but images as an attachment (SEC-11); a workspace's owner and admins delete what a member published (FILES-010), and shared caches drop it within 5 minutes (FILES-023) |
 | Errors that leak internals | Internal errors expose nothing, and `detail` never carries internals (ERR-08, ERR-09) |
 | Framing, sniffing and caching of responses | Security headers on every response (SEC-12) |
 | Server-side request forgery | Outbound requests go through one of two clients, the one that reaches addresses a user gives refusing private ones (SEC-10) |
@@ -90,6 +93,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 |---|---|
 | A flood of requests | The IP and per-user limits (SEC-13), which clients can see (API-15); a concurrency limit and timeouts (OPS-07, PLATFORM-039, PLATFORM-042) |
 | A client that holds streams open, or reads them slowly | A cap of streams per user on a replica (REALTIME-006); a stream that falls behind closes (PLATFORM-032) |
+| A page of many public images using up a visitor's requests, or the reverse | Public downloads count in a bucket of the IP limit of their own, apart from the one that sign-in and every other request count in (PLATFORM-054, D114) |
 | Uploads that fill a replica's memory, or hold it with slow bodies | At most 4 uploads' bodies in memory on a replica at once, each at most `FILE_MAX_BYTES`, and the upload route's timeout (PLATFORM-074) |
 | A files bucket that doesn't answer | The routes of files' bytes answer 503 in time, every other route serves (FILES-012), and StorageUnreachable pages ([runbooks](runbooks.md#storageunreachable)) |
 | A scanner that doesn't answer, or a burst of uploads that keeps it busy | Uploads answer 503 within their route's timeout, every other route serves (FILES-005, PLATFORM-079); the scans use at most `SCANNER_CPUS`, so the replicas and Postgres keep the rest of the server ([the scanner](deploy.md#the-scanner)); ScannerUnreachable pages ([runbooks](runbooks.md#scannerunreachable)) |

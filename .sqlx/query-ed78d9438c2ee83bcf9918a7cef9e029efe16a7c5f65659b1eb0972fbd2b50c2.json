@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT now() + $1::text::interval AS \"until!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "until!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ed78d9438c2ee83bcf9918a7cef9e029efe16a7c5f65659b1eb0972fbd2b50c2"
+}

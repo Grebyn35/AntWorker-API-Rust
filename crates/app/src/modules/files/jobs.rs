@@ -1,14 +1,15 @@
 //! The periodic jobs of `files` (OPS-09, FILES-011), owned by `files`, which delete the objects
 //! that no file's row names, once no restore of the database can bring such a row back (the files
-//! spec's "Deleting bytes"): `files.find_unreferenced_objects`, run every day, lists the bucket's
-//! objects under `workspaces/` and records each that no row of `workspace_files` names, and that
-//! the bucket wrote an hour ago or more, in `object_deletions`, with when its bytes may go; and `files.delete_unreferenced_objects`, run
-//! every hour, deletes from the bucket those of `object_deletions` whose time has passed and that
-//! still no row of `workspace_files` names, then removes them from `object_deletions`. Both touch
-//! those two tables alone, and the bucket. Both span every workspace by nature, so they select
-//! objects by key alone, which `check-tenancy` lets this file alone do (DATA-16). Scheduled
-//! maintenance isn't audited (DATA-22). A second run of either finds nothing more to do, and a
-//! deletion of an object that a run before deleted, whose record it didn't remove, succeeds.
+//! spec's "Deleting bytes"). `files.find_unreferenced_objects`, run every day, lists the bucket's
+//! objects under `workspaces/` and `users/`, and records each that no row of `workspace_files` or
+//! `user_files` names, and that the bucket wrote an hour ago or more, in `object_deletions`, with
+//! when its bytes may go. `files.delete_unreferenced_objects`, run every hour, deletes from the
+//! bucket those of `object_deletions` whose time has passed and that still no row names, then
+//! removes them from `object_deletions`. Both touch those three tables alone, and the bucket.
+//! Both span every workspace and user by nature, so they select objects by key alone, which
+//! `check-tenancy` lets this file and the public reads alone do (DATA-16). Scheduled maintenance
+//! isn't audited (DATA-22). A second run of either finds nothing more to do, and a deletion of an
+//! object that a run before deleted, whose record it didn't remove, succeeds.
 
 use std::time::Duration;
 
@@ -19,7 +20,7 @@ use platform::{
     storage::ObjectKey,
 };
 
-use super::service::{Files, WORKSPACE_PREFIX};
+use super::service::{Files, USER_PREFIX, WORKSPACE_PREFIX};
 
 /// How often the bucket is compared with the rows.
 const FIND_INTERVAL: Duration = Duration::from_secs(86_400);
@@ -69,17 +70,23 @@ impl Files {
     }
 }
 
-/// Records each object of the bucket that no row names, and that the bucket wrote at least
-/// `SETTLED` ago, by the database's clock, a page of the bucket's list at a time, with when its
-/// bytes may go: `FILE_DELETION_DELAY_DAYS` from now. An object already recorded keeps its time.
+/// Records each object of the bucket, under the prefix of workspaces' files and then of users',
+/// that no row names, and that the bucket wrote at least `SETTLED` ago.
 async fn find(files: &Files, context: &JobContext) -> Result<(), Internal> {
+    for prefix in [WORKSPACE_PREFIX, USER_PREFIX] {
+        find_under(files, context, prefix).await?;
+    }
+    Ok(())
+}
+
+/// Records each object of the bucket under `prefix` that no row names, and that the bucket wrote
+/// at least `SETTLED` ago, by the database's clock, a page of the bucket's list at a time, with
+/// when its bytes may go: `FILE_DELETION_DELAY_DAYS` from now. An object already recorded keeps
+/// its time.
+async fn find_under(files: &Files, context: &JobContext, prefix: &str) -> Result<(), Internal> {
     let delay = i32::try_from(files.settings.deletion_delay_days).map_err(Internal::new)?;
     let settled = f64::from(u32::try_from(SETTLED.as_secs()).map_err(Internal::new)?);
-    let mut pages = files
-        .storage
-        .list(WORKSPACE_PREFIX)
-        .try_chunks(BATCH)
-        .boxed();
+    let mut pages = files.storage.list(prefix).try_chunks(BATCH).boxed();
     while let Some(page) = pages.next().await {
         let (keys, written): (Vec<String>, Vec<time::OffsetDateTime>) = page
             .map_err(|error| Internal::new(error.1))?
@@ -93,6 +100,7 @@ async fn find(files: &Files, context: &JobContext) -> Result<(), Internal> {
             FROM unnest($1::text[], $2::timestamptz[]) AS listed (key, written_at)
             WHERE written_at <= now() - make_interval(secs => $4)
                 AND NOT EXISTS (SELECT 1 FROM workspace_files WHERE object_key = key)
+                AND NOT EXISTS (SELECT 1 FROM user_files WHERE object_key = key)
             ON CONFLICT (object_key) DO NOTHING",
             &keys,
             &written,
@@ -115,8 +123,14 @@ async fn delete(files: &Files, context: &JobContext) -> Result<(), Internal> {
         let limit = i64::try_from(BATCH).map_err(Internal::new)?;
         let mut uow = files.database.for_job(context).await?;
         let due = sqlx::query!(
-            r#"SELECT object_key, EXISTS (
-                SELECT 1 FROM workspace_files WHERE workspace_files.object_key = object_deletions.object_key
+            r#"SELECT object_key, (
+                EXISTS (
+                    SELECT 1 FROM workspace_files
+                    WHERE workspace_files.object_key = object_deletions.object_key
+                ) OR EXISTS (
+                    SELECT 1 FROM user_files
+                    WHERE user_files.object_key = object_deletions.object_key
+                )
             ) AS "named!"
             FROM object_deletions WHERE deletable_at <= now()
             ORDER BY deletable_at LIMIT $1"#,

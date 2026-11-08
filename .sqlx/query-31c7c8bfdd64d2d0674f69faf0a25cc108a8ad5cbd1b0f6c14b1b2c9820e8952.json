@@ -1,0 +1,96 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT name, media_type, size_bytes, visibility::text AS \"visibility!\", object_key,\n            uploader_id, created_at\n        FROM workspace_files WHERE workspace_id = $1 AND id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "media_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "media_type"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "size_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "visibility!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "object_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "object_key"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "uploader_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "uploader_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "31c7c8bfdd64d2d0674f69faf0a25cc108a8ad5cbd1b0f6c14b1b2c9820e8952"
+}

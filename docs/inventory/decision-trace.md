@@ -63,6 +63,5 @@ Modules carry their own; the build order step of each other area is in parenthes
 | `audit` | reads filtered by permission (D2); the target filterable and visible to that user; bounded retention (D6) |
 | `auth` | the ADR on accepted enumeration (D7); forgot-password answers 503 with email off (D9); with email on, an account proves its address before anything else, and with email off nothing asks for it (D67); the OAuth redirect allowlist (D18); password reset that sets the first password of an account created without one, and verifies its address (the `workspaces` spec's setup subcommand, D39); with the key that encrypts provider tokens (SEC-02), a backup of that key kept apart from the database's (D30) |
 | `accounts` | deletion refused while the user owns a shared workspace, sole-member workspaces deleted with the account, and the ADR on immediate deletion (D16); the export endpoint, one per 24 hours, its archive, notice and download, and the optional erasure precondition (D31) |
-| `files` | a bucket for anonymous public-file downloads (D11); signed URLs for private downloads, which a browser's `<img>` needs (D18, D61) |
 | Template (6) | a GitHub template repository (D29); the ADR on hard deletes (D24) |
 | Security (6) | the ASVS Level 2 conformance pass (D26) |

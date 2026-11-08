@@ -78,6 +78,7 @@ fn environment(options: &Options) -> HashMap<String, String> {
         ("DATABASE_URL", "postgres://app:unused@127.0.0.1/api"),
         ("HMAC_KEY", HMAC_KEY),
         ("RATE_LIMIT_IP_REQUESTS", "1000000"),
+        ("RATE_LIMIT_PUBLIC_REQUESTS", "1000000"),
         ("RATE_LIMIT_USER_REQUESTS", "1000000"),
         ("SIGN_IN_ATTEMPTS", "1000"),
         ("SIGN_IN_EMAIL_ATTEMPTS", "100000"),
@@ -216,6 +217,28 @@ impl Api {
             readiness,
             database,
             pool,
+            jobs: Arc::new(jobs),
+        }
+    }
+
+    /// Another instance of the API, on this one's database and bucket, with the default
+    /// settings, as a deployment's other replica is.
+    pub async fn replica(&self) -> Self {
+        let mut options = Options::default();
+        options
+            .settings
+            .insert(0, ("S3_BUCKET", self.database.bucket().await));
+        let clock = Arc::new(TestClock::default());
+        let readiness = Readiness::new();
+        let (router, document, jobs) =
+            application(&self.pool, options, clock.clone(), readiness.clone()).await;
+        Self {
+            router,
+            contract: Arc::new(Contract::new(document)),
+            clock,
+            readiness,
+            database: self.database.clone(),
+            pool: self.pool.clone(),
             jobs: Arc::new(jobs),
         }
     }

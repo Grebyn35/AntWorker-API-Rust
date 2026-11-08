@@ -51,12 +51,15 @@ services:
   # The bucket that holds files' bytes in development and in the tests (the files spec's
   # "Storage"): SeaweedFS's S3 server, which asks for no credentials while it is given none, so the
   # API's keys in .env reach it whatever they hold, as Mailpit takes no credentials. It runs every
-  # part of SeaweedFS in one process, with room for as many volumes as its collections grow. Its
-  # health check creates the bucket `files`, which `just dev` uses, and passes once it exists; each
-  # test that runs the API creates a bucket of its own, and deletes it when it ends.
+  # part of SeaweedFS in one process, with room for as many volumes as its collections grow: each
+  # bucket is a collection, which grows 7 volumes at its first write, and a deleted bucket's go a
+  # while after, so the tests' buckets, one for each test that runs at once, need hundreds, while
+  # an empty volume costs a few bytes. Its health check creates the bucket `files`, which `just
+  # dev` uses, and passes once it exists; each test that runs the API creates a bucket of its own,
+  # and deletes it when it ends.
   storage:
     image: chrislusf/seaweedfs:4.50@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
-    command: ["server", "-dir=/data", "-volume.max=100", "-s3", "-s3.port=8333"]
+    command: ["server", "-dir=/data", "-volume.max=1000", "-s3", "-s3.port=8333"]
     ports:
       - "127.0.0.1:8333:8333"
     volumes:

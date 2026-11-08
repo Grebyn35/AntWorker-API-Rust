@@ -32,6 +32,7 @@ use super::{
     docs::QueryNames,
     limits::{IpLimit, ip_limit},
     query::parameter_pointer,
+    signed::TakesSignedUrl,
 };
 use crate::{
     authn::Authenticator,
@@ -166,6 +167,15 @@ where
             .layer(TimeoutLayer::new(UPLOAD_TIMEOUT))
             .layer(middleware::from_fn_with_state(Arc::new(queries), query)),
     )
+}
+
+/// The layers of a download route: a route group's, and the marker that lets `Principal` read a
+/// signed URL in the request's query (PLATFORM-080).
+pub(super) fn download_group<S>(route: MethodRouter<S>, queries: QueryNames) -> MethodRouter<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    route_group(route, queries).layer(Extension(TakesSignedUrl))
 }
 
 /// Opens the request's server span, as the child of a valid inbound `traceparent`, and writes

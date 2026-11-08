@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO workspace_files (workspace_id, name, media_type, size_bytes, object_key, uploader_id)\n        VALUES ($1, $2, $3, $4, $5, $6)\n        RETURNING id, created_at",
+  "query": "INSERT INTO user_files (user_id, name, media_type, size_bytes, visibility, object_key)\n        VALUES ($1, $2, $3, $4, $5::text::file_visibility, $6)\n        RETURNING id, created_at",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "workspace_files",
+            "table": "user_files",
             "name": "id"
           }
         }
@@ -20,7 +20,7 @@
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "workspace_files",
+            "table": "user_files",
             "name": "created_at"
           }
         }
@@ -33,7 +33,7 @@
         "Text",
         "Int8",
         "Text",
-        "Uuid"
+        "Text"
       ]
     },
     "nullable": [
@@ -41,5 +41,5 @@
       false
     ]
   },
-  "hash": "de89905f5efe1112f2a6ede4e140467d6a45638119dec632c85065b1ee9f4fa6"
+  "hash": "63b5d192515fc82822e107587202fbd7f35e8dc440e7c31b97dc988c36b69aac"
 }

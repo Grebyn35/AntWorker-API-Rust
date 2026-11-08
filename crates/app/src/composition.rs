@@ -20,6 +20,7 @@ use platform::{
     mail::Mail,
     rate_limit::{Bucket, RateLimiter},
     scanner::Scanner,
+    signed_urls::SignedUrls,
     storage::Storage,
     telemetry::Service,
 };
@@ -196,6 +197,7 @@ pub async fn compose(
         Storage::new(&server.storage, clock.clone())?,
         Scanner::new(&server.scanner, clock.clone()),
         workers.clone(),
+        SignedUrls::new(server.hmac_key.clone()),
         config.files,
     );
     files.register(&mut jobs).map_err(Internal::new)?;
@@ -273,6 +275,7 @@ pub fn pipeline(
         limiter: RateLimiter::new(resources.database.clone(), config.hmac_key.clone()),
         rate_limits: config.rate_limits,
         verifier: services.verifier.clone(),
+        signed_urls: SignedUrls::new(config.hmac_key.clone()),
         authorizer: services.authorizer.clone(),
         reference,
     }

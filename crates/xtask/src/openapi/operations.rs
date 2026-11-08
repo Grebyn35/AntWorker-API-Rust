@@ -9,7 +9,7 @@ use super::{Problem, quoted};
 const METHODS: [&str; 5] = ["get", "post", "put", "patch", "delete"];
 
 /// The success statuses API-04 lists.
-const SUCCESSES: [&str; 4] = ["200", "201", "202", "204"];
+const SUCCESSES: [&str; 5] = ["200", "201", "202", "204", "206"];
 
 /// The media type of a `PATCH` body (RFC 7396).
 const MERGE_PATCH: &str = "application/merge-patch+json";
@@ -141,8 +141,9 @@ fn meaning(path: &str, method: &str, operation: &Value, here: &str) -> Vec<Strin
     messages
 }
 
-/// API-04: a read answers 200, a create 201 with `Location` and the resource, a delete or an
-/// action with nothing to return 204 with no body, and accepted work 202.
+/// API-04: a read answers 200, or 206 with `Content-Range` for a range of a download's bytes, a
+/// create 201 with `Location` and the resource, a delete or an action with nothing to return 204
+/// with no body, and accepted work 202.
 fn statuses(method: &str, operation: &Value, here: &str) -> Vec<String> {
     let empty = Map::new();
     let responses = operation["responses"].as_object().unwrap_or(&empty);
@@ -155,10 +156,10 @@ fn statuses(method: &str, operation: &Value, here: &str) -> Vec<String> {
         messages.push(format!("{here} documents no success status (API-04)"));
     }
     let allowed: &[&str] = match method {
-        "get" => &["200"],
+        "get" => &["200", "206"],
         "delete" => &["202", "204"],
         "patch" | "put" => &["200", "204"],
-        _ => &SUCCESSES,
+        _ => &["200", "201", "202", "204"],
     };
     for (status, response) in successes {
         if !SUCCESSES.contains(&status.as_str()) {
@@ -193,6 +194,18 @@ fn statuses(method: &str, operation: &Value, here: &str) -> Vec<String> {
             }
             "204" if content => {
                 messages.push(format!("{here} answers 204 with a body (API-04)"));
+            }
+            "206" => {
+                let range = response["headers"].as_object().is_some_and(|headers| {
+                    headers
+                        .keys()
+                        .any(|h| h.eq_ignore_ascii_case("content-range"))
+                });
+                if !range || !content {
+                    messages.push(format!(
+                        "{here} answers 206 without the range's bytes and its Content-Range (API-04)"
+                    ));
+                }
             }
             "200" if !content => {
                 messages.push(format!(
@@ -356,10 +369,22 @@ mod tests {
                 "GET /v1/things answers 201, which its method's outcome doesn't (API-04)",
             ]
         );
-        let none = json!({ "responses": { "404": ok(true), "206": ok(true) } });
+        let none = json!({ "responses": { "404": ok(true), "207": ok(true) } });
         assert_eq!(
             messages("/v1/things", "post", &none),
-            ["POST /v1/things answers 206, which API-04 doesn't list (API-04)"]
+            ["POST /v1/things answers 207, which API-04 doesn't list (API-04)"]
+        );
+        let ranged = json!({ "responses": { "206": { "description": "x", "headers": { "Content-Range": {} }, "content": { "application/octet-stream": {} } } } });
+        assert_eq!(
+            messages("/v1/things", "post", &ranged),
+            ["POST /v1/things answers 206, which its method's outcome doesn't (API-04)"]
+        );
+        let bare = json!({ "responses": { "200": ok(true), "206": ok(true) } });
+        assert_eq!(
+            messages("/v1/things/{thing_id}/content", "get", &bare),
+            [
+                "GET /v1/things/{thing_id}/content answers 206 without the range's bytes and its Content-Range (API-04)"
+            ]
         );
         let nothing = json!({ "responses": { "404": ok(true) } });
         assert_eq!(

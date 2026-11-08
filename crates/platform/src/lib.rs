@@ -21,6 +21,7 @@ pub mod mail;
 pub mod random;
 pub mod rate_limit;
 pub mod scanner;
+pub mod signed_urls;
 pub mod storage;
 pub mod telemetry;
 mod tls;

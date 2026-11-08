@@ -45,13 +45,13 @@ The instance installs its handlers for the shutdown signals before it connects t
 1. Turn readiness off.
 2. Wait one health-check interval, so the load balancer stops sending traffic.
 3. Stop accepting connections, and close the open streams, so their clients reconnect to another instance.
-4. Drain requests, up to a deadline no shorter than the longest timeout of a route, an upload's, so a request that its route lets finish isn't cut short.
+4. Drain requests, up to a deadline no shorter than the longest timeout of a route, an upload's, so a request that its route lets finish isn't cut short. A download's bytes stream for as long as its client takes to read them, so the deadline may cut one short, which its client resumes from another instance, asking for the bytes it lacks with a `Range` (PLATFORM-081, D112).
 5. Cancel jobs and release their leases.
 6. Flush telemetry.
 
 The whole sequence fits inside the container's grace period, with margin.
-- Why: deploys drop no requests, and SIGKILL never cuts a flush short (D20). An instance that can't receive SIGTERM is killed mid-request by every deploy.
-- Check: `ci: e2e` (the deploy scenario, with an upload whose body is still coming when its replica stops), `test` (the sequence through `platform::lifecycle::serve`, and the deadline's default), plus `review` (the handlers are installed before anything connects, because no test can make installing them fail).
+- Why: deploys drop no requests, a download they cut short resumes where it stopped, and SIGKILL never cuts a flush short (D20, D112). An instance that can't receive SIGTERM is killed mid-request by every deploy.
+- Check: `ci: e2e` (the deploy scenario, with an upload whose body is still coming when its replica stops), `test` (the sequence through `platform::lifecycle::serve`, the deadline's default, and a download cut short, which a `Range` to another instance resumes), plus `review` (the handlers are installed before anything connects, because no test can make installing them fail).
 
 ### OPS-07 Overload sheds load
 Every request that a route serves, except the health probes, has a timeout. Each route group has a default, and a module spec may override it. A request that no route serves has no route group's timeout: it gets its 404 or 405 problem once the IP limit has counted it (PLATFORM-054, D64), a wait that the pool's and the database's own timeouts bound. A concurrency limit rejects excess requests with the 503 problem and `Retry-After`. The health probes are exempt from it. CPU-heavy work, such as a password's hash, waits for one of the instance's turns, one per processor it may use (PLATFORM-060), so a burst of it takes no more memory than that many works do.

@@ -11,6 +11,7 @@ mod precondition;
 pub(crate) mod query;
 mod reference;
 mod resource;
+pub(crate) mod signed;
 mod stack;
 
 use std::sync::Arc;
@@ -24,7 +25,7 @@ use utoipa_axum::router::{OpenApiRouter, UtoipaMethodRouter};
 
 pub use body::{FieldErrors, Idempotent, Json, MergePatch, Upload, Uploaded};
 pub use browsers::{Cookies, Origins, expired_cookie, session_cookie};
-pub use files::{Download, FileBytes, disposition_name};
+pub use files::{ByteRange, Download, DownloadRequest, FileBytes, Served, disposition_name};
 pub use precondition::IfMatch;
 pub use query::Query;
 pub use resource::{ResourceResponse, path_id};
@@ -40,6 +41,7 @@ use crate::{
     events::Catalogued,
     lifecycle::{self, Readiness},
     rate_limit::{Bucket, RateLimiter},
+    signed_urls::SignedUrls,
     telemetry::Service,
 };
 use ipnet::IpNet;
@@ -131,6 +133,57 @@ where
             errors,
             stack::upload_group,
         )
+    }
+
+    /// Adds an upload route that a signed-in user calls, whose handler extracts the caller's
+    /// `Principal` and reads the file's bytes through [`Upload`], and which can answer `errors`
+    /// besides the pipeline's own (ERR-13). Its group is a workspace upload's (PLATFORM-074).
+    pub fn user_upload(self, route: UtoipaMethodRouter<S>, errors: &[&dyn ErrorCode]) -> Self {
+        self.add_with(Access::User, route, errors, stack::upload_group)
+    }
+
+    /// Adds a download route that a member of the workspace in the path calls, as
+    /// [`Routes::workspace`] does, whose `Authorize<P>` a signed URL may also authenticate: the
+    /// route documents the URL's query parameters, and answers `errors` besides the pipeline's
+    /// own (PLATFORM-080, ERR-13).
+    pub fn workspace_download<P: Permission>(
+        self,
+        mut route: UtoipaMethodRouter<S>,
+        errors: &[&dyn ErrorCode],
+    ) -> Self {
+        docs::download(&mut route.1, false);
+        docs::signed(&mut route.1);
+        self.add_with(
+            Access::Workspace(P::NAME),
+            route,
+            errors,
+            stack::download_group,
+        )
+    }
+
+    /// Adds a download route that a signed-in user calls, as [`Routes::user`] does, whose
+    /// `Principal` a signed URL may also prove: the route documents the URL's query parameters,
+    /// and answers `errors` besides the pipeline's own (PLATFORM-080, ERR-13).
+    pub fn user_download(
+        self,
+        mut route: UtoipaMethodRouter<S>,
+        errors: &[&dyn ErrorCode],
+    ) -> Self {
+        docs::download(&mut route.1, false);
+        docs::signed(&mut route.1);
+        self.add_with(Access::User, route, errors, stack::download_group)
+    }
+
+    /// Adds a download route that anyone may call, without authentication, as [`Routes::public`]
+    /// does, whose path is under [`PUBLIC_PREFIX`], and which can answer `errors` besides the
+    /// pipeline's own: a public file's, which shared caches may keep (PLATFORM-081, ERR-13).
+    pub fn public_download(
+        self,
+        mut route: UtoipaMethodRouter<S>,
+        errors: &[&dyn ErrorCode],
+    ) -> Self {
+        docs::download(&mut route.1, true);
+        self.add(Access::Public, route, errors)
     }
 
     /// Registers `events`, which the module's routes publish or send, in the event catalog of
@@ -242,6 +295,8 @@ pub struct Pipeline {
     pub rate_limits: RateLimitConfig,
     /// The verifier of access tokens, which `auth` implements (ARCH-13).
     pub verifier: Arc<dyn SessionVerifier>,
+    /// The checker of downloads' signed URLs (PLATFORM-080).
+    pub signed_urls: SignedUrls,
     /// What authorizes workspace routes, with the policy `access` implements (ARCH-13).
     pub authorizer: Authorizer,
     /// The OpenAPI document, as JSON, which the API reference shows: only in development
@@ -251,6 +306,13 @@ pub struct Pipeline {
 
 /// The bucket of each client IP's requests (PLATFORM-054).
 const IP_BUCKET: &str = "ip";
+
+/// The bucket of each client IP's requests under [`PUBLIC_PREFIX`] (PLATFORM-054).
+const PUBLIC_BUCKET: &str = "public";
+
+/// The prefix of the paths that anyone may read without signing in, such as a public file's
+/// download, whose requests count in [`PUBLIC_BUCKET`] (API-02, PLATFORM-054).
+pub const PUBLIC_PREFIX: &str = "/v1/public/";
 
 /// The bucket of each user's requests (PLATFORM-054).
 const USER_BUCKET: &str = "user";
@@ -286,9 +348,15 @@ pub fn app(routes: Routes, pipeline: Pipeline) -> Router {
                     limit: limits.ip_requests,
                     window: limits.window,
                 },
+                public_bucket: Bucket {
+                    name: PUBLIC_BUCKET,
+                    limit: limits.public_requests,
+                    window: limits.window,
+                },
             }),
             authenticator: Authenticator {
                 verifier: pipeline.verifier,
+                signed: pipeline.signed_urls,
                 user_bucket: Bucket {
                     name: USER_BUCKET,
                     limit: limits.user_requests,
