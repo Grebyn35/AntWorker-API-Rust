@@ -117,6 +117,11 @@ impl Deployment {
         deployment.set(&[]);
         self.server
             .copy_to(&deployment.server, &["secrets", "certs"]);
+        // part: files
+        // The new server reaches this one's files bucket, so it starts none whose start would give
+        // its scanner the signature.
+        deployment.server.seed_signatures();
+        // end part: files
         deployment
     }
 

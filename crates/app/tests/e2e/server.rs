@@ -203,7 +203,7 @@ impl Server {
     /// volume where a deploy's scanner keeps ClamAV's, as Compose would create it: its freshclam
     /// reaches no mirror from the server, so the scanner starts with that one (the files spec's
     /// "Scanning").
-    fn seed_signatures(&self) {
+    pub fn seed_signatures(&self) {
         let image = compose(&[
             "--file",
             "../../deploy/scanner/compose.yaml",
@@ -823,7 +823,8 @@ impl Server {
             "cp /root/bucket/ca.crt {DEPLOYMENT}/certs/files-ca.crt"
         ));
         self.create_bucket("files");
-        // A deployment whose replicas reach the files bucket runs the scanner too.
+        // A deployment whose replicas reach the files bucket runs the scanner too, which
+        // `Deployment::on_a_new_server` seeds on a server that reaches another's bucket.
         self.seed_signatures();
         let secrets = [
             secrets,
