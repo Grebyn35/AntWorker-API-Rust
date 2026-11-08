@@ -222,6 +222,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 61f1da8..35bfe0a: as above, with pass 1's fixes | 2 | 17 (14, 6, 3 shared) | 7 | 3 | `stopped: no progress`: 51f1c99 |
 | 7d1c801..b46ee54: `files`' scanning: `platform`'s scanner (PLATFORM-079), the scan of every upload (FILES-005), the scanner in development, the tests and the reference deployment, its alerts and runbooks, D107 to D109, the drain's deadline (OPS-06), and the fixes after it | 1 | 10 (9, 6, 5 shared) | 5 | 0 | `next pass`: 2191f83 |
 | 7d1c801..9558419: as above, with pass 1's fixes, and the settings the load test's replica shares with the image's tests | 2 | 7 (6, 2, 1 shared) | 0 | 0 | `clean`: 75127a9 |
+| 13bda32..7bf3156: `files`' next part: a user's own files, public files with a bucket of the IP limit of their own (D114), signed download URLs (D113, PLATFORM-080, AUTH-020) and ranged downloads (D112, PLATFORM-081, OPS-06) | 1 | 20 (17, 15, 10 shared) | 9 | 0 | `next pass` |
 
 ## Decisions
 
