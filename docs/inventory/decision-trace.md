@@ -21,7 +21,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D8, D10, D11 | Every response is a problem with a trace ID; the SDK samples every trace; an IP limit applies to every route | API-07, API-16, OBS-08, OBS-15, SEC-13 and OPS-05 exempt the health probes |
 | D10 | Every log line carries the trace and span IDs | OBS-02: a line written inside a span carries them |
 | D31 | Export excludes other members' data and whole-workspace content | The `accounts` spec's "Export and erasure": the content of every workspace whose only member is the user is exported, the same workspaces that erasure deletes (D40) |
-| D29 | OAuth providers and the client telemetry module are removable; the core modules are not | ARCH-07 also makes removable each part that gives a product its workspace shape, the `invitations` module among them (D39) |
+| D29 | OAuth providers and the client telemetry module are removable; the core modules are not | ARCH-07 also makes removable each part that gives a product its workspace shape, the `invitations` module among them (D39), and the `files` module, with the avatars and workspace pictures (D117) |
 | D22 | A Cargo workspace with two crates | ARCH-01: the API has two crates, and a third, `xtask`, holds the custom CI checks |
 | D22 | The service holds the transaction boundary | The platform spec's unit of work: the route opens it and the service commits it |
 | D22 | Traits exist only where there are two real implementations | ARCH-13 also allows traits that invert a dependency |

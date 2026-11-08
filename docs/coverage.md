@@ -81,7 +81,7 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Area | Covered by |
 |---|---|
 | Local development experience | D28, D69, D71, D72 |
-| Fork, rename, add and remove modules, workspace shapes, upstream updates | D29, D39, D62, D65, D66, D73, D91, D92 |
+| Fork, rename, add and remove modules, workspace shapes, upstream updates | D29, D39, D62, D65, D66, D73, D91, D92, D117 |
 | Documentation set and Claude Code guidance | D27 |
 | Template versioning and changelog | D15, D29 |
 | License | `Q1` |
