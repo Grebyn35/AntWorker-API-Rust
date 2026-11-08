@@ -114,7 +114,13 @@ impl Catalog {
     fn read_behaviors(&mut self, file: &File, module: &str) {
         let expected = module.to_uppercase();
         self.prefixes.insert(expected.clone());
+        let mut numbers = BTreeMap::new();
+        let mut retired = BTreeMap::new();
         for (index, line) in file.text.lines().enumerate() {
+            if let Some(listed) = retired_numbers(line) {
+                retired.extend(listed.into_iter().map(|number| (number, index + 1)));
+                continue;
+            }
             let Some(cell) = line.strip_prefix('|').and_then(|row| row.split('|').next()) else {
                 continue;
             };
@@ -133,6 +139,9 @@ impl Catalog {
                     format!("{id} is in the spec of `{module}`, whose IDs start with {expected}- (DOC-08)"),
                 ));
             }
+            if let (true, Ok(number)) = (token.prefix == expected, token.number.parse::<u32>()) {
+                numbers.insert(number, index + 1);
+            }
             if self.define(token.prefix, &id, &file.path, index + 1) {
                 self.behaviors
                     .entry(token.prefix.to_owned())
@@ -142,6 +151,42 @@ impl Catalog {
                         path: file.path.clone(),
                         line: index + 1,
                     });
+            }
+        }
+        self.check_numbers(file, &expected, &numbers, &retired);
+    }
+
+    /// DOC-08: no behavior of the spec at `file` takes a number it retired, and every number
+    /// from 1 to the highest it names, `numbers` of its behaviors and `retired`, each with its
+    /// line, is one or the other, so a deleted behavior's number is retired rather than taken
+    /// again.
+    fn check_numbers(
+        &mut self,
+        file: &File,
+        prefix: &str,
+        numbers: &BTreeMap<u32, usize>,
+        retired: &BTreeMap<u32, usize>,
+    ) {
+        for (number, line) in numbers {
+            if retired.contains_key(number) {
+                self.findings.push(Finding::new(
+                    &file.path,
+                    *line,
+                    format!("{prefix}-{number:03} is retired, so no behavior takes it (DOC-08)"),
+                ));
+            }
+        }
+        let highest = numbers.keys().chain(retired.keys()).max().copied();
+        for number in 1..=highest.unwrap_or(0) {
+            if !numbers.contains_key(&number) && !retired.contains_key(&number) {
+                self.findings.push(Finding::new(
+                    &file.path,
+                    1,
+                    format!(
+                        "{prefix}-{number:03} is neither a behavior of the spec nor retired, below \
+                         its highest number (DOC-08)"
+                    ),
+                ));
             }
         }
     }
@@ -159,6 +204,22 @@ impl Catalog {
         }
         new
     }
+}
+
+/// The numbers that a spec's line of retired IDs names, such as `IDs 014 and 015 are retired.`,
+/// or `None` for any other line.
+fn retired_numbers(line: &str) -> Option<Vec<u32>> {
+    let listed = line
+        .strip_prefix("IDs ")
+        .or_else(|| line.strip_prefix("ID "))?
+        .strip_suffix(" retired.")?;
+    Some(
+        listed
+            .split(|character: char| !character.is_ascii_digit())
+            .filter(|digits| digits.len() == 3)
+            .filter_map(|digits| digits.parse().ok())
+            .collect(),
+    )
 }
 
 /// The name of a Markdown file directly inside `directory`, other than its README.
@@ -278,6 +339,38 @@ pub mod tests {
         assert_eq!(
             messages("| GADGETS-001 | One |\n| GADGETS-001 | Again |\n"),
             ["GADGETS-001 is defined more than once (DOC-12)"]
+        );
+    }
+
+    #[test]
+    fn doc_08_a_retired_number_that_a_behavior_takes_is_reported() {
+        assert_eq!(
+            messages(
+                "IDs 002 and 003 are retired.\n\n| GADGETS-001 | One |\n| GADGETS-003 | Again |\n"
+            ),
+            ["GADGETS-003 is retired, so no behavior takes it (DOC-08)"]
+        );
+    }
+
+    #[test]
+    fn doc_08_a_number_below_the_highest_that_is_neither_a_behavior_nor_retired_is_reported() {
+        assert_eq!(
+            messages("ID 002 is retired.\n\n| GADGETS-001 | One |\n| GADGETS-004 | Four |\n"),
+            [
+                "GADGETS-003 is neither a behavior of the spec nor retired, below its highest number (DOC-08)"
+            ]
+        );
+        assert!(
+            messages(
+                "IDs 002 and 003 are retired.\n\n| GADGETS-001 | One |\n| GADGETS-004 | Four |\n"
+            )
+            .is_empty()
+        );
+        assert!(
+            messages(
+                "IDs 003 and 004 are retired.\n\n| GADGETS-001 | One |\n| GADGETS-002 | Two |\n"
+            )
+            .is_empty()
         );
     }
 

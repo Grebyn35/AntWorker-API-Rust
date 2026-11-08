@@ -91,7 +91,7 @@ pub const AUTH_OUTCOME: &str = "auth.outcome";
 pub const FILES_OUTCOME: &str = "files.outcome";
 /// How a call to the bucket of files' bytes ended, such as `ok` or `unavailable` (FILES-012).
 pub const STORAGE_OUTCOME: &str = "storage.outcome";
-/// How a scan by the malware scanner ended, such as `clean` or `unavailable` (PLATFORM-077).
+/// How a scan by the malware scanner ended, such as `clean` or `unavailable` (PLATFORM-079).
 pub const SCANNER_OUTCOME: &str = "scanner.outcome";
 /// A job's kind, or a periodic job's name, such as `platform.send_email` (PLATFORM-020).
 pub const JOB_KIND: &str = "job.kind";

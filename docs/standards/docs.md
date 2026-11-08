@@ -76,6 +76,7 @@ Each kind of fact has one home, listed below. A fact is written in its home as s
 ### DOC-08 Documents keep their format
 - A spec has the sections that the [spec README](../spec/README.md#sections) lists, in that order, and no others, and none of them is empty: one with nothing in it reads "None.".
 - Every table of behaviors has the columns `ID`, `Behavior`, `Rules` and `Test prefix`. A behavior's ID starts with its module's name in capitals, and its test prefix is the ID in lowercase, with `_` in place of `-` and after the number, such as `workspaces_005_` for `WORKSPACES-005`.
+- A spec's retired IDs are named in one line at the top of its Behaviors, `ID 009 is retired.` or `IDs 014 and 015 are retired.`, which no behavior of the spec takes, and every number from 001 to the highest that the spec names is a behavior's or retired ([spec README](../spec/README.md#ids)).
 - The spec README's index links every spec.
 - A module's spec lists, in its Routes table, each operation that `openapi.json` documents for the module, with its access level. Each operation names its module as its first tag. Once the module is built, its Routes table lists no operation the document lacks; until then, the table is the plan.
 - A rule follows the format in the [standards README](README.md#rule-format): a heading with its ID and its name, the statement, a `Why` line, and a `Check` line that starts with one of the kinds of check the README lists. Its ID starts with the prefix the README gives its file.

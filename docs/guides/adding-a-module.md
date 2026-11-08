@@ -32,7 +32,7 @@ It registers the module in the ten files that every module shares: `modules/mod.
 
 Work in this order, running `just checks` as you go, and `just ci` once you are done:
 
-1. **The spec first.** Rewrite its Purpose, its table's columns, its routes and its behaviors for what the module is for ([spec README](../spec/README.md#sections)), and the module's row in architecture.md. Each behavior keeps an ID and a test prefix (DOC-08, TEST-01); an ID you delete is never reused.
+1. **The spec first.** Rewrite its Purpose, its table's columns, its routes and its behaviors for what the module is for ([spec README](../spec/README.md#sections)), and the module's row in architecture.md. Each behavior keeps an ID and a test prefix (DOC-08, TEST-01); an ID you delete is never reused, and goes in the spec's line of retired IDs ([spec README](../spec/README.md#ids)).
 2. **The table.** Edit the migration for the columns you need, while no release holds it (DATA-09), then run `just migrate` before you write a query that needs them, as [Migrations and the query cache](#migrations-and-the-query-cache) explains.
 3. **The code and its tests,** piece by piece, as the next section places them. Delete what the module doesn't need, such as a route, with its permission, its fixture in TEST-08's test, its behavior and its tests.
 4. **The generated files.** `just prepare` rewrites `.sqlx/` once the queries compile against the migrated database, and `just openapi` rewrites `openapi.json` once the routes change.

@@ -29,6 +29,8 @@ None. No other module uses `files` yet.
 
 ## Behaviors
 
+IDs 014 and 015 are retired.
+
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
 | FILES-001 | Uploading a file, with its bytes as the body and its name in `Content-Disposition`, stores it in the workspace, and answers 201 with `Location` and `{id, workspace_id, name, media_type, size_bytes, uploader_id, created_at}`, `media_type` being the type its accepted kind stores (FILES-003) and `uploader_id` the caller. It records `file.uploaded` in the workspace's log, and publishes the workspace event `file.uploaded`, which requires `files.read`. Neither holds the name. A retry with the same `Idempotency-Key` stores one file. The owner, admins and members may upload. | API-04, API-08, API-12, DATA-21, DATA-22, SEC-18, SEC-19 | `files_001_` |

@@ -42,11 +42,11 @@ static SCANS: Counter<1> = Counter::new(
     "Scans by the malware scanner, by how each ended: clean, found, when it named a signature, \
      failed, when it answered with an error or with what the client couldn't read, or \
      unavailable, when it couldn't be reached, closed the connection, or didn't answer in time; a \
-     scan that its request's timeout drops first counts in none (PLATFORM-077, Design: Scanner).",
+     scan that its request's timeout drops first counts in none (PLATFORM-079, Design: Scanner).",
     [names::SCANNER_OUTCOME],
 );
 
-/// What reaching the scanner takes (PLATFORM-077).
+/// What reaching the scanner takes (PLATFORM-079).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScannerConfig {
     /// clamd's host, such as `scanner`.
@@ -255,7 +255,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn platform_077_clamd_s_answers_give_a_verdict_or_a_failure() {
+    fn platform_079_clamd_s_answers_give_a_verdict_or_a_failure() {
         assert_eq!(verdict(b"stream: OK").unwrap(), Verdict::Clean);
         assert_eq!(
             verdict(b"stream: Eicar-Test-Signature FOUND").unwrap(),

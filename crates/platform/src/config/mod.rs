@@ -126,7 +126,7 @@ pub struct ServerConfig {
     pub mail: MailConfig,
     /// The bucket that holds files' bytes (PLATFORM-076).
     pub storage: StorageConfig,
-    /// The malware scanner that every upload's bytes go to (PLATFORM-077).
+    /// The malware scanner that every upload's bytes go to (PLATFORM-079).
     pub scanner: ScannerConfig,
     /// How often the hub re-checks each open stream's session and memberships (PLATFORM-031).
     pub stream_recheck: Duration,

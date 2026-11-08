@@ -1,4 +1,4 @@
-//! The client of the malware scanner (PLATFORM-077), against the clamd that `just services`
+//! The client of the malware scanner (PLATFORM-079), against the clamd that `just services`
 //! starts and stand-ins for it.
 
 use std::{sync::Arc, time::Duration};
@@ -21,7 +21,7 @@ fn scans(outcome: &str) -> f64 {
 }
 
 #[tokio::test]
-async fn platform_077_a_scan_is_clean_or_names_the_signature_it_found() {
+async fn platform_079_a_scan_is_clean_or_names_the_signature_it_found() {
     let client = scanner::scanner();
     let (clean, found) = (scans("clean"), scans("found"));
 
@@ -39,7 +39,7 @@ async fn platform_077_a_scan_is_clean_or_names_the_signature_it_found() {
 }
 
 #[tokio::test]
-async fn platform_077_clamd_takes_20_mib_and_fails_a_longer_stream() {
+async fn platform_079_clamd_takes_20_mib_and_fails_a_longer_stream() {
     let client = scanner::scanner();
     let largest = 20 * 1024 * 1024;
     let failed = scans("failed");
@@ -56,7 +56,7 @@ async fn platform_077_clamd_takes_20_mib_and_fails_a_longer_stream() {
 }
 
 #[tokio::test]
-async fn platform_077_a_scanner_it_can_t_connect_to_is_unavailable() {
+async fn platform_079_a_scanner_it_can_t_connect_to_is_unavailable() {
     // Nothing listens on port 9 of the loopback address.
     let client = scanner::client("127.0.0.1:9", Arc::new(TestClock::default()));
     let unavailable = scans("unavailable");
@@ -68,7 +68,7 @@ async fn platform_077_a_scanner_it_can_t_connect_to_is_unavailable() {
 }
 
 #[tokio::test]
-async fn platform_077_a_scanner_that_doesn_t_answer_within_30_seconds_is_unavailable() {
+async fn platform_079_a_scanner_that_doesn_t_answer_within_30_seconds_is_unavailable() {
     let stand_in = scanner::scripted(Script::Never).await;
     let clock = Arc::new(TestClock::default());
     let client = scanner::client(&stand_in.address, clock.clone());
@@ -84,7 +84,7 @@ async fn platform_077_a_scanner_that_doesn_t_answer_within_30_seconds_is_unavail
 }
 
 #[tokio::test]
-async fn platform_077_a_scanner_that_closes_the_connection_before_its_answer_is_unavailable() {
+async fn platform_079_a_scanner_that_closes_the_connection_before_its_answer_is_unavailable() {
     let stand_in = scanner::scripted(Script::Close).await;
     let client = scanner::client(&stand_in.address, Arc::new(TestClock::default()));
 
@@ -94,7 +94,7 @@ async fn platform_077_a_scanner_that_closes_the_connection_before_its_answer_is_
 }
 
 #[tokio::test]
-async fn platform_077_an_answer_that_is_an_error_or_unreadable_fails_the_scan() {
+async fn platform_079_an_answer_that_is_an_error_or_unreadable_fails_the_scan() {
     for line in ["Can't allocate memory ERROR", "PONG"] {
         let stand_in = scanner::scripted(Script::Answer(line)).await;
         let client = scanner::client(&stand_in.address, Arc::new(TestClock::default()));

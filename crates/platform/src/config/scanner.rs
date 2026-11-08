@@ -1,4 +1,4 @@
-//! The setting of the malware scanner (PLATFORM-077), which `serve` reads with the rest of its
+//! The setting of the malware scanner (PLATFORM-079), which `serve` reads with the rest of its
 //! settings.
 
 use std::{ffi::OsString, io, path::Path};
@@ -59,13 +59,13 @@ mod tests {
     }
 
     #[test]
-    fn platform_077_the_scanner_s_address_is_required() {
+    fn platform_079_the_scanner_s_address_is_required() {
         let error = read(&[]).unwrap_err();
         assert!(error.contains("CLAMD_ADDRESS"), "{error}");
     }
 
     #[test]
-    fn platform_077_the_scanner_s_address_is_a_host_and_a_port() {
+    fn platform_079_the_scanner_s_address_is_a_host_and_a_port() {
         let config = read(&[("CLAMD_ADDRESS", "scanner:3310")]).unwrap();
         assert_eq!(
             config,
