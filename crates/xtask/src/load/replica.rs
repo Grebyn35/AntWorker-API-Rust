@@ -237,11 +237,19 @@ pub(super) fn limits(root: &Path) -> Result<(String, String), String> {
 pub(super) fn settings() -> Result<Vec<String>, String> {
     let key = std::env::var("HMAC_KEY").map_err(|_| "HMAC_KEY is unset; run `just setup`")?;
     // The load sends no email, so the replicas turn email off, which `serve` requires them to
-    // say (PLATFORM-024).
+    // say (PLATFORM-024). It stores no file either, so the bucket's and the scanner's addresses
+    // name no host (RFC 6761), which `serve` requires and reaches only when asked (PLATFORM-076,
+    // PLATFORM-077).
     let mut settings = vec![
         "ENVIRONMENT=production".to_owned(),
         format!("HMAC_KEY={key}"),
         "EMAIL=off".to_owned(),
+        "S3_ENDPOINT=https://bucket.invalid".to_owned(),
+        "S3_REGION=us-east-1".to_owned(),
+        "S3_BUCKET=files".to_owned(),
+        "S3_ACCESS_KEY_ID=load".to_owned(),
+        "S3_SECRET_ACCESS_KEY=load".to_owned(),
+        "CLAMD_ADDRESS=scanner.invalid:3310".to_owned(),
         "RATE_LIMIT_IP_REQUESTS=1000000".to_owned(),
         "RATE_LIMIT_USER_REQUESTS=1000000".to_owned(),
     ];

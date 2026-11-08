@@ -87,6 +87,9 @@ pub fn settings(database: &TestDatabase) -> Vec<String> {
         "S3_BUCKET=files".to_owned(),
         "S3_ACCESS_KEY_ID=e2e".to_owned(),
         "S3_SECRET_ACCESS_KEY=e2e-secret".to_owned(),
+        // Nor does one upload a file, so the scanner's address names no host either: the client
+        // reaches the scanner only when asked (PLATFORM-077).
+        "CLAMD_ADDRESS=scanner.invalid:3310".to_owned(),
     ];
     for setting in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
         let mut url = url::Url::parse(&std::env::var(setting).expect(setting)).expect(setting);
