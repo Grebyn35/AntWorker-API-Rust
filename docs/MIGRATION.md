@@ -219,7 +219,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 1834298..0046098: as above, with pass 2's fixes | 3 | 7 (4, 3, 0 shared) | 2 | 1 | `stopped: no progress`: fd512cc |
 | 61f1da8..d642041: `files`' first part, with `platform`'s storage, uploads and downloads, the bucket at a provider in every deployment (D106), buckets that keep no noncurrent versions (D102), the recreation of services whose secrets changed (D103), and `check-test-map`'s check of SEC-19 | 1 | 29 (26, 17, 14 shared) | 19 | 0 | `next pass`: 35bfe0a |
 | 61f1da8..35bfe0a: as above, with pass 1's fixes | 2 | 17 (14, 6, 3 shared) | 7 | 3 | `stopped: no progress`: 51f1c99 |
-| 7d1c801..b46ee54: `files`' scanning: `platform`'s scanner (PLATFORM-077), the scan of every upload (FILES-005), the scanner in development, the tests and the reference deployment, its alerts and runbooks, D107 to D109, the drain's deadline (OPS-06), and the fixes after it | 1 | 10 (9, 6, 5 shared) | 5 | 0 | `next pass` |
+| 7d1c801..b46ee54: `files`' scanning: `platform`'s scanner (PLATFORM-077), the scan of every upload (FILES-005), the scanner in development, the tests and the reference deployment, its alerts and runbooks, D107 to D109, the drain's deadline (OPS-06), and the fixes after it | 1 | 10 (9, 6, 5 shared) | 5 | 0 | `next pass`: 2191f83 |
+| 7d1c801..9558419: as above, with pass 1's fixes, and the settings the load test's replica shares with the image's tests | 2 | 7 (6, 2, 1 shared) | 0 | 0 | `clean` |
 
 ## Decisions
 
