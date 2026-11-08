@@ -5,7 +5,7 @@
 //! operations and schemas by in `names`, each with the rules it reads.
 
 mod codes;
-mod events;
+pub mod events;
 mod lists;
 pub mod names;
 mod operations;

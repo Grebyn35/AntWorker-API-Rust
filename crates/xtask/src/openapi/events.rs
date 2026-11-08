@@ -11,8 +11,11 @@ use serde_json::Value;
 use super::is_snake_case;
 use crate::{Finding, repo::Repo, text::line_of};
 
-/// The constructors of a module's events, which clippy allows only in its `events.rs`.
-const CONSTRUCTORS: [&str; 2] = ["UserEvent::new(", "WorkspaceEvent::new("];
+/// The constructor of a module's user events, which clippy allows only in its `events.rs`.
+const USER_EVENT: &str = "UserEvent::new(";
+
+/// The constructor of a module's workspace events, allowed as [`USER_EVENT`] is.
+const WORKSPACE_EVENT: &str = "WorkspaceEvent::new(";
 
 /// A finding for each event that a module's `events.rs` declares and `document`'s catalog lacks.
 pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
@@ -41,7 +44,7 @@ pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
         }
     }
     for file in repo.files().filter(|file| is_events_file(&file.path)) {
-        for name in declared(&file.text) {
+        for name in declared(&file.text, &[USER_EVENT, WORKSPACE_EVENT]) {
             if !catalog.contains(name) {
                 findings.push(Finding::new(
                     &file.path,
@@ -59,16 +62,22 @@ pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
 }
 
 /// Whether `path` is a module's `events.rs`.
-fn is_events_file(path: &str) -> bool {
+pub fn is_events_file(path: &str) -> bool {
     path.strip_prefix("crates/app/src/modules/")
         .and_then(|rest| rest.strip_suffix("/events.rs"))
         .is_some_and(|module| !module.contains('/'))
 }
 
-/// The name of each event that `text` declares: the string that each constructor takes first.
-fn declared(text: &str) -> Vec<&str> {
+/// The name of each workspace event that `text`, a module's `events.rs`, declares.
+pub fn workspace_events(text: &str) -> Vec<&str> {
+    declared(text, &[WORKSPACE_EVENT])
+}
+
+/// The name of each event that `text` declares through one of `constructors`: the string that
+/// the constructor takes first.
+fn declared<'a>(text: &'a str, constructors: &[&str]) -> Vec<&'a str> {
     let mut names = Vec::new();
-    for constructor in CONSTRUCTORS {
+    for constructor in constructors {
         for (at, _) in text.match_indices(constructor) {
             let rest = text[at + constructor.len()..].trim_start();
             if let Some(name) = rest

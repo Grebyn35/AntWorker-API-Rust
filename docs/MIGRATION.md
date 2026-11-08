@@ -136,7 +136,6 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of b35b321..05bde6f | TEST-06: whether, and how, an end-to-end test's harness waits for a turn that another test holds, such as a share of the servers' memory or the heavy turn, which TEST-06's three ways of waiting for a state don't name; a turn that no machine could give fails at once | 6, with the review of the whole codebase |
 | Conformance review of b35b321..05bde6f | CODE-06: its sentence that every wait goes through the clock's `sleep` names waits on time, while untimed waits, such as a condition variable's, a semaphore's or a child process's, wait on no time | 6, with the review of the whole codebase |
 | Conformance review of 1834298..0046098 | ARCH-07: `client_telemetry` is registered only in `composition.rs`, while a module that `just new-module` writes is registered in ten shared files: how the part stays removable when it is built from the templates, or whether it is built without them | 5, with `client_telemetry` |
-| Conformance review of 1834298..0046098 | SEC-19: a check that each workspace event a module's `events.rs` declares has a `sec_19_` test with a member who joins after it, since twice a generated module's test left one of its events out and only review saw it | 5, in the conformance review of `files`' first part, the first module since then that declares workspace events |
 
 
 ## Conformance reviews
