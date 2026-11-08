@@ -169,10 +169,10 @@ services:
 
   # The malware scanner (the files spec's "Scanning"), from the service scanner/compose.yaml
   # defines: clamd beside freshclam, which downloads ClamAV's signatures into its volume when it
-  # holds none, as on a new server, before clamd starts, and checks for new ones 12 times a day,
-  # which clamd loads while it goes on scanning with the old (scanner/start.sh). It holds about a
-  # gigabyte of memory, and twice that while it loads new signatures. It runs once, and only the
-  # replicas reach it.
+  # holds none, as on a new server, before clamd starts, and checks for new ones as freshclam.conf
+  # sets, which clamd loads while it goes on scanning with the old (scanner/start.sh). It holds
+  # about a gigabyte of memory, and twice that while it loads new signatures. It runs once, and
+  # only the replicas reach it.
   scanner:
     extends: { file: scanner/compose.yaml, service: scanner }
     logging: *logging

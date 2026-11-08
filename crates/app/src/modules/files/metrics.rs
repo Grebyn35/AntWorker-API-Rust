@@ -2,14 +2,13 @@
 
 use platform::telemetry::{metrics::Counter, names};
 
-/// Uploads that reached the check of their bytes and ended within their route's timeout, by how
-/// each ended.
+/// Uploads that reached the check of their bytes, by how each ended.
 static UPLOADS: Counter<1> = Counter::new(
     "files.uploads",
     "{upload}",
-    "Uploads that reached the check of their bytes and ended within their route's timeout, by \
-     how each ended: stored, unsupported_type, malware_detected, or failed, which a scanner that \
-     doesn't answer counts in too (FILES-013).",
+    "Uploads that reached the check of their bytes, by how each ended: stored, \
+     unsupported_type, malware_detected, or failed, which a scanner that doesn't answer, and the \
+     route's timeout, count in too (FILES-013).",
     [names::FILES_OUTCOME],
 );
 
@@ -22,13 +21,41 @@ pub(super) enum Upload {
     UnsupportedType,
     /// The scanner refused its bytes (FILES-005).
     MalwareDetected,
-    /// Anything else stopped it: the scanner, the storage, the database, or a refusal of its unit
-    /// of work.
+    /// Anything else stopped it: the scanner, the storage, the database, a refusal of its unit of
+    /// work, or its route's timeout.
     Failed,
 }
 
+/// An upload that reached the check of its bytes, which counts once: as the outcome that `end`
+/// gives it, or as failed when it is dropped before, as when its route's timeout ends it.
+#[must_use = "an upload counts as failed once this is dropped"]
+pub(super) struct Counted {
+    ended: bool,
+}
+
+impl Counted {
+    /// An upload that has reached the check of its bytes.
+    pub(super) fn start() -> Self {
+        Self { ended: false }
+    }
+
+    /// Counts the upload as `outcome`.
+    pub(super) fn end(mut self, outcome: Upload) {
+        self.ended = true;
+        count(outcome);
+    }
+}
+
+impl Drop for Counted {
+    fn drop(&mut self) {
+        if !self.ended {
+            count(Upload::Failed);
+        }
+    }
+}
+
 /// Counts an upload that ended as `outcome`.
-pub(super) fn upload(outcome: Upload) {
+fn count(outcome: Upload) {
     let label = match outcome {
         Upload::Stored => "stored",
         Upload::UnsupportedType => "unsupported_type",

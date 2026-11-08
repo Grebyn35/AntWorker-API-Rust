@@ -1358,6 +1358,29 @@ async fn files_013_an_upload_that_the_bucket_doesn_t_take_counts_as_failed() {
 }
 
 #[tokio::test]
+async fn files_013_an_upload_that_its_route_s_timeout_ends_counts_as_failed() {
+    let stand_in = scanner::scripted(Script::Never).await;
+    let api = Api::with(Options::default().set("CLAMD_ADDRESS", &stand_in.address)).await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let before = uploads("failed");
+
+    let (response, ()) = tokio::join!(
+        upload(&api, &ada, &workspace, "a.txt", b"hello", None),
+        async {
+            stand_in.read.notified().await;
+            // Paused once the scanner holds the scan, whose own wait runs on the test's clock,
+            // so tokio's time runs straight to the route's timeout, the only timer left.
+            tokio::time::pause();
+        }
+    );
+
+    assert_eq!(response.status, 503);
+    assert_eq!(response.json()["code"], "request.timed_out");
+    // Tests running alongside upload too, so the count grows by at least this.
+    assert!(uploads("failed") >= before + 1.0);
+}
+
+#[tokio::test]
 async fn files_013_an_upload_whose_scanner_doesn_t_answer_counts_as_failed() {
     // Nothing listens on port 9 of the loopback address.
     let api = Api::with(Options::default().set("CLAMD_ADDRESS", "127.0.0.1:9")).await;

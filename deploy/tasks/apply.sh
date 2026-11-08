@@ -272,7 +272,7 @@ apply() {
     changed=$(changed_single_services)
     if [ -n "$changed" ] && [ "$allow_restart" != yes ]; then
         cp "$state/deploy.env.previous" "$state/deploy.env"
-        fail "this deploy changes $(printf '%s\n' "$changed" | tr '\n' ' ')which runs once, so it restarts it and interrupts requests: for a few seconds, or, for the scanner, the uploads until it has loaded its signatures, about half a minute. The release changes it, or a setting, a secret or a file it reads. Deploy again with --allow-restart when that's acceptable"
+        fail "this deploy changes $(printf '%s\n' "$changed" | tr '\n' ' ')which runs once, so it restarts it and interrupts requests: for a few seconds, or, for the scanner, the uploads until it has loaded its signatures. The release changes it, or a setting, a secret or a file it reads. Deploy again with --allow-restart when that's acceptable"
     fi
     write_caddy_state
 

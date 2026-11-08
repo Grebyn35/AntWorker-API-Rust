@@ -6,7 +6,9 @@
 # freshclam's that fails waits for its next, and signatures that grow old raise an alert.
 set -eu
 
-# A stop signal stops what runs, a download of the signatures included, and ends the script.
+# A stop signal stops what runs, a download of the signatures included, and ends the script. Each
+# runs in the background while the script waits for it, since the shell runs a trap only once a
+# command in the foreground ends.
 updates=""
 scans=""
 trap 'kill $updates $scans 2> /dev/null || true; exit 143' TERM INT
@@ -24,12 +26,17 @@ has_signatures() {
 # Without signatures, downloads them, and tries again every minute until it can: a mirror that
 # refuses a check, as ClamAV's do for a server that checks too often, refuses it for a while.
 until has_signatures; do
-    if freshclam --config-file="$configuration/freshclam.conf" --stdout; then break; fi
+    freshclam --config-file="$configuration/freshclam.conf" --stdout &
+    updates=$!
+    if wait "$updates"; then break; fi
     echo "scanner: no signatures yet, so clamd can't start; freshclam tries again in a minute" >&2
-    sleep 60
+    sleep 60 &
+    updates=$!
+    wait "$updates" || true
 done
 
-# freshclam checks at once, then 12 times a day, and has clamd load what it downloads.
+# freshclam checks at once, then as freshclam.conf's Checks sets, and has clamd load what it
+# downloads.
 freshclam --config-file="$configuration/freshclam.conf" --stdout --daemon \
     --daemon-notify="$configuration/clamd.conf" &
 updates=$!

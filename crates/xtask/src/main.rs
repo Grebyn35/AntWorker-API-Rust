@@ -212,8 +212,8 @@ enum Command {
         host: String,
         /// The release's version, such as 1.4.0; the latest by default.
         version: Option<String>,
-        /// Restarts Postgres or Caddy if the release changes them, which interrupts requests for
-        /// a few seconds.
+        /// Restarts Postgres, Caddy or the scanner if the release changes them, which interrupts
+        /// requests, the scanner's uploads alone.
         #[arg(long)]
         allow_restart: bool,
     },

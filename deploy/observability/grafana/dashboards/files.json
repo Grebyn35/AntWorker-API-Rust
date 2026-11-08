@@ -38,7 +38,7 @@
     {
       "type": "timeseries",
       "title": "How do uploads end?",
-      "description": "Uploads in the last 5 minutes that reached the check of their bytes, by how each ended: stored, unsupported_type, its bytes of no kind the API accepts, malware_detected, when the scanner refused them, or failed, as when the scanner or the bucket doesn't answer (FILES-013). A rise in failed beside 503s on the upload route is the scanner's or the bucket's, which the panels beside tell apart.",
+      "description": "Uploads in the last 5 minutes that reached the check of their bytes, by how each ended: stored, unsupported_type, its bytes of no kind the API accepts, malware_detected, when the scanner refused them, or failed, as when the scanner or the bucket doesn't answer, or the route's timeout ends the upload (FILES-013). A rise in failed beside 503s on the upload route is the scanner's or the bucket's, which the panels beside tell apart.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -118,7 +118,7 @@
     {
       "type": "timeseries",
       "title": "Does the scanner answer?",
-      "description": "Scans by the malware scanner in the last 5 minutes, by how each ended: clean, found, when it named a signature, failed, when it answered with an error or with what the client couldn't read, or unavailable, when it couldn't be reached, closed the connection, or didn't answer within 30 seconds (PLATFORM-077). Only unavailable scans, with no answered one, are the alert ScannerUnreachable.",
+      "description": "Scans by the malware scanner in the last 5 minutes, by how each ended: clean, found, when it named a signature, failed, when it answered with an error or with what the client couldn't read, or unavailable, when it couldn't be reached, closed the connection, or didn't answer within 30 seconds (PLATFORM-077); a scan that its request's timeout drops first counts in none. Only unavailable scans, with no answered one, are the alert ScannerUnreachable.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

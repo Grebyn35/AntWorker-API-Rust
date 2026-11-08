@@ -70,7 +70,7 @@ All outbound HTTP that application code makes uses one of the two clients in `pl
 
 In the test environment only, the untrusted client accepts one configured loopback address, so tests can reach a fake provider. Startup refuses that setting in any other environment.
 - Why: no server-side request forgery, while every path stays testable (D26).
-- Check: `ci: check-layers` (no other HTTP client is built, and no TCP stream is opened outside the probe of the `health` subcommand and the scanner's adapter), plus `test` (including a test that the loopback setting is refused outside the test environment).
+- Check: `ci: check-layers` (no HTTP client library or TCP stream is named outside `platform::outbound`, the object storage and telemetry adapters, the probe of the `health` subcommand and the scanner's adapter), plus `test` (including a test that the loopback setting is refused outside the test environment).
 
 ### SEC-11 Uploaded content can't run in a browser
 Stored files are served with:

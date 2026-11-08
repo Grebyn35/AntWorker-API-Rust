@@ -7,7 +7,8 @@
 # release has, copies the deployment's files from the release's tag to the server, and runs that
 # release's deploy/deploy.sh there, which verifies the release's images before it pulls them, and
 # removes the other releases' files and the images that nothing uses once its replicas serve.
-# `--allow-restart` lets it restart Postgres or Caddy. docs/operations/deploy.md describes a deploy.
+# `--allow-restart` lets it restart Postgres, Caddy or the scanner. docs/operations/deploy.md
+# describes a deploy.
 [doc("Deploys the latest release to a server, as `just deploy production`; `just deploy production 1.4.0` deploys 1.4.0")]
 [group('server')]
 deploy host *arguments:

@@ -48,8 +48,8 @@
 #       and the Postgres image, as a deploy does. Prints a line for each check, and fails if any
 #       fails.
 #
-# A deploy restarts Postgres or Caddy, which each run once, only with --allow-restart, because
-# restarting either interrupts requests for a few seconds. DEPLOYMENT names the deployment's
+# A deploy restarts Postgres, Caddy or the scanner, which each run once, only with
+# --allow-restart, because restarting one interrupts requests, the scanner's uploads alone. DEPLOYMENT names the deployment's
 # directory, which holds settings.env, secrets/ and state/. The script first installs the files of
 # its own release there, so the deployment runs the release's configuration.
 set -eu

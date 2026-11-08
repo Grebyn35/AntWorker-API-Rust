@@ -172,7 +172,7 @@ This spec covers what the first slice and `files` need. The telemetry proxy and 
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
-| PLATFORM-077 | `serve` requires `CLAMD_ADDRESS`, the scanner's host and port, such as `scanner:3310`, and refuses an address without a port. `Scanner::scan` sends the bytes it is given to clamd with its `INSTREAM` command, and gives `Clean` when clamd answers `OK`, and `Found`, with the signature's name, when it names one. It fails as unavailable while it can't connect to clamd, while clamd doesn't answer within 30 seconds of the scan's start, or when clamd closes the connection before its answer; and as failed when clamd answers with an error, such as a stream longer than it takes, or with anything else. Each scan counts in `platform.scans` by how it ended: `clean`, `found`, `failed` or `unavailable`; one that its request's timeout cuts short ends in none. | ERR-04, OBS-06, OBS-14, CODE-06 | `platform_077_` |
+| PLATFORM-077 | `serve` requires `CLAMD_ADDRESS`, the scanner's host and port, such as `scanner:3310`, and refuses an address without a port. `Scanner::scan` sends the bytes it is given to clamd with its `INSTREAM` command, and gives `Clean` when clamd answers `OK`, and `Found`, with the signature's name, when it names one. It fails as unavailable while it can't connect to clamd, while clamd doesn't answer within 30 seconds of the scan's start, or when clamd closes the connection before its answer; and as failed when clamd answers with an error, such as a stream longer than it takes, or with anything else. Each scan counts in `platform.scans` by how it ended: `clean`, `found`, `failed` or `unavailable`. | ERR-04, OBS-06, OBS-14, CODE-06 | `platform_077_` |
 
 ### Lifecycle
 
@@ -452,7 +452,7 @@ A turn per processor bounds the memory: a password's hash holds 19 MiB while it 
 
 Each scan opens a connection of its own, which clamd closes after its answer, so no connection waits between uploads, and clamd's queue bounds how many it scans at once. The connection has 2 seconds to open, and the whole scan 30 seconds from its start, each measured on the clock the client is given (CODE-06): enough for a scan of the largest `FILE_MAX_BYTES` of the slowest kind ([files spec](files.md#scanning)). The client reaches clamd only when asked, so `serve` starts while the scanner doesn't answer, and readiness doesn't wait on it, as it doesn't on the bucket: replicas that couldn't reach it would all leave the load balancer, and every route would fail with them, rather than only uploads.
 
-Each scan runs in a client span of its own, named `clamd INSTREAM`, with the scanner's address and port, and counts in `platform.scans`, which the alert ScannerUnreachable reads (OBS-14). `ScanError`'s cause, for the logs, is written by the client from what failed, and names neither the bytes nor the signature: the signature goes to the caller, in `Found`, and clamd's own log writes it.
+Each scan runs in a client span of its own, named `clamd INSTREAM`, with the scanner's address and port, and counts in `platform.scans`, which the alert ScannerUnreachable reads (OBS-14), once it ends: a scan that its request's timeout drops first has no outcome, and counts in none. `ScanError`'s cause, for the logs, is written by the client from what failed, and names neither the bytes nor the signature: the signature goes to the caller, in `Found`, and clamd's own log writes it.
 
 ### Telemetry names
 

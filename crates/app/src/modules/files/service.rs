@@ -74,6 +74,7 @@ pub(crate) async fn upload(
     if bytes.is_empty() {
         return Err(FilesError::Empty);
     }
+    let counted = metrics::Counted::start();
     // A text's check reads every byte, so the check is CPU-heavy work (CODE-05).
     let checked = bytes.clone();
     let kind = files
@@ -86,17 +87,17 @@ pub(crate) async fn upload(
         .await
         .map_err(Internal::new)?;
     let Some((kind, name)) = kind else {
-        metrics::upload(Upload::UnsupportedType);
+        counted.end(Upload::UnsupportedType);
         return Err(FilesError::UnsupportedType);
     };
     match files.scanner.scan(&bytes).await {
         Ok(Verdict::Clean) => {}
         Ok(Verdict::Found(_)) => {
-            metrics::upload(Upload::MalwareDetected);
+            counted.end(Upload::MalwareDetected);
             return Err(FilesError::MalwareDetected);
         }
         Err(error) => {
-            metrics::upload(Upload::Failed);
+            counted.end(Upload::Failed);
             return Err(match error {
                 ScanError::Unavailable(cause) => FilesError::ScannerUnavailable(Some(cause)),
                 ScanError::Failed(cause) => FilesError::Internal(cause),
@@ -104,7 +105,7 @@ pub(crate) async fn upload(
         }
     }
     let stored = store(files, authorize, name, kind, bytes, key).await;
-    metrics::upload(if stored.is_ok() {
+    counted.end(if stored.is_ok() {
         Upload::Stored
     } else {
         Upload::Failed

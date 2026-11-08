@@ -42,7 +42,7 @@ static SCANS: Counter<1> = Counter::new(
     "Scans by the malware scanner, by how each ended: clean, found, when it named a signature, \
      failed, when it answered with an error or with what the client couldn't read, or \
      unavailable, when it couldn't be reached, closed the connection, or didn't answer in time; a \
-     scan that its request's timeout cuts short counts in none (PLATFORM-077).",
+     scan that its request's timeout drops first counts in none (PLATFORM-077, Design: Scanner).",
     [names::SCANNER_OUTCOME],
 );
 
