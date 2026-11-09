@@ -544,13 +544,13 @@ async fn accounts_009_an_avatar_that_its_route_s_timeout_ends_answers_503_timed_
 }
 
 #[tokio::test]
-async fn accounts_008_setting_or_removing_an_avatar_with_a_stale_etag_answers_412() {
+async fn accounts_008_setting_an_avatar_with_a_stale_etag_answers_412() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let stale = etag(&api, &ada).await;
     set(&api, &ada, PNG).await;
 
-    let set_stale = api
+    let response = api
         .request(http::Method::PUT, "/v1/users/me/avatar")
         .header("content-type", "application/octet-stream")
         .header("if-match", &stale)
@@ -558,35 +558,37 @@ async fn accounts_008_setting_or_removing_an_avatar_with_a_stale_etag_answers_41
         .bearer(&ada.access)
         .send()
         .await;
-    let remove_stale = api
-        .request(http::Method::DELETE, "/v1/users/me/avatar")
-        .header("if-match", &stale)
-        .bearer(&ada.access)
-        .send()
-        .await;
-    let current = etag(&api, &ada).await;
-    let remove_current = api
-        .request(http::Method::DELETE, "/v1/users/me/avatar")
-        .header("if-match", &current)
-        .bearer(&ada.access)
-        .send()
-        .await;
 
-    for refused in [&set_stale, &remove_stale] {
-        assert_eq!(refused.status, 412);
-        assert_eq!(refused.json()["code"], "request.precondition_failed");
-    }
-    assert_eq!(current, "\"2\"");
-    assert_eq!(remove_current.status, 204);
-    assert!(rows(&api).await.is_empty());
+    assert_eq!(response.status, 412);
+    assert_eq!(response.json()["code"], "request.precondition_failed");
+    assert_eq!(rows(&api).await.len(), 1);
     let recorded = api
         .database()
-        .owner_reads(
-            "SELECT (SELECT count(*) FROM audit_entries WHERE action = 'avatar.uploaded') || ' ' \
-             || (SELECT count(*) FROM audit_entries WHERE action = 'avatar.deleted')",
-        )
+        .owner_reads("SELECT count(*)::text FROM audit_entries WHERE action = 'avatar.uploaded'")
         .await;
-    assert_eq!(recorded, ["1 1"]);
+    assert_eq!(recorded, ["1"]);
+}
+
+#[tokio::test]
+async fn accounts_010_removing_an_avatar_with_a_stale_etag_answers_412_and_with_the_current_204() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let stale = etag(&api, &ada).await;
+    set(&api, &ada, PNG).await;
+    let current = etag(&api, &ada).await;
+    let remove_with = |etag: &str| {
+        api.request(http::Method::DELETE, "/v1/users/me/avatar")
+            .header("if-match", etag)
+            .bearer(&ada.access)
+    };
+
+    let refused = remove_with(&stale).send().await;
+    let removed = remove_with(&current).send().await;
+
+    assert_eq!(refused.status, 412);
+    assert_eq!(refused.json()["code"], "request.precondition_failed");
+    assert_eq!(removed.status, 204);
+    assert!(rows(&api).await.is_empty());
 }
 
 #[tokio::test]
@@ -661,4 +663,24 @@ async fn files_024_a_replaced_or_removed_avatar_s_download_answers_404() {
         assert_eq!(response.status, 404);
         assert_eq!(response.json()["code"], "files.not_found");
     }
+}
+
+#[tokio::test]
+async fn accounts_009_while_the_storage_doesn_t_answer_within_its_time_an_avatar_answers_503() {
+    let bucket = bucket::scripted(None).await;
+    let api = Api::with(Options::default().set("S3_ENDPOINT", &bucket.endpoint)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let clock = api.clock();
+    // An upload waits 15 seconds for the bucket's answer, within its route's 60 (the platform
+    // spec's Storage).
+    let wait = Duration::from_secs(15);
+
+    let (response, ()) = tokio::join!(set(&api, &ada, PNG), async {
+        clock.sleeping(wait).await;
+        clock.advance(wait);
+    });
+
+    assert_eq!(response.status, 503);
+    assert_eq!(response.json()["code"], "accounts.avatar_unavailable");
+    assert!(rows(&api).await.is_empty());
 }

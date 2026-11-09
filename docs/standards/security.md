@@ -76,7 +76,7 @@ In the test environment only, the untrusted client accepts one configured loopba
 
 <!-- part: files -->
 ### SEC-11 Uploaded content can't run in a browser
-Stored files are served with:
+Stored files, and avatars, are served with:
 - `X-Content-Type-Options: nosniff`
 - `Content-Security-Policy: sandbox`
 - `Content-Disposition: attachment`, unless the type is an allowlisted image type

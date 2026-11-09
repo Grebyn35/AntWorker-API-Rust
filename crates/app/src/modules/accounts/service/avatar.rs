@@ -25,7 +25,7 @@ use crate::modules::{
 };
 
 /// What the avatar's routes take: the database, `files`, which keeps the images, and the turns
-/// of the instance's CPU-heavy work, which reading a keyed upload's body takes (PLATFORM-074).
+/// of the instance's CPU-heavy work, which `Upload::read` takes (PLATFORM-074).
 #[derive(Clone)]
 pub(crate) struct Avatars {
     pub(in crate::modules::accounts) database: Database,
@@ -59,10 +59,10 @@ pub(in crate::modules::accounts) async fn set(
     files::upload_avatar(&avatars.files, bytes, async |avatar: NewAvatar| {
         let mut uow = avatars.database.begin(client).await?;
         let user = principal.user_id();
-        if !repo::lock(&mut uow, user, versions).await? {
+        repo::lock(&mut uow, user).await?;
+        if !repo::touch(&mut uow, user, versions).await? {
             return Err(RequestError::PreconditionFailed.into());
         }
-        repo::touch(&mut uow, user).await?;
         let id = files::record_avatar(&mut uow, user, avatar).await?;
         let entry = Entry::new(audit::AVATAR_UPLOADED, audit::AVATAR, id);
         log::record(&mut uow, principal.audit_scope(), entry).await?;
@@ -87,14 +87,15 @@ pub(in crate::modules::accounts) async fn remove(
 ) -> Result<(), AccountsError> {
     let mut uow = avatars.database.begin(client).await?;
     let user = principal.user_id();
-    if !repo::lock(&mut uow, user, versions).await? {
+    repo::lock(&mut uow, user).await?;
+    if !repo::touch(&mut uow, user, versions).await? {
         return Err(RequestError::PreconditionFailed.into());
     }
-    // Without an avatar, the unit of work rolls back as it is dropped.
+    // Without an avatar, the unit of work rolls back as it is dropped, the version's move with
+    // it.
     let Some(id) = files::delete_avatar(&mut uow, user).await? else {
         return Ok(());
     };
-    repo::touch(&mut uow, user).await?;
     let entry = Entry::new(audit::AVATAR_DELETED, audit::AVATAR, id);
     log::record(&mut uow, principal.audit_scope(), entry).await?;
     publish_updated(&mut uow, principal).await?;

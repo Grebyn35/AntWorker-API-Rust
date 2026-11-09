@@ -22,8 +22,8 @@ pub(super) struct IpLimit {
     /// The bucket of every request that no other bucket of the IP limit counts.
     pub(super) bucket: Bucket,
     // part: files
-    /// The bucket of the requests under [`super::PUBLIC_PREFIX`], public files' downloads
-    /// (PLATFORM-082).
+    /// The bucket of the requests under [`super::PUBLIC_PREFIX`], public downloads of files and
+    /// avatars (PLATFORM-082).
     pub(super) public_bucket: Bucket,
     // end part: files
 }

@@ -56,7 +56,7 @@ A user also sets and removes their avatar here, whose image `files` keeps (D117,
 
 ### Renaming
 
-The patch's name is parsed into a `DisplayName` before the unit of work opens. The unit of work's first statement locks the user's row `FOR UPDATE` and reads whether its `version` is one that `If-Match` names, so a stale `ETag` changes nothing and answers 412 (PLATFORM-071). The update then writes the name, and the row's trigger moves its `version` and `updated_at` (DATA-02). A rename writes, records and publishes even when the name is the one stored, as a workspace's rename does (WORKSPACES-008).
+The patch's name is parsed into a `DisplayName` before the unit of work opens. The unit of work's first statement locks the user's row `FOR UPDATE`. The update then writes the name with the versions that `If-Match` names in its `WHERE`, so a stale `ETag` changes nothing and answers 412 (DATA-18, PLATFORM-071), and the row's trigger moves its `version` and `updated_at` (DATA-02). A rename writes, records and publishes even when the name is the one stored, as a workspace's rename does (WORKSPACES-008).
 
 ### Events
 
@@ -68,8 +68,8 @@ A change to the user's avatar publishes the same two events, since the avatar sh
 
 `files` keeps each avatar: its row in `avatars`, and its bytes in the bucket under the prefix `avatars/` ([files spec](files.md#avatars)). `accounts` owns setting and removing it, its entries in the user's log, and its events, since an avatar is part of how a user appears, as their name is, so both changes reach clients the same way (D120).
 
-1. The handler refuses a body whose `Content-Length` declares more than 1 MiB, then reads the body, in one of the replica's turns, which it holds until the avatar is stored (PLATFORM-074). `files::upload_avatar` finds its kind from its bytes, has the scanner scan it, and writes its object, outside any transaction (DATA-21).
-2. It then runs what `accounts` gives it, which opens the unit of work. Its first statement locks the user's row and checks `If-Match`, as a rename's does, so two changes of one user's record take turns (DATA-20), and the next moves the record's `version`. `files::record_avatar` then deletes the user's avatar row, if any, and inserts the new one. The entry is recorded, the events are published, and the unit of work commits, which counts the upload as stored (FILES-013). A stale `ETag` answers 412 once the object is written, which FILES-011 then deletes.
+1. The handler refuses a body whose `Content-Length` declares more than ACCOUNTS-009's limit, then reads the body, in one of the replica's turns, which it holds until the avatar is stored (PLATFORM-074). `files::upload_avatar` finds its kind from its bytes, has the scanner scan it, and writes its object, outside any transaction (DATA-21).
+2. It then runs what `accounts` gives it, which opens the unit of work. Its first statement locks the user's row, as a rename's does, so two changes of one user's record take turns (DATA-20), and the next moves the record's `version`, with the versions that `If-Match` names in its `WHERE` (DATA-18). `files::record_avatar` then deletes the user's avatar row, if any, and inserts the new one. The entry is recorded, the events are published, and the unit of work commits, which counts the upload as stored (FILES-013). A stale `ETag` answers 412 once the object is written, which FILES-011 then deletes.
 
 An object written by an upload whose unit of work never commits, and the object of a replaced or removed avatar, are left to FILES-011, as every unreferenced object is. Removing an avatar locks the user's row, and moves their `version` when there was one to remove, so every change to what ACCOUNTS-001 gives moves its `ETag`.
 

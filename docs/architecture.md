@@ -220,7 +220,7 @@ The layers have strict jobs (ARCH-08 to ARCH-10):
 - **Services** contain no HTTP types.
 - **Repositories** contain no rules.
 
-A module that outgrows a file splits it into a directory with the same name, such as `service/` (ARCH-03, CODE-08).
+A module splits a file into a directory with the same name, such as `service/`, when the file outgrows its limit, or when an optional part adds functions of its own to it, which the part then owns in a file of their own (ARCH-03, CODE-08, D119).
 
 A trait that abstracts a dependency either inverts a dependency the crate or module graph forbids, as the four traits above do, or covers an external system with more than one implementation, such as email transport or the clock (ARCH-13). Nothing gets a trait just so it can be mocked, because tests run against the real database (D23).
 

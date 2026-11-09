@@ -50,7 +50,7 @@ If a deploy started the failures, roll it back first, then investigate.
 <!-- part: files -->
 ## StorageUnreachable
 
-**What it means.** For 5 minutes, the bucket of files' bytes answered none of the API's calls, while some went unanswered: each wait for its answer ran out, the connection to it failed, or it answered with a 5xx or a 429, that it can't serve now ([platform spec](../spec/platform.md#storage)). Uploads and downloads answer 503 `files.storage_unavailable` meanwhile (FILES-012), while every other route serves.
+**What it means.** For 5 minutes, the bucket of files' bytes answered none of the API's calls, while some went unanswered: each wait for its answer ran out, the connection to it failed, or it answered with a 5xx or a 429, that it can't serve now ([platform spec](../spec/platform.md#storage)). Uploads and downloads answer 503 `files.storage_unavailable` meanwhile (FILES-012), and an avatar's upload `accounts.avatar_unavailable` (ACCOUNTS-009), while every other route serves.
 
 **Look first.** The Files dashboard: "Does the bucket answer?" shows when the calls stopped being answered. The `ERROR` lines of the 503s name the S3 operation and the failure, such as a connection's or a status.
 
@@ -58,7 +58,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 ## ScannerUnreachable
 
-**What it means.** For 5 minutes, the malware scanner answered none of the API's scans, while some went unanswered: the connection to it failed, it closed the connection before its answer, or it took more than its 30 seconds ([platform spec](../spec/platform.md#scanner)). Uploads answer 503 `files.scanner_unavailable` meanwhile, and store nothing (FILES-005), while every other route serves.
+**What it means.** For 5 minutes, the malware scanner answered none of the API's scans, while some went unanswered: the connection to it failed, it closed the connection before its answer, or it took more than its 30 seconds ([platform spec](../spec/platform.md#scanner)). Uploads answer 503 `files.scanner_unavailable` meanwhile, an avatar's `accounts.avatar_unavailable`, and store nothing (FILES-005, ACCOUNTS-009), while every other route serves.
 
 **Look first.** `just status <host>`, which shows whether the `scanner` container runs and is healthy, then `just logs <host> scanner`. A scanner that restarted loads its signatures again first ([deploy.md](deploy.md#the-scanner)); one that has none yet, as on a new server, downloads them first, and its log says so. The Files dashboard: "Does the scanner answer?" shows when the scans stopped being answered, and the `ERROR` lines of the 503s name the failure.
 

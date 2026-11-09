@@ -108,10 +108,10 @@ pub(crate) async fn rename(
 ) -> Result<Current, AccountsError> {
     let mut uow = database.begin(client).await?;
     let user = principal.user_id();
-    if !repo::lock(&mut uow, user, versions).await? {
+    repo::lock(&mut uow, user).await?;
+    if !repo::rename(&mut uow, user, &rename.name, versions).await? {
         return Err(RequestError::PreconditionFailed.into());
     }
-    repo::rename(&mut uow, user, &rename.name).await?;
     let entry = Entry::new(audit::USER_RENAMED, audit::USER, user.uuid());
     log::record(&mut uow, principal.audit_scope(), entry).await?;
     publish_updated(&mut uow, principal).await?;

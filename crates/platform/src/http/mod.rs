@@ -329,7 +329,8 @@ const IP_BUCKET: &str = "ip";
 /// The bucket of each client IP's requests under [`PUBLIC_PREFIX`] (PLATFORM-082).
 const PUBLIC_BUCKET: &str = "public";
 
-/// The prefix of the paths of public files' downloads, which anyone may read without signing in,
+/// The prefix of the paths of public downloads, of files and avatars, which anyone may read
+/// without signing in,
 /// whose requests count in [`PUBLIC_BUCKET`] (API-02, PLATFORM-082).
 pub const PUBLIC_PREFIX: &str = "/v1/public/";
 // end part: files
