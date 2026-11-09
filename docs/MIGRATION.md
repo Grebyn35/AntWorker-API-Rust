@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 5's full `accounts` module, whose avatars belong to `files`, with their markers written with the code. The trial server runs 0.1.0-rc.11; its Grafana Cloud alerts reach no contact point. Its next release needs a files bucket at Backblaze B2 beside the backups', with its own key pair and "Keep only the last version of the file", and `--allow-restart`, for the new Postgres image and its secrets' fingerprint; its first deploy downloads ClamAV's signatures, which proves the scanner's first start, and writes an object with `UNSIGNED-PAYLOAD`, settling the platform spec's open question. The first restore after it measures a restore's downtime, and refuses a moment before the recorded beginnings of timelines from before D85 until those backups expire. The owner releases when it needs `main`, and merges Dependabot's pull requests: #20 passed CI; #14 and #17 failed only the backups jobs, on a base before 2b70070, and need a rebase; #19 also failed `deploy::ops_14_a_secret_that_the_setup_replaced_recreates_the_services_that_read_it` at `deploy.rs:797`, not yet read.
+**Next:** step 5's full `accounts` module, its second part: the personal data contract (`platform::personal_data`, each module's implementation, `check-personal-data`, closing DATA-23's gap) and account deletion (D16), confirmed by `auth`'s re-authentication, refused while the user owns a shared workspace, deleting their sole-member workspaces and anonymizing their audit entries, which settles the audit spec's open question on what lets erasure change entries. Export (D31) is the third part; the first, renaming and avatars, is built and reviewed (a6f9519). The trial server runs 0.1.0-rc.11; its Grafana Cloud alerts reach no contact point. Its next release needs a files bucket at Backblaze B2 with its own key pair and "Keep only the last version of the file", and `--allow-restart`; its first deploy proves the scanner's first start and settles the platform spec's `UNSIGNED-PAYLOAD` question. The first restore after it measures a restore's downtime. The owner releases when it needs `main`, and merges Dependabot's pull requests: #20 passed CI; #14 and #17 need a rebase past 2b70070; #19 also failed `deploy::ops_14_a_secret_that_the_setup_replaced_recreates_the_services_that_read_it` at `deploy.rs:797`, not yet read.
 
 ## Build order
 
@@ -71,14 +71,14 @@ Each module goes through these stages, in order:
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
 | `platform` | HTTP, DATA, RT, OBS, OPS, MAIL | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail, CPU-heavy work | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail, CPU-heavy work | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail, CPU-heavy work |
-| `accounts` | USER | first slice, renaming, avatars | first slice, renaming, avatars | first slice, renaming, avatars | first slice, renaming, avatars | first slice |
+| `accounts` | USER | first slice, renaming, avatars | first slice, renaming, avatars | first slice, renaming, avatars | first slice, renaming, avatars | first slice, renaming, avatars |
 | `auth` | AUTH | first slice | first slice | first slice | first slice | first slice |
 | `access` | WS | first slice | first slice | first slice | first slice | first slice |
 | `workspaces` | WS | first slice, reading and renaming | first slice, reading and renaming | first slice, reading and renaming | first slice, reading and renaming | first slice, reading and renaming |
 | `invitations` | WS, MAIL | first slice | first slice | first slice | first slice | first slice |
 | `audit` | AUDIT | first slice | first slice | the writer, the security event sink | the writer, the security event sink | the writer, the security event sink |
 | `realtime` | RT | first slice | first slice | first slice | first slice | first slice |
-| `files` | FILE | workspace files, user files, public files, signed URLs, avatars | workspace files, user files, public files, signed URLs, avatars | workspace files, user files, public files, signed URLs, avatars | workspace files, user files, public files, signed URLs, avatars | workspace files, user files, public files, signed URLs <!-- part: files --> |
+| `files` | FILE | workspace files, user files, public files, signed URLs, avatars | workspace files, user files, public files, signed URLs, avatars | workspace files, user files, public files, signed URLs, avatars | workspace files, user files, public files, signed URLs, avatars | workspace files, user files, public files, signed URLs, avatars <!-- part: files --> |
 | `client_telemetry` | OBS | | | | | |
 | `superadmins` | none: a new part (D62) | | | | | |
 | `system` | HTTP, OPS | capabilities, seed | capabilities, seed | capabilities, seed | capabilities, seed | capabilities, seed |
@@ -143,6 +143,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 13bda32..0664e84 | API-11: whether `check-openapi` requires `format: date-time` of a query or path parameter that names a time, but a signed URL's `expires` | 6, with the review of the whole codebase <!-- part: files --> |
 | Conformance review of 13bda32..0664e84 | OPS-06: whether an end-to-end scenario cuts a download short with a replica's drain, and resumes it from another, rather than the integration test that resumes a download it reads in part | 6, with the review of the whole codebase <!-- part: files --> |
 | Conformance review of 13bda32..859ef0e | PLATFORM-081: whether a `HEAD` of a download asks the bucket for the object's metadata alone, rather than a `GET` whose bytes it drops once the head is sent | 6, with the review of the whole codebase <!-- part: files --> |
+| Conformance review of 480ca84..fdfec95 | API-03 and API-13: whether a `PUT` or `DELETE` of a sub-resource, such as `/v1/users/me/avatar`, may answer with its parent record and the parent's `ETag`, and check `If-Match` against the parent's version, as the avatar's routes do, while RFC 9110 ties a response's `ETag` and `If-Match` to the target resource's own representation | 6, with the review of the whole codebase |
 
 
 ## Conformance reviews
@@ -234,7 +235,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | b6cd1a4..ccc38d4: as above, with pass 1's fixes | 2 | 5 (3, 3, 1 shared) | 1 | 0 | `next pass`: 3effea0 |
 | b6cd1a4..3effea0: as above, with pass 2's fixes | 3 | 3 (2, 1, 0 shared) | 1 | 0 | `stopped: no progress`: d12adf1 |
 | 480ca84..c9cf121: step 5's first part of `accounts`, renaming and avatars | 1 | 11 (8, 8, 5 shared) | 6 | 0 | `next pass`: fdfec95 |
-| 480ca84..fdfec95: as above, with pass 1's fixes | 2 | 9 (7, 3, 1 shared) | 3 | 1 | `stopped: no progress` |
+| 480ca84..fdfec95: as above, with pass 1's fixes | 2 | 9 (7, 3, 1 shared) | 3 | 1 | `stopped: no progress`: a6f9519 |
 
 ## Decisions
 

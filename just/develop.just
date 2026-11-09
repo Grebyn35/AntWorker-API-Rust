@@ -119,8 +119,9 @@ _dev-serve:
 fmt:
     cargo fmt --all
 
-# Runs every test. The integration tests use the services.
+# Runs every test. The integration tests use the services. A failing test binary doesn't stop
+# the others, so one run reports every failure.
 [doc("Runs the tests, which start Postgres through Compose")]
 [group('develop')]
 test: bound-build services
-    cargo test --workspace --locked
+    cargo test --workspace --locked --no-fail-fast
