@@ -4,7 +4,7 @@
 use std::io::Read;
 
 use flate2::read::DeflateDecoder;
-use platform::{db::UnitOfWork, jobs::JobContext, personal_data::PIECE};
+use platform::{db::UnitOfWork, jobs::JobContext, personal_data::CHUNK};
 use serde_json::Value;
 
 use crate::{
@@ -34,7 +34,7 @@ fn inflated(bytes: &[u8]) -> Vec<u8> {
     text
 }
 
-/// The entry of the document at `path` of the one export, as `size stored crc32`, with the pieces
+/// The entry of the document at `path` of the one export, as `size stored crc32`, with the chunks
 /// its store kept, each with its offset, in their order.
 async fn stored(db: &TestDatabase, path: &str) -> (String, Vec<(u64, Vec<u8>)>) {
     let entry = db
@@ -44,7 +44,7 @@ async fn stored(db: &TestDatabase, path: &str) -> (String, Vec<(u64, Vec<u8>)>) 
         ))
         .await
         .remove(0);
-    let pieces = db
+    let chunks = db
         .owner_reads(&format!(
             "SELECT chunk.offset_bytes || ' ' || encode(chunk.bytes, 'hex') \
              FROM export_chunks AS chunk JOIN export_entries AS entry \
@@ -58,11 +58,11 @@ async fn stored(db: &TestDatabase, path: &str) -> (String, Vec<(u64, Vec<u8>)>) 
             (offset.parse().unwrap(), unhex(hex))
         })
         .collect();
-    (entry, pieces)
+    (entry, chunks)
 }
 
 #[tokio::test]
-async fn platform_084_a_document_is_a_json_array_a_record_to_a_line_deflated_in_pieces_of_a_mib() {
+async fn platform_084_a_document_is_a_json_array_a_record_to_a_line_deflated_in_chunks_of_a_mib() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     // Entries of Ada's own log, random enough that the log's deflated bytes pass 2 MiB.
@@ -70,14 +70,14 @@ async fn platform_084_a_document_is_a_json_array_a_record_to_a_line_deflated_in_
 
     built(&api, &ada).await;
 
-    let (entry, pieces) = stored(api.database(), "audit/log.json").await;
+    let (entry, chunks) = stored(api.database(), "audit/log.json").await;
     let mut deflated = Vec::new();
-    for (offset, bytes) in &pieces {
+    for (offset, bytes) in &chunks {
         assert_eq!(*offset, deflated.len() as u64);
-        assert!(bytes.len() <= PIECE);
+        assert!(bytes.len() <= CHUNK);
         deflated.extend_from_slice(bytes);
     }
-    assert!(pieces.len() >= 3, "{}", pieces.len());
+    assert!(chunks.len() >= 3, "{}", chunks.len());
     let text = inflated(&deflated);
     assert_eq!(
         entry,
@@ -97,8 +97,8 @@ async fn platform_084_a_document_is_a_json_array_a_record_to_a_line_deflated_in_
     assert!(records.iter().all(Value::is_object));
     assert!(records.len() > 6_000);
     // A document of no records: Ada belongs to no workspace.
-    let (entry, pieces) = stored(api.database(), "workspaces/workspaces.json").await;
-    let deflated: Vec<u8> = pieces.into_iter().flat_map(|(_, bytes)| bytes).collect();
+    let (entry, chunks) = stored(api.database(), "workspaces/workspaces.json").await;
+    let deflated: Vec<u8> = chunks.into_iter().flat_map(|(_, bytes)| bytes).collect();
     assert_eq!(inflated(&deflated), b"[]\n");
     assert!(entry.starts_with("3 "), "{entry}");
 }

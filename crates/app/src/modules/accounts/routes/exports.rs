@@ -153,10 +153,14 @@ async fn download_export(
         media_type: "application/zip".to_owned(),
         size: download.size,
         served: download.served,
+        // part: files
         inline: false,
+        // end part: files
         name: download.name,
         tag: download.tag,
+        // part: files
         public_for: None,
+        // end part: files
         bytes: download.bytes,
     })
 }

@@ -46,7 +46,7 @@ CREATE TABLE export_entries (
 
 REVOKE UPDATE ON export_entries FROM app;
 
--- The deflated bytes of each document, in pieces of at most 1 MiB, each at its offset among them
+-- The deflated bytes of each document, in chunks of at most 1 MiB, each at its offset among them
 -- (PLATFORM-084). Rows are never updated.
 CREATE TABLE export_chunks (
     id uuid PRIMARY KEY DEFAULT uuidv7(),

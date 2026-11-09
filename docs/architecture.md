@@ -224,7 +224,7 @@ The layers have strict jobs (ARCH-08 to ARCH-10):
 - **Services** contain no HTTP types.
 - **Repositories** contain no rules.
 
-A module's personal data contract, in its `personal_data.rs`, is a service of its own: it applies the module's rules to a deleted user's rows, through its repository or its `service.rs`, as a service does (D31).
+A module's personal data contract, in its `personal_data.rs`, is a service of its own: it applies the module's rules to a user's rows, through its repository or its `service.rs`, as a service does, adding them to the archive of their export, and erasing them once their account is deleted (D31).
 
 A module splits a file into a directory with the same name, such as `service/`, when the file outgrows its limit, or when an optional part adds functions of its own to it, which the part then owns in a file of their own (ARCH-03, CODE-08, D119).
 

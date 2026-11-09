@@ -48,8 +48,8 @@ pub(crate) const EXPORT_BUCKET: Bucket = Bucket {
 /// How long an export lasts, from its request and again from the moment it is ready (D127).
 const LIFETIME: Duration = Duration::from_secs(7 * 86_400);
 
-/// How many pieces of a document a download reads at once, each in a transaction of its own.
-const PIECES_AT_ONCE: i64 = 4;
+/// How many chunks of a document a download reads at once, each read in a transaction of its own.
+const CHUNKS_AT_ONCE: i64 = 4;
 
 /// The bytes of an archive, or of a range of it, as a download streams them.
 pub(crate) type ArchiveBytes = BoxStream<'static, Result<Bytes, Internal>>;
@@ -346,7 +346,7 @@ struct Store {
 }
 
 impl ExportStore for Store {
-    fn piece<'a>(
+    fn chunk<'a>(
         &'a self,
         uow: &'a mut UnitOfWork,
         export: uuid::Uuid,
@@ -355,7 +355,7 @@ impl ExportStore for Store {
         bytes: Vec<u8>,
     ) -> BoxFuture<'a, Result<(), Internal>> {
         Box::pin(async move {
-            stored::insert_piece(uow, self.user, export, position, offset, &bytes).await
+            stored::insert_chunk(uow, self.user, export, position, offset, &bytes).await
         })
     }
 
@@ -410,7 +410,7 @@ impl Sources {
         self.document(index, offsets)
     }
 
-    /// The deflated bytes at `offsets` of the archive's document at `index`, read a few pieces at
+    /// The deflated bytes at `offsets` of the archive's document at `index`, read a few chunks at
     /// a time, each read in a transaction of its own, so a slow client holds no transaction open.
     fn document(self, index: usize, offsets: Range<u64>) -> ArchiveBytes {
         let Some(&position) = self.positions.get(index) else {
@@ -435,27 +435,27 @@ impl Sources {
         .boxed()
     }
 
-    /// The bytes at `offsets` of the document at `position` that the next few of its pieces
+    /// The bytes at `offsets` of the document at `position` that the next few of its chunks
     /// hold, joined, with the offset after them.
     async fn read(&self, position: u32, offsets: Range<u64>) -> Result<(Bytes, u64), Internal> {
         let mut uow = self.database.begin(&self.client).await?;
-        let pieces = stored::pieces(
+        let chunks = stored::chunks(
             &mut uow,
             self.user,
             self.export,
             position,
             offsets.clone(),
-            PIECES_AT_ONCE,
+            CHUNKS_AT_ONCE,
         )
         .await?;
         uow.commit().await?;
         let mut joined = Vec::new();
         let mut at = offsets.start;
-        for (start, bytes) in pieces {
+        for (start, bytes) in chunks {
             let end = start + bytes.len() as u64;
             if start > at || end <= at {
                 return Err(Internal::new(
-                    "an export's document lacks a piece of its bytes",
+                    "an export's document lacks a chunk of its bytes",
                 ));
             }
             let from = usize::try_from(at - start).map_err(Internal::new)?;
@@ -468,7 +468,7 @@ impl Sources {
         }
         if at == offsets.start {
             return Err(Internal::new(
-                "an export's document lacks a piece of its bytes",
+                "an export's document lacks a chunk of its bytes",
             ));
         }
         Ok((Bytes::from(joined), at))

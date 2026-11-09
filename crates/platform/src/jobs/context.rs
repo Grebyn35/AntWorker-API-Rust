@@ -51,7 +51,7 @@ impl JobScope {
 }
 
 /// A run of a job, which only the dispatcher and the scheduler build, so only a run opens a unit
-/// of work through [`Database::for_job`].
+/// of work through [`Database::for_job`](crate::db::Database::for_job).
 #[derive(Clone, Debug)]
 pub struct JobContext {
     pub(super) id: Uuid,

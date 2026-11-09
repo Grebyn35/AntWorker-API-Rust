@@ -16,8 +16,8 @@ use crate::{
     ranges::{Served, Wanted, quoted},
 };
 
-/// Bytes that a route takes or serves as they are, such as a file's or an archive's, which the
-/// document describes as a binary string, not as JSON (API-17).
+/// Bytes that a route serves, or takes, as they are, such as an archive's, which the document
+/// describes as a binary string, not as JSON (API-17).
 #[derive(utoipa::ToSchema)]
 #[schema(value_type = String, format = Binary)]
 pub struct FileBytes(pub Vec<u8>);
@@ -44,13 +44,12 @@ impl<S: Send + Sync> FromRequestParts<S> for Wanted {
     }
 }
 
-/// Bytes that never change, such as a stored file's or an export's archive, or a range of them,
-/// as a response that a browser can't run: `Content-Disposition` is `attachment` unless the
-/// bytes may be shown in place, and gives the name twice, as RFC 6266 recommends;
-/// `Content-Security-Policy` sandboxes the bytes and lets them load nothing; `ETag` names the
-/// bytes, and `Accept-Ranges` says that a request may ask for a range of them. The security
-/// headers add `X-Content-Type-Options: nosniff`, and `Cache-Control: no-store` unless the
-/// download sets its own (SEC-12, PLATFORM-081).
+/// Bytes that never change, such as an export's archive, or a range of them, as a response that
+/// a browser can't run: `Content-Disposition` is `attachment`, and gives the name twice, as RFC
+/// 6266 recommends; `Content-Security-Policy` sandboxes the bytes and lets them load nothing;
+/// `ETag` names the bytes, and `Accept-Ranges` says that a request may ask for a range of them.
+/// The security headers add `X-Content-Type-Options: nosniff` and `Cache-Control: no-store`
+/// (SEC-12, PLATFORM-081).
 pub struct Download<S> {
     /// The bytes' media type.
     pub media_type: String,
@@ -58,15 +57,20 @@ pub struct Download<S> {
     pub size: u64,
     /// What the response serves of the bytes.
     pub served: Served,
-    /// Whether a browser may show the bytes in place, rather than save them, which their caller
-    /// allows of images alone (PLATFORM-081).
+    // part: files
+    /// Whether a browser may show the bytes in place, as `inline`, rather than save them, which
+    /// `files` allows of images alone (SEC-11).
     pub inline: bool,
+    // end part: files
     /// The name it is saved under.
     pub name: String,
     /// What names its bytes, which never change, as its entity tag, unquoted.
     pub tag: String,
-    /// How long a shared cache may keep it: `None` for bytes that no cache may keep.
+    // part: files
+    /// How long a shared cache may keep it, in place of `no-store`: `None` for bytes that no
+    /// cache may keep, as every download but a public file's (FILES-023).
     pub public_for: Option<std::time::Duration>,
+    // end part: files
     /// The bytes it serves, as they arrive from where they are stored, or `None` when it serves
     /// none.
     pub bytes: Option<S>,
@@ -86,12 +90,14 @@ where
         };
         let mut headers = HeaderMap::new();
         headers.insert(header::ETAG, tag);
+        // part: files
         if let Some(duration) = self.public_for {
             let value = format!("public, max-age={}", duration.as_secs());
             if let Ok(value) = HeaderValue::from_str(&value) {
                 headers.insert(header::CACHE_CONTROL, value);
             }
         }
+        // end part: files
         let (status, length) = match self.served {
             Served::NotModified => return (StatusCode::NOT_MODIFIED, headers).into_response(),
             Served::Whole => (StatusCode::OK, self.size),
@@ -113,10 +119,11 @@ where
         };
         headers.insert(header::CONTENT_TYPE, media_type);
         headers.insert(header::CONTENT_LENGTH, HeaderValue::from(length));
-        headers.insert(
-            header::CONTENT_DISPOSITION,
-            disposition(self.inline, &self.name),
-        );
+        let kind = "attachment";
+        // part: files
+        let kind = if self.inline { "inline" } else { kind };
+        // end part: files
+        headers.insert(header::CONTENT_DISPOSITION, disposition(kind, &self.name));
         headers.insert(
             header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static(SANDBOX),
@@ -126,10 +133,10 @@ where
     }
 }
 
-/// `Content-Disposition` for a file named `name`: its type, then the name as `filename`, an ASCII
-/// fallback, and as `filename*`, in UTF-8 percent-encoded as RFC 8187 says (RFC 6266).
-fn disposition(inline: bool, name: &str) -> HeaderValue {
-    let kind = if inline { "inline" } else { "attachment" };
+/// `Content-Disposition` of the type `kind` for bytes named `name`: the type, then the name as
+/// `filename`, an ASCII fallback, and as `filename*`, in UTF-8 percent-encoded as RFC 8187 says
+/// (RFC 6266).
+fn disposition(kind: &str, name: &str) -> HeaderValue {
     let value = format!(
         "{kind}; filename=\"{}\"; filename*=UTF-8''{}",
         fallback(name),
@@ -177,19 +184,13 @@ mod tests {
 
     #[test]
     fn platform_081_a_name_is_served_in_ascii_and_in_utf_8() {
-        let value = disposition(false, "Ré\"port 100%.pdf");
+        let value = disposition("attachment", "Ré\"port 100%.pdf");
         assert_eq!(
             value.to_str().unwrap(),
             "attachment; filename=\"R__port 100_.pdf\"; filename*=UTF-8''R%C3%A9%22port%20100%25.pdf"
         );
-        assert!(
-            disposition(true, "a.png")
-                .to_str()
-                .unwrap()
-                .starts_with("inline; ")
-        );
         // A name that names a header or a parameter stays inside the parameters.
-        let value = disposition(false, "a.txt\r\nSet-Cookie: x; filename=evil");
+        let value = disposition("attachment", "a.txt\r\nSet-Cookie: x; filename=evil");
         assert_eq!(
             value.to_str().unwrap(),
             "attachment; filename=\"a.txt__Set-Cookie: x; filename=evil\"; \

@@ -194,9 +194,9 @@ pub(in crate::modules::accounts) async fn fail(
     Ok(failed.rows_affected() > 0)
 }
 
-/// Stores `bytes`, a piece of the deflated bytes of the document at `position` of the export
+/// Stores `bytes`, a chunk of the deflated bytes of the document at `position` of the export
 /// `export`, whose row the job of `user`'s export locked, at `offset` among them (PLATFORM-084).
-pub(in crate::modules::accounts) async fn insert_piece(
+pub(in crate::modules::accounts) async fn insert_chunk(
     uow: &mut UnitOfWork,
     user: UserId,
     export: uuid::Uuid,
@@ -275,10 +275,10 @@ pub(in crate::modules::accounts) async fn entries(
         .collect()
 }
 
-/// The pieces of the deflated bytes of the document at `position` of the export `export` of
+/// The chunks of the deflated bytes of the document at `position` of the export `export` of
 /// `user`'s that hold any of `offsets`, at most `limit` of them, each with its offset, in their
 /// order.
-pub(in crate::modules::accounts) async fn pieces(
+pub(in crate::modules::accounts) async fn chunks(
     uow: &mut UnitOfWork,
     user: UserId,
     export: uuid::Uuid,

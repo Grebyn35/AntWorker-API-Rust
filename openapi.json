@@ -420,7 +420,7 @@
         "type": "object"
       },
       "FileBytes": {
-        "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+        "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
         "format": "binary",
         "type": "string"
       },
@@ -2673,28 +2673,28 @@
             "content": {
               "image/gif": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
@@ -2750,28 +2750,28 @@
             "content": {
               "image/gif": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
@@ -3136,77 +3136,77 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
@@ -3262,77 +3262,77 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
@@ -3697,77 +3697,77 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
@@ -3823,77 +3823,77 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
@@ -10022,77 +10022,77 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
@@ -10142,77 +10142,77 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
@@ -15302,77 +15302,77 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
@@ -15422,77 +15422,77 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route serves, or takes, as they are, such as an archive's, which the document\ndescribes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }

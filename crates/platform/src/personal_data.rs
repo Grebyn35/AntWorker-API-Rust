@@ -38,9 +38,9 @@ pub fn pages<T>(items: &[T]) -> impl Iterator<Item = &[T]> {
     items.chunks(usize::try_from(PAGE).unwrap_or(1))
 }
 
-/// The most bytes of a piece of a document's deflated bytes, which the store gets as each fills
+/// The most bytes of a chunk of a document's deflated bytes, which the store gets as each fills
 /// (PLATFORM-084).
-pub const PIECE: usize = 1 << 20;
+pub const CHUNK: usize = 1 << 20;
 
 /// A column that references `users`, or that its migration comments `personal_data` (DATA-23).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -132,9 +132,9 @@ impl PersonalData for Contract {
 
 /// What keeps an export's documents, in the unit of work of its job, which `accounts` implements.
 pub trait ExportStore: Send + Sync {
-    /// Stores `bytes`, a piece of the deflated bytes of the document at `position` of the export
+    /// Stores `bytes`, a chunk of the deflated bytes of the document at `position` of the export
     /// `export`, at `offset` among them.
-    fn piece<'a>(
+    fn chunk<'a>(
         &'a self,
         uow: &'a mut UnitOfWork,
         export: Uuid,
@@ -143,7 +143,7 @@ pub trait ExportStore: Send + Sync {
         bytes: Vec<u8>,
     ) -> BoxFuture<'a, Result<(), Internal>>;
 
-    /// Stores `entry`, the document at `position` of the export `export`, once every piece of it
+    /// Stores `entry`, the document at `position` of the export `export`, once every chunk of it
     /// is stored.
     fn entry<'a>(
         &'a self,
@@ -230,7 +230,7 @@ impl ExportArchive {
     }
 
     /// Adds `records`, a page of them, to `document`, each on a line of its own, deflated through
-    /// the workers, and hands the store each piece of its deflated bytes that is full.
+    /// the workers, and hands the store each chunk of its deflated bytes that is full.
     pub async fn write<T: Serialize>(
         &self,
         uow: &mut UnitOfWork,
@@ -251,7 +251,7 @@ impl ExportArchive {
             return Ok(());
         }
         self.deflate(document, text, false).await?;
-        self.hand_over(uow, document, PIECE).await
+        self.hand_over(uow, document, CHUNK).await
     }
 
     /// Ends `document`, `]` after its last record or `[]` for none, then hands the store the rest
@@ -315,8 +315,8 @@ impl ExportArchive {
         Ok(())
     }
 
-    /// Hands the store each piece of `document`'s deflated bytes that holds `at_least` bytes or
-    /// more, of at most [`PIECE`] bytes each, keeping the rest.
+    /// Hands the store each chunk of `document`'s deflated bytes that holds `at_least` bytes or
+    /// more, of at most [`CHUNK`] bytes each, keeping the rest.
     async fn hand_over(
         &self,
         uow: &mut UnitOfWork,
@@ -328,12 +328,12 @@ impl ExportArchive {
             if buffer.len() < at_least || buffer.is_empty() {
                 return Ok(());
             }
-            let rest = buffer.split_off(buffer.len().min(PIECE));
-            let piece = mem::replace(buffer, rest);
+            let rest = buffer.split_off(buffer.len().min(CHUNK));
+            let chunk = mem::replace(buffer, rest);
             let offset = document.stored;
-            document.stored += piece.len() as u64;
+            document.stored += chunk.len() as u64;
             self.store
-                .piece(uow, self.id, document.position, offset, piece)
+                .chunk(uow, self.id, document.position, offset, chunk)
                 .await?;
         }
     }
