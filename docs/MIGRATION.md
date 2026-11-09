@@ -233,6 +233,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | b6cd1a4..2b70070: a public download's name of its file's ID and its kind's extension, `files` as an optional part and its removal (D117, D119), and the members of `features` for the parts (D118) | 1 | 13 (9, 11, 6 shared) | 8 | 0 | `next pass`: ccc38d4 |
 | b6cd1a4..ccc38d4: as above, with pass 1's fixes | 2 | 5 (3, 3, 1 shared) | 1 | 0 | `next pass`: 3effea0 |
 | b6cd1a4..3effea0: as above, with pass 2's fixes | 3 | 3 (2, 1, 0 shared) | 1 | 0 | `stopped: no progress`: d12adf1 |
+| 480ca84..c9cf121: step 5's first part of `accounts`, renaming and avatars (D120 to D122) | 1 | 11 (8, 8, 5 shared) | 6 | 0 | `next pass` |
 
 ## Decisions
 
