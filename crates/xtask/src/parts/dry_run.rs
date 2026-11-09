@@ -93,8 +93,9 @@ pub fn check(repo: &Repo) -> Outcome {
 }
 
 /// Removes `run`'s parts from `repo` in memory, and returns what it removed, and a finding for
-/// each Rust file whose kept lines don't parse, and for each kept path or line, other than those
-/// of the files the removal writes again, that holds a word of a part it removes.
+/// each Rust file whose kept lines don't parse, for each kept path or line, other than those of
+/// the files the removal writes again, that holds a word of a part it removes, and for each kept
+/// line that cites a decision whose row it deletes.
 fn remove(repo: &Repo, parts: &[Part], run: &Run) -> (String, Vec<Finding>) {
     let known: Vec<&str> = parts.iter().map(|part| part.name.as_str()).collect();
     let removed: Vec<&Part> = parts

@@ -163,13 +163,12 @@ fn meaning(path: &str, method: &str, operation: &Value, here: &str) -> Vec<Strin
 
 /// Whether API-04's table lists `status` as a success.
 fn listed(status: &str) -> bool {
-    match status {
-        "200" | "201" | "202" | "204" => true,
-        // part: files
-        "206" => true,
-        // end part: files
-        _ => false,
+    // part: files
+    if status == "206" {
+        return true;
     }
+    // end part: files
+    matches!(status, "200" | "201" | "202" | "204")
 }
 
 /// Whether API-04 lets an outcome of `method` answer the success `status`: a read 200, a delete

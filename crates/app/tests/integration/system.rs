@@ -33,14 +33,15 @@ async fn system_001_a_feature_turned_off_is_false() {
 /// The features of a deployment whose email is `email`: each optional part that changes what a
 /// client offers is `true` while the fork keeps it (D118).
 fn features(email: bool) -> Value {
-    let mut features = json!({"email": email});
+    let mut features = serde_json::Map::new();
+    features.insert("email".to_owned(), json!(email));
     // part: invitations
-    features["invitations"] = json!(true);
+    features.insert("invitations".to_owned(), json!(true));
     // end part: invitations
     // part: files
-    features["files"] = json!(true);
+    features.insert("files".to_owned(), json!(true));
     // end part: files
-    features
+    Value::Object(features)
 }
 
 #[tokio::test]

@@ -27,8 +27,8 @@ pub(super) fn routes() -> Routes<Files> {
 }
 
 /// Downloads a public file of a workspace, without signing in: its bytes, or a range of them,
-/// without its name, served so that a browser can't run them, which shared caches may keep for 5
-/// minutes.
+/// named by its ID and its kind's extension, never by its own name, served so that a browser
+/// can't run them, which shared caches may keep for 5 minutes.
 #[utoipa::path(
     get,
     path = "/v1/public/workspace-files/{file_id}",
@@ -50,8 +50,8 @@ async fn download_public_workspace_file(
 }
 
 /// Downloads a public file of a user's own, without signing in: its bytes, or a range of them,
-/// without its name, served so that a browser can't run them, which shared caches may keep for 5
-/// minutes.
+/// named by its ID and its kind's extension, never by its own name, served so that a browser
+/// can't run them, which shared caches may keep for 5 minutes.
 #[utoipa::path(
     get,
     path = "/v1/public/user-files/{file_id}",

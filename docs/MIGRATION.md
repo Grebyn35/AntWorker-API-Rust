@@ -223,16 +223,16 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 1834298..919157a: step 5's `just new-module`, `check-new-module` and the guide to adding a module (D91, D92), with `platform`'s `one_line`, `ResourceResponse` and `path_id` (PLATFORM-072), and TEST-08's fixtures of a module's rows | 1 | 11 (9, 6, 4 shared) | 4 | 0 | `next pass`: 34ac029 |
 | 1834298..34ac029: as above, with pass 1's fixes | 2 | 10 (8, 3, 1 shared) | 2 | 0 | `next pass`: 0046098 |
 | 1834298..0046098: as above, with pass 2's fixes | 3 | 7 (4, 3, 0 shared) | 2 | 1 | `stopped: no progress`: fd512cc |
-| 61f1da8..d642041: `files`' first part, with `platform`'s storage, uploads and downloads, the bucket at a provider in every deployment (D106), buckets that keep no noncurrent versions (D102), the recreation of services whose secrets changed (D103), and `check-test-map`'s check of SEC-19 | 1 | 29 (26, 17, 14 shared) | 19 | 0 | `next pass`: 35bfe0a <!-- part: files --> |
-| 61f1da8..35bfe0a: as above, with pass 1's fixes | 2 | 17 (14, 6, 3 shared) | 7 | 3 | `stopped: no progress`: 51f1c99 <!-- part: files --> |
-| 7d1c801..b46ee54: `files`' scanning: `platform`'s scanner (PLATFORM-079), the scan of every upload (FILES-005), the scanner in development, the tests and the reference deployment, its alerts and runbooks, D107 to D109, the drain's deadline (OPS-06), and the fixes after it | 1 | 10 (9, 6, 5 shared) | 5 | 0 | `next pass`: 2191f83 <!-- part: files --> |
-| 7d1c801..9558419: as above, with pass 1's fixes, and the settings the load test's replica shares with the image's tests | 2 | 7 (6, 2, 1 shared) | 0 | 0 | `clean`: 75127a9 <!-- part: files --> |
+| 61f1da8..d642041: `files`' first part, with `platform`'s storage, uploads and downloads, the bucket at a provider in every deployment, buckets that keep no noncurrent versions (D102), the recreation of services whose secrets changed (D103), and `check-test-map`'s check of SEC-19 | 1 | 29 (26, 17, 14 shared) | 19 | 0 | `next pass`: 35bfe0a |
+| 61f1da8..35bfe0a: as above, with pass 1's fixes | 2 | 17 (14, 6, 3 shared) | 7 | 3 | `stopped: no progress`: 51f1c99 |
+| 7d1c801..b46ee54: `files`' scanning: `platform`'s scanner, the scan of every upload, the scanner in development, the tests and the reference deployment, its alerts and runbooks, the drain's deadline (OPS-06, D108), and the fixes after it | 1 | 10 (9, 6, 5 shared) | 5 | 0 | `next pass`: 2191f83 |
+| 7d1c801..9558419: as above, with pass 1's fixes, and the settings the load test's replica shares with the image's tests | 2 | 7 (6, 2, 1 shared) | 0 | 0 | `clean`: 75127a9 |
 | 13bda32..7bf3156: `files`' next part: a user's own files, public files with a bucket of the IP limit of their own (D114), signed download URLs (D113, PLATFORM-080, AUTH-020) and ranged downloads (D112, PLATFORM-081, OPS-06) | 1 | 20 (17, 15, 10 shared) | 9 | 0 | `next pass`: 0664e84 <!-- part: files --> |
 | 13bda32..0664e84: as above, with pass 1's fixes | 2 | 9 (7, 3, 1 shared) | 7 | 0 | `next pass`: 859ef0e <!-- part: files --> |
 | 13bda32..859ef0e: as above, with pass 2's fixes | 3 | 10 (6, 4, 0 shared) | 4 | 1 | `stopped: no progress`: 1911eb6 <!-- part: files --> |
-| b6cd1a4..2b70070: a public download's name of its file's ID and its kind's extension (D116), `files` as an optional part and its removal (D117, D119), and the members of `features` for the parts (D118) | 1 | 13 (9, 11, 6 shared) | 8 | 0 | `next pass`: ccc38d4 <!-- part: files --> |
-| b6cd1a4..ccc38d4: as above, with pass 1's fixes | 2 | 5 (3, 3, 1 shared) | 1 | 0 | `next pass`: 3effea0 <!-- part: files --> |
-| b6cd1a4..3effea0: as above, with pass 2's fixes | 3 | 3 (2, 1, 0 shared) | 1 | 0 | `stopped: no progress` <!-- part: files --> |
+| b6cd1a4..2b70070: a public download's name of its file's ID and its kind's extension, `files` as an optional part and its removal (D117, D119), and the members of `features` for the parts (D118) | 1 | 13 (9, 11, 6 shared) | 8 | 0 | `next pass`: ccc38d4 |
+| b6cd1a4..ccc38d4: as above, with pass 1's fixes | 2 | 5 (3, 3, 1 shared) | 1 | 0 | `next pass`: 3effea0 |
+| b6cd1a4..3effea0: as above, with pass 2's fixes | 3 | 3 (2, 1, 0 shared) | 1 | 0 | `stopped: no progress` |
 
 ## Decisions
 

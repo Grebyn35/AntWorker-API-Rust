@@ -102,7 +102,7 @@ impl<S: Send + Sync> FromRequest<S> for Upload {
 }
 
 /// An upload's bytes, which [`Upload::read`] read, and its key, with the fingerprint of its
-/// method, path, query and bytes (PLATFORM-036). It holds the replica's turn until it is dropped,
+/// method, path, query, `Content-Disposition` and bytes (PLATFORM-036, API-12). It holds the replica's turn until it is dropped,
 /// so the handler keeps it until it has done with the bytes (PLATFORM-074).
 #[derive(Debug)]
 pub struct Uploaded {

@@ -77,7 +77,8 @@ parts:
 
 # Each run removes its parts from a copy of the repository of its own, then runs `just checks` on
 # the copy: one for each workspace shape (architecture §5), for each OAuth provider, for
-# `client_telemetry`, and for each part that no shape needs.
+# `client_telemetry`, and for each part that no shape needs, and one that removes every part that
+# one fork can remove at once.
 # A run whose parts are all removed already is skipped.
 runs:
   # The personal shape: users create workspaces, and nobody joins them.
@@ -90,3 +91,12 @@ runs:
     parts:
       - files
   # end part: files
+  # The fewest parts a fork keeps: every part that one fork can remove, so the lines that several
+  # parts mark are removed together too. It keeps users creating workspaces, since every shape
+  # keeps a part that creates them.
+  - name: minimal
+    parts:
+      - invitations # part: invitations
+      # part: files
+      - files
+      # end part: files

@@ -2665,7 +2665,7 @@
             }
           }
         },
-        "summary": "Downloads a public file of a user's own, without signing in: its bytes, or a range of them,\nwithout its name, served so that a browser can't run them, which shared caches may keep for 5\nminutes.",
+        "summary": "Downloads a public file of a user's own, without signing in: its bytes, or a range of them,\nnamed by its ID and its kind's extension, never by its own name, served so that a browser\ncan't run them, which shared caches may keep for 5 minutes.",
         "tags": [
           "files"
         ],
@@ -3226,7 +3226,7 @@
             }
           }
         },
-        "summary": "Downloads a public file of a workspace, without signing in: its bytes, or a range of them,\nwithout its name, served so that a browser can't run them, which shared caches may keep for 5\nminutes.",
+        "summary": "Downloads a public file of a workspace, without signing in: its bytes, or a range of them,\nnamed by its ID and its kind's extension, never by its own name, served so that a browser\ncan't run them, which shared caches may keep for 5 minutes.",
         "tags": [
           "files"
         ],

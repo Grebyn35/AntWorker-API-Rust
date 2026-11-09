@@ -1,5 +1,5 @@
 //! The public files that anyone may download without signing in, read by a public file's ID
-//! alone, without its name (FILES-023, the files spec's "Visibility").
+//! alone, and named by it, never by their own names (FILES-023, the files spec's "Visibility").
 
 use platform::{storage::Wanted, types::Client};
 
