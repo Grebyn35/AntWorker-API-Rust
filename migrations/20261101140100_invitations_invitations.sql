@@ -21,6 +21,9 @@ CREATE TABLE invitations (
 -- An invitee's invitations, the latest first (INVITATIONS-004).
 CREATE INDEX invitations_email_created_at_id_idx ON invitations (email, created_at DESC, id DESC);
 CREATE INDEX invitations_inviter_id_idx ON invitations (inviter_id);
+-- A workspace's invitations, the latest first, which an export reads a page at a time
+-- (ACCOUNTS-024).
+CREATE INDEX invitations_workspace_id_created_at_id_idx ON invitations (workspace_id, created_at DESC, id DESC);
 -- The expired invitations, for the sweep (INVITATIONS-007).
 CREATE INDEX invitations_expires_at_idx ON invitations (expires_at);
 

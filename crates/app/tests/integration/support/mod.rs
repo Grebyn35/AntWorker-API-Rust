@@ -17,6 +17,7 @@
 
 pub mod announcements;
 pub mod api;
+pub mod audit;
 // part: files
 pub mod bucket;
 // end part: files

@@ -1,9 +1,9 @@
-//! The SQL of a user's exports (ARCH-10): `data_exports`, and its archive's documents in
-//! `data_export_entries` and `data_export_chunks`. Every statement filters by the user whose
+//! The SQL of a user's exports (ARCH-10): `exports`, and its archive's documents in
+//! `export_entries` and `export_chunks`. Every statement filters by the user whose
 //! export it is, the caller or the user the job runs for, the documents' through their export's
 //! row (DATA-16).
 
-use std::ops::Range;
+use std::{ops::Range, time::Duration};
 
 use platform::{
     archive,
@@ -14,10 +14,6 @@ use platform::{
 };
 
 use crate::modules::accounts::model::{Export, ExportState};
-
-/// How long an export lasts, from its request and again from the moment it is ready, in days
-/// (D127).
-const LIFETIME_DAYS: i32 = 7;
 
 /// The columns of an export's row, as the database gives them.
 struct Row {
@@ -46,19 +42,20 @@ impl Row {
     }
 }
 
-/// Inserts an export of `user`'s, pending, which expires 7 days from now, and returns it
+/// Inserts an export of `user`'s, pending, which expires `lifetime` from now, and returns it
 /// (ACCOUNTS-020).
 pub(in crate::modules::accounts) async fn insert(
     uow: &mut UnitOfWork,
     user: UserId,
+    lifetime: Duration,
 ) -> Result<Export, Internal> {
     sqlx::query_as!(
         Row,
-        r#"INSERT INTO data_exports (user_id, expires_at)
-        VALUES ($1, now() + make_interval(days => $2))
+        r#"INSERT INTO exports (user_id, expires_at)
+        VALUES ($1, now() + make_interval(secs => $2))
         RETURNING id, state::text AS "state!", created_at, ready_at, expires_at, size_bytes"#,
         user.uuid(),
-        LIFETIME_DAYS,
+        lifetime.as_secs_f64(),
     )
     .fetch_one(uow.executor())
     .await?
@@ -75,7 +72,7 @@ pub(in crate::modules::accounts) async fn page(
     sqlx::query_as!(
         Row,
         r#"SELECT id, state::text AS "state!", created_at, ready_at, expires_at, size_bytes
-        FROM data_exports
+        FROM exports
         WHERE user_id = $1
             AND expires_at > now()
             AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3))
@@ -102,7 +99,7 @@ pub(in crate::modules::accounts) async fn read(
     sqlx::query_as!(
         Row,
         r#"SELECT id, state::text AS "state!", created_at, ready_at, expires_at, size_bytes
-        FROM data_exports
+        FROM exports
         WHERE id = $1 AND user_id = $2 AND expires_at > now()"#,
         id,
         user.uuid(),
@@ -121,7 +118,7 @@ pub(in crate::modules::accounts) async fn lock(
     id: uuid::Uuid,
 ) -> Result<Option<ExportState>, Internal> {
     let state = sqlx::query_scalar!(
-        r#"SELECT state::text AS "state!" FROM data_exports
+        r#"SELECT state::text AS "state!" FROM exports
         WHERE id = $1 AND user_id = $2
         FOR UPDATE"#,
         id,
@@ -133,25 +130,26 @@ pub(in crate::modules::accounts) async fn lock(
 }
 
 /// Makes the export `id` of `user`'s ready, now, with an archive of `size_bytes` bytes, expiring
-/// 7 days from now, and returns it (ACCOUNTS-023, D127).
+/// `lifetime` from now, and returns it (ACCOUNTS-023).
 pub(in crate::modules::accounts) async fn ready(
     uow: &mut UnitOfWork,
     user: UserId,
     id: uuid::Uuid,
     size_bytes: u64,
+    lifetime: Duration,
 ) -> Result<Export, Internal> {
     let size_bytes = i64::try_from(size_bytes).map_err(Internal::new)?;
     sqlx::query_as!(
         Row,
-        r#"UPDATE data_exports
+        r#"UPDATE exports
         SET state = 'ready', ready_at = now(), size_bytes = $3,
-            expires_at = now() + make_interval(days => $4)
+            expires_at = now() + make_interval(secs => $4)
         WHERE id = $1 AND user_id = $2
         RETURNING id, state::text AS "state!", created_at, ready_at, expires_at, size_bytes"#,
         id,
         user.uuid(),
         size_bytes,
-        LIFETIME_DAYS,
+        lifetime.as_secs_f64(),
     )
     .fetch_one(uow.executor())
     .await?
@@ -166,7 +164,7 @@ pub(in crate::modules::accounts) async fn fail(
     id: uuid::Uuid,
 ) -> Result<bool, Internal> {
     let failed = sqlx::query!(
-        "UPDATE data_exports SET state = 'failed'
+        "UPDATE exports SET state = 'failed'
         WHERE id = $1 AND user_id = $2 AND state = 'pending'",
         id,
         user.uuid(),
@@ -188,8 +186,8 @@ pub(in crate::modules::accounts) async fn insert_piece(
 ) -> Result<(), Internal> {
     let offset = i64::try_from(offset).map_err(Internal::new)?;
     sqlx::query!(
-        "INSERT INTO data_export_chunks (export_id, position, offset_bytes, bytes)
-        SELECT id, $3, $4, $5 FROM data_exports WHERE id = $1 AND user_id = $2",
+        "INSERT INTO export_chunks (export_id, position, offset_bytes, bytes)
+        SELECT id, $3, $4, $5 FROM exports WHERE id = $1 AND user_id = $2",
         export,
         user.uuid(),
         i32::try_from(position).map_err(Internal::new)?,
@@ -210,8 +208,8 @@ pub(in crate::modules::accounts) async fn insert_entry(
     entry: &archive::Entry,
 ) -> Result<(), Internal> {
     sqlx::query!(
-        "INSERT INTO data_export_entries (export_id, position, path, size_bytes, stored_bytes, crc32)
-        SELECT id, $3, $4, $5, $6, $7 FROM data_exports WHERE id = $1 AND user_id = $2",
+        "INSERT INTO export_entries (export_id, position, path, size_bytes, stored_bytes, crc32)
+        SELECT id, $3, $4, $5, $6, $7 FROM exports WHERE id = $1 AND user_id = $2",
         export,
         user.uuid(),
         i32::try_from(position).map_err(Internal::new)?,
@@ -234,8 +232,8 @@ pub(in crate::modules::accounts) async fn entries(
 ) -> Result<Vec<(u32, archive::Entry)>, Internal> {
     let rows = sqlx::query!(
         "SELECT entry.position, entry.path, entry.size_bytes, entry.stored_bytes, entry.crc32
-        FROM data_export_entries AS entry
-        JOIN data_exports AS export ON export.id = entry.export_id
+        FROM export_entries AS entry
+        JOIN exports AS export ON export.id = entry.export_id
         WHERE entry.export_id = $1 AND export.user_id = $2
         ORDER BY entry.position",
         export,
@@ -270,8 +268,8 @@ pub(in crate::modules::accounts) async fn pieces(
 ) -> Result<Vec<(u64, Vec<u8>)>, Internal> {
     let rows = sqlx::query!(
         "SELECT chunk.offset_bytes, chunk.bytes
-        FROM data_export_chunks AS chunk
-        JOIN data_exports AS export ON export.id = chunk.export_id
+        FROM export_chunks AS chunk
+        JOIN exports AS export ON export.id = chunk.export_id
         WHERE chunk.export_id = $1 AND export.user_id = $2 AND chunk.position = $3
             AND chunk.offset_bytes < $5
             AND chunk.offset_bytes + octet_length(chunk.bytes) > $4

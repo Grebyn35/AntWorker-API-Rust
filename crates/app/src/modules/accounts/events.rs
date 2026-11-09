@@ -23,13 +23,11 @@ pub(super) const MEMBER_UPDATED: WorkspaceEvent<MembersRead, MemberUpdated> =
     WorkspaceEvent::new("member.updated");
 
 /// The user's export is ready to download, sent to their own streams (ACCOUNTS-023).
-pub(super) const DATA_EXPORT_READY: UserEvent<DataExportChanged> =
-    UserEvent::new("data_export.ready");
+pub(super) const EXPORT_COMPLETED: UserEvent<ExportChanged> = UserEvent::new("export.completed");
 
 /// The last attempt of the job of the user's export failed, sent to their own streams
 /// (ACCOUNTS-023).
-pub(super) const DATA_EXPORT_FAILED: UserEvent<DataExportChanged> =
-    UserEvent::new("data_export.failed");
+pub(super) const EXPORT_FAILED: UserEvent<ExportChanged> = UserEvent::new("export.failed");
 
 /// The payload of `user.updated`: the user's record changed, which a client reads through
 /// `GET /v1/users/me`, since a name is personal data (API-19).
@@ -39,10 +37,10 @@ pub(super) struct UserUpdated {
     pub(super) user_id: UserId,
 }
 
-/// The payload of `data_export.ready` and `data_export.failed`: the export, which a client reads
+/// The payload of `export.completed` and `export.failed`: the export, which a client reads
 /// through `GET /v1/users/me/exports/{export_id}` (API-19).
 #[derive(Debug, Serialize, ToSchema)]
-pub(super) struct DataExportChanged {
+pub(super) struct ExportChanged {
     /// The export.
     pub(super) export_id: uuid::Uuid,
 }

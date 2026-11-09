@@ -74,6 +74,12 @@ impl Wanted {
         }
     }
 
+    /// Whether the request asks for the bytes themselves: a `GET`, rather than a `HEAD`, which
+    /// is answered without them (PLATFORM-081).
+    pub fn serves_bytes(&self) -> bool {
+        self.get
+    }
+
     /// What to serve of `size` bytes whose entity tag is `tag`, as RFC 9110 orders
     /// the conditions: an `If-None-Match` that is `*`, or names `tag`, weakly or strongly, serves
     /// nothing; then a `Range` of `GET` that holds one range starting within the bytes serves it,

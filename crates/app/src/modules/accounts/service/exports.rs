@@ -10,7 +10,7 @@ use futures_util::{
 };
 use platform::{
     archive::{Layout, Piece},
-    authn::{BoxFuture, Principal},
+    authn::{AuditScope, BoxFuture, Principal},
     blocking::Workers,
     db::{Database, UnitOfWork},
     errors::Internal,
@@ -32,7 +32,7 @@ use crate::modules::{
         model::{Export, ExportState},
         repo::{self, exports as stored},
     },
-    audit::{self as log, Entry},
+    audit::{self as log, AuditError, Entry},
 };
 // part: files
 use crate::modules::files::{self, ExportedFile, Files};
@@ -40,10 +40,13 @@ use crate::modules::files::{self, ExportedFile, Files};
 
 /// The bucket of each user's exports: 1 in 24 hours, fixed (ACCOUNTS-021).
 pub(crate) const EXPORT_BUCKET: Bucket = Bucket {
-    name: "data_export",
+    name: "export",
     limit: 1,
     window: Duration::from_secs(86_400),
 };
+
+/// How long an export lasts, from its request and again from the moment it is ready (D127).
+const LIFETIME: Duration = Duration::from_secs(7 * 86_400);
 
 /// How many pieces of a document a download reads at once, each in a transaction of its own.
 const PIECES_AT_ONCE: i64 = 4;
@@ -110,8 +113,8 @@ impl Exports {
         let user = principal.user_id();
         limits.check(EXPORT_BUCKET, user.uuid().as_bytes()).await?;
         let mut uow = self.database.begin(client).await?;
-        let export = stored::insert(&mut uow, user).await?;
-        let entry = Entry::new(audit::DATA_EXPORT_REQUESTED, audit::DATA_EXPORT, export.id);
+        let export = stored::insert(&mut uow, user, LIFETIME).await?;
+        let entry = Entry::new(audit::EXPORT_REQUESTED, audit::EXPORT, export.id);
         log::record(&mut uow, principal.audit_scope(), entry).await?;
         uow.enqueue(
             principal.job_scope(),
@@ -151,7 +154,7 @@ impl Exports {
 
     /// What a download of the caller's export `id` serves, as `wanted` asks for it: its archive,
     /// laid out from its documents and, with `files`, the files it holds, recording
-    /// `data_export.downloaded` in the caller's own log when it serves bytes, in a unit of work
+    /// `export.downloaded` in the caller's own log when it serves bytes, in a unit of work
     /// of `client`'s request that commits before the bytes stream (ACCOUNTS-026, D126).
     pub(in crate::modules::accounts) async fn download(
         &self,
@@ -183,8 +186,9 @@ impl Exports {
         let layout = Layout::new(entries, ready_at.at());
         let tag = id.to_string();
         let served = wanted.serve(layout.size(), &tag);
-        if served != Served::NotModified {
-            let entry = Entry::new(audit::DATA_EXPORT_DOWNLOADED, audit::DATA_EXPORT, id);
+        // A `HEAD` serves no bytes, so it records no download (PLATFORM-081).
+        if wanted.serves_bytes() && served != Served::NotModified {
+            let entry = Entry::new(audit::EXPORT_DOWNLOADED, audit::EXPORT, id);
             log::record(&mut uow, principal.audit_scope(), entry).await?;
         }
         uow.commit().await?;
@@ -211,31 +215,33 @@ impl Exports {
     }
 
     /// Builds the archive of the export `id`, in a run of its job for the user it runs for, in
-    /// one unit of work under `REPEATABLE READ`, and makes it ready; a run of its last attempt,
-    /// or one that fails for good, makes it failed instead (ACCOUNTS-023).
+    /// one unit of work under `REPEATABLE READ`, and makes it ready; a run of its last attempt
+    /// that fails makes it failed instead (ACCOUNTS-023).
     pub(in crate::modules::accounts) async fn build(
         &self,
         context: &JobContext,
         id: uuid::Uuid,
         last_attempt: bool,
     ) -> Result<(), JobFailure> {
-        let user = context.scope().user().ok_or_else(|| {
-            JobFailure::Permanent(Internal::new("an export's job runs for no one"))
-        })?;
-        let built = self.archive(context, user, id).await;
-        if let Err(failure) = &built
-            && (last_attempt || matches!(failure, JobFailure::Permanent(_)))
-        {
-            self.fail(context, user, id).await?;
+        let (Some(user), Some(scope)) = (context.scope().user(), context.audit_scope()) else {
+            return Err(JobFailure::Permanent(Internal::new(
+                "an export's job runs for no one",
+            )));
+        };
+        let built = self.archive(context, scope, user, id).await;
+        if built.is_err() && last_attempt {
+            self.fail(context, scope, user, id).await?;
         }
         built
     }
 
-    /// Writes the archive of `user`'s export `id`, while it is pending, then makes it
-    /// ready, enqueues its email and publishes `data_export.ready`, all in one unit of work.
+    /// Writes the archive of `user`'s export `id`, while it is pending, then makes it ready,
+    /// records `export.completed` in the user's own log through `scope`, enqueues its email and
+    /// publishes `export.completed`, all in one unit of work.
     async fn archive(
         &self,
         context: &JobContext,
+        scope: AuditScope,
         user: UserId,
         id: uuid::Uuid,
     ) -> Result<(), JobFailure> {
@@ -263,7 +269,11 @@ impl Exports {
         // end part: files
         // An entry's time takes as many bytes whatever it is, so no time changes the size.
         let size = Layout::new(entries, time::OffsetDateTime::UNIX_EPOCH).size();
-        let export = stored::ready(&mut uow, user, id, size).await?;
+        let export = stored::ready(&mut uow, user, id, size, LIFETIME).await?;
+        let entry = Entry::new(audit::EXPORT_COMPLETED, audit::EXPORT, id);
+        log::record(&mut uow, scope, entry)
+            .await
+            .map_err(internal)?;
         let to = repo::profile(&mut uow, user)
             .await?
             .ok_or_else(|| Internal::new("the export's user doesn't exist"))?
@@ -275,28 +285,41 @@ impl Exports {
         }
         .render()?;
         self.mail.send(&mut uow, context.scope(), email).await?;
-        let payload = published::DataExportChanged { export_id: id };
-        uow.publish_to_user(&published::DATA_EXPORT_READY, user, &payload)
+        let payload = published::ExportChanged { export_id: id };
+        uow.publish_to_user(&published::EXPORT_COMPLETED, user, &payload)
             .await?;
         uow.commit().await?;
         Ok(())
     }
 
-    /// Makes `user`'s export `id` failed, if it is still pending, and publishes
-    /// `data_export.failed`, in a unit of work of its own (ACCOUNTS-023).
+    /// Makes `user`'s export `id` failed, if it is still pending, records `export.failed` in the
+    /// user's own log through `scope`, and publishes `export.failed`, in a unit of work of its
+    /// own, once the run's has rolled back (ACCOUNTS-023, ARCH-11).
     async fn fail(
         &self,
         context: &JobContext,
+        scope: AuditScope,
         user: UserId,
         id: uuid::Uuid,
     ) -> Result<(), Internal> {
         let mut uow = self.database.for_job(context).await?;
         if stored::fail(&mut uow, user, id).await? {
-            let payload = published::DataExportChanged { export_id: id };
-            uow.publish_to_user(&published::DATA_EXPORT_FAILED, user, &payload)
+            let entry = Entry::new(audit::EXPORT_FAILED, audit::EXPORT, id);
+            log::record(&mut uow, scope, entry)
+                .await
+                .map_err(internal)?;
+            let payload = published::ExportChanged { export_id: id };
+            uow.publish_to_user(&published::EXPORT_FAILED, user, &payload)
                 .await?;
         }
         uow.commit().await
+    }
+}
+
+/// An audit entry's failure, as the internal error it is in a job's run.
+fn internal(error: AuditError) -> Internal {
+    match error {
+        AuditError::Internal(error) => error,
     }
 }
 

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE data_exports\n        SET state = 'ready', ready_at = now(), size_bytes = $3,\n            expires_at = now() + make_interval(days => $4)\n        WHERE id = $1 AND user_id = $2\n        RETURNING id, state::text AS \"state!\", created_at, ready_at, expires_at, size_bytes",
+  "query": "UPDATE exports\n        SET state = 'ready', ready_at = now(), size_bytes = $3,\n            expires_at = now() + make_interval(secs => $4)\n        WHERE id = $1 AND user_id = $2\n        RETURNING id, state::text AS \"state!\", created_at, ready_at, expires_at, size_bytes",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "data_exports",
+            "table": "exports",
             "name": "id"
           }
         }
@@ -26,7 +26,7 @@
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "data_exports",
+            "table": "exports",
             "name": "created_at"
           }
         }
@@ -37,7 +37,7 @@
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "data_exports",
+            "table": "exports",
             "name": "ready_at"
           }
         }
@@ -48,7 +48,7 @@
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "data_exports",
+            "table": "exports",
             "name": "expires_at"
           }
         }
@@ -59,7 +59,7 @@
         "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "data_exports",
+            "table": "exports",
             "name": "size_bytes"
           }
         }
@@ -70,7 +70,7 @@
         "Uuid",
         "Uuid",
         "Int8",
-        "Int4"
+        "Float8"
       ]
     },
     "nullable": [
@@ -82,5 +82,5 @@
       true
     ]
   },
-  "hash": "59ba5a207c34c0f2162a7bf95e6b8555bd2f57e3728a5e3a679f8085b97bc7ea"
+  "hash": "41fcf2a488b3e33231bb3598b12e13c498796177a25326cfef619cfe68f781b2"
 }

@@ -13,7 +13,7 @@ CREATE TABLE exported_files (
     created_at timestamptz NOT NULL DEFAULT now(),
     -- Its leading column also serves as the index of the foreign key (DATA-05).
     CONSTRAINT exported_files_export_id_position_key UNIQUE (export_id, position),
-    CONSTRAINT exported_files_export_id_fkey FOREIGN KEY (export_id) REFERENCES data_exports (id) ON DELETE CASCADE,
+    CONSTRAINT exported_files_export_id_fkey FOREIGN KEY (export_id) REFERENCES exports (id) ON DELETE CASCADE,
     CONSTRAINT exported_files_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 

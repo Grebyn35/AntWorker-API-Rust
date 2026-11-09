@@ -14,12 +14,16 @@ pub(super) const USER_RENAMED: Action = Action::new("user.renamed");
 pub(super) const USER: Resource = Resource::new("user");
 
 /// The user requested an export of their data (ACCOUNTS-020).
-pub(super) const DATA_EXPORT_REQUESTED: Action = Action::new("data_export.requested");
+pub(super) const EXPORT_REQUESTED: Action = Action::new("export.requested");
+/// An export's archive was built, as its job records it in the user's own log (ACCOUNTS-023).
+pub(super) const EXPORT_COMPLETED: Action = Action::new("export.completed");
+/// The last attempt of an export's job failed, as it records it (ACCOUNTS-023).
+pub(super) const EXPORT_FAILED: Action = Action::new("export.failed");
 /// The user downloaded their export's archive, or a range of it (ACCOUNTS-026).
-pub(super) const DATA_EXPORT_DOWNLOADED: Action = Action::new("data_export.downloaded");
+pub(super) const EXPORT_DOWNLOADED: Action = Action::new("export.downloaded");
 
 /// An export of a user's data.
-pub(super) const DATA_EXPORT: Resource = Resource::new("data_export");
+pub(super) const EXPORT: Resource = Resource::new("export");
 
 // part: files
 /// The user set an avatar (ACCOUNTS-008).

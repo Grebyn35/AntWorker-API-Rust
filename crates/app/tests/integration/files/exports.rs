@@ -158,7 +158,7 @@ async fn files_026_a_held_file_s_bytes_stay_while_its_export_lasts_though_the_fi
     assert_eq!(bytes, b"kept for the export");
 
     // Once the export expires, nothing names the object, which goes.
-    db.owner_executes("UPDATE data_exports SET expires_at = now() - interval '1 second'")
+    db.owner_executes("UPDATE exports SET expires_at = now() - interval '1 second'")
         .await;
     api.run_periodic("accounts.expire_exports").await;
     db.owner_executes(&format!(

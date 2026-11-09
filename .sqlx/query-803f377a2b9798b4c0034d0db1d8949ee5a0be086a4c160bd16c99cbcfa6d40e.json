@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT entry.position, entry.path, entry.size_bytes, entry.stored_bytes, entry.crc32\n        FROM data_export_entries AS entry\n        JOIN data_exports AS export ON export.id = entry.export_id\n        WHERE entry.export_id = $1 AND export.user_id = $2\n        ORDER BY entry.position",
+  "query": "SELECT entry.position, entry.path, entry.size_bytes, entry.stored_bytes, entry.crc32\n        FROM export_entries AS entry\n        JOIN exports AS export ON export.id = entry.export_id\n        WHERE entry.export_id = $1 AND export.user_id = $2\n        ORDER BY entry.position",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Int4",
         "origin": {
           "Table": {
-            "table": "data_export_entries",
+            "table": "export_entries",
             "name": "position"
           }
         }
@@ -20,7 +20,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "data_export_entries",
+            "table": "export_entries",
             "name": "path"
           }
         }
@@ -31,7 +31,7 @@
         "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "data_export_entries",
+            "table": "export_entries",
             "name": "size_bytes"
           }
         }
@@ -42,7 +42,7 @@
         "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "data_export_entries",
+            "table": "export_entries",
             "name": "stored_bytes"
           }
         }
@@ -53,7 +53,7 @@
         "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "data_export_entries",
+            "table": "export_entries",
             "name": "crc32"
           }
         }
@@ -73,5 +73,5 @@
       false
     ]
   },
-  "hash": "051d5307d4b6f0249a9ebf5397efde32ac6d41452ff103b0d95af35df53b5f57"
+  "hash": "803f377a2b9798b4c0034d0db1d8949ee5a0be086a4c160bd16c99cbcfa6d40e"
 }

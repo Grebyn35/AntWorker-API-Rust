@@ -38,8 +38,8 @@ impl PersonalData for Contract {
         const COLUMNS: &[Column] = &[
             Column::new("users", "email"),
             Column::new("users", "name"),
-            Column::new("data_exports", "user_id"),
-            Column::new("data_export_chunks", "bytes"),
+            Column::new("exports", "user_id"),
+            Column::new("export_chunks", "bytes"),
         ];
         COLUMNS
     }

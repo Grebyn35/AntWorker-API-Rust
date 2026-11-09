@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT state::text AS \"state!\" FROM data_exports\n        WHERE id = $1 AND user_id = $2\n        FOR UPDATE",
+  "query": "SELECT state::text AS \"state!\" FROM exports\n        WHERE id = $1 AND user_id = $2\n        FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -20,5 +20,5 @@
       null
     ]
   },
-  "hash": "37f5691738427feec4324f1cadbde9f6c7f2484716ca5db883da9c6b631459fb"
+  "hash": "e5e1ba7de6d39a77ad9b81af17763296b52ba90446c1a1126e5ae261d779e6d4"
 }

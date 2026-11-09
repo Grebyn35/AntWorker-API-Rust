@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, state::text AS \"state!\", created_at, ready_at, expires_at, size_bytes\n        FROM data_exports\n        WHERE user_id = $1\n            AND expires_at > now()\n            AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3))\n        ORDER BY created_at DESC, id DESC\n        LIMIT $4",
+  "query": "INSERT INTO exports (user_id, expires_at)\n        VALUES ($1, now() + make_interval(secs => $2))\n        RETURNING id, state::text AS \"state!\", created_at, ready_at, expires_at, size_bytes",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "data_exports",
+            "table": "exports",
             "name": "id"
           }
         }
@@ -26,7 +26,7 @@
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "data_exports",
+            "table": "exports",
             "name": "created_at"
           }
         }
@@ -37,7 +37,7 @@
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "data_exports",
+            "table": "exports",
             "name": "ready_at"
           }
         }
@@ -48,7 +48,7 @@
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "data_exports",
+            "table": "exports",
             "name": "expires_at"
           }
         }
@@ -59,7 +59,7 @@
         "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "data_exports",
+            "table": "exports",
             "name": "size_bytes"
           }
         }
@@ -68,9 +68,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Timestamptz",
-        "Uuid",
-        "Int8"
+        "Float8"
       ]
     },
     "nullable": [
@@ -82,5 +80,5 @@
       true
     ]
   },
-  "hash": "ed6b246cd29b6c7de1dcc28ec97de4afa6f4eaf6aeef4626fe29c2cf9ebf4fed"
+  "hash": "0f7b128dbabc13460f59f9a0f956d08de343e89862e454a5803476fd589b3634"
 }

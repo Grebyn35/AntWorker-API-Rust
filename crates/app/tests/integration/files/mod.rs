@@ -1147,6 +1147,38 @@ async fn files_010_a_member_may_not_delete_and_the_owner_may() {
 }
 
 #[tokio::test]
+async fn files_011_the_comparison_records_no_object_that_an_export_holds() {
+    // The bucket lists an object written long ago, of a user's file that an export of theirs
+    // holds, and which they have since deleted.
+    let bucket = bucket::listing(&[("users/held", "2020-01-01T00:00:00.000Z")]).await;
+    let api = Api::with(Options::default().set("S3_ENDPOINT", &bucket.endpoint)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    db.owner_executes(&format!(
+        "INSERT INTO user_files \
+         (user_id, name, media_type, size_bytes, crc32, visibility, object_key) \
+         VALUES ('{}', 'Held', 'text/plain; charset=utf-8', 5, 0, 'private', 'users/held')",
+        ada.user_id
+    ))
+    .await;
+    crate::accounts::exports::built(&api, &ada).await;
+    db.owner_executes("DELETE FROM user_files").await;
+    assert_eq!(
+        db.owner_reads("SELECT object_key FROM exported_files")
+            .await,
+        ["users/held"]
+    );
+
+    api.run_periodic("files.find_unreferenced_objects").await;
+
+    assert!(
+        db.owner_reads("SELECT object_key FROM object_deletions")
+            .await
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn files_011_the_comparison_records_each_object_no_row_names_written_an_hour_ago() {
     // The bucket lists five objects: four written long ago, of each prefix, one of which a
     // workspace's row names and one a user's, and one written later than the database's clock

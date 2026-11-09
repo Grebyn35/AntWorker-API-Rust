@@ -281,33 +281,35 @@ impl Export {
     }
 
     /// Adds `text` to `document`'s checksum and size, and deflates it, on a turn of the workers,
-    /// onto the deflated bytes that the store doesn't have yet; `last` ends the deflated stream,
-    /// and the encoder with it.
+    /// which computes the checksum too, onto the deflated bytes that the store doesn't have yet;
+    /// `last` ends the deflated stream, and the encoder with it (CODE-05).
     async fn deflate(
         &self,
         document: &mut Document,
         text: Vec<u8>,
         last: bool,
     ) -> Result<(), Internal> {
-        document.crc.update(&text);
         document.size += text.len() as u64;
         let mut encoder = document
             .encoder
             .take()
             .ok_or_else(|| Internal::new("a finished document was written to"))?;
-        let (encoder, deflated) = self
+        let mut crc = mem::take(&mut document.crc);
+        let (encoder, deflated, crc) = self
             .workers
             .run("export deflate", move || -> std::io::Result<_> {
+                crc.update(&text);
                 encoder.write_all(&text)?;
                 if last {
-                    return Ok((None, encoder.finish()?));
+                    return Ok((None, encoder.finish()?, crc));
                 }
                 let deflated = mem::take(encoder.get_mut());
-                Ok((Some(encoder), deflated))
+                Ok((Some(encoder), deflated, crc))
             })
             .await
             .map_err(Internal::new)?
             .map_err(Internal::new)?;
+        document.crc = crc;
         document.encoder = encoder;
         document.deflated.extend_from_slice(&deflated);
         Ok(())

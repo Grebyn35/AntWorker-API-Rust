@@ -129,7 +129,7 @@ pub(crate) enum ExportState {
 }
 
 impl ExportState {
-    /// The state named `name`, as the database's `data_export_state` names it.
+    /// The state named `name`, as the database's `export_state` names it.
     pub(super) fn from_name(name: &str) -> Result<Self, Internal> {
         match name {
             "pending" => Ok(Self::Pending),
@@ -144,7 +144,6 @@ impl ExportState {
 
 /// An export of the caller's data (ACCOUNTS-022).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, ToSchema)]
-#[schema(as = DataExport)]
 pub(crate) struct Export {
     /// The export's ID.
     pub(crate) id: uuid::Uuid,

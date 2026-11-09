@@ -34,10 +34,10 @@ const ACCOUNT_DATA: &[&str] = &[
     "device_tokens",
     // The client of an audit entry, keyed by the user whose deletion deletes it (AUDIT-006).
     "audit_entry_clients",
-    "data_exports",
+    "exports",
     // The documents of a user's export, reached through its export's row, whose user they are.
-    "data_export_entries",
-    "data_export_chunks",
+    "export_entries",
+    "export_chunks",
     // part: files
     "user_files",
     "avatars",
@@ -484,9 +484,9 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
             "{MIGRATION}CREATE TABLE users (id uuid);\nCREATE TABLE identities (id uuid);\n\
              CREATE TABLE sessions (id uuid);\nCREATE TABLE device_tokens (id uuid);\n\
              CREATE TABLE audit_entry_clients (id uuid);\n\
-             CREATE TABLE data_exports (id uuid, user_id uuid);\n\
-             CREATE TABLE data_export_entries (id uuid, export_id uuid);\n\
-             CREATE TABLE data_export_chunks (id uuid, export_id uuid);\n\
+             CREATE TABLE exports (id uuid, user_id uuid);\n\
+             CREATE TABLE export_entries (id uuid, export_id uuid);\n\
+             CREATE TABLE export_chunks (id uuid, export_id uuid);\n\
              CREATE TABLE rate_limit_buckets (id uuid);\n\
              CREATE TABLE idempotency_records (id uuid);\nCREATE TABLE workspaces (id uuid);\n\
              CREATE TABLE jobs (id uuid, workspace_id uuid, user_id uuid);\n\

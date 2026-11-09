@@ -122,7 +122,7 @@ crates/app/
 | `audit` | `audit_entries`, `audit_entry_clients` | Recording entries inside a unit of work, with each one's client beside it, which deleting the client's user deletes, the read endpoints, the action catalog, retention, and the `SecurityEventSink` implementation that records refused requests (D6, D124). |
 | `realtime` | none | The endpoint of server-sent events (SSE), the frames it sends, and the event catalog. Delivery, replay and stream closing are handled by `platform::events` (D5). |
 | `files` | `workspace_files`, `user_files`, `avatars`, `exported_files`, `object_deletions` | Upload, list, download and delete of user and workspace files, the types each upload accepts and its scan for malware, public files, signed download URLs, and the deletion of the bytes that no row names, with the images of the avatars that `accounts` sets, and of the workspace pictures that the full `workspaces` module adds (D117, D120). <!-- part: files --> |
-| `accounts` | `users`, `data_exports`, `data_export_entries`, `data_export_chunks` | The profile, and account deletion and export, which it orchestrates across modules through the personal data contract (D16, D31). |
+| `accounts` | `users`, `exports`, `export_entries`, `export_chunks` | The profile, and account deletion and export, which it orchestrates across modules through the personal data contract (D16, D31). |
 | `auth` | `sessions`, `device_tokens`, `verification_codes`, `identities`, `provider_tokens`, `pending_email_changes` | Registration, sign-in with a password or OAuth, refresh, sign-out, sessions, password reset and change, email verification and change, identity linking, and re-authentication for sensitive actions. Account deletion is confirmed here, then carried out by `accounts`. One file per OAuth provider in `auth/providers/`. Implements `SessionVerifier`. |
 | `workspaces` | `workspaces`, `setup_runs` | Creating workspaces in each shape (below), updating, transferring and deleting them, and the members endpoints (list, change role, remove, leave). |
 | `invitations` | `invitations` | Invite, list, resend, cancel, accept, decline, and expiry. <!-- part: invitations --> |
@@ -194,6 +194,8 @@ The edges above are the only ones allowed, and the graph stays acyclic (ARCH-05)
 - `AccessPolicy`, implemented by `access`, makes authorization decisions for `platform::authz`.
 - `SecurityEventSink`, implemented by `audit`, records refused requests that `platform::authz` reports.
 - The personal data contract is implemented by every module that stores personal data. It lets `accounts` export or delete an account without depending on every module.
+
+And through `ExportStore`, which `accounts` implements, and hands with each export to the `personal_data::Export` that writes its archive, rather than registering it, since what it stores is that one export's (the [accounts spec](spec/accounts.md#exporting)).
 
 ### Inside a module
 
@@ -435,6 +437,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |
 | File | Stored bytes plus metadata. A user file or a workspace file, each private or public. <!-- part: files --> |
 | Avatar | The image that shows a user to others, at most one for each user, which `accounts` sets and `files` keeps. Not a file: it has no name, and is always public (D120). <!-- part: files --> |
+| Export | A copy of a user's data that they requested: an archive they download until it expires, which their export's job builds from every module's personal data contract (D31, D126). Telemetry's export, which sends traces, logs and metrics to a collector, is always named the telemetry export. |
 | Personal data contract | A module's export and erasure of the personal data it stores (D31). |
 | Release | A version that `just release` asked for, which a run of CI on `main` then signed and tagged `v<version>` (OPS-12). A final release is `X.Y.Z`. A prerelease, `X.Y.Z-rc.N`, comes before the final release of the same number, and is a version to try: a final release fixes the HTTP contract, the error codes and the applied migrations (API-18, ERR-02, DATA-09), and a prerelease doesn't. |
 | Digest | The hash of an image's content, which names exactly that image. A tag can move to another image; a digest can't. |

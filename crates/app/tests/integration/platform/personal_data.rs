@@ -1,76 +1,23 @@
 //! The archive of an export that a contract writes, and the unit of work of an export's job
 //! (PLATFORM-084, PLATFORM-085).
 
-use std::{
-    io::Read,
-    sync::{Arc, Mutex},
-};
+use std::io::Read;
 
 use flate2::read::DeflateDecoder;
-use platform::{
-    archive::Entry,
-    authn::BoxFuture,
-    blocking::Workers,
-    db::UnitOfWork,
-    errors::Internal,
-    jobs::JobContext,
-    personal_data::{Export, ExportStore, PIECE},
-    types::UserId,
+use platform::{db::UnitOfWork, jobs::JobContext, personal_data::PIECE};
+use serde_json::Value;
+
+use crate::{
+    accounts::exports::built,
+    support::{Api, TestDatabase, audit, users, workspaces},
 };
-use serde_json::{Value, json};
 
-use crate::support::{self, TestDatabase};
-
-/// A store that keeps what it is handed, in the order it was handed it.
-#[derive(Default)]
-struct Kept {
-    pieces: Mutex<Vec<(u32, u64, Vec<u8>)>>,
-    entries: Mutex<Vec<(u32, Entry)>>,
-}
-
-impl ExportStore for Kept {
-    fn piece<'a>(
-        &'a self,
-        _: &'a mut UnitOfWork,
-        _: uuid::Uuid,
-        position: u32,
-        offset: u64,
-        bytes: Vec<u8>,
-    ) -> BoxFuture<'a, Result<(), Internal>> {
-        self.pieces.lock().unwrap().push((position, offset, bytes));
-        Box::pin(async { Ok(()) })
-    }
-
-    fn entry<'a>(
-        &'a self,
-        _: &'a mut UnitOfWork,
-        _: uuid::Uuid,
-        position: u32,
-        entry: Entry,
-    ) -> BoxFuture<'a, Result<(), Internal>> {
-        self.entries.lock().unwrap().push((position, entry));
-        Box::pin(async { Ok(()) })
-    }
-}
-
-impl Kept {
-    /// The deflated bytes of the document at `position`, its pieces joined, after checking that
-    /// each starts where the one before ended.
-    fn deflated(&self, position: u32) -> Vec<u8> {
-        let mut joined = Vec::new();
-        for (_, offset, bytes) in self
-            .pieces
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(of, _, _)| *of == position)
-        {
-            assert_eq!(*offset, joined.len() as u64);
-            assert!(bytes.len() <= PIECE);
-            joined.extend_from_slice(bytes);
-        }
-        joined
-    }
+/// The bytes of `hex`, which Postgres's `encode(..., 'hex')` wrote.
+fn unhex(hex: &str) -> Vec<u8> {
+    (0..hex.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(&hex[at..at + 2], 16).unwrap())
+        .collect()
 }
 
 /// `bytes`, inflated.
@@ -80,65 +27,78 @@ fn inflated(bytes: &[u8]) -> Vec<u8> {
     text
 }
 
-#[tokio::test]
-async fn platform_084_a_document_is_a_json_array_a_record_to_a_line_deflated_in_pieces_of_a_mib() {
-    let db = TestDatabase::migrated().await;
-    let database = db.app().await;
-    let mut uow = database.begin(&support::client()).await.unwrap();
-    let kept = Arc::new(Kept::default());
-    let mut export = Export::new(
-        uuid::Uuid::nil(),
-        UserId::from_uuid(uuid::Uuid::from_u128(1)),
-        kept.clone(),
-        Workers::new(),
-    );
-    // Three pages of records random enough that their deflated bytes pass 2 MiB.
-    let pages: Vec<Vec<Value>> = (0..3)
-        .map(|page| {
-            (0..2_000)
-                .map(|index| {
-                    let noise: [u8; 500] = platform::random::bytes().unwrap();
-                    let noise: String = noise.iter().map(|byte| format!("{byte:02x}")).collect();
-                    json!({ "page": page, "index": index, "noise": noise })
-                })
-                .collect()
+/// The entry of the document at `path` of the one export, as `size stored crc32`, with the pieces
+/// its store kept, each with its offset, in their order.
+async fn stored(db: &TestDatabase, path: &str) -> (String, Vec<(u64, Vec<u8>)>) {
+    let entry = db
+        .owner_reads(&format!(
+            "SELECT size_bytes || ' ' || stored_bytes || ' ' || crc32 FROM export_entries \
+             WHERE path = '{path}'"
+        ))
+        .await
+        .remove(0);
+    let pieces = db
+        .owner_reads(&format!(
+            "SELECT chunk.offset_bytes || ' ' || encode(chunk.bytes, 'hex') \
+             FROM export_chunks AS chunk JOIN export_entries AS entry \
+                 ON entry.export_id = chunk.export_id AND entry.position = chunk.position \
+             WHERE entry.path = '{path}' ORDER BY chunk.offset_bytes"
+        ))
+        .await
+        .into_iter()
+        .map(|row| {
+            let (offset, hex) = row.split_once(' ').unwrap();
+            (offset.parse().unwrap(), unhex(hex))
         })
         .collect();
+    (entry, pieces)
+}
 
-    export
-        .whole(&mut uow, "empty.json", &[] as &[Value])
-        .await
-        .unwrap();
-    let mut document = export.document("big.json");
-    for page in &pages {
-        export.write(&mut uow, &mut document, page).await.unwrap();
+#[tokio::test]
+async fn platform_084_a_document_is_a_json_array_a_record_to_a_line_deflated_in_pieces_of_a_mib() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // Entries of Ada's own log, random enough that the log's deflated bytes pass 2 MiB.
+    audit::noise(api.database(), &ada.user_id, "tests.noise", 6_000).await;
+
+    built(&api, &ada).await;
+
+    let (entry, pieces) = stored(api.database(), "audit/log.json").await;
+    let mut deflated = Vec::new();
+    for (offset, bytes) in &pieces {
+        assert_eq!(*offset, deflated.len() as u64);
+        assert!(bytes.len() <= PIECE);
+        deflated.extend_from_slice(bytes);
     }
-    export.finish(&mut uow, document).await.unwrap();
-
-    let entries = kept.entries.lock().unwrap().clone();
-    assert_eq!(entries.len(), 2);
-    let (position, empty) = &entries[0];
-    assert_eq!((*position, empty.path.as_str()), (0, "empty.json"));
-    assert_eq!(inflated(&kept.deflated(0)), b"[]\n");
-    assert_eq!(empty.size, 3);
-    let (position, big) = &entries[1];
-    assert_eq!((*position, big.path.as_str()), (1, "big.json"));
-    let deflated = kept.deflated(1);
-    assert!(deflated.len() > 2 * PIECE, "{}", deflated.len());
+    assert!(pieces.len() >= 3, "{}", pieces.len());
     let text = inflated(&deflated);
-    let lines: Vec<String> = pages
-        .iter()
-        .flatten()
-        .map(|record| serde_json::to_string(record).unwrap())
+    assert_eq!(
+        entry,
+        format!(
+            "{} {} {}",
+            text.len(),
+            deflated.len(),
+            platform::archive::crc32(&text)
+        )
+    );
+    // `[`, then each record on a line of its own, each but the last followed by `,`, then `]`:
+    // within a record, a JSON string holds no raw line feed.
+    let text = String::from_utf8(text).unwrap();
+    let inner = text
+        .strip_prefix("[\n")
+        .and_then(|rest| rest.strip_suffix("\n]\n"))
+        .unwrap();
+    let records: Vec<Value> = inner
+        .split(",\n")
+        .map(|line| serde_json::from_str(line).unwrap())
         .collect();
-    let expected = format!("[\n{}\n]\n", lines.join(",\n"));
-    assert_eq!(String::from_utf8(text.clone()).unwrap(), expected);
-    let parsed: Vec<Value> = serde_json::from_slice(&text).unwrap();
-    assert_eq!(parsed.len(), 6_000);
-    assert_eq!(big.size, text.len() as u64);
-    assert_eq!(big.stored_size, deflated.len() as u64);
-    assert_eq!(big.crc32, platform::archive::crc32(&text));
-    assert!(big.deflated);
+    assert!(records.iter().all(Value::is_object));
+    assert!(records.len() > 6_000);
+    // A document of no records: Ada belongs to no workspace.
+    let (entry, pieces) = stored(api.database(), "workspaces/workspaces.json").await;
+    let deflated: Vec<u8> = pieces.into_iter().flat_map(|(_, bytes)| bytes).collect();
+    assert_eq!(inflated(&deflated), b"[]\n");
+    assert!(entry.starts_with("3 "), "{entry}");
 }
 
 #[tokio::test]
@@ -151,8 +111,7 @@ async fn platform_085_a_snapshot_job_s_unit_of_work_reads_as_its_first_statement
     let before = count(&mut snapshot).await;
     let plain_before = count(&mut plain).await;
 
-    db.owner_executes("INSERT INTO workspaces (name) VALUES ('Committed meanwhile')")
-        .await;
+    workspaces::arrange(&db, "Committed meanwhile", &[]).await;
 
     assert_eq!(count(&mut snapshot).await, before);
     assert_eq!(count(&mut plain).await, plain_before + 1);

@@ -208,13 +208,14 @@ pub async fn compose(
     let mut jobs = Jobs::new(database, server.job_dead_letter_retention);
     let mail = Mail::new(server.mail.clone(), clock.clone())?;
     mail.register(&mut jobs).map_err(Internal::new)?;
+    let contracts = contracts(&mail);
     let auth = Arc::new(
         auth::Auth::new(
             database.clone(),
             config.auth,
             server.hmac_key.clone(),
             workers.clone(),
-            accounts::Deletion::new(contracts(&mail)),
+            accounts::Deletion::new(contracts.clone()),
         )
         .await?,
     );
@@ -233,7 +234,7 @@ pub async fn compose(
         database.clone(),
         mail.clone(),
         workers.clone(),
-        contracts(&mail),
+        contracts,
         // part: files
         files.clone(),
         // end part: files

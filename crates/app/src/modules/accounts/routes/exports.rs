@@ -17,7 +17,7 @@ use utoipa_axum::routes;
 
 use crate::modules::accounts::{
     error::AccountsError,
-    events::{DATA_EXPORT_FAILED, DATA_EXPORT_READY},
+    events::{EXPORT_COMPLETED, EXPORT_FAILED},
     model::Export,
     service::exports::{ArchiveBytes, Exports},
 };
@@ -25,7 +25,7 @@ use crate::modules::accounts::{
 /// The routes of exports, which take the exports' state, and the events their job publishes.
 pub(crate) fn export_routes() -> Routes<Exports> {
     Routes::new()
-        .events(&[&DATA_EXPORT_READY, &DATA_EXPORT_FAILED])
+        .events(&[&EXPORT_COMPLETED, &EXPORT_FAILED])
         .user(routes!(request_export, list_exports), &[])
         .user(routes!(read_export), &[&AccountsError::ExportNotFound])
         .user_download(routes!(download_export), &DOWNLOAD_ERRORS)

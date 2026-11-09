@@ -70,7 +70,7 @@ A handler in `routes.rs` extracts its inputs, receives its authorization through
 
 ### ARCH-09 Services contain no HTTP types
 `service.rs` doesn't use `axum`, `http`, or request and response types. A domain type that a handler reads from its request isn't one: a job or a test builds it without a request.
-`storage::Wanted` is such a type: it holds what a download asks of a file's bytes. <!-- part: files -->
+`ranges::Wanted` is such a type: it holds what a download asks of the bytes it serves.
 - Why: business rules can be called from jobs and tests without HTTP.
 - Check: `ci: check-layers`.
 
@@ -82,20 +82,21 @@ A handler in `routes.rs` extracts its inputs, receives its authorization through
 ### ARCH-11 One unit of work per operation, and the commit decides the outcome
 An operation that spans modules passes one `&mut UnitOfWork` through every call. A service never opens a second transaction for the same operation, but for one read before the unit of work opens, in a short transaction that writes nothing: what decides which rate limit counts the request, as a sign-in reads its device token (AUTH-019), and as authentication, before the service runs, reads the session whose user's limit counts the request (PLATFORM-054).
 Or, on an upload route, whether the caller may upload, which the handler checks through `Authorize::check` before it reads the body, and which the unit of work then authorizes again (PLATFORM-073). <!-- part: files -->
-Two records are written outside it, each so that what happens to the operation can't undo it: a rate limit's count, which commits before the unit of work opens, so a request refused afterwards still counts (PLATFORM-011), and a refused authorization, which the `SecurityEventSink` records in a short transaction of its own, once the operation's has rolled back, so nothing of the refused operation commits while its refusal does (PLATFORM-010). Once the unit of work commits, the response reports what it recorded. A unit of work that recorded a security failure (PLATFORM-008) answers with that failure, such as 401 for a failed sign-in, and any other commit answers with success. Work after the commit happens only through jobs and events, so it can't turn a committed change into an error.
+A download that streams bytes it stored, such as an export's documents, after its unit of work commits reads them in short transactions of their own that write nothing, since those bytes never change and the response reports what it committed already (ACCOUNTS-026).
+Two records are written outside it, each so that what happens to the operation can't undo it: a rate limit's count, which commits before the unit of work opens, so a request refused afterwards still counts (PLATFORM-011), a refused authorization, which the `SecurityEventSink` records in a short transaction of its own, once the operation's has rolled back, so nothing of the refused operation commits while its refusal does (PLATFORM-010), and a job's last attempt that failed, which its job records in a unit of work of its own once the attempt's has rolled back, as an export's job makes its export failed (ACCOUNTS-023). Once the unit of work commits, the response reports what it recorded. A unit of work that recorded a security failure (PLATFORM-008) answers with that failure, such as 401 for a failed sign-in, and any other commit answers with success. Work after the commit happens only through jobs and events, so it can't turn a committed change into an error.
 - Why: the whole operation commits or none of it does, and the response always matches what was committed (D1, D36).
 - Check: `review`, plus `test` (PLATFORM-008).
 
 ## Composition
 
 ### ARCH-12 One composition root
-`composition.rs` builds every service once at startup, hands each one its dependencies, registers the four `platform` traits (architecture §5), and mounts every module's routes. Nothing else constructs services. The process's resources aren't services: `main.rs` opens them before the services are built, each that can fail as a step of startup with its own `startup.area` (OPS-03), and hands them to `composition.rs`. They are the signal handlers, the database, the clock, readiness, the listener, and the workers, the turns of CPU-heavy work. Global mutable state is not allowed. The only exceptions are metric handles and other read-only values that are initialized once, and the state the test support keeps for the tests of one process, such as the template database's name, or for the thread of one test, such as the watch of its lines.
+`composition.rs` builds every service once at startup, hands each one its dependencies, registers the four `platform` traits that architecture §5 lists as registered there, and mounts every module's routes. Nothing else constructs services. The process's resources aren't services: `main.rs` opens them before the services are built, each that can fail as a step of startup with its own `startup.area` (OPS-03), and hands them to `composition.rs`. They are the signal handlers, the database, the clock, readiness, the listener, and the workers, the turns of CPU-heavy work. Global mutable state is not allowed. The only exceptions are metric handles and other read-only values that are initialized once, and the state the test support keeps for the tests of one process, such as the template database's name, or for the thread of one test, such as the watch of its lines.
 - Why: every dependency is visible in one file, and tests build the same graph.
 - Check: `review`.
 
 ### ARCH-13 Dependency traits only for inversion or multiple implementations
 A trait that abstracts a dependency exists for one of two reasons:
-- It inverts a dependency the crate or module graph forbids: `SessionVerifier`, `AccessPolicy`, `SecurityEventSink` and the personal data contract.
+- It inverts a dependency the crate or module graph forbids: `SessionVerifier`, `AccessPolicy`, `SecurityEventSink`, the personal data contract, and `ExportStore`.
 - It covers an external system with more than one implementation: email transport and the clock.
   Object storage is one too. <!-- part: files -->
 

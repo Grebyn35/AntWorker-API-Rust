@@ -2,16 +2,18 @@
 //! unit of work enqueues and every replica's dispatcher runs at least once, and periodic jobs,
 //! which the replicas' schedulers run once per interval across the fleet.
 
+mod context;
 mod dispatcher;
 mod runs;
 mod scheduler;
 mod sweeps;
 
+pub use context::{JobContext, JobScope};
+
 use std::{collections::HashMap, future::Future, sync::Arc, time::Duration};
 
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::watch;
-use uuid::Uuid;
 
 use crate::{
     authn::BoxFuture,
@@ -73,85 +75,6 @@ pub trait Job: Serialize + DeserializeOwned + Send + 'static {
     const MOST_ATTEMPTS: u32 = 10;
     /// How long one run may take before it is cancelled, and fails (PLATFORM-017).
     const TIME_LIMIT: Duration = Duration::from_secs(300);
-}
-
-/// The user or workspace a job runs for, whose data its handler's queries filter by
-/// (PLATFORM-013). Only a proof builds one: the scope of no one too, which `platform`'s scheduler
-/// builds, `Principal::erased_job_scope` for a job that an account's deletion enqueues once the
-/// user is erased, and the tests.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct JobScope {
-    user: Option<UserId>,
-    workspace: Option<WorkspaceId>,
-}
-
-impl JobScope {
-    /// The scope of a job that runs for no one, such as scheduled maintenance's.
-    pub(crate) fn none() -> Self {
-        Self {
-            user: None,
-            workspace: None,
-        }
-    }
-
-    /// The scope of no one, for the tests of the job queue, which enqueue jobs that no proof
-    /// scopes.
-    #[cfg(feature = "test-support")]
-    pub fn for_tests() -> Self {
-        Self::none()
-    }
-
-    /// The scope that a proof gives, which only the proofs of `platform` build.
-    pub(crate) fn proven(user: Option<UserId>, workspace: Option<WorkspaceId>) -> Self {
-        Self { user, workspace }
-    }
-
-    /// The user the job runs for, if any.
-    pub fn user(&self) -> Option<UserId> {
-        self.user
-    }
-
-    /// The workspace the job runs for, if any.
-    pub fn workspace(&self) -> Option<WorkspaceId> {
-        self.workspace
-    }
-}
-
-/// A run of a job, which only the dispatcher and the scheduler build, so only a run opens a unit
-/// of work through [`Database::for_job`].
-#[derive(Clone, Debug)]
-pub struct JobContext {
-    id: Uuid,
-    attempt: u32,
-    scope: JobScope,
-}
-
-impl JobContext {
-    /// The context of a run of no job, for no one, for the tests of what a run's unit of work
-    /// does, such as `Database::for_snapshot_job`'s.
-    #[cfg(feature = "test-support")]
-    pub fn for_tests() -> Self {
-        Self {
-            id: Uuid::nil(),
-            attempt: 1,
-            scope: JobScope::none(),
-        }
-    }
-
-    /// The queued job's ID, or the claim of a periodic job's run.
-    pub fn id(&self) -> Uuid {
-        self.id
-    }
-
-    /// Which attempt of its job this run is, from 1.
-    pub fn attempt(&self) -> u32 {
-        self.attempt
-    }
-
-    /// The scope the job runs for, which is also the scope of any job the run enqueues.
-    pub fn scope(&self) -> JobScope {
-        self.scope
-    }
 }
 
 /// Why a run failed.
@@ -356,12 +279,7 @@ impl Jobs {
             .periodic
             .get(name)
             .ok_or_else(|| Internal::new("no periodic job has the name"))?;
-        let context = JobContext {
-            id: Uuid::nil(),
-            attempt: 1,
-            scope: JobScope::none(),
-        };
-        (job.run)(context).await
+        (job.run)(JobContext::for_tests()).await
     }
 }
 
@@ -377,8 +295,8 @@ impl UnitOfWork {
             VALUES ($1, $2, $3, $4, $5)",
             J::KIND,
             payload,
-            scope.user.map(UserId::uuid),
-            scope.workspace.map(WorkspaceId::uuid),
+            scope.user().map(UserId::uuid),
+            scope.workspace().map(WorkspaceId::uuid),
             traceparent,
         )
         .execute(self.executor())

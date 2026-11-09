@@ -138,11 +138,6 @@ impl Layout {
         self.directory_at + self.directory.len() as u64
     }
 
-    /// The entries, in their order.
-    pub fn entries(&self) -> &[Entry] {
-        &self.entries
-    }
-
     /// The pieces of `range`, offsets of the archive, in their order: joined, with the stored
     /// bytes of each entry's range that a piece names in its place, they are the archive's bytes
     /// in `range`.

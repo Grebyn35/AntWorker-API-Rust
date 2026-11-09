@@ -7,10 +7,14 @@ use serde_json::{Value, json};
 use crate::support::{
     Api, Options,
     api::Response,
-    mailbox, streams,
+    audit::{self, Client},
+    lists, mailbox, streams,
     users::{self, SignedIn},
     workspaces,
 };
+// part: invitations
+use crate::support::invitations;
+// end part: invitations
 
 /// Requests an export of `user`'s data.
 async fn request(api: &Api, user: &SignedIn) -> Response {
@@ -59,6 +63,27 @@ pub fn document(archive: &[u8], path: &str) -> Vec<Value> {
     serde_json::from_slice(&found.unwrap().1).unwrap()
 }
 
+/// The log, actor, resource and resource ID of each entry of `action`, as
+/// `user <user> <actor> <resource> <id>`, the actor `-` when there is none.
+async fn entries_of(api: &Api, action: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT scope::text || ' ' || coalesce(user_id::text, '-') || ' ' || \
+             coalesce(actor_user_id::text, '-') || ' ' || resource_type || ' ' || resource_id \
+             FROM audit_entries WHERE action = '{action}' ORDER BY created_at"
+        ))
+        .await
+}
+
+/// The user of each event named `name`, in the order they were published.
+async fn event_users(api: &Api, name: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT user_id::text FROM events WHERE name = '{name}' ORDER BY created_at"
+        ))
+        .await
+}
+
 /// The one value the owner's query `sql` reads.
 async fn one(api: &Api, sql: &str) -> String {
     api.database().owner_reads(sql).await.remove(0)
@@ -86,7 +111,7 @@ async fn accounts_020_a_request_answers_202_with_the_pending_export_records_it_a
         &api,
         &format!(
             "SELECT round(extract(epoch FROM expires_at - created_at))::text \
-             FROM data_exports WHERE id = '{id}'"
+             FROM exports WHERE id = '{id}'"
         ),
     )
     .await;
@@ -94,12 +119,12 @@ async fn accounts_020_a_request_answers_202_with_the_pending_export_records_it_a
     let logged = one(
         &api,
         "SELECT action || ' ' || resource_type || ' ' || resource_id || ' ' || user_id \
-         FROM audit_entries WHERE action = 'data_export.requested'",
+         FROM audit_entries WHERE action = 'export.requested'",
     )
     .await;
     assert_eq!(
         logged,
-        format!("data_export.requested data_export {id} {}", ada.user_id)
+        format!("export.requested export {id} {}", ada.user_id)
     );
     let job = one(
         &api,
@@ -122,11 +147,8 @@ async fn accounts_021_a_second_request_within_24_hours_answers_429_and_creates_n
     assert_eq!(again.status, 429);
     assert_eq!(again.json()["code"], "request.rate_limited");
     assert!(again.header("retry-after").parse::<u64>().unwrap() > 86_000);
-    assert_eq!(
-        again.header("ratelimit-policy"),
-        "\"data_export\";q=1;w=86400"
-    );
-    let exports = one(&api, "SELECT count(*)::text FROM data_exports").await;
+    assert_eq!(again.header("ratelimit-policy"), "\"export\";q=1;w=86400");
+    let exports = one(&api, "SELECT count(*)::text FROM exports").await;
     assert_eq!(exports, "1");
     // Each user has a bucket of their own.
     assert_eq!(request(&api, &grace).await.status, 202);
@@ -140,7 +162,7 @@ async fn accounts_022_the_caller_lists_and_reads_their_own_exports_and_no_other_
     let first = built(&api, &ada).await;
     // A second export, requested a day later, as the bucket allows.
     api.database()
-        .owner_executes("UPDATE data_exports SET created_at = created_at - interval '1 day'")
+        .owner_executes("UPDATE exports SET created_at = created_at - interval '1 day'")
         .await;
     api.database()
         .owner_executes("DELETE FROM rate_limit_buckets")
@@ -196,7 +218,7 @@ async fn accounts_022_the_caller_lists_and_reads_their_own_exports_and_no_other_
     // An expired export is gone, though the job that deletes it hasn't run.
     api.database()
         .owner_executes(&format!(
-            "UPDATE data_exports SET expires_at = now() - interval '1 second' WHERE id = '{first}'"
+            "UPDATE exports SET expires_at = now() - interval '1 second' WHERE id = '{first}'"
         ))
         .await;
     let expired = api
@@ -226,21 +248,30 @@ async fn accounts_023_the_job_builds_the_archive_makes_the_export_ready_and_publ
     api.run_jobs().await;
 
     let event = stream.event().await;
-    assert_eq!(event.event.as_deref(), Some("data_export.ready"));
+    assert_eq!(event.event.as_deref(), Some("export.completed"));
     assert_eq!(event.payload(), &json!({ "export_id": id }));
     let state = one(
         &api,
         &format!(
             "SELECT state::text || ' ' || (ready_at IS NOT NULL) || ' ' || \
-             round(extract(epoch FROM expires_at - ready_at))::text FROM data_exports \
+             round(extract(epoch FROM expires_at - ready_at))::text FROM exports \
              WHERE id = '{id}'"
         ),
     )
     .await;
     assert_eq!(state, "ready true 604800");
+    // Recorded in Ada's own log with no actor, as the job's, and published to her alone.
+    assert_eq!(
+        entries_of(&api, "export.completed").await,
+        [format!("user {} - export {id}", ada.user_id)]
+    );
+    assert_eq!(
+        event_users(&api, "export.completed").await,
+        std::slice::from_ref(&ada.user_id)
+    );
     let documents = one(
         &api,
-        &format!("SELECT count(*)::text FROM data_export_entries WHERE export_id = '{id}'"),
+        &format!("SELECT count(*)::text FROM export_entries WHERE export_id = '{id}'"),
     )
     .await;
     // A second run of the job, as a redelivery would make it, changes nothing.
@@ -254,7 +285,7 @@ async fn accounts_023_the_job_builds_the_archive_makes_the_export_ready_and_publ
     api.run_jobs().await;
     let again = one(
         &api,
-        &format!("SELECT count(*)::text FROM data_export_entries WHERE export_id = '{id}'"),
+        &format!("SELECT count(*)::text FROM export_entries WHERE export_id = '{id}'"),
     )
     .await;
     assert_eq!(again, documents);
@@ -283,17 +314,25 @@ async fn accounts_023_a_last_attempt_that_fails_makes_the_export_failed_and_publ
         .await;
 
     let event = stream.event().await;
-    assert_eq!(event.event.as_deref(), Some("data_export.failed"));
+    assert_eq!(event.event.as_deref(), Some("export.failed"));
     assert_eq!(event.payload(), &json!({ "export_id": id }));
     let state = one(
         &api,
         &format!(
-            "SELECT state::text || ' ' || (SELECT count(*) FROM data_export_chunks) \
-             FROM data_exports WHERE id = '{id}'"
+            "SELECT state::text || ' ' || (SELECT count(*) FROM export_chunks) \
+             FROM exports WHERE id = '{id}'"
         ),
     )
     .await;
     assert_eq!(state, "failed 0");
+    assert_eq!(
+        entries_of(&api, "export.failed").await,
+        [format!("user {} - export {id}", ada.user_id)]
+    );
+    assert_eq!(
+        event_users(&api, "export.failed").await,
+        std::slice::from_ref(&ada.user_id)
+    );
     let read = api
         .get(&format!("/v1/users/me/exports/{id}"))
         .bearer(&ada.access)
@@ -305,8 +344,34 @@ async fn accounts_023_a_last_attempt_that_fails_makes_the_export_failed_and_publ
     assert_eq!(content.json()["code"], "accounts.export_not_ready");
 }
 
+#[tokio::test]
+async fn accounts_023_a_run_of_a_job_whose_export_is_gone_changes_nothing() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let id = request(&api, &ada).await.json()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // The export went, as its expiry or its user's deletion deletes it, before its job ran.
+    api.database()
+        .owner_executes(&format!("DELETE FROM exports WHERE id = '{id}'"))
+        .await;
+
+    api.run_jobs().await;
+
+    let left = one(
+        &api,
+        "SELECT (SELECT count(*) FROM exports) || ' ' || (SELECT count(*) FROM export_entries) \
+         || ' ' || (SELECT count(*) FROM jobs) || ' ' || \
+         (SELECT count(*) FROM events WHERE name LIKE 'export.%')",
+    )
+    .await;
+    assert_eq!(left, "0 0 0 0");
+}
+
 /// Ada, with a workspace of her own and one of Grace's, an entry of her own log that Grace acted
-/// in, and an entry of each workspace's log; returns Ada, Grace and both workspaces' IDs.
+/// in, and an entry of each workspace's log, among what each workspace holds; returns Ada, Grace
+/// and both workspaces' IDs.
 async fn arranged(api: &Api) -> (SignedIn, SignedIn, String, String) {
     let ada = users::register(api, "ada@example.com").await;
     let grace = users::register(api, "grace@example.com").await;
@@ -319,25 +384,29 @@ async fn arranged(api: &Api) -> (SignedIn, SignedIn, String, String) {
     )
     .await;
     // An entry of Ada's own log that Grace acted in, whose client is Grace's.
-    db.owner_executes(&format!(
-        "WITH entry AS (
-            INSERT INTO audit_entries (scope, user_id, actor_user_id, action, resource_type)
-            VALUES ('user', '{ada}', '{grace}', 'member.removed', 'workspace') RETURNING id
-        )
-        INSERT INTO audit_entry_clients (entry_id, user_id, client_ip, user_agent)
-        SELECT id, '{grace}', '192.0.2.7', 'Grace''s browser' FROM entry",
-        ada = ada.user_id,
-        grace = grace.user_id,
-    ))
+    let client = Client {
+        user: &grace.user_id,
+        ip: "192.0.2.7",
+        agent: "Grace's browser",
+    };
+    audit::in_own_log(
+        db,
+        &ada.user_id,
+        &grace.user_id,
+        "member.removed",
+        Some(client),
+    )
     .await;
     for workspace in [&own, &shared] {
-        db.owner_executes(&format!(
-            "INSERT INTO audit_entries (scope, workspace_id, actor_user_id, action, resource_type) \
-             VALUES ('workspace', '{workspace}', '{}', 'workspace.renamed', 'workspace')",
-            ada.user_id
-        ))
-        .await;
+        audit::in_workspace_log(db, workspace, &ada.user_id, "workspace.renamed").await;
     }
+    // part: invitations
+    // An invitation of each workspace.
+    let mine = invitations::invite(api, &ada, &own, "lin@example.com", "member").await;
+    assert_eq!(mine.status, 201);
+    let theirs = invitations::invite(api, &grace, &shared, "max@example.com", "member").await;
+    assert_eq!(theirs.status, 201);
+    // end part: invitations
     (ada, grace, own, shared)
 }
 
@@ -385,7 +454,7 @@ fn assert_logs(archive: &[u8], grace: &SignedIn, own: &str) {
     assert_eq!(removed["user_agent"], json!(null));
     let requested = log
         .iter()
-        .find(|entry| entry["action"] == "data_export.requested")
+        .find(|entry| entry["action"] == "export.requested")
         .unwrap();
     assert!(requested["client_ip"].is_string(), "{requested}");
     let workspace_logs = document(archive, "audit/workspace_logs.json");
@@ -445,6 +514,13 @@ async fn accounts_024_the_archive_holds_the_user_s_data_and_only_the_content_of_
     assert_eq!(document(&archive, "auth/sessions.json").len(), 1);
     assert_eq!(document(&archive, "auth/device_tokens.json").len(), 1);
     assert_logs(&archive, &grace, &own);
+    // part: invitations
+    let invited = document(&archive, "invitations/invitations.json");
+    assert_eq!(invited.len(), 1, "{invited:?}");
+    assert_eq!(invited[0]["workspace_id"], own.as_str());
+    assert_eq!(invited[0]["email"], "lin@example.com");
+    assert!(!holds(&archive, "max@example.com"));
+    // end part: invitations
     // No hash of a password or a token, of either user's, and nothing of Grace's but her ID.
     for absent in ["$argon2", "Grace's team", "grace@example.com", "192.0.2.7"] {
         assert!(!holds(&archive, absent), "{absent}");
@@ -477,7 +553,7 @@ async fn accounts_025_with_email_on_a_ready_export_tells_the_address_until_when(
         &api,
         &format!(
             "SELECT to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') \
-             FROM data_exports WHERE id = '{id}'"
+             FROM exports WHERE id = '{id}'"
         ),
     )
     .await;
@@ -519,13 +595,21 @@ async fn accounts_026_a_download_serves_the_archive_by_ranges_the_same_bytes_eac
     let range = download(&api, &ada, &id, &[("range", "bytes=10-99")]).await;
     let tail = download(&api, &ada, &id, &[("range", "bytes=-22")]).await;
     let cached = download(&api, &ada, &id, &[("if-none-match", &format!("\"{id}\""))]).await;
+    let head = api
+        .request(
+            http::Method::HEAD,
+            &format!("/v1/users/me/exports/{id}/content"),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
 
     assert_eq!(whole.status, 200);
     assert_eq!(whole.header("content-type"), "application/zip");
     let ready = one(
         &api,
         &format!(
-            "SELECT to_char(ready_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') FROM data_exports \
+            "SELECT to_char(ready_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') FROM exports \
              WHERE id = '{id}'"
         ),
     )
@@ -558,13 +642,12 @@ async fn accounts_026_a_download_serves_the_archive_by_ranges_the_same_bytes_eac
     assert_eq!(range.body, whole.body[10..100]);
     assert_eq!(tail.body, whole.body[whole.body.len() - 22..]);
     assert_eq!(cached.status, 304);
-    // Each request that served bytes records its download, and the 304 doesn't.
-    let downloads = one(
-        &api,
-        "SELECT count(*)::text FROM audit_entries WHERE action = 'data_export.downloaded'",
-    )
-    .await;
-    assert_eq!(downloads, "4");
+    assert_eq!(head.status, 200);
+    assert!(head.body.is_empty());
+    // Each request that served bytes records its download in Ada's own log, as her act, and the
+    // 304 and the HEAD don't.
+    let entry = format!("user {0} {0} export {id}", ada.user_id);
+    assert_eq!(entries_of(&api, "export.downloaded").await, vec![entry; 4]);
 }
 
 #[tokio::test]
@@ -582,7 +665,7 @@ async fn accounts_026_a_pending_export_answers_409() {
     assert_eq!(content.json()["code"], "accounts.export_not_ready");
     let downloads = one(
         &api,
-        "SELECT count(*)::text FROM audit_entries WHERE action = 'data_export.downloaded'",
+        "SELECT count(*)::text FROM audit_entries WHERE action = 'export.downloaded'",
     )
     .await;
     assert_eq!(downloads, "0");
@@ -601,11 +684,11 @@ async fn accounts_027_the_expiry_deletes_expired_exports_and_fails_those_pending
     let db = api.database();
     db.owner_executes("DELETE FROM jobs").await;
     db.owner_executes(&format!(
-        "UPDATE data_exports SET expires_at = now() - interval '1 second' WHERE id = '{expired}'"
+        "UPDATE exports SET expires_at = now() - interval '1 second' WHERE id = '{expired}'"
     ))
     .await;
     db.owner_executes(&format!(
-        "UPDATE data_exports SET created_at = now() - interval '24 hours 1 second' \
+        "UPDATE exports SET created_at = now() - interval '24 hours 1 second' \
          WHERE id = '{stale}'"
     ))
     .await;
@@ -615,12 +698,139 @@ async fn accounts_027_the_expiry_deletes_expired_exports_and_fails_those_pending
     api.run_periodic("accounts.expire_exports").await;
 
     let left = db
-        .owner_reads("SELECT id || ' ' || state::text FROM data_exports")
+        .owner_reads("SELECT id || ' ' || state::text FROM exports")
         .await;
     assert_eq!(left, [format!("{stale} failed")]);
-    let chunks = one(&api, "SELECT count(*)::text FROM data_export_chunks").await;
+    let chunks = one(&api, "SELECT count(*)::text FROM export_chunks").await;
     assert_eq!(chunks, "0");
     let event = stream.event().await;
-    assert_eq!(event.event.as_deref(), Some("data_export.failed"));
+    assert_eq!(event.event.as_deref(), Some("export.failed"));
     assert_eq!(event.payload(), &json!({ "export_id": stale }));
+}
+
+#[tokio::test]
+async fn accounts_022_paging_returns_each_export_once_across_a_shared_request_time() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let mut requested = Vec::new();
+    for _ in 0..3 {
+        requested.push(
+            request(&api, &ada).await.json()["id"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        );
+        // The bucket allows a request a day; each day's is another export.
+        db.owner_executes("DELETE FROM rate_limit_buckets").await;
+    }
+    db.owner_executes("UPDATE exports SET created_at = '2026-01-01T00:00:00Z'")
+        .await;
+
+    let pages = lists::pages(&api, &ada, "/v1/users/me/exports?limit=1", "id").await;
+
+    assert_eq!(pages.len(), 3);
+    let mut listed: Vec<String> = pages.into_iter().flatten().collect();
+    listed.sort();
+    requested.sort();
+    assert_eq!(listed, requested);
+}
+
+#[tokio::test]
+async fn platform_081_a_download_serves_its_bytes_with_the_headers_that_keep_a_browser_from_running_them()
+ {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let id = built(&api, &ada).await;
+
+    let whole = download(&api, &ada, &id, &[]).await;
+
+    assert_eq!(whole.status, 200);
+    assert_eq!(whole.header("content-length"), whole.body.len().to_string());
+    assert_eq!(
+        whole.header("content-security-policy"),
+        "default-src 'none'; sandbox"
+    );
+    assert_eq!(whole.header("x-content-type-options"), "nosniff");
+    assert_eq!(whole.header("cache-control"), "no-store");
+    assert_eq!(whole.header("accept-ranges"), "bytes");
+    assert_eq!(whole.header("etag"), format!("\"{id}\""));
+}
+
+#[tokio::test]
+async fn platform_081_one_range_answers_206_and_a_range_it_can_t_serve_every_byte() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let id = built(&api, &ada).await;
+    let whole = download(&api, &ada, &id, &[]).await.body;
+    let size = whole.len();
+    let tag = format!("\"{id}\"");
+
+    let range = download(&api, &ada, &id, &[("range", "bytes=5-")]).await;
+    let same = download(
+        &api,
+        &ada,
+        &id,
+        &[("range", "bytes=0-9"), ("if-range", &tag)],
+    )
+    .await;
+    let other = download(
+        &api,
+        &ada,
+        &id,
+        &[("range", "bytes=0-9"), ("if-range", "\"other\"")],
+    )
+    .await;
+    let several = download(&api, &ada, &id, &[("range", "bytes=0-1,5-6")]).await;
+    let past = download(&api, &ada, &id, &[("range", &format!("bytes={size}-"))]).await;
+
+    assert_eq!(range.status, 206);
+    assert_eq!(
+        range.header("content-range"),
+        format!("bytes 5-{}/{size}", size - 1)
+    );
+    assert_eq!(range.header("content-length"), (size - 5).to_string());
+    assert_eq!(range.body, whole[5..]);
+    assert_eq!(same.status, 206);
+    assert_eq!(same.body, whole[..10]);
+    for every in [&other, &several, &past] {
+        assert_eq!(every.status, 200);
+        assert_eq!(every.body, whole);
+    }
+}
+
+#[tokio::test]
+async fn platform_081_if_none_match_answers_304_and_head_answers_without_the_bytes() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let id = built(&api, &ada).await;
+    let size = download(&api, &ada, &id, &[]).await.body.len();
+
+    let weak = download(
+        &api,
+        &ada,
+        &id,
+        &[("if-none-match", &format!("W/\"{id}\""))],
+    )
+    .await;
+    let any = download(&api, &ada, &id, &[("if-none-match", "*")]).await;
+    let head = api
+        .request(
+            http::Method::HEAD,
+            &format!("/v1/users/me/exports/{id}/content"),
+        )
+        .bearer(&ada.access)
+        .header("range", "bytes=0-9")
+        .send()
+        .await;
+
+    for not_modified in [&weak, &any] {
+        assert_eq!(not_modified.status, 304);
+        assert!(not_modified.body.is_empty());
+        assert_eq!(not_modified.header("etag"), format!("\"{id}\""));
+    }
+    // A HEAD ignores Range, and answers as a GET without one does, without the bytes.
+    assert_eq!(head.status, 200);
+    assert!(head.body.is_empty());
+    assert_eq!(head.header("content-length"), size.to_string());
 }

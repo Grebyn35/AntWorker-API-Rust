@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM exports WHERE id IN (\n                SELECT id FROM exports WHERE expires_at <= now() LIMIT $1\n            )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6163b4df2c36febfa2d30d38bcc4d107979d9d8500415e663b244363212a1828"
+}

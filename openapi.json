@@ -117,7 +117,24 @@
         ],
         "type": "object"
       },
-      "DataExport": {
+      "DeviceId": {
+        "maxLength": 64,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "type": "string"
+      },
+      "DisplayName": {
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+      },
+      "EmailAddress": {
+        "format": "email",
+        "maxLength": 254,
+        "minLength": 1,
+        "type": "string"
+      },
+      "Export": {
         "description": "An export of the caller's data (ACCOUNTS-022).",
         "properties": {
           "created_at": {
@@ -166,8 +183,8 @@
         ],
         "type": "object"
       },
-      "DataExportChanged": {
-        "description": "The payload of `data_export.ready` and `data_export.failed`: the export, which a client reads\nthrough `GET /v1/users/me/exports/{export_id}` (API-19).",
+      "ExportChanged": {
+        "description": "The payload of `export.completed` and `export.failed`: the export, which a client reads\nthrough `GET /v1/users/me/exports/{export_id}` (API-19).",
         "properties": {
           "export_id": {
             "description": "The export.",
@@ -180,15 +197,15 @@
         ],
         "type": "object"
       },
-      "DataExportFailedFrame": {
-        "description": "`data_export.failed`, a user event: it reaches its user's streams.",
+      "ExportCompletedFrame": {
+        "description": "`export.completed`, a user event: it reaches its user's streams.",
         "properties": {
           "data": {
             "contentMediaType": "application/json",
             "contentSchema": {
               "properties": {
                 "data": {
-                  "$ref": "#/components/schemas/DataExportChanged"
+                  "$ref": "#/components/schemas/ExportChanged"
                 },
                 "trace_id": {
                   "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
@@ -209,7 +226,7 @@
           },
           "event": {
             "enum": [
-              "data_export.failed"
+              "export.completed"
             ],
             "type": "string"
           },
@@ -225,17 +242,17 @@
           "id"
         ],
         "type": "object",
-        "x-event": "data_export.failed"
+        "x-event": "export.completed"
       },
-      "DataExportReadyFrame": {
-        "description": "`data_export.ready`, a user event: it reaches its user's streams.",
+      "ExportFailedFrame": {
+        "description": "`export.failed`, a user event: it reaches its user's streams.",
         "properties": {
           "data": {
             "contentMediaType": "application/json",
             "contentSchema": {
               "properties": {
                 "data": {
-                  "$ref": "#/components/schemas/DataExportChanged"
+                  "$ref": "#/components/schemas/ExportChanged"
                 },
                 "trace_id": {
                   "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
@@ -256,7 +273,7 @@
           },
           "event": {
             "enum": [
-              "data_export.ready"
+              "export.failed"
             ],
             "type": "string"
           },
@@ -272,24 +289,7 @@
           "id"
         ],
         "type": "object",
-        "x-event": "data_export.ready"
-      },
-      "DeviceId": {
-        "maxLength": 64,
-        "minLength": 1,
-        "pattern": "^[A-Za-z0-9_-]+$",
-        "type": "string"
-      },
-      "DisplayName": {
-        "maxLength": 100,
-        "minLength": 1,
-        "type": "string"
-      },
-      "EmailAddress": {
-        "format": "email",
-        "maxLength": 254,
-        "minLength": 1,
-        "type": "string"
+        "x-event": "export.failed"
       },
       "ExportState": {
         "description": "Where an export stands (ACCOUNTS-022).",
@@ -546,10 +546,10 @@
         "description": "A frame of the stream of server-sent events, one schema for each type, which its `event` names (REALTIME-008).",
         "oneOf": [
           {
-            "$ref": "#/components/schemas/DataExportFailedFrame"
+            "$ref": "#/components/schemas/ExportCompletedFrame"
           },
           {
-            "$ref": "#/components/schemas/DataExportReadyFrame"
+            "$ref": "#/components/schemas/ExportFailedFrame"
           },
           {
             "$ref": "#/components/schemas/FileDeletedFrame"
@@ -724,7 +724,7 @@
         ],
         "type": "object"
       },
-      "List_DataExport": {
+      "List_Export": {
         "description": "A page of items, and the cursor of the next page, or `null` on the last (API-05).",
         "properties": {
           "items": {
@@ -7217,7 +7217,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/List_DataExport"
+                  "$ref": "#/components/schemas/List_Export"
                 }
               }
             },
@@ -7474,7 +7474,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataExport"
+                  "$ref": "#/components/schemas/Export"
                 }
               }
             },
@@ -7790,7 +7790,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DataExport"
+                  "$ref": "#/components/schemas/Export"
                 }
               }
             },

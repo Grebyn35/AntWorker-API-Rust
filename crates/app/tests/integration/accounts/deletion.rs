@@ -154,6 +154,8 @@ async fn accounts_013_a_deletion_erases_the_account_and_the_workspaces_only_it_b
     // part: files
     files::arrange(db, &mine, "plan.txt").await;
     // end part: files
+    // An export of Ada's, with its archive's documents.
+    let export = super::exports::built(&api, &ada).await;
     let mut stream = streams::opened(&api, &other_device).await;
 
     let response = delete(&api, &ada).await;
@@ -181,6 +183,19 @@ async fn accounts_013_a_deletion_erases_the_account_and_the_workspaces_only_it_b
         )
         .await,
         "1 0 0 0 1"
+    );
+    // Her export went with her, with its documents.
+    assert_eq!(
+        one(
+            &api,
+            &format!(
+                "SELECT (SELECT count(*) FROM exports WHERE id = '{export}') || ' ' \
+                 || (SELECT count(*) FROM export_entries) || ' ' \
+                 || (SELECT count(*) FROM export_chunks)"
+            )
+        )
+        .await,
+        "0 0 0"
     );
     // part: files
     assert_eq!(
@@ -479,6 +494,35 @@ async fn accounts_016_a_row_that_another_request_holds_locked_refuses_the_deleti
     assert_eq!(response.status, 409);
     assert_eq!(response.json()["code"], "auth.account_changed");
     assert_eq!(left_of(&api, &ada).await, "1|1|0");
+}
+
+#[tokio::test]
+async fn accounts_016_an_export_that_its_job_holds_refuses_the_deletion_at_once() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let export = super::exports::built(&api, &ada).await;
+    // The job of an export of Ada's holds its row, as each run does while it writes the archive,
+    // which deleting her row deletes.
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM exports WHERE id = '{export}' FOR UPDATE"
+        ))
+        .await;
+
+    let response = delete(&api, &ada).await;
+    execute_on(&mut held, "ROLLBACK").await;
+
+    assert_eq!(response.status, 409);
+    assert_eq!(response.json()["code"], "auth.account_changed");
+    assert_eq!(
+        one(
+            &api,
+            &format!("SELECT count(*)::text FROM exports WHERE id = '{export}'")
+        )
+        .await,
+        "1"
+    );
 }
 
 #[tokio::test]

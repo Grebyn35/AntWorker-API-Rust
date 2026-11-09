@@ -145,6 +145,12 @@ impl AuditScope {
         }
     }
 
+    /// The log `log`, with no actor, for an entry that a job's run records for the user the job
+    /// runs for, which only `JobContext` builds (DATA-22).
+    pub(crate) fn unattributed(log: Log) -> Self {
+        Self { log, actor: None }
+    }
+
     /// The log `log`, with `actor` as the actor, which only the proofs of `platform` build.
     pub(crate) fn proven(log: Log, actor: UserId) -> Self {
         Self {

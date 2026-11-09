@@ -15,6 +15,8 @@ CREATE TABLE device_tokens (
     CONSTRAINT device_tokens_token_hash_key UNIQUE (token_hash)
 );
 
-CREATE INDEX device_tokens_user_id_idx ON device_tokens (user_id);
+-- A user's device tokens, the latest first, which an export reads a page at a time
+-- (ACCOUNTS-024), and which also indexes the foreign key (DATA-05).
+CREATE INDEX device_tokens_user_id_created_at_id_idx ON device_tokens (user_id, created_at DESC, id DESC);
 
 REVOKE UPDATE ON device_tokens FROM app;

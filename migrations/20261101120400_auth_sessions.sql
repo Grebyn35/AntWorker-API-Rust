@@ -22,7 +22,9 @@ CREATE TABLE sessions (
     CONSTRAINT sessions_previous_refresh_token_hash_key UNIQUE (previous_refresh_token_hash)
 );
 
-CREATE INDEX sessions_user_id_idx ON sessions (user_id);
+-- A user's sessions, the latest first, which an export reads a page at a time (ACCOUNTS-024), and
+-- which also indexes the foreign key (DATA-05).
+CREATE INDEX sessions_user_id_created_at_id_idx ON sessions (user_id, created_at DESC, id DESC);
 
 CREATE UNIQUE INDEX sessions_user_id_device_id_key ON sessions (user_id, device_id)
 WHERE device_id IS NOT NULL;

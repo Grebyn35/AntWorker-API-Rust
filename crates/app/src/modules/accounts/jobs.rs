@@ -1,12 +1,12 @@
 //! The jobs of `accounts` (OPS-09), owned by `accounts`:
 //! - `accounts.export`, enqueued by an export's request for its user, builds the export's archive
-//!   in one unit of work, touching `data_exports`, `data_export_entries` and `data_export_chunks`,
+//!   in one unit of work, touching `exports`, `export_entries` and `export_chunks`,
 //!   and every table that a personal data contract exports from or writes, then enqueues its
 //!   email and publishes its event (ACCOUNTS-023). A second run finds the export ready, and
 //!   changes nothing.
 //! - `accounts.expire_exports`, every hour, makes failed each export still pending a day after its
-//!   request, publishing `data_export.failed` to its user, and deletes the expired exports of
-//!   every user, with what their foreign keys delete, touching `data_exports` and `events`
+//!   request, publishing `export.failed` to its user, and deletes the expired exports of
+//!   every user, with what their foreign keys delete, touching `exports` and `events`
 //!   (ACCOUNTS-027). It spans every user by nature, so it selects exports by their state and
 //!   expiry alone, which `check-tenancy` lets this file do (DATA-16), and scheduled maintenance
 //!   isn't audited (DATA-22). A second run finds nothing more to change or delete.
@@ -76,9 +76,9 @@ async fn expire(database: &Database, context: &JobContext) -> Result<(), Interna
     loop {
         let mut uow = database.for_job(context).await?;
         let failed = sqlx::query!(
-            "UPDATE data_exports SET state = 'failed'
+            "UPDATE exports SET state = 'failed'
             WHERE state = 'pending' AND id IN (
-                SELECT id FROM data_exports
+                SELECT id FROM exports
                 WHERE state = 'pending' AND created_at <= now() - make_interval(hours => $1)
                 LIMIT $2
             )
@@ -89,11 +89,11 @@ async fn expire(database: &Database, context: &JobContext) -> Result<(), Interna
         .fetch_all(uow.executor())
         .await?;
         for export in &failed {
-            let payload = published::DataExportChanged {
+            let payload = published::ExportChanged {
                 export_id: export.id,
             };
             let user = platform::types::UserId::from_uuid(export.user_id);
-            uow.publish_to_user(&published::DATA_EXPORT_FAILED, user, &payload)
+            uow.publish_to_user(&published::EXPORT_FAILED, user, &payload)
                 .await?;
         }
         uow.commit().await?;
@@ -106,8 +106,8 @@ async fn expire(database: &Database, context: &JobContext) -> Result<(), Interna
     loop {
         let mut uow = database.for_job(context).await?;
         let deleted = sqlx::query!(
-            "DELETE FROM data_exports WHERE id IN (
-                SELECT id FROM data_exports WHERE expires_at <= now() LIMIT $1
+            "DELETE FROM exports WHERE id IN (
+                SELECT id FROM exports WHERE expires_at <= now() LIMIT $1
             )",
             BATCH,
         )

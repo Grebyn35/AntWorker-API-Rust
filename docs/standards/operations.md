@@ -46,7 +46,8 @@ The instance installs its handlers for the shutdown signals before it connects t
 2. Wait one health-check interval, so the load balancer stops sending traffic.
 3. Stop accepting connections, and close the open streams, so their clients reconnect to another instance.
 4. Drain requests, up to a deadline no shorter than the longest timeout of a route, so a request that its route lets finish isn't cut short.
-   An upload's is the longest. A download's bytes stream for as long as its client takes to read them, so the deadline may cut one short, which its client resumes from another instance, asking for the bytes it lacks with a `Range` (PLATFORM-081, D112). <!-- part: files -->
+   An upload's is the longest. <!-- part: files -->
+   A download's bytes stream for as long as its client takes to read them, so the deadline may cut one short, which its client resumes from another instance, asking for the bytes it lacks with a `Range` (PLATFORM-081).
 5. Cancel jobs and release their leases.
 6. Flush telemetry.
 
