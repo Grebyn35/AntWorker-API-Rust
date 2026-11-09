@@ -245,7 +245,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | ebcf1d6..c05f3dc: step 5's second part of `accounts`: the personal data contract, account deletion and re-authentication (D123 to D125), with `just remove` retiring the numbers of the behaviors it deletes | 1 | 20 (18, 10, 8 shared) | 15 | 0 | `next pass`: 37fb57b |
 | ebcf1d6..37fb57b: as above, with pass 1's fixes | 2 | 14 (10, 7, 3 shared) | 8 | 4 | `stopped: no progress`: 3024ac1 |
 | 6a43070..5968a93: step 5's third part of `accounts`: export (D31, D126, D127), with `platform::archive`, the export writer, `Database::for_snapshot_job`, downloads' ranges made core, and the export's holds and checksums in `files` | 1 | 27 (25, 13, 11 shared) | 19 | 0 | `next pass`: 3b5521e |
-| 6a43070..3b5521e: as above, with pass 1's fixes | 2 | 12 (8, 8, 4 shared) | 3 | 0 | `next pass` |
+| 6a43070..3b5521e: as above, with pass 1's fixes | 2 | 12 (8, 8, 4 shared) | 3 | 0 | `next pass`: 5d02f07 |
+| 6a43070..5d02f07: as above, with pass 2's fixes | 3 | 9 (7, 3, 1 shared) | 3 | 1 | `stopped: no progress` |
 
 ## Decisions
 
