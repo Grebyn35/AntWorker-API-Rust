@@ -34,6 +34,7 @@ const ACCOUNT_DATA: &[&str] = &[
     "device_tokens",
     // part: files
     "user_files",
+    "avatars",
     // end part: files
 ];
 

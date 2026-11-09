@@ -52,6 +52,10 @@ impl From<AccountsError> for InvitationsError {
     fn from(error: AccountsError) -> Self {
         match error {
             AccountsError::Internal(error) => Self::Internal(error),
+            AccountsError::Platform(error) => Self::Platform(error),
+            // part: files
+            other => Self::Internal(Internal::new(other)),
+            // end part: files
         }
     }
 }

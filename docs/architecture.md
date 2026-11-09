@@ -119,13 +119,13 @@ crates/app/
 | `access` | `workspace_memberships` | Roles, the permission matrix, the permission types used with `Authorized<P>`, and the `AccessPolicy` implementation (D2). It has no routes of its own. |
 | `audit` | `audit_entries` | Recording entries inside a unit of work, the read endpoints, the action catalog, retention, and the `SecurityEventSink` implementation that records refused requests (D6). |
 | `realtime` | none | The endpoint of server-sent events (SSE), the frames it sends, and the event catalog. Delivery, replay and stream closing are handled by `platform::events` (D5). |
-| `files` | `workspace_files`, `user_files`, `object_deletions` | Upload, list, download and delete of user and workspace files, the types each upload accepts and its scan for malware, public files, signed download URLs, and the deletion of the bytes that no file's row names, with the avatars and the workspace pictures that the full `accounts` and `workspaces` modules add (D117). <!-- part: files --> |
-| `accounts` | `users`, `user_preferences`, `data_exports` | Profile, preferences and consent, and account deletion and export, which it orchestrates across modules through the personal data contract (D16, D31). |
+| `files` | `workspace_files`, `user_files`, `avatars`, `object_deletions` | Upload, list, download and delete of user and workspace files, the types each upload accepts and its scan for malware, public files, signed download URLs, and the deletion of the bytes that no row names, with the images of the avatars that `accounts` sets, and of the workspace pictures that the full `workspaces` module adds (D117, D120). <!-- part: files --> |
+| `accounts` | `users`, `data_exports` | The profile, and account deletion and export, which it orchestrates across modules through the personal data contract (D16, D31). |
 | `auth` | `sessions`, `device_tokens`, `verification_codes`, `identities`, `provider_tokens`, `pending_email_changes` | Registration, sign-in with a password or OAuth, refresh, sign-out, sessions, password reset and change, email verification and change, identity linking, and re-authentication for sensitive actions. Account deletion is confirmed here, then carried out by `accounts`. One file per OAuth provider in `auth/providers/`. Implements `SessionVerifier`. |
 | `workspaces` | `workspaces`, `setup_runs` | Creating workspaces in each shape (below), updating, transferring and deleting them, and the members endpoints (list, change role, remove, leave). |
 | `invitations` | `invitations` | Invite, list, resend, cancel, accept, decline, and expiry. <!-- part: invitations --> |
 | `superadmins` | `superadmins` | The deployment's superadmins (D62): users who see every workspace's name, creation time, member count and owner, but not its content, delete any workspace, and create workspaces, which they then own ([workspace shapes](#workspace-shapes)). Its routes are authorized by the caller being a superadmin, never by a membership, and it records each action in the superadmin's own log, since deleting a workspace deletes the workspace's log. Its subcommand adds an account to the superadmins or removes it, which the API can't. |
-| `client_telemetry` | none | The telemetry proxy for clients, enforcing consent on the server (D7). |
+| `client_telemetry` | `telemetry_consents` | The telemetry proxy for clients, and each user's consent to it, which it enforces on the server (D7, D122). |
 | `system` | none | The capabilities endpoint (D9), the schema endpoints, which list the permissions and the audit actions, and `seed`, which fills a development database with demo accounts and workspaces through the API's own routes (D28). The health probes belong to `platform` (§4). |
 | `platform` | `events`, `jobs`, `job_schedules`, `rate_limit_buckets`, `idempotency_records` | The mechanisms in §4. |
 
@@ -174,13 +174,12 @@ flowchart TD
   invitations --> access & accounts & workspaces & audit
   %% end part: invitations
   auth --> accounts & audit
-  accounts --> audit
+  accounts --> access & audit
   %% part: files
   accounts --> files
   files --> access & audit
   %% end part: files
   audit --> access
-  client_telemetry --> accounts
   superadmins --> workspaces & access & accounts & audit
 ```
 

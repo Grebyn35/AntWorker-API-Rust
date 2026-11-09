@@ -64,7 +64,7 @@ A member can change or remove only members at roles below their own, and can ass
 All outbound HTTP that application code makes uses one of the two clients in `platform::outbound`. The telemetry adapters use their libraries' own clients, with endpoints from configuration. The probe that the `health` subcommand sends to the instance's own address (PLATFORM-063) reaches no other service, so neither client applies to it.
 The object storage adapter uses its library's own client too, with its endpoint from configuration, and the malware scanner's adapter speaks clamd's own protocol, not HTTP, over TCP to the address that configuration names (PLATFORM-079), so neither client applies to them either. <!-- part: files -->
 - The configured client calls URLs that come from configuration, such as OAuth endpoints. It requires HTTPS, unless the environment is development or test.
-- The untrusted client calls URLs that come from a third party, such as an OAuth avatar. It:
+- The untrusted client calls URLs that come from a third party, such as the picture of a user that an OAuth provider names. It:
   - allows HTTPS only
   - blocks private, loopback and link-local addresses after DNS resolution
   - re-checks every redirect, and limits redirects

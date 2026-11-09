@@ -238,7 +238,13 @@ pub async fn compose(
         .merge(workspaces::routes().with_state(database.clone()))
         .merge(realtime::routes().with_state(realtime));
     // part: files
-    let routes = routes.merge(files::routes().with_state(files));
+    let routes = routes
+        .merge(accounts::avatar_routes().with_state(accounts::Avatars::new(
+            database.clone(),
+            files.clone(),
+            workers.clone(),
+        )))
+        .merge(files::routes().with_state(files));
     // end part: files
     Ok(Services {
         routes,
@@ -304,6 +310,7 @@ pub fn openapi(service: Service) -> OpenApi {
         invitations::routes().openapi(service),
         // end part: invitations
         // part: files
+        accounts::avatar_routes().openapi(service),
         files::routes().openapi(service),
         // end part: files
     ])

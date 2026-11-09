@@ -3,6 +3,7 @@
 //! the caller (DATA-16). The reads of public files by their ID alone are in `public.rs`, and the
 //! periodic jobs that span every workspace and user keep theirs in `jobs.rs`.
 
+pub(super) mod avatar;
 pub(super) mod public;
 pub(super) mod user;
 

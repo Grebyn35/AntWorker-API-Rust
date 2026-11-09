@@ -54,7 +54,24 @@ COMMENT ON COLUMN user_files.name IS 'personal_data';
 
 REVOKE UPDATE ON user_files FROM app;
 
--- The objects in the bucket that no file's row names, each with when its bytes may go
+-- Each user's avatar, at most one (D120): an image as user_files holds a file, with no name, and
+-- public. Setting a new one deletes the old row and inserts a new one, whose ID names its bytes,
+-- so rows are never updated. Deleting the user deletes their avatar's row.
+CREATE TABLE avatars (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    user_id uuid NOT NULL,
+    media_type text NOT NULL,
+    size_bytes bigint NOT NULL,
+    object_key text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT avatars_user_id_key UNIQUE (user_id),
+    CONSTRAINT avatars_object_key_key UNIQUE (object_key),
+    CONSTRAINT avatars_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+
+REVOKE UPDATE ON avatars FROM app;
+
+-- The objects in the bucket that no row names, each with when its bytes may go
 -- (FILES-011). A row is inserted, read and deleted, never updated.
 CREATE TABLE object_deletions (
     id uuid PRIMARY KEY DEFAULT uuidv7(),

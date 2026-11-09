@@ -37,6 +37,7 @@ impl From<AccountsError> for AuthError {
     fn from(error: AccountsError) -> Self {
         match error {
             AccountsError::Internal(error) => Self::Internal(error),
+            other => Self::Internal(Internal::new(other)),
         }
     }
 }

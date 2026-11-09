@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use platform::types::{EmailAddress, Invalid, UserId, one_line};
+use platform::types::{EmailAddress, Invalid, UserId, Version, one_line};
 use serde::Serialize;
 use utoipa::{
     PartialSchema, ToSchema,
@@ -75,6 +75,27 @@ pub(crate) struct Profile {
     pub(crate) name: DisplayName,
     /// Whether the user proved they receive email at the address.
     pub(crate) email_verified: bool,
+    // part: files
+    /// The path of the public download of the user's avatar, or null when they have none
+    /// (ACCOUNTS-011).
+    pub(crate) avatar_url: Option<String>,
+    // end part: files
+}
+
+/// The caller's own record, with its version, which its `ETag` names (ACCOUNTS-001, API-13).
+#[derive(Clone, Debug)]
+pub(crate) struct Current {
+    /// The record.
+    pub(crate) profile: Profile,
+    /// Its version.
+    pub(crate) version: Version,
+}
+
+/// What renaming oneself sets (ACCOUNTS-007).
+#[derive(Clone, Debug)]
+pub(crate) struct Rename {
+    /// The new name.
+    pub(crate) name: DisplayName,
 }
 
 /// How a user appears to the other members of a workspace they share (ACCOUNTS-005).
@@ -86,6 +107,10 @@ pub(crate) struct PublicProfile {
     pub(crate) email: EmailAddress,
     /// The user's name.
     pub(crate) name: DisplayName,
+    // part: files
+    /// The path of the public download of the user's avatar, if they have one (ACCOUNTS-011).
+    pub(crate) avatar_url: Option<String>,
+    // end part: files
 }
 
 #[cfg(test)]

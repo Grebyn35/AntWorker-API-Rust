@@ -1,7 +1,8 @@
-//! The reads of public files, by their ID and their visibility alone, which DATA-16 exempts, and
-//! `check-tenancy` lets this file alone make: whoever holds a public file's ID may download it
-//! (FILES-023, the files spec's "Visibility"). Each reads what its download serves, and never
-//! the name, which a public download withholds (SEC-11).
+//! The reads of public files, by their ID and their visibility alone, and of avatars, by their ID,
+//! which DATA-16 exempts, and `check-tenancy` lets this file alone make: whoever holds a public
+//! file's ID, or an avatar's, may download it (FILES-023, FILES-024, the files spec's
+//! "Visibility"). Each reads what its download serves, and never a file's name, which a public
+//! download withholds (SEC-11).
 
 use platform::{db::UnitOfWork, errors::Internal};
 
@@ -37,6 +38,21 @@ pub(in crate::modules::files) async fn user_file(
     let row = sqlx::query!(
         "SELECT media_type, size_bytes, object_key FROM user_files
         WHERE id = $1 AND visibility = 'public'",
+        id,
+    )
+    .fetch_optional(uow.executor())
+    .await?;
+    row.map(|row| public(id, row.media_type, row.size_bytes, row.object_key))
+        .transpose()
+}
+
+/// The avatar `id`, if there is one: none for one that was replaced or removed.
+pub(in crate::modules::files) async fn avatar(
+    uow: &mut UnitOfWork,
+    id: uuid::Uuid,
+) -> Result<Option<Public>, Internal> {
+    let row = sqlx::query!(
+        "SELECT media_type, size_bytes, object_key FROM avatars WHERE id = $1",
         id,
     )
     .fetch_optional(uow.executor())

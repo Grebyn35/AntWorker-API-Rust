@@ -131,6 +131,11 @@ pub(crate) struct Member {
     pub(crate) role: Role,
     /// When they joined.
     pub(crate) joined_at: Timestamp,
+    // part: files
+    /// The path of the public download of their avatar, or null when they have none
+    /// (WORKSPACES-010).
+    pub(crate) avatar_url: Option<String>,
+    // end part: files
 }
 
 #[cfg(test)]

@@ -1,6 +1,8 @@
 //! Who a user is, and how they appear to others ([spec](../../../../../docs/spec/accounts.md)).
 
+mod audit;
 mod error;
+mod events;
 mod model;
 mod repo;
 mod routes;
@@ -9,6 +11,10 @@ mod service;
 pub(crate) use error::AccountsError;
 pub(crate) use model::{DisplayName, PublicProfile};
 pub(crate) use routes::routes;
+// part: files
+pub(crate) use routes::avatar_routes;
+pub(crate) use service::avatar::Avatars;
+// end part: files
 // part: invitations
 pub(crate) use service::profile;
 // end part: invitations

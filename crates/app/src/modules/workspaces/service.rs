@@ -241,6 +241,9 @@ pub(crate) async fn members(
                 email: profile.email,
                 role: membership.role,
                 joined_at: membership.joined_at,
+                // part: files
+                avatar_url: profile.avatar_url,
+                // end part: files
             })
         })
         .collect();

@@ -24,6 +24,8 @@ parts:
   - name: files
     module: files
     paths:
+      - crates/app/src/modules/accounts/routes/avatar.rs
+      - crates/app/src/modules/accounts/service/avatar.rs
       - crates/app/src/modules/files
       - crates/app/tests/e2e/files.rs
       - crates/app/tests/integration/files
@@ -44,6 +46,9 @@ parts:
       - deploy/scanner
       - docs/spec/files.md
     words:
+      - avatar_
+      - avatar.
+      - /avatar
       - clam
       - eicar
       - malware

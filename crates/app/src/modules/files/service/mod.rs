@@ -2,6 +2,7 @@
 //! workspace's files and a user's own share, here, and each one's operations, in `workspace.rs`
 //! and `user.rs`, with the public downloads' reads in `public.rs`.
 
+pub(super) mod avatar;
 pub(super) mod public;
 pub(super) mod user;
 pub(super) mod workspace;
@@ -192,35 +193,66 @@ where
         counted.end(Upload::UnsupportedType);
         return Err(FilesError::UnsupportedType);
     };
+    store(
+        files,
+        counted,
+        prefix,
+        kind,
+        bytes,
+        async move |size_bytes, object_key| {
+            record(Written {
+                name,
+                kind,
+                size_bytes,
+                object_key,
+            })
+            .await
+        },
+    )
+    .await
+}
+
+/// Has the scanner scan `bytes`, of `kind`, writes them under `prefix`, outside any transaction,
+/// then has `record` record them, with their size and their object's key, and counts the upload
+/// that `counted` started by how it ended: stored once `record` succeeds (FILES-005, FILES-013,
+/// DATA-21). An upload of an avatar shares it with a file's (the files spec's "Avatars").
+pub(super) async fn store<T, E, R>(
+    files: &Files,
+    counted: metrics::Counted,
+    prefix: &str,
+    kind: Kind,
+    bytes: Bytes,
+    record: impl FnOnce(u64, ObjectKey) -> R,
+) -> Result<T, E>
+where
+    R: Future<Output = Result<T, E>>,
+    E: From<FilesError>,
+{
     match files.scanner.scan(&bytes).await {
         Ok(Verdict::Clean) => {}
         Ok(Verdict::Found(_)) => {
             counted.end(Upload::MalwareDetected);
-            return Err(FilesError::MalwareDetected);
+            return Err(FilesError::MalwareDetected.into());
         }
         Err(error) => {
             counted.end(Upload::Failed);
             return Err(match error {
                 ScanError::Unavailable(cause) => FilesError::ScannerUnavailable(Some(cause)),
                 ScanError::Failed(cause) => FilesError::Internal(cause),
-            });
+            }
+            .into());
         }
     }
     let stored = async {
-        let size_bytes = u64::try_from(bytes.len()).map_err(Internal::new)?;
-        let object_key = ObjectKey::random(prefix)?;
+        let size_bytes =
+            u64::try_from(bytes.len()).map_err(|error| FilesError::from(Internal::new(error)))?;
+        let object_key = ObjectKey::random(prefix).map_err(FilesError::from)?;
         files
             .storage
             .put(&object_key, bytes, kind.media_type())
             .await
             .map_err(unavailable)?;
-        record(Written {
-            name,
-            kind,
-            size_bytes,
-            object_key,
-        })
-        .await
+        record(size_bytes, object_key).await
     }
     .await;
     counted.end(if stored.is_ok() {

@@ -3,12 +3,11 @@
 use platform::{
     db::UnitOfWork,
     errors::Internal,
-    types::{EmailAddress, UserId},
+    lists::Search,
+    types::{EmailAddress, UserId, Version},
 };
 
-use platform::lists::Search;
-
-use super::model::{DisplayName, Profile, PublicProfile};
+use super::model::{Current, DisplayName, Profile, PublicProfile};
 
 /// Inserts a user, or `None` when another user has the email: the unique constraint
 /// `users_email_key` refuses the row, without aborting the unit of work (ACCOUNTS-004, ERR-05).
@@ -40,21 +39,64 @@ pub(super) async fn find_by_email(
     Ok(id.map(UserId::from_uuid))
 }
 
-/// The record of the user `id`, filtered by the acting user's own ID (DATA-16).
-pub(super) async fn profile(uow: &mut UnitOfWork, id: UserId) -> Result<Option<Profile>, Internal> {
+/// The record of the user `id`, with its version, filtered by the acting user's own ID
+/// (DATA-16).
+pub(super) async fn profile(uow: &mut UnitOfWork, id: UserId) -> Result<Option<Current>, Internal> {
     let row = sqlx::query!(
-        "SELECT id, email, name, email_verified FROM users WHERE id = $1",
+        "SELECT id, email, name, email_verified, version FROM users WHERE id = $1",
         id.uuid(),
     )
     .fetch_optional(uow.executor())
     .await?;
-    Ok(row.map(|row| Profile {
-        id: UserId::from_uuid(row.id),
-        email: EmailAddress::from_stored(row.email),
-        name: DisplayName::from_stored(row.name),
-        email_verified: row.email_verified,
+    Ok(row.map(|row| Current {
+        profile: Profile {
+            id: UserId::from_uuid(row.id),
+            email: EmailAddress::from_stored(row.email),
+            name: DisplayName::from_stored(row.name),
+            email_verified: row.email_verified,
+            // part: files
+            avatar_url: None,
+            // end part: files
+        },
+        version: Version::from_database(row.version),
     }))
 }
+
+/// Renames the user `id`, when its version is one of `versions`, or whatever it is when there
+/// are none, and returns whether it did (API-13, DATA-18).
+pub(super) async fn rename(
+    uow: &mut UnitOfWork,
+    id: UserId,
+    name: &DisplayName,
+    versions: Option<&[Version]>,
+) -> Result<bool, Internal> {
+    let versions: Option<Vec<i64>> =
+        versions.map(|versions| versions.iter().map(|version| version.value()).collect());
+    let renamed = sqlx::query!(
+        "UPDATE users SET name = $2 WHERE id = $1 AND ($3::bigint[] IS NULL OR version = ANY($3))",
+        id.uuid(),
+        name.as_str(),
+        versions.as_deref(),
+    )
+    .execute(uow.executor())
+    .await?;
+    Ok(renamed.rows_affected() > 0)
+}
+
+// part: files
+/// Moves the version of the user `id`, which locks their row until the unit of work ends, so
+/// two changes of their avatar take turns (DATA-20, the accounts spec's "Avatars").
+pub(super) async fn touch(uow: &mut UnitOfWork, id: UserId) -> Result<(), Internal> {
+    // The row's trigger moves its version and its update time (DATA-02).
+    sqlx::query!(
+        "UPDATE users SET version = version WHERE id = $1",
+        id.uuid()
+    )
+    .execute(uow.executor())
+    .await?;
+    Ok(())
+}
+// end part: files
 
 /// The names and emails of `ids`, which came from a query filtered by tenant (DATA-16).
 pub(super) async fn profiles(
@@ -71,6 +113,9 @@ pub(super) async fn profiles(
             id: UserId::from_uuid(row.id),
             email: EmailAddress::from_stored(row.email),
             name: DisplayName::from_stored(row.name),
+            // part: files
+            avatar_url: None,
+            // end part: files
         })
         .collect())
 }

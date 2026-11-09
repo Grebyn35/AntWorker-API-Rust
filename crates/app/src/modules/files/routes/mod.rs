@@ -1,5 +1,5 @@
 //! The routes of `files` (the files spec's Routes): a workspace's files, in `workspace.rs`, a
-//! user's own, in `user.rs`, and the public downloads, in `public.rs`, with what they share: the
+//! user's own, in `user.rs`, and the public downloads, of files and avatars, in `public.rs`, with what they share: the
 //! query of an upload and of a list, and the documented responses of a download.
 
 mod public;
@@ -155,42 +155,73 @@ pub(super) fn response(downloaded: Downloaded) -> Download<ObjectBytes> {
     }
 }
 
-/// The 200 of every download: the file's bytes, as the media type of one of the accepted kinds,
+/// The 200 of every download of a file: its bytes, as the media type of one of the accepted kinds,
 /// which the table of kinds lists (FILES-009, FILES-023). Each download's builder adds what a
 /// range and a revalidation answer (PLATFORM-081).
 pub(super) struct DownloadResponses;
 
 impl utoipa::IntoResponses for DownloadResponses {
     fn responses() -> BTreeMap<String, RefOr<Response>> {
-        let mut response =
-            ResponseBuilder::new().description("The file's bytes, as its media type.");
-        let mut documented = Vec::new();
-        for kind in Kind::every() {
-            // A kind's stored type with its parameters, such as `text/plain; charset=utf-8`, is
-            // documented as its essence, `text/plain`.
-            let essence = kind.media_type().split(';').next().unwrap_or_default();
-            if !documented.contains(&essence) {
-                documented.push(essence);
-                response = response.content(essence, Content::new(Some(FileBytes::schema())));
-            }
-        }
-        let text = || ObjectBuilder::new().schema_type(Type::String);
-        let response = response
-            .header(
-                "content-disposition",
-                HeaderBuilder::new().schema(Some(text())).description(Some(
-                    "`inline` for an image and `attachment` for every other kind, with the file's name, or, on a public download, its ID and its kind's extension (FILES-009, FILES-023).",
-                )).build(),
-            )
-            .header(
-                "content-security-policy",
-                HeaderBuilder::new().schema(Some(text())).description(Some(
-                    "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
-                )).build(),
-            )
-            .build();
-        BTreeMap::from([("200".to_owned(), RefOr::T(response))])
+        ok(
+            Kind::every().iter().copied(),
+            "The file's bytes, as its media type.",
+            "`inline` for an image and `attachment` for every other kind, with the file's name, or, on a public download, its ID and its kind's extension (FILES-009, FILES-023).",
+        )
     }
+}
+
+/// The 200 of an avatar's download: its bytes, as the media type of one of the image kinds
+/// (FILES-024).
+pub(super) struct ImageResponses;
+
+impl utoipa::IntoResponses for ImageResponses {
+    fn responses() -> BTreeMap<String, RefOr<Response>> {
+        ok(
+            Kind::images(),
+            "The avatar's bytes, as its media type.",
+            "`inline`, with the avatar's ID and its kind's extension (FILES-024).",
+        )
+    }
+}
+
+/// The 200 of a download whose bytes are of one of `kinds`, described by `description`, with the
+/// `Content-Disposition` that `disposition` describes.
+fn ok(
+    kinds: impl Iterator<Item = Kind>,
+    description: &str,
+    disposition: &str,
+) -> BTreeMap<String, RefOr<Response>> {
+    let mut response = ResponseBuilder::new().description(description);
+    let mut documented = Vec::new();
+    for kind in kinds {
+        // A kind's stored type with its parameters, such as `text/plain; charset=utf-8`, is
+        // documented as its essence, `text/plain`.
+        let essence = kind.media_type().split(';').next().unwrap_or_default();
+        if !documented.contains(&essence) {
+            documented.push(essence);
+            response = response.content(essence, Content::new(Some(FileBytes::schema())));
+        }
+    }
+    let text = || ObjectBuilder::new().schema_type(Type::String);
+    let response = response
+        .header(
+            "content-disposition",
+            HeaderBuilder::new()
+                .schema(Some(text()))
+                .description(Some(disposition))
+                .build(),
+        )
+        .header(
+            "content-security-policy",
+            HeaderBuilder::new()
+                .schema(Some(text()))
+                .description(Some(
+                    "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                ))
+                .build(),
+        )
+        .build();
+    BTreeMap::from([("200".to_owned(), RefOr::T(response))])
 }
 
 #[cfg(test)]
@@ -198,6 +229,31 @@ mod tests {
     use platform::telemetry::Service;
 
     use super::*;
+
+    #[test]
+    fn files_024_an_avatar_s_download_documents_the_media_type_of_every_image_kind() {
+        let document = routes().openapi(Service {
+            name: "api",
+            version: "0.0.0",
+        });
+        let document = serde_json::to_value(&document).unwrap();
+        let path = "/v1/public/avatars/{avatar_id}";
+        for status in ["200", "206"] {
+            let content = &document["paths"][path]["get"]["responses"][status]["content"];
+            let mut documented: Vec<&str> = content
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect();
+            documented.sort_unstable();
+            assert_eq!(
+                documented,
+                ["image/gif", "image/jpeg", "image/png", "image/webp"],
+                "{status}"
+            );
+        }
+    }
 
     #[test]
     fn files_009_every_download_documents_the_media_type_of_every_kind() {

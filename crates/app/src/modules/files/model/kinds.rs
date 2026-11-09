@@ -96,6 +96,22 @@ impl Kind {
             .copied()
     }
 
+    /// The image kind whose check `bytes` pass, if any: an avatar's, which comes with no name
+    /// (the files spec's "Avatars", D121). Only images are shown in place, and each image kind's
+    /// check is the signature its bytes start with, which no two of them share.
+    pub(crate) fn image_of(bytes: &[u8]) -> Option<Self> {
+        KINDS
+            .iter()
+            .filter(|kind| kind.inline)
+            .find(|kind| kind.holds(bytes))
+            .copied()
+    }
+
+    /// The image kinds, whose media types an avatar's download documents.
+    pub(crate) fn images() -> impl Iterator<Item = Self> {
+        KINDS.iter().filter(|kind| kind.inline).copied()
+    }
+
     /// The kind whose media type is `media_type`, as a row stores it, if any.
     pub(crate) fn of_media_type(media_type: &str) -> Option<Self> {
         KINDS
