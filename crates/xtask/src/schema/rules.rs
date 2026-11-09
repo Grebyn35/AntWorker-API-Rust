@@ -317,16 +317,21 @@ fn subsequences(columns: &[&str]) -> Vec<String> {
     found
 }
 
-/// DATA-05: each foreign key has an explicit `ON DELETE` of `CASCADE` or `RESTRICT`, and an
-/// index whose leading columns are its own.
+/// DATA-05: each foreign key has an explicit `ON DELETE` of `CASCADE` or `RESTRICT`, or of
+/// `SET NULL` when it references `users`, and an index whose leading columns are its own.
 fn foreign_keys(catalog: &Value) -> Vec<Problem> {
     let mut problems = Vec::new();
     for constraint in list(catalog, "constraints").filter(|c| c["type"] == "f") {
         let (name, table) = (text(constraint, "name"), text(constraint, "table"));
-        if !matches!(text(constraint, "on_delete"), "c" | "r") {
+        let on_delete = text(constraint, "on_delete");
+        let set_null = on_delete == "n" && constraint["references"] == "users";
+        if !matches!(on_delete, "c" | "r") && !set_null {
             problems.push((
                 name.to_owned(),
-                format!("the foreign key {name} has no ON DELETE CASCADE or RESTRICT (DATA-05)"),
+                format!(
+                    "the foreign key {name} has no ON DELETE CASCADE or RESTRICT, nor SET NULL \
+                     of a reference to users (DATA-05)"
+                ),
             ));
         }
         let columns: BTreeSet<&str> = strings(constraint, "columns").into_iter().collect();
@@ -391,7 +396,7 @@ mod tests {
                 { "name": "user_roles_pkey", "table": "user_roles", "type": "p", "columns": ["user_id", "role"], "on_delete": " " },
                 { "name": "rate_limit_buckets_pkey", "table": "rate_limit_buckets", "type": "p", "columns": ["id"], "on_delete": " " },
                 { "name": "audit_entries_pkey", "table": "audit_entries", "type": "p", "columns": ["id"], "on_delete": " " },
-                { "name": "audit_entries_user_id_fkey", "table": "audit_entries", "type": "f", "columns": ["user_id"], "on_delete": "c" },
+                { "name": "audit_entries_user_id_fkey", "table": "audit_entries", "type": "f", "columns": ["user_id"], "on_delete": "c", "references": "users" },
                 { "name": "audit_entries_scope_check", "table": "audit_entries", "type": "c", "columns": ["scope", "user_id"], "on_delete": " " },
                 { "name": "users_email_not_null", "table": "users", "type": "n", "columns": ["email"], "on_delete": " " },
             ],
@@ -547,8 +552,22 @@ mod tests {
         assert_eq!(
             messages(&catalog),
             [
-                "the foreign key audit_entries_user_id_fkey has no ON DELETE CASCADE or RESTRICT (DATA-05)",
+                "the foreign key audit_entries_user_id_fkey has no ON DELETE CASCADE or RESTRICT, nor SET NULL of a reference to users (DATA-05)",
                 "the foreign key audit_entries_user_id_fkey has no index whose leading columns are its own (DATA-05)",
+            ]
+        );
+    }
+
+    #[test]
+    fn data_05_only_a_reference_to_users_sets_null() {
+        let mut catalog = catalog();
+        catalog["constraints"][4]["on_delete"] = json!("n");
+        assert!(messages(&catalog).is_empty());
+        catalog["constraints"][4]["references"] = json!("workspaces");
+        assert_eq!(
+            messages(&catalog),
+            [
+                "the foreign key audit_entries_user_id_fkey has no ON DELETE CASCADE or RESTRICT, nor SET NULL of a reference to users (DATA-05)"
             ]
         );
     }

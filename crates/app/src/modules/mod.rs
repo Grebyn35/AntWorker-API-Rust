@@ -13,3 +13,6 @@ pub(crate) mod invitations;
 pub(crate) mod realtime;
 pub(crate) mod system;
 pub(crate) mod workspaces;
+
+/// The product's name, which the emails carry, and `just rename` rewrites (ARCH-15).
+pub(crate) const PRODUCT: &str = "AntWorker";

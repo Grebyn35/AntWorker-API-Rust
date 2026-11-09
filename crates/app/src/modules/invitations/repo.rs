@@ -83,7 +83,7 @@ pub(super) async fn pending(
             Ok(Pending {
                 id: row.id,
                 workspace_id: WorkspaceId::from_uuid(row.workspace_id),
-                inviter_id: UserId::from_uuid(row.inviter_id),
+                inviter_id: row.inviter_id.map(UserId::from_uuid),
                 role: Role::from_name(&row.role)?,
                 created_at: Timestamp::from_database(row.created_at),
                 expires_at: Timestamp::from_database(row.expires_at),

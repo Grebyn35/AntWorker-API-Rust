@@ -1,5 +1,7 @@
 //! The user record (the accounts spec).
 
+mod deletion;
+
 use serde_json::json;
 
 use crate::support::{

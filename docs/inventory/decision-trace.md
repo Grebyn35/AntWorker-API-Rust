@@ -20,7 +20,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D8 | Constraint violations map to 4xx | ERR-05: each constraint a repository relies on maps to a domain outcome; an unexpected violation is `Internal` |
 | D8, D10, D11 | Every response is a problem with a trace ID; the SDK samples every trace; an IP limit applies to every route | API-07, API-16, OBS-08, OBS-15, SEC-13 and OPS-05 exempt the health probes |
 | D10 | Every log line carries the trace and span IDs | OBS-02: a line written inside a span carries them |
-| D31 | Export excludes other members' data and whole-workspace content | The `accounts` spec's "Export and erasure": the content of every workspace whose only member is the user is exported, the same workspaces that erasure deletes (D40) |
+| D31 | Export excludes other members' data and whole-workspace content | The `accounts` spec's "Export": the content of every workspace whose only member is the user is exported, the same workspaces that a deletion deletes (D40) |
 | D29 | OAuth providers and the client telemetry module are removable; the core modules are not | ARCH-07 also makes removable each part that gives a product its workspace shape, the `invitations` module among them (D39), and the `files` module, with the avatars and workspace pictures (D117) |
 | D22 | A Cargo workspace with two crates | ARCH-01: the API has two crates, and a third, `xtask`, holds the custom CI checks |
 | D22 | The service holds the transaction boundary | The platform spec's unit of work: the route opens it and the service commits it |
@@ -63,6 +63,6 @@ Modules carry their own; the build order step of each other area is in parenthes
 | `access` | the permission that reveals IP addresses in audit entries; the ADR on custom roles (D2) |
 | `audit` | reads filtered by permission (D2); the target filterable and visible to that user; bounded retention (D6) |
 | `auth` | the ADR on accepted enumeration (D7); forgot-password answers 503 with email off (D9); with email on, an account proves its address before anything else, and with email off nothing asks for it (D67); the OAuth redirect allowlist (D18); password reset that sets the first password of an account created without one, and verifies its address (the `workspaces` spec's setup subcommand, D39); with the key that encrypts provider tokens (SEC-02), a backup of that key kept apart from the database's (D30) |
-| `accounts` | deletion refused while the user owns a shared workspace, sole-member workspaces deleted with the account, and the ADR on immediate deletion (D16); the export endpoint, one per 24 hours, its archive, notice and download, and the optional erasure precondition (D31) |
+| `accounts` | the ADR on immediate deletion (D16); the export endpoint, one per 24 hours, its archive, notice and download (D31) |
 | Template (6) | a GitHub template repository (D29); the ADR on hard deletes (D24) |
 | Security (6) | the ASVS Level 2 conformance pass (D26) |

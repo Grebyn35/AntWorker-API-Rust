@@ -18,6 +18,7 @@ pub mod jobs;
 pub mod lifecycle;
 pub mod lists;
 pub mod mail;
+pub mod personal_data;
 pub mod random;
 pub mod rate_limit;
 // part: files

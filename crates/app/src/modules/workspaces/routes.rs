@@ -23,7 +23,7 @@ use utoipa_axum::routes;
 
 use super::{
     error::WorkspacesError,
-    events::{MEMBER_REMOVED, MEMBERSHIP_CREATED, WORKSPACE_RENAMED},
+    events::{MEMBER_LEFT, MEMBER_REMOVED, MEMBERSHIP_CREATED, WORKSPACE_RENAMED},
     model::{Member, NewWorkspace, Rename, Workspace, WorkspaceItem, WorkspaceName},
     service,
 };
@@ -32,7 +32,12 @@ use crate::modules::access::{MembersRead, MembersRemove, Role, WorkspaceRead, Wo
 /// The module's routes, which take the database as their state, and the events they publish.
 pub(crate) fn routes() -> Routes<Database> {
     Routes::new()
-        .events(&[&MEMBERSHIP_CREATED, &WORKSPACE_RENAMED, &MEMBER_REMOVED])
+        .events(&[
+            &MEMBERSHIP_CREATED,
+            &WORKSPACE_RENAMED,
+            &MEMBER_REMOVED,
+            &MEMBER_LEFT,
+        ])
         .user(routes!(create, list), &[])
         .workspace::<WorkspaceRead>(routes!(read), &[])
         .workspace::<WorkspaceUpdate>(routes!(rename), &[])

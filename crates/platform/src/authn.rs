@@ -85,6 +85,25 @@ impl Principal {
         }
     }
 
+    /// The scope of a job that the deletion of this caller's account enqueues once it has erased
+    /// their data, such as the email that tells their address: no one's, since the user is gone,
+    /// so no job names them (DATA-23, ACCOUNTS-015). Only the personal data contract of
+    /// `accounts` calls it; clippy bans it elsewhere.
+    pub fn erased_job_scope(&self) -> JobScope {
+        JobScope::proven(None, None)
+    }
+
+    /// The scope of the entry that records this caller leaving `workspace` as their account is
+    /// deleted: the workspace's log, with them as the actor, whom deleting their row then sets to
+    /// null (ACCOUNTS-014, AUDIT-006). Only the personal data contract of `workspaces` calls it;
+    /// clippy bans it elsewhere.
+    pub fn leaver_scope(&self, workspace: WorkspaceId) -> AuditScope {
+        AuditScope {
+            log: Log::Workspace(workspace),
+            actor: Some(self.user_id),
+        }
+    }
+
     // part: invitations
     /// The scope of the entry that records this caller joining `workspace` by accepting an
     /// invitation addressed to them: the workspace's log, with them as the actor, before any

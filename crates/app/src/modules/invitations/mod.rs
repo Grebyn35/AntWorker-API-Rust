@@ -7,10 +7,12 @@ mod error;
 mod events;
 mod jobs;
 mod model;
+mod personal_data;
 mod repo;
 mod routes;
 mod service;
 
 pub(crate) use model::Settings;
+pub(crate) use personal_data::Contract;
 pub(crate) use routes::routes;
 pub(crate) use service::Invitations;

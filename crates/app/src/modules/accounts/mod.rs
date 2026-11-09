@@ -1,9 +1,11 @@
 //! Who a user is, and how they appear to others ([spec](../../../../../docs/spec/accounts.md)).
 
 mod audit;
+mod emails;
 mod error;
 mod events;
 mod model;
+mod personal_data;
 mod repo;
 mod routes;
 mod service;
@@ -18,4 +20,5 @@ pub(crate) use service::avatar::Avatars;
 // part: invitations
 pub(crate) use service::profile;
 // end part: invitations
+pub(crate) use service::deletion::{Deletion, Outcome as DeletionOutcome, columns};
 pub(crate) use service::{Creation, create, find_by_email, matching, profiles};

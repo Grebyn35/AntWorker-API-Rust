@@ -28,6 +28,15 @@ pub(super) async fn insert(
     ))
 }
 
+/// Deletes the workspace `id`, one whose only member is the user whose account the unit of work
+/// deletes, and everything in it, through the foreign keys that name it (ACCOUNTS-013).
+pub(super) async fn delete(uow: &mut UnitOfWork, id: WorkspaceId) -> Result<(), Internal> {
+    sqlx::query!("DELETE FROM workspaces WHERE id = $1", id.uuid())
+        .execute(uow.executor())
+        .await?;
+    Ok(())
+}
+
 /// The name, the creation time and the version of the workspace `id`, the one a proof names.
 pub(super) async fn read(
     uow: &mut UnitOfWork,

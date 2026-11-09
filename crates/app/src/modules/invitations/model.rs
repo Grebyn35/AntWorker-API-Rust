@@ -57,8 +57,9 @@ pub(crate) struct ReceivedInvitation {
     pub(crate) workspace_id: WorkspaceId,
     /// The workspace's name.
     pub(crate) workspace_name: WorkspaceName,
-    /// The name of the member who invited.
-    pub(crate) inviter_name: DisplayName,
+    /// The name of the member who invited, or null once their account is deleted
+    /// (ACCOUNTS-014).
+    pub(crate) inviter_name: Option<DisplayName>,
     /// The role it offers.
     pub(crate) role: Role,
     /// When it expires.
@@ -79,7 +80,8 @@ pub(crate) struct Accepted {
 pub(super) struct Pending {
     pub(super) id: uuid::Uuid,
     pub(super) workspace_id: WorkspaceId,
-    pub(super) inviter_id: UserId,
+    /// `None` once the inviter's account is deleted (ACCOUNTS-014).
+    pub(super) inviter_id: Option<UserId>,
     pub(super) role: Role,
     pub(super) created_at: Timestamp,
     pub(super) expires_at: Timestamp,

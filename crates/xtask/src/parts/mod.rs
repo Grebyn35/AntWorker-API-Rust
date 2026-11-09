@@ -16,7 +16,7 @@ use std::{path::Path, process::ExitCode};
 use serde_json::Value;
 
 use crate::{
-    Finding,
+    Finding, catalog,
     copy::{self, Copy},
     markdown, metrics, migrations,
     repo::{self, Repo},
@@ -169,7 +169,8 @@ fn numbered(text: &str) -> Vec<(usize, &str)> {
 
 /// Removes the parts named `names` from the repository (ARCH-07): it deletes the files they own
 /// whole and the lines their markers mark, writing "None." in each section of a spec that it
-/// empties, then the cached queries that no kept code holds, updates `Cargo.lock`, writes
+/// empties, and retiring the number of each behavior it deletes from a spec, then the cached
+/// queries that no kept code holds, updates `Cargo.lock`, writes
 /// `openapi.json` and the metric catalog again, formats the code, and fails while a file it kept,
 /// or the path of one, still names one of them.
 pub fn remove(names: &[String]) -> ExitCode {
@@ -237,8 +238,8 @@ pub fn remove(names: &[String]) -> ExitCode {
 }
 
 /// Deletes the files that the parts `removed` own whole, and the lines their markers mark in every
-/// other file, writing "None." in each section of a spec that it empties; returns how many files
-/// it deleted and edited.
+/// other file, writing "None." in each section of a spec that it empties, and retiring the numbers
+/// of the behaviors it deletes from one; returns how many files it deleted and edited.
 fn delete(repo: &Repo, removed: &[&Part], known: &[&str]) -> Result<(usize, usize), String> {
     let removing: Vec<&str> = removed.iter().map(|part| part.name.as_str()).collect();
     let deleted: Vec<String> = removed.iter().flat_map(|part| owned(repo, part)).collect();
@@ -251,7 +252,7 @@ fn delete(repo: &Repo, removed: &[&Part], known: &[&str]) -> Result<(usize, usiz
             .map_err(|(line, message)| format!("{}:{line}: {message}", file.path))?;
         if let Some(text) = stripped {
             let text = if is_spec(&file.path) {
-                none_in_empty_sections(&text)
+                none_in_empty_sections(&retire_removed(&file.text, &text))
             } else {
                 text
             };
@@ -261,6 +262,80 @@ fn delete(repo: &Repo, removed: &[&Part], known: &[&str]) -> Result<(usize, usiz
         }
     }
     Ok((deleted.len(), edited))
+}
+
+/// `kept`, a spec that a removal stripped from `original`, with the number of each behavior that
+/// it deleted retired, in the line of retired IDs at the top of its Behaviors, so no behavior the
+/// fork adds takes it (DOC-08).
+fn retire_removed(original: &str, kept: &str) -> String {
+    let left = behavior_numbers(kept);
+    let mut removed: Vec<u32> = behavior_numbers(original)
+        .into_iter()
+        .filter(|number| !left.contains(number))
+        .collect();
+    if removed.is_empty() {
+        return kept.to_owned();
+    }
+    let mut lines: Vec<String> = kept.lines().map(str::to_owned).collect();
+    let Some(heading) = lines.iter().position(|line| line == "## Behaviors") else {
+        return kept.to_owned();
+    };
+    let existing = lines
+        .iter()
+        .enumerate()
+        .skip(heading + 1)
+        .take_while(|(_, line)| !line.starts_with("## "))
+        .find_map(|(index, line)| catalog::retired_numbers(line).map(|numbers| (index, numbers)));
+    if let Some((_, numbers)) = &existing {
+        removed.extend(numbers);
+    }
+    removed.sort_unstable();
+    removed.dedup();
+    let line = retired_line(&removed);
+    match existing {
+        Some((index, _)) => lines[index] = line,
+        None => {
+            lines.insert(heading + 1, String::new());
+            lines.insert(heading + 2, line);
+            // One blank line between the new line and what follows it.
+            while lines.get(heading + 3).is_some_and(String::is_empty)
+                && lines.get(heading + 4).is_some_and(String::is_empty)
+            {
+                lines.remove(heading + 4);
+            }
+        }
+    }
+    let mut text = lines.join("\n");
+    text.push('\n');
+    text
+}
+
+/// The numbers of the behaviors of a spec's table: the three digits of each row's ID.
+fn behavior_numbers(text: &str) -> Vec<u32> {
+    text.lines()
+        .filter_map(|line| line.strip_prefix("| "))
+        .filter_map(|row| row.split_once(" |").map(|(id, _)| id))
+        .filter_map(|id| id.rsplit_once('-'))
+        .filter(|(prefix, digits)| {
+            !prefix.is_empty()
+                && prefix.chars().all(|c| c.is_ascii_uppercase() || c == '_')
+                && digits.len() == 3
+        })
+        .filter_map(|(_, digits)| digits.parse().ok())
+        .collect()
+}
+
+/// The line that retires `numbers`, such as `IDs 008 and 011 are retired.` (DOC-08).
+fn retired_line(numbers: &[u32]) -> String {
+    let listed: Vec<String> = numbers
+        .iter()
+        .map(|number| format!("{number:03}"))
+        .collect();
+    match listed.as_slice() {
+        [one] => format!("ID {one} is retired."),
+        [rest @ .., last] => format!("IDs {} and {last} are retired.", rest.join(", ")),
+        [] => String::new(),
+    }
 }
 
 /// Whether the file at `path` is a module's spec, rather than the specs' README.
@@ -435,6 +510,36 @@ mod tests {
             ],
             words: vec!["offer".to_owned()],
         }
+    }
+
+    #[test]
+    fn arch_07_a_removal_retires_the_numbers_of_the_behaviors_it_deletes() {
+        let original = "# Spec\n\n## Behaviors\n\n| ID | Behavior |\n|---|---|\n\
+                        | OFFERS-001 | One |\n| OFFERS-002 | Two |\n| OFFERS-003 | Three |\n\n## Design\n";
+        let kept = "# Spec\n\n## Behaviors\n\n| ID | Behavior |\n|---|---|\n\
+                    | OFFERS-001 | One |\n| OFFERS-003 | Three |\n\n## Design\n";
+        assert_eq!(
+            retire_removed(original, kept),
+            "# Spec\n\n## Behaviors\n\nID 002 is retired.\n\n| ID | Behavior |\n|---|---|\n\
+             | OFFERS-001 | One |\n| OFFERS-003 | Three |\n\n## Design\n"
+        );
+        let retired = "# Spec\n\n## Behaviors\n\nID 004 is retired.\n\n| ID | Behavior |\n\
+                       |---|---|\n| OFFERS-001 | One |\n| OFFERS-002 | Two |\n| OFFERS-005 | Five |\n";
+        let kept = "# Spec\n\n## Behaviors\n\nID 004 is retired.\n\n| ID | Behavior |\n\
+                    |---|---|\n| OFFERS-005 | Five |\n";
+        assert_eq!(
+            retire_removed(retired, kept),
+            "# Spec\n\n## Behaviors\n\nIDs 001, 002 and 004 are retired.\n\n| ID | Behavior |\n\
+             |---|---|\n| OFFERS-005 | Five |\n"
+        );
+        assert_eq!(retire_removed(kept, kept), kept);
+        // A block that the removal deleted leaves no second blank line.
+        let original = "## Behaviors\n\n| ID | Behavior |\n|---|---|\n| OFFERS-001 | One |\n";
+        let kept = "## Behaviors\n\n\n### Area\n";
+        assert_eq!(
+            retire_removed(original, kept),
+            "## Behaviors\n\nID 001 is retired.\n\n### Area\n"
+        );
     }
 
     #[test]

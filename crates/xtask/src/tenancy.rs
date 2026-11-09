@@ -32,6 +32,8 @@ const ACCOUNT_DATA: &[&str] = &[
     "identities",
     "sessions",
     "device_tokens",
+    // The client of an audit entry, keyed by the user whose deletion deletes it (AUDIT-006).
+    "audit_entry_clients",
     // part: files
     "user_files",
     "avatars",
@@ -378,11 +380,19 @@ pub fn sql_texts(tokens: &[TokenTree], found: &mut Vec<(String, usize)>) {
     }
 }
 
-/// Whether `sql` names one of `tenants`: among the columns an `INSERT` writes, or compared with
-/// `=` after its `WHERE`.
+/// Whether `sql` names one of `tenants`: among the columns an `INSERT` writes, the first statement
+/// of a `WITH` too, or compared with `=` after its `WHERE`.
 fn names_tenant(sql: &str, tenants: &[&str]) -> bool {
     let words = words(sql);
-    if words.first().is_some_and(|(word, _)| word == "insert") {
+    let insert = match words.first().map(|(word, _)| word.as_str()) {
+        Some("insert") => Some(sql),
+        Some("with") => words
+            .get(3)
+            .filter(|(word, _)| word == "insert")
+            .and_then(|_| sql.find("insert").map(|at| &sql[at..])),
+        _ => None,
+    };
+    if let Some(sql) = insert {
         let columns = sql.find('(').zip(sql.find(')'));
         return columns.is_some_and(|(open, close)| {
             open < close
@@ -467,6 +477,7 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
         let migrations = format!(
             "{MIGRATION}CREATE TABLE users (id uuid);\nCREATE TABLE identities (id uuid);\n\
              CREATE TABLE sessions (id uuid);\nCREATE TABLE device_tokens (id uuid);\n\
+             CREATE TABLE audit_entry_clients (id uuid);\n\
              CREATE TABLE rate_limit_buckets (id uuid);\n\
              CREATE TABLE idempotency_records (id uuid);\nCREATE TABLE workspaces (id uuid);\n\
              CREATE TABLE jobs (id uuid, workspace_id uuid, user_id uuid);\n\
@@ -504,6 +515,10 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
                 sqlx::query!("SELECT name FROM things WHERE workspace_id = $1", id);
                 sqlx::query_scalar!(r#"SELECT name FROM things WHERE user_id = $1"#, id);
                 sqlx::query!("INSERT INTO things (workspace_id, name) VALUES ($1, $2)", a, b);
+                sqlx::query!(
+                    "WITH thing AS (INSERT INTO things (user_id, name) VALUES ($1, $2) RETURNING id)
+                    SELECT id FROM thing", a, b
+                );
                 sqlx::query!("SELECT body FROM notes WHERE id = $1", id);
             }
         "##;

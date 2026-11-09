@@ -31,6 +31,22 @@ pub(super) async fn insert(
 }
 
 // part: invitations
+/// Locks the membership of `workspace`'s owner `FOR KEY SHARE`, so a member joins only while no
+/// deletion of the owner's account holds it (ACCESS-008).
+pub(super) async fn hold_owner(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+) -> Result<(), Internal> {
+    sqlx::query_scalar!(
+        "SELECT id FROM workspace_memberships WHERE workspace_id = $1 AND role = 'owner'
+        FOR KEY SHARE",
+        workspace.uuid(),
+    )
+    .fetch_optional(uow.executor())
+    .await?;
+    Ok(())
+}
+
 /// Adds `user` to `workspace` at `role`, and returns when they joined, or `None` when the unique
 /// constraint on the pair finds them a member already (ERR-05).
 pub(super) async fn insert_unless_member(
@@ -214,6 +230,64 @@ pub(super) async fn workspace_ids(
 ) -> Result<Vec<WorkspaceId>, Internal> {
     let ids = sqlx::query_scalar!(
         "SELECT workspace_id FROM workspace_memberships WHERE user_id = $1",
+        user.uuid(),
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(ids.into_iter().map(WorkspaceId::from_uuid).collect())
+}
+
+/// Every membership of `user`, with its workspace and role, each locked `FOR UPDATE` until the
+/// unit of work ends, in the order of the workspaces' IDs (ACCESS-008).
+pub(super) async fn held(
+    uow: &mut UnitOfWork,
+    user: UserId,
+) -> Result<Vec<(WorkspaceId, Role)>, Internal> {
+    let rows = sqlx::query!(
+        r#"SELECT workspace_id, role::text AS "role!" FROM workspace_memberships
+        WHERE user_id = $1
+        ORDER BY workspace_id
+        FOR UPDATE"#,
+        user.uuid(),
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok((
+                WorkspaceId::from_uuid(row.workspace_id),
+                Role::from_name(&row.role)?,
+            ))
+        })
+        .collect()
+}
+
+/// Whether any of `workspaces`, which came from the user's own memberships, has a member other
+/// than `user` (ACCESS-008).
+pub(super) async fn others_in(
+    uow: &mut UnitOfWork,
+    workspaces: &[WorkspaceId],
+    user: UserId,
+) -> Result<bool, Internal> {
+    let workspaces: Vec<uuid::Uuid> = workspaces.iter().map(|id| id.uuid()).collect();
+    Ok(sqlx::query_scalar!(
+        r#"SELECT EXISTS (
+            SELECT 1 FROM workspace_memberships WHERE workspace_id = ANY($1) AND user_id <> $2
+        ) AS "exists!""#,
+        &workspaces,
+        user.uuid(),
+    )
+    .fetch_one(uow.executor())
+    .await?)
+}
+
+/// Deletes every membership of `user`, and returns their workspaces.
+pub(super) async fn delete_all(
+    uow: &mut UnitOfWork,
+    user: UserId,
+) -> Result<Vec<WorkspaceId>, Internal> {
+    let ids = sqlx::query_scalar!(
+        "DELETE FROM workspace_memberships WHERE user_id = $1 RETURNING workspace_id",
         user.uuid(),
     )
     .fetch_all(uow.executor())

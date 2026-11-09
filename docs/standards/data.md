@@ -36,7 +36,7 @@ The schema declares keys, uniqueness, foreign keys and `NOT NULL`. Closed sets a
 - Check: `ci: check-schema` (no check constraint reads a single column), plus `review`.
 
 ### DATA-05 Foreign keys are declared and indexed
-Every reference is a declared foreign key with an explicit `ON DELETE`: `CASCADE` for children the parent owns, `RESTRICT` otherwise. Two kinds of reference are exceptions, and outlive the rows they name: an audit entry's `resource_id`, which may name a row of any table (DATA-22), and a job's `user_id` and `workspace_id`, which record whom it runs for (DATA-23). Every foreign-key column has an index.
+Every reference is a declared foreign key with an explicit `ON DELETE`: `CASCADE` for children the parent owns, `SET NULL` for a reference to a user from a row that outlives them, which deleting their account anonymizes (DATA-23), and `RESTRICT` otherwise. Two kinds of reference are exceptions, and outlive the rows they name: an audit entry's `resource_id`, which may name a row of any table (DATA-22), and a job's `user_id` and `workspace_id`, which record whom it runs for (DATA-23). Every foreign-key column has an index.
 - Why: deletes behave as the schema says, and cascades stay fast.
 - Check: `ci: check-schema`.
 
@@ -91,7 +91,7 @@ The server refuses to start unless it connects as the role `app`, and that role 
 
 ### DATA-19 Least privilege in grants
 - `EXECUTE` is revoked from `PUBLIC` on every function in the application schema, including through default privileges.
-- `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no data definition statements (DDL) and no `TRUNCATE`. On `audit_entries` it has only `INSERT` and `SELECT` (AUDIT-005), and on each table whose rows are never edited, and which so has no `updated_at` or `version` (DATA-02), no `UPDATE`, such as `device_tokens` (AUTH-019).
+- `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no data definition statements (DDL) and no `TRUNCATE`. On `audit_entries` and `audit_entry_clients` it has only `INSERT` and `SELECT` (AUDIT-005), and on each table whose rows are never edited, and which so has no `updated_at` or `version` (DATA-02), no `UPDATE`, such as `device_tokens` (AUTH-019).
   `workspace_files`, `user_files`, `avatars` and `object_deletions` are such tables too (the files spec's Owns). <!-- part: files -->
   On a sequence that a mechanism of `platform` draws from, such as `events_position_seq`, it has `USAGE` alone, which takes the next value, and can't set one.
 - `app` has `statement_timeout` and `idle_in_transaction_session_timeout` set at the role level.
@@ -160,7 +160,7 @@ What is audited:
 - Each security failure D6 lists: a failed sign-in, a wrong current password, a reused refresh token, and a refused authorization. A failed sign-in commits its audit entry and then answers 401 (ARCH-11, PLATFORM-008). Refusals are reported to the `SecurityEventSink` (PLATFORM-010).
 - Reads that a module spec names as audited, such as the download of a data export (D31).
 
-Platform bookkeeping (rate-limit buckets, idempotency records, job state) and scheduled maintenance (retention, sweeps) aren't audited. Metrics count them instead.
+Platform bookkeeping (rate-limit buckets, idempotency records, job state) and scheduled maintenance (retention, sweeps) aren't audited. Metrics count them instead. Deleting an account records only the entries that the logs of the workspaces the user shared keep, since their own log goes with the account (ACCOUNTS-014, D31).
 - Why: a change and its side effects commit together or not at all (D1, D6).
 - Check: `review`, plus `test` (each mutating behavior asserts its audit entry and events).
 
@@ -171,4 +171,4 @@ Every column that references a user or holds personal data (glossary) is covered
 
 `platform` registers a contract for its own tables. Erasing a user deletes their idempotency records and the events scoped to them. Jobs hold no foreign keys to user data: erasing a user, or deleting a workspace, deletes the jobs enqueued for them, so no job runs for a subject that is gone. A succeeded job keeps no row, and a dead letter keeps its payload only for its retention (PLATFORM-014). Rate-limit buckets hold only keyed hashes and expire on their own. Export leaves these tables out, because the modules that own the data export it.
 - Why: export and erasure can't miss a table, including the platform's own.
-- Check: `ci: check-personal-data` (every foreign key to `users`, and every column commented `personal_data`, against the registered contracts).
+- Check: `test` (every foreign key to `users`, and every column commented `personal_data`, in the migrated schema, against the columns of the contracts that the composition root registers).

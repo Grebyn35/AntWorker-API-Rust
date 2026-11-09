@@ -2,14 +2,14 @@
 
 ## Purpose
 
-`auth` proves who a caller is. It owns sign-in methods and sessions, and it implements the `SessionVerifier` that `platform::authn` uses on every protected request. It serves both kinds of client (D61): one that sets its own headers, such as the desktop client, holds its tokens and sends the Bearer header, and a browser holds them in cookies it can't read. This spec covers registration and sign-in with a password, refreshing, reading and ending the current session, and authenticating requests. Email verification, password reset and change, OAuth, identity linking and second factors arrive with the full module.
+`auth` proves who a caller is. It owns sign-in methods and sessions, and it implements the `SessionVerifier` that `platform::authn` uses on every protected request. It serves both kinds of client (D61): one that sets its own headers, such as the desktop client, holds its tokens and sends the Bearer header, and a browser holds them in cookies it can't read. This spec covers registration and sign-in with a password, refreshing, reading and ending the current session, authenticating requests, re-authenticating with the password, and confirming the deletion of an account, which `accounts` then carries out. Email verification, password reset and change, OAuth, identity linking and second factors arrive with the full module.
 
 ## Owns
 
 | Table | Holds |
 |---|---|
 | `identities` | A user's sign-in methods. `id`, `user_id`, `method`, `created_at`, `updated_at` and `version`. For a password: `method = 'password'`, and `password_hash` in the string format of the Password Hashing Competition (PHC). `(user_id, method)` is unique. |
-| `sessions` | `id`, `user_id`, `device_id` (optional), `access_token_hash`, `refresh_token_hash`, `previous_refresh_token_hash`, `created_at`, `updated_at`, `version`, `access_token_expires_at`, `refresh_token_expires_at`, `expires_at`. Each hash is a SHA-256 of a token and has a unique index. `(user_id, device_id)` is unique where `device_id` is set. |
+| `sessions` | `id`, `user_id`, `device_id` (optional), `access_token_hash`, `refresh_token_hash`, `previous_refresh_token_hash`, `created_at`, `updated_at`, `version`, `access_token_expires_at`, `refresh_token_expires_at`, `expires_at`, and `authenticated_at`, when the user last proved their password in the session (Re-authentication). Each hash is a SHA-256 of a token and has a unique index. `(user_id, device_id)` is unique where `device_id` is set. |
 | `device_tokens` | `id`, `user_id`, `email_hash`, `token_hash`, `created_at`, `expires_at`. `token_hash` is a SHA-256 of the token, with a unique index; `email_hash` is the hash-based message authentication code (HMAC) under `HMAC_KEY` of the email the token was issued for (AUTH-019). Rows are never edited, and `app` may not update them (DATA-19). |
 
 ## Interface
@@ -17,6 +17,7 @@
 - `SessionVerifier`, implemented for `platform::authn`: `verify`, and `lasting`, for the hub's re-check of its streams (AUTH-018).
   Its `session` serves a signed URL (AUTH-020). <!-- part: files -->
 - The domain type `Password` (D25).
+- `Contract`, the personal data contract for `identities`, `sessions` and `device_tokens` (D31).
 - `Principal` is built here only, after a successful credential check or a registration: clippy bans its constructor, and `auth` alone allows it, through `#[expect]`.
 
 ## Routes
@@ -28,6 +29,8 @@
 | `POST /v1/sessions/refresh` | public, with the refresh token as the credential | AUTH-010 to AUTH-012, AUTH-015 |
 | `GET /v1/users/me/sessions/current` | user | AUTH-016 |
 | `DELETE /v1/users/me/sessions/current` | user | AUTH-013 |
+| `POST /v1/users/me/sessions/current/reauthenticate` | user | AUTH-021, AUTH-022 |
+| `DELETE /v1/users/me` | user | AUTH-023 |
 
 No route takes an `Idempotency-Key` (API-12).
 
@@ -50,11 +53,14 @@ No route takes an `Idempotency-Key` (API-12).
 | AUTH-013 | Signing out deletes the current session, sends an access-change signal that closes its streams, records `session.ended`, clears the session's cookies, and answers 204. | SEC-06, DATA-22, D35 | `auth_013_` |
 | AUTH-014 | Passwords are hashed with Argon2id, at the minimum that the Open Worldwide Application Security Project (OWASP) recommends: 19 MiB of memory, 2 iterations and 1 degree of parallelism, in PHC format, off the async runtime. A successful sign-in rehashes a password stored with other parameters, and records `password.rehashed`. | SEC-04, CODE-05, DATA-22 | `auth_014_` |
 | AUTH-015 | A registration, sign-in or refresh from a browser, a request that carries `Origin`, leaves the tokens out of the body and sets them as cookies: the access token in `__Host-access_token`, the refresh token in `__Host-refresh_token`, and a registration's or a sign-in's device token in the cookie of its account's email, `__Host-device_token_` followed by 16 hexadecimal digits of a keyed hash of the email, so that a browser holds one for each account it signs in to, which a sign-in of that email reads when its body holds none, with or without `Origin`, since it authenticates no request (PLATFORM-059). Each is `Secure`, `HttpOnly` and `SameSite=Strict`, with `Path=/` and no `Domain`, and expires with its token. | SEC-07, D61 | `auth_015_` |
-| AUTH-016 | `GET /v1/users/me/sessions/current` answers with the session that authenticated the request: its ID, its user's ID, its device ID, its creation time and its three expiry times, and no token. | API-02, DATA-16 | `auth_016_` |
+| AUTH-016 | `GET /v1/users/me/sessions/current` answers with the session that authenticated the request: its ID, its user's ID, its device ID, its creation time, its three expiry times, and `authenticated_at`, when its user last proved their password in it, and no token. | API-02, DATA-16 | `auth_016_` |
 | AUTH-017 | A device ID is a string the client chooses, of 1 to 64 letters, digits, underscores and hyphens, rather than a UUID the API issues (API-11). Any other answers 400 with `invalid_device_id` at `/device_id`. | API-10, API-11 | `auth_017_` |
 | AUTH-018 | `lasting` keeps, of the sessions it is given, those that exist and whose refresh token and absolute lifetime haven't expired, whether or not their access token has. | SEC-06, D5 | `auth_018_` |
 | AUTH-019 | A registration and each successful sign-in issue the device a device token for the account's email, a 256-bit random token returned once, as AUTH-015 delivers tokens, stored only as its SHA-256 hash, and lasting `DEVICE_TOKEN_SECONDS` (1 day to 5 years, default 365 days). A sign-in brings it in its body's `device_token`. A sign-in that succeeds with a valid one ends it, as it issues the next, and ends the account's expired ones; its audit entry is `device_token.issued`, whose target is the new token. One of another email, ended, expired or unknown counts as none, and refuses nothing. Signing out leaves it. | SEC-03, SEC-13, SEC-07 | `auth_019_` |
 | AUTH-020 | `session` proves the principal of the session with the ID it is given, for a signed URL (PLATFORM-080): its user's, while the session lasts as AUTH-018 says, whether or not its access token has expired. A session that doesn't exist, or whose refresh token or absolute lifetime has expired, proves none. <!-- part: files --> | SEC-06, D5, D113 | `auth_020_` |
+| AUTH-021 | Re-authenticating, `POST /v1/users/me/sessions/current/reauthenticate` with `{"password": <password>}`, checks the caller's password as AUTH-022 says. When it matches, the session's `authenticated_at` becomes the request's time, by the database's clock, the audit entry is `session.reauthenticated`, and it answers 200 with the session as AUTH-016 reads it. When it doesn't, or the account has no password, it answers 403 `auth.wrong_password` after the same password-hashing work, records `password.check_failed` in the caller's log, and changes nothing else. | SEC-04, SEC-05, DATA-22, D6, D123 | `auth_021_` |
+| AUTH-022 | Every check of a signed-in user's password counts in one bucket of the user's, 5 per 15 minutes; beyond the limit, a check answers 429 `request.rate_limited` before it reads the password. | SEC-13, API-15, D123 | `auth_022_` |
+| AUTH-023 | Deleting one's account, `DELETE /v1/users/me`, needs the session that authenticates it to have started, or re-authenticated, within the last 5 minutes, by the database's clock; otherwise it answers 403 `auth.reauthentication_required`, and changes nothing. Then `accounts` deletes the account (ACCOUNTS-012 to ACCOUNTS-016), which ends every session of the user, the request's own included, and it answers 204, clearing a browser's session cookies as signing out does (AUTH-013), or answers 409 `auth.owns_shared_workspace` or `auth.account_changed`, as `accounts` reports. | D16, D123, SEC-06, SEC-07 | `auth_023_` |
 
 ## Design
 
@@ -92,6 +98,16 @@ A browser sends a cookie that is `SameSite=Strict` only with requests from the c
 ### Passwords
 
 The breached-password list holds at least the 3,000 most common passwords of 8 to 128 characters, drawn from passwords that breaches revealed, as requirements 6.2.4 and 6.2.12 of ASVS ask. The context list holds the words a password of this product mustn't contain, such as the product's name, which `just rename` rewrites (ARCH-15); a fork adds its own, as requirements 6.1.2 and 6.2.11 ask. Both lists are compiled into the binary, so checking a password reaches no other system. No rule asks for a kind of character (6.2.5), and the password is verified exactly as the user typed it (6.2.8).
+
+### Re-authentication
+
+A sensitive action, such as deleting the account, needs its caller to have proved their password just before, not only to hold a session, whose tokens a thief may hold. Each session records in `authenticated_at` when its user last proved their password in it: when a registration or a sign-in started it, or a re-authentication. A refresh leaves it. The action checks, in SQL against the database's clock, that it lies within the last 5 minutes (DATA-03), a fixed window, so a client asks for the password just before the action and sends the action at once. A route of its own, rather than the password in each action's request, lets a `DELETE` carry no body, and lets the full module's other ways of proving who one is, such as a provider's sign-in or a second factor, re-authenticate a session the same way.
+
+A check of a signed-in user's password reads their password identity, without a lock, and verifies the password through `Workers`, or verifies the dummy hash when the account has none, so a wrong password and a missing one cost the same (AUTH-005, AUTH-021). Every such check, re-authentication's and those the full module adds, such as changing the password, goes through one function and counts in one bucket of the user's (AUTH-022, SEC-13), so a stolen session gets 5 guesses in 15 minutes, whatever it checks. A wrong password is a security failure, which the user's log records, and its unit of work commits that entry before it answers (DATA-22, ARCH-11); it answers 403 rather than 401, since the session still authenticates its requests, and a client that signs out on a 401 would end it. An account without a password, such as one the setup subcommand creates, can't sign in until its owner sets one, so it has no session to re-authenticate.
+
+### Deleting an account
+
+`DELETE /v1/users/me` is served here, since this module confirms it. The service opens the unit of work, reads, without a lock, whether the caller's session proved its password within the window, and calls `Deletion::delete` of `accounts`, which erases the account across every module and then deletes it ([accounts spec](accounts.md#deleting-an-account)). The contract of `auth` deletes the user's identities first, which a sign-in locks before it starts a session, so no session starts meanwhile, then their sessions, each with its access-change signal, so every stream of theirs closes once the deletion commits, then their device tokens, all before the user's row is locked, since a sign-in locks its identity, and a refresh its session, before the user's row. A browser's response clears the session's cookies, as signing out does; its device token's cookie stays, and counts as none, since no row holds its token (AUTH-019).
 
 ### Device IDs
 

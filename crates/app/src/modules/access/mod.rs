@@ -3,6 +3,7 @@
 mod error;
 mod model;
 mod permissions;
+mod personal_data;
 mod repo;
 mod service;
 
@@ -15,8 +16,9 @@ pub(crate) use permissions::InvitationsCreate;
 pub(crate) use permissions::{FilesDelete, FilesRead, FilesUpload};
 // end part: files
 pub(crate) use permissions::{MembersRead, MembersRemove, WorkspaceRead, WorkspaceUpdate, matrix};
+pub(crate) use personal_data::Contract;
 pub(crate) use service::{
-    Policy, Removal, add_owner, joined, member_ids, members, remove, workspace_ids,
+    Policy, Removal, add_owner, erasable, held, joined, member_ids, members, remove, workspace_ids,
 };
 // part: invitations
 pub(crate) use service::{add_member, is_member};

@@ -1,9 +1,10 @@
 //! The SQL of `users` (ARCH-10).
 
 use platform::{
-    db::UnitOfWork,
+    db::{self, UnitOfWork},
     errors::Internal,
     lists::Search,
+    personal_data::ErasureError,
     types::{EmailAddress, UserId, Version},
 };
 
@@ -70,6 +71,36 @@ pub(super) async fn lock(uow: &mut UnitOfWork, id: UserId) -> Result<(), Interna
         .fetch_one(uow.executor())
         .await?;
     Ok(())
+}
+
+/// Locks the row of the user `id`, then deletes it, which deletes, or sets to null, through the
+/// foreign keys, every row that still names them, as the last step of deleting their account,
+/// whose unit of work bounds its waits for a lock. `Interrupted` is a wait that ran out, or a
+/// membership that a request of theirs added meanwhile, whose foreign key refuses the deletion
+/// (ACCOUNTS-013, ACCOUNTS-016).
+pub(super) async fn delete(uow: &mut UnitOfWork, id: UserId) -> Result<(), ErasureError> {
+    sqlx::query!("SELECT id FROM users WHERE id = $1 FOR UPDATE", id.uuid())
+        .fetch_one(uow.executor())
+        .await
+        .map_err(interrupted)?;
+    sqlx::query!("DELETE FROM users WHERE id = $1", id.uuid())
+        .execute(uow.executor())
+        .await
+        .map_err(interrupted)?;
+    Ok(())
+}
+
+/// A failure of the last step of a deletion: `Interrupted` for a wait for a lock that ran out, or
+/// a foreign key that refused it, and an internal error otherwise (ERR-04).
+fn interrupted(error: sqlx::Error) -> ErasureError {
+    let refused = error
+        .as_database_error()
+        .is_some_and(|error| error.is_foreign_key_violation());
+    if refused || db::is_lock_timeout(&error) {
+        ErasureError::Interrupted
+    } else {
+        ErasureError::Internal(error.into())
+    }
 }
 
 /// The versions that `versions` names, as the database takes them: none for any.

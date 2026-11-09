@@ -404,8 +404,11 @@ async fn auth_016_the_current_session_is_readable_without_its_tokens() {
         "access_token_expires_at",
         "refresh_token_expires_at",
         "expires_at",
+        "authenticated_at",
     ] {
         let at = session[field].as_str().unwrap();
         assert!(at.ends_with('Z') && at.len() == 27, "{field}: {at}");
     }
+    // A sign-in proves the password, so the session starts as authenticated then.
+    assert_eq!(session["authenticated_at"], session["created_at"]);
 }

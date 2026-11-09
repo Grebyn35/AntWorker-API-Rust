@@ -1,4 +1,5 @@
-//! Registration, sign-in, refresh and sign-out, and, in `verifier.rs`, the verifier of access
+//! Registration, sign-in, refresh and sign-out; in `reauthentication.rs`, re-authenticating; in
+//! `deletion.rs`, confirming an account's deletion; and in `verifier.rs`, the verifier of access
 //! tokens and sessions. Each operation opens its own unit of work, after any per-action limit it
 //! counts first.
 
@@ -15,9 +16,12 @@ use platform::{
     types::{Client, EmailAddress, Secret, SessionId, UserId},
 };
 
+mod deletion;
 mod devices;
+mod reauthentication;
 mod verifier;
 
+pub(super) use deletion::erase;
 pub(crate) use verifier::Verifier;
 
 use super::{
@@ -28,7 +32,7 @@ use super::{
     repo,
 };
 use crate::modules::{
-    accounts::{self, Creation, DisplayName},
+    accounts::{self, Creation, Deletion, DisplayName},
     audit::{self as audit_log, Entry},
 };
 
@@ -67,6 +71,8 @@ pub(crate) struct Settings {
     pub(crate) sign_in_device: Bucket,
     /// How long a device token lasts (AUTH-019).
     pub(crate) device_tokens: std::time::Duration,
+    /// The bucket of each user's checks of their password, once signed in (AUTH-022).
+    pub(crate) password_check: Bucket,
 }
 
 /// Registration, sign-in and sessions.
@@ -80,6 +86,8 @@ pub(crate) struct Auth {
     dummy_hash: String,
     /// What hashes and verifies passwords (AUTH-014).
     workers: Workers,
+    /// What deletes an account across every module, once this module confirms it (AUTH-023).
+    deletion: Deletion,
 }
 
 impl Auth {
@@ -90,6 +98,7 @@ impl Auth {
         settings: Settings,
         key: HmacKey,
         workers: Workers,
+        deletion: Deletion,
     ) -> Result<Self, Internal> {
         let dummy = Password::generated(random::token()?);
         let dummy_hash = hash(&workers, dummy).await?;
@@ -103,6 +112,7 @@ impl Auth {
             key,
             dummy_hash,
             workers,
+            deletion,
         })
     }
 

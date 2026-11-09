@@ -16,7 +16,7 @@ CREATE TABLE workspace_memberships (
     version bigint NOT NULL DEFAULT 1,
     CONSTRAINT workspace_memberships_workspace_id_user_id_key UNIQUE (workspace_id, user_id),
     CONSTRAINT workspace_memberships_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE,
-    -- Until account deletion removes a user's memberships (D16).
+    -- Deleting an account deletes the user's memberships first (ACCESS-008).
     CONSTRAINT workspace_memberships_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT
 );
 

@@ -22,6 +22,20 @@ pub(crate) enum AuthError {
     /// No session has the refresh token as its current one (AUTH-012).
     #[error("the refresh token is invalid")]
     InvalidRefreshToken,
+    /// The signed-in user's password is wrong, or they have none (AUTH-021).
+    #[error("the password is wrong")]
+    WrongPassword,
+    /// The session hasn't proved its user's password within the last 5 minutes (AUTH-023).
+    #[error("the action needs the password proved again")]
+    ReauthenticationRequired,
+    /// The user owns a workspace that has another member, so their account isn't deleted
+    /// (ACCOUNTS-012).
+    #[error("the user owns a workspace that has another member")]
+    OwnsSharedWorkspace,
+    /// A request of the user's changed their account while its deletion ran, which rolled back
+    /// (ACCOUNTS-016).
+    #[error("the account changed while it was being deleted")]
+    AccountChanged,
     /// A rate limit refused the request, or couldn't count it (AUTH-006).
     #[error(transparent)]
     Limit(#[from] LimitError),
@@ -57,6 +71,10 @@ impl ErrorCode for AuthError {
             Self::InvalidCredentials => "auth.invalid_credentials",
             Self::SessionExpired => "auth.session_expired",
             Self::InvalidRefreshToken => "auth.invalid_refresh_token",
+            Self::WrongPassword => "auth.wrong_password",
+            Self::ReauthenticationRequired => "auth.reauthentication_required",
+            Self::OwnsSharedWorkspace => "auth.owns_shared_workspace",
+            Self::AccountChanged => "auth.account_changed",
             Self::Limit(error) => error.code(),
             Self::Request(error) => error.code(),
             Self::Internal(error) => error.code(),
@@ -69,6 +87,10 @@ impl ErrorCode for AuthError {
             Self::InvalidCredentials => "Invalid email or password",
             Self::SessionExpired => "Session expired",
             Self::InvalidRefreshToken => "Invalid refresh token",
+            Self::WrongPassword => "Wrong password",
+            Self::ReauthenticationRequired => "Re-authentication required",
+            Self::OwnsSharedWorkspace => "Owner of a shared workspace",
+            Self::AccountChanged => "Account changed",
             Self::Limit(error) => error.title(),
             Self::Request(error) => error.title(),
             Self::Internal(error) => error.title(),
@@ -81,6 +103,8 @@ impl ErrorCode for AuthError {
             Self::InvalidCredentials | Self::SessionExpired | Self::InvalidRefreshToken => {
                 Category::Unauthenticated
             }
+            Self::WrongPassword | Self::ReauthenticationRequired => Category::Forbidden,
+            Self::OwnsSharedWorkspace | Self::AccountChanged => Category::Conflict,
             Self::Limit(error) => error.category(),
             Self::Request(error) => error.category(),
             Self::Internal(error) => error.category(),
@@ -89,6 +113,15 @@ impl ErrorCode for AuthError {
 
     fn detail(&self) -> Option<String> {
         match self {
+            Self::OwnsSharedWorkspace => Some(
+                "Transfer or delete each workspace you own that has other members first."
+                    .to_owned(),
+            ),
+            Self::AccountChanged => Some(
+                "Another request changed the account while it was being deleted; send the \
+                 deletion again."
+                    .to_owned(),
+            ),
             Self::Request(error) => error.detail(),
             _ => None,
         }

@@ -22,6 +22,9 @@
 - `member_ids(uow, &Authorized<MembersRead>)`: the user IDs of every member of the workspace, which a search of the members hands `accounts` (Design: Searching members).
 - `joined(uow, &Principal, Option<&[WorkspaceId]>, &Page)`: a page of the caller's own memberships, the latest joined first, kept to the given workspaces when a search named them, for listing the caller's workspaces.
 - `workspace_ids(uow, &Principal)`: the ID of every workspace the caller belongs to (ACCESS-005), which a search of the caller's workspaces hands `workspaces`, and in each of which `accounts` publishes a change of the caller's record (ACCOUNTS-007).
+- `erasable(uow, &Principal)`: locks every membership of the caller, and answers whether a workspace they own has another member (ACCESS-008). Called only by `accounts`, as the first step of deleting the caller's account.
+- `held(uow, &Principal)`: every membership of the caller, with its workspace and role, which the personal data contract of `workspaces` reads once `erasable` has locked them.
+- `Contract`, the personal data contract for `workspace_memberships` (D31), which deletes the user's memberships, each with its access-change signal.
 - `Role::outranks(role)`: compares two roles (SEC-09).
 
 ## Behaviors
@@ -35,6 +38,7 @@
 | ACCESS-005 | `workspace_ids` returns the ID of every workspace the caller belongs to, and nothing else. | D3, DATA-16 | `access_005_` |
 | ACCESS-006 | Adding a membership and removing one each sends an access-change signal for its user and workspace in the same unit of work, which, once it commits, closes the streams of that user that PLATFORM-031 says a membership change closes. | SEC-06, D35, PLATFORM-031 | `access_006_` |
 | ACCESS-007 | `memberships` gives each user it is asked about every workspace they belong to, with the permissions their role holds there and the transaction that added the membership, and nothing else. | SEC-19, DATA-16 | `access_007_` |
+| ACCESS-008 | `erasable` locks every membership of the user, `FOR UPDATE`, and answers whether a workspace they own has another member. Until the unit of work that called it ends, no one else joins a workspace whose owner's membership it locked, and the user starts no operation in any of their workspaces. | D16, DATA-20 | `access_008_` |
 
 ## Design
 
@@ -62,6 +66,12 @@ The delete itself checks the rank: it deletes the membership only where its role
 ### Signals
 
 The functions that add or remove a membership send its signal themselves, so no caller can change who belongs to a workspace without the hub hearing of it. Those that add one also call `UnitOfWork::order_with_events`, so the membership commits in the order of the commits that publish, and each event's snapshot tells whether the membership had committed before it (the platform spec's "A member's events"). A role's change, with the full `workspaces` module, signals the same way (SEC-06).
+
+### Erasure
+
+`erasable` locks the user's memberships, in the order of their workspaces' IDs, then counts, for each workspace the user owns, the members who aren't them (ACCESS-008). The user's own operations in their workspaces lock their membership first, `FOR SHARE` (Policy), so none runs while the deletion holds it.
+Joining a workspace inserts a membership, whose foreign keys lock the workspace's row and the joiner's, not the owner's membership, so `add_member` first locks the workspace's owner's membership `FOR KEY SHARE`: a join and a deletion of the owner's account then take turns, and a deletion that finds the owner alone deletes a workspace nobody is joining. <!-- part: invitations -->
+The contract deletes every membership of the user that remains once the contract of `workspaces` has deleted the workspaces whose only member they were, and signals each, as removing a member does (ACCESS-006).
 
 ### Memberships for the hub
 

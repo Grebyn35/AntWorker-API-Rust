@@ -147,8 +147,9 @@ async fn audit_003_a_refusal_records_the_client_and_the_trace_of_its_request() {
     let entry = api
         .database()
         .owner_reads(
-            "SELECT host(client_ip) || ' ' || user_agent || ' ' || trace_id \
-             FROM audit_entries WHERE action = 'access.denied'",
+            "SELECT host(client.client_ip) || ' ' || client.user_agent || ' ' || entry.trace_id \
+             FROM audit_entries entry JOIN audit_entry_clients client ON client.entry_id = entry.id \
+             WHERE entry.action = 'access.denied'",
         )
         .await;
     assert_eq!(entry, [format!("198.51.100.20 Desktop/1.2 {trace_id}")]);
@@ -590,5 +591,69 @@ async fn access_006_accepting_an_invitation_closes_the_new_member_s_streams() {
 
     assert_eq!(accepted.status, StatusCode::OK);
     assert_eq!(reason, "access_changed");
+}
+// end part: invitations
+
+#[tokio::test]
+async fn access_008_the_user_s_operations_in_a_workspace_wait_for_the_deletion_that_holds_them() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    // The deletion of Ada's account, between `erasable` and its commit.
+    let mut held = db.owner_connection().await;
+    execute_on(&mut held, "BEGIN").await;
+    execute_on(
+        &mut held,
+        &format!(
+            "SELECT 1 FROM workspace_memberships WHERE user_id = '{}' FOR UPDATE",
+            ada.user_id
+        ),
+    )
+    .await;
+
+    let path = format!("/v1/workspaces/{workspace}");
+    let read = call(&api, Method::GET, &path, &ada);
+    let release = async {
+        a_query_waits_on_a_lock(db).await;
+        execute_on(&mut held, "ROLLBACK").await;
+    };
+    let (read, ()) = tokio::join!(read, release);
+
+    assert_eq!(read.status, StatusCode::OK);
+}
+
+// part: invitations
+#[tokio::test]
+async fn access_008_no_one_joins_a_workspace_while_its_owner_s_deletion_holds_their_membership() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    let invited =
+        crate::support::invitations::invite(&api, &ada, &workspace, "bob@example.com", "member")
+            .await;
+    let id = invited.json()["id"].as_str().unwrap().to_owned();
+    let mut held = db.owner_connection().await;
+    execute_on(&mut held, "BEGIN").await;
+    execute_on(
+        &mut held,
+        &format!(
+            "SELECT 1 FROM workspace_memberships WHERE user_id = '{}' FOR UPDATE",
+            ada.user_id
+        ),
+    )
+    .await;
+
+    let path = format!("/v1/users/me/invitations/{id}/accept");
+    let accept = call(&api, Method::POST, &path, &bob);
+    let release = async {
+        a_query_waits_on_a_lock(db).await;
+        execute_on(&mut held, "ROLLBACK").await;
+    };
+    let (accepted, ()) = tokio::join!(accept, release);
+
+    assert_eq!(accepted.status, StatusCode::OK);
 }
 // end part: invitations

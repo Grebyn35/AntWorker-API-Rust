@@ -169,8 +169,10 @@ async fn system_003_seed_creates_its_accounts_and_workspaces_through_the_routes(
     assert_eq!(
         api.database()
             .owner_reads(
-                "SELECT DISTINCT host(client_ip) || ' ' || user_agent FROM audit_entries \
-                 WHERE action IN ('user.registered', 'workspace.created')"
+                "SELECT DISTINCT host(client.client_ip) || ' ' || client.user_agent \
+                 FROM audit_entries entry \
+                 JOIN audit_entry_clients client ON client.entry_id = entry.id \
+                 WHERE entry.action IN ('user.registered', 'workspace.created')"
             )
             .await,
         ["127.0.0.1 seed"]

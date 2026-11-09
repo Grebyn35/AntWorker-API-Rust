@@ -117,7 +117,7 @@ crates/app/
 | Module | Owns (tables) | Responsible for |
 |---|---|---|
 | `access` | `workspace_memberships` | Roles, the permission matrix, the permission types used with `Authorized<P>`, and the `AccessPolicy` implementation (D2). It has no routes of its own. |
-| `audit` | `audit_entries` | Recording entries inside a unit of work, the read endpoints, the action catalog, retention, and the `SecurityEventSink` implementation that records refused requests (D6). |
+| `audit` | `audit_entries`, `audit_entry_clients` | Recording entries inside a unit of work, with each one's client beside it, which deleting the client's user deletes, the read endpoints, the action catalog, retention, and the `SecurityEventSink` implementation that records refused requests (D6, D124). |
 | `realtime` | none | The endpoint of server-sent events (SSE), the frames it sends, and the event catalog. Delivery, replay and stream closing are handled by `platform::events` (D5). |
 | `files` | `workspace_files`, `user_files`, `avatars`, `object_deletions` | Upload, list, download and delete of user and workspace files, the types each upload accepts and its scan for malware, public files, signed download URLs, and the deletion of the bytes that no row names, with the images of the avatars that `accounts` sets, and of the workspace pictures that the full `workspaces` module adds (D117, D120). <!-- part: files --> |
 | `accounts` | `users`, `data_exports` | The profile, and account deletion and export, which it orchestrates across modules through the personal data contract (D16, D31). |

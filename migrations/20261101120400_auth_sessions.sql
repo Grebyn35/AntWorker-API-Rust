@@ -1,6 +1,7 @@
 -- Signed-in devices and clients (the auth spec). Each token is stored only as its SHA-256 hash,
 -- which a request's token is looked up by (AUTH-007, DATA-16). A device has at most one session
--- per user (AUTH-008).
+-- per user (AUTH-008). authenticated_at is when the user last proved their password in the session:
+-- when it started, or re-authenticated (AUTH-021).
 CREATE TABLE sessions (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     user_id uuid NOT NULL,
@@ -14,6 +15,7 @@ CREATE TABLE sessions (
     access_token_expires_at timestamptz NOT NULL,
     refresh_token_expires_at timestamptz NOT NULL,
     expires_at timestamptz NOT NULL,
+    authenticated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
     CONSTRAINT sessions_access_token_hash_key UNIQUE (access_token_hash),
     CONSTRAINT sessions_refresh_token_hash_key UNIQUE (refresh_token_hash),

@@ -18,6 +18,7 @@ use platform::{
     jobs::Jobs,
     lifecycle::Readiness,
     mail::Mail,
+    personal_data::{self, PersonalData},
     rate_limit::{Bucket, RateLimiter},
     telemetry::Service,
 };
@@ -67,6 +68,14 @@ const SIGN_IN_EMAIL_BUCKET: &str = "sign_in_email";
 
 /// The name of the bucket of the sign-in limit of a device token (AUTH-006).
 const SIGN_IN_DEVICE_BUCKET: &str = "sign_in_device";
+
+/// The bucket of each user's checks of their password, once signed in: 5 in 15 minutes, fixed
+/// (AUTH-022).
+const PASSWORD_CHECK: Bucket = Bucket {
+    name: "password_check",
+    limit: 5,
+    window: Duration::from_secs(900),
+};
 
 // part: invitations
 /// The name of the per-member limit's bucket on inviting (INVITATIONS-009).
@@ -118,6 +127,7 @@ impl Config {
                     365 * day,
                     day..=5 * 365 * day,
                 )?,
+                password_check: PASSWORD_CHECK,
             },
             // part: files
             files: files::Settings {
@@ -187,17 +197,18 @@ pub async fn compose(
         workers,
     } = resources;
     let mut jobs = Jobs::new(database, server.job_dead_letter_retention);
+    let mail = Mail::new(server.mail.clone(), clock.clone())?;
+    mail.register(&mut jobs).map_err(Internal::new)?;
     let auth = Arc::new(
         auth::Auth::new(
             database.clone(),
             config.auth,
             server.hmac_key.clone(),
             workers.clone(),
+            accounts::Deletion::new(contracts(), mail.clone()),
         )
         .await?,
     );
-    let mail = Mail::new(server.mail.clone(), clock.clone())?;
-    mail.register(&mut jobs).map_err(Internal::new)?;
     // part: files
     let files = Files::new(
         database.clone(),
@@ -351,6 +362,33 @@ pub async fn seed(router: Router) -> Result<SeedReport, SeedError> {
         password: system::PASSWORD,
         workspaces: seeded.workspaces,
     })
+}
+
+/// The personal data contracts of every module but `accounts`, whose own `Deletion` adds last, in
+/// the order an account's deletion runs them (the accounts spec's "Deleting an account").
+fn contracts() -> Vec<Arc<dyn PersonalData>> {
+    vec![
+        Arc::new(workspaces::Contract),
+        Arc::new(access::Contract),
+        // part: files
+        Arc::new(files::Contract),
+        // end part: files
+        // part: invitations
+        Arc::new(invitations::Contract),
+        // end part: invitations
+        Arc::new(auth::Contract),
+        Arc::new(audit::Contract),
+        Arc::new(personal_data::Contract),
+    ]
+}
+
+/// Every column that the registered personal data contracts cover, which a test compares with
+/// the migrated schema's columns that reference `users` or hold personal data (DATA-23).
+pub fn personal_data_columns() -> Vec<(&'static str, &'static str)> {
+    accounts::columns(&contracts())
+        .into_iter()
+        .map(|column| (column.table, column.name))
+        .collect()
 }
 
 /// The permission matrix of `access`: each permission's name, with the names of the roles that

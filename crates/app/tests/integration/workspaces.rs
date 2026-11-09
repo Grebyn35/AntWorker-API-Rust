@@ -429,7 +429,7 @@ async fn workspaces_005_removing_a_member_deletes_their_membership_and_signals_i
     assert_eq!(
         entries,
         [format!(
-            "workspace {workspace} {} {1} member {1} {{}}",
+            "workspace {workspace} {} {} workspace {workspace} {{}}",
             ada.user_id, grace.user_id
         )]
     );

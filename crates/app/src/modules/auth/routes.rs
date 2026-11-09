@@ -11,7 +11,7 @@ use platform::{
     authn::{ACCESS_COOKIE, Principal},
     errors::{Problem, RequestError},
     http::{Cookies, FieldErrors, Json, Routes, expired_cookie, session_cookie},
-    rate_limit::RateLimits,
+    rate_limit::{LimitError, RateLimits},
     types::{Client, EmailAddress, Secret, SessionId, Timestamp, UserId},
 };
 use serde::{Deserialize, Serialize};
@@ -41,6 +41,18 @@ pub(crate) fn routes() -> Routes<Arc<Auth>> {
             &[&AuthError::SessionExpired, &AuthError::InvalidRefreshToken],
         )
         .user(routes!(current, sign_out), &[])
+        .user(
+            routes!(reauthenticate),
+            &[&AuthError::WrongPassword, &LimitError::RateLimited],
+        )
+        .user(
+            routes!(delete_account),
+            &[
+                &AuthError::ReauthenticationRequired,
+                &AuthError::OwnsSharedWorkspace,
+                &AuthError::AccountChanged,
+            ],
+        )
 }
 
 /// What registering takes (AUTH-001).
@@ -146,6 +158,25 @@ pub(crate) struct RefreshRequest {
     refresh_token: Option<String>,
 }
 
+/// What re-authenticating takes (AUTH-021).
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReauthenticationRequest {
+    /// The caller's password.
+    #[schema(min_length = 1, max_length = 128, format = Password)]
+    password: String,
+}
+
+impl TryFrom<ReauthenticationRequest> for Password {
+    type Error = RequestError;
+
+    fn try_from(request: ReauthenticationRequest) -> Result<Self, Self::Error> {
+        let mut errors = FieldErrors::new();
+        let password = errors.check("/password", Password::presented(request.password));
+        errors.finish(password)
+    }
+}
+
 /// A session, and its tokens when they go in the body.
 #[derive(Serialize, ToSchema)]
 pub(crate) struct SessionResponse {
@@ -163,6 +194,9 @@ pub(crate) struct SessionResponse {
     refresh_token_expires_at: Timestamp,
     /// When the session ends, whatever its refreshes.
     expires_at: Timestamp,
+    /// When its user last proved their password in it: when it began, or re-authenticated
+    /// (AUTH-021).
+    authenticated_at: Timestamp,
     /// The access token, unless the tokens went in cookies.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(nullable = false)]
@@ -190,6 +224,7 @@ impl SessionResponse {
             access_token_expires_at: session.access_token_expires_at,
             refresh_token_expires_at: session.refresh_token_expires_at,
             expires_at: session.expires_at,
+            authenticated_at: session.authenticated_at,
             access_token: tokens.map(|tokens| tokens.access.expose().clone()),
             refresh_token: tokens.map(|tokens| tokens.refresh.expose().clone()),
             device_token: device.map(|device| device.token.expose().clone()),
@@ -316,6 +351,55 @@ async fn sign_out(
     principal: Principal,
 ) -> Result<Response, Problem<AuthError>> {
     auth.sign_out(&client, &principal).await?;
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    for name in [ACCESS_COOKIE, REFRESH_COOKIE] {
+        let cookie = expired_cookie(name).map_err(AuthError::from)?;
+        response.headers_mut().append(header::SET_COOKIE, cookie);
+    }
+    Ok(response)
+}
+
+/// Re-authenticates: proves the caller's password again in the session that authenticated the
+/// request, for an action that needs it, such as deleting the account.
+#[utoipa::path(
+    post,
+    path = "/v1/users/me/sessions/current/reauthenticate",
+    tag = "auth",
+    request_body = ReauthenticationRequest,
+    responses(
+        (status = 200, description = "The session, without its tokens.", body = Session),
+    )
+)]
+async fn reauthenticate(
+    State(auth): State<Arc<Auth>>,
+    limits: RateLimits,
+    client: Client,
+    principal: Principal,
+    Json(request): Json<ReauthenticationRequest>,
+) -> Result<axum::Json<Session>, Problem<AuthError>> {
+    let password = Password::try_from(request).map_err(AuthError::from)?;
+    let session = auth
+        .reauthenticate(&limits, &client, &principal, password)
+        .await?;
+    Ok(axum::Json(session))
+}
+
+/// Deletes the caller's account, and everything it holds, once the session that authenticated
+/// the request has proved their password within the last 5 minutes.
+#[utoipa::path(
+    delete,
+    path = "/v1/users/me",
+    tag = "auth",
+    responses(
+        (status = 204, description = "The account is deleted, and every session of it ended."),
+    )
+)]
+async fn delete_account(
+    State(auth): State<Arc<Auth>>,
+    client: Client,
+    principal: Principal,
+) -> Result<Response, Problem<AuthError>> {
+    auth.delete_account(&client, &principal).await?;
     let mut response = StatusCode::NO_CONTENT.into_response();
     for name in [ACCESS_COOKIE, REFRESH_COOKIE] {
         let cookie = expired_cookie(name).map_err(AuthError::from)?;

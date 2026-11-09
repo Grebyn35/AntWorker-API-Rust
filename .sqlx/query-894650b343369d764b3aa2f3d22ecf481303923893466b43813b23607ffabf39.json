@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, user_id, device_id, created_at, access_token_expires_at, refresh_token_expires_at,\n            expires_at\n        FROM sessions WHERE id = $2 AND user_id = $1",
+  "query": "UPDATE sessions SET authenticated_at = now() WHERE id = $2 AND user_id = $1\n        RETURNING id, user_id, device_id, created_at, access_token_expires_at, refresh_token_expires_at,\n            expires_at, authenticated_at",
   "describe": {
     "columns": [
       {
@@ -79,6 +79,17 @@
             "name": "expires_at"
           }
         }
+      },
+      {
+        "ordinal": 7,
+        "name": "authenticated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "authenticated_at"
+          }
+        }
       }
     ],
     "parameters": {
@@ -94,8 +105,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "da3ae96ad39c35c3c55d0f27a30ea1a8a069d0819b38d46d124245d434022888"
+  "hash": "894650b343369d764b3aa2f3d22ecf481303923893466b43813b23607ffabf39"
 }

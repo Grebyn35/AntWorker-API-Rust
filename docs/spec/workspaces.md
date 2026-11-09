@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`workspaces` owns the workspace itself and the members endpoints. This spec covers creating a workspace, listing the caller's workspaces, reading and renaming one, listing members, and removing a member. Transfer, leaving, deletion and the setup subcommand arrive with the full module.
+`workspaces` owns the workspace itself and the members endpoints. This spec covers creating a workspace, listing the caller's workspaces, reading and renaming one, listing members, removing a member, and what deleting a member's account does to their workspaces (Erasure). Transfer, leaving, deletion and the setup subcommand arrive with the full module.
 So does the workspace's picture, which `files` stores (D117). <!-- part: files -->
 
 ## Owns
@@ -16,6 +16,7 @@ So does the workspace's picture, which `files` stores (D117). <!-- part: files -
 - `names(uow, &[WorkspaceId])`: workspace names for a batch of IDs that came from a query filtered by tenant, used by `invitations` (DATA-16). <!-- part: invitations -->
 - `matching(uow, &[WorkspaceId], &Search)`: the IDs among a batch, from a query filtered by tenant, of the workspaces whose name contains the search, used by `invitations` (API-20). <!-- part: invitations -->
 - The domain type `WorkspaceName` (D25), which `invitations` uses. <!-- part: invitations -->
+- `Contract`, the personal data contract for `workspaces` (D31), which deletes the workspaces whose only member is a deleted user, and records and publishes their leaving the others (ACCOUNTS-014).
 
 ## Routes
 
@@ -40,7 +41,7 @@ ID 009 is retired.
 | WORKSPACES-002 | A workspace name is trimmed, has internal whitespace collapsed to single spaces, is normalized to Unicode Normalization Form C (NFC), and must be 1 to 255 characters and not only whitespace. | D25, API-10 | `workspaces_002_` |
 | WORKSPACES-003 | `GET /v1/workspaces` lists every workspace the caller belongs to, with `{id, name, role, joined_at}`, the latest joined first, in cursor pages. Its `search` matches the name. | D3, API-05, API-06, API-20 | `workspaces_003_` |
 | WORKSPACES-004 | `GET .../members` lists the workspace's members with `{user_id, name, email, role, joined_at}`, the latest joined first, in cursor pages. Its `search` matches the name or the email, and `role` keeps the members of one role. | API-05, API-06, API-20, DATA-16 | `workspaces_004_` |
-| WORKSPACES-005 | Removing a member deletes their membership and answers 204. It records `member.removed` in the workspace's log, with the removed user as the target, and publishes the workspace event `member.removed`, which requires `members.read`. The removal's access-change signal closes the removed user's streams that PLATFORM-031 says a membership change closes, with `stream.closed` and the reason `access_changed`, before any event that commits after it reaches them (ACCESS-006). | SEC-06, SEC-09, DATA-22, D35 | `workspaces_005_` |
+| WORKSPACES-005 | Removing a member deletes their membership and answers 204. It records `member.removed` in the workspace's log, with the workspace as its resource and the removed user as its target (AUDIT-006), and publishes the workspace event `member.removed`, which requires `members.read`. The removal's access-change signal closes the removed user's streams that PLATFORM-031 says a membership change closes, with `stream.closed` and the reason `access_changed`, before any event that commits after it reaches them (ACCESS-006). | SEC-06, SEC-09, DATA-22, D35 | `workspaces_005_` |
 | WORKSPACES-006 | A caller can't remove themselves (422 `workspaces.cannot_remove_self`), and can't remove a member of equal or higher rank (403 `request.permission_denied`, PLATFORM-010), which also protects the owner. A user ID that isn't a member answers 404 `workspaces.member_not_found`. | SEC-09, ERR-03 | `workspaces_006_` |
 | WORKSPACES-007 | `GET /v1/workspaces/{workspace_id}` answers 200 with `{id, name, role, created_at}`, `role` being the caller's, and the workspace's `ETag` (PLATFORM-071). | API-04, API-13, D3 | `workspaces_007_` |
 | WORKSPACES-008 | Renaming a workspace, `PATCH /v1/workspaces/{workspace_id}` with the merge patch `{"name": <name>}`, stores the name, normalized as WORKSPACES-002 says, and answers 200 with the workspace as WORKSPACES-007 gives it and its new `ETag`. It records `workspace.renamed` in the workspace's log, and publishes the workspace event `workspace.renamed`, which requires `workspace.read`. Neither holds the name. The owner and admins may rename; a member gets 403 `request.permission_denied`. | API-03, API-19, SEC-18, SEC-19, DATA-22 | `workspaces_008_` |
@@ -82,6 +83,10 @@ A name is text a user writes, so it is personal data (the glossary in [architect
 ### Listing members
 
 `access::members` returns a page of the memberships, filtered by the workspace ID, and narrowed by a search as the access spec says ("Searching members"). `accounts::profiles` returns their names and emails in one batch call, given exactly those user IDs (ACCOUNTS-005, ARCH-06, DATA-16).
+
+### Erasure
+
+The contract runs once `access::erasable` has locked the user's memberships, and found that no workspace they own has another member (ACCOUNTS-012). It reads those memberships through `access::held`. It deletes each workspace the user owns, which the foreign keys delete everything in with: its memberships, its log, its events, and the rows of every module's tables that name it. The jobs enqueued for it have no foreign key, so `jobs::forget_workspace` deletes them (DATA-23). In each other workspace, the user's membership stays for the contract of `access` to delete, and this contract records `member.left` in the workspace's log, with the scope that `Principal::leaver_scope` gives, the workspace as its resource and the user as its target, and publishes the workspace event `member.left`, which requires `members.read`, as `member.removed` does, so the members' clients read the members again (ACCOUNTS-014, API-19). The entry's actor and target become null once the user's row goes (AUDIT-006).
 
 ## Open design questions
 

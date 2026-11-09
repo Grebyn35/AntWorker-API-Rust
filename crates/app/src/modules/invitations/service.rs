@@ -175,7 +175,11 @@ pub(crate) async fn received(
     let rows = repo::pending(&mut uow, &email, only.as_deref(), page).await?;
     let pending = page.list(rows, |row| key(row.created_at, row.id));
     let workspace_ids: Vec<_> = pending.items.iter().map(|row| row.workspace_id).collect();
-    let inviter_ids: Vec<_> = pending.items.iter().map(|row| row.inviter_id).collect();
+    let inviter_ids: Vec<_> = pending
+        .items
+        .iter()
+        .filter_map(|row| row.inviter_id)
+        .collect();
     let names: HashMap<_, _> = workspaces::names(&mut uow, &workspace_ids)
         .await?
         .into_iter()
@@ -185,13 +189,17 @@ pub(crate) async fn received(
         .into_iter()
         .map(|profile| (profile.id, profile))
         .collect();
-    // An invitation whose workspace or inviter went between the reads drops out of the page.
+    // An invitation whose workspace went between the reads drops out of the page. One whose
+    // inviter's account is deleted, then or before, has no inviter's name (ACCOUNTS-014).
     let items = pending
         .items
         .into_iter()
         .filter_map(|row| {
             let workspace_name = names.get(&row.workspace_id)?.clone();
-            let inviter_name = inviters.get(&row.inviter_id)?.name.clone();
+            let inviter_name = row
+                .inviter_id
+                .and_then(|inviter| inviters.get(&inviter))
+                .map(|profile| profile.name.clone());
             Some(ReceivedInvitation {
                 id: row.id,
                 workspace_id: row.workspace_id,

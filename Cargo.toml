@@ -11,7 +11,7 @@ publish = false
 platform = { path = "crates/platform" }
 
 argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "password-hash"] }
-askama = { version = "0.16.1", default-features = false, features = ["derive", "std"] } # part: invitations
+askama = { version = "0.16.1", default-features = false, features = ["derive", "std"] }
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
 base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 # part: files

@@ -7,9 +7,11 @@
 mod audit;
 mod error;
 mod model;
+mod personal_data;
 mod repo;
 mod service;
 
 pub(crate) use error::AuditError;
 pub(crate) use model::{Action, Entry, Resource};
+pub(crate) use personal_data::Contract;
 pub(crate) use service::{Sink, record};

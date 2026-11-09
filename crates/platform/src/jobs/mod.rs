@@ -375,6 +375,27 @@ impl UnitOfWork {
     }
 }
 
+/// Deletes the jobs enqueued for `workspace`, which the unit of work deletes, so none runs for a
+/// workspace that is gone. A job records its workspace without a foreign key (DATA-05, DATA-23).
+/// A run in flight goes on, and its outcome changes nothing, as a stale run's doesn't.
+pub async fn forget_workspace(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+) -> Result<(), Internal> {
+    sqlx::query!("DELETE FROM jobs WHERE workspace_id = $1", workspace.uuid())
+        .execute(uow.executor())
+        .await?;
+    Ok(())
+}
+
+/// Deletes the jobs enqueued for `user`, whose account the unit of work deletes (DATA-23).
+pub(crate) async fn forget_user(uow: &mut UnitOfWork, user: UserId) -> Result<(), Internal> {
+    sqlx::query!("DELETE FROM jobs WHERE user_id = $1", user.uuid())
+        .execute(uow.executor())
+        .await?;
+    Ok(())
+}
+
 /// How a run ended (PLATFORM-020).
 #[derive(Clone, Copy, Debug)]
 enum Outcome {

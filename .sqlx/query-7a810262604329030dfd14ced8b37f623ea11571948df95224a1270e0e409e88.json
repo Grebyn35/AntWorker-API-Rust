@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO sessions (\n            user_id, device_id, access_token_hash, refresh_token_hash, access_token_expires_at,\n            refresh_token_expires_at, expires_at\n        ) VALUES (\n            $1, $2, $3, $4,\n            now() + make_interval(secs => least($5::float8, $7::float8)),\n            now() + make_interval(secs => least($6::float8, $7::float8)),\n            now() + make_interval(secs => $7::float8)\n        )\n        RETURNING id, user_id, device_id, created_at, access_token_expires_at, refresh_token_expires_at,\n            expires_at",
+  "query": "SELECT id, user_id, device_id, created_at, access_token_expires_at, refresh_token_expires_at,\n            expires_at, authenticated_at\n        FROM sessions WHERE id = $2 AND user_id = $1",
   "describe": {
     "columns": [
       {
@@ -79,17 +79,23 @@
             "name": "expires_at"
           }
         }
+      },
+      {
+        "ordinal": 7,
+        "name": "authenticated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "authenticated_at"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
-        "Text",
-        "Bytea",
-        "Bytea",
-        "Float8",
-        "Float8",
-        "Float8"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -99,8 +105,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "a8375f71b54fecdecf279d740e86b1b3eee89871b7c8aa11d91a1b2ec0d87770"
+  "hash": "7a810262604329030dfd14ced8b37f623ea11571948df95224a1270e0e409e88"
 }

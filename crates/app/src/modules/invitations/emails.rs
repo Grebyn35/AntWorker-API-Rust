@@ -4,10 +4,7 @@
 use askama::Template;
 use platform::{errors::Internal, mail::Email, types::EmailAddress};
 
-use crate::modules::{access::Role, accounts::DisplayName, workspaces::WorkspaceName};
-
-/// The product's name, which the email carries, and `just rename` rewrites (ARCH-15).
-const PRODUCT: &str = "AntWorker";
+use crate::modules::{PRODUCT, access::Role, accounts::DisplayName, workspaces::WorkspaceName};
 
 /// The invitation email's values (INVITATIONS-010).
 pub(super) struct Invitation {

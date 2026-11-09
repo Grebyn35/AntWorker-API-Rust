@@ -22,6 +22,11 @@ pub(crate) const MEMBERSHIP_CREATED: UserEvent<MembershipCreated> =
 pub(super) const MEMBER_REMOVED: WorkspaceEvent<MembersRead, MemberRemoved> =
     WorkspaceEvent::new("member.removed");
 
+/// A member left the workspace, as their account was deleted, sent to the members who may list
+/// members (ACCOUNTS-014).
+pub(super) const MEMBER_LEFT: WorkspaceEvent<MembersRead, MemberLeft> =
+    WorkspaceEvent::new("member.left");
+
 /// The workspace was renamed, sent to every member, all of whom may read it (WORKSPACES-008).
 pub(super) const WORKSPACE_RENAMED: WorkspaceEvent<WorkspaceRead, WorkspaceRenamed> =
     WorkspaceEvent::new("workspace.renamed");
@@ -41,6 +46,15 @@ pub(super) struct MemberRemoved {
     /// The workspace.
     pub(super) workspace_id: WorkspaceId,
     /// The member who was removed.
+    pub(super) user_id: UserId,
+}
+
+/// The payload of `member.left`: a member left the workspace.
+#[derive(Debug, Serialize, ToSchema)]
+pub(super) struct MemberLeft {
+    /// The workspace.
+    pub(super) workspace_id: WorkspaceId,
+    /// The member who left.
     pub(super) user_id: UserId,
 }
 

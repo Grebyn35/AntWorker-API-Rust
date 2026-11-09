@@ -13,8 +13,9 @@ pub(super) const WORKSPACE_CREATED: Action = Action::new("workspace.created");
 pub(super) const WORKSPACE_RENAMED: Action = Action::new("workspace.renamed");
 /// A member was removed (WORKSPACES-005).
 pub(super) const MEMBER_REMOVED: Action = Action::new("member.removed");
+/// A member left the workspace, as their account was deleted (ACCOUNTS-014).
+pub(super) const MEMBER_LEFT: Action = Action::new("member.left");
 
-/// A workspace.
+/// A workspace, which an action on one of its members names too, with the member as its target
+/// (AUDIT-006).
 pub(super) const WORKSPACE: Resource = Resource::new("workspace");
-/// A member of a workspace, by their user ID.
-pub(super) const MEMBER: Resource = Resource::new("member");

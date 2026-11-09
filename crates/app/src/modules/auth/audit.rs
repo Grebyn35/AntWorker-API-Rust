@@ -24,6 +24,10 @@ pub(super) const SESSION_ENDED: Action = Action::new("session.ended");
 /// A sign-in issued its device a device token, ending the one it used and the account's expired
 /// ones (AUTH-019).
 pub(super) const DEVICE_TOKEN_ISSUED: Action = Action::new("device_token.issued");
+/// A session proved its user's password again (AUTH-021).
+pub(super) const SESSION_REAUTHENTICATED: Action = Action::new("session.reauthenticated");
+/// A signed-in user's password was wrong (AUTH-021).
+pub(super) const PASSWORD_CHECK_FAILED: Action = Action::new("password.check_failed");
 
 /// A user's account.
 pub(super) const USER: Resource = Resource::new("user");

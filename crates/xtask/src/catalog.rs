@@ -208,7 +208,7 @@ impl Catalog {
 
 /// The numbers that a spec's line of retired IDs names, such as `IDs 014 and 015 are retired.`,
 /// or `None` for any other line.
-fn retired_numbers(line: &str) -> Option<Vec<u32>> {
+pub fn retired_numbers(line: &str) -> Option<Vec<u32>> {
     let listed = line
         .strip_prefix("IDs ")
         .or_else(|| line.strip_prefix("ID "))?

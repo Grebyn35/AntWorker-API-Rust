@@ -119,6 +119,7 @@ pub(crate) async fn add_member(
     user: UserId,
     role: Role,
 ) -> Result<Option<Timestamp>, AccessError> {
+    repo::hold_owner(uow, workspace).await?;
     let joined_at = repo::insert_unless_member(uow, workspace, user, role).await?;
     if joined_at.is_some() {
         ordered(uow);
@@ -136,6 +137,41 @@ pub(crate) async fn is_member(
     Ok(repo::role(uow, workspace, user).await?.is_some())
 }
 // end part: invitations
+
+/// Locks every membership of the caller, and answers whether their account may be deleted: that
+/// no workspace they own has another member (ACCESS-008, ACCOUNTS-012). Only the deletion of the
+/// caller's account calls it, as its first step, so it takes its locks before any other.
+pub(crate) async fn erasable(
+    uow: &mut UnitOfWork,
+    principal: &Principal,
+) -> Result<bool, AccessError> {
+    let user = principal.user_id();
+    let owned: Vec<WorkspaceId> = repo::held(uow, user)
+        .await?
+        .into_iter()
+        .filter(|(_, role)| *role == Role::Owner)
+        .map(|(workspace, _)| workspace)
+        .collect();
+    Ok(owned.is_empty() || !repo::others_in(uow, &owned, user).await?)
+}
+
+/// Every membership of the caller, with its workspace and role, which the personal data contract
+/// of `workspaces` reads once [`erasable`] has locked them, so its lock holds them already.
+pub(crate) async fn held(
+    uow: &mut UnitOfWork,
+    principal: &Principal,
+) -> Result<Vec<(WorkspaceId, Role)>, AccessError> {
+    Ok(repo::held(uow, principal.user_id()).await?)
+}
+
+/// Deletes every membership of `user`, signalling each (ACCESS-006): what remains of theirs once
+/// the contract of `workspaces` has deleted the workspaces whose only member they were.
+pub(super) async fn leave_all(uow: &mut UnitOfWork, user: UserId) -> Result<(), Internal> {
+    for workspace in repo::delete_all(uow, user).await? {
+        changed(uow, workspace, user).await?;
+    }
+    Ok(())
+}
 
 /// Removes `user` from the caller's workspace, if the caller outranks them (ACCESS-004). The
 /// delete itself checks the rank, so it locks the member's row only when it may remove them, and

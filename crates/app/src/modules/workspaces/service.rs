@@ -270,7 +270,7 @@ pub(crate) async fn remove_member(
         Removal::Removed => {}
     }
     let workspace = authorized.workspace_id();
-    let mut entry = Entry::new(audit::MEMBER_REMOVED, audit::MEMBER, user.uuid());
+    let mut entry = Entry::new(audit::MEMBER_REMOVED, audit::WORKSPACE, workspace.uuid());
     entry.target = Some(user);
     log::record(&mut uow, authorized.audit_scope(), entry).await?;
     let payload = published::MemberRemoved {

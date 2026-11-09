@@ -7,15 +7,15 @@ CREATE TABLE invitations (
     workspace_id uuid NOT NULL,
     email text NOT NULL,
     role workspace_role NOT NULL,
-    inviter_id uuid NOT NULL,
+    inviter_id uuid,
     expires_at timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     version bigint NOT NULL DEFAULT 1,
     CONSTRAINT invitations_workspace_id_email_key UNIQUE (workspace_id, email),
     CONSTRAINT invitations_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE,
-    -- Until account deletion removes a user's invitations (D16).
-    CONSTRAINT invitations_inviter_id_fkey FOREIGN KEY (inviter_id) REFERENCES users (id) ON DELETE RESTRICT
+    -- An invitation outlives the account of the member who sent it (ACCOUNTS-014).
+    CONSTRAINT invitations_inviter_id_fkey FOREIGN KEY (inviter_id) REFERENCES users (id) ON DELETE SET NULL
 );
 
 -- An invitee's invitations, the latest first (INVITATIONS-004).

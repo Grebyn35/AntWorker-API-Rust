@@ -35,6 +35,7 @@ macro_rules! session {
             access_token_expires_at: Timestamp::from_database(row.access_token_expires_at),
             refresh_token_expires_at: Timestamp::from_database(row.refresh_token_expires_at),
             expires_at: Timestamp::from_database(row.expires_at),
+            authenticated_at: Timestamp::from_database(row.authenticated_at),
         }
     }};
 }
@@ -78,6 +79,21 @@ pub(super) async fn password_identity_for_update(
     }))
 }
 
+/// The password hash of `user_id`'s password identity, if they have one, read without a lock,
+/// for a check of a signed-in user's password (AUTH-021).
+pub(super) async fn password_hash(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+) -> Result<Option<String>, Internal> {
+    Ok(sqlx::query_scalar!(
+        "SELECT password_hash FROM identities WHERE user_id = $1 AND method = 'password'",
+        user_id.uuid(),
+    )
+    .fetch_optional(uow.executor())
+    .await?
+    .flatten())
+}
+
 pub(super) async fn update_password_hash(
     uow: &mut UnitOfWork,
     user_id: UserId,
@@ -116,7 +132,7 @@ pub(super) async fn insert_session(
             now() + make_interval(secs => $7::float8)
         )
         RETURNING id, user_id, device_id, created_at, access_token_expires_at, refresh_token_expires_at,
-            expires_at",
+            expires_at, authenticated_at",
         user_id.uuid(),
         device_id.map(DeviceId::as_str),
         access,
@@ -341,7 +357,7 @@ pub(super) async fn rotate(
             refresh_token_expires_at = least(now() + make_interval(secs => $7::float8), expires_at)
         WHERE id = $2 AND user_id = $1 AND refresh_token_hash = $3
         RETURNING id, user_id, device_id, created_at, access_token_expires_at, refresh_token_expires_at,
-            expires_at",
+            expires_at, authenticated_at",
         found.user_id.uuid(),
         found.id.uuid(),
         presented,
@@ -363,7 +379,7 @@ pub(super) async fn session(
 ) -> Result<Option<Session>, Internal> {
     let row = sqlx::query!(
         "SELECT id, user_id, device_id, created_at, access_token_expires_at, refresh_token_expires_at,
-            expires_at
+            expires_at, authenticated_at
         FROM sessions WHERE id = $2 AND user_id = $1",
         user_id.uuid(),
         session_id.uuid(),
@@ -371,4 +387,83 @@ pub(super) async fn session(
     .fetch_optional(uow.executor())
     .await?;
     Ok(row.map(|row| session!(row)))
+}
+
+/// Sets the session `session_id` of `user_id` as re-authenticated now, by the database's clock,
+/// and returns it, if it exists (AUTH-021).
+pub(super) async fn reauthenticate(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+    session_id: SessionId,
+) -> Result<Option<Session>, Internal> {
+    let row = sqlx::query!(
+        "UPDATE sessions SET authenticated_at = now() WHERE id = $2 AND user_id = $1
+        RETURNING id, user_id, device_id, created_at, access_token_expires_at, refresh_token_expires_at,
+            expires_at, authenticated_at",
+        user_id.uuid(),
+        session_id.uuid(),
+    )
+    .fetch_optional(uow.executor())
+    .await?;
+    Ok(row.map(|row| session!(row)))
+}
+
+/// Whether the session `session_id` of `user_id` proved its user's password within the last 5
+/// minutes, by the database's clock (AUTH-023).
+pub(super) async fn recently_authenticated(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+    session_id: SessionId,
+) -> Result<bool, Internal> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT EXISTS (
+            SELECT 1 FROM sessions
+            WHERE id = $2 AND user_id = $1 AND authenticated_at > now() - interval '5 minutes'
+        ) AS "recent!""#,
+        user_id.uuid(),
+        session_id.uuid(),
+    )
+    .fetch_one(uow.executor())
+    .await?)
+}
+
+/// Deletes every identity of `user_id`, whose account the unit of work deletes (ACCOUNTS-013).
+pub(super) async fn delete_identities(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+) -> Result<(), Internal> {
+    sqlx::query!("DELETE FROM identities WHERE user_id = $1", user_id.uuid())
+        .execute(uow.executor())
+        .await?;
+    Ok(())
+}
+
+/// Deletes every session of `user_id`, whose account the unit of work deletes, and returns their
+/// IDs (ACCOUNTS-013).
+pub(super) async fn delete_sessions(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+) -> Result<Vec<SessionId>, Internal> {
+    let ids = sqlx::query_scalar!(
+        "DELETE FROM sessions WHERE user_id = $1 RETURNING id",
+        user_id.uuid(),
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(ids.into_iter().map(SessionId::from_uuid).collect())
+}
+
+/// Deletes every device token of `user_id`, whose account the unit of work deletes
+/// (ACCOUNTS-013).
+pub(super) async fn delete_device_tokens(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+) -> Result<(), Internal> {
+    sqlx::query!(
+        "DELETE FROM device_tokens WHERE user_id = $1",
+        user_id.uuid()
+    )
+    .execute(uow.executor())
+    .await?;
+    Ok(())
 }

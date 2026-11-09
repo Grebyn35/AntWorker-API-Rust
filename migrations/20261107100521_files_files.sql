@@ -16,8 +16,8 @@ CREATE TABLE workspace_files (
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT workspace_files_object_key_key UNIQUE (object_key),
     CONSTRAINT workspace_files_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE,
-    -- Until account deletion clears a user's uploads (D31).
-    CONSTRAINT workspace_files_uploader_id_fkey FOREIGN KEY (uploader_id) REFERENCES users (id) ON DELETE RESTRICT
+    -- A file outlives the account of the member who uploaded it (ACCOUNTS-014).
+    CONSTRAINT workspace_files_uploader_id_fkey FOREIGN KEY (uploader_id) REFERENCES users (id) ON DELETE SET NULL
 );
 
 -- A workspace's files, the latest uploaded first (FILES-007), which also indexes the foreign key

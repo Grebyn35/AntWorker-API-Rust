@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`accounts` owns the user record: who a user is, and how they appear to others. Registration creates the record through `auth`, other modules read display data through batch calls, and a user renames themselves here. Account deletion and data export arrive with the module's next parts, through the personal data contract (D16, D31).
+`accounts` owns the user record: who a user is, and how they appear to others. Registration creates the record through `auth`, other modules read display data through batch calls, and a user renames themselves here. It deletes an account once `auth` has confirmed the deletion, across every module, through the personal data contract (D16, D31). Data export arrives with the module's next part.
 A user also sets and removes their avatar here, whose image `files` keeps (D117, D120). <!-- part: files -->
 
 ## Owns
@@ -21,7 +21,8 @@ A user also sets and removes their avatar here, whose image `files` keeps (D117,
   Each profile also holds the link to the user's avatar (ACCOUNTS-011). <!-- part: files -->
 - `matching(uow, &[UserId], &Search)`: the IDs among a batch, passed under the same terms, of the users whose name or email contains the search (API-20).
 - The domain type `DisplayName` (D25). `EmailAddress` is in `platform::types`.
-- The personal data contract for `users`, registered with the composition root (D31).
+- `Deletion`, which the composition root builds from every module's personal data contract, in the order it registers them, and whose `delete(uow, &Principal)` deletes the caller's account in the unit of work of `auth` that confirmed it, and reports whether it did, or why not, which `auth` answers with codes of its own (ACCOUNTS-012 to ACCOUNTS-016, AUTH-023).
+- `Contract`, the personal data contract for `users`, which the composition root registers last (D31).
 
 ## Routes
 
@@ -51,6 +52,13 @@ A user also sets and removes their avatar here, whose image `files` keeps (D117,
 | ACCOUNTS-009 | An avatar is a PNG, JPEG, GIF or WebP image of at most 1 MiB, of the kind whose signature its bytes start with, as files' Accepted kinds checks it. A body of more than 1 MiB answers 413 `request.payload_too_large`, whether its `Content-Length` declares it or it grows past the limit while it is read. An empty body, or one that is no such image, answers 422 `accounts.avatar_not_image`, and one in which the scanner finds malware 422 `accounts.avatar_malware_detected`. While the scanner or the storage doesn't answer, or not within its time, the upload answers 503 `accounts.avatar_unavailable`, with `Retry-After`, unless its route's 60 seconds pass first, when it answers 503 `request.timed_out` (PLATFORM-042). None of these stores anything. <!-- part: files --> | API-08, ERR-03, D63, D121 | `accounts_009_` |
 | ACCOUNTS-010 | Removing one's avatar, `DELETE /v1/users/me/avatar`, answers 204, and when the caller has one, removes it, records `avatar.deleted` in their own log, and publishes `user.updated` and `member.updated` as ACCOUNTS-007 does. The removed image's bytes stay until FILES-011 deletes them. <!-- part: files --> | API-04, DATA-22, SEC-18, SEC-19, D120 | `accounts_010_` |
 | ACCOUNTS-011 | The record that ACCOUNTS-001 gives, and each profile that `profiles` gives, carries `avatar_url`: the path of the public download of the user's avatar (FILES-024), or null when they have none. <!-- part: files --> | API-05, D120 | `accounts_011_` |
+| ACCOUNTS-012 | Deleting an account is refused while the user owns a workspace that has another member: `delete` reports it, which `auth` answers with 409 `auth.owns_shared_workspace` (AUTH-023), and nothing changes. A workspace whose only member is the user refuses nothing. | D16, ERR-03 | `accounts_012_` |
+| ACCOUNTS-013 | Deleting an account deletes, in one unit of work, the user's record and everything their account holds: their identities, sessions, device tokens, own audit log, idempotency records, events and jobs, their memberships, and each workspace whose only member they are, with everything in it. Every session's streams close. Afterwards no row names the user, and none holds their email or name, but for what ACCOUNTS-014 keeps, the events that name them, which go within a day (PLATFORM-019), and the email of ACCOUNTS-015 until it is sent. | D16, D31, DATA-06, DATA-23, SEC-06 | `accounts_013_` |
+| ACCOUNTS-014 | In each workspace the user shares with others, the deletion ends their membership, records `member.left` in the workspace's log, and publishes the workspace event `member.left`, which requires `members.read`. What they made there is the workspace's, and stays, without their ID. The workspace's log keeps each entry that named them, without their ID, their IP address and their user agent (AUDIT-006). | D6, D16, D31, D125, SEC-18, SEC-19 | `accounts_014_` |
+| ACCOUNTS-015 | With email on, a deletion enqueues, in its unit of work, as a job for no one, an email to the account's address that says the account and its data are deleted, which carries no link and is sent once the deletion commits (PLATFORM-021). With email off, nothing is sent (PLATFORM-022). | D1, PLATFORM-021 | `accounts_015_` |
+| ACCOUNTS-016 | When a deletion's last step, the deletion of the user's row, waits more than 200 milliseconds for a lock, or finds a membership that a request of the user's added while the deletion ran, `delete` reports it, which `auth` answers with 409 `auth.account_changed`, and nothing changes, so the client sends it again. | DATA-20, ERR-03 | `accounts_016_` |
+| ACCOUNTS-017 | A deletion deletes the user's own files and their avatar, whose bytes FILES-011 deletes. A file they uploaded to a workspace that stays keeps its row, with its `uploader_id` null. <!-- part: files --> | D16, D31, D125 | `accounts_017_` |
+| ACCOUNTS-018 | An invitation that the user sent to a workspace that stays keeps its row, with no inviter, and an invitation addressed to their email, the workspace's that sent it, stays as it was. <!-- part: invitations --> | D16, D31, D125 | `accounts_018_` |
 
 ## Design
 
@@ -82,9 +90,34 @@ ACCOUNTS-009's limit is fixed, beside `FILE_MAX_BYTES`, whose default is ten tim
 
 `email_verified` starts as `false`, and nothing enforces it in this slice, though ACCOUNTS-001 returns it. What it decides, once the full `auth` module arrives, is in the [auth spec](auth.md#email-verification).
 
-### Export and erasure
+### Deleting an account
 
-Both arrive with the module's next parts, through the personal data contract (D31). Export covers the same workspaces that erasure deletes: the content of every workspace whose only member is the user is part of their export, and the content of every other workspace isn't (D16). In the personal shape, that is everything the user made ([architecture §5](../architecture.md#workspace-shapes)).
+`auth` confirms a deletion, by a session that proved its password within the last 5 minutes, opens the unit of work, and calls `Deletion::delete` (AUTH-023), which:
+
+1. Has `access` lock every membership of the user, `FOR UPDATE`, and refuse the deletion while a workspace they own has another member (ACCOUNTS-012, ACCESS-008).
+2. Runs each module's personal data contract, in the order the composition root registers them, each erasing what its module keeps of the user, as the table below says (D31). The deletion is immediate, with no grace period (D16).
+3. Runs the contract of `accounts` last, which reads the user's email, enqueues the email of ACCOUNTS-015, lets the unit of work wait at most 200 milliseconds for each lock while it locks the user's row `FOR UPDATE` and deletes it, and then as long as before. The foreign keys then delete, or set to null, every row that still names the user (DATA-05).
+
+| Contract | What it erases |
+|---|---|
+| `workspaces` | Each workspace whose only member is the user, with everything in it, through its foreign keys, and the jobs enqueued for it (DATA-23). In each other workspace they belong to, it records `member.left` and publishes it (ACCOUNTS-014). |
+| `access` | The user's memberships, each with its access-change signal (ACCESS-006). |
+| `files` | The user's files and avatar, whose bytes FILES-011 deletes. A file they uploaded to a workspace that stays keeps its row, and its foreign key sets its `uploader_id` to null as the user's row goes (ACCOUNTS-017). <!-- part: files --> |
+| `invitations` | Nothing of its own: an invitation the user sent stays, the workspace's, and its foreign key sets its `inviter_id` to null as the user's row goes. An invitation addressed to their email is the workspace's too, and stays (ACCOUNTS-018, D31). <!-- part: invitations --> |
+| `auth` | The user's identities, their sessions, each with its access-change signal, which closes its streams (SEC-06), and their device tokens. |
+| `audit` | Nothing of its own: the foreign keys delete the user's own log, and anonymize the entries of other logs that name them, as the user's row goes (AUDIT-006). |
+| `platform` | The jobs enqueued for the user. Their events and idempotency records go with the user's row, through their foreign keys. |
+| `accounts` | The user's row, last, as step 3 says. |
+
+What the user made in a workspace they share with others is the workspace's, as their export leaves it out (D31): it stays, and keeps nothing that names them (ACCOUNTS-014). The deletion records nothing in the user's own log, which goes with the account; its entries in the logs of the workspaces they shared remain. A user who shared no workspace leaves no row behind but the job of ACCOUNTS-015's email until it is sent, and nothing else but the request's log line and trace, which hold their ID alone (OBS-04).
+
+The steps take their locks in the order that every other operation takes them on the same rows, so no operation waits for the deletion while the deletion waits for it (DATA-20). An operation in a workspace first locks its caller's membership (PLATFORM-009). An operation that locks another row of the user's, such as a session that a refresh rotates, or an identity that a sign-in locks, locks the user's row after it, `FOR KEY SHARE`, through a foreign key, mostly that of its audit entry. So the deletion locks the memberships first, which also keeps anyone from joining a workspace the user owns, since joining locks the owner's membership (ACCESS-008); then deletes the rows of the user's that operations lock, waiting for any operation that holds one; and locks the user's row last. Once it holds that lock, no new row can name the user.
+
+A request of the user's own that the deletion doesn't wait for, since it locks none of their rows that the deletion has already erased, can still create a row that names them after the deletion has passed its table, such as the membership of a workspace they create, and a further request can lock that row and then wait for the user's row. The last step therefore waits at most 200 milliseconds for any lock, well within Postgres's `deadlock_timeout` of 1 second, so a deletion that such requests would make wait on each other yields first; and a new membership, whose foreign key keeps it from going with the user, refuses it too. Both answer ACCOUNTS-016's 409, and the unit of work rolls back.
+
+### Export
+
+Export arrives with the module's next part, through the personal data contract (D31). It covers the same workspaces that a deletion deletes: the content of every workspace whose only member is the user is part of their export, and the content of every other workspace isn't (D16). In the personal shape, that is everything the user made ([architecture §5](../architecture.md#workspace-shapes)).
 
 ## Open design questions
 

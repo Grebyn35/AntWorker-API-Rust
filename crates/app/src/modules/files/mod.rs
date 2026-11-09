@@ -7,12 +7,14 @@ mod events;
 mod jobs;
 mod metrics;
 mod model;
+mod personal_data;
 mod repo;
 mod routes;
 mod service;
 
 pub(crate) use error::FilesError;
 pub(crate) use model::Settings;
+pub(crate) use personal_data::Contract;
 pub(crate) use routes::routes;
 pub(crate) use service::Files;
 pub(crate) use service::avatar::{

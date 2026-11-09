@@ -129,3 +129,14 @@ pub(in crate::modules::files) async fn delete(
     .await?;
     Ok(deleted.rows_affected() > 0)
 }
+
+/// Deletes every file of `user`'s own, whose account the unit of work deletes (ACCOUNTS-013).
+pub(in crate::modules::files) async fn delete_all(
+    uow: &mut UnitOfWork,
+    user: UserId,
+) -> Result<(), Internal> {
+    sqlx::query!("DELETE FROM user_files WHERE user_id = $1", user.uuid())
+        .execute(uow.executor())
+        .await?;
+    Ok(())
+}

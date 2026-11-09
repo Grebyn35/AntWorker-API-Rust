@@ -217,6 +217,28 @@ impl UnitOfWork {
         self.published.push(id);
     }
 
+    /// Bounds how long each of the unit of work's statements from now on waits for a lock, until
+    /// [`UnitOfWork::wait_for_locks_as_before`], so an operation that a cycle of waits would
+    /// otherwise end gives up first. A statement that gives up fails with Postgres's
+    /// `lock_not_available`, which [`is_lock_timeout`] tells (the platform spec's "Unit of
+    /// work").
+    pub async fn wait_for_locks_at_most(&mut self, at_most: Duration) -> Result<(), Internal> {
+        let milliseconds = format!("{}ms", at_most.as_millis().max(1));
+        sqlx::query_scalar!("SELECT set_config('lock_timeout', $1, true)", milliseconds)
+            .fetch_one(&mut *self.tx)
+            .await?;
+        Ok(())
+    }
+
+    /// Lets the unit of work's statements wait for a lock as long as they did before
+    /// [`UnitOfWork::wait_for_locks_at_most`].
+    pub async fn wait_for_locks_as_before(&mut self) -> Result<(), Internal> {
+        sqlx::query!("SET LOCAL lock_timeout TO DEFAULT")
+            .execute(&mut *self.tx)
+            .await?;
+        Ok(())
+    }
+
     /// Makes the unit of work commit in the order of the commits that publish events, as one
     /// that publishes does, so each event's snapshot tells whether it committed after this unit
     /// of work: an operation that adds a membership asks for it (SEC-19).
@@ -360,8 +382,9 @@ async fn position(tx: &mut PgConnection, published: &[uuid::Uuid]) -> Result<(),
     Ok(())
 }
 
-/// Whether `error` is a wait that `lock_timeout` ended.
-fn is_lock_timeout(error: &sqlx::Error) -> bool {
+/// Whether `error` is a wait that `lock_timeout` ended, as one that
+/// [`UnitOfWork::wait_for_locks_at_most`] bounds.
+pub fn is_lock_timeout(error: &sqlx::Error) -> bool {
     error
         .as_database_error()
         .and_then(sqlx::error::DatabaseError::code)

@@ -278,6 +278,9 @@ pub(crate) struct Session {
     pub(crate) refresh_token_expires_at: Timestamp,
     /// When the session ends, whatever its refreshes.
     pub(crate) expires_at: Timestamp,
+    /// When its user last proved their password in it: when it began, or re-authenticated
+    /// (AUTH-021).
+    pub(crate) authenticated_at: Timestamp,
 }
 
 #[cfg(test)]
