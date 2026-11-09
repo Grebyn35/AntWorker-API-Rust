@@ -229,7 +229,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 13bda32..7bf3156: `files`' next part: a user's own files, public files with a bucket of the IP limit of their own (D114), signed download URLs (D113, PLATFORM-080, AUTH-020) and ranged downloads (D112, PLATFORM-081, OPS-06) | 1 | 20 (17, 15, 10 shared) | 9 | 0 | `next pass`: 0664e84 <!-- part: files --> |
 | 13bda32..0664e84: as above, with pass 1's fixes | 2 | 9 (7, 3, 1 shared) | 7 | 0 | `next pass`: 859ef0e <!-- part: files --> |
 | 13bda32..859ef0e: as above, with pass 2's fixes | 3 | 10 (6, 4, 0 shared) | 4 | 1 | `stopped: no progress`: 1911eb6 <!-- part: files --> |
-| b6cd1a4..2b70070: a public download's name of its file's ID and its kind's extension (D116), `files` as an optional part and its removal (D117, D119), and the members of `features` for the parts (D118) | 1 | 13 (9, 11, 6 shared) | 8 | 0 | `next pass` <!-- part: files --> |
+| b6cd1a4..2b70070: a public download's name of its file's ID and its kind's extension (D116), `files` as an optional part and its removal (D117, D119), and the members of `features` for the parts (D118) | 1 | 13 (9, 11, 6 shared) | 8 | 0 | `next pass`: ccc38d4 <!-- part: files --> |
+| b6cd1a4..ccc38d4: as above, with pass 1's fixes | 2 | 5 (3, 3, 1 shared) | 1 | 0 | `next pass` <!-- part: files --> |
 
 ## Decisions
 
