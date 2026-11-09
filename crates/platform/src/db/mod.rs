@@ -41,6 +41,10 @@ use crate::{
     types::{Client, UserId},
 };
 
+/// How long a claim waits for the record of a key that another unit of work holds and hasn't
+/// committed (PLATFORM-036).
+const CLAIM_WAITS_AT_MOST: Duration = Duration::from_secs(1);
+
 /// The SQLSTATE of a lock that `lock_timeout` stopped waiting for.
 const LOCK_NOT_AVAILABLE: &str = "55P03";
 
@@ -277,10 +281,7 @@ impl UnitOfWork {
         let Some(key) = key else {
             return Ok(Claimed::Fresh);
         };
-        sqlx::query!("SET LOCAL lock_timeout = '1s'")
-            .execute(&mut *self.tx)
-            .await
-            .map_err(Internal::from)?;
+        self.wait_for_locks_at_most(CLAIM_WAITS_AT_MOST).await?;
         let inserted = sqlx::query_scalar!(
             r#"INSERT INTO idempotency_records AS record (user_id, key, fingerprint)
             VALUES ($1, $2, $3)
@@ -302,10 +303,7 @@ impl UnitOfWork {
             }
             Err(error) => return Err(Internal::from(error).into()),
         };
-        sqlx::query!("SET LOCAL lock_timeout TO DEFAULT")
-            .execute(&mut *self.tx)
-            .await
-            .map_err(Internal::from)?;
+        self.wait_for_locks_as_before().await?;
         if inserted {
             idempotency::count(Outcome::New);
             self.claimed = Some((user, key.key().to_owned()));

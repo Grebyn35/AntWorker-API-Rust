@@ -2,13 +2,18 @@
 
 use serde_json::json;
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
+
+use platform::{
+    clock::TestClock,
+    mail::{Mail, MailConfig},
+};
 
 use crate::support::{
     Api, Options, TestDatabase,
     api::Response,
     events::{self, Event},
-    execute_on, mailbox, streams,
+    execute_on, mailbox, queries_wait_on_locks, streams,
     users::{self, SignedIn},
     workspaces,
 };
@@ -96,6 +101,25 @@ async fn accounts_012_a_deletion_is_refused_while_the_user_owns_a_workspace_with
     );
     let me = api.get("/v1/users/me").bearer(&ada.access).send().await;
     assert_eq!(me.status, 200);
+}
+
+#[tokio::test]
+async fn accounts_012_a_workspace_whose_only_member_is_the_user_refuses_nothing() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let mine = workspaces::arrange(api.database(), "Mine", &[(&ada.user_id, "owner")]).await;
+
+    let response = delete(&api, &ada).await;
+
+    assert_eq!(response.status, 204);
+    assert_eq!(
+        one(
+            &api,
+            &format!("SELECT count(*)::text FROM workspaces WHERE id = '{mine}'")
+        )
+        .await,
+        "0"
+    );
 }
 
 #[tokio::test]
@@ -362,9 +386,17 @@ async fn accounts_015_with_email_on_the_address_hears_that_the_account_is_delete
     let ada = users::register(&api, &address).await;
 
     let response = delete(&api, &ada).await;
+    let job = one(
+        &api,
+        "SELECT coalesce(user_id::text, '-') || ' ' || coalesce(workspace_id::text, '-') \
+         FROM jobs WHERE kind = 'platform.send_email'",
+    )
+    .await;
     api.run_jobs().await;
 
     assert_eq!(response.status, 204);
+    // A job for no one: the user it would name is gone.
+    assert_eq!(job, "- -");
     let emails = mailbox::to(&address).await;
     assert_eq!(emails.len(), 1);
     assert_eq!(emails[0].subject, "Your AntWorker account is deleted");
@@ -382,49 +414,71 @@ async fn accounts_015_with_email_off_nothing_is_sent() {
     assert_eq!(one(&api, "SELECT count(*)::text FROM jobs").await, "0");
 }
 
+/// The user's row, sessions and memberships, as `count|count|count`, which a deletion that
+/// changed nothing leaves.
+async fn left_of(api: &Api, user: &SignedIn) -> String {
+    let id = &user.user_id;
+    one(
+        api,
+        &format!(
+            "SELECT (SELECT count(*) FROM users WHERE id = '{id}') || '|' \
+             || (SELECT count(*) FROM sessions WHERE user_id = '{id}') || '|' \
+             || (SELECT count(*) FROM workspace_memberships WHERE user_id = '{id}')"
+        ),
+    )
+    .await
+}
+
 #[tokio::test]
-async fn accounts_016_a_deletion_that_a_request_of_the_user_s_holds_up_answers_409() {
+async fn accounts_016_a_membership_that_a_request_added_while_the_deletion_ran_refuses_it() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let bob = users::register(&api, "bob@example.com").await;
     let db = api.database();
     let joined = workspaces::arrange(db, "Acme", &[(&bob.user_id, "owner")]).await;
     // A request of Ada's that adds her to a workspace while the deletion runs: its membership's
-    // foreign key holds her row `FOR KEY SHARE`.
-    let mut held = db.owner_connection().await;
-    execute_on(&mut held, "BEGIN").await;
-    execute_on(
-        &mut held,
-        &format!(
+    // foreign key holds her row `FOR KEY SHARE`, which the deletion's last step waits for.
+    let mut held = db
+        .holding(&format!(
             "INSERT INTO workspace_memberships (workspace_id, user_id, role) \
              VALUES ('{joined}', '{}', 'member')",
             ada.user_id
-        ),
-    )
-    .await;
+        ))
+        .await;
 
-    // The held transaction ends only after the deletion answers, so the deletion's wait for it is
-    // bounded, or the test never ends.
-    let response = delete(&api, &ada).await;
-    execute_on(&mut held, "COMMIT").await;
+    let (response, ()) = tokio::join!(delete(&api, &ada), async {
+        queries_wait_on_locks(db, 1).await;
+        execute_on(&mut held, "COMMIT").await;
+    });
 
     assert_eq!(response.status, 409);
     assert_eq!(response.json()["code"], "auth.account_changed");
-    let ada_id = &ada.user_id;
-    assert_eq!(
-        one(
-            &api,
-            &format!(
-                "SELECT (SELECT count(*) FROM users WHERE id = '{ada_id}') || ' ' \
-                 || (SELECT count(*) FROM sessions WHERE user_id = '{ada_id}') || ' ' \
-                 || (SELECT count(*) FROM workspace_memberships WHERE user_id = '{ada_id}')"
-            )
-        )
-        .await,
-        "1 1 1"
-    );
+    assert_eq!(left_of(&api, &ada).await, "1|1|1");
     let me = api.get("/v1/users/me").bearer(&ada.access).send().await;
     assert_eq!(me.status, 200);
+}
+
+#[tokio::test]
+async fn accounts_016_a_row_that_another_request_holds_locked_refuses_the_deletion_at_once() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    // Another request holds an entry of Ada's own log, which deleting her row deletes.
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM audit_entries WHERE user_id = '{}' FOR UPDATE",
+            ada.user_id
+        ))
+        .await;
+
+    // The lock is held until the deletion has answered, so a deletion that waited for it would
+    // never answer.
+    let response = delete(&api, &ada).await;
+    execute_on(&mut held, "ROLLBACK").await;
+
+    assert_eq!(response.status, 409);
+    assert_eq!(response.json()["code"], "auth.account_changed");
+    assert_eq!(left_of(&api, &ada).await, "1|1|0");
 }
 
 #[tokio::test]
@@ -449,7 +503,8 @@ async fn data_23_every_column_that_names_a_user_or_holds_personal_data_has_a_con
         .await
         .into_iter()
         .collect();
-    let registered: Vec<String> = app::personal_data_columns()
+    let mail = Mail::new(MailConfig::Off, Arc::new(TestClock::default())).unwrap();
+    let registered: Vec<String> = app::personal_data_columns(&mail)
         .into_iter()
         .map(|(table, column)| format!("{table}.{column}"))
         .collect();
@@ -483,18 +538,8 @@ async fn accounts_017_the_user_s_own_files_go_and_their_uploads_to_a_shared_work
     } = shared().await;
     let db = api.database();
     files::arrange_own(db, &ada.user_id, "notes.txt").await;
-    db.owner_executes(&format!(
-        "INSERT INTO avatars (user_id, media_type, size_bytes, object_key) \
-         VALUES ('{}', 'image/png', 5, 'avatars/kept')",
-        ada.user_id
-    ))
-    .await;
-    let uploaded = files::arrange(db, &workspace, "plan.txt").await;
-    db.owner_executes(&format!(
-        "UPDATE workspace_files SET uploader_id = '{}' WHERE id = '{uploaded}'",
-        ada.user_id
-    ))
-    .await;
+    files::arrange_avatar(db, &ada.user_id).await;
+    let uploaded = files::arrange_uploaded(db, &workspace, "plan.txt", &ada.user_id).await;
 
     let response = delete(&api, &ada).await;
 
@@ -511,6 +556,29 @@ async fn accounts_017_the_user_s_own_files_go_and_their_uploads_to_a_shared_work
         .await,
         "0 0 -"
     );
+}
+
+#[tokio::test]
+async fn files_001_a_file_whose_uploader_s_account_is_deleted_has_no_uploader() {
+    let Shared {
+        api,
+        ada,
+        bob,
+        workspace,
+        ..
+    } = shared().await;
+    let file = files::arrange_uploaded(api.database(), &workspace, "plan.txt", &ada.user_id).await;
+
+    let deleted = delete(&api, &ada).await;
+    let read = api
+        .get(&format!("/v1/workspaces/{workspace}/files/{file}"))
+        .bearer(&bob.access)
+        .send()
+        .await;
+
+    assert_eq!(deleted.status, 204);
+    assert_eq!(read.status, 200);
+    assert_eq!(read.json()["uploader_id"], json!(null));
 }
 // end part: files
 
@@ -545,5 +613,32 @@ async fn accounts_018_the_invitations_the_user_sent_and_received_stay() {
             "dan@example.com -".to_owned(),
         ]
     );
+}
+
+#[tokio::test]
+async fn invitations_004_an_invitation_whose_inviter_s_account_is_deleted_lists_no_inviter() {
+    let Shared {
+        api,
+        ada,
+        workspace,
+        ..
+    } = shared().await;
+    let dan = users::register(&api, "dan@example.com").await;
+    let invited = invitations::invite(&api, &ada, &workspace, "dan@example.com", "member").await;
+    assert_eq!(invited.status, 201);
+
+    let deleted = delete(&api, &ada).await;
+    let listed = api
+        .get("/v1/users/me/invitations")
+        .bearer(&dan.access)
+        .send()
+        .await;
+
+    assert_eq!(deleted.status, 204);
+    assert_eq!(listed.status, 200);
+    let items = listed.json()["items"].clone();
+    assert_eq!(items.as_array().map(Vec::len), Some(1));
+    assert_eq!(items[0]["workspace_id"], json!(workspace));
+    assert_eq!(items[0]["inviter_name"], json!(null));
 }
 // end part: invitations

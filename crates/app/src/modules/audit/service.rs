@@ -10,7 +10,12 @@ use platform::{
     telemetry,
 };
 
-use super::{audit, error::AuditError, model::Entry, repo};
+use super::{
+    audit,
+    error::AuditError,
+    model::Entry,
+    repo::{self, Inserted},
+};
 
 /// Records `entry` in the log that `scope` names, in `uow`, so it commits or rolls back with the
 /// change (AUDIT-001). The actor comes from the scope, the client from the unit of work, and the
@@ -20,7 +25,10 @@ pub(crate) async fn record(
     scope: AuditScope,
     entry: Entry,
 ) -> Result<(), AuditError> {
-    Ok(repo::insert(uow, scope, &entry, &telemetry::trace_id()).await?)
+    match repo::insert(uow, scope, &entry, &telemetry::trace_id()).await? {
+        Inserted::Recorded => Ok(()),
+        Inserted::Gone => Err(Internal::new("what the audit entry names is gone").into()),
+    }
 }
 
 /// Records each refusal in a unit of work of its own, since the refused operation wrote nothing.
@@ -42,12 +50,19 @@ impl Sink {
             refusal.workspace_id().uuid(),
         );
         entry.details = serde_json::json!({ "permission": refusal.permission() });
-        record(&mut uow, refusal.audit_scope(), entry)
-            .await
-            .map_err(|error| match error {
-                AuditError::Internal(error) => error,
-            })?;
-        uow.commit().await
+        match repo::insert(
+            &mut uow,
+            refusal.audit_scope(),
+            &entry,
+            &telemetry::trace_id(),
+        )
+        .await?
+        {
+            Inserted::Recorded => uow.commit().await,
+            // The log went with a deleted account or workspace while the refused request ran,
+            // so the refusal has nowhere to be recorded (the audit spec's "Recording a refusal").
+            Inserted::Gone => Ok(()),
+        }
     }
 }
 

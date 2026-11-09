@@ -4,8 +4,10 @@ mod audit;
 mod error;
 mod events;
 mod model;
+mod personal_data;
 mod repo;
 mod routes;
 mod service;
 
+pub(crate) use personal_data::Contract;
 pub(crate) use routes::routes;

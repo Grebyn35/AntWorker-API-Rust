@@ -1,0 +1,27 @@
+//! The personal data contract of `sample_items` (D31). A sample item is its workspace's, which a
+//! deleted member's erasure leaves, as their export leaves it out (D31, D125), so its erasure
+//! changes nothing, and its `name`, which holds personal data, stays with the workspace.
+
+use platform::{
+    authn::{BoxFuture, Principal},
+    db::UnitOfWork,
+    personal_data::{Column, ErasureError, PersonalData},
+};
+
+/// The contract.
+pub(crate) struct Contract;
+
+impl PersonalData for Contract {
+    fn columns(&self) -> &'static [Column] {
+        const COLUMNS: &[Column] = &[Column::new("sample_items", "name")];
+        COLUMNS
+    }
+
+    fn erase<'a>(
+        &'a self,
+        _uow: &'a mut UnitOfWork,
+        _principal: &'a Principal,
+    ) -> BoxFuture<'a, Result<(), ErasureError>> {
+        Box::pin(async { Ok(()) })
+    }
+}

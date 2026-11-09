@@ -90,7 +90,7 @@ impl Principal {
     /// so no job names them (DATA-23, ACCOUNTS-015). Only the personal data contract of
     /// `accounts` calls it; clippy bans it elsewhere.
     pub fn erased_job_scope(&self) -> JobScope {
-        JobScope::proven(None, None)
+        JobScope::none()
     }
 
     /// The scope of the entry that records this caller leaving `workspace` as their account is

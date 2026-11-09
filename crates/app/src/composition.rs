@@ -205,7 +205,7 @@ pub async fn compose(
             config.auth,
             server.hmac_key.clone(),
             workers.clone(),
-            accounts::Deletion::new(contracts(), mail.clone()),
+            accounts::Deletion::new(contracts(&mail)),
         )
         .await?,
     );
@@ -364,9 +364,10 @@ pub async fn seed(router: Router) -> Result<SeedReport, SeedError> {
     })
 }
 
-/// The personal data contracts of every module but `accounts`, whose own `Deletion` adds last, in
-/// the order an account's deletion runs them (the accounts spec's "Deleting an account").
-fn contracts() -> Vec<Arc<dyn PersonalData>> {
+/// Every module's personal data contract, in the order an account's deletion runs them, the
+/// contract of `accounts`, which sends its email through `mail`, last (the accounts spec's
+/// "Deleting an account").
+fn contracts(mail: &Mail) -> Vec<Arc<dyn PersonalData>> {
     vec![
         Arc::new(workspaces::Contract),
         Arc::new(access::Contract),
@@ -379,20 +380,25 @@ fn contracts() -> Vec<Arc<dyn PersonalData>> {
         Arc::new(auth::Contract),
         Arc::new(audit::Contract),
         Arc::new(personal_data::Contract),
+        Arc::new(accounts::Contract::new(mail.clone())),
     ]
 }
 
-/// Every column that the registered personal data contracts cover, which a test compares with
-/// the migrated schema's columns that reference `users` or hold personal data (DATA-23).
-pub fn personal_data_columns() -> Vec<(&'static str, &'static str)> {
-    accounts::columns(&contracts())
-        .into_iter()
+/// Every column that the personal data contracts registered with `mail` cover, which a test
+/// compares with the migrated schema's columns that reference `users` or hold personal data
+/// (DATA-23).
+#[cfg(feature = "test-support")]
+pub fn personal_data_columns(mail: &Mail) -> Vec<(&'static str, &'static str)> {
+    contracts(mail)
+        .iter()
+        .flat_map(|contract| contract.columns().iter())
         .map(|column| (column.table, column.name))
         .collect()
 }
 
 /// The permission matrix of `access`: each permission's name, with the names of the roles that
 /// hold it, which the generated test of every workspace route reads (TEST-08).
+#[cfg(feature = "test-support")]
 pub fn permissions() -> Vec<(&'static str, Vec<&'static str>)> {
     access::matrix()
 }

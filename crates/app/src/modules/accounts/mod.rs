@@ -20,5 +20,6 @@ pub(crate) use service::avatar::Avatars;
 // part: invitations
 pub(crate) use service::profile;
 // end part: invitations
-pub(crate) use service::deletion::{Deletion, Outcome as DeletionOutcome, columns};
+pub(crate) use personal_data::Contract;
+pub(crate) use service::deletion::{Deletion, Outcome as DeletionOutcome};
 pub(crate) use service::{Creation, create, find_by_email, matching, profiles};

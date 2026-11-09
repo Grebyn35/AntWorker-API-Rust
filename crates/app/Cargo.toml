@@ -18,6 +18,9 @@ required-features = ["e2e"]
 # Compiles the end-to-end tests, which need a built image (TEST-03). `just e2e` turns it on, and
 # so does `just lint`, which lints every feature.
 e2e = []
+# Compiles the entry points that only the tests call, such as the permission matrix's, which this
+# crate's own dev-dependency turns on for its tests (CODE-15, TEST-05).
+test-support = []
 
 [dependencies]
 platform.workspace = true
@@ -46,6 +49,7 @@ uuid.workspace = true
 mimalloc.workspace = true
 
 [dev-dependencies]
+app = { path = ".", features = ["test-support"] }
 platform = { workspace = true, features = ["test-support"] }
 # The fixture routes parse a query.
 axum = { workspace = true, features = ["query"] }

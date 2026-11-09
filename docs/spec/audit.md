@@ -18,7 +18,7 @@
   `Principal::leaver_scope(workspace_id)` names the log of a workspace that the caller leaves as their account is deleted, and only the personal data contract of `workspaces` may call it (ACCOUNTS-014).
 - `SecurityEventSink`, implemented for `platform::authz`.
 - `Contract`, the personal data contract for `audit_entries` and `audit_entry_clients` (D31), whose erasure the foreign keys carry out (AUDIT-006).
-- `Action` and `Resource`, the types of an entry's action and of the kind of resource it happened to. Each module declares its actions, named `<resource>.<past-tense verb>`, such as `member.removed`, and its kinds of resource, such as `member`, as constants in its own `audit.rs` (ARCH-03): clippy bans their constructors everywhere else.
+- `Action` and `Resource`, the types of an entry's action and of the kind of resource it happened to. Each module declares its actions, named `<resource>.<past-tense verb>`, such as `member.removed`, and its kinds of resource, such as `workspace`, as constants in its own `audit.rs` (ARCH-03): clippy bans their constructors everywhere else.
 
 ## Behaviors
 
@@ -29,7 +29,7 @@
 | AUDIT-003 | An entry records the client IP, the user agent and the trace ID of its request. Its `details` hold only IDs and non-personal fields. | SEC-18, OBS-07 | `audit_003_` |
 | AUDIT-004 | A refused workspace request records `access.denied`, with the route's permission: a member's in the workspace's log, and a non-member's in their own, with the workspace as its resource. | D6, ACCESS-003 | `audit_004_` |
 | AUDIT-005 | No request can change or delete an entry: `app` holds only `INSERT` and `SELECT` on `audit_entries` and `audit_entry_clients`. Deleting a user changes entries through foreign keys alone (AUDIT-006). | D6, DATA-19 | `audit_005_` |
-| AUDIT-006 | An entry names a user only as its actor, its target, or the user whose log holds it, never in its resource or its details. Deleting the user deletes their own log, and, in every other log, sets to null each entry's actor and target that was them, and deletes the client IP and user agent of each entry they acted in. | D6, D31, D124, SEC-18 | `audit_006_` |
+| AUDIT-006 | An entry names a user only as its actor, its target, or the user whose log holds it, and, in that user's own log alone, as its resource; never in its details. Deleting the user deletes their own log, and, in every other log, sets to null each entry's actor and target that was them, and deletes the client IP and user agent of each entry they acted in. | D6, D31, D124, SEC-18 | `audit_006_` |
 
 ## Design
 
@@ -45,11 +45,11 @@
 
 An entry's client IP and user agent are its actor's, or, for an entry without one, such as a failed sign-in, are kept as long as the log of the user that holds it. They live in `audit_entry_clients`, whose `entry_id` references the entry with `ON DELETE CASCADE`, and whose `user_id` references that user with `ON DELETE CASCADE`, so deleting the user deletes the client of every entry that was theirs, while the entry stays. Postgres carries out a foreign key's action with the privileges of its table's owner, so the deletion of a user, which `app` may make, anonymizes the entries without `app` holding `UPDATE` or `DELETE` on either table, and no request can change an entry any other way (AUDIT-005). A column of the entry itself couldn't go so: a foreign key's action sets to null only its own columns.
 
-An entry names a user only in the three columns that reference `users`, so these actions leave no entry that names a deleted user (AUDIT-006): an action on a member names the workspace as its resource, and the member as its target, such as `member.removed`, and an action whose resource is a user, such as `user.renamed`, is recorded only in that user's own log.
+An entry names a user only in the three columns that reference `users`, or, in that user's own log, which goes with them, as its resource, so these actions leave no entry that names a deleted user (AUDIT-006): an action on a member names the workspace as its resource, and the member as its target, such as `member.removed`, and an action whose resource is a user, such as `user.renamed`, is recorded only in that user's own log.
 
 ### Recording a refusal
 
-A refusal happens before the refused operation has written anything. The `SecurityEventSink` implementation records it in its own short transaction: a member's refusal in the workspace's log, and a non-member's in the caller's own log, so a workspace's log never reveals who probed it. A rank refusal inside an operation reaches the sink through `authz::refuse`, and the operation's own unit of work rolls back (PLATFORM-010).
+A refusal happens before the refused operation has written anything. The `SecurityEventSink` implementation records it in its own short transaction: a member's refusal in the workspace's log, and a non-member's in the caller's own log, so a workspace's log never reveals who probed it. A rank refusal inside an operation reaches the sink through `authz::refuse`, and the operation's own unit of work rolls back (PLATFORM-010). A refusal whose log, or whose caller, went with a deleted account or workspace while the refused request ran, such as a read that waited for its own caller's deletion, is recorded nowhere: the foreign keys that name them refuse the entry, which the sink reads by their names (ERR-05), and the request still answers as refused.
 
 ## Open design questions
 

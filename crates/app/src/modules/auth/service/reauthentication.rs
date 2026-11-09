@@ -3,6 +3,7 @@
 
 use platform::{
     authn::Principal,
+    db::UnitOfWork,
     errors::Internal,
     rate_limit::RateLimits,
     types::{Client, UserId},
@@ -30,10 +31,9 @@ impl Auth {
         password: Password,
     ) -> Result<Session, AuthError> {
         let user_id = principal.user_id();
-        let matches = self
+        let (mut uow, matches) = self
             .check_password(limits, client, user_id, password)
             .await?;
-        let mut uow = self.database.begin(client).await?;
         if !matches {
             audit_log::record(
                 &mut uow,
@@ -61,28 +61,26 @@ impl Auth {
         Ok(session)
     }
 
-    /// Whether `password` is `user_id`'s: the one check of a signed-in user's password, which
-    /// counts in their bucket first, reads their password identity in a unit of work that writes
-    /// nothing, and verifies the password through `workers` with no connection held, against the
-    /// dummy hash when they have none, so a missing password costs what a wrong one does
-    /// (AUTH-021, AUTH-022, SEC-13).
+    /// Whether `password` is `user_id`'s, with the operation's unit of work, open: the one check of
+    /// a signed-in user's password, which counts in their bucket before the unit of work opens,
+    /// then reads their password identity in it and verifies the password through `workers`,
+    /// against the dummy hash when they have none, so a missing password costs what a wrong one
+    /// does (AUTH-021, AUTH-022, SEC-13, ARCH-11).
     async fn check_password(
         &self,
         limits: &RateLimits,
         client: &Client,
         user_id: UserId,
         password: Password,
-    ) -> Result<bool, AuthError> {
+    ) -> Result<(UnitOfWork, bool), AuthError> {
         limits
             .check(self.settings.password_check, user_id.uuid().as_bytes())
             .await?;
-        let stored = {
-            let mut uow = self.database.begin(client).await?;
-            repo::password_hash(&mut uow, user_id).await?
-        };
+        let mut uow = self.database.begin(client).await?;
+        let stored = repo::password_hash(&mut uow, user_id).await?;
         let has_password = stored.is_some();
         let hash = stored.unwrap_or_else(|| self.dummy_hash.clone());
         let (matches, _) = verify(&self.workers, hash, password).await?;
-        Ok(matches && has_password)
+        Ok((uow, matches && has_password))
     }
 }

@@ -15,11 +15,14 @@ pub(crate) use permissions::InvitationsCreate;
 // part: files
 pub(crate) use permissions::{FilesDelete, FilesRead, FilesUpload};
 // end part: files
-pub(crate) use permissions::{MembersRead, MembersRemove, WorkspaceRead, WorkspaceUpdate, matrix};
+#[cfg(feature = "test-support")]
+pub(crate) use permissions::matrix;
+pub(crate) use permissions::{MembersRead, MembersRemove, WorkspaceRead, WorkspaceUpdate};
 pub(crate) use personal_data::Contract;
 pub(crate) use service::{
-    Policy, Removal, add_owner, erasable, held, joined, member_ids, members, remove, workspace_ids,
+    Policy, Removal, add_owner, erasable, held, joined, leave, member_ids, members, remove,
+    workspace_ids,
 };
 // part: invitations
-pub(crate) use service::{add_member, is_member};
+pub(crate) use service::{Joining, add_member, is_member};
 // end part: invitations

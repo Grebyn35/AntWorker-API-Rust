@@ -113,10 +113,9 @@ impl ErrorCode for AuthError {
 
     fn detail(&self) -> Option<String> {
         match self {
-            Self::OwnsSharedWorkspace => Some(
-                "Transfer or delete each workspace you own that has other members first."
-                    .to_owned(),
-            ),
+            Self::OwnsSharedWorkspace => {
+                Some("You own a workspace that has other members.".to_owned())
+            }
             Self::AccountChanged => Some(
                 "Another request changed the account while it was being deleted; send the \
                  deletion again."

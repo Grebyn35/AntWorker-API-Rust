@@ -76,8 +76,9 @@ pub trait Job: Serialize + DeserializeOwned + Send + 'static {
 }
 
 /// The user or workspace a job runs for, whose data its handler's queries filter by
-/// (PLATFORM-013). Only a proof builds one, but for the scope of no one, which only `platform`'s
-/// scheduler builds, and the tests.
+/// (PLATFORM-013). Only a proof builds one: the scope of no one too, which `platform`'s scheduler
+/// builds, `Principal::erased_job_scope` for a job that an account's deletion enqueues once the
+/// user is erased, and the tests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct JobScope {
     user: Option<UserId>,

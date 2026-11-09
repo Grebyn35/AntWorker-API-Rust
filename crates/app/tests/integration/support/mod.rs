@@ -297,6 +297,15 @@ impl TestDatabase {
         connect(&self.owner_url()).await
     }
 
+    /// A connection as `owner` that the test holds, in a transaction that has run `sql`, such as
+    /// one that locks a row, until the test ends it with [`execute_on`].
+    pub async fn holding(&self, sql: &str) -> PgConnection {
+        let mut held = self.owner_connection().await;
+        execute(&mut held, "BEGIN").await;
+        execute(&mut held, sql).await;
+        held
+    }
+
     /// Runs `sql` as the administrator, to arrange what no role of the API may do.
     pub async fn admin_executes(&self, sql: &str) {
         let mut admin = connect(&self.admin_url()).await;
@@ -620,6 +629,24 @@ pub fn not_unicode() -> OsString {
 /// Runs `sql` through `executor`, such as a unit of work's.
 pub async fn execute_on(executor: &mut PgConnection, sql: &str) {
     execute(executor, sql).await;
+}
+
+/// Waits until at least `count` queries of the test database wait on a lock, as the
+/// administrator sees them: other roles see only their own sessions' waits. The requests the test
+/// sent lead there, so the wait has no bound of its own (TEST-06).
+pub async fn queries_wait_on_locks(db: &TestDatabase, count: usize) {
+    let sql = format!(
+        "SELECT count(*)::text FROM pg_stat_activity \
+         WHERE datname = '{}' AND wait_event_type = 'Lock'",
+        db.name()
+    );
+    loop {
+        let waiting: usize = db.admin_reads(&sql).await[0].parse().unwrap_or(0);
+        if waiting >= count {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
 }
 
 fn settings() -> BootstrapConfig {

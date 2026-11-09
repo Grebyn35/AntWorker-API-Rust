@@ -1,7 +1,7 @@
 //! The personal data contract of `users` (D31), which a deletion runs last: it enqueues the email
-//! that tells the account's address it is deleted, then lets the unit of work wait at most 200
-//! milliseconds for a lock, locks the user's row, and deletes it, which the foreign keys carry to
-//! every row that still names them (the accounts spec's "Deleting an account").
+//! that tells the account's address it is deleted, locks the user's row `FOR UPDATE`, then deletes
+//! it waiting for no lock, which the foreign keys carry to every row that still names them (the
+//! accounts spec's "Deleting an account").
 
 use std::time::Duration;
 
@@ -15,10 +15,10 @@ use platform::{
 
 use super::{emails, repo};
 
-/// The longest that the deletion's last step waits for a lock, well within Postgres's
-/// `deadlock_timeout` of 1 second, so a deletion that requests of the user's own would make wait
-/// on each other yields first (ACCOUNTS-016).
-const LAST_STEP_WAITS_AT_MOST: Duration = Duration::from_millis(200);
+/// How long the deletion of the user's row waits for a lock: next to nothing, so a lock that
+/// another request holds on a row that names the user ends the deletion rather than making it
+/// wait while it holds the user's row (ACCOUNTS-016, DATA-20).
+const NO_WAIT: Duration = Duration::from_millis(1);
 
 /// The contract, with what sends the deletion's email.
 pub(crate) struct Contract {
@@ -27,17 +27,14 @@ pub(crate) struct Contract {
 
 impl Contract {
     /// The contract, sending its email through `mail`.
-    pub(super) fn new(mail: Mail) -> Self {
+    pub(crate) fn new(mail: Mail) -> Self {
         Self { mail }
     }
 }
 
-/// The columns of `users` that hold personal data, its rows being the users themselves.
-pub(super) const COLUMNS: &[Column] =
-    &[Column::new("users", "email"), Column::new("users", "name")];
-
 impl PersonalData for Contract {
     fn columns(&self) -> &'static [Column] {
+        const COLUMNS: &[Column] = &[Column::new("users", "email"), Column::new("users", "name")];
         COLUMNS
     }
 
@@ -61,7 +58,8 @@ impl PersonalData for Contract {
             )]
             let scope = principal.erased_job_scope();
             self.mail.send(uow, scope, email).await?;
-            uow.wait_for_locks_at_most(LAST_STEP_WAITS_AT_MOST).await?;
+            repo::lock(uow, user).await?;
+            uow.wait_for_locks_at_most(NO_WAIT).await?;
             repo::delete(uow, user).await?;
             Ok(uow.wait_for_locks_as_before().await?)
         })

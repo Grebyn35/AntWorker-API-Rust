@@ -100,6 +100,7 @@ pub(super) fn held(role: Role) -> Vec<&'static str> {
 
 /// The matrix, as each permission's name with the names of the roles that hold it, which the
 /// generated test of every workspace route reads (TEST-08).
+#[cfg(feature = "test-support")]
 pub(crate) fn matrix() -> Vec<(&'static str, Vec<&'static str>)> {
     MATRIX
         .iter()

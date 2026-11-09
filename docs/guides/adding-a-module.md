@@ -21,12 +21,12 @@ It writes these files, each holding what [architecture §5](../architecture.md#i
 | File | Holds |
 |---|---|
 | `migrations/<timestamp>_<module>_<module>.sql` | The module's table, its index for the list, and its column comments |
-| `crates/app/src/modules/<module>/` | `mod.rs`, `routes.rs`, `service.rs`, `repo.rs`, `model.rs`, `error.rs`, `events.rs` and `audit.rs` |
+| `crates/app/src/modules/<module>/` | `mod.rs`, `routes.rs`, `service.rs`, `repo.rs`, `model.rs`, `error.rs`, `events.rs`, `audit.rs`, and `personal_data.rs`, whose contract covers the `name` its migration comments as personal data, and leaves a deleted member's rows to their workspace (DATA-23, D125) |
 | `crates/app/tests/integration/<module>.rs` | A test for each behavior |
 | `crates/app/tests/integration/support/<module>.rs` | The builder that arranges the module's rows for tests (TEST-09) |
 | `docs/spec/<module>.md` | The spec: its routes, and a behavior for each thing the routes guarantee |
 
-It registers the module in the ten files that every module shares: `modules/mod.rs`; `composition.rs`; the permission matrix in `access/permissions.rs`, with the module's four permissions, such as `order_items.read`, `.create`, `.update` and `.delete`, and their re-export in `access/mod.rs`; the access spec's copy of the matrix; the list of test modules in `tests/integration/main.rs`, and of the test support's in `support/mod.rs`; TEST-08's fixtures in `tests/integration/access.rs`; the spec index; and architecture.md's table of what each module owns and its graph of dependencies, where a module that the document already plans keeps its planned row and edges. Then it rewrites `.sqlx/` and `openapi.json`, and formats the code. Before it writes anything, it finds the place of each line in each of those files; if a file doesn't hold it, as when a fork has rewritten the file, the task writes nothing at all, and names each line to add by hand, and where.
+It registers the module in the ten files that every module shares: `modules/mod.rs`; `composition.rs`, which mounts its routes and registers its personal data contract; the permission matrix in `access/permissions.rs`, with the module's four permissions, such as `order_items.read`, `.create`, `.update` and `.delete`, and their re-export in `access/mod.rs`; the access spec's copy of the matrix; the list of test modules in `tests/integration/main.rs`, and of the test support's in `support/mod.rs`; TEST-08's fixtures in `tests/integration/access.rs`; the spec index; and architecture.md's table of what each module owns and its graph of dependencies, where a module that the document already plans keeps its planned row and edges. Then it rewrites `.sqlx/` and `openapi.json`, and formats the code. Before it writes anything, it finds the place of each line in each of those files; if a file doesn't hold it, as when a fork has rewritten the file, the task writes nothing at all, and names each line to add by hand, and where.
 
 ## Making it the module you need
 
@@ -64,6 +64,7 @@ Editing a migration that no release contains (DATA-09) means recreating the deve
 | What it tells clients over the stream | `events.rs`, published in the service's unit of work | API-19, SEC-19 |
 | Work after the request, and email | `jobs.rs`, `emails.rs` and its templates ([platform spec](../spec/platform.md#sending-email)) | OPS-09 |
 | What it measures | `metrics.rs`, then `just metrics` | OBS-11 to OBS-14 |
+| What erasing a deleted user does to its rows, and which of its columns hold personal data | `personal_data.rs`, registered in `contracts()` of `composition.rs`, and the column comments of its migration | DATA-23, D31 |
 | A setting | the composition root's `Config`, and `.env.example` | OPS-01, OPS-02 |
 | Its tests | `tests/integration/<module>.rs`, through the test support's builders, and a fixture in TEST-08's test for each workspace route | TEST-01 to TEST-09 |
 

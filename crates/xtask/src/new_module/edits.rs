@@ -277,10 +277,23 @@ fn composition(text: &str, module: &str) -> Option<String> {
     })?;
     let document_end = find(&lines, document, |line| line.trim() == "])")?;
     let indent = format!("{}    ", indentation(lines[document_end]));
-    Some(before(
+    let text = before(
         &text,
         document_end,
         &format!("{indent}{module}::routes().openapi(service),"),
+    );
+    // The module's personal data contract, which a deletion runs before the contract of
+    // `accounts`, which stays last (DATA-23).
+    let lines: Vec<&str> = text.lines().collect();
+    let last = find(&lines, 0, |line| {
+        line.trim_start()
+            .starts_with("Arc::new(accounts::Contract::new(")
+    })?;
+    let indent = indentation(lines[last]);
+    Some(before(
+        &text,
+        last,
+        &format!("{indent}Arc::new({module}::Contract),"),
     ))
 }
 
@@ -430,7 +443,9 @@ mod tests {
                     system,\n};\n\nfn compose() {\n    let routes = system::routes()\n        \
                     .merge(access::routes())\n        .merge(realtime::routes());\n}\n\n\
                     fn openapi() {\n    platform::http::document([\n        \
-                    system::routes().openapi(service),\n    ])\n}\n";
+                    system::routes().openapi(service),\n    ])\n}\n\nfn contracts() {\n    \
+                    vec![\n        Arc::new(access::Contract),\n        \
+                    Arc::new(accounts::Contract::new(mail.clone())),\n    ]\n}\n";
 
         assert_eq!(
             composition(root, "items").unwrap(),
@@ -439,7 +454,9 @@ mod tests {
              .merge(access::routes())\n        .merge(items::routes())\n        \
              .merge(realtime::routes());\n}\n\nfn openapi() {\n    platform::http::document([\n        \
              system::routes().openapi(service),\n        items::routes().openapi(service),\n    \
-             ])\n}\n"
+             ])\n}\n\nfn contracts() {\n    vec![\n        Arc::new(access::Contract),\n        \
+             Arc::new(items::Contract),\n        \
+             Arc::new(accounts::Contract::new(mail.clone())),\n    ]\n}\n"
         );
         assert_eq!(composition("fn compose() {}\n", "items"), None);
     }

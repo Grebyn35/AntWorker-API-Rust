@@ -111,21 +111,40 @@ pub(crate) async fn add_owner(
 }
 
 // part: invitations
-/// Makes `user` a member of `workspace` at `role`, and returns when they joined, or `None` when
-/// they already are one, which changes nothing (D16). Only accepting an invitation calls it.
+/// What adding a member came to (ACCESS-008, D16).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Joining {
+    /// The user is a member, since this time.
+    Joined(Timestamp),
+    /// The user is a member already, so nothing changed.
+    AlreadyMember,
+    /// The workspace is gone, deleted with its owner's account while the join waited for it.
+    WorkspaceGone,
+}
+
+/// Makes `user` a member of `workspace` at `role`, unless they are one already or the workspace
+/// is gone, either of which changes nothing (D16, ACCESS-008). It first locks the owner's
+/// membership, so it waits for a deletion of the owner's account. Only accepting an invitation
+/// calls it.
 pub(crate) async fn add_member(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
     user: UserId,
     role: Role,
-) -> Result<Option<Timestamp>, AccessError> {
-    repo::hold_owner(uow, workspace).await?;
-    let joined_at = repo::insert_unless_member(uow, workspace, user, role).await?;
-    if joined_at.is_some() {
-        ordered(uow);
-        changed(uow, workspace, user).await?;
+) -> Result<Joining, AccessError> {
+    if !repo::hold_owner(uow, workspace).await? {
+        return Ok(Joining::WorkspaceGone);
     }
-    Ok(joined_at)
+    Ok(
+        match repo::insert_unless_member(uow, workspace, user, role).await? {
+            Some(joined_at) => {
+                ordered(uow);
+                changed(uow, workspace, user).await?;
+                Joining::Joined(joined_at)
+            }
+            None => Joining::AlreadyMember,
+        },
+    )
 }
 
 /// Whether `user` belongs to `workspace`.
@@ -164,8 +183,21 @@ pub(crate) async fn held(
     Ok(repo::held(uow, principal.user_id()).await?)
 }
 
-/// Deletes every membership of `user`, signalling each (ACCESS-006): what remains of theirs once
-/// the contract of `workspaces` has deleted the workspaces whose only member they were.
+/// Ends the caller's membership in `workspace`, with its signal (ACCESS-006), as their account is
+/// deleted: the personal data contract of `workspaces` calls it for each workspace they belong
+/// to, once [`erasable`] has locked their memberships.
+pub(crate) async fn leave(
+    uow: &mut UnitOfWork,
+    principal: &Principal,
+    workspace: WorkspaceId,
+) -> Result<(), AccessError> {
+    let user = principal.user_id();
+    repo::delete(uow, workspace, user).await?;
+    Ok(changed(uow, workspace, user).await?)
+}
+
+/// Deletes every membership of `user` that remains, signalling each (ACCESS-006): none, once the
+/// contract of `workspaces` has had them leave each workspace they belonged to.
 pub(super) async fn leave_all(uow: &mut UnitOfWork, user: UserId) -> Result<(), Internal> {
     for workspace in repo::delete_all(uow, user).await? {
         changed(uow, workspace, user).await?;

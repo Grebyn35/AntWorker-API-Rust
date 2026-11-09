@@ -1,7 +1,8 @@
 //! The personal data contract of `workspaces` (D31): once `access::erasable` has locked the
-//! user's memberships, and found that no workspace they own has another member, it deletes each
-//! workspace they own, with everything in it, and in each other workspace records and publishes
-//! that they left (ACCOUNTS-013, ACCOUNTS-014, the workspaces spec's "Erasure").
+//! user's memberships, and found that no workspace they own has another member, it has `access`
+//! end each membership, with its signal, then deletes each workspace they own, with everything in
+//! it, and in each other workspace records and publishes that they left (ACCOUNTS-013,
+//! ACCOUNTS-014, the workspaces spec's "Erasure").
 
 use platform::{
     authn::{BoxFuture, Principal},
@@ -35,13 +36,15 @@ impl PersonalData for Contract {
         Box::pin(async move {
             let held = access::held(uow, principal).await.map_err(internal)?;
             for (workspace, role) in held {
+                access::leave(uow, principal, workspace)
+                    .await
+                    .map_err(internal)?;
                 if role == Role::Owner {
-                    // Its only member is the user, whose membership goes with it, unsignalled:
-                    // their streams close as their sessions end.
+                    // Its only member was the user.
                     repo::delete(uow, workspace).await?;
                     jobs::forget_workspace(uow, workspace).await?;
                 } else {
-                    leave(uow, principal, workspace).await?;
+                    left(uow, principal, workspace).await?;
                 }
             }
             Ok(())
@@ -49,9 +52,8 @@ impl PersonalData for Contract {
     }
 }
 
-/// Records and publishes that the user left `workspace`, whose membership the contract of
-/// `access` then deletes (ACCOUNTS-014).
-async fn leave(
+/// Records and publishes that the user left `workspace` (ACCOUNTS-014).
+async fn left(
     uow: &mut UnitOfWork,
     principal: &Principal,
     workspace: WorkspaceId,

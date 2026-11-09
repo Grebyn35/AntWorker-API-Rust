@@ -5,7 +5,7 @@ use futures_util::future::BoxFuture;
 use http::{Method, StatusCode};
 
 use crate::support::{
-    Api, TestDatabase, execute_on,
+    Api, TestDatabase, execute_on, queries_wait_on_locks,
     users::{self, SignedIn},
     workspaces,
 };
@@ -278,20 +278,6 @@ async fn platform_026_an_operation_that_rolls_back_publishes_nothing() {
     assert!(events.is_empty(), "{events:?}");
 }
 
-/// Waits until a query of the test database waits on a lock, as the administrator sees it: other
-/// roles see only their own sessions' waits. The request the test sent leads there, so the wait
-/// has no bound of its own (TEST-06).
-async fn a_query_waits_on_a_lock(db: &TestDatabase) {
-    let sql = format!(
-        "SELECT count(*)::text FROM pg_stat_activity \
-         WHERE datname = '{}' AND wait_event_type = 'Lock'",
-        db.name()
-    );
-    while db.admin_reads(&sql).await == ["0"] {
-        tokio::task::yield_now().await;
-    }
-}
-
 #[tokio::test]
 async fn platform_009_authorization_waits_for_a_change_to_the_caller_s_membership() {
     let api = Api::new().await;
@@ -316,7 +302,7 @@ async fn platform_009_authorization_waits_for_a_change_to_the_caller_s_membershi
         let path = format!("/v1/workspaces/{workspace}/members");
         async move { call(&api, Method::GET, &path, &member).await.status }
     });
-    a_query_waits_on_a_lock(db).await;
+    queries_wait_on_locks(db, 1).await;
     execute_on(&mut removal, "COMMIT").await;
 
     // The request waited for the removal, so it ran under the membership as it then stood.
@@ -594,38 +580,72 @@ async fn access_006_accepting_an_invitation_closes_the_new_member_s_streams() {
 }
 // end part: invitations
 
+/// The statement that locks the identity of `user`, as a sign-in does, so a deletion of their
+/// account that starts meanwhile waits at it, once it has locked their memberships (ACCESS-008,
+/// the accounts spec's "Deleting an account").
+fn identity_of(user: &SignedIn) -> String {
+    format!(
+        "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
+        user.user_id
+    )
+}
+
 #[tokio::test]
-async fn access_008_the_user_s_operations_in_a_workspace_wait_for_the_deletion_that_holds_them() {
+async fn access_008_the_user_s_operations_in_their_workspaces_wait_for_their_deletion() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
     let db = api.database();
-    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
-    // The deletion of Ada's account, between `erasable` and its commit.
-    let mut held = db.owner_connection().await;
-    execute_on(&mut held, "BEGIN").await;
-    execute_on(
-        &mut held,
-        &format!(
-            "SELECT 1 FROM workspace_memberships WHERE user_id = '{}' FOR UPDATE",
-            ada.user_id
-        ),
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&bob.user_id, "owner"), (&ada.user_id, "member")],
     )
     .await;
+    let mut held = db.holding(&identity_of(&ada)).await;
 
+    let delete = call(&api, Method::DELETE, "/v1/users/me", &ada);
     let path = format!("/v1/workspaces/{workspace}");
-    let read = call(&api, Method::GET, &path, &ada);
-    let release = async {
-        a_query_waits_on_a_lock(db).await;
-        execute_on(&mut held, "ROLLBACK").await;
+    let read = async {
+        // The deletion holds Ada's memberships, and waits at her identity.
+        queries_wait_on_locks(db, 1).await;
+        let read = call(&api, Method::GET, &path, &ada);
+        let release = async {
+            queries_wait_on_locks(db, 2).await;
+            execute_on(&mut held, "ROLLBACK").await;
+        };
+        tokio::join!(read, release).0
     };
-    let (read, ()) = tokio::join!(read, release);
+    let (deleted, read) = tokio::join!(delete, read);
 
-    assert_eq!(read.status, StatusCode::OK);
+    assert_eq!(deleted.status, StatusCode::NO_CONTENT);
+    // The read waited for the deletion, which ended her membership.
+    assert_eq!(read.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn access_008_erasable_refuses_while_a_workspace_the_user_owns_has_another_member() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let db = api.database();
+    workspaces::arrange(
+        db,
+        "Acme",
+        &[(&ada.user_id, "owner"), (&bob.user_id, "member")],
+    )
+    .await;
+    workspaces::arrange(db, "Mine", &[(&ada.user_id, "owner")]).await;
+
+    let refused = call(&api, Method::DELETE, "/v1/users/me", &ada).await;
+
+    assert_eq!(refused.status, StatusCode::CONFLICT);
 }
 
 // part: invitations
-#[tokio::test]
-async fn access_008_no_one_joins_a_workspace_while_its_owner_s_deletion_holds_their_membership() {
+/// Bob accepts Ada's invitation to her workspace, whose only member she is, while the deletion of
+/// her account holds its owner's membership; returns the acceptance's response, with the database.
+async fn joining_while_the_owner_is_deleted() -> (Api, SignedIn, crate::support::api::Response) {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let bob = users::register(&api, "bob@example.com").await;
@@ -635,25 +655,44 @@ async fn access_008_no_one_joins_a_workspace_while_its_owner_s_deletion_holds_th
         crate::support::invitations::invite(&api, &ada, &workspace, "bob@example.com", "member")
             .await;
     let id = invited.json()["id"].as_str().unwrap().to_owned();
-    let mut held = db.owner_connection().await;
-    execute_on(&mut held, "BEGIN").await;
-    execute_on(
-        &mut held,
-        &format!(
-            "SELECT 1 FROM workspace_memberships WHERE user_id = '{}' FOR UPDATE",
-            ada.user_id
-        ),
-    )
-    .await;
+    let mut held = db.holding(&identity_of(&ada)).await;
 
+    let delete = call(&api, Method::DELETE, "/v1/users/me", &ada);
     let path = format!("/v1/users/me/invitations/{id}/accept");
-    let accept = call(&api, Method::POST, &path, &bob);
-    let release = async {
-        a_query_waits_on_a_lock(db).await;
-        execute_on(&mut held, "ROLLBACK").await;
+    let accept = async {
+        queries_wait_on_locks(db, 1).await;
+        let accept = call(&api, Method::POST, &path, &bob);
+        let release = async {
+            queries_wait_on_locks(db, 2).await;
+            execute_on(&mut held, "ROLLBACK").await;
+        };
+        tokio::join!(accept, release).0
     };
-    let (accepted, ()) = tokio::join!(accept, release);
+    let (deleted, accepted) = tokio::join!(delete, accept);
+    assert_eq!(deleted.status, StatusCode::NO_CONTENT);
+    (api, bob, accepted)
+}
 
-    assert_eq!(accepted.status, StatusCode::OK);
+#[tokio::test]
+async fn access_008_a_join_that_waited_for_the_owner_s_deletion_adds_no_member() {
+    let (api, bob, _) = joining_while_the_owner_is_deleted().await;
+
+    let memberships = api
+        .database()
+        .owner_reads(&format!(
+            "SELECT count(*)::text FROM workspace_memberships WHERE user_id = '{}'",
+            bob.user_id
+        ))
+        .await;
+
+    assert_eq!(memberships, ["0"]);
+}
+
+#[tokio::test]
+async fn invitations_006_accepting_while_the_workspace_goes_with_its_owner_answers_404() {
+    let (_, _, accepted) = joining_while_the_owner_is_deleted().await;
+
+    assert_eq!(accepted.status, StatusCode::NOT_FOUND);
+    assert_eq!(accepted.json()["code"], "invitations.not_found");
 }
 // end part: invitations

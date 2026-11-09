@@ -73,34 +73,44 @@ pub(super) async fn lock(uow: &mut UnitOfWork, id: UserId) -> Result<(), Interna
     Ok(())
 }
 
-/// Locks the row of the user `id`, then deletes it, which deletes, or sets to null, through the
-/// foreign keys, every row that still names them, as the last step of deleting their account,
-/// whose unit of work bounds its waits for a lock. `Interrupted` is a wait that ran out, or a
-/// membership that a request of theirs added meanwhile, whose foreign key refuses the deletion
-/// (ACCOUNTS-013, ACCOUNTS-016).
-pub(super) async fn delete(uow: &mut UnitOfWork, id: UserId) -> Result<(), ErasureError> {
-    sqlx::query!("SELECT id FROM users WHERE id = $1 FOR UPDATE", id.uuid())
-        .fetch_one(uow.executor())
-        .await
-        .map_err(interrupted)?;
-    sqlx::query!("DELETE FROM users WHERE id = $1", id.uuid())
-        .execute(uow.executor())
-        .await
-        .map_err(interrupted)?;
+/// Holds the row of the user `id` against every other change of it, `FOR NO KEY UPDATE`, until the
+/// unit of work ends: a rename or an avatar's change, which lock the row `FOR UPDATE` before any
+/// other, waits, while an insert that names the user, whose foreign key reads the row `FOR KEY
+/// SHARE`, doesn't (the accounts spec's "Deleting an account").
+pub(super) async fn hold(uow: &mut UnitOfWork, id: UserId) -> Result<(), Internal> {
+    sqlx::query!(
+        "SELECT id FROM users WHERE id = $1 FOR NO KEY UPDATE",
+        id.uuid()
+    )
+    .fetch_one(uow.executor())
+    .await?;
     Ok(())
 }
 
-/// A failure of the last step of a deletion: `Interrupted` for a wait for a lock that ran out, or
-/// a foreign key that refused it, and an internal error otherwise (ERR-04).
-fn interrupted(error: sqlx::Error) -> ErasureError {
-    let refused = error
-        .as_database_error()
-        .is_some_and(|error| error.is_foreign_key_violation());
-    if refused || db::is_lock_timeout(&error) {
-        ErasureError::Interrupted
-    } else {
-        ErasureError::Internal(error.into())
-    }
+/// The foreign key that keeps a user's membership from going with them: a membership that a
+/// request of theirs added while their deletion ran (ACCOUNTS-016).
+const MEMBERSHIP_OF_USER: &str = "workspace_memberships_user_id_fkey";
+
+/// Deletes the row of the user `id`, which deletes, or sets to null, through the foreign keys,
+/// every row that still names them, as the last step of deleting their account, in a unit of
+/// work that waits for no lock. `Interrupted` is a lock that another request holds, or a
+/// membership that a request of theirs added meanwhile (ACCOUNTS-013, ACCOUNTS-016, ERR-05).
+pub(super) async fn delete(uow: &mut UnitOfWork, id: UserId) -> Result<(), ErasureError> {
+    sqlx::query!("DELETE FROM users WHERE id = $1", id.uuid())
+        .execute(uow.executor())
+        .await
+        .map_err(|error| {
+            let membership = error
+                .as_database_error()
+                .and_then(|error| error.constraint())
+                .is_some_and(|constraint| constraint == MEMBERSHIP_OF_USER);
+            if membership || db::is_lock_timeout(&error) {
+                ErasureError::Interrupted
+            } else {
+                ErasureError::Internal(error.into())
+            }
+        })?;
+    Ok(())
 }
 
 /// The versions that `versions` names, as the database takes them: none for any.

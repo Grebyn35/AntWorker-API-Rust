@@ -6,16 +6,12 @@ use std::sync::Arc;
 use platform::{
     authn::Principal,
     db::UnitOfWork,
-    mail::Mail,
-    personal_data::{Column, ErasureError, PersonalData},
+    personal_data::{ErasureError, PersonalData},
 };
 
 use crate::modules::{
     access,
-    accounts::{
-        error::AccountsError,
-        personal_data::{COLUMNS, Contract},
-    },
+    accounts::{error::AccountsError, repo},
 };
 
 /// What deleting an account came to, which `auth` answers with codes of its own (AUTH-023).
@@ -37,21 +33,23 @@ pub(crate) struct Deletion {
 }
 
 impl Deletion {
-    /// The deletion that runs `contracts`, the other modules', in their order, then the contract
-    /// of `accounts`, which sends its email through `mail`.
-    pub(crate) fn new(mut contracts: Vec<Arc<dyn PersonalData>>, mail: Mail) -> Self {
-        contracts.push(Arc::new(Contract::new(mail)));
+    /// The deletion that runs `contracts`, in their order, which the composition root registers,
+    /// the contract of `accounts` last.
+    pub(crate) fn new(contracts: Vec<Arc<dyn PersonalData>>) -> Self {
         Self { contracts }
     }
 
     /// Deletes the caller's account in `uow`, the unit of work of `auth` that confirmed it
-    /// (AUTH-023): `access` locks their memberships first and refuses while a workspace they own
-    /// has another member, then each contract erases its part (ACCOUNTS-012 to ACCOUNTS-016).
+    /// (AUTH-023): it first holds the user's row against every other change of it, `FOR NO KEY
+    /// UPDATE`, then `access` locks their memberships and refuses while a workspace they own has
+    /// another member, then each contract erases its part (ACCOUNTS-012 to ACCOUNTS-016, the
+    /// accounts spec's "Deleting an account").
     pub(crate) async fn delete(
         &self,
         uow: &mut UnitOfWork,
         principal: &Principal,
     ) -> Result<Outcome, AccountsError> {
+        repo::hold(uow, principal.user_id()).await?;
         if !access::erasable(uow, principal).await? {
             return Ok(Outcome::OwnsSharedWorkspace);
         }
@@ -64,15 +62,4 @@ impl Deletion {
         }
         Ok(Outcome::Deleted)
     }
-}
-
-/// Every column of the contracts in `contracts`, and of the contract of `accounts`, which
-/// [`Deletion::new`] adds to them (DATA-23).
-pub(crate) fn columns(contracts: &[Arc<dyn PersonalData>]) -> Vec<Column> {
-    let mut columns: Vec<Column> = contracts
-        .iter()
-        .flat_map(|contract| contract.columns().iter().copied())
-        .collect();
-    columns.extend_from_slice(COLUMNS);
-    columns
 }

@@ -58,6 +58,15 @@ async fn auth_021_the_right_password_reauthenticates_the_session() {
     assert!(session.get("refresh_token").is_none());
     let after = authenticated_at(&api, &ada).await;
     assert!(after > before, "{before} then {after}");
+    let stored = api
+        .database()
+        .owner_reads(&format!(
+            "SELECT to_char(authenticated_at AT TIME ZONE 'UTC', \
+             'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM sessions WHERE id = '{}'",
+            ada.session_id
+        ))
+        .await;
+    assert_eq!(session["authenticated_at"], stored[0].as_str());
     assert_eq!(
         api.database()
             .owner_reads(
@@ -92,6 +101,33 @@ async fn auth_021_a_wrong_password_answers_403_records_it_and_changes_nothing_el
     );
     let still = api.get("/v1/users/me").bearer(&ada.access).send().await;
     assert_eq!(still.status, 200);
+}
+
+#[tokio::test]
+async fn auth_021_an_account_without_a_password_answers_403_as_a_wrong_password_does() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // An account whose password identity is gone, as one that signs in through a provider has
+    // none, with a session still open.
+    api.database()
+        .owner_executes(&format!(
+            "DELETE FROM identities WHERE user_id = '{}'",
+            ada.user_id
+        ))
+        .await;
+
+    let response = reauthenticate(&api, &ada, PASSWORD).await;
+
+    assert_eq!(response.status, 403);
+    assert_eq!(response.json()["code"], "auth.wrong_password");
+    assert_eq!(
+        api.database()
+            .owner_reads(
+                "SELECT count(*)::text FROM audit_entries WHERE action = 'password.check_failed'"
+            )
+            .await,
+        ["1"]
+    );
 }
 
 #[tokio::test]

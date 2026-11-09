@@ -32,19 +32,20 @@ pub(super) async fn insert(
 
 // part: invitations
 /// Locks the membership of `workspace`'s owner `FOR KEY SHARE`, so a member joins only while no
-/// deletion of the owner's account holds it (ACCESS-008).
+/// deletion of the owner's account holds it, and returns whether there is one: every workspace
+/// has an owner, so one without is gone (ACCESS-001, ACCESS-008).
 pub(super) async fn hold_owner(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
-) -> Result<(), Internal> {
-    sqlx::query_scalar!(
+) -> Result<bool, Internal> {
+    let owner = sqlx::query_scalar!(
         "SELECT id FROM workspace_memberships WHERE workspace_id = $1 AND role = 'owner'
         FOR KEY SHARE",
         workspace.uuid(),
     )
     .fetch_optional(uow.executor())
     .await?;
-    Ok(())
+    Ok(owner.is_some())
 }
 
 /// Adds `user` to `workspace` at `role`, and returns when they joined, or `None` when the unique
@@ -279,6 +280,22 @@ pub(super) async fn others_in(
     )
     .fetch_one(uow.executor())
     .await?)
+}
+
+/// Deletes the membership of `user` in `workspace`.
+pub(super) async fn delete(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+    user: UserId,
+) -> Result<(), Internal> {
+    sqlx::query!(
+        "DELETE FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2",
+        workspace.uuid(),
+        user.uuid(),
+    )
+    .execute(uow.executor())
+    .await?;
+    Ok(())
 }
 
 /// Deletes every membership of `user`, and returns their workspaces.

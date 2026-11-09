@@ -123,6 +123,7 @@ Tenancy is enforced by the application, and every query on user or workspace dat
 
 A row ID alone never addresses tenant data. These reads are exempt:
 - batch reads by IDs that came from a query filtered by tenant in the calling module: of display data, such as names, for example a workspace's member list, or of which of those IDs match a search, as `accounts::matching` and `workspaces::matching` find them (API-20)
+- the deletion of an account, which reads whether the workspaces the user owns have other members, by the IDs of the user's own memberships, and deletes those workspaces by them (ACCESS-008, ACCOUNTS-013)
 - the position of the event that a stream's `Last-Event-ID` names, read by the event's ID alone, so a client resumes after the last event it received even from a workspace it has since left; the replay after that position filters by tenant, and the lookup tells a caller only whether an event ID it holds names an event, which a UUIDv7's random bits keep anyone from guessing (REALTIME-004)
 - scheduled jobs that span tenants, which select rows by their own criteria, such as expiry
 - a public file's download, which reads its row by its ID and its visibility alone, and an avatar's, which reads its row by its ID alone, since whoever holds a public file's ID, or an avatar's, may read it ([files spec](../spec/files.md#visibility)) <!-- part: files -->

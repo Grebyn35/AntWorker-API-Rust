@@ -1,3 +1,3 @@
-Your {{ email.product }} account for {{ email.to }} is deleted, as you asked, and with it your profile, your files, and every workspace whose only member you were.
+Your {{ email.product }} account for {{ email.to }} is deleted, as you asked, with everything it held and every workspace whose only member you were.
 
 You can create a new account with this address at any time.
