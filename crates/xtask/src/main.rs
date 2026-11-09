@@ -156,10 +156,12 @@ enum Command {
     #[command(name = "sqlx-check")]
     SqlxCheck,
     /// Fails on a marker of an optional part that names no part, a block that no end marker
-    /// closes, a marker in a Rust file that isn't Rust's `//` comment alone on its line, a test of
-    /// another module's behavior in a file that a part owns, and, for each run that
-    /// `crates/xtask/parts.yaml` lists, on a Rust file that removing the run's parts leaves
-    /// unparseable, or a line or path it keeps that names one of them, removing them in memory.
+    /// closes, a marker in a Rust file that isn't Rust's `//` comment alone on its line, an
+    /// attribute or a doc comment above a Rust block that holds its item, a marker before more of
+    /// its line outside a table row, a test of another module's behavior in a file that a part
+    /// owns, and, for each run that `crates/xtask/parts.yaml` lists, on a Rust file that removing
+    /// the run's parts leaves unparseable, or a line or path it keeps that names one of them or
+    /// cites a decision it deletes, removing them in memory.
     #[command(name = "check-parts")]
     Parts,
     /// Removes the optional parts named `parts` (ARCH-07): it deletes the files each owns whole

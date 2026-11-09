@@ -13,6 +13,9 @@ use crate::{Finding, Outcome, metrics, repo::Repo};
 /// dry run reads no word in them.
 const REWRITTEN: [&str; 4] = ["Cargo.lock", "openapi.json", metrics::CATALOG, ".sqlx/"];
 
+/// The tracker, whose table of decisions gives each decision a row that starts `| D<number> |`.
+const TRACKER: &str = "docs/MIGRATION.md";
+
 /// Checks the parts' markers and files, each Rust marker standing alone on its line, and each
 /// run's removal, done in memory (ARCH-07).
 pub fn check(repo: &Repo) -> Outcome {
@@ -117,6 +120,7 @@ fn remove(repo: &Repo, parts: &[Part], run: &Run) -> (String, Vec<Finding>) {
             kept.push((file.path.as_str(), lines));
         }
     }
+    findings.extend(dangling_decisions(repo, &kept));
     let paths = repo.paths().filter(|path| !owned.contains(*path));
     findings.extend(leftovers(paths, kept.into_iter(), &removed));
     for finding in &mut findings {
@@ -132,6 +136,63 @@ fn remove(repo: &Repo, parts: &[Part], run: &Run) -> (String, Vec<Finding>) {
         owned.len(),
     );
     (summary, findings)
+}
+
+/// A finding for each of the `kept` lines that cites a decision, `D` and its number, whose row in
+/// the tracker the removal deletes, since the citation would point at nothing: the removal deletes
+/// every ID that points into what it removes (ARCH-07), and check-docs resolves no decision.
+fn dangling_decisions(repo: &Repo, kept: &[(&str, Vec<(usize, &str)>)]) -> Vec<Finding> {
+    let Some(tracker) = repo.file(TRACKER) else {
+        return Vec::new();
+    };
+    let left: HashSet<usize> = kept
+        .iter()
+        .filter(|(path, _)| *path == TRACKER)
+        .flat_map(|(_, lines)| lines.iter().map(|(number, _)| *number))
+        .collect();
+    let removed: Vec<&str> = tracker
+        .text
+        .lines()
+        .enumerate()
+        .filter(|(index, _)| !left.contains(&(index + 1)))
+        .filter_map(|(_, line)| decision(line.strip_prefix("| ")?))
+        .collect();
+    let mut findings = Vec::new();
+    for (path, lines) in kept {
+        for (number, line) in lines {
+            for id in removed.iter().filter(|id| cites(line, id)) {
+                findings.push(Finding::new(
+                    path,
+                    *number,
+                    format!(
+                        "cites {id}, whose decision the removal deletes from the tracker (ARCH-07)"
+                    ),
+                ));
+            }
+        }
+    }
+    findings
+}
+
+/// The decision ID that `text` starts with, such as `D7` in `D7 | ...`.
+fn decision(text: &str) -> Option<&str> {
+    let digits = text
+        .strip_prefix('D')?
+        .find(|c: char| !c.is_ascii_digit())
+        .filter(|length| *length > 0)?;
+    text[1 + digits..]
+        .starts_with(" |")
+        .then(|| &text[..=digits])
+}
+
+/// Whether `line` cites the decision `id` as a word of its own, so `D12` doesn't cite `D1`.
+fn cites(line: &str, id: &str) -> bool {
+    line.match_indices(id).any(|(at, _)| {
+        let before = line[..at].chars().next_back();
+        let after = line[at + id.len()..].chars().next();
+        !before.is_some_and(|c| c.is_ascii_alphanumeric())
+            && !after.is_some_and(|c| c.is_ascii_alphanumeric())
+    })
 }
 
 /// Whether the removal writes the file at `path` again, or prunes it, rather than deleting its
@@ -243,6 +304,33 @@ mod tests {
             .map(|finding| (finding.path.as_str(), finding.line))
             .collect();
         assert_eq!(places, [("src/a.rs", 5)], "{:?}", outcome.findings);
+    }
+
+    #[test]
+    fn arch_07_a_kept_line_that_cites_a_decision_the_removal_deletes_fails() {
+        let marker = format!("<!-- {} offers -->", "part:");
+        let tracker = format!(
+            "| ID | Decision | Status |\n|---|---|---|\n| D1 | Kept | accepted |\n\
+             | D2 | Removed | accepted {marker} |\n"
+        );
+        let doc =
+            format!("As D2 says.\nAs D1 says.\nD2 again. {marker}\nD20 and XD2 are others.\n");
+        let list = list();
+        let repo = Repo::of(&[
+            (LIST, &list),
+            (TRACKER, &tracker),
+            ("docs/a.md", &doc),
+            ("src/offers.rs", ""),
+        ]);
+
+        let outcome = check(&repo);
+
+        let places: Vec<(&str, usize)> = outcome
+            .findings
+            .iter()
+            .map(|finding| (finding.path.as_str(), finding.line))
+            .collect();
+        assert_eq!(places, [("docs/a.md", 1)], "{:?}", outcome.findings);
     }
 
     #[test]

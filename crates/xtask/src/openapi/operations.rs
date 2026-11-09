@@ -8,9 +8,6 @@ use super::{Problem, quoted};
 /// The methods API-03 gives a meaning.
 const METHODS: [&str; 5] = ["get", "post", "put", "patch", "delete"];
 
-/// The success statuses API-04 lists.
-const SUCCESSES: [&str; 5] = ["200", "201", "202", "204", "206"];
-
 /// The media type of a `PATCH` body (RFC 7396).
 const MERGE_PATCH: &str = "application/merge-patch+json";
 
@@ -164,6 +161,32 @@ fn meaning(path: &str, method: &str, operation: &Value, here: &str) -> Vec<Strin
     messages
 }
 
+/// Whether API-04's table lists `status` as a success.
+fn listed(status: &str) -> bool {
+    match status {
+        "200" | "201" | "202" | "204" => true,
+        // part: files
+        "206" => true,
+        // end part: files
+        _ => false,
+    }
+}
+
+/// Whether API-04 lets an outcome of `method` answer the success `status`: a read 200, a delete
+/// 202 or 204, an update 200 or 204, and any other outcome 200, 201, 202 or 204.
+fn allowed(method: &str, status: &str) -> bool {
+    match (method, status) {
+        ("get", "200") | ("delete", "202" | "204") | ("patch" | "put", "200" | "204") => true,
+        // part: files
+        // A read of a range of a download's bytes.
+        ("get", "206") => true,
+        // end part: files
+        ("get" | "delete" | "patch" | "put", _) => false,
+        (_, status) => matches!(status, "200" | "201" | "202" | "204"),
+    }
+}
+
+// part: files
 /// API-04 and API-17: a 206 serves a range's bytes with `Content-Range`, and its operation
 /// documents the `Range` that asks for it.
 fn ranged(operation: &Value, response: &Value, content: bool, here: &str) -> Vec<String> {
@@ -195,10 +218,13 @@ fn ranged(operation: &Value, response: &Value, content: bool, here: &str) -> Vec
     }
     messages
 }
+// end part: files
 
-/// API-04: a read answers 200, or 206 with `Content-Range` for a range of its bytes, a
-/// create 201 with `Location` and the resource, a delete or an action with nothing to return 204
-/// with no body, and accepted work 202.
+/// API-04: a read answers 200, a create 201 with `Location` and the resource, a delete or an
+/// action with nothing to return 204 with no body, and accepted work 202.
+// part: files
+/// A read of a range of its bytes answers 206 with `Content-Range`.
+// end part: files
 fn statuses(method: &str, operation: &Value, here: &str) -> Vec<String> {
     let empty = Map::new();
     let responses = operation["responses"].as_object().unwrap_or(&empty);
@@ -210,20 +236,14 @@ fn statuses(method: &str, operation: &Value, here: &str) -> Vec<String> {
     if successes.is_empty() {
         messages.push(format!("{here} documents no success status (API-04)"));
     }
-    let allowed: &[&str] = match method {
-        "get" => &["200", "206"],
-        "delete" => &["202", "204"],
-        "patch" | "put" => &["200", "204"],
-        _ => &["200", "201", "202", "204"],
-    };
     for (status, response) in successes {
-        if !SUCCESSES.contains(&status.as_str()) {
+        if !listed(status) {
             messages.push(format!(
                 "{here} answers {status}, which API-04 doesn't list (API-04)"
             ));
             continue;
         }
-        if !allowed.contains(&status.as_str()) {
+        if !allowed(method, status) {
             messages.push(format!(
                 "{here} answers {status}, which its method's outcome doesn't (API-04)"
             ));
@@ -250,7 +270,9 @@ fn statuses(method: &str, operation: &Value, here: &str) -> Vec<String> {
             "204" if content => {
                 messages.push(format!("{here} answers 204 with a body (API-04)"));
             }
+            // part: files
             "206" => messages.extend(ranged(operation, response, content, here)),
+            // end part: files
             "200" if !content => {
                 messages.push(format!(
                     "{here} answers 200 with no body: an outcome with nothing to return answers 204 (API-04)"
@@ -446,7 +468,21 @@ mod tests {
             messages("/v1/things", "post", &none),
             ["POST /v1/things answers 207, which API-04 doesn't list (API-04)"]
         );
+        let nothing = json!({ "responses": { "404": ok(true) } });
+        assert_eq!(
+            messages("/v1/things", "post", &nothing),
+            ["POST /v1/things documents no success status (API-04)"]
+        );
+    }
+
+    // part: files
+    #[test]
+    fn api_04_a_read_of_a_range_answers_206_with_content_range_for_the_range_it_documents() {
         let ranged = json!({ "parameters": [{ "name": "Range", "in": "header" }], "responses": { "206": { "description": "x", "headers": { "Content-Range": {} }, "content": { "application/octet-stream": {} } } } });
+        assert_eq!(
+            messages("/v1/things/{thing_id}/content", "get", &ranged),
+            Vec::<String>::new()
+        );
         assert_eq!(
             messages("/v1/things", "post", &ranged),
             ["POST /v1/things answers 206, which its method's outcome doesn't (API-04)"]
@@ -459,10 +495,34 @@ mod tests {
                 "GET /v1/things/{thing_id}/content answers 206 without documenting the Range that asks for it (API-17)",
             ]
         );
-        let nothing = json!({ "responses": { "404": ok(true) } });
-        assert_eq!(
-            messages("/v1/things", "post", &nothing),
-            ["POST /v1/things documents no success status (API-04)"]
-        );
+    }
+    // end part: files
+
+    /// The success statuses of API-04's table, in `docs/standards/api.md`.
+    fn statuses_of_api_04() -> Vec<String> {
+        let repo = crate::repo::Repo::load().unwrap();
+        let rules = &repo.file("docs/standards/api.md").unwrap().text;
+        let (_, rule) = rules.split_once("### API-04").unwrap();
+        let table = rule.split("\n\n").next().unwrap();
+        table
+            .lines()
+            .filter_map(|row| row.trim_end_matches('|').rsplit('|').next())
+            .filter_map(|cell| cell.split_whitespace().next())
+            .filter(|status| status.len() == 3 && status.starts_with('2'))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn api_04_the_check_takes_the_success_statuses_of_api_04_s_table_and_no_other() {
+        let mut table = statuses_of_api_04();
+        table.sort();
+
+        let taken: Vec<String> = (200..300)
+            .map(|status: u16| status.to_string())
+            .filter(|status| listed(status))
+            .collect();
+
+        assert_eq!(taken, table);
     }
 }

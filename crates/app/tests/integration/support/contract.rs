@@ -60,8 +60,10 @@ impl Contract {
                     .as_object()
                     .map(|content| content.keys().collect::<Vec<_>>())
             )],
-            // A file's bytes are no JSON that a schema describes.
+            // part: files
+            // An upload's bytes are no JSON that a schema describes.
             Some(_) if !is_json(media_type) => Vec::new(),
+            // end part: files
             Some(media) => self.validate(&media["schema"], body),
         };
         assert!(
@@ -215,8 +217,8 @@ impl Contract {
                         "the content type {media_type:?} isn't documented, only {:?}",
                         content.keys().collect::<Vec<_>>()
                     )),
-                    // A stream's frames, and a file's bytes, are no JSON that a schema
-                    // describes: their tests read them.
+                    // A body that isn't JSON, such as a stream's frames, has no schema to
+                    // check: its tests read it.
                     Some(_) if method == Method::HEAD || !is_json(media_type) => {}
                     Some(media) => breaches.extend(self.validate(&media["schema"], body)),
                 }

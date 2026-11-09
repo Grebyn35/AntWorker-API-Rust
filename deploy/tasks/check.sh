@@ -111,9 +111,9 @@ check_memory() {
     kilobytes=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)
     gigabytes=$(awk -v kilobytes="$kilobytes" 'BEGIN { printf "%.1f", kilobytes * 1024 / 1e9 }')
     if awk -v kilobytes="$kilobytes" -v needed="$needed" 'BEGIN { exit !(kilobytes * 1024 >= needed * 0.9e9) }'; then
-        passed "memory: $gigabytes GB, for the $needed GB that TELEMETRY=$telemetry needs"
+        passed "memory: $gigabytes GB, for the $needed GB that the services the settings choose need"
     else
-        failed "memory: $gigabytes GB, less than the $needed GB that TELEMETRY=$telemetry needs (docs/operations/deploy.md#what-a-server-needs)"
+        failed "memory: $gigabytes GB, less than the $needed GB that the services the settings choose need (docs/operations/deploy.md#what-a-server-needs)"
     fi
 }
 
