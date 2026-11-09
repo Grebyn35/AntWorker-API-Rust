@@ -59,6 +59,20 @@ parts:
       - workspace-file
       - files::
       - files-0
+      - files_s3
+      - files-ca
+      - files bucket
+      - files.delete
+      - files.empty
+      - files.find_
+      - files.invalid
+      - files.not_found
+      - files.outcome
+      - files.read
+      - files.scanner
+      - files.storage
+      - files.unsupported
+      - files.upload
   # end part: files
 
 # Each run removes its parts from a copy of the repository of its own, then runs `just checks` on

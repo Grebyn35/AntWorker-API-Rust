@@ -96,7 +96,9 @@ Putting the data back by hand is for a restore whose database didn't start only:
 
 ### Restoring onto a new server
 
-After losing the server, set up a new one with `just server-setup`, as [deploy.md](deploy.md#setting-up-a-server) says, answering with the lost server's settings, its backups' bucket's key pair and its files bucket's, which the restored rows' files are in, and its copies of `backup_cipher_pass` and `postgres_password`, which the restored database keeps, and deploy the release that ran. The deploy stops before its replicas start, because the new server's database, which Postgres has just created empty, isn't the one whose backups the bucket holds: pgBackRest refuses it. Then run `just restore` without a moment, and `just deploy` again. CI does the same, on a new server of its own set up from a lost one's settings, secrets and bucket, and checks that the first deploy stops before any replica starts, and that the deploy after the restore serves the lost server's data (OPS-15).
+After losing the server, set up a new one with `just server-setup`, as [deploy.md](deploy.md#setting-up-a-server) says, answering with the lost server's settings, its backups' bucket's key pair, and its copies of `backup_cipher_pass` and `postgres_password`, which the restored database keeps, and deploy the release that ran.
+The answers hold its files bucket's key pair too, since the restored rows' files are in that bucket. <!-- part: files -->
+The deploy stops before its replicas start, because the new server's database, which Postgres has just created empty, isn't the one whose backups the bucket holds: pgBackRest refuses it. Then run `just restore` without a moment, and `just deploy` again. CI does the same, on a new server of its own set up from a lost one's settings, secrets and bucket, and checks that the first deploy stops before any replica starts, and that the deploy after the restore serves the lost server's data (OPS-15).
 
 ## What to keep off the server
 

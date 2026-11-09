@@ -486,9 +486,9 @@ tests:
   # with a run that succeeded between them.
   - interval: 1h
     input_series:
-      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="files.find_unreferenced_objects", job_outcome="succeeded"}'
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.daily", job_outcome="succeeded"}'
         values: "1x75"
-      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="files.find_unreferenced_objects", job_outcome="failed"}'
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.daily", job_outcome="failed"}'
         values: "_x24 1x23 2x24 3x3"
       - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.daily_other", job_outcome="succeeded"}'
         values: "1x35 2x40"
@@ -504,7 +504,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: ticket
-              job_kind: files.find_unreferenced_objects
+              job_kind: platform.daily
             exp_annotations:
               summary: A periodic job failed at least twice within 3 hours, or twice within 49 hours with no run that succeeded.
               runbook: docs/operations/runbooks.md#periodicjobfailing
@@ -514,7 +514,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: ticket
-              job_kind: files.find_unreferenced_objects
+              job_kind: platform.daily
             exp_annotations:
               summary: A periodic job failed at least twice within 3 hours, or twice within 49 hours with no run that succeeded.
               runbook: docs/operations/runbooks.md#periodicjobfailing

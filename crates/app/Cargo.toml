@@ -63,9 +63,10 @@ rustls.workspace = true
 # A test of the settings reads the reference deployment's Compose file (OPS-02).
 serde-saphyr.workspace = true
 serde_json.workspace = true
-# The test support shares the template database through tokio::sync::OnceCell, the tests of
-# timeouts pause tokio's time, and a test of the development settings reads their files.
-tokio = { workspace = true, features = ["fs", "sync", "test-util"] }
+# The test support shares the template database through tokio::sync::OnceCell, its stand-in
+# servers read and write their sockets, the tests of timeouts pause tokio's time, and a test of
+# the development settings reads their files.
+tokio = { workspace = true, features = ["fs", "io-util", "sync", "test-util"] }
 url.workspace = true
 
 [lints]

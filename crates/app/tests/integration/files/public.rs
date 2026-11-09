@@ -1,5 +1,5 @@
 //! Public files: an upload's visibility, and the downloads that anyone may make (FILES-020,
-//! FILES-023), counted in a bucket of their own (PLATFORM-054).
+//! FILES-023), counted in a bucket of their own (PLATFORM-082).
 
 use super::{acme, own::upload_own, stored_names, upload_queried};
 use crate::support::{

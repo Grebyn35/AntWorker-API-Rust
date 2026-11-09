@@ -26,6 +26,8 @@ struct Marker<'a> {
     alone: bool,
     /// Where its comment starts in its line.
     at: usize,
+    /// The line's text after its comment.
+    after: &'a str,
 }
 
 /// The marker that `line` holds, if any. A marker in a syntax whose comment runs to the end of
@@ -65,6 +67,7 @@ fn marker(line: &str) -> Option<Marker<'_>> {
                 syntax: opener,
                 alone,
                 at,
+                after,
             })
         })
     })
@@ -160,6 +163,61 @@ pub fn misplaced_in_rust(text: &str) -> Vec<usize> {
         })
         .map(|(index, _)| index + 1)
         .collect()
+}
+
+/// The lines of `text`, counted from 1, whose marker marks its line but comes before more of its
+/// text, outside a table row: removing the part would delete that text with the line, though it
+/// isn't the part's (ARCH-07). A row is the part's whole, whichever cell holds its marker, and
+/// only Markdown's comment can come before more text.
+pub fn text_after_marker(text: &str) -> Vec<usize> {
+    text.lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            !line.trim_start().starts_with('|')
+                && marker(line).is_some_and(|marker| {
+                    marker.kind == Kind::Line && !marker.after.trim().is_empty()
+                })
+        })
+        .map(|(index, _)| index + 1)
+        .collect()
+}
+
+/// The lines of Rust `text`, counted from 1, that hold an attribute, or the end of one, or an
+/// outer doc comment, right above a marker that opens a block holding an item or a statement:
+/// the attribute or the comment belongs to that item, so removing the part would leave it on the
+/// one after the block (ARCH-07). A block that holds only doc comments and attributes goes on the
+/// item after it, as does what stands above it.
+pub fn attribute_above_block(text: &str) -> Vec<usize> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut found = Vec::new();
+    for (index, pair) in lines.windows(2).enumerate() {
+        let above = pair[0].trim();
+        if !(above.starts_with("#[") || above.starts_with("///") || above.ends_with(")]")) {
+            continue;
+        }
+        let Some(open) = marker(pair[1]).filter(|marker| marker.kind == Kind::Open) else {
+            continue;
+        };
+        let mut in_attribute = false;
+        let holds_item = lines[index + 2..]
+            .iter()
+            .take_while(|line| {
+                !marker(line)
+                    .is_some_and(|marker| marker.kind == Kind::Close && marker.part == open.part)
+            })
+            .any(|line| {
+                let line = line.trim();
+                if in_attribute || line.starts_with("#[") {
+                    in_attribute = !line.ends_with(']');
+                    return false;
+                }
+                !(line.is_empty() || line.starts_with("//"))
+            });
+        if holds_item {
+            found.push(index + 1);
+        }
+    }
+    found
 }
 
 /// `text` without the lines that the parts in `removed` own, or `None` if it has none of them.
@@ -312,6 +370,65 @@ mod tests {
         let lines = misplaced_in_rust(&text);
 
         assert_eq!(lines, [1, 5, 6]);
+    }
+
+    #[test]
+    fn arch_07_a_marker_before_more_of_its_line_fails_outside_a_table_row() {
+        let text = [
+            format!("A sentence. {} Another.", mark("<!--", "one", " -->")),
+            format!("| a | b {} |", mark("<!--", "one", " -->")),
+            format!("| a {} | b |", mark("<!--", "one", " -->")),
+            format!("A sentence. {}", mark("<!--", "one", " -->")),
+            format!("a = 1 {}", mark("#", "one", "")),
+            mark("<!--", "one", " -->"),
+            end("<!--", "one", " -->"),
+        ]
+        .join("\n");
+
+        let lines = text_after_marker(&text);
+
+        assert_eq!(lines, [1]);
+    }
+
+    #[test]
+    fn arch_07_an_attribute_or_a_doc_comment_above_a_block_that_holds_an_item_fails() {
+        let text = [
+            "#[cfg(test)]".to_owned(),
+            mark("//", "one", ""),
+            "mod a;".to_owned(),
+            end("//", "one", ""),
+            "/// A module.".to_owned(),
+            mark("//", "one", ""),
+            "mod b;".to_owned(),
+            end("//", "one", ""),
+            "#[expect(".to_owned(),
+            "    reason = \"r\"".to_owned(),
+            ")]".to_owned(),
+            mark("    //", "one", ""),
+            "let c = 1;".to_owned(),
+            end("    //", "one", ""),
+            mark("//", "one", ""),
+            "#[cfg(test)]".to_owned(),
+            "mod d;".to_owned(),
+            end("//", "one", ""),
+            "mod e;".to_owned(),
+            mark("//", "one", ""),
+            "mod f;".to_owned(),
+            end("//", "one", ""),
+            "/// A function.".to_owned(),
+            mark("//", "one", ""),
+            "/// What the part adds to its doc.".to_owned(),
+            "#[expect(".to_owned(),
+            "    reason = \"r\"".to_owned(),
+            ")]".to_owned(),
+            end("//", "one", ""),
+            "fn g() {}".to_owned(),
+        ]
+        .join("\n");
+
+        let lines = attribute_above_block(&text);
+
+        assert_eq!(lines, [1, 5, 11]);
     }
 
     #[test]

@@ -234,24 +234,24 @@ async fn ops_19_the_check_finds_what_a_deploy_would_refuse_of_the_buckets_and_th
         )
     };
 
-    // part: files
-    // The files bucket keeps versions, as Backblaze B2's every bucket does, with no rule that
+    // The backups' bucket keeps versions, as Backblaze B2's every bucket does, with no rule that
     // expires them, then with the rule that B2's "Keep only the last version" stands for.
-    configure_files_bucket(
+    configure_bucket(
         &server,
+        "backups",
         "versioning",
         "<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>",
     );
     let keeps_versions = check();
-    configure_files_bucket(
+    configure_bucket(
         &server,
+        "backups",
         "lifecycle",
         "<LifecycleConfiguration><Rule><ID>keep-only-the-last-version</ID><Filter><Prefix></Prefix>\
          </Filter><Status>Enabled</Status><NoncurrentVersionExpiration><NoncurrentDays>1\
          </NoncurrentDays></NoncurrentVersionExpiration></Rule></LifecycleConfiguration>",
     );
     let expires_them = check();
-    // end part: files
     server.shell_ok(&format!(
         "printf wrong > {DEPLOYMENT}/secrets/backup_s3_key_secret"
     ));
@@ -261,13 +261,12 @@ async fn ops_19_the_check_finds_what_a_deploy_would_refuse_of_the_buckets_and_th
     ));
     let missing_setting = check();
 
-    // part: files
     assert_found(
         &keeps_versions,
         false,
         &[
-            "check: FAIL  the files bucket, files, keeps versions, and no enabled lifecycle rule \
-             of the whole bucket expires its noncurrent ones after a day",
+            "check: FAIL  the backups' bucket, backups, keeps versions, and no enabled lifecycle \
+             rule of the whole bucket expires its noncurrent ones after a day",
             "1 of the checks on the server failed",
         ],
     );
@@ -275,11 +274,10 @@ async fn ops_19_the_check_finds_what_a_deploy_would_refuse_of_the_buckets_and_th
         &expires_them,
         true,
         &[
-            "check: ok    the files bucket, files, keeps versions, and a lifecycle rule expires its \
-           noncurrent ones after a day",
+            "check: ok    the backups' bucket, backups, keeps versions, and a lifecycle rule \
+             expires its noncurrent ones after a day",
         ],
     );
-    // end part: files
     assert_found(
         &refused_key,
         false,
@@ -357,13 +355,11 @@ fn assert_found(output: &std::process::Output, passed: bool, lines: &[&str]) {
     }
 }
 
-// part: files
-/// Sends the stand-in's bucket `files` the configuration `body` of its `query`, such as
+/// Sends the stand-in's bucket `bucket` the configuration `body` of its `query`, such as
 /// `versioning`, as S3's PUT of a bucket's configuration does.
-fn configure_files_bucket(server: &Server, query: &str, body: &str) {
+fn configure_bucket(server: &Server, bucket: &str, query: &str, body: &str) {
     server.shell_ok(&format!(
         "docker exec bucket curl --silent --show-error --fail --aws-sigv4 aws:amz:us-east-1:s3 \
-         --user e2e:e2e-secret -X PUT --data '{body}' 'http://localhost:8333/files?{query}'"
+         --user e2e:e2e-secret -X PUT --data '{body}' 'http://localhost:8333/{bucket}?{query}'"
     ));
 }
-// end part: files

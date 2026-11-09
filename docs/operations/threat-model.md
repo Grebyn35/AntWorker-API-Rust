@@ -57,7 +57,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | Events reaching a member who may not see them, or from before they joined | Each event reaches only the streams whose memberships hold its permission, and had committed when it did (SEC-19) |
 | Forging an audit entry's actor | The actor and scope come from the unit of work's proof, never the request (AUDIT-002) |
 | A private file's signed URL leaking, as into a copied link | It reaches one file, for an hour at most, and only while its session lasts and its user may still read the file, whom the download authorizes again (FILES-022, PLATFORM-080); no log or trace of the API or of Caddy holds a URL's query (OBS-04) <!-- part: files --> |
-| Learning a public file's name, or finding public files by guessing their IDs | A public download names the file by its ID and its kind's extension alone (SEC-11, FILES-023); a public file's ID holds 62 random bits, and the bucket of public downloads bounds each IP's guesses (PLATFORM-054) <!-- part: files --> |
+| Learning a public file's name, or finding public files by guessing their IDs | A public download names the file by its ID and its kind's extension alone (SEC-11, FILES-023); a public file's ID holds 62 random bits, and the bucket of public downloads bounds each IP's guesses (PLATFORM-082) <!-- part: files --> |
 
 ### Input and output
 
@@ -87,6 +87,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | A bucket keeping what the deployment deleted, such as an expired backup, as a noncurrent version | Every bucket of the deployment has versioning off, or expires each noncurrent version a day after it becomes one, which `just server-check` checks ([deploy.md](deploy.md#what-a-server-needs), D102) |
 | Losing data, or a change that shouldn't have happened | Continuous backups, restores to any moment the retention covers, and a restore that another undoes (OPS-15) |
 | Someone who holds the server, or its buckets' key pairs, deleting the backups with the data | Nothing yet: each key pair on the server may delete what its bucket holds, and no bucket keeps a version longer than a day (D102), so the copies a restore needs go with the data. Whether each bucket keeps what such a key deletes, for a while that the key can't shorten, is decided at step 6 ([Rule proposals](../MIGRATION.md#rule-proposals)) |
+| Someone who holds the server, or the files bucket's key pair, deleting the files' bytes | Nothing yet: the key pair may delete what the bucket holds, which keeps no version longer than a day (D102) and no copy elsewhere (D106); the same decision at step 6 settles whether the bucket keeps what such a key deletes ([Rule proposals](../MIGRATION.md#rule-proposals)) <!-- part: files --> |
 | Tampering with audit history | `app` may only insert and read audit entries (AUDIT-005), which commit with the change they record (AUDIT-001) |
 
 ### Availability
@@ -95,7 +96,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 |---|---|
 | A flood of requests | The IP and per-user limits (SEC-13), which clients can see (API-15); a concurrency limit and timeouts (OPS-07, PLATFORM-039, PLATFORM-042) |
 | A client that holds streams open, or reads them slowly | A cap of streams per user on a replica (REALTIME-006); a stream that falls behind closes (PLATFORM-032) |
-| A page of many public images using up a visitor's requests, or the reverse | Public downloads count in a bucket of the IP limit of their own, apart from the one that sign-in and every other request count in (PLATFORM-054, D114) <!-- part: files --> |
+| A page of many public images using up a visitor's requests, or the reverse | Public downloads count in a bucket of the IP limit of their own, apart from the one that sign-in and every other request count in (PLATFORM-082, D114) <!-- part: files --> |
 | Uploads that fill a replica's memory, or hold it with slow bodies | At most 4 uploads' bodies in memory on a replica at once, each at most `FILE_MAX_BYTES`, and the upload route's timeout (PLATFORM-074) <!-- part: files --> |
 | A files bucket that doesn't answer | The routes of files' bytes answer 503 in time, every other route serves (FILES-012), and StorageUnreachable pages ([runbooks](runbooks.md#storageunreachable)) <!-- part: files --> |
 | A scanner that doesn't answer, or a burst of uploads that keeps it busy | Uploads answer 503 within their route's timeout, every other route serves (FILES-005, PLATFORM-079); the scans use at most `SCANNER_CPUS`, so the replicas and Postgres keep the rest of the server ([the scanner](deploy.md#the-scanner)); ScannerUnreachable pages ([runbooks](runbooks.md#scannerunreachable)) <!-- part: files --> |

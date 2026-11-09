@@ -20,7 +20,7 @@ pub(in crate::modules::files) enum Owner {
 }
 
 /// What a public download of the file `id` of `owner`'s kind serves, as `wanted` asks for it,
-/// with no name. An ID that names no public file of that kind, a private one included, answers
+/// named by the file's ID and its kind's extension, never by its own name. An ID that names no public file of that kind, a private one included, answers
 /// 404 (FILES-023). The unit of work ends once the row is read, before the bucket is asked
 /// (DATA-21).
 pub(in crate::modules::files) async fn download(

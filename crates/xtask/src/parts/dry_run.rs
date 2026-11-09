@@ -39,6 +39,25 @@ pub fn check(repo: &Repo) -> Outcome {
                  statement of its own (ARCH-07)",
             ));
         }
+        for line in markers::attribute_above_block(&file.text) {
+            findings.push(Finding::new(
+                &file.path,
+                line,
+                "this attribute or doc comment belongs to the first item of the part's block \
+                 below it, so removing the part would leave it on the item after the block: \
+                 move it inside the block (ARCH-07)",
+            ));
+        }
+    }
+    for file in repo.files() {
+        for line in markers::text_after_marker(&file.text) {
+            findings.push(Finding::new(
+                &file.path,
+                line,
+                "removing the part deletes this whole line, the text after its marker too: give \
+                 the part's text a line of its own, with the marker at its end (ARCH-07)",
+            ));
+        }
     }
     for run in &runs {
         for name in &run.parts {
