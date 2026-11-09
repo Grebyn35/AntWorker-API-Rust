@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** pass 2 of the conformance review of step 5's second part of `accounts`, the personal data contract, account deletion and re-authentication (ebcf1d6..c05f3dc, with pass 1's fixes); then export (D31), the module's third part. D125, what a deleted user's shared workspaces keep of what they made, is built, and waits for the owner's word, since it handles personal data; so does the proposal on the jobs such a user enqueued for those workspaces. The trial server runs 0.1.0-rc.11; its Grafana Cloud alerts reach no contact point. Its next release needs a files bucket at Backblaze B2 with its own key pair and "Keep only the last version of the file", and `--allow-restart`; its first deploy proves the scanner's first start and settles the platform spec's `UNSIGNED-PAYLOAD` question. The first restore after it measures a restore's downtime. The owner releases when it needs `main`, and merges Dependabot's pull requests: #20 passed CI; #14 and #17 need a rebase past 2b70070; #19 also failed `deploy::ops_14_a_secret_that_the_setup_replaced_recreates_the_services_that_read_it` at `deploy.rs:797`, not yet read.
+**Next:** export (D31), the third part of the full `accounts` module: the exports route, one per 24 hours, the job that gathers each module's part through the contract's `export` into an expiring archive, its notice, and its audited download. Its second part, deletion, the contract and re-authentication, is built and reviewed (stopped at pass 2, resolved 3024ac1). D125, what a deleted user's shared workspaces keep of what they made, is built and waits for the owner's word, since it handles personal data; so does the proposal on the jobs such a user enqueued for those workspaces. The trial server runs 0.1.0-rc.11; its Grafana Cloud alerts reach no contact point. Its next release needs a files bucket at Backblaze B2 with its own key pair and "Keep only the last version of the file", and `--allow-restart`; its first deploy proves the scanner's first start and settles the platform spec's `UNSIGNED-PAYLOAD` question. The first restore after it measures a restore's downtime. The owner releases when it needs `main`, and merges Dependabot's pull requests: #20 passed CI; #14 and #17 need a rebase past 2b70070; #19 also failed `deploy::ops_14_a_secret_that_the_setup_replaced_recreates_the_services_that_read_it` at `deploy.rs:797`, not yet read.
 
 ## Build order
 
@@ -70,13 +70,13 @@ Each module goes through these stages, in order:
 
 | Module | Draws on inventory | Triage | Spec | Tests | Code | Conformance |
 |---|---|---|---|---|---|---|
-| `platform` | HTTP, DATA, RT, OBS, OPS, MAIL | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail, CPU-heavy work, personal data | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail, CPU-heavy work, personal data | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail, CPU-heavy work |
-| `accounts` | USER | first slice, renaming, avatars, deletion | first slice, renaming, avatars, deletion | first slice, renaming, avatars, deletion | first slice, renaming, avatars, deletion | first slice, renaming, avatars |
-| `auth` | AUTH | first slice, re-authentication | first slice, re-authentication | first slice, re-authentication | first slice, re-authentication | first slice |
+| `platform` | HTTP, DATA, RT, OBS, OPS, MAIL | database, request pipeline | first slice | database, configuration, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail, CPU-heavy work, personal data | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail, CPU-heavy work, personal data | database, configuration, errors, types, request pipeline, lifecycle, telemetry, authentication, rate limits, authorization, idempotency, events and the hub, lists, jobs, mail, CPU-heavy work, personal data |
+| `accounts` | USER | first slice, renaming, avatars, deletion | first slice, renaming, avatars, deletion | first slice, renaming, avatars, deletion | first slice, renaming, avatars, deletion | first slice, renaming, avatars, deletion |
+| `auth` | AUTH | first slice, re-authentication | first slice, re-authentication | first slice, re-authentication | first slice, re-authentication | first slice, re-authentication |
 | `access` | WS | first slice | first slice | first slice | first slice | first slice |
 | `workspaces` | WS | first slice, reading and renaming | first slice, reading and renaming | first slice, reading and renaming | first slice, reading and renaming | first slice, reading and renaming |
 | `invitations` | WS, MAIL | first slice | first slice | first slice | first slice | first slice |
-| `audit` | AUDIT | first slice, anonymization | first slice, anonymization | the writer, the security event sink, anonymization | the writer, the security event sink, anonymization | the writer, the security event sink |
+| `audit` | AUDIT | first slice, anonymization | first slice, anonymization | the writer, the security event sink, anonymization | the writer, the security event sink, anonymization | the writer, the security event sink, anonymization |
 | `realtime` | RT | first slice | first slice | first slice | first slice | first slice |
 | `files` | FILE | workspace files, user files, public files, signed URLs, avatars | workspace files, user files, public files, signed URLs, avatars | workspace files, user files, public files, signed URLs, avatars | workspace files, user files, public files, signed URLs, avatars | workspace files, user files, public files, signed URLs, avatars <!-- part: files --> |
 | `client_telemetry` | OBS | | | | | |
@@ -237,7 +237,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 480ca84..c9cf121: step 5's first part of `accounts`, renaming and avatars | 1 | 11 (8, 8, 5 shared) | 6 | 0 | `next pass`: fdfec95 |
 | 480ca84..fdfec95: as above, with pass 1's fixes | 2 | 9 (7, 3, 1 shared) | 3 | 1 | `stopped: no progress`: a6f9519 |
 | ebcf1d6..c05f3dc: step 5's second part of `accounts`: the personal data contract, account deletion and re-authentication (D123 to D125), with `just remove` retiring the numbers of the behaviors it deletes | 1 | 20 (18, 10, 8 shared) | 15 | 0 | `next pass`: 37fb57b |
-| ebcf1d6..37fb57b: as above, with pass 1's fixes | 2 | 14 (10, 7, 3 shared) | 8 | 4 | `stopped: no progress` |
+| ebcf1d6..37fb57b: as above, with pass 1's fixes | 2 | 14 (10, 7, 3 shared) | 8 | 4 | `stopped: no progress`: 3024ac1 |
 
 ## Decisions
 
