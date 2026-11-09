@@ -5437,6 +5437,20 @@
     "/v1/users/me/avatar": {
       "delete": {
         "operationId": "remove_avatar",
+        "parameters": [
+          {
+            "description": "The `ETag` of the version of the caller's record that the client changes, so that a change made since it read the record fails rather than being overwritten (API-13).",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "responses": {
           "204": {
             "description": "The caller has no avatar.",
@@ -5558,6 +5572,45 @@
               }
             },
             "description": "`request.origin_not_allowed`: Origin not allowed.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.precondition_failed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.precondition_failed`: Precondition failed.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -5726,6 +5779,20 @@
       },
       "put": {
         "operationId": "set_avatar",
+        "parameters": [
+          {
+            "description": "The `ETag` of the version of the caller's record that the client changes, so that a change made since it read the record fails rather than being overwritten (API-13).",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/octet-stream": {
@@ -5873,6 +5940,45 @@
               }
             },
             "description": "`request.origin_not_allowed`: Origin not allowed.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.precondition_failed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.precondition_failed`: Precondition failed.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",

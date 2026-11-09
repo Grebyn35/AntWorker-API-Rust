@@ -54,7 +54,7 @@ const PLATFORM_DATA: &[&str] = &[
 /// data (DATA-16).
 const BOOKKEEPING: &[&str] = &[
     // part: files
-    // The keys of the objects that no file's row names.
+    // The keys of the objects that no row of a file or an avatar names.
     "object_deletions",
     // end part: files
 ];
@@ -86,7 +86,8 @@ const CROSS_TENANT: &[&str] = &[
 /// may read (DATA-16).
 const PUBLIC_READS: &[&str] = &[
     // part: files
-    // The reads of public files, which whoever holds a public file's ID may download.
+    // The reads of public files and avatars, which whoever holds a public file's ID, or an
+    // avatar's, may download.
     "crates/app/src/modules/files/repo/public.rs",
     // end part: files
 ];

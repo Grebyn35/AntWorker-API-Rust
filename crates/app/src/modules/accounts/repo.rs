@@ -62,30 +62,46 @@ pub(super) async fn profile(uow: &mut UnitOfWork, id: UserId) -> Result<Option<C
     }))
 }
 
-/// Renames the user `id`, when its version is one of `versions`, or whatever it is when there
-/// are none, and returns whether it did (API-13, DATA-18).
-pub(super) async fn rename(
+/// Locks the row of the user `id` until the unit of work ends, `FOR UPDATE`, which the insert of
+/// a membership of theirs waits for, since its foreign key reads the row `FOR KEY SHARE`, and
+/// returns whether its version is one of `versions`, or `true` when there are none (DATA-20,
+/// API-13, the accounts spec's "Renaming").
+pub(super) async fn lock(
     uow: &mut UnitOfWork,
     id: UserId,
-    name: &DisplayName,
     versions: Option<&[Version]>,
 ) -> Result<bool, Internal> {
     let versions: Option<Vec<i64>> =
         versions.map(|versions| versions.iter().map(|version| version.value()).collect());
-    let renamed = sqlx::query!(
-        "UPDATE users SET name = $2 WHERE id = $1 AND ($3::bigint[] IS NULL OR version = ANY($3))",
+    Ok(sqlx::query_scalar!(
+        r#"SELECT ($2::bigint[] IS NULL OR version = ANY($2)) AS "current!"
+        FROM users WHERE id = $1 FOR UPDATE"#,
+        id.uuid(),
+        versions.as_deref(),
+    )
+    .fetch_one(uow.executor())
+    .await?)
+}
+
+/// Renames the user `id`, whose row the unit of work has locked.
+pub(super) async fn rename(
+    uow: &mut UnitOfWork,
+    id: UserId,
+    name: &DisplayName,
+) -> Result<(), Internal> {
+    sqlx::query!(
+        "UPDATE users SET name = $2 WHERE id = $1",
         id.uuid(),
         name.as_str(),
-        versions.as_deref(),
     )
     .execute(uow.executor())
     .await?;
-    Ok(renamed.rows_affected() > 0)
+    Ok(())
 }
 
 // part: files
-/// Moves the version of the user `id`, which locks their row until the unit of work ends, so
-/// two changes of their avatar take turns (DATA-20, the accounts spec's "Avatars").
+/// Moves the version of the user `id`, whose row the unit of work has locked, for a change of
+/// their avatar (the accounts spec's "Avatars").
 pub(super) async fn touch(uow: &mut UnitOfWork, id: UserId) -> Result<(), Internal> {
     // The row's trigger moves its version and its update time (DATA-02).
     sqlx::query!(

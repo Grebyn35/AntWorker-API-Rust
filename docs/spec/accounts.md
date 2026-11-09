@@ -33,7 +33,8 @@ A user also sets and removes their avatar here, whose image `files` keeps (D117,
 | `DELETE /v1/users/me/avatar` | user | ACCOUNTS-010 <!-- part: files --> |
 
 `PATCH /v1/users/me` accepts an `If-Match` (API-13, PLATFORM-071).
-`PUT /v1/users/me/avatar` is an upload route, added through `Routes::user_upload`, whose body is the image's bytes, which it reads through `Upload` with a limit of 1 MiB (PLATFORM-074). <!-- part: files -->
+`PUT` and `DELETE /v1/users/me/avatar` accept one too, since each changes the record, its `version` with it. <!-- part: files -->
+`PUT /v1/users/me/avatar` is an upload route, added through `Routes::user_upload`, whose body is the image's bytes, which it reads through `Upload` with the avatar's limit (ACCOUNTS-009, PLATFORM-074). <!-- part: files -->
 
 ## Behaviors
 
@@ -55,11 +56,11 @@ A user also sets and removes their avatar here, whose image `files` keeps (D117,
 
 ### Renaming
 
-The patch's name is parsed into a `DisplayName` before the unit of work opens. The update writes it with the versions that `If-Match` names in its `WHERE`, so a stale `ETag` changes nothing and answers 412 (PLATFORM-071), and the row's trigger moves its `version` and `updated_at` (DATA-02). A rename writes, records and publishes even when the name is the one stored, as a workspace's rename does (WORKSPACES-008).
+The patch's name is parsed into a `DisplayName` before the unit of work opens. The unit of work's first statement locks the user's row `FOR UPDATE` and reads whether its `version` is one that `If-Match` names, so a stale `ETag` changes nothing and answers 412 (PLATFORM-071). The update then writes the name, and the row's trigger moves its `version` and `updated_at` (DATA-02). A rename writes, records and publishes even when the name is the one stored, as a workspace's rename does (WORKSPACES-008).
 
 ### Events
 
-A user's name shows wherever they appear to others: in each workspace's member list (WORKSPACES-004), and on the user's own other devices. So a rename publishes `user.updated` to the user's own streams, and `member.updated` in every workspace they belong to, whose members with `members.read` read the member again, since the payloads carry IDs alone (API-19, D7). The workspaces come from `access::workspace_ids`, in the rename's own unit of work, so a membership that commits after it reads them gets the next change's event, and the member list it reads already shows this one.
+A user's name shows wherever they appear to others: in each workspace's member list (WORKSPACES-004), and on the user's own other devices. So a rename publishes `user.updated` to the user's own streams, and `member.updated` in every workspace they belong to, whose members with `members.read` read the member again, since the payloads carry IDs alone (API-19, D7). The workspaces come from `access::workspace_ids`, read in the rename's own unit of work once it holds the lock on the user's row, which a membership's insert waits for, since its foreign key reads the row `FOR KEY SHARE` (DATA-20). So a membership that commits before the rename's read is among the workspaces it publishes in, and one that commits after the rename does, since it waited, is read by its members with the new name.
 A change to the user's avatar publishes the same two events, since the avatar shows wherever the name does (ACCOUNTS-008, ACCOUNTS-010). <!-- part: files -->
 
 <!-- part: files -->
@@ -68,13 +69,13 @@ A change to the user's avatar publishes the same two events, since the avatar sh
 `files` keeps each avatar: its row in `avatars`, and its bytes in the bucket under the prefix `avatars/` ([files spec](files.md#avatars)). `accounts` owns setting and removing it, its entries in the user's log, and its events, since an avatar is part of how a user appears, as their name is, so both changes reach clients the same way (D120).
 
 1. The handler refuses a body whose `Content-Length` declares more than 1 MiB, then reads the body, in one of the replica's turns, which it holds until the avatar is stored (PLATFORM-074). `files::upload_avatar` finds its kind from its bytes, has the scanner scan it, and writes its object, outside any transaction (DATA-21).
-2. It then runs what `accounts` gives it, which opens the unit of work. Its first statement moves the user's `version`, which locks their row, so two changes of one user's avatar take turns (DATA-20). `files::record_avatar` then deletes the user's avatar row, if any, and inserts the new one. The entry is recorded, the events are published, and the unit of work commits, which counts the upload as stored (FILES-013).
+2. It then runs what `accounts` gives it, which opens the unit of work. Its first statement locks the user's row and checks `If-Match`, as a rename's does, so two changes of one user's record take turns (DATA-20), and the next moves the record's `version`. `files::record_avatar` then deletes the user's avatar row, if any, and inserts the new one. The entry is recorded, the events are published, and the unit of work commits, which counts the upload as stored (FILES-013). A stale `ETag` answers 412 once the object is written, which FILES-011 then deletes.
 
-An object written by an upload whose unit of work never commits, and the object of a replaced or removed avatar, are left to FILES-011, as every unreferenced object is. Removing an avatar moves the user's `version` too, so every change to what ACCOUNTS-001 gives moves its `ETag`.
+An object written by an upload whose unit of work never commits, and the object of a replaced or removed avatar, are left to FILES-011, as every unreferenced object is. Removing an avatar locks the user's row, and moves their `version` when there was one to remove, so every change to what ACCOUNTS-001 gives moves its `ETag`.
 
 An avatar is public, so a client shows it with an `<img>` that sends no credential, to the user's fellow members and anyone they show it to, and its link never expires. An avatar's ID changes with each image, so a client and a shared cache that hold one image never take it for the next.
 
-The limit is fixed at 1 MiB, beside `FILE_MAX_BYTES`, whose default is ten times that, since every member list downloads each member's avatar: a client shrinks a photo to the size it shows, such as 512 pixels square, which a JPEG or a WebP holds in about 100 kilobytes, and a PNG in at most about 800 (D121). The API reads no image's dimensions, since it never decodes one (D109).
+ACCOUNTS-009's limit is fixed, beside `FILE_MAX_BYTES`, whose default is ten times it, since every member list downloads each member's avatar: a client shrinks a photo to the size it shows, such as 512 pixels square, which a JPEG or a WebP holds in about 100 kilobytes, and a PNG in at most about 800 (D121). The API reads no image's dimensions, since it never decodes one (D109).
 <!-- end part: files -->
 
 ### Email verification

@@ -43,7 +43,7 @@ impl UploadTurns {
 /// The body of an upload route: a file's bytes, sent as `application/octet-stream`, the one kind
 /// of body that isn't JSON (API-08), which the handler reads once it has refused what it refuses without them, such as a caller
 /// who may not upload (PLATFORM-073), up to the limit its module sets, in one of the replica's
-/// turns, with the request's `Idempotency-Key`, if it sent one (PLATFORM-074). An upload route's
+/// turns, with the request's `Idempotency-Key`, if it is a `POST` that sent one (PLATFORM-074). An upload route's
 /// group sets no body limit of its own, so nothing reads the body before the handler does.
 #[derive(Debug)]
 pub struct Upload {
@@ -75,7 +75,13 @@ impl<S: Send + Sync> FromRequest<S> for Upload {
                 RequestError::InvalidBody(BodyFault::ContentType(OCTET_STREAM)).into(),
             ));
         }
-        let key = request.headers().get(IDEMPOTENCY_KEY).cloned();
+        // Only a `POST` takes a key (API-12): an upload by another method, such as setting an
+        // avatar by `PUT`, reads none, as a route that takes no key reads none.
+        let key = if request.method() == axum::http::Method::POST {
+            request.headers().get(IDEMPOTENCY_KEY).cloned()
+        } else {
+            None
+        };
         if key
             .as_ref()
             .is_some_and(|value| !IdempotencyKey::is_key(value.as_bytes()))
@@ -187,6 +193,33 @@ mod tests {
             key: None,
             disposition: None,
             turns: turns.clone(),
+        }
+    }
+
+    #[tokio::test]
+    async fn platform_074_an_upload_by_another_method_than_post_reads_no_key() {
+        use crate::errors::ErrorCode;
+
+        let turns = UploadTurns::new();
+        for method in ["PUT", "POST"] {
+            let request = Request::builder()
+                .method(method)
+                .uri("/v1/uploads")
+                .header(header::CONTENT_TYPE, OCTET_STREAM)
+                .header(IDEMPOTENCY_KEY, "not a key")
+                .extension(turns.clone())
+                .body(Body::from("x"))
+                .unwrap();
+
+            let upload = Upload::from_request(request, &()).await;
+
+            match method {
+                "PUT" => assert!(upload.unwrap().key.is_none()),
+                _ => assert_eq!(
+                    upload.unwrap_err().0.code(),
+                    "request.invalid_idempotency_key"
+                ),
+            }
         }
     }
 

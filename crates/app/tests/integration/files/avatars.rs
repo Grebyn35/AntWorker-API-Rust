@@ -2,6 +2,11 @@
 //! and its public download (ACCOUNTS-008 to ACCOUNTS-011, WORKSPACES-010, FILES-011, FILES-013,
 //! FILES-024).
 
+use std::time::Duration;
+
+use axum::body::Body;
+use bytes::Bytes;
+use futures_util::stream;
 use serde_json::json;
 
 use super::{errors_of, objects, uploads};
@@ -34,6 +39,24 @@ async fn remove(api: &Api, user: &SignedIn) -> Response {
         .bearer(&user.access)
         .send()
         .await
+}
+
+/// A body that fails once it is read, so an answer to a request that sends it shows that nothing
+/// read it.
+fn unread() -> Body {
+    Body::from_stream(stream::once(async {
+        Err::<Bytes, _>(std::io::Error::other("the body was read"))
+    }))
+}
+
+/// The record's `ETag` that `user` reads.
+async fn etag(api: &Api, user: &SignedIn) -> String {
+    api.get("/v1/users/me")
+        .bearer(&user.access)
+        .send()
+        .await
+        .header("etag")
+        .to_owned()
 }
 
 /// Downloads the avatar whose link is `url`, without a credential.
@@ -141,8 +164,7 @@ async fn accounts_008_setting_an_avatar_without_a_credential_answers_401_with_it
     let response = api
         .request(http::Method::PUT, "/v1/users/me/avatar")
         .header("content-type", "application/octet-stream")
-        .body(PNG.to_vec())
-        .send()
+        .send_streamed(unread())
         .await;
 
     assert_eq!(response.status, 401);
@@ -245,6 +267,7 @@ async fn accounts_009_while_the_scanner_or_the_storage_doesn_t_answer_an_avatar_
 async fn accounts_010_removing_an_avatar_deletes_it_records_it_and_publishes_it() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
+    let acme = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
     let url = set(&api, &ada, PNG).await.json()["avatar_url"]
         .as_str()
         .unwrap()
@@ -270,8 +293,15 @@ async fn accounts_010_removing_an_avatar_deletes_it_records_it_and_publishes_it(
         .await;
     assert_eq!(entries, [format!("user {ada_id} avatar {id}")]);
     assert_eq!(
-        db.owner_reads("SELECT name FROM events").await,
-        ["user.updated"]
+        db.owner_reads(
+            "SELECT name || ' ' || coalesce(workspace_id::text, '-') || ' ' \
+             || coalesce(permission, '-') FROM events ORDER BY name"
+        )
+        .await,
+        [
+            format!("member.updated {acme} members.read"),
+            "user.updated - -".to_owned()
+        ]
     );
     // Its object stays until the deletion of unreferenced objects (FILES-011).
     assert_eq!(objects(&api).await.len(), 1);
@@ -455,4 +485,180 @@ async fn files_013_an_avatar_s_upload_is_counted_by_how_it_ended() {
     // Tests running alongside upload too, so the counts grow by at least these.
     assert!(uploads("stored") >= stored + 1.0);
     assert!(uploads("unsupported_type") >= unsupported + 1.0);
+}
+
+#[tokio::test]
+async fn accounts_009_a_declared_length_over_1_mib_answers_413_before_the_body_is_read() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let response = api
+        .request(http::Method::PUT, "/v1/users/me/avatar")
+        .header("content-type", "application/octet-stream")
+        .header("content-length", "1048577")
+        .bearer(&ada.access)
+        .send_streamed(unread())
+        .await;
+
+    assert_eq!(response.status, 413);
+    assert_eq!(response.json()["code"], "request.payload_too_large");
+    assert!(rows(&api).await.is_empty());
+}
+
+#[tokio::test]
+async fn accounts_009_a_scanner_that_doesn_t_answer_within_its_time_answers_503() {
+    let stand_in = scanner::scripted(Script::Never).await;
+    let api = Api::with(Options::default().set("CLAMD_ADDRESS", &stand_in.address)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let clock = api.clock();
+    // A scan has 30 seconds (the platform spec's Scanner).
+    let wait = Duration::from_secs(30);
+
+    let (response, ()) = tokio::join!(set(&api, &ada, PNG), async {
+        stand_in.read.notified().await;
+        clock.sleeping(wait).await;
+        clock.advance(wait);
+    });
+
+    assert_eq!(response.status, 503);
+    assert_eq!(response.json()["code"], "accounts.avatar_unavailable");
+    assert!(rows(&api).await.is_empty());
+}
+
+#[tokio::test]
+async fn accounts_009_an_avatar_that_its_route_s_timeout_ends_answers_503_timed_out() {
+    let stand_in = scanner::scripted(Script::Never).await;
+    let api = Api::with(Options::default().set("CLAMD_ADDRESS", &stand_in.address)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let (response, ()) = tokio::join!(set(&api, &ada, PNG), async {
+        stand_in.read.notified().await;
+        // Paused once the scanner holds the scan, whose own wait runs on the test's clock, so
+        // tokio's time runs straight to the route's timeout, the only timer left.
+        tokio::time::pause();
+    });
+
+    assert_eq!(response.status, 503);
+    assert_eq!(response.json()["code"], "request.timed_out");
+    assert!(rows(&api).await.is_empty());
+}
+
+#[tokio::test]
+async fn accounts_008_setting_or_removing_an_avatar_with_a_stale_etag_answers_412() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let stale = etag(&api, &ada).await;
+    set(&api, &ada, PNG).await;
+
+    let set_stale = api
+        .request(http::Method::PUT, "/v1/users/me/avatar")
+        .header("content-type", "application/octet-stream")
+        .header("if-match", &stale)
+        .body(PNG.to_vec())
+        .bearer(&ada.access)
+        .send()
+        .await;
+    let remove_stale = api
+        .request(http::Method::DELETE, "/v1/users/me/avatar")
+        .header("if-match", &stale)
+        .bearer(&ada.access)
+        .send()
+        .await;
+    let current = etag(&api, &ada).await;
+    let remove_current = api
+        .request(http::Method::DELETE, "/v1/users/me/avatar")
+        .header("if-match", &current)
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    for refused in [&set_stale, &remove_stale] {
+        assert_eq!(refused.status, 412);
+        assert_eq!(refused.json()["code"], "request.precondition_failed");
+    }
+    assert_eq!(current, "\"2\"");
+    assert_eq!(remove_current.status, 204);
+    assert!(rows(&api).await.is_empty());
+    let recorded = api
+        .database()
+        .owner_reads(
+            "SELECT (SELECT count(*) FROM audit_entries WHERE action = 'avatar.uploaded') || ' ' \
+             || (SELECT count(*) FROM audit_entries WHERE action = 'avatar.deleted')",
+        )
+        .await;
+    assert_eq!(recorded, ["1 1"]);
+}
+
+#[tokio::test]
+async fn accounts_008_setting_an_avatar_reads_no_idempotency_key() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    // A key that isn't one would answer 400 on a route that read it.
+    let response = api
+        .request(http::Method::PUT, "/v1/users/me/avatar")
+        .header("content-type", "application/octet-stream")
+        .header("idempotency-key", "not a key")
+        .body(PNG.to_vec())
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(response.status, 200);
+}
+
+#[tokio::test]
+async fn files_024_an_avatar_s_download_serves_a_range_of_its_bytes() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let url = set(&api, &ada, PNG).await.json()["avatar_url"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let response = api.get(&url).header("range", "bytes=0-7").send().await;
+
+    assert_eq!(response.status, 206);
+    assert_eq!(
+        response.header("content-range"),
+        format!("bytes 0-7/{}", PNG.len())
+    );
+    assert_eq!(response.body, &PNG[..8]);
+}
+
+#[tokio::test]
+async fn files_024_an_avatar_s_download_counts_in_the_bucket_of_public_downloads() {
+    let api = Api::with(Options::default().set("RATE_LIMIT_PUBLIC_REQUESTS", 7)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let url = set(&api, &ada, PNG).await.json()["avatar_url"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let response = download(&api, &url).await;
+
+    assert_eq!(response.status, 200);
+    assert_eq!(response.header("ratelimit-policy"), "\"public\";q=7;w=60");
+}
+
+#[tokio::test]
+async fn files_024_a_replaced_or_removed_avatar_s_download_answers_404() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let replaced = set(&api, &ada, PNG).await.json()["avatar_url"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let removed = set(&api, &ada, PNG).await.json()["avatar_url"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    remove(&api, &ada).await;
+
+    for url in [&replaced, &removed] {
+        let response = download(&api, url).await;
+
+        assert_eq!(response.status, 404);
+        assert_eq!(response.json()["code"], "files.not_found");
+    }
 }

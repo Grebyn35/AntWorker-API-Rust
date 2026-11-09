@@ -57,7 +57,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | Events reaching a member who may not see them, or from before they joined | Each event reaches only the streams whose memberships hold its permission, and had committed when it did (SEC-19) |
 | Forging an audit entry's actor | The actor and scope come from the unit of work's proof, never the request (AUDIT-002) |
 | A private file's signed URL leaking, as into a copied link | It reaches one file, for an hour at most, and only while its session lasts and its user may still read the file, whom the download authorizes again (FILES-022, PLATFORM-080); no log or trace of the API or of Caddy holds a URL's query (OBS-04) <!-- part: files --> |
-| Learning a public file's name, or finding public files by guessing their IDs | A public download names the file by its ID and its kind's extension alone (SEC-11, FILES-023); a public file's ID holds 62 random bits, and the bucket of public downloads bounds each IP's guesses (PLATFORM-082) <!-- part: files --> |
+| Learning a public file's name, or finding public files by guessing their IDs | A public download names the file by its ID and its kind's extension alone (SEC-11, FILES-023); a public file's ID, or an avatar's, holds 62 random bits, and the bucket of public downloads bounds each IP's guesses (PLATFORM-082, FILES-024) <!-- part: files --> |
 
 ### Input and output
 

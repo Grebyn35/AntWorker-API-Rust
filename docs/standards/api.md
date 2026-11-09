@@ -11,7 +11,7 @@ Every route lives under `/v1`, except the health probes `/health/live` and `/hea
 
 ### API-02 The scope of a resource is in its path
 Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller's own resources under `/v1/users/me/`.
-A public file's bytes, which anyone may download without signing in, live under `/v1/public/`, which holds nothing else, and whose requests count in a bucket of the IP limit of their own (PLATFORM-082). <!-- part: files -->
+A public file's bytes, and an avatar's, which anyone may download without signing in, live under `/v1/public/`, which holds nothing else, and whose requests count in a bucket of the IP limit of their own (PLATFORM-082). <!-- part: files -->
 No header selects a workspace.
 - Why: every request names exactly what it acts on, and authorization checks that name (D3).
 - Check: `ci: check-openapi`, plus `clippy` (API-14).
@@ -65,7 +65,7 @@ An error response, except from the health probes (OPS-05), has `Content-Type: ap
 
 ### API-08 Request bodies are strict
 JSON bodies reject unknown fields. Each route group has a body size limit, and an oversized body gets the 413 problem before it is buffered.
-Uploads are the only non-JSON bodies: an upload route's group has no body limit of its own, since its handler refuses a caller before it reads the body, which it reads through `Upload` with the limit its module's setting gives, refusing an oversized body as a group's limit would (PLATFORM-074). <!-- part: files -->
+Uploads are the only non-JSON bodies: an upload route's group has no body limit of its own, since its handler refuses a caller before it reads the body, which it reads through `Upload` with the limit its module sets, such as a setting's, refusing an oversized body as a group's limit would (PLATFORM-074). <!-- part: files -->
 - Why: a mistyped field fails loudly instead of being silently ignored (D8, D12).
 - Check: `ci: check-layers` (every type in a module's routes that derives `Deserialize` carries `#[serde(deny_unknown_fields)]`), plus `test`.
 
@@ -131,7 +131,7 @@ Every response except the health probes (OBS-15), including streams, carries its
 
 ### API-17 The OpenAPI document is generated and committed
 `openapi.json` is generated from code and committed, and a test fails if the document the binary writes differs from it. Every route under `/v1` documents its requests, responses, error codes and access level, and a response header the document lists is one the API always sends with that response. Each operation's `operationId` is its own, and each schema is one type's, so no operation documents another's request or response. The stream of server-sent events documents every frame it sends, in its event catalog (REALTIME-008). Every field and every parameter typed with a domain type, a header's among them, such as `Idempotency-Key`, carries that type's limits in the schema (D25), and every string of a JSON request body has a `maxLength`.
-An upload's body, a binary string, states its limit, the setting that gives it, in its description. <!-- part: files -->
+An upload's body, a binary string, states its limit in its description, with the setting that gives it, if one does. <!-- part: files -->
 - Why: the contract is reviewed in pull requests, and clients are built against it (D8).
 - Check: `clippy` (only the builders of API-14 register routes, each at a path its documentation names), `test` (every documented path serves, of the methods OpenAPI can document, exactly those it documents, the committed document is the one the code writes, and every request an integration test sends through the test support's typed calls, every response the in-process API gives it, and every frame of a stream it reads are checked against the document of the routes that answered it; a test of malformed input sends its body raw, unchecked), plus `ci: check-openapi` (each operation's access level and response descriptions, each `operationId` its own and each schema name one type's, every reference in the document resolves, every string of a request body has a `maxLength`, and every event a module declares is in the event catalog), plus `review` (fields and parameters of domain types carry their limits).
 

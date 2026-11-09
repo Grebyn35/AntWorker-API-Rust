@@ -183,7 +183,7 @@ flowchart TD
   superadmins --> workspaces & access & accounts & audit
 ```
 
-`access`, `realtime` and `system` depend on no other module.
+`access`, `realtime`, `system` and `client_telemetry` depend on no other module.
 
 The edges above are the only ones allowed, and the graph stays acyclic (ARCH-05). A module is used only through what its `mod.rs` exports (ARCH-04), and its SQL reads and writes only the tables it owns (ARCH-06). When a module needs another module's data, it calls a batch read in that module's API, such as `accounts::profiles(ids)`. An operation that spans modules passes one `&mut UnitOfWork` through every call, so all of it commits or none of it does (ARCH-11).
 
@@ -429,6 +429,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Workers | The turns of an instance's CPU-heavy work, such as a password's hash: one per processor it may use, each held by one work at once, which `platform::blocking::Workers` hands out (PLATFORM-060). |
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |
 | File | Stored bytes plus metadata. A user file or a workspace file, each private or public. <!-- part: files --> |
+| Avatar | The image that shows a user to others, at most one for each user, which `accounts` sets and `files` keeps. Not a file: it has no name, and is always public (D120). <!-- part: files --> |
 | Personal data contract | A module's export and erasure of the personal data it stores (D31). |
 | Release | A version that `just release` asked for, which a run of CI on `main` then signed and tagged `v<version>` (OPS-12). A final release is `X.Y.Z`. A prerelease, `X.Y.Z-rc.N`, comes before the final release of the same number, and is a version to try: a final release fixes the HTTP contract, the error codes and the applied migrations (API-18, ERR-02, DATA-09), and a prerelease doesn't. |
 | Digest | The hash of an image's content, which names exactly that image. A tag can move to another image; a digest can't. |

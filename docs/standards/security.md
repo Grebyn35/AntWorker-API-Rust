@@ -88,7 +88,7 @@ A public file's original name reaches only those who may read the file, its work
 
 ### SEC-12 Security headers on every response
 Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`, and `Cache-Control: no-store`.
-A public file's download is the one response without `no-store`: it needs no credential, and names the file by its ID and its kind's extension alone (SEC-11), so shared caches may keep it for 5 minutes (FILES-023). <!-- part: files -->
+A public file's download and an avatar's are the only responses without `no-store`: each needs no credential, and names its bytes by their ID and their kind's extension alone (SEC-11), so shared caches may keep it for 5 minutes (FILES-023, FILES-024). <!-- part: files -->
 The reverse proxy in front of the API terminates TLS and sets HTTP Strict Transport Security (HSTS).
 - Why: browser-level defenses are on by default.
 - Check: `test`.

@@ -96,8 +96,9 @@ pub(super) async fn current(
 
 /// Renames the caller, in a unit of work of `client`'s request, when the record's version is one
 /// of `versions`, or whatever it is when there are none, and answers the record as it then is:
-/// the update, its audit entry in the caller's own log and its events commit together
-/// (ACCOUNTS-007, PLATFORM-071).
+/// the update, its audit entry in the caller's own log and its events commit together. The unit
+/// of work first locks the caller's row, so the workspaces it publishes in are all of theirs
+/// until it commits (ACCOUNTS-007, PLATFORM-071, DATA-20).
 pub(crate) async fn rename(
     database: &Database,
     client: &Client,
@@ -107,9 +108,10 @@ pub(crate) async fn rename(
 ) -> Result<Current, AccountsError> {
     let mut uow = database.begin(client).await?;
     let user = principal.user_id();
-    if !repo::rename(&mut uow, user, &rename.name, versions).await? {
+    if !repo::lock(&mut uow, user, versions).await? {
         return Err(RequestError::PreconditionFailed.into());
     }
+    repo::rename(&mut uow, user, &rename.name).await?;
     let entry = Entry::new(audit::USER_RENAMED, audit::USER, user.uuid());
     log::record(&mut uow, principal.audit_scope(), entry).await?;
     publish_updated(&mut uow, principal).await?;
