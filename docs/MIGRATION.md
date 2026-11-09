@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** the conformance review of b6cd1a4..2b70070, from ec70520 on: the public download's names, which the review of 13bda32..859ef0e didn't cover, and the removal (D117, D119), with `features`' members for the parts (D118). Then step 5's full `accounts` module, whose avatars belong to `files`, with their markers written with the code. The trial server runs 0.1.0-rc.11; its Grafana Cloud alerts reach no contact point. Its next release needs a files bucket at Backblaze B2 beside the backups', with its own key pair and "Keep only the last version of the file", and `--allow-restart`, for the new Postgres image and its secrets' fingerprint; its first deploy downloads ClamAV's signatures, which proves the scanner's first start, and writes an object with `UNSIGNED-PAYLOAD`, settling the platform spec's open question. The first restore after it measures a restore's downtime, and refuses a moment before the recorded beginnings of timelines from before D85 until those backups expire. The owner releases when it needs `main`.
+**Next:** step 5's full `accounts` module, whose avatars belong to `files`, with their markers written with the code. The trial server runs 0.1.0-rc.11; its Grafana Cloud alerts reach no contact point. Its next release needs a files bucket at Backblaze B2 beside the backups', with its own key pair and "Keep only the last version of the file", and `--allow-restart`, for the new Postgres image and its secrets' fingerprint; its first deploy downloads ClamAV's signatures, which proves the scanner's first start, and writes an object with `UNSIGNED-PAYLOAD`, settling the platform spec's open question. The first restore after it measures a restore's downtime, and refuses a moment before the recorded beginnings of timelines from before D85 until those backups expire. The owner releases when it needs `main`, and merges Dependabot's pull requests: #20 passed CI; #14 and #17 failed only the backups jobs, on a base before 2b70070, and need a rebase; #19 also failed `deploy::ops_14_a_secret_that_the_setup_replaced_recreates_the_services_that_read_it` at `deploy.rs:797`, not yet read.
 
 ## Build order
 
@@ -232,7 +232,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 13bda32..859ef0e: as above, with pass 2's fixes | 3 | 10 (6, 4, 0 shared) | 4 | 1 | `stopped: no progress`: 1911eb6 <!-- part: files --> |
 | b6cd1a4..2b70070: a public download's name of its file's ID and its kind's extension, `files` as an optional part and its removal (D117, D119), and the members of `features` for the parts (D118) | 1 | 13 (9, 11, 6 shared) | 8 | 0 | `next pass`: ccc38d4 |
 | b6cd1a4..ccc38d4: as above, with pass 1's fixes | 2 | 5 (3, 3, 1 shared) | 1 | 0 | `next pass`: 3effea0 |
-| b6cd1a4..3effea0: as above, with pass 2's fixes | 3 | 3 (2, 1, 0 shared) | 1 | 0 | `stopped: no progress` |
+| b6cd1a4..3effea0: as above, with pass 2's fixes | 3 | 3 (2, 1, 0 shared) | 1 | 0 | `stopped: no progress`: d12adf1 |
 
 ## Decisions
 

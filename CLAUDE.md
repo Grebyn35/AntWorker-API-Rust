@@ -41,7 +41,7 @@ just e2e             # the end-to-end tests, against the image in target/image; 
 just release         # the versions that can come next; `just release 1.4.0` releases main as 1.4.0, once CI passes (docs/operations/release.md)
 just check-test-map  # which spec behaviors tests prove
 just new-module      # a new module, such as `just new-module order_items`, holding one workspace resource, with its migration, permissions, spec and tests (ARCH-03)
-just check-removable # each run's copy of the repository, such as a workspace shape's, without the parts it removes, passes the checks (ARCH-07)
+just check-removable # each run's copy of the repository, such as a workspace shape's, without the parts it removes, passes the checks (ARCH-07); a change to a part's marked Rust runs it for that part's runs before its commit, since `check-parts` lints nothing
 just check-new-module # a copy of the repository with two modules that `just new-module` wrote passes the checks (ARCH-03)
 just test            # the tests; they start Postgres through Compose
 just run             # the API with the settings in .env, after bootstrap and migrate
