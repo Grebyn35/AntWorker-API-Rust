@@ -222,8 +222,8 @@ impl UnitOfWork {
     }
 
     /// Bounds how long each of the unit of work's statements from now on waits for a lock, until
-    /// [`UnitOfWork::wait_for_locks_as_before`], so an operation that a cycle of waits would
-    /// otherwise end gives up first. A statement that gives up fails with Postgres's
+    /// [`UnitOfWork::wait_for_locks_as_before`], for an operation that answers rather than wait
+    /// longer, such as a claim of a key in flight, or the last step of an account's deletion. A statement that gives up fails with Postgres's
     /// `lock_not_available`, which [`is_lock_timeout`] tells (the platform spec's "Unit of
     /// work").
     pub async fn wait_for_locks_at_most(&mut self, at_most: Duration) -> Result<(), Internal> {

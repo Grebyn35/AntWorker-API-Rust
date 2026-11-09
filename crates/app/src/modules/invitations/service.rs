@@ -23,7 +23,7 @@ use super::{
     repo,
 };
 use crate::modules::{
-    access::{self, InvitationsCreate, Joining, Role},
+    access::{self, InvitationsCreate, Role},
     accounts::{self, DisplayName, PublicProfile},
     audit::{self as log, Entry},
     workspaces::{self, WorkspaceName},
@@ -228,18 +228,26 @@ pub(crate) async fn accept(
     let id = id.ok_or(InvitationsError::NotFound)?;
     let mut uow = database.begin(client).await?;
     let email = accounts::profile(&mut uow, principal).await?.email;
+    let workspace = repo::workspace_of(&mut uow, id, &email)
+        .await?
+        .ok_or(InvitationsError::NotFound)?;
+    // The owner's membership first, then the invitation, the order of the owner's deletion, which
+    // deletes the invitation with the workspace (DATA-20, ACCESS-008).
+    if !access::hold_owner(&mut uow, workspace).await? {
+        return Err(InvitationsError::NotFound);
+    }
     let found = repo::find(&mut uow, id, &email)
         .await?
         .ok_or(InvitationsError::NotFound)?;
     if found.expired {
         return Err(InvitationsError::Expired);
     }
-    let (user, workspace) = (principal.user_id(), found.workspace_id);
-    match access::add_member(&mut uow, workspace, user, found.role).await? {
-        Joining::Joined(_) => {}
-        Joining::AlreadyMember => return Err(InvitationsError::AlreadyMember),
-        // The invitation went with its workspace, while the acceptance waited (ACCESS-008).
-        Joining::WorkspaceGone => return Err(InvitationsError::NotFound),
+    let user = principal.user_id();
+    if access::add_member(&mut uow, workspace, user, found.role)
+        .await?
+        .is_none()
+    {
+        return Err(InvitationsError::AlreadyMember);
     }
     repo::delete(&mut uow, id, &email).await?;
     #[expect(

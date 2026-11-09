@@ -9,7 +9,10 @@ use super::rules::{MIGRATIONS_TABLE, Problem, list, strings, text};
 const DML: [&str; 4] = ["DELETE", "INSERT", "SELECT", "UPDATE"];
 
 /// The tables on which `app` holds less than DML, with what it holds (DATA-19).
-const APPEND_ONLY: [(&str, [&str; 2]); 1] = [("audit_entries", ["INSERT", "SELECT"])];
+const APPEND_ONLY: [(&str, [&str; 2]); 2] = [
+    ("audit_entries", ["INSERT", "SELECT"]),
+    ("audit_entry_clients", ["INSERT", "SELECT"]),
+];
 
 /// The role-level settings `app` has (DATA-19).
 const APP_SETTINGS: [&str; 2] = ["statement_timeout", "idle_in_transaction_session_timeout"];

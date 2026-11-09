@@ -51,6 +51,7 @@ pub(crate) fn routes() -> Routes<Arc<Auth>> {
                 &AuthError::ReauthenticationRequired,
                 &AuthError::OwnsSharedWorkspace,
                 &AuthError::AccountChanged,
+                &LimitError::RateLimited,
             ],
         )
 }
@@ -396,10 +397,11 @@ async fn reauthenticate(
 )]
 async fn delete_account(
     State(auth): State<Arc<Auth>>,
+    limits: RateLimits,
     client: Client,
     principal: Principal,
 ) -> Result<Response, Problem<AuthError>> {
-    auth.delete_account(&client, &principal).await?;
+    auth.delete_account(&limits, &client, &principal).await?;
     let mut response = StatusCode::NO_CONTENT.into_response();
     for name in [ACCESS_COOKIE, REFRESH_COOKIE] {
         let cookie = expired_cookie(name).map_err(AuthError::from)?;

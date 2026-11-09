@@ -1,9 +1,9 @@
 //! The personal data contract of `workspace_files`, `user_files` and `avatars` (D31): it deletes
-//! the user's own files and their avatar, before the user's row is locked, since deleting a file
-//! locks its row before the user's (the accounts spec's "Deleting an account"); their bytes go as
-//! every unreferenced object's do (FILES-011). A file they uploaded to a workspace that stays is
-//! the workspace's, and its foreign key sets its `uploader_id` to null as the user's row goes
-//! (ACCOUNTS-014).
+//! the user's own files and their avatar before the deletion's last step locks the user's row
+//! `FOR UPDATE`, since deleting a file locks its row before the user's (the accounts spec's
+//! "Deleting an account"); their bytes go as every unreferenced object's do (FILES-011). A file
+//! they uploaded to a workspace that stays is the workspace's, and its foreign key sets its
+//! `uploader_id` to null as the user's row goes (ACCOUNTS-017).
 
 use platform::{
     authn::{BoxFuture, Principal},

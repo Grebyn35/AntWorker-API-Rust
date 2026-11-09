@@ -45,7 +45,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | Using a stolen session token | Tokens are random and stored only as hashes (SEC-03, AUTH-007); an access token is short-lived, and every session has an absolute lifetime (SEC-06, AUTH-007); a refresh token works once, and its reuse ends the session (AUTH-012); signing out ends it at once, streams included (AUTH-013) |
 | A script on a page reading a browser's tokens | Browsers get their tokens only in `HttpOnly` cookies (SEC-07, AUTH-015) |
 | Another site's page acting with a browser's cookies | `SameSite=Strict` cookies, and the cross-site check of requests whose method isn't safe (SEC-07, PLATFORM-059); the headers of cross-origin resource sharing (CORS) only for listed origins (PLATFORM-058) |
-| A stolen session deleting its user's account, or guessing their password to do so | Deleting the account needs the password proved within the last 5 minutes (AUTH-023), and every check of a signed-in user's password counts in one bucket of theirs, 5 per 15 minutes, whatever checks it (AUTH-022, SEC-13), with each wrong one in the user's log (AUTH-021) |
+| A stolen session deleting its user's account, or guessing their password to do so | Deleting the account needs the password proved just before (AUTH-023), and every check of a signed-in user's password counts in one bucket of theirs, whatever checks it (AUTH-022, SEC-13), with each wrong one in the user's log (AUTH-021) |
 | Signing in with a password alone | Accepted for users, with the controls that [Second factors](#second-factors) lists; required of superadmins (D62, D63) |
 
 ### Access control

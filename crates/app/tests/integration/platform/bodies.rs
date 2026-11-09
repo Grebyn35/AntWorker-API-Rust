@@ -109,3 +109,25 @@ async fn platform_051_every_field_a_sign_in_refuses_is_named() {
         .map(|(field, code)| (field.to_owned(), code.to_owned()))
     );
 }
+
+#[tokio::test]
+async fn platform_051_every_field_a_re_authentication_refuses_is_named() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let path = "/v1/users/me/sessions/current/reauthenticate";
+
+    let empty = api
+        .post_raw(path, &json!({ "password": "" }))
+        .bearer(&ada.access)
+        .send()
+        .await;
+    let long = api
+        .post_raw(path, &json!({ "password": "p".repeat(129) }))
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    for (response, code) in [(&empty, "required"), (&long, "too_long")] {
+        assert_eq!(named(response), [("/password".to_owned(), code.to_owned())]);
+    }
+}

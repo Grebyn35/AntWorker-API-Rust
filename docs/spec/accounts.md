@@ -56,9 +56,10 @@ A user also sets and removes their avatar here, whose image `files` keeps (D117,
 | ACCOUNTS-013 | Deleting an account deletes, in one unit of work, the user's record and everything their account holds: their identities, sessions, device tokens, own audit log, idempotency records, events and jobs, their memberships, and each workspace whose only member they are, with everything in it. Every session's streams close. Afterwards no row names the user, and none holds their email or name, but for what workspaces keep as their own (ACCOUNTS-014, D125), the events that name them, which go within a day (PLATFORM-019), and the email of ACCOUNTS-015 until it is sent, or, should it fail, for as long as a dead letter keeps its payload (PLATFORM-014). | D16, D31, DATA-06, DATA-23, SEC-06 | `accounts_013_` |
 | ACCOUNTS-014 | In each workspace the user shares with others, the deletion ends their membership, records `member.left` in the workspace's log, and publishes the workspace event `member.left`, which requires `members.read`. What they made there is the workspace's, and stays, without their ID. The workspace's log keeps each entry that named them, without their ID, their IP address and their user agent (AUDIT-006). | D6, D16, D31, D125, SEC-18, SEC-19 | `accounts_014_` |
 | ACCOUNTS-015 | With email on, a deletion enqueues, in its unit of work, as a job for no one, an email to the account's address that says the account and its data are deleted, which carries no link and is sent once the deletion commits (PLATFORM-021). With email off, nothing is sent (PLATFORM-022). | D1, PLATFORM-021 | `accounts_015_` |
-| ACCOUNTS-016 | Once a deletion holds the user's row for its last step, it waits for no lock. When another request holds a lock on a row that the deletion of the user's row deletes or changes, or a membership remains that a request of the user's added while the deletion ran, `delete` reports it, which `auth` answers with 409 `auth.account_changed`, and nothing changes, so the client sends the deletion again. | DATA-20, ERR-03, ERR-05 | `accounts_016_` |
+| ACCOUNTS-016 | Once a deletion holds the user's row for its last step, it waits for no lock, but the millisecond that is the least `lock_timeout` Postgres takes. When another request holds a lock on a row that the deletion of the user's row deletes or changes, or a membership remains that a request of the user's added while the deletion ran, `delete` reports it, which `auth` answers with 409 `auth.account_changed`, and nothing changes, so the client sends the deletion again. | DATA-20, ERR-03, ERR-05 | `accounts_016_` |
 | ACCOUNTS-017 | A deletion deletes the user's own files and their avatar, whose bytes FILES-011 deletes. A file they uploaded to a workspace that stays keeps its row, with its `uploader_id` null. <!-- part: files --> | D16, D31, D125 | `accounts_017_` |
 | ACCOUNTS-018 | An invitation that the user sent to a workspace that stays keeps its row, with no inviter, and an invitation addressed to their email, the workspace's that sent it, stays as it was. <!-- part: invitations --> | D16, D31, D125 | `accounts_018_` |
+| ACCOUNTS-019 | A deletion that waited for another deletion of the same account, which committed first, finds the account deleted, changes nothing, and answers as that deletion did, 204. | D16, DATA-20 | `accounts_019_` |
 
 ## Design
 
@@ -92,9 +93,9 @@ ACCOUNTS-009's limit is fixed, beside `FILE_MAX_BYTES`, whose default is ten tim
 
 ### Deleting an account
 
-`auth` confirms a deletion, by a session that proved its password within the last 5 minutes, opens the unit of work, and calls `Deletion::delete` (AUTH-023), which:
+`auth` confirms a deletion, as AUTH-023 says, opens the unit of work, and calls `Deletion::delete`, which:
 
-1. Holds the user's row `FOR NO KEY UPDATE`, against every other change of it.
+1. Holds the user's row `FOR NO KEY UPDATE`, against every other change of it. When another deletion of the account deleted the row while this one waited for it, this deletion finds none, and is done (ACCOUNTS-019).
 2. Has `access` lock every membership of the user, `FOR UPDATE`, and refuse the deletion while a workspace they own has another member (ACCOUNTS-012, ACCESS-008).
 3. Runs each module's personal data contract, in the order the composition root registers them, each erasing what its module keeps of the user, as the table below says (D31). The deletion is immediate, with no grace period (D16).
 4. Runs the contract of `accounts` last, which reads the user's email, enqueues the email of ACCOUNTS-015, locks the user's row `FOR UPDATE`, and deletes it, waiting for no lock (ACCOUNTS-016). The foreign keys then delete, or set to null, every row that still names the user (DATA-05).
@@ -110,7 +111,8 @@ ACCOUNTS-009's limit is fixed, beside `FILE_MAX_BYTES`, whose default is ten tim
 | `platform` | The jobs enqueued for the user. Their events and idempotency records go with the user's row, through their foreign keys. |
 | `accounts` | The user's row, last, as step 4 says. |
 
-What the user made in a workspace they share with others is the workspace's, as their export leaves it out (D31): it stays, and keeps nothing that names them (ACCOUNTS-014). The deletion records nothing in the user's own log, which goes with the account; its entries in the logs of the workspaces they shared remain. A user who shared no workspace leaves no row behind but the job of ACCOUNTS-015's email, which names no one, until it is sent, and nothing else but the request's log line and trace, which hold their ID alone (OBS-04).
+What the user made in a workspace they share with others is the workspace's, as their export leaves it out (D31): it stays, and keeps nothing that names them (ACCOUNTS-014). The deletion records nothing in the user's own log, which goes with the account; its entries in the logs of the workspaces they shared remain. A user who shared no workspace leaves no row that names them behind: but for the job of ACCOUNTS-015's email, which names no one, until it is sent, and the rate-limit buckets that counted their requests, which hold only keyed hashes and expire on their own (DATA-23), nothing else is left but the request's log line and trace, which hold their ID alone (OBS-04).
+The bytes of their files and avatar stay in the bucket until FILES-011 deletes them, as every object that no row names. <!-- part: files -->
 
 The steps take their locks in the order that every other operation takes them on the same rows, so no operation waits for the deletion while the deletion waits for it (DATA-20):
 

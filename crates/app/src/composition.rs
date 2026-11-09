@@ -77,6 +77,14 @@ const PASSWORD_CHECK: Bucket = Bucket {
     window: Duration::from_secs(900),
 };
 
+/// The bucket of the deletions of an email's accounts, each of which sends the address an email:
+/// 5 in 24 hours, fixed (AUTH-024).
+const DELETION_EMAIL: Bucket = Bucket {
+    name: "deletion_email",
+    limit: 5,
+    window: Duration::from_secs(86_400),
+};
+
 // part: invitations
 /// The name of the per-member limit's bucket on inviting (INVITATIONS-009).
 const INVITATION_BUCKET: &str = "invitation";
@@ -128,6 +136,7 @@ impl Config {
                     day..=5 * 365 * day,
                 )?,
                 password_check: PASSWORD_CHECK,
+                deletion_email: DELETION_EMAIL,
             },
             // part: files
             files: files::Settings {

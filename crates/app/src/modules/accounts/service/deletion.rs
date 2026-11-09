@@ -17,7 +17,8 @@ use crate::modules::{
 /// What deleting an account came to, which `auth` answers with codes of its own (AUTH-023).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Outcome {
-    /// The account is deleted, once the unit of work commits.
+    /// The account is deleted, once the unit of work commits, or was, by another deletion that
+    /// committed while this one waited for it (ACCOUNTS-019).
     Deleted,
     /// The user owns a workspace that has another member, so nothing was erased (ACCOUNTS-012).
     OwnsSharedWorkspace,
@@ -49,7 +50,10 @@ impl Deletion {
         uow: &mut UnitOfWork,
         principal: &Principal,
     ) -> Result<Outcome, AccountsError> {
-        repo::hold(uow, principal.user_id()).await?;
+        if !repo::hold(uow, principal.user_id()).await? {
+            // Another deletion of the account committed while this one waited for it.
+            return Ok(Outcome::Deleted);
+        }
         if !access::erasable(uow, principal).await? {
             return Ok(Outcome::OwnsSharedWorkspace);
         }

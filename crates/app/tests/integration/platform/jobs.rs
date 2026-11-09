@@ -204,6 +204,37 @@ async fn platform_013_a_job_runs_with_the_scope_of_the_proof_that_enqueued_it() 
 }
 
 #[tokio::test]
+async fn platform_013_a_job_that_an_account_s_deletion_enqueues_once_it_is_erased_runs_for_no_one()
+{
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let (steering, _starts) = Steering::new(&[]);
+    let jobs = registry(&database, &steering);
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test proves the scope that a deleted user's principal gives a job"
+    )]
+    let principal = Principal::new(
+        UserId::from_uuid(uuid::Uuid::from_u128(7)),
+        SessionId::from_uuid(uuid::Uuid::from_u128(8)),
+    );
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test proves the scope of a job that an account's deletion enqueues"
+    )]
+    let scope = principal.erased_job_scope();
+    enqueue(&database, scope, &probe("farewell")).await;
+
+    let clock: SharedClock = Arc::new(TestClock::default());
+    jobs.run_pending(&database, &clock).await;
+
+    let contexts = steering.contexts.lock().unwrap();
+    assert_eq!(contexts.len(), 1);
+    assert_eq!(contexts[0].scope().user(), None);
+    assert_eq!(contexts[0].scope().workspace(), None);
+}
+
+#[tokio::test]
 async fn platform_014_a_failing_job_retries_with_backoff_then_moves_to_the_dead_letter_state() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;

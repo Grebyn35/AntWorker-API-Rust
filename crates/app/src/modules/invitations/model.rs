@@ -90,7 +90,6 @@ pub(super) struct Pending {
 /// The invitation that accepting found, by its ID and the caller's address.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Found {
-    pub(super) workspace_id: WorkspaceId,
     pub(super) role: Role,
     pub(super) expired: bool,
 }

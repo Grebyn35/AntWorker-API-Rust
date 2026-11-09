@@ -1,7 +1,7 @@
 //! The personal data contract of `identities`, `sessions` and `device_tokens` (D31): it deletes
-//! the user's identities, sessions and device tokens before the user's row is locked, since a
-//! sign-in locks an identity, and a refresh a session, before the user's row (the auth spec's
-//! "Deleting an account").
+//! the user's identities, sessions and device tokens before the deletion's last step locks the
+//! user's row `FOR UPDATE`, since a sign-in locks an identity, and a refresh a session, before it
+//! reads the user's row through a foreign key (the auth spec's "Deleting an account").
 
 use platform::{
     authn::{BoxFuture, Principal},

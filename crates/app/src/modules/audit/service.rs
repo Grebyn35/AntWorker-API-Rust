@@ -27,7 +27,7 @@ pub(crate) async fn record(
 ) -> Result<(), AuditError> {
     match repo::insert(uow, scope, &entry, &telemetry::trace_id()).await? {
         Inserted::Recorded => Ok(()),
-        Inserted::Gone => Err(Internal::new("what the audit entry names is gone").into()),
+        Inserted::LogGone => Err(Internal::new("the audit entry's log is gone").into()),
     }
 }
 
@@ -59,9 +59,9 @@ impl Sink {
         .await?
         {
             Inserted::Recorded => uow.commit().await,
-            // The log went with a deleted account or workspace while the refused request ran,
-            // so the refusal has nowhere to be recorded (the audit spec's "Recording a refusal").
-            Inserted::Gone => Ok(()),
+            // The non-member's own log went with their account while the refused request ran,
+            // so the refusal has nowhere to be recorded (AUDIT-004).
+            Inserted::LogGone => Ok(()),
         }
     }
 }

@@ -31,9 +31,8 @@ pub(super) async fn insert(
 }
 
 // part: invitations
-/// Locks the membership of `workspace`'s owner `FOR KEY SHARE`, so a member joins only while no
-/// deletion of the owner's account holds it, and returns whether there is one: every workspace
-/// has an owner, so one without is gone (ACCESS-001, ACCESS-008).
+/// Locks the membership of `workspace`'s owner `FOR KEY SHARE` until the unit of work ends, and
+/// returns whether there is one (ACCESS-001, ACCESS-008).
 pub(super) async fn hold_owner(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,

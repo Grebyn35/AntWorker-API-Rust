@@ -22,4 +22,4 @@ pub(crate) use service::profile;
 // end part: invitations
 pub(crate) use personal_data::Contract;
 pub(crate) use service::deletion::{Deletion, Outcome as DeletionOutcome};
-pub(crate) use service::{Creation, create, find_by_email, matching, profiles};
+pub(crate) use service::{Creation, create, find_by_email, matching, me, profiles};

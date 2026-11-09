@@ -74,17 +74,18 @@ pub(super) async fn lock(uow: &mut UnitOfWork, id: UserId) -> Result<(), Interna
 }
 
 /// Holds the row of the user `id` against every other change of it, `FOR NO KEY UPDATE`, until the
-/// unit of work ends: a rename or an avatar's change, which lock the row `FOR UPDATE` before any
-/// other, waits, while an insert that names the user, whose foreign key reads the row `FOR KEY
-/// SHARE`, doesn't (the accounts spec's "Deleting an account").
-pub(super) async fn hold(uow: &mut UnitOfWork, id: UserId) -> Result<(), Internal> {
-    sqlx::query!(
+/// unit of work ends, and returns whether it is there: a rename or an avatar's change, which lock
+/// the row `FOR UPDATE` before any other, waits, while an insert that names the user, whose
+/// foreign key reads the row `FOR KEY SHARE`, doesn't. A deletion of the account that commits
+/// while it waits leaves no row (the accounts spec's "Deleting an account", ACCOUNTS-019).
+pub(super) async fn hold(uow: &mut UnitOfWork, id: UserId) -> Result<bool, Internal> {
+    let held = sqlx::query_scalar!(
         "SELECT id FROM users WHERE id = $1 FOR NO KEY UPDATE",
         id.uuid()
     )
-    .fetch_one(uow.executor())
+    .fetch_optional(uow.executor())
     .await?;
-    Ok(())
+    Ok(held.is_some())
 }
 
 /// The foreign key that keeps a user's membership from going with them: a membership that a

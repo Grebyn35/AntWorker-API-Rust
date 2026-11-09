@@ -30,7 +30,7 @@
 | `GET /v1/users/me/sessions/current` | user | AUTH-016 |
 | `DELETE /v1/users/me/sessions/current` | user | AUTH-013 |
 | `POST /v1/users/me/sessions/current/reauthenticate` | user | AUTH-021, AUTH-022 |
-| `DELETE /v1/users/me` | user | AUTH-023 |
+| `DELETE /v1/users/me` | user | AUTH-023, AUTH-024 |
 
 No route takes an `Idempotency-Key` (API-12).
 
@@ -61,6 +61,7 @@ No route takes an `Idempotency-Key` (API-12).
 | AUTH-021 | Re-authenticating, `POST /v1/users/me/sessions/current/reauthenticate` with `{"password": <password>}`, checks the caller's password as AUTH-022 says. When it matches, the session's `authenticated_at` becomes the request's time, by the database's clock, the audit entry is `session.reauthenticated`, and it answers 200 with the session as AUTH-016 reads it. When it doesn't, or the account has no password, it answers 403 `auth.wrong_password` after the same password-hashing work, records `password.check_failed` in the caller's log, and changes nothing else. | SEC-04, SEC-05, DATA-22, D6, D123 | `auth_021_` |
 | AUTH-022 | Every check of a signed-in user's password counts in one bucket of the user's, 5 per 15 minutes; beyond the limit, a check answers 429 `request.rate_limited` before it reads the password. | SEC-13, API-15, D123 | `auth_022_` |
 | AUTH-023 | Deleting one's account, `DELETE /v1/users/me`, needs the session that authenticates it to have started, or re-authenticated, within the last 5 minutes, by the database's clock; otherwise it answers 403 `auth.reauthentication_required`, and changes nothing. Then `accounts` deletes the account, or reports why it doesn't, which the route answers as ACCOUNTS-012 and ACCOUNTS-016 say; a deletion ends every session of the user, the request's own included, and the route answers 204, clearing a browser's session cookies as signing out does (AUTH-013). | D16, D123, SEC-06, SEC-07 | `auth_023_` |
+| AUTH-024 | A deletion counts in one bucket of its account's email, 5 per 24 hours, since each one sends that address an email (ACCOUNTS-015); beyond the limit, it answers 429 `request.rate_limited` before it changes anything. | SEC-13, API-15 | `auth_024_` |
 
 ## Design
 
@@ -107,7 +108,7 @@ A check of a signed-in user's password counts in their bucket, opens the operati
 
 ### Deleting an account
 
-`DELETE /v1/users/me` is served here, since this module confirms it. The service opens the unit of work, reads, without a lock, whether the caller's session proved its password within the window, and calls `Deletion::delete` of `accounts`, which erases the account across every module and then deletes it ([accounts spec](accounts.md#deleting-an-account)). The contract of `auth` deletes the user's identities first, which a sign-in locks before it starts a session, so no session starts meanwhile, then their sessions, each with its access-change signal, so every stream of theirs closes once the deletion commits, then their device tokens, all before the user's row is locked, since a sign-in locks its identity, and a refresh its session, before the user's row. A browser's response clears the session's cookies, as signing out does; its device token's cookie stays, and counts as none, since no row holds its token (AUTH-019).
+`DELETE /v1/users/me` is served here, since this module confirms it. The service reads the account's email, in a short transaction of its own that writes nothing, since the email names the bucket that counts the deletion (AUTH-024, ARCH-11), counts it, then opens the unit of work, reads, without a lock, whether the caller's session proved its password within the window, and calls `Deletion::delete` of `accounts`, which erases the account across every module and then deletes it ([accounts spec](accounts.md#deleting-an-account)). The contract of `auth` deletes the user's identities first, which a sign-in locks before it starts a session, so no session starts meanwhile, then their sessions, each with its access-change signal, so every stream of theirs closes once the deletion commits, then their device tokens, all before the deletion's last step locks the user's row `FOR UPDATE`, since a sign-in locks its identity, and a refresh its session, before it reads the user's row through a foreign key. A browser's response clears the session's cookies, as signing out does; its device token's cookie stays, and counts as none, since no row holds its token (AUTH-019).
 
 ### Device IDs
 

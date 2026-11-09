@@ -1,7 +1,7 @@
 //! The personal data contract of `invitations` (D31). Its erasure changes nothing: an invitation
 //! that a deleted user sent is the workspace's, and stays, while its foreign key sets its
 //! `inviter_id` to null as the user's row goes, and an invitation addressed to their email is the
-//! workspace's too (ACCOUNTS-014).
+//! workspace's too (ACCOUNTS-018).
 
 use platform::{
     authn::{BoxFuture, Principal},

@@ -20,6 +20,14 @@ async fn reauthenticate(api: &Api, user: &SignedIn, password: &str) -> Response 
     .await
 }
 
+/// Deletes `user`'s account.
+async fn delete(api: &Api, user: &SignedIn) -> Response {
+    api.request(http::Method::DELETE, "/v1/users/me")
+        .bearer(&user.access)
+        .send()
+        .await
+}
+
 /// Makes `user`'s session have proved their password `minutes` minutes ago.
 async fn authenticated_ago(api: &Api, user: &SignedIn, minutes: u32) {
     api.database()
@@ -145,6 +153,14 @@ async fn auth_022_every_check_of_a_signed_in_user_s_password_counts_in_one_bucke
 
     assert_eq!(limited.status, 429);
     assert_eq!(limited.json()["code"], "request.rate_limited");
+    // 5 in a window of 15 minutes.
+    assert!(
+        limited
+            .header("ratelimit-policy")
+            .starts_with("\"password_check\";q=5;w=900"),
+        "{}",
+        limited.header("ratelimit-policy")
+    );
     assert_eq!(other.status, 200);
     assert_eq!(
         api.database()
@@ -186,5 +202,53 @@ async fn auth_023_a_deletion_needs_the_password_proved_within_5_minutes() {
             .owner_reads("SELECT count(*)::text FROM users")
             .await,
         ["0"]
+    );
+}
+
+#[tokio::test]
+async fn auth_023_a_session_that_has_just_started_may_delete_its_account() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let deleted = api
+        .request(http::Method::DELETE, "/v1/users/me")
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(deleted.status, 204);
+}
+
+#[tokio::test]
+async fn auth_024_the_deletions_of_an_email_s_accounts_count_in_one_bucket_of_the_address() {
+    let api = Api::new().await;
+    for _ in 0..5 {
+        let ada = users::register(&api, "ada@example.com").await;
+        assert_eq!(delete(&api, &ada).await.status, 204);
+    }
+    let ada = users::register(&api, "ada@example.com").await;
+    let ada_id = ada.user_id.clone();
+    let grace = users::register(&api, "grace@example.com").await;
+
+    let limited = delete(&api, &ada).await;
+    let other = delete(&api, &grace).await;
+
+    assert_eq!(limited.status, 429);
+    assert_eq!(limited.json()["code"], "request.rate_limited");
+    assert!(
+        limited
+            .header("ratelimit-policy")
+            .starts_with("\"deletion_email\";q=5;w=86400"),
+        "{}",
+        limited.header("ratelimit-policy")
+    );
+    assert_eq!(other.status, 204);
+    assert_eq!(
+        api.database()
+            .owner_reads(&format!(
+                "SELECT count(*)::text FROM users WHERE id = '{ada_id}'"
+            ))
+            .await,
+        ["1"]
     );
 }

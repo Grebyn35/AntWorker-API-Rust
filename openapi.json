@@ -5140,6 +5140,7 @@
                       "properties": {
                         "code": {
                           "enum": [
+                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -5151,7 +5152,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",

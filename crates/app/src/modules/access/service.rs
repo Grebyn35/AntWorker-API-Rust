@@ -111,40 +111,33 @@ pub(crate) async fn add_owner(
 }
 
 // part: invitations
-/// What adding a member came to (ACCESS-008, D16).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Joining {
-    /// The user is a member, since this time.
-    Joined(Timestamp),
-    /// The user is a member already, so nothing changed.
-    AlreadyMember,
-    /// The workspace is gone, deleted with its owner's account while the join waited for it.
-    WorkspaceGone,
+/// Locks the membership of `workspace`'s owner `FOR KEY SHARE`, and answers whether the workspace
+/// is still there: every workspace has an owner (ACCESS-001), so one without went with its
+/// owner's account while the lock waited for that deletion (ACCESS-008). Accepting an invitation
+/// calls it first, before it locks the invitation, as a deletion of the owner's account locks the
+/// owner's membership before the invitations its workspace's cascade deletes (DATA-20).
+pub(crate) async fn hold_owner(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+) -> Result<bool, AccessError> {
+    Ok(repo::hold_owner(uow, workspace).await?)
 }
 
-/// Makes `user` a member of `workspace` at `role`, unless they are one already or the workspace
-/// is gone, either of which changes nothing (D16, ACCESS-008). It first locks the owner's
-/// membership, so it waits for a deletion of the owner's account. Only accepting an invitation
-/// calls it.
+/// Makes `user` a member of `workspace` at `role`, and returns when they joined, or `None` when
+/// they already are one, which changes nothing (D16). Only accepting an invitation calls it, once
+/// [`hold_owner`] has locked the owner's membership.
 pub(crate) async fn add_member(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
     user: UserId,
     role: Role,
-) -> Result<Joining, AccessError> {
-    if !repo::hold_owner(uow, workspace).await? {
-        return Ok(Joining::WorkspaceGone);
+) -> Result<Option<Timestamp>, AccessError> {
+    let joined_at = repo::insert_unless_member(uow, workspace, user, role).await?;
+    if joined_at.is_some() {
+        ordered(uow);
+        changed(uow, workspace, user).await?;
     }
-    Ok(
-        match repo::insert_unless_member(uow, workspace, user, role).await? {
-            Some(joined_at) => {
-                ordered(uow);
-                changed(uow, workspace, user).await?;
-                Joining::Joined(joined_at)
-            }
-            None => Joining::AlreadyMember,
-        },
-    )
+    Ok(joined_at)
 }
 
 /// Whether `user` belongs to `workspace`.
@@ -159,7 +152,8 @@ pub(crate) async fn is_member(
 
 /// Locks every membership of the caller, and answers whether their account may be deleted: that
 /// no workspace they own has another member (ACCESS-008, ACCOUNTS-012). Only the deletion of the
-/// caller's account calls it, as its first step, so it takes its locks before any other.
+/// caller's account calls it, once it holds the user's row, so it takes its locks before any other
+/// (the accounts spec's "Deleting an account").
 pub(crate) async fn erasable(
     uow: &mut UnitOfWork,
     principal: &Principal,

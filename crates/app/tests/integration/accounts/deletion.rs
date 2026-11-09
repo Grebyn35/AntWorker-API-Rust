@@ -482,6 +482,37 @@ async fn accounts_016_a_row_that_another_request_holds_locked_refuses_the_deleti
 }
 
 #[tokio::test]
+async fn accounts_019_a_deletion_that_waited_for_another_of_the_account_answers_204() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let other_device = users::new_session(&api, "ada@example.com").await;
+    let db = api.database();
+    // The first deletion holds Ada's row, and waits at her identity, which a sign-in holds.
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
+            ada.user_id
+        ))
+        .await;
+
+    let first = delete(&api, &ada);
+    let second = async {
+        queries_wait_on_locks(db, 1).await;
+        let second = delete(&api, &other_device);
+        let release = async {
+            queries_wait_on_locks(db, 2).await;
+            execute_on(&mut held, "ROLLBACK").await;
+        };
+        tokio::join!(second, release).0
+    };
+    let (first, second) = tokio::join!(first, second);
+
+    assert_eq!(first.status, 204);
+    assert_eq!(second.status, 204);
+    assert_eq!(one(&api, "SELECT count(*)::text FROM users").await, "0");
+}
+
+#[tokio::test]
 async fn data_23_every_column_that_names_a_user_or_holds_personal_data_has_a_contract() {
     let db = TestDatabase::migrated().await;
     let schema: BTreeSet<String> = db

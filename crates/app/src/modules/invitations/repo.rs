@@ -106,6 +106,23 @@ pub(super) async fn workspace_ids(
     Ok(ids.into_iter().map(WorkspaceId::from_uuid).collect())
 }
 
+/// The workspace of the invitation `id`, if it is addressed to `email`, read without a lock, so an
+/// acceptance learns whose owner's membership to lock before it locks the invitation (DATA-20).
+pub(super) async fn workspace_of(
+    uow: &mut UnitOfWork,
+    id: uuid::Uuid,
+    email: &EmailAddress,
+) -> Result<Option<WorkspaceId>, Internal> {
+    let workspace = sqlx::query_scalar!(
+        "SELECT workspace_id FROM invitations WHERE id = $1 AND email = $2",
+        id,
+        email.as_str(),
+    )
+    .fetch_optional(uow.executor())
+    .await?;
+    Ok(workspace.map(WorkspaceId::from_uuid))
+}
+
 /// The invitation `id`, if it is addressed to `email`, locked until the unit of work ends, so two
 /// acceptances of it take turns (DATA-20), with whether it expired, by the database's clock.
 pub(super) async fn find(
@@ -114,7 +131,7 @@ pub(super) async fn find(
     email: &EmailAddress,
 ) -> Result<Option<Found>, Internal> {
     let row = sqlx::query!(
-        r#"SELECT workspace_id, role::text AS "role!", expires_at <= now() AS "expired!"
+        r#"SELECT role::text AS "role!", expires_at <= now() AS "expired!"
         FROM invitations
         WHERE id = $1 AND email = $2
         FOR UPDATE"#,
@@ -125,7 +142,6 @@ pub(super) async fn find(
     .await?;
     row.map(|row| {
         Ok(Found {
-            workspace_id: WorkspaceId::from_uuid(row.workspace_id),
             role: Role::from_name(&row.role)?,
             expired: row.expired,
         })

@@ -14,7 +14,7 @@ CREATE TABLE invitations (
     version bigint NOT NULL DEFAULT 1,
     CONSTRAINT invitations_workspace_id_email_key UNIQUE (workspace_id, email),
     CONSTRAINT invitations_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE,
-    -- An invitation outlives the account of the member who sent it (ACCOUNTS-014).
+    -- An invitation outlives the account of the member who sent it (ACCOUNTS-018).
     CONSTRAINT invitations_inviter_id_fkey FOREIGN KEY (inviter_id) REFERENCES users (id) ON DELETE SET NULL
 );
 

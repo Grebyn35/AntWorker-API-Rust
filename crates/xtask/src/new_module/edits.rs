@@ -94,8 +94,9 @@ fn code(plan: &mut Plan<'_>, module: &str, inserts: &Inserts) {
         "crates/app/src/composition.rs",
         &format!(
             "`{module},` among the imports of `crate::modules`, `.merge({module}::routes())` \
-             among the routes `compose` merges, and `{module}::routes().openapi(service),` among \
-             the documents of `openapi`"
+             among the routes `compose` merges, `{module}::routes().openapi(service),` among the \
+             documents of `openapi`, and `Arc::new({module}::Contract),` among the contracts of \
+             `contracts`, before the contract of `accounts`"
         ),
         &|text| composition(text, module),
     );

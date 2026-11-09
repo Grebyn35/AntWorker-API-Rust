@@ -8,11 +8,11 @@
 
 | Table | Holds |
 |---|---|
-| `invitations` | `id`, `workspace_id`, `email` (normalized), `role`, `inviter_id`, `created_at`, `expires_at`, `updated_at`, `version`. `(workspace_id, email)` is unique, and `email` has an index. `inviter_id` references `users` with `ON DELETE SET NULL`: an invitation outlives the account of the member who sent it, as the workspace's (ACCOUNTS-014). `email` is personal data (DATA-23). |
+| `invitations` | `id`, `workspace_id`, `email` (normalized), `role`, `inviter_id`, `created_at`, `expires_at`, `updated_at`, `version`. `(workspace_id, email)` is unique, and `email` has an index. `inviter_id` references `users` with `ON DELETE SET NULL`: an invitation outlives the account of the member who sent it, as the workspace's (ACCOUNTS-018). `email` is personal data (DATA-23). |
 
 ## Interface
 
-- `Contract`, the personal data contract for `invitations` (D31), whose `erase` changes nothing: the foreign key sets the inviter of an invitation that a deleted user sent to null, and an invitation addressed to their email is the workspace's, and stays (ACCOUNTS-014).
+- `Contract`, the personal data contract for `invitations` (D31), whose `erase` changes nothing: the foreign key sets the inviter of an invitation that a deleted user sent to null, and an invitation addressed to their email is the workspace's, and stays (ACCOUNTS-018).
 
 ## Routes
 
@@ -72,9 +72,11 @@ The query filters on the caller's email, from `accounts::profile`, and on `expir
 ### Accepting
 
 1. The unit of work opens from the caller's `Principal`.
-2. It reads the invitation by ID and the caller's email (DATA-16), `FOR UPDATE`, so two acceptances of it take turns (DATA-20), and checks the expiry in SQL.
-3. `access::add_member` adds the caller, or reports that they are a member already, which refuses the acceptance and changes nothing.
-4. It deletes the invitation, records the audit entry, publishes the events, and commits.
+2. It reads the invitation's workspace by the invitation's ID and the caller's email (DATA-16), without a lock.
+3. `access::hold_owner` locks the workspace's owner's membership, which a deletion of the owner's account locks before it deletes the workspace with its invitations, so the acceptance takes the two locks in the deletion's order (DATA-20); a workspace with no owner left went with that deletion, which answers 404 `invitations.not_found` (INVITATIONS-006, ACCESS-008).
+4. It reads the invitation again, `FOR UPDATE`, so two acceptances of it take turns (DATA-20), and checks the expiry in SQL.
+5. `access::add_member` adds the caller, or reports that they are a member already, which refuses the acceptance and changes nothing.
+6. It deletes the invitation, records the audit entry, publishes the events, and commits.
 
 ### Expiry sweep
 

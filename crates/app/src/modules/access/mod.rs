@@ -24,5 +24,5 @@ pub(crate) use service::{
     workspace_ids,
 };
 // part: invitations
-pub(crate) use service::{Joining, add_member, is_member};
+pub(crate) use service::{add_member, hold_owner, is_member};
 // end part: invitations

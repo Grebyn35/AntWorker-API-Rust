@@ -20,6 +20,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D8 | Constraint violations map to 4xx | ERR-05: each constraint a repository relies on maps to a domain outcome; an unexpected violation is `Internal` |
 | D8, D10, D11 | Every response is a problem with a trace ID; the SDK samples every trace; an IP limit applies to every route | API-07, API-16, OBS-08, OBS-15, SEC-13 and OPS-05 exempt the health probes |
 | D10 | Every log line carries the trace and span IDs | OBS-02: a line written inside a span carries them |
+| D31 | The contract has, optionally, a precondition for erasure, such as "transfer or delete shared workspaces first" | The `accounts` spec's "Deleting an account": `PersonalData` has `columns` and `erase`, and the one precondition, D16's, is asked of `access`, which `accounts` uses, before any contract erases (ACCOUNTS-012, ACCESS-008) |
 | D31 | Export excludes other members' data and whole-workspace content | The `accounts` spec's "Export": the content of every workspace whose only member is the user is exported, the same workspaces that a deletion deletes (D40) |
 | D29 | OAuth providers and the client telemetry module are removable; the core modules are not | ARCH-07 also makes removable each part that gives a product its workspace shape, the `invitations` module among them (D39), and the `files` module, with the avatars and workspace pictures (D117) |
 | D22 | A Cargo workspace with two crates | ARCH-01: the API has two crates, and a third, `xtask`, holds the custom CI checks |

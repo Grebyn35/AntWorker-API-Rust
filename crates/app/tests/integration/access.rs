@@ -5,7 +5,9 @@ use futures_util::future::BoxFuture;
 use http::{Method, StatusCode};
 
 use crate::support::{
-    Api, TestDatabase, execute_on, queries_wait_on_locks,
+    Api, TestDatabase,
+    api::Response,
+    execute_on, queries_wait_on_locks,
     users::{self, SignedIn},
     workspaces,
 };
@@ -590,8 +592,9 @@ fn identity_of(user: &SignedIn) -> String {
     )
 }
 
-#[tokio::test]
-async fn access_008_the_user_s_operations_in_their_workspaces_wait_for_their_deletion() {
+/// Ada, a member of Bob's workspace, reads it while the deletion of her account holds her
+/// memberships; returns the API, Ada, the deletion's response and the read's.
+async fn reading_while_deleted() -> (Api, SignedIn, Response, Response) {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let bob = users::register(&api, "bob@example.com").await;
@@ -617,10 +620,29 @@ async fn access_008_the_user_s_operations_in_their_workspaces_wait_for_their_del
         tokio::join!(read, release).0
     };
     let (deleted, read) = tokio::join!(delete, read);
+    (api, ada, deleted, read)
+}
+
+#[tokio::test]
+async fn access_008_the_user_s_operations_in_their_workspaces_wait_for_their_deletion() {
+    let (_, _, deleted, read) = reading_while_deleted().await;
 
     assert_eq!(deleted.status, StatusCode::NO_CONTENT);
     // The read waited for the deletion, which ended her membership.
     assert_eq!(read.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn audit_004_a_refusal_whose_caller_s_account_went_meanwhile_is_recorded_nowhere() {
+    let (api, _, _, read) = reading_while_deleted().await;
+
+    assert_eq!(read.status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT count(*)::text FROM audit_entries WHERE action = 'access.denied'")
+            .await,
+        ["0"]
+    );
 }
 
 #[tokio::test]

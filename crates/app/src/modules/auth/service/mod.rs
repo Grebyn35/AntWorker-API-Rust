@@ -73,6 +73,9 @@ pub(crate) struct Settings {
     pub(crate) device_tokens: std::time::Duration,
     /// The bucket of each user's checks of their password, once signed in (AUTH-022).
     pub(crate) password_check: Bucket,
+    /// The bucket of the deletions of an email's accounts, each of which sends the address an
+    /// email (AUTH-024).
+    pub(crate) deletion_email: Bucket,
 }
 
 /// Registration, sign-in and sessions.

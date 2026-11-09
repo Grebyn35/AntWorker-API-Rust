@@ -6,23 +6,34 @@ use platform::{
     db::UnitOfWork,
     errors::Internal,
     events::{self, AccessChange},
+    rate_limit::RateLimits,
     types::{Client, UserId},
 };
 
 use super::Auth;
 use crate::modules::{
-    accounts::DeletionOutcome,
+    accounts::{self, DeletionOutcome},
     auth::{error::AuthError, repo},
 };
 
 impl Auth {
     /// Deletes the caller's account, once their session has proved their password within the
-    /// last 5 minutes, through `accounts`, in one unit of work (AUTH-023).
+    /// last 5 minutes, through `accounts`, in one unit of work (AUTH-023), once the deletion has
+    /// counted in the bucket of the account's email, which a read before the unit of work finds
+    /// (AUTH-024, ARCH-11).
     pub(crate) async fn delete_account(
         &self,
+        limits: &RateLimits,
         client: &Client,
         principal: &Principal,
     ) -> Result<(), AuthError> {
+        let email = accounts::me(&self.database, client, principal)
+            .await?
+            .profile
+            .email;
+        limits
+            .check(self.settings.deletion_email, email.as_str().as_bytes())
+            .await?;
         let mut uow = self.database.begin(client).await?;
         let recent =
             repo::recently_authenticated(&mut uow, principal.user_id(), principal.session_id())
