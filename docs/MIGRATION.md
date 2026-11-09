@@ -233,6 +233,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | b6cd1a4..3effea0: as above, with pass 2's fixes | 3 | 3 (2, 1, 0 shared) | 1 | 0 | `stopped: no progress`: d12adf1 |
 | 480ca84..c9cf121: step 5's first part of `accounts`, renaming and avatars | 1 | 11 (8, 8, 5 shared) | 6 | 0 | `next pass`: fdfec95 |
 | 480ca84..fdfec95: as above, with pass 1's fixes | 2 | 9 (7, 3, 1 shared) | 3 | 1 | `stopped: no progress`: a6f9519 |
+| ebcf1d6..c05f3dc: step 5's second part of `accounts`: the personal data contract, account deletion and re-authentication (D123 to D125), with `just remove` retiring the numbers of the behaviors it deletes | 1 | 20 (18, 10, 8 shared) | 15 | 0 | `next pass` |
 
 ## Decisions
 
