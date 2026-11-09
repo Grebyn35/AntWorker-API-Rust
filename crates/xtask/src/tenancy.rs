@@ -476,6 +476,7 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
         // part: files
         let migrations = migrations
             + "CREATE TABLE user_files (id uuid, user_id uuid);\n\
+               CREATE TABLE avatars (id uuid, user_id uuid);\n\
                CREATE TABLE object_deletions (id uuid, object_key text);\n";
         // end part: files
         let repo = Repo::of(&[

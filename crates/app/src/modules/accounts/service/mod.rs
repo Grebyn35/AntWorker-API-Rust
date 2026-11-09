@@ -20,13 +20,16 @@ use super::{
     audit,
     error::AccountsError,
     events as published,
-    model::{Current, DisplayName, Profile, PublicProfile, Rename},
+    model::{Current, DisplayName, PublicProfile, Rename},
     repo,
 };
 use crate::modules::{
     access,
     audit::{self as log, Entry},
 };
+// part: invitations
+use super::model::Profile;
+// end part: invitations
 
 /// What creating a user came to (ACCOUNTS-004).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +70,7 @@ pub(crate) async fn me(
     current(&mut uow, principal).await
 }
 
+// part: invitations
 /// The caller's own record (ACCOUNTS-001).
 pub(crate) async fn profile(
     uow: &mut UnitOfWork,
@@ -74,6 +78,7 @@ pub(crate) async fn profile(
 ) -> Result<Profile, AccountsError> {
     Ok(current(uow, principal).await?.profile)
 }
+// end part: invitations
 
 /// The caller's own record, with its version, as ACCOUNTS-001 gives it.
 pub(super) async fn current(
