@@ -70,8 +70,8 @@ impl Exports {
 }
 
 /// Makes failed each export still pending a day after its request, then deletes the expired
-/// exports of every user, a batch at a time each, with their documents and, with `files`, the
-/// rows that hold their files' bytes, which their foreign keys delete.
+/// exports of every user, a batch at a time each, with their documents and every other row of
+/// theirs that their foreign keys delete.
 async fn expire(database: &Database, context: &JobContext) -> Result<(), Internal> {
     loop {
         let mut uow = database.for_job(context).await?;

@@ -118,13 +118,13 @@ async fn accounts_020_a_request_answers_202_with_the_pending_export_records_it_a
     assert_eq!(lasts, "604800");
     let logged = one(
         &api,
-        "SELECT action || ' ' || resource_type || ' ' || resource_id || ' ' || user_id \
-         FROM audit_entries WHERE action = 'export.requested'",
+        "SELECT action || ' ' || resource_type || ' ' || resource_id || ' ' || user_id || ' ' \
+         || actor_user_id FROM audit_entries WHERE action = 'export.requested'",
     )
     .await;
     assert_eq!(
         logged,
-        format!("export.requested export {id} {}", ada.user_id)
+        format!("export.requested export {id} {0} {0}", ada.user_id)
     );
     let job = one(
         &api,
@@ -227,6 +227,9 @@ async fn accounts_022_the_caller_lists_and_reads_their_own_exports_and_no_other_
         .send()
         .await;
     assert_eq!(expired.status, 404);
+    let content = download(&api, &ada, &first, &[]).await;
+    assert_eq!(content.status, 404);
+    assert_eq!(content.json()["code"], "accounts.export_not_found");
     let listed = api
         .get("/v1/users/me/exports")
         .bearer(&ada.access)
@@ -701,8 +704,13 @@ async fn accounts_027_the_expiry_deletes_expired_exports_and_fails_those_pending
         .owner_reads("SELECT id || ' ' || state::text FROM exports")
         .await;
     assert_eq!(left, [format!("{stale} failed")]);
-    let chunks = one(&api, "SELECT count(*)::text FROM export_chunks").await;
-    assert_eq!(chunks, "0");
+    let documents = one(
+        &api,
+        "SELECT (SELECT count(*) FROM export_entries) || ' ' || \
+         (SELECT count(*) FROM export_chunks)",
+    )
+    .await;
+    assert_eq!(documents, "0 0");
     let event = stream.event().await;
     assert_eq!(event.event.as_deref(), Some("export.failed"));
     assert_eq!(event.payload(), &json!({ "export_id": stale }));

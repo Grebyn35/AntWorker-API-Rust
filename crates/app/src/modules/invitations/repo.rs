@@ -187,16 +187,17 @@ pub(super) async fn exported(
     )
     .fetch_all(uow.executor())
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| ExportedInvitation {
-            id: row.id,
-            workspace_id: workspace,
-            email: EmailAddress::from_stored(row.email),
-            role: row.role,
-            expires_at: Timestamp::from_database(row.expires_at),
-            created_at: Timestamp::from_database(row.created_at),
-            updated_at: Timestamp::from_database(row.updated_at),
+    rows.into_iter()
+        .map(|row| {
+            Ok(ExportedInvitation {
+                id: row.id,
+                workspace_id: workspace,
+                email: EmailAddress::from_stored(row.email),
+                role: Role::from_name(&row.role)?,
+                expires_at: Timestamp::from_database(row.expires_at),
+                created_at: Timestamp::from_database(row.created_at),
+                updated_at: Timestamp::from_database(row.updated_at),
+            })
         })
-        .collect())
+        .collect()
 }

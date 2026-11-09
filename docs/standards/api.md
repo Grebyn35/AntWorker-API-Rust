@@ -5,7 +5,7 @@ The HTTP contract every route follows. The generated OpenAPI document is the aut
 ## Paths and methods
 
 ### API-01 Paths are versioned, plural and lowercase
-Every route lives under `/v1`, except the health probes `/health/live` and `/health/ready` (OPS-05), which load balancers call without a version, and the API reference that development serves at `/docs` (PLATFORM-052), which no client is built against. Collections are plural nouns, and segments of more than one word use kebab-case (`/data-exports`). Path parameters are named `{<resource>_id}`.
+Every route lives under `/v1`, except the health probes `/health/live` and `/health/ready` (OPS-05), which load balancers call without a version, and the API reference that development serves at `/docs` (PLATFORM-052), which no client is built against. Collections are plural nouns, and segments of more than one word use kebab-case (`/order-items`). Path parameters are named `{<resource>_id}`.
 - Why: a path reads as a predictable address for a resource (D8).
 - Check: `ci: check-openapi` (a path lint over the committed document).
 
@@ -32,7 +32,7 @@ No header selects a workspace.
 | A range of a download's bytes, with `Content-Range` (PLATFORM-081) | 206 |
 | A download whose bytes the client holds, as its `If-None-Match` names them (PLATFORM-081) | 304 |
 | A create, with a `Location` header and the created resource | 201 |
-| Asynchronous work accepted, such as a data export | 202 |
+| Asynchronous work accepted, such as an export of a user's data | 202 |
 | A delete, or an action with nothing to return | 204 |
 | An error | from its category (ERR-03) |
 

@@ -10,7 +10,7 @@ use platform::{
     db::UnitOfWork,
     errors::Internal,
     jobs,
-    personal_data::{Column, ErasureError, Export, PersonalData, pages},
+    personal_data::{Column, ErasureError, ExportArchive, PersonalData, pages},
     types::WorkspaceId,
 };
 
@@ -32,7 +32,7 @@ impl PersonalData for Contract {
     fn export<'a>(
         &'a self,
         uow: &'a mut UnitOfWork,
-        export: &'a mut Export,
+        export: &'a mut ExportArchive,
     ) -> BoxFuture<'a, Result<(), Internal>> {
         Box::pin(async move {
             let sole = access::sole_workspaces(uow, export.user())

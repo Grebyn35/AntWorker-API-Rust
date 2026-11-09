@@ -11,7 +11,7 @@ use platform::{
     authn::{BoxFuture, Principal},
     db::UnitOfWork,
     errors::Internal,
-    personal_data::{Column, ErasureError, Export, PersonalData},
+    personal_data::{Column, ErasureError, ExportArchive, PersonalData},
 };
 
 use super::{repo, service::exported};
@@ -36,7 +36,7 @@ impl PersonalData for Contract {
     fn export<'a>(
         &'a self,
         uow: &'a mut UnitOfWork,
-        export: &'a mut Export,
+        export: &'a mut ExportArchive,
     ) -> BoxFuture<'a, Result<(), Internal>> {
         Box::pin(exported::export(uow, export))
     }

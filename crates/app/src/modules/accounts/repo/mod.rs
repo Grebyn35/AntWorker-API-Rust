@@ -2,6 +2,8 @@
 
 pub(super) mod exports;
 
+use std::time::Duration;
+
 use platform::{
     db::{self, UnitOfWork},
     errors::Internal,
@@ -64,6 +66,11 @@ pub(super) async fn profile(uow: &mut UnitOfWork, id: UserId) -> Result<Option<C
         version: Version::from_database(row.version),
     }))
 }
+
+/// How long a deletion waits for a lock where it waits for none: next to nothing, the least
+/// `lock_timeout` Postgres takes, so a lock that another request or job holds ends the deletion
+/// rather than making it wait while it holds the user's row (ACCOUNTS-016, DATA-20).
+pub(super) const NO_WAIT: Duration = Duration::from_millis(1);
 
 /// The record of the user `id`, as their export holds it (the accounts spec's "What an export
 /// holds"), filtered by their own ID (DATA-16).

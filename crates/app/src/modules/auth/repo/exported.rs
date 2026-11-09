@@ -9,7 +9,9 @@ use platform::{
     types::{Timestamp, UserId},
 };
 
-use crate::modules::auth::model::{ExportedDeviceToken, ExportedIdentity, ExportedSession};
+use crate::modules::auth::model::{
+    ExportedDeviceToken, ExportedIdentity, ExportedSession, IdentityMethod,
+};
 
 /// Every identity of `user`'s: one at most for each way to sign in.
 pub(in crate::modules::auth) async fn identities(
@@ -24,14 +26,15 @@ pub(in crate::modules::auth) async fn identities(
     )
     .fetch_all(uow.executor())
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| ExportedIdentity {
-            method: row.method,
-            created_at: Timestamp::from_database(row.created_at),
-            updated_at: Timestamp::from_database(row.updated_at),
+    rows.into_iter()
+        .map(|row| {
+            Ok(ExportedIdentity {
+                method: IdentityMethod::from_name(&row.method)?,
+                created_at: Timestamp::from_database(row.created_at),
+                updated_at: Timestamp::from_database(row.updated_at),
+            })
         })
-        .collect())
+        .collect()
 }
 
 /// A page of `user`'s sessions, the latest first, after `after`, a session's creation time and ID.

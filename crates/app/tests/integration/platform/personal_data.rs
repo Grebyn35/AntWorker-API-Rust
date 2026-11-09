@@ -20,6 +20,13 @@ fn unhex(hex: &str) -> Vec<u8> {
         .collect()
 }
 
+/// The CRC-32 of `bytes`.
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = flate2::Crc::new();
+    crc.update(bytes);
+    crc.sum()
+}
+
 /// `bytes`, inflated.
 fn inflated(bytes: &[u8]) -> Vec<u8> {
     let mut text = Vec::new();
@@ -74,12 +81,7 @@ async fn platform_084_a_document_is_a_json_array_a_record_to_a_line_deflated_in_
     let text = inflated(&deflated);
     assert_eq!(
         entry,
-        format!(
-            "{} {} {}",
-            text.len(),
-            deflated.len(),
-            platform::archive::crc32(&text)
-        )
+        format!("{} {} {}", text.len(), deflated.len(), crc32(&text))
     );
     // `[`, then each record on a line of its own, each but the last followed by `,`, then `]`:
     // within a record, a JSON string holds no raw line feed.

@@ -2,7 +2,10 @@
 
 use std::{borrow::Cow, collections::HashSet, sync::LazyLock, time::Duration};
 
-use platform::types::{Invalid, Secret, SessionId, Timestamp, UserId};
+use platform::{
+    errors::Internal,
+    types::{Invalid, Secret, SessionId, Timestamp, UserId},
+};
 use serde::Serialize;
 use utoipa::{
     PartialSchema, ToSchema,
@@ -283,11 +286,29 @@ pub(crate) struct Session {
     pub(crate) authenticated_at: Timestamp,
 }
 
+/// A way to sign in, as the database's `identity_method` names it (DATA-04).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum IdentityMethod {
+    /// An email and a password (AUTH-001).
+    Password,
+}
+
+impl IdentityMethod {
+    /// The method named `name`, which a query read.
+    pub(super) fn from_name(name: &str) -> Result<Self, Internal> {
+        match name {
+            "password" => Ok(Self::Password),
+            _ => Err(Internal::new("an identity's method that auth doesn't know")),
+        }
+    }
+}
+
 /// A way to sign in, as its user's export holds it, without a password's hash (the accounts spec's
 /// "What an export holds").
 #[derive(Debug, Serialize)]
 pub(super) struct ExportedIdentity {
-    pub(super) method: String,
+    pub(super) method: IdentityMethod,
     pub(super) created_at: Timestamp,
     pub(super) updated_at: Timestamp,
 }

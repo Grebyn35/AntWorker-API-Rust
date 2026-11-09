@@ -9,7 +9,7 @@ use platform::{
     authn::{BoxFuture, Principal},
     db::UnitOfWork,
     errors::Internal,
-    personal_data::{Column, ErasureError, Export, PersonalData, next_after},
+    personal_data::{Column, ErasureError, ExportArchive, PersonalData, next_after},
     types::WorkspaceId,
 };
 
@@ -35,7 +35,7 @@ impl PersonalData for Contract {
     fn export<'a>(
         &'a self,
         uow: &'a mut UnitOfWork,
-        export: &'a mut Export,
+        export: &'a mut ExportArchive,
     ) -> BoxFuture<'a, Result<(), Internal>> {
         Box::pin(async move {
             let mut document = export.document("audit/log.json");
@@ -67,7 +67,7 @@ impl PersonalData for Contract {
 /// time.
 async fn log(
     uow: &mut UnitOfWork,
-    export: &Export,
+    export: &ExportArchive,
     document: &mut platform::personal_data::Document,
     workspace: Option<WorkspaceId>,
 ) -> Result<(), Internal> {

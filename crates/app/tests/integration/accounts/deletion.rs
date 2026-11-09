@@ -526,6 +526,40 @@ async fn accounts_016_an_export_that_its_job_holds_refuses_the_deletion_at_once(
 }
 
 #[tokio::test]
+async fn accounts_016_a_running_export_job_that_holds_the_user_s_row_refuses_the_deletion_at_once()
+{
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let export = super::exports::built(&api, &ada).await;
+    // What a run holds once it has written a row that names Ada: its export's row, and hers
+    // `FOR KEY SHARE`, through that row's foreign key.
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM exports WHERE id = '{export}' FOR UPDATE"
+        ))
+        .await;
+    execute_on(
+        &mut held,
+        &format!(
+            "INSERT INTO audit_entries (scope, user_id, action, resource_type) \
+             VALUES ('user', '{}', 'export.completed', 'export')",
+            ada.user_id
+        ),
+    )
+    .await;
+
+    // The lock is held until the deletion has answered, so a deletion that waited for it would
+    // never answer.
+    let response = delete(&api, &ada).await;
+    execute_on(&mut held, "ROLLBACK").await;
+
+    assert_eq!(response.status, 409);
+    assert_eq!(response.json()["code"], "auth.account_changed");
+    assert_eq!(left_of(&api, &ada).await, "1|1|0");
+}
+
+#[tokio::test]
 async fn accounts_019_a_deletion_that_waited_for_another_of_the_account_answers_204() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

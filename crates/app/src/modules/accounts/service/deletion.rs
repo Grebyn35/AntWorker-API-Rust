@@ -11,7 +11,10 @@ use platform::{
 
 use crate::modules::{
     access,
-    accounts::{error::AccountsError, repo},
+    accounts::{
+        error::AccountsError,
+        repo::{self, NO_WAIT, exports},
+    },
 };
 
 /// What deleting an account came to, which `auth` answers with codes of its own (AUTH-023).
@@ -43,8 +46,9 @@ impl Deletion {
     /// Deletes the caller's account in `uow`, the unit of work of `auth` that confirmed it
     /// (AUTH-023): it first holds the user's row against every other change of it, `FOR NO KEY
     /// UPDATE`, then `access` locks their memberships and refuses while a workspace they own has
-    /// another member, then each contract erases its part (ACCOUNTS-012 to ACCOUNTS-016, the
-    /// accounts spec's "Deleting an account").
+    /// another member, then it locks their exports, waiting for none that a job holds, then each
+    /// contract erases its part (ACCOUNTS-012 to ACCOUNTS-016, the accounts spec's "Deleting an
+    /// account").
     pub(crate) async fn delete(
         &self,
         uow: &mut UnitOfWork,
@@ -57,6 +61,15 @@ impl Deletion {
         if !access::erasable(uow, principal).await? {
             return Ok(Outcome::OwnsSharedWorkspace);
         }
+        // A running job of an export of theirs holds its export's row from its first statement,
+        // and the user's `FOR KEY SHARE` once it has inserted a row that names them, until it
+        // commits what names them; the deletion refuses at once rather than waiting for it
+        // (ACCOUNTS-016). A lock that times out ends the unit of work, so nothing follows it.
+        uow.wait_for_locks_at_most(NO_WAIT).await?;
+        if !exports::hold_all(uow, principal.user_id()).await? {
+            return Ok(Outcome::AccountChanged);
+        }
+        uow.wait_for_locks_as_before().await?;
         for contract in &self.contracts {
             match contract.erase(uow, principal).await {
                 Ok(()) => {}

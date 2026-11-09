@@ -86,11 +86,13 @@ impl Limits {
     };
 }
 
+// part: files
 /// The CRC-32 of `bytes`, as an archive's entry gives it, which a caller computes on a turn of
 /// the workers for bytes as long as an upload's (CODE-05).
 pub fn crc32(bytes: &[u8]) -> u32 {
     crc32fast::hash(bytes)
 }
+// end part: files
 
 /// The layout of an archive of its entries, in their order, at a time.
 #[derive(Clone, Debug)]

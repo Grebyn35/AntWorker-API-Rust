@@ -112,7 +112,7 @@ pub(super) struct ExportedInvitation {
     pub(super) id: uuid::Uuid,
     pub(super) workspace_id: WorkspaceId,
     pub(super) email: EmailAddress,
-    pub(super) role: String,
+    pub(super) role: Role,
     pub(super) expires_at: Timestamp,
     pub(super) created_at: Timestamp,
     pub(super) updated_at: Timestamp,

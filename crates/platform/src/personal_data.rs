@@ -82,7 +82,7 @@ pub trait PersonalData: Send + Sync {
     fn export<'a>(
         &'a self,
         uow: &'a mut UnitOfWork,
-        export: &'a mut Export,
+        export: &'a mut ExportArchive,
     ) -> BoxFuture<'a, Result<(), Internal>>;
 
     /// Erases what the module keeps of the user that `principal` proves, in the unit of work of
@@ -115,7 +115,7 @@ impl PersonalData for Contract {
     fn export<'a>(
         &'a self,
         _: &'a mut UnitOfWork,
-        _: &'a mut Export,
+        _: &'a mut ExportArchive,
     ) -> BoxFuture<'a, Result<(), Internal>> {
         // Its tables are bookkeeping, of data that the modules that own it export (DATA-23).
         Box::pin(async { Ok(()) })
@@ -156,7 +156,7 @@ pub trait ExportStore: Send + Sync {
 
 /// The archive of a user's export, which each contract's `export` adds its documents to
 /// (PLATFORM-084).
-pub struct Export {
+pub struct ExportArchive {
     id: Uuid,
     user: UserId,
     store: Arc<dyn ExportStore>,
@@ -177,7 +177,7 @@ pub struct Document {
     records: u64,
 }
 
-impl Export {
+impl ExportArchive {
     /// The archive of the export `id`, of `user`'s data, whose documents `store` keeps, and which
     /// deflates them through `workers` (CODE-05).
     pub fn new(id: Uuid, user: UserId, store: Arc<dyn ExportStore>, workers: Workers) -> Self {

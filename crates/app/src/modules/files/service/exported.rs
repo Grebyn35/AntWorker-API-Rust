@@ -8,7 +8,7 @@ use std::ops::Range;
 use platform::{
     db::UnitOfWork,
     errors::Internal,
-    personal_data::{Export, next_after},
+    personal_data::{ExportArchive, next_after},
     storage::{ObjectBytes, ObjectKey},
     types::{Timestamp, UserId, WorkspaceId},
 };
@@ -63,7 +63,7 @@ pub(crate) async fn exported_bytes(
 /// page at a time, with a row of `exported_files` for each file, which holds its bytes (FILES-026).
 pub(in crate::modules::files) async fn export(
     uow: &mut UnitOfWork,
-    export: &mut Export,
+    export: &mut ExportArchive,
 ) -> Result<(), Internal> {
     let user = export.user();
     let mut held = Held::default();
@@ -125,7 +125,7 @@ pub(in crate::modules::files) async fn export(
 /// Writes into `document` every file of `workspace`, a page at a time, holding their bytes.
 async fn workspace_files(
     uow: &mut UnitOfWork,
-    export: &Export,
+    export: &ExportArchive,
     document: &mut platform::personal_data::Document,
     held: &mut Held,
     workspace: WorkspaceId,
@@ -184,7 +184,11 @@ impl Held {
     }
 
     /// Stores the rows of the files added since the last time, at their positions.
-    async fn store(&mut self, uow: &mut UnitOfWork, export: &Export) -> Result<(), Internal> {
+    async fn store(
+        &mut self,
+        uow: &mut UnitOfWork,
+        export: &ExportArchive,
+    ) -> Result<(), Internal> {
         if self.files.is_empty() {
             return Ok(());
         }

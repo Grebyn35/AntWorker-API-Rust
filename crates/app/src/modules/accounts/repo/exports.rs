@@ -7,7 +7,7 @@ use std::{ops::Range, time::Duration};
 
 use platform::{
     archive,
-    db::UnitOfWork,
+    db::{self, UnitOfWork},
     errors::Internal,
     lists::Page,
     types::{Timestamp, UserId},
@@ -127,6 +127,26 @@ pub(in crate::modules::accounts) async fn lock(
     .fetch_optional(uow.executor())
     .await?;
     state.as_deref().map(ExportState::from_name).transpose()
+}
+
+/// Locks every export of `user`'s, `FOR UPDATE`, in a unit of work that waits for no lock, and
+/// returns whether it did: `false` when another holds one, such as a running job of one of them,
+/// which ends the unit of work (ACCOUNTS-016).
+pub(in crate::modules::accounts) async fn hold_all(
+    uow: &mut UnitOfWork,
+    user: UserId,
+) -> Result<bool, Internal> {
+    let held = sqlx::query_scalar!(
+        "SELECT id FROM exports WHERE user_id = $1 ORDER BY id FOR UPDATE",
+        user.uuid(),
+    )
+    .fetch_all(uow.executor())
+    .await;
+    match held {
+        Ok(_) => Ok(true),
+        Err(error) if db::is_lock_timeout(&error) => Ok(false),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Makes the export `id` of `user`'s ready, now, with an archive of `size_bytes` bytes, expiring

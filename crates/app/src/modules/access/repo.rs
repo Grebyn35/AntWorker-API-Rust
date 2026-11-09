@@ -394,14 +394,15 @@ pub(super) async fn exported(
     )
     .fetch_all(uow.executor())
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| ExportedMembership {
-            id: row.id,
-            workspace_id: WorkspaceId::from_uuid(row.workspace_id),
-            role: row.role,
-            created_at: Timestamp::from_database(row.created_at),
-            updated_at: Timestamp::from_database(row.updated_at),
+    rows.into_iter()
+        .map(|row| {
+            Ok(ExportedMembership {
+                id: row.id,
+                workspace_id: WorkspaceId::from_uuid(row.workspace_id),
+                role: Role::from_name(&row.role)?,
+                created_at: Timestamp::from_database(row.created_at),
+                updated_at: Timestamp::from_database(row.updated_at),
+            })
         })
-        .collect())
+        .collect()
 }

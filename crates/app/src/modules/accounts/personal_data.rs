@@ -4,22 +4,18 @@
 //! that still names them, their exports' among them (the accounts spec's "Deleting an account").
 //! An export holds the user's record (the accounts spec's "What an export holds").
 
-use std::time::Duration;
-
 use platform::{
     authn::{BoxFuture, Principal},
     db::UnitOfWork,
     errors::Internal,
     mail::Mail,
-    personal_data::{Column, ErasureError, Export, PersonalData},
+    personal_data::{Column, ErasureError, ExportArchive, PersonalData},
 };
 
-use super::{emails, repo};
-
-/// How long the deletion of the user's row waits for a lock: next to nothing, so a lock that
-/// another request holds on a row that names the user ends the deletion rather than making it
-/// wait while it holds the user's row (ACCOUNTS-016, DATA-20).
-const NO_WAIT: Duration = Duration::from_millis(1);
+use super::{
+    emails,
+    repo::{self, NO_WAIT},
+};
 
 /// The contract, with what sends the deletion's email.
 pub(crate) struct Contract {
@@ -47,7 +43,7 @@ impl PersonalData for Contract {
     fn export<'a>(
         &'a self,
         uow: &'a mut UnitOfWork,
-        export: &'a mut Export,
+        export: &'a mut ExportArchive,
     ) -> BoxFuture<'a, Result<(), Internal>> {
         Box::pin(async move {
             let profile = repo::exported(uow, export.user()).await?;

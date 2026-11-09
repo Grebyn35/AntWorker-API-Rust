@@ -8,7 +8,7 @@ use platform::{
     authn::{BoxFuture, Principal},
     db::UnitOfWork,
     errors::Internal,
-    personal_data::{Column, ErasureError, Export, PersonalData, next_after},
+    personal_data::{Column, ErasureError, ExportArchive, PersonalData, next_after},
 };
 
 use super::{repo::exported, service};
@@ -29,7 +29,7 @@ impl PersonalData for Contract {
     fn export<'a>(
         &'a self,
         uow: &'a mut UnitOfWork,
-        export: &'a mut Export,
+        export: &'a mut ExportArchive,
     ) -> BoxFuture<'a, Result<(), Internal>> {
         Box::pin(async move {
             let user = export.user();

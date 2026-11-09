@@ -13,11 +13,11 @@ use platform::{
     authn::{AuditScope, BoxFuture, Principal},
     blocking::Workers,
     db::{Database, UnitOfWork},
-    errors::Internal,
+    errors::{self, Internal},
     jobs::{JobContext, JobFailure},
     lists::{List, Page, key},
     mail::Mail,
-    personal_data::{Export as Archive, ExportStore, PersonalData},
+    personal_data::{ExportArchive, ExportStore, PersonalData},
     ranges::{Served, Wanted},
     rate_limit::{Bucket, RateLimits},
     types::{Client, Timestamp, UserId},
@@ -153,7 +153,7 @@ impl Exports {
     }
 
     /// What a download of the caller's export `id` serves, as `wanted` asks for it: its archive,
-    /// laid out from its documents and, with `files`, the files it holds, recording
+    /// laid out from its documents and any other entries a module holds for it, recording
     /// `export.downloaded` in the caller's own log when it serves bytes, in a unit of work
     /// of `client`'s request that commits before the bytes stream (ACCOUNTS-026, D126).
     pub(in crate::modules::accounts) async fn download(
@@ -229,8 +229,13 @@ impl Exports {
             )));
         };
         let built = self.archive(context, scope, user, id).await;
-        if built.is_err() && last_attempt {
-            self.fail(context, scope, user, id).await?;
+        if built.is_err()
+            && last_attempt
+            && let Err(error) = self.fail(context, scope, user, id).await
+        {
+            // The attempt's own failure is the run's, which the dispatcher writes; the export
+            // stays pending, which the expiry makes failed (ACCOUNTS-027).
+            errors::ignore(&error, "export_failure_not_recorded");
         }
         built
     }
@@ -251,7 +256,7 @@ impl Exports {
             return Ok(());
         }
         let store: Arc<dyn ExportStore> = Arc::new(Store { user });
-        let mut archive = Archive::new(id, user, store, self.workers.clone());
+        let mut archive = ExportArchive::new(id, user, store, self.workers.clone());
         for contract in self.contracts.iter() {
             contract.export(&mut uow, &mut archive).await?;
         }
@@ -367,8 +372,8 @@ impl ExportStore for Store {
     }
 }
 
-/// Where a download's bytes come from: the documents of `user`'s export, in the database, and,
-/// with `files`, the files it holds, in the bucket.
+/// Where a download's bytes come from: the documents of `user`'s export, in the database, and
+/// any other entries a module holds for it.
 #[derive(Clone)]
 struct Sources {
     database: Database,
@@ -395,7 +400,7 @@ impl Sources {
     }
 
     /// The stored bytes at `offsets` of the entry at `index`: a document's, which come first,
-    /// or, with `files`, a file's.
+    /// or another entry's that a module holds.
     fn entry(self, index: usize, offsets: Range<u64>) -> ArchiveBytes {
         // part: files
         if let Some(file) = index.checked_sub(self.positions.len()) {

@@ -189,13 +189,13 @@ flowchart TD
 
 The edges above are the only ones allowed, and the graph stays acyclic (ARCH-05). A module is used only through what its `mod.rs` exports (ARCH-04), and its SQL reads and writes only the tables it owns (ARCH-06). When a module needs another module's data, it calls a batch read in that module's API, such as `accounts::profiles(ids)`. An operation that spans modules passes one `&mut UnitOfWork` through every call, so all of it commits or none of it does (ARCH-11).
 
-`platform` calls into `app` only through four traits, each implemented by a module and registered in the composition root (ARCH-12, ARCH-13):
+`platform` calls into `app` only through five traits. Four, each implemented by a module, the composition root registers (ARCH-12, ARCH-13):
 - `SessionVerifier`, implemented by `auth`, verifies credentials for `platform::authn`.
 - `AccessPolicy`, implemented by `access`, makes authorization decisions for `platform::authz`.
 - `SecurityEventSink`, implemented by `audit`, records refused requests that `platform::authz` reports.
 - The personal data contract is implemented by every module that stores personal data. It lets `accounts` export or delete an account without depending on every module.
 
-And through `ExportStore`, which `accounts` implements, and hands with each export to the `personal_data::Export` that writes its archive, rather than registering it, since what it stores is that one export's (the [accounts spec](spec/accounts.md#exporting)).
+The fifth is `ExportStore`, which `accounts` implements, and hands with each export to the `personal_data::ExportArchive` that writes its archive, rather than registering it, since what it stores is that one export's (the [accounts spec](spec/accounts.md#exporting)).
 
 ### Inside a module
 
@@ -228,7 +228,7 @@ A module's personal data contract, in its `personal_data.rs`, is a service of it
 
 A module splits a file into a directory with the same name, such as `service/`, when the file outgrows its limit, or when an optional part adds functions of its own to it, which the part then owns in a file of their own (ARCH-03, CODE-08, D119).
 
-A trait that abstracts a dependency either inverts a dependency the crate or module graph forbids, as the four traits above do, or covers an external system with more than one implementation, such as email transport or the clock (ARCH-13). Nothing gets a trait just so it can be mocked, because tests run against the real database (D23).
+A trait that abstracts a dependency either inverts a dependency the crate or module graph forbids, as the five traits above do, or covers an external system with more than one implementation, such as email transport or the clock (ARCH-13). Nothing gets a trait just so it can be mocked, because tests run against the real database (D23).
 
 ## 6. Request lifecycle
 
@@ -437,7 +437,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |
 | File | Stored bytes plus metadata. A user file or a workspace file, each private or public. <!-- part: files --> |
 | Avatar | The image that shows a user to others, at most one for each user, which `accounts` sets and `files` keeps. Not a file: it has no name, and is always public (D120). <!-- part: files --> |
-| Export | A copy of a user's data that they requested: an archive they download until it expires, which their export's job builds from every module's personal data contract (D31, D126). Telemetry's export, which sends traces, logs and metrics to a collector, is always named the telemetry export. |
+| Export | A copy of a user's data that they requested: an archive they download until it expires, which their export's job builds from every module's personal data contract (D31, D126). Where telemetry is the subject, as in the observability documents, `platform::telemetry` and its metrics, an export is instead telemetry's export of traces, logs and metrics to a collector, which every other document calls the telemetry export. |
 | Personal data contract | A module's export and erasure of the personal data it stores (D31). |
 | Release | A version that `just release` asked for, which a run of CI on `main` then signed and tagged `v<version>` (OPS-12). A final release is `X.Y.Z`. A prerelease, `X.Y.Z-rc.N`, comes before the final release of the same number, and is a version to try: a final release fixes the HTTP contract, the error codes and the applied migrations (API-18, ERR-02, DATA-09), and a prerelease doesn't. |
 | Digest | The hash of an image's content, which names exactly that image. A tag can move to another image; a digest can't. |
