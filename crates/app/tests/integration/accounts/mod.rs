@@ -1,6 +1,7 @@
 //! The user record (the accounts spec).
 
 mod deletion;
+pub(crate) mod exports;
 
 use serde_json::json;
 

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO exported_files (export_id, user_id, position, path, object_key, size_bytes, crc32)\n        SELECT $1, $2, held.position, held.path, held.object_key, held.size_bytes, held.crc32\n        FROM unnest($3::integer[], $4::text[], $5::text[], $6::bigint[], $7::bigint[])\n            AS held (position, path, object_key, size_bytes, crc32)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int4Array",
+        "TextArray",
+        "TextArray",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a247036ae9cf615728a38e83d596b702aaf2e001a07c7f86bcea65fb9ec08a97"
+}

@@ -5,7 +5,8 @@ use axum::extract::{RawPathParams, State};
 use platform::{
     errors::Problem,
     http::{Download, Routes, path_id},
-    storage::{ObjectBytes, Wanted},
+    ranges::Wanted,
+    storage::ObjectBytes,
     types::Client,
 };
 use utoipa_axum::routes;

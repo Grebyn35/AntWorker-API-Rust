@@ -8,6 +8,7 @@
 pub(super) mod avatar;
 // end part: files
 pub(super) mod deletion;
+pub(super) mod exports;
 
 use platform::{
     authn::Principal,

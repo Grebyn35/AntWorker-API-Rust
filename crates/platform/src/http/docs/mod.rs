@@ -16,10 +16,14 @@ use utoipa::{
     },
 };
 
+mod download;
 // part: files
-mod downloads;
+mod files;
+// end part: files
 
-pub(super) use downloads::{download, signed};
+pub(super) use download::download;
+// part: files
+pub(super) use files::{public, signed};
 // end part: files
 
 use super::Access;

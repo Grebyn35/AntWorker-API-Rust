@@ -96,7 +96,7 @@ async fn files_001_the_deployed_api_stores_a_file_in_its_bucket_and_serves_it_ba
 }
 
 #[tokio::test]
-async fn platform_081_the_deployed_proxy_passes_a_download_s_range() {
+async fn files_009_the_deployed_proxy_passes_a_download_s_range() {
     let (_deployment, workspace, file) = stored().await;
     let url = format!(
         "{}/{}/content",

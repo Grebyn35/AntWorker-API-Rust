@@ -27,8 +27,10 @@ CREATE TABLE audit_entries (
     )
 );
 
-CREATE INDEX audit_entries_user_id_idx ON audit_entries (user_id);
-CREATE INDEX audit_entries_workspace_id_idx ON audit_entries (workspace_id);
+-- Each log's entries, the latest first, which an export reads a page at a time (ACCOUNTS-024),
+-- and which also index the foreign keys (DATA-05).
+CREATE INDEX audit_entries_user_id_created_at_id_idx ON audit_entries (user_id, created_at DESC, id DESC);
+CREATE INDEX audit_entries_workspace_id_created_at_id_idx ON audit_entries (workspace_id, created_at DESC, id DESC);
 CREATE INDEX audit_entries_actor_user_id_idx ON audit_entries (actor_user_id);
 CREATE INDEX audit_entries_target_user_id_idx ON audit_entries (target_user_id);
 

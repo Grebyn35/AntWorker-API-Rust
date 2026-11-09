@@ -8,6 +8,9 @@ use super::{TestDatabase, bucket};
 /// The bytes of every file a builder arranges: a text file's.
 pub const BYTES: &[u8] = b"hello";
 
+/// The CRC-32 of [`BYTES`], which the row of every file a builder arranges records (FILES-025).
+pub const CRC32: u32 = 907_060_870;
+
 /// Creates a text file named `name` in `workspace`, with [`BYTES`] as its object in the test's
 /// bucket, uploaded by nobody, and returns its ID.
 pub async fn arrange(db: &TestDatabase, workspace: &str, name: &str) -> String {
@@ -19,9 +22,9 @@ pub async fn arrange(db: &TestDatabase, workspace: &str, name: &str) -> String {
     let name = name.replace('\'', "''");
     db.owner_reads(&format!(
         "INSERT INTO workspace_files \
-         (workspace_id, name, media_type, size_bytes, visibility, object_key) \
-         VALUES ('{workspace}', '{name}', 'text/plain; charset=utf-8', {}, 'private', '{}') \
-         RETURNING id::text",
+         (workspace_id, name, media_type, size_bytes, crc32, visibility, object_key) \
+         VALUES ('{workspace}', '{name}', 'text/plain; charset=utf-8', {}, {CRC32}, 'private', \
+         '{}') RETURNING id::text",
         BYTES.len(),
         key.as_str()
     ))
@@ -49,8 +52,8 @@ pub async fn arrange_uploaded(
 pub async fn arrange_avatar(db: &TestDatabase, user: &str) -> String {
     let key = ObjectKey::random("avatars/").unwrap();
     db.owner_reads(&format!(
-        "INSERT INTO avatars (user_id, media_type, size_bytes, object_key) \
-         VALUES ('{user}', 'image/png', 5, '{}') RETURNING id::text",
+        "INSERT INTO avatars (user_id, media_type, size_bytes, crc32, object_key) \
+         VALUES ('{user}', 'image/png', 5, 0, '{}') RETURNING id::text",
         key.as_str()
     ))
     .await
@@ -64,9 +67,9 @@ pub async fn arrange_row(db: &TestDatabase, workspace: &str, name: &str) -> Stri
     let name = name.replace('\'', "''");
     db.owner_reads(&format!(
         "INSERT INTO workspace_files \
-         (workspace_id, name, media_type, size_bytes, visibility, object_key) \
-         VALUES ('{workspace}', '{name}', 'text/plain; charset=utf-8', {}, 'private', '{}') \
-         RETURNING id::text",
+         (workspace_id, name, media_type, size_bytes, crc32, visibility, object_key) \
+         VALUES ('{workspace}', '{name}', 'text/plain; charset=utf-8', {}, {CRC32}, 'private', \
+         '{}') RETURNING id::text",
         BYTES.len(),
         key.as_str()
     ))
@@ -84,8 +87,9 @@ pub async fn arrange_own(db: &TestDatabase, user: &str, name: &str) -> String {
         .unwrap();
     let name = name.replace('\'', "''");
     db.owner_reads(&format!(
-        "INSERT INTO user_files (user_id, name, media_type, size_bytes, visibility, object_key) \
-         VALUES ('{user}', '{name}', 'text/plain; charset=utf-8', {}, 'private', '{}') \
+        "INSERT INTO user_files \
+         (user_id, name, media_type, size_bytes, crc32, visibility, object_key) \
+         VALUES ('{user}', '{name}', 'text/plain; charset=utf-8', {}, {CRC32}, 'private', '{}') \
          RETURNING id::text",
         BYTES.len(),
         key.as_str()

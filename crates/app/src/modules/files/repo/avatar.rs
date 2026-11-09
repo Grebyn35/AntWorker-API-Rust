@@ -9,16 +9,18 @@ pub(in crate::modules::files) async fn insert(
     user: UserId,
     media_type: &str,
     size_bytes: u64,
+    crc32: u32,
     object_key: &ObjectKey,
 ) -> Result<uuid::Uuid, Internal> {
     let size_bytes = i64::try_from(size_bytes).map_err(Internal::new)?;
     Ok(sqlx::query_scalar!(
-        "INSERT INTO avatars (user_id, media_type, size_bytes, object_key)
-        VALUES ($1, $2, $3, $4)
+        "INSERT INTO avatars (user_id, media_type, size_bytes, crc32, object_key)
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING id",
         user.uuid(),
         media_type,
         size_bytes,
+        i64::from(crc32),
         object_key.as_str(),
     )
     .fetch_one(uow.executor())

@@ -27,7 +27,7 @@ platform.workspace = true
 argon2.workspace = true
 askama.workspace = true
 axum.workspace = true
-bytes.workspace = true # part: files
+bytes.workspace = true
 clap.workspace = true
 futures-util.workspace = true
 ipnet.workspace = true
@@ -54,6 +54,8 @@ platform = { workspace = true, features = ["test-support"] }
 # The fixture routes parse a query.
 axum = { workspace = true, features = ["query"] }
 dotenvy.workspace = true
+# The tests of an export's documents inflate them (PLATFORM-084).
+flate2.workspace = true
 http.workspace = true
 http-body-util.workspace = true
 # The test support checks every response against the OpenAPI document (API-17).
@@ -72,6 +74,8 @@ serde_json.workspace = true
 # the development settings reads their files.
 tokio = { workspace = true, features = ["fs", "io-util", "sync", "test-util"] }
 url.workspace = true
+# The tests of exports read their archives back (ACCOUNTS-024).
+zip.workspace = true
 
 [lints]
 workspace = true

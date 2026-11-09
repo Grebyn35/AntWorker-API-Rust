@@ -1,6 +1,7 @@
 //! An audit entry, as a module records it.
 
-use platform::types::UserId;
+use platform::types::{Timestamp, UserId, WorkspaceId};
+use serde::Serialize;
 
 /// What happened, as `<resource>.<past-tense verb>`, such as `user.registered`. Each module
 /// declares its own in its `audit.rs` (the audit spec), the one place clippy lets build one.
@@ -64,4 +65,23 @@ impl Entry {
             details: serde_json::Value::Object(serde_json::Map::new()),
         }
     }
+}
+
+/// An entry, as the export of the user whose log holds it, or who is the only member of the
+/// workspace whose log holds it, holds it: its client only when it was the user's (the accounts
+/// spec's "What an export holds", AUDIT-006).
+#[derive(Debug, Serialize)]
+pub(super) struct ExportedEntry {
+    pub(super) id: uuid::Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) workspace_id: Option<WorkspaceId>,
+    pub(super) action: String,
+    pub(super) resource_type: String,
+    pub(super) resource_id: Option<uuid::Uuid>,
+    pub(super) actor_user_id: Option<UserId>,
+    pub(super) target_user_id: Option<UserId>,
+    pub(super) details: serde_json::Value,
+    pub(super) created_at: Timestamp,
+    pub(super) client_ip: Option<String>,
+    pub(super) user_agent: Option<String>,
 }

@@ -1,4 +1,5 @@
-//! The caller's own record, and renaming oneself (the accounts spec's Routes).
+//! The caller's own record, and renaming oneself (the accounts spec's Routes). Exports are in
+//! `exports.rs`.
 // part: files
 //! Setting and removing an avatar are in `avatar.rs`.
 // end part: files
@@ -6,6 +7,7 @@
 // part: files
 mod avatar;
 // end part: files
+mod exports;
 
 use axum::extract::State;
 use platform::{
@@ -29,6 +31,7 @@ use super::{
 // part: files
 pub(crate) use avatar::avatar_routes;
 // end part: files
+pub(crate) use exports::export_routes;
 
 /// The module's routes, which take the database as their state, and the events they publish.
 pub(crate) fn routes() -> Routes<Database> {

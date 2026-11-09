@@ -4,6 +4,7 @@
 //! periodic jobs that span every workspace and user keep theirs in `jobs.rs`.
 
 pub(super) mod avatar;
+pub(super) mod exported;
 pub(super) mod public;
 pub(super) mod user;
 
@@ -24,6 +25,7 @@ pub(super) struct NewRow<'a> {
     pub(super) name: &'a FileName,
     pub(super) media_type: &'static str,
     pub(super) size_bytes: u64,
+    pub(super) crc32: u32,
     pub(super) visibility: Visibility,
     pub(super) object_key: &'a ObjectKey,
 }
@@ -76,13 +78,14 @@ pub(super) async fn insert(
     let size_bytes = i64::try_from(row.size_bytes).map_err(Internal::new)?;
     let inserted = sqlx::query!(
         "INSERT INTO workspace_files
-            (workspace_id, name, media_type, size_bytes, visibility, object_key, uploader_id)
-        VALUES ($1, $2, $3, $4, $5::text::file_visibility, $6, $7)
+            (workspace_id, name, media_type, size_bytes, crc32, visibility, object_key, uploader_id)
+        VALUES ($1, $2, $3, $4, $5, $6::text::file_visibility, $7, $8)
         RETURNING id, created_at",
         workspace.uuid(),
         row.name.as_str(),
         row.media_type,
         size_bytes,
+        i64::from(row.crc32),
         row.visibility.name(),
         row.object_key.as_str(),
         uploader.uuid(),

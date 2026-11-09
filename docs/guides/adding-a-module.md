@@ -21,7 +21,7 @@ It writes these files, each holding what [architecture §5](../architecture.md#i
 | File | Holds |
 |---|---|
 | `migrations/<timestamp>_<module>_<module>.sql` | The module's table, its index for the list, and its column comments |
-| `crates/app/src/modules/<module>/` | `mod.rs`, `routes.rs`, `service.rs`, `repo.rs`, `model.rs`, `error.rs`, `events.rs`, `audit.rs`, and `personal_data.rs`, whose contract covers the `name` its migration comments as personal data, and leaves a deleted member's rows to their workspace (DATA-23, D125) |
+| `crates/app/src/modules/<module>/` | `mod.rs`, `routes.rs`, `service.rs`, `repo.rs`, `model.rs`, `error.rs`, `events.rs`, `audit.rs`, and `personal_data.rs`, whose contract covers the `name` its migration comments as personal data, exports the rows of each workspace whose only member is the user (D40), and leaves a deleted member's rows to their workspace (DATA-23, D125) |
 | `crates/app/tests/integration/<module>.rs` | A test for each behavior |
 | `crates/app/tests/integration/support/<module>.rs` | The builder that arranges the module's rows for tests (TEST-09) |
 | `docs/spec/<module>.md` | The spec: its routes, and a behavior for each thing the routes guarantee |
@@ -64,7 +64,7 @@ Editing a migration that no release contains (DATA-09) means recreating the deve
 | What it tells clients over the stream | `events.rs`, published in the service's unit of work | API-19, SEC-19 |
 | Work after the request, and email | `jobs.rs`, `emails.rs` and its templates ([platform spec](../spec/platform.md#sending-email)) | OPS-09 |
 | What it measures | `metrics.rs`, then `just metrics` | OBS-11 to OBS-14 |
-| What erasing a deleted user does to its rows, and which of its columns hold personal data | `personal_data.rs`, registered in `contracts()` of `composition.rs`, and the column comments of its migration | DATA-23, D31 |
+| What a user's export holds of its rows, what erasing a deleted user does to them, and which of its columns hold personal data | `personal_data.rs`, registered in `contracts()` of `composition.rs`, and the column comments of its migration | DATA-23, D31 |
 | A setting | the composition root's `Config`, and `.env.example` | OPS-01, OPS-02 |
 | Its tests | `tests/integration/<module>.rs`, through the test support's builders, and a fixture in TEST-08's test for each workspace route | TEST-01 to TEST-09 |
 

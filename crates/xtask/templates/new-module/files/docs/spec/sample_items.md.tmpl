@@ -12,7 +12,7 @@
 
 ## Interface
 
-- `Contract`, the personal data contract for `sample_items` (D31): a sample item is its workspace's, so a deleted member's erasure leaves it (D125).
+- `Contract`, the personal data contract for `sample_items` (D31), which exports the sample items of each workspace whose only member is the user into `sample_items/sample_items.json`, each with its `id`, `workspace_id`, `name`, `created_at` and `updated_at` (D40), and whose erasure leaves a deleted member's sample items to their workspace, whose they are (D125).
 
 ## Routes
 

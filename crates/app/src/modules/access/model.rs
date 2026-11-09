@@ -102,3 +102,15 @@ mod tests {
         assert!(!Role::Admin.outranks(Role::Admin) && !Role::Member.outranks(Role::Owner));
     }
 }
+
+/// A membership, as its user's export holds it (the accounts spec's "What an export holds").
+#[derive(Debug, Serialize)]
+pub(super) struct ExportedMembership {
+    /// Its ID, which orders the export's pages, and which the export leaves out.
+    #[serde(skip)]
+    pub(super) id: uuid::Uuid,
+    pub(super) workspace_id: WorkspaceId,
+    pub(super) role: String,
+    pub(super) created_at: Timestamp,
+    pub(super) updated_at: Timestamp,
+}

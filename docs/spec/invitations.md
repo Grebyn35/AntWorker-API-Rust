@@ -12,7 +12,7 @@
 
 ## Interface
 
-- `Contract`, the personal data contract for `invitations` (D31), whose `erase` changes nothing: the foreign key sets the inviter of an invitation that a deleted user sent to null, and an invitation addressed to their email is the workspace's, and stays (ACCOUNTS-018).
+- `Contract`, the personal data contract for `invitations` (D31), whose `export` gives the invitations of each workspace whose only member is the user ([accounts spec](accounts.md#what-an-export-holds)), and whose `erase` changes nothing: the foreign key sets the inviter of an invitation that a deleted user sent to null, and an invitation addressed to their email is the workspace's, and stays (ACCOUNTS-018).
 
 ## Routes
 

@@ -21,7 +21,7 @@ pub(crate) use permissions::{MembersRead, MembersRemove, WorkspaceRead, Workspac
 pub(crate) use personal_data::Contract;
 pub(crate) use service::{
     Policy, Removal, add_owner, erasable, held, joined, leave, member_ids, members, remove,
-    workspace_ids,
+    sole_workspaces, workspace_ids,
 };
 // part: invitations
 pub(crate) use service::{add_member, hold_owner, is_member};

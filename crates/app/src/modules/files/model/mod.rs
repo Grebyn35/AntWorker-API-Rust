@@ -1,5 +1,6 @@
 //! The file's domain types (D25), what the API records of a file, and what its routes answer.
 
+mod exported;
 mod kinds;
 
 use std::borrow::Cow;
@@ -17,6 +18,10 @@ use utoipa::{
 /// The most characters a file's name has (FILES-002).
 const NAME_MAX_CHARS: usize = 255;
 
+pub(crate) use exported::ExportedFile;
+pub(in crate::modules::files) use exported::{
+    AvatarRecord, OwnRecord, WorkspaceRecord, path_segment,
+};
 pub(crate) use kinds::Kind;
 
 /// A file's name: one line of text of 1 to 255 characters, normalized as `one_line` says, with no

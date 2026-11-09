@@ -3,6 +3,7 @@
 //! and `user.rs`, with the public downloads' reads in `public.rs`.
 
 pub(super) mod avatar;
+pub(super) mod exported;
 pub(super) mod public;
 pub(super) mod user;
 pub(super) mod workspace;
@@ -11,14 +12,16 @@ use std::{ops::Range, time::Duration};
 
 use bytes::Bytes;
 use platform::{
+    archive,
     blocking::Workers,
     db::Database,
     db::UnitOfWork,
     errors::Internal,
     idempotency::IdempotencyKey,
+    ranges::{Served, Wanted},
     scanner::{ScanError, Scanner, Verdict},
     signed_urls::SignedUrls,
-    storage::{ObjectBytes, ObjectKey, Served, Storage, StorageError, Wanted},
+    storage::{ObjectBytes, ObjectKey, Storage, StorageError},
     types::{SessionId, Timestamp},
 };
 
@@ -154,8 +157,14 @@ pub(super) struct Sent<'a> {
 pub(super) struct Written {
     pub(super) name: FileName,
     pub(super) kind: Kind,
+    pub(super) object: Object,
+}
+
+/// An upload's object, once written: the size and CRC-32 of its bytes, and its key (FILES-025).
+pub(super) struct Object {
     pub(super) size_bytes: u64,
-    pub(super) object_key: ObjectKey,
+    pub(super) crc32: u32,
+    pub(super) key: ObjectKey,
 }
 
 /// Uploads the file `name`, with `bytes`, under `prefix`: checks its kind, has the scanner scan
@@ -193,36 +202,23 @@ where
         counted.end(Upload::UnsupportedType);
         return Err(FilesError::UnsupportedType);
     };
-    store(
-        files,
-        counted,
-        prefix,
-        kind,
-        bytes,
-        async move |size_bytes, object_key| {
-            record(Written {
-                name,
-                kind,
-                size_bytes,
-                object_key,
-            })
-            .await
-        },
-    )
+    store(files, counted, prefix, kind, bytes, async move |object| {
+        record(Written { name, kind, object }).await
+    })
     .await
 }
 
 /// Has the scanner scan `bytes`, of `kind`, writes them under `prefix`, outside any transaction,
-/// then has `record` record them, with their size and their object's key, and counts the upload
-/// that `counted` started by how it ended: stored once `record` succeeds (FILES-005, FILES-013,
-/// DATA-21). An upload of an avatar shares it with a file's (the files spec's "Avatars").
+/// then has `record` record them, with their size, their CRC-32, which the workers compute, and
+/// their object's key, and counts the upload that `counted` started by how it ended: stored once
+/// `record` succeeds (FILES-005, FILES-013, FILES-025, DATA-21). An upload of an avatar shares it with a file's (the files spec's "Avatars").
 pub(super) async fn store<T, E, R>(
     files: &Files,
     counted: metrics::Counted,
     prefix: &str,
     kind: Kind,
     bytes: Bytes,
-    record: impl FnOnce(u64, ObjectKey) -> R,
+    record: impl FnOnce(Object) -> R,
 ) -> Result<T, E>
 where
     R: Future<Output = Result<T, E>>,
@@ -246,13 +242,25 @@ where
     let stored = async {
         let size_bytes =
             u64::try_from(bytes.len()).map_err(|error| FilesError::from(Internal::new(error)))?;
-        let object_key = ObjectKey::random(prefix).map_err(FilesError::from)?;
+        // A checksum reads every byte, so it is CPU-heavy work (CODE-05).
+        let summed = bytes.clone();
+        let crc32 = files
+            .workers
+            .run("upload checksum", move || archive::crc32(&summed))
+            .await
+            .map_err(|error| FilesError::from(Internal::new(error)))?;
+        let key = ObjectKey::random(prefix).map_err(FilesError::from)?;
         files
             .storage
-            .put(&object_key, bytes, kind.media_type())
+            .put(&key, bytes, kind.media_type())
             .await
             .map_err(unavailable)?;
-        record(size_bytes, object_key).await
+        record(Object {
+            size_bytes,
+            crc32,
+            key,
+        })
+        .await
     }
     .await;
     counted.end(if stored.is_ok() {

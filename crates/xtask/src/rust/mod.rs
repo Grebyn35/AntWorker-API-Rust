@@ -163,7 +163,7 @@ impl<'a> Source<'a> {
 }
 
 /// The feature module that the file at `path` belongs to, and the file's place in it, such as
-/// `("auth", ["repo"])` for `crates/app/src/modules/auth/repo.rs`, `("auth", ["service",
+/// `("auth", ["routes"])` for `crates/app/src/modules/auth/routes.rs`, `("auth", ["service",
 /// "devices"])` for `crates/app/src/modules/auth/service/devices.rs`, or `("auth", [])` for the
 /// module's `mod.rs`.
 pub fn feature_module(path: &str) -> Option<(&str, Vec<&str>)> {

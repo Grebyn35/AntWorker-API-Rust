@@ -1,6 +1,8 @@
 //! The SQL of `identities`, `sessions` and `device_tokens` (ARCH-10). Every expiry comes from the
 //! database's clock (DATA-03), and a session or a device token is found by a token's hash through
-//! its unique index (DATA-16).
+//! its unique index (DATA-16). What a user's export holds of them is in `exported.rs`.
+
+pub(super) mod exported;
 
 use platform::{
     db::UnitOfWork,

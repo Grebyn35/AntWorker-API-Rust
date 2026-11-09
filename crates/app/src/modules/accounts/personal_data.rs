@@ -1,7 +1,8 @@
-//! The personal data contract of `users` (D31), which a deletion runs last: it enqueues the email
-//! that tells the account's address it is deleted, locks the user's row `FOR UPDATE`, then deletes
-//! it waiting for no lock, which the foreign keys carry to every row that still names them (the
-//! accounts spec's "Deleting an account").
+//! The personal data contract of `users` and of the user's exports (D31), which a deletion runs
+//! last: it enqueues the email that tells the account's address it is deleted, locks the user's
+//! row `FOR UPDATE`, then deletes it waiting for no lock, which the foreign keys carry to every row
+//! that still names them, their exports' among them (the accounts spec's "Deleting an account").
+//! An export holds the user's record (the accounts spec's "What an export holds").
 
 use std::time::Duration;
 
@@ -10,7 +11,7 @@ use platform::{
     db::UnitOfWork,
     errors::Internal,
     mail::Mail,
-    personal_data::{Column, ErasureError, PersonalData},
+    personal_data::{Column, ErasureError, Export, PersonalData},
 };
 
 use super::{emails, repo};
@@ -34,8 +35,24 @@ impl Contract {
 
 impl PersonalData for Contract {
     fn columns(&self) -> &'static [Column] {
-        const COLUMNS: &[Column] = &[Column::new("users", "email"), Column::new("users", "name")];
+        const COLUMNS: &[Column] = &[
+            Column::new("users", "email"),
+            Column::new("users", "name"),
+            Column::new("data_exports", "user_id"),
+            Column::new("data_export_chunks", "bytes"),
+        ];
         COLUMNS
+    }
+
+    fn export<'a>(
+        &'a self,
+        uow: &'a mut UnitOfWork,
+        export: &'a mut Export,
+    ) -> BoxFuture<'a, Result<(), Internal>> {
+        Box::pin(async move {
+            let profile = repo::exported(uow, export.user()).await?;
+            export.whole(uow, "accounts/profile.json", &[profile]).await
+        })
     }
 
     fn erase<'a>(

@@ -1,11 +1,12 @@
 //! The periodic jobs of `files` (OPS-09, FILES-011), owned by `files`, which delete the objects
-//! that no row of a file or an avatar names, once no restore of the database can bring such a row
-//! back (the files spec's "Deleting bytes"). `files.find_unreferenced_objects`, run every day,
-//! lists the bucket's objects under `workspaces/`, `users/` and `avatars/`, and records each that
-//! no row of `workspace_files`, `user_files` or `avatars` names, and that the bucket wrote an hour
-//! ago or more, in `object_deletions`, with when its bytes may go. `files.delete_unreferenced_objects`, run every hour, deletes from the
-//! bucket those of `object_deletions` whose time has passed and that still no row names, then
-//! removes them from `object_deletions`. Both touch those four tables alone, and the bucket.
+//! that no row of a file, an avatar or a file that an export holds names, once no restore of the
+//! database can bring such a row back (the files spec's "Deleting bytes").
+//! `files.find_unreferenced_objects`, run every day, lists the bucket's objects under
+//! `workspaces/`, `users/` and `avatars/`, and records each that no row of `workspace_files`,
+//! `user_files`, `avatars` or `exported_files` names, and that the bucket wrote an hour ago or
+//! more, in `object_deletions`, with when its bytes may go. `files.delete_unreferenced_objects`,
+//! run every hour, deletes from the bucket those of `object_deletions` whose time has passed and
+//! that still no row names, then removes them from `object_deletions`. Both touch those five tables alone, and the bucket.
 //! Both span every workspace and user by nature, so they select objects by key alone, which
 //! `check-tenancy` lets this file and the public reads alone do (DATA-16). Scheduled maintenance
 //! isn't audited (DATA-22). A second run of either finds nothing more to do, and a deletion of an
@@ -102,6 +103,7 @@ async fn find_under(files: &Files, context: &JobContext, prefix: &str) -> Result
                 AND NOT EXISTS (SELECT 1 FROM workspace_files WHERE object_key = key)
                 AND NOT EXISTS (SELECT 1 FROM user_files WHERE object_key = key)
                 AND NOT EXISTS (SELECT 1 FROM avatars WHERE object_key = key)
+                AND NOT EXISTS (SELECT 1 FROM exported_files WHERE object_key = key)
             ON CONFLICT (object_key) DO NOTHING",
             &keys,
             &written,
@@ -134,6 +136,9 @@ async fn delete(files: &Files, context: &JobContext) -> Result<(), Internal> {
                 ) OR EXISTS (
                     SELECT 1 FROM avatars
                     WHERE avatars.object_key = object_deletions.object_key
+                ) OR EXISTS (
+                    SELECT 1 FROM exported_files
+                    WHERE exported_files.object_key = object_deletions.object_key
                 )
             ) AS "named!"
             FROM object_deletions WHERE deletable_at <= now()

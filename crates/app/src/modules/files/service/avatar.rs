@@ -3,9 +3,9 @@
 //! unit of work; and the links of users' avatars.
 
 use bytes::Bytes;
-use platform::{db::UnitOfWork, storage::ObjectKey, types::UserId};
+use platform::{db::UnitOfWork, types::UserId};
 
-use super::{Files, store};
+use super::{Files, Object, store};
 use crate::modules::files::{
     error::FilesError,
     metrics::{self, Upload as Outcome},
@@ -25,8 +25,7 @@ pub(in crate::modules::files) const AVATAR_PREFIX: &str = "avatars/";
 /// [`record_avatar`] makes a user's.
 pub(crate) struct NewAvatar {
     kind: Kind,
-    size_bytes: u64,
-    object_key: ObjectKey,
+    object: Object,
 }
 
 /// Finds the kind of an avatar's `bytes`, which its route read, among the image kinds, from the
@@ -60,14 +59,7 @@ where
         AVATAR_PREFIX,
         kind,
         bytes,
-        async move |size_bytes, object_key| {
-            record(NewAvatar {
-                kind,
-                size_bytes,
-                object_key,
-            })
-            .await
-        },
+        async move |object| record(NewAvatar { kind, object }).await,
     )
     .await
 }
@@ -85,8 +77,9 @@ pub(crate) async fn record_avatar(
         uow,
         user,
         avatar.kind.media_type(),
-        avatar.size_bytes,
-        &avatar.object_key,
+        avatar.object.size_bytes,
+        avatar.object.crc32,
+        &avatar.object.key,
     )
     .await?)
 }

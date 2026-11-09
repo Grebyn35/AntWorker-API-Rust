@@ -2,7 +2,7 @@
 //! ID alone, and named by it, never by a file's own name (FILES-023, FILES-024, the files spec's
 //! "Visibility").
 
-use platform::{storage::Wanted, types::Client};
+use platform::{ranges::Wanted, types::Client};
 
 use super::{Downloaded, Files, Serving, serve};
 use crate::modules::files::{

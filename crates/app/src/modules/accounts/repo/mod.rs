@@ -1,14 +1,16 @@
-//! The SQL of `users` (ARCH-10).
+//! The SQL of `users` (ARCH-10), with that of a user's exports in `exports.rs`.
+
+pub(super) mod exports;
 
 use platform::{
     db::{self, UnitOfWork},
     errors::Internal,
     lists::Search,
     personal_data::ErasureError,
-    types::{EmailAddress, UserId, Version},
+    types::{EmailAddress, Timestamp, UserId, Version},
 };
 
-use super::model::{Current, DisplayName, Profile, PublicProfile};
+use super::model::{Current, DisplayName, ExportedProfile, Profile, PublicProfile};
 
 /// Inserts a user, or `None` when another user has the email: the unique constraint
 /// `users_email_key` refuses the row, without aborting the unit of work (ACCOUNTS-004, ERR-05).
@@ -61,6 +63,28 @@ pub(super) async fn profile(uow: &mut UnitOfWork, id: UserId) -> Result<Option<C
         },
         version: Version::from_database(row.version),
     }))
+}
+
+/// The record of the user `id`, as their export holds it (the accounts spec's "What an export
+/// holds"), filtered by their own ID (DATA-16).
+pub(super) async fn exported(
+    uow: &mut UnitOfWork,
+    id: UserId,
+) -> Result<ExportedProfile, Internal> {
+    let row = sqlx::query!(
+        "SELECT id, email, name, email_verified, created_at, updated_at FROM users WHERE id = $1",
+        id.uuid(),
+    )
+    .fetch_one(uow.executor())
+    .await?;
+    Ok(ExportedProfile {
+        id: UserId::from_uuid(row.id),
+        email: EmailAddress::from_stored(row.email),
+        name: DisplayName::from_stored(row.name),
+        email_verified: row.email_verified,
+        created_at: Timestamp::from_database(row.created_at),
+        updated_at: Timestamp::from_database(row.updated_at),
+    })
 }
 
 /// Locks the row of the user `id` until the unit of work ends, `FOR UPDATE`, which the insert of

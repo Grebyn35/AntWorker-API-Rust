@@ -117,6 +117,163 @@
         ],
         "type": "object"
       },
+      "DataExport": {
+        "description": "An export of the caller's data (ACCOUNTS-022).",
+        "properties": {
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp",
+            "description": "When it was requested."
+          },
+          "expires_at": {
+            "$ref": "#/components/schemas/Timestamp",
+            "description": "When it expires: 7 days after it became ready, or after its request while it isn't\n(D127)."
+          },
+          "id": {
+            "description": "The export's ID.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "ready_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp",
+                "description": "When its archive was built, or null until it is."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "size_bytes": {
+            "description": "The size of its archive, in bytes, or null until it is built.",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/ExportState",
+            "description": "Where it stands."
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "created_at",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "DataExportChanged": {
+        "description": "The payload of `data_export.ready` and `data_export.failed`: the export, which a client reads\nthrough `GET /v1/users/me/exports/{export_id}` (API-19).",
+        "properties": {
+          "export_id": {
+            "description": "The export.",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export_id"
+        ],
+        "type": "object"
+      },
+      "DataExportFailedFrame": {
+        "description": "`data_export.failed`, a user event: it reaches its user's streams.",
+        "properties": {
+          "data": {
+            "contentMediaType": "application/json",
+            "contentSchema": {
+              "properties": {
+                "data": {
+                  "$ref": "#/components/schemas/DataExportChanged"
+                },
+                "trace_id": {
+                  "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "data",
+                "trace_id"
+              ],
+              "type": "object"
+            },
+            "description": "JSON: the payload, and the trace ID of what sent it (REALTIME-002).",
+            "type": "string"
+          },
+          "event": {
+            "enum": [
+              "data_export.failed"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "description": "What a client that reconnects names in `Last-Event-ID` (REALTIME-004).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "data",
+          "id"
+        ],
+        "type": "object",
+        "x-event": "data_export.failed"
+      },
+      "DataExportReadyFrame": {
+        "description": "`data_export.ready`, a user event: it reaches its user's streams.",
+        "properties": {
+          "data": {
+            "contentMediaType": "application/json",
+            "contentSchema": {
+              "properties": {
+                "data": {
+                  "$ref": "#/components/schemas/DataExportChanged"
+                },
+                "trace_id": {
+                  "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "data",
+                "trace_id"
+              ],
+              "type": "object"
+            },
+            "description": "JSON: the payload, and the trace ID of what sent it (REALTIME-002).",
+            "type": "string"
+          },
+          "event": {
+            "enum": [
+              "data_export.ready"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "description": "What a client that reconnects names in `Last-Event-ID` (REALTIME-004).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "data",
+          "id"
+        ],
+        "type": "object",
+        "x-event": "data_export.ready"
+      },
       "DeviceId": {
         "maxLength": 64,
         "minLength": 1,
@@ -132,6 +289,15 @@
         "format": "email",
         "maxLength": 254,
         "minLength": 1,
+        "type": "string"
+      },
+      "ExportState": {
+        "description": "Where an export stands (ACCOUNTS-022).",
+        "enum": [
+          "pending",
+          "ready",
+          "failed"
+        ],
         "type": "string"
       },
       "Features": {
@@ -254,7 +420,7 @@
         "type": "object"
       },
       "FileBytes": {
-        "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+        "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
         "format": "binary",
         "type": "string"
       },
@@ -379,6 +545,12 @@
       "Frame": {
         "description": "A frame of the stream of server-sent events, one schema for each type, which its `event` names (REALTIME-008).",
         "oneOf": [
+          {
+            "$ref": "#/components/schemas/DataExportFailedFrame"
+          },
+          {
+            "$ref": "#/components/schemas/DataExportReadyFrame"
+          },
           {
             "$ref": "#/components/schemas/FileDeletedFrame"
           },
@@ -549,6 +721,76 @@
         "required": [
           "email",
           "role"
+        ],
+        "type": "object"
+      },
+      "List_DataExport": {
+        "description": "A page of items, and the cursor of the next page, or `null` on the last (API-05).",
+        "properties": {
+          "items": {
+            "description": "The page's items.",
+            "items": {
+              "description": "An export of the caller's data (ACCOUNTS-022).",
+              "properties": {
+                "created_at": {
+                  "$ref": "#/components/schemas/Timestamp",
+                  "description": "When it was requested."
+                },
+                "expires_at": {
+                  "$ref": "#/components/schemas/Timestamp",
+                  "description": "When it expires: 7 days after it became ready, or after its request while it isn't\n(D127)."
+                },
+                "id": {
+                  "description": "The export's ID.",
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "ready_at": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Timestamp",
+                      "description": "When its archive was built, or null until it is."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "size_bytes": {
+                  "description": "The size of its archive, in bytes, or null until it is built.",
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "$ref": "#/components/schemas/ExportState",
+                  "description": "Where it stands."
+                }
+              },
+              "required": [
+                "id",
+                "state",
+                "created_at",
+                "expires_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "description": "The cursor of the next page, which `cursor` takes, or `null` on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
         ],
         "type": "object"
       },
@@ -2399,7 +2641,7 @@
             }
           },
           {
-            "description": "One range of the file's bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
+            "description": "One range of the bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
             "in": "header",
             "name": "Range",
             "required": false,
@@ -2431,28 +2673,28 @@
             "content": {
               "image/gif": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
@@ -2485,7 +2727,7 @@
                 }
               },
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -2508,34 +2750,34 @@
             "content": {
               "image/gif": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               }
             },
-            "description": "A range of the file's bytes, as `Range` asked for it.",
+            "description": "A range of the bytes, as `Range` asked for it.",
             "headers": {
               "accept-ranges": {
                 "description": "`bytes`: a request may ask for one range of them.",
@@ -2556,7 +2798,7 @@
                 }
               },
               "content-range": {
-                "description": "The range served, and the file's size: `bytes <first>-<last>/<size>`.",
+                "description": "The range served, and the size of all the bytes: `bytes <first>-<last>/<size>`.",
                 "schema": {
                   "type": "string"
                 }
@@ -2568,7 +2810,7 @@
                 }
               },
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -2597,7 +2839,7 @@
                 }
               },
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -2862,7 +3104,7 @@
             }
           },
           {
-            "description": "One range of the file's bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
+            "description": "One range of the bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
             "in": "header",
             "name": "Range",
             "required": false,
@@ -2894,77 +3136,77 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
@@ -2997,7 +3239,7 @@
                 }
               },
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -3020,83 +3262,83 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               }
             },
-            "description": "A range of the file's bytes, as `Range` asked for it.",
+            "description": "A range of the bytes, as `Range` asked for it.",
             "headers": {
               "accept-ranges": {
                 "description": "`bytes`: a request may ask for one range of them.",
@@ -3117,7 +3359,7 @@
                 }
               },
               "content-range": {
-                "description": "The range served, and the file's size: `bytes <first>-<last>/<size>`.",
+                "description": "The range served, and the size of all the bytes: `bytes <first>-<last>/<size>`.",
                 "schema": {
                   "type": "string"
                 }
@@ -3129,7 +3371,7 @@
                 }
               },
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -3158,7 +3400,7 @@
                 }
               },
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -3423,7 +3665,7 @@
             }
           },
           {
-            "description": "One range of the file's bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
+            "description": "One range of the bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
             "in": "header",
             "name": "Range",
             "required": false,
@@ -3455,77 +3697,77 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
@@ -3558,7 +3800,7 @@
                 }
               },
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -3581,83 +3823,83 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               }
             },
-            "description": "A range of the file's bytes, as `Range` asked for it.",
+            "description": "A range of the bytes, as `Range` asked for it.",
             "headers": {
               "accept-ranges": {
                 "description": "`bytes`: a request may ask for one range of them.",
@@ -3678,7 +3920,7 @@
                 }
               },
               "content-range": {
-                "description": "The range served, and the file's size: `bytes <first>-<last>/<size>`.",
+                "description": "The range served, and the size of all the bytes: `bytes <first>-<last>/<size>`.",
                 "schema": {
                   "type": "string"
                 }
@@ -3690,7 +3932,7 @@
                 }
               },
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -3719,7 +3961,7 @@
                 }
               },
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -6941,6 +7183,1380 @@
         "x-access": "user"
       }
     },
+    "/v1/users/me/exports": {
+      "get": {
+        "operationId": "list_exports",
+        "parameters": [
+          {
+            "description": "How many exports a page holds.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The `next_cursor` of the page before.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 38,
+              "minLength": 38,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/List_DataExport"
+                }
+              }
+            },
+            "description": "A page of the caller's exports.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.unauthenticated",
+                            "request.access_token_expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Lists the caller's exports that haven't expired, the latest first.",
+        "tags": [
+          "accounts"
+        ],
+        "x-access": "user"
+      },
+      "post": {
+        "operationId": "request_export",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataExport"
+                }
+              }
+            },
+            "description": "The export, pending until its archive is built.",
+            "headers": {
+              "location": {
+                "description": "The export: `/v1/users/me/exports/{id}`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.unauthenticated",
+                            "request.access_token_expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.origin_not_allowed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.origin_not_allowed`: Origin not allowed.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Requests an export of the caller's data, whose archive a job builds.",
+        "tags": [
+          "accounts"
+        ],
+        "x-access": "user"
+      }
+    },
+    "/v1/users/me/exports/{export_id}": {
+      "get": {
+        "operationId": "read_export",
+        "parameters": [
+          {
+            "description": "The export.",
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataExport"
+                }
+              }
+            },
+            "description": "The export.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.unauthenticated",
+                            "request.access_token_expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "accounts.export_not_found"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`accounts.export_not_found`: Export not found.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Reads one of the caller's exports.",
+        "tags": [
+          "accounts"
+        ],
+        "x-access": "user"
+      }
+    },
+    "/v1/users/me/exports/{export_id}/content": {
+      "get": {
+        "operationId": "download_export",
+        "parameters": [
+          {
+            "description": "The export.",
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "One range of the bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
+            "in": "header",
+            "name": "Range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The entity tag of the bytes a client holds part of: the range is served only while it names them.",
+            "in": "header",
+            "name": "If-Range",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The entity tags of bytes the client holds, or `*`: a 304 answers while one names them.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileBytes"
+                }
+              }
+            },
+            "description": "The export's archive, a ZIP file of the caller's data (ACCOUNTS-024).",
+            "headers": {
+              "accept-ranges": {
+                "description": "`bytes`: a request may ask for one range of them.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-disposition": {
+                "description": "`attachment`, with the archive's name, `<product>-export-<date>.zip`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-security-policy": {
+                "description": "`default-src 'none'; sandbox` (PLATFORM-081).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "etag": {
+                "description": "The entity tag that names the bytes, which never change.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "206": {
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileBytes"
+                }
+              }
+            },
+            "description": "A range of the bytes, as `Range` asked for it.",
+            "headers": {
+              "accept-ranges": {
+                "description": "`bytes`: a request may ask for one range of them.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-disposition": {
+                "description": "`attachment`, with the archive's name, `<product>-export-<date>.zip`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-range": {
+                "description": "The range served, and the size of all the bytes: `bytes <first>-<last>/<size>`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "content-security-policy": {
+                "description": "`default-src 'none'; sandbox` (PLATFORM-081).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "etag": {
+                "description": "The entity tag that names the bytes, which never change.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Nothing: the client holds the bytes its `If-None-Match` names.",
+            "headers": {
+              "etag": {
+                "description": "The entity tag that names the bytes, which never change.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.unauthenticated",
+                            "request.access_token_expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "accounts.export_not_found"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`accounts.export_not_found`: Export not found.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "accounts.export_not_ready"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`accounts.export_not_ready`: Export not ready.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Downloads a ready export's archive, or a range of it.",
+        "tags": [
+          "accounts"
+        ],
+        "x-access": "user"
+      }
+    },
     "/v1/users/me/files": {
       "get": {
         "operationId": "list_own_files",
@@ -8344,7 +9960,7 @@
             }
           },
           {
-            "description": "One range of the file's bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
+            "description": "One range of the bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
             "in": "header",
             "name": "Range",
             "required": false,
@@ -8406,77 +10022,77 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
@@ -8503,7 +10119,7 @@
                 }
               },
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -8526,83 +10142,83 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               }
             },
-            "description": "A range of the file's bytes, as `Range` asked for it.",
+            "description": "A range of the bytes, as `Range` asked for it.",
             "headers": {
               "accept-ranges": {
                 "description": "`bytes`: a request may ask for one range of them.",
@@ -8617,7 +10233,7 @@
                 }
               },
               "content-range": {
-                "description": "The range served, and the file's size: `bytes <first>-<last>/<size>`.",
+                "description": "The range served, and the size of all the bytes: `bytes <first>-<last>/<size>`.",
                 "schema": {
                   "type": "string"
                 }
@@ -8629,7 +10245,7 @@
                 }
               },
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -8652,7 +10268,7 @@
             "description": "Nothing: the client holds the bytes its `If-None-Match` names.",
             "headers": {
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -13624,7 +15240,7 @@
             }
           },
           {
-            "description": "One range of the file's bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
+            "description": "One range of the bytes, `bytes=first-last`, `bytes=first-` or `bytes=-suffix`, which a 206 serves (PLATFORM-081).",
             "in": "header",
             "name": "Range",
             "required": false,
@@ -13686,77 +15302,77 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
@@ -13783,7 +15399,7 @@
                 }
               },
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -13806,83 +15422,83 @@
             "content": {
               "application/pdf": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/gif": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/jpeg": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/png": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "image/webp": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/csv": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/markdown": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               },
               "text/plain": {
                 "schema": {
-                  "description": "A file's bytes, as an upload sends them and a download serves them, which the document\ndescribes as a binary string, not as JSON (API-17).",
+                  "description": "Bytes that a route takes or serves as they are, such as a file's or an archive's, which the\ndocument describes as a binary string, not as JSON (API-17).",
                   "format": "binary",
                   "type": "string"
                 }
               }
             },
-            "description": "A range of the file's bytes, as `Range` asked for it.",
+            "description": "A range of the bytes, as `Range` asked for it.",
             "headers": {
               "accept-ranges": {
                 "description": "`bytes`: a request may ask for one range of them.",
@@ -13897,7 +15513,7 @@
                 }
               },
               "content-range": {
-                "description": "The range served, and the file's size: `bytes <first>-<last>/<size>`.",
+                "description": "The range served, and the size of all the bytes: `bytes <first>-<last>/<size>`.",
                 "schema": {
                   "type": "string"
                 }
@@ -13909,7 +15525,7 @@
                 }
               },
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }
@@ -13932,7 +15548,7 @@
             "description": "Nothing: the client holds the bytes its `If-None-Match` names.",
             "headers": {
               "etag": {
-                "description": "The entity tag that names the file's bytes, which never change.",
+                "description": "The entity tag that names the bytes, which never change.",
                 "schema": {
                   "type": "string"
                 }

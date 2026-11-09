@@ -283,6 +283,36 @@ pub(crate) struct Session {
     pub(crate) authenticated_at: Timestamp,
 }
 
+/// A way to sign in, as its user's export holds it, without a password's hash (the accounts spec's
+/// "What an export holds").
+#[derive(Debug, Serialize)]
+pub(super) struct ExportedIdentity {
+    pub(super) method: String,
+    pub(super) created_at: Timestamp,
+    pub(super) updated_at: Timestamp,
+}
+
+/// A session, as its user's export holds it, without its tokens' hashes.
+#[derive(Debug, Serialize)]
+pub(super) struct ExportedSession {
+    pub(super) id: uuid::Uuid,
+    pub(super) device_id: Option<String>,
+    pub(super) created_at: Timestamp,
+    pub(super) updated_at: Timestamp,
+    pub(super) authenticated_at: Timestamp,
+    pub(super) access_token_expires_at: Timestamp,
+    pub(super) refresh_token_expires_at: Timestamp,
+    pub(super) expires_at: Timestamp,
+}
+
+/// A device token, as its user's export holds it, without its hash or its email's.
+#[derive(Debug, Serialize)]
+pub(super) struct ExportedDeviceToken {
+    pub(super) id: uuid::Uuid,
+    pub(super) created_at: Timestamp,
+    pub(super) expires_at: Timestamp,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

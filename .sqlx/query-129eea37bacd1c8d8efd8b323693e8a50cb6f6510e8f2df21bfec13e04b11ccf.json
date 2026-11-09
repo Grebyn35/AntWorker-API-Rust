@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO workspace_files\n            (workspace_id, name, media_type, size_bytes, visibility, object_key, uploader_id)\n        VALUES ($1, $2, $3, $4, $5::text::file_visibility, $6, $7)\n        RETURNING id, created_at",
+  "query": "INSERT INTO workspace_files\n            (workspace_id, name, media_type, size_bytes, crc32, visibility, object_key, uploader_id)\n        VALUES ($1, $2, $3, $4, $5, $6::text::file_visibility, $7, $8)\n        RETURNING id, created_at",
   "describe": {
     "columns": [
       {
@@ -32,6 +32,7 @@
         "Text",
         "Text",
         "Int8",
+        "Int8",
         "Text",
         "Text",
         "Uuid"
@@ -42,5 +43,5 @@
       false
     ]
   },
-  "hash": "363e22441d6e146944a5f3901316bfa40687e4d2a58b44613b336bbd399f2f18"
+  "hash": "129eea37bacd1c8d8efd8b323693e8a50cb6f6510e8f2df21bfec13e04b11ccf"
 }

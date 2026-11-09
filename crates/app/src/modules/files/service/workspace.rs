@@ -6,7 +6,7 @@ use platform::{
     db::UnitOfWork,
     idempotency::Claimed,
     lists::{List, Page, Search, key},
-    storage::Wanted,
+    ranges::Wanted,
 };
 
 use super::{
@@ -66,9 +66,10 @@ pub(in crate::modules::files) async fn upload(
                 &NewRow {
                     name: &written.name,
                     media_type: written.kind.media_type(),
-                    size_bytes: written.size_bytes,
+                    size_bytes: written.object.size_bytes,
+                    crc32: written.object.crc32,
                     visibility,
-                    object_key: &written.object_key,
+                    object_key: &written.object.key,
                 },
             )
             .await?;

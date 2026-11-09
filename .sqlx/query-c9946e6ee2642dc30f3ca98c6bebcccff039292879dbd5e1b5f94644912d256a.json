@@ -1,0 +1,151 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT entry.id, entry.workspace_id, entry.action, entry.resource_type,\n            entry.resource_id, entry.actor_user_id, entry.target_user_id, entry.details,\n            entry.created_at, client.client_ip AS \"client_ip?\", client.user_agent AS \"user_agent?\"\n        FROM audit_entries AS entry\n        LEFT JOIN audit_entry_clients AS client\n            ON client.entry_id = entry.id AND client.user_id = $1\n        WHERE entry.user_id = $1\n            AND ($2::timestamptz IS NULL OR (entry.created_at, entry.id) < ($2, $3))\n        ORDER BY entry.created_at DESC, entry.id DESC\n        LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "audit_entries",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "audit_entries",
+            "name": "workspace_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "action",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "audit_entries",
+            "name": "action"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "resource_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "audit_entries",
+            "name": "resource_type"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "resource_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "audit_entries",
+            "name": "resource_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "actor_user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "audit_entries",
+            "name": "actor_user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "target_user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "audit_entries",
+            "name": "target_user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "details",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "audit_entries",
+            "name": "details"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "audit_entries",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "client_ip?",
+        "type_info": "Inet",
+        "origin": {
+          "Table": {
+            "table": "audit_entry_clients",
+            "name": "client_ip"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "user_agent?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "audit_entry_clients",
+            "name": "user_agent"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "c9946e6ee2642dc30f3ca98c6bebcccff039292879dbd5e1b5f94644912d256a"
+}

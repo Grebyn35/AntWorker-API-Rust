@@ -4,6 +4,7 @@ mod audit;
 mod emails;
 mod error;
 mod events;
+mod jobs;
 mod model;
 mod personal_data;
 mod repo;
@@ -12,7 +13,7 @@ mod service;
 
 pub(crate) use error::AccountsError;
 pub(crate) use model::{DisplayName, PublicProfile};
-pub(crate) use routes::routes;
+pub(crate) use routes::{export_routes, routes};
 // part: files
 pub(crate) use routes::avatar_routes;
 pub(crate) use service::avatar::Avatars;
@@ -22,4 +23,5 @@ pub(crate) use service::profile;
 // end part: invitations
 pub(crate) use personal_data::Contract;
 pub(crate) use service::deletion::{Deletion, Outcome as DeletionOutcome};
+pub(crate) use service::exports::Exports;
 pub(crate) use service::{Creation, create, find_by_email, matching, me, profiles};

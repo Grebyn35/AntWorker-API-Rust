@@ -29,8 +29,8 @@ No header selects a workspace.
 | Outcome | Status |
 |---|---|
 | A read, or an update that returns the resource | 200 |
-| A range of a download's bytes, with `Content-Range` (PLATFORM-081) | 206 <!-- part: files --> |
-| A download whose bytes the client holds, as its `If-None-Match` names them (PLATFORM-081) | 304 <!-- part: files --> |
+| A range of a download's bytes, with `Content-Range` (PLATFORM-081) | 206 |
+| A download whose bytes the client holds, as its `If-None-Match` names them (PLATFORM-081) | 304 |
 | A create, with a `Location` header and the created resource | 201 |
 | Asynchronous work accepted, such as a data export | 202 |
 | A delete, or an action with nothing to return | 204 |
@@ -113,7 +113,8 @@ Every route except the health probes (OPS-05) and the API reference that develop
 - `user`: requires a `Principal`.
 - `workspace::<P>`: requires `Authorized<P>` for the workspace in the path, where `P` is a permission.
 - `workspace_upload::<P>` and `user_upload`: as `workspace::<P>` and `user`, for a route whose body is a file's bytes, or an avatar's, which its handler reads through `Upload` in a group of its own: once `Authorize::check` has authorized a member, on a workspace's, and once `Principal` has authenticated the caller, on a user's (PLATFORM-073, PLATFORM-074). <!-- part: files -->
-- `workspace_download::<P>`, `user_download` and `public_download`: as `workspace::<P>`, `user` and `public`, for a route that serves a file's bytes, or an avatar's, or a range of them (PLATFORM-081). On the first two, a signed URL may also prove the `Principal` (PLATFORM-080), and the last serves under `/v1/public/`. <!-- part: files -->
+- `user_download`: as `user`, for a route that serves bytes that never change, such as an export's archive, or a range of them (PLATFORM-081).
+- `workspace_signed_download::<P>`, `user_signed_download` and `public_download`: as `workspace::<P>`, `user` and `public`, for a route that serves a file's bytes, or an avatar's, or a range of them (PLATFORM-081). On the first two, a signed URL may also prove the `Principal` (PLATFORM-080), and the last serves under `/v1/public/`. <!-- part: files -->
 
 A caller who isn't a member of the workspace gets 404. A member without permission `P` gets 403. Each workspace builder gives its routes the access level `workspace`, each user builder the access level `user`, and each public builder the access level `public`.
 - Why: no route can forget authentication or authorization, and non-members learn nothing (D2, D3).

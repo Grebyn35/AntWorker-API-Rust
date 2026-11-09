@@ -1,12 +1,12 @@
-//! What a read of a stored file asks of its bytes, and what it serves of them: every byte, one
-//! range of them, or none, as the conditions of RFC 9110 decide (PLATFORM-081, D112). A
-//! download's handler reads one from its request, and the service that reads the file decides,
-//! once it knows the file's size, so the service names no HTTP type (ARCH-09).
+//! What a download asks of bytes that never change, such as an export's archive, and what it
+//! serves of them: every byte, one range of them, or none, as the conditions of RFC 9110 decide
+//! (PLATFORM-081). A download's handler reads one from its request, and the service that
+//! reads the bytes decides, once it knows their size, so the service names no HTTP type (ARCH-09).
 
-/// What a read of a stored file's bytes asks for: whether its request is a `GET`, and its
-/// `Range`, `If-Range` and `If-None-Match`, as RFC 9110 defines them, which [`Wanted::serve`]
-/// reads once the file's size and entity tag are known (PLATFORM-081). `http` reads one from a
-/// download's request.
+/// What a download asks of the bytes it serves: whether its request is a `GET`, and its `Range`,
+/// `If-Range` and `If-None-Match`, as RFC 9110 defines them, which [`Wanted::serve`] reads once
+/// the bytes' size and entity tag are known (PLATFORM-081). `http` reads one from a download's
+/// request.
 #[derive(Clone, Debug, Default)]
 pub struct Wanted {
     get: bool,
@@ -15,7 +15,7 @@ pub struct Wanted {
     if_none_match: Option<String>,
 }
 
-/// The bytes of a file, from its first to its last, both included.
+/// A range of a download's bytes, from its first to its last, both included.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ByteRange {
     /// The offset of its first byte.
@@ -25,7 +25,7 @@ pub struct ByteRange {
 }
 
 impl ByteRange {
-    /// The offsets it covers, as a read of the bucket takes them.
+    /// The offsets it covers, as a read of stored bytes takes them.
     pub fn offsets(self) -> std::ops::Range<u64> {
         self.first..self.last + 1
     }
@@ -36,7 +36,7 @@ impl ByteRange {
     }
 }
 
-/// What a download serves of a file's bytes.
+/// What a download serves of its bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Served {
     /// Nothing: the client holds the bytes its `If-None-Match` names (304).
@@ -48,7 +48,7 @@ pub enum Served {
 }
 
 impl Served {
-    /// The range that a read of the bucket asks for: `None` for every byte.
+    /// The offsets that a read of the stored bytes asks for: `None` for every byte.
     pub fn offsets(self) -> Option<std::ops::Range<u64>> {
         match self {
             Self::Range(range) => Some(range.offsets()),
@@ -74,9 +74,9 @@ impl Wanted {
         }
     }
 
-    /// What to serve of a file of `size` bytes whose entity tag is `tag`, as RFC 9110 orders
+    /// What to serve of `size` bytes whose entity tag is `tag`, as RFC 9110 orders
     /// the conditions: an `If-None-Match` that is `*`, or names `tag`, weakly or strongly, serves
-    /// nothing; then a `Range` of `GET` that holds one range starting within the file serves it,
+    /// nothing; then a `Range` of `GET` that holds one range starting within the bytes serves it,
     /// unless an `If-Range` names something other than `tag`, strongly; and every other request
     /// serves every byte, a `Range` that can't be served being ignored, as RFC 9110 allows.
     pub fn serve(&self, size: u64, tag: &str) -> Served {
@@ -120,10 +120,10 @@ fn names_tag(value: &str, tag: &str) -> bool {
         })
 }
 
-/// The one range of bytes that `value`, a `Range`, asks for of a file of `size` bytes:
-/// `bytes=first-last`, its last clamped to the file's, `bytes=first-`, or `bytes=-suffix`, the
-/// file's last `suffix` bytes, or all of them for a longer suffix. `None` for a value of several
-/// ranges, of another unit, that isn't one, or whose range starts past the file's last byte.
+/// The one range of bytes that `value`, a `Range`, asks for of `size` bytes: `bytes=first-last`,
+/// its last cut to the bytes' last, `bytes=first-`, or `bytes=-suffix`, the last `suffix`
+/// bytes, or all of them for a longer suffix. `None` for a value of several ranges, of another
+/// unit, that isn't one, or whose range starts past the last byte.
 fn one_range(value: &str, size: u64) -> Option<ByteRange> {
     let (unit, set) = value.trim().split_once('=')?;
     if !unit.trim().eq_ignore_ascii_case("bytes") || set.contains(',') || size == 0 {
@@ -189,7 +189,7 @@ mod tests {
         assert_eq!(range("bytes=500-"), bytes(500, 999));
         assert_eq!(range("bytes=-200"), bytes(800, 999));
         assert_eq!(range(" Bytes = 10 - 20 "), bytes(10, 20));
-        // A last byte past the file's ends at its last, and a suffix longer than it is the file.
+        // A last byte past the bytes' last ends at it, and a suffix longer than them is them all.
         assert_eq!(range("bytes=990-5000"), bytes(990, 999));
         assert_eq!(range("bytes=-5000"), bytes(0, 999));
         assert_eq!(range("bytes=999-999"), bytes(999, 999));

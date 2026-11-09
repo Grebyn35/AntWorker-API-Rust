@@ -8,7 +8,7 @@ use platform::{
     types::{Timestamp, Version, WorkspaceId},
 };
 
-use super::model::WorkspaceName;
+use super::model::{ExportedWorkspace, WorkspaceName};
 
 /// Inserts a workspace named `name`, and returns its ID, when it was created and its version.
 pub(super) async fn insert(
@@ -120,4 +120,28 @@ pub(super) async fn matching(
     .fetch_all(uow.executor())
     .await?;
     Ok(matched.into_iter().map(WorkspaceId::from_uuid).collect())
+}
+
+/// The workspaces `ids`, which came from the user's own memberships, as their export holds them,
+/// in the order of their IDs (ACCOUNTS-024, DATA-16).
+pub(super) async fn exported(
+    uow: &mut UnitOfWork,
+    ids: &[WorkspaceId],
+) -> Result<Vec<ExportedWorkspace>, Internal> {
+    let ids: Vec<uuid::Uuid> = ids.iter().map(|id| id.uuid()).collect();
+    let rows = sqlx::query!(
+        "SELECT id, name, created_at, updated_at FROM workspaces WHERE id = ANY($1) ORDER BY id",
+        &ids,
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ExportedWorkspace {
+            id: WorkspaceId::from_uuid(row.id),
+            name: WorkspaceName::from_stored(row.name),
+            created_at: Timestamp::from_database(row.created_at),
+            updated_at: Timestamp::from_database(row.updated_at),
+        })
+        .collect())
 }

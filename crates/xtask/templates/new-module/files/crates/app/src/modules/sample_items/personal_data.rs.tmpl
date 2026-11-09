@@ -1,12 +1,17 @@
-//! The personal data contract of `sample_items` (D31). A sample item is its workspace's, which a
-//! deleted member's erasure leaves, as their export leaves it out (D31, D125), so its erasure
-//! changes nothing, and its `name`, which holds personal data, stays with the workspace.
+//! The personal data contract of `sample_items` (D31). It exports the sample items of each
+//! workspace whose only member is the user (D40). A sample item is its workspace's, which a
+//! deleted member's erasure leaves (D125), so its erasure changes nothing, and its `name`, which
+//! holds personal data, stays with the workspace.
 
 use platform::{
     authn::{BoxFuture, Principal},
     db::UnitOfWork,
-    personal_data::{Column, ErasureError, PersonalData},
+    errors::Internal,
+    personal_data::{Column, ErasureError, Export, PersonalData, next_after},
 };
+
+use super::repo;
+use crate::modules::access::{self, AccessError};
 
 /// The contract.
 pub(crate) struct Contract;
@@ -15,6 +20,33 @@ impl PersonalData for Contract {
     fn columns(&self) -> &'static [Column] {
         const COLUMNS: &[Column] = &[Column::new("sample_items", "name")];
         COLUMNS
+    }
+
+    fn export<'a>(
+        &'a self,
+        uow: &'a mut UnitOfWork,
+        export: &'a mut Export,
+    ) -> BoxFuture<'a, Result<(), Internal>> {
+        Box::pin(async move {
+            let sole = access::sole_workspaces(uow, export.user())
+                .await
+                .map_err(|error| match error {
+                    AccessError::Internal(error) => error,
+                })?;
+            let mut document = export.document("sample_items/sample_items.json");
+            for workspace in sole {
+                let mut after = None;
+                loop {
+                    let page = repo::exported(uow, workspace, after).await?;
+                    export.write(uow, &mut document, &page).await?;
+                    match next_after(&page) {
+                        Some(last) => after = Some((last.created_at.at(), last.id)),
+                        None => break,
+                    }
+                }
+            }
+            export.finish(uow, document).await
+        })
     }
 
     fn erase<'a>(

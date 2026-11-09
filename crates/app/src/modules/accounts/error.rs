@@ -1,6 +1,9 @@
 //! What `accounts` reports (ERR-01).
 
-use platform::errors::{Category, ErrorCode, FieldError, Internal, PlatformError, RequestError};
+use platform::{
+    errors::{Category, ErrorCode, FieldError, Internal, PlatformError, RequestError},
+    rate_limit::LimitError,
+};
 
 use crate::modules::{access::AccessError, audit::AuditError};
 // part: files
@@ -23,6 +26,15 @@ pub(crate) enum AccountsError {
     #[error("the avatar can't be stored now")]
     AvatarUnavailable(#[source] Option<Internal>),
     // end part: files
+    /// The export names no export of the caller's, an expired one among them (ACCOUNTS-022).
+    #[error("the export doesn't exist")]
+    ExportNotFound,
+    /// The export's archive isn't built, or never will be (ACCOUNTS-026).
+    #[error("the export isn't ready")]
+    ExportNotReady,
+    /// The caller's bucket of exports is full (ACCOUNTS-021), or couldn't count the request.
+    #[error(transparent)]
+    Limit(#[from] LimitError),
     /// `platform` refused the request, such as by its input, or couldn't check it, or the update
     /// failed its precondition (PLATFORM-071).
     #[error(transparent)]
@@ -81,6 +93,9 @@ impl ErrorCode for AccountsError {
             Self::AvatarMalwareDetected => "accounts.avatar_malware_detected",
             Self::AvatarUnavailable(_) => "accounts.avatar_unavailable",
             // end part: files
+            Self::ExportNotFound => "accounts.export_not_found",
+            Self::ExportNotReady => "accounts.export_not_ready",
+            Self::Limit(error) => error.code(),
             Self::Platform(error) => error.code(),
             Self::Internal(error) => error.code(),
         }
@@ -93,6 +108,9 @@ impl ErrorCode for AccountsError {
             Self::AvatarMalwareDetected => "Malware detected",
             Self::AvatarUnavailable(_) => "Avatar unavailable",
             // end part: files
+            Self::ExportNotFound => "Export not found",
+            Self::ExportNotReady => "Export not ready",
+            Self::Limit(error) => error.title(),
             Self::Platform(error) => error.title(),
             Self::Internal(error) => error.title(),
         }
@@ -104,6 +122,9 @@ impl ErrorCode for AccountsError {
             Self::AvatarNotImage | Self::AvatarMalwareDetected => Category::BusinessRule,
             Self::AvatarUnavailable(_) => Category::Unavailable,
             // end part: files
+            Self::ExportNotFound => Category::NotFound,
+            Self::ExportNotReady => Category::Conflict,
+            Self::Limit(error) => error.category(),
             Self::Platform(error) => error.category(),
             Self::Internal(error) => error.category(),
         }
@@ -119,6 +140,10 @@ impl ErrorCode for AccountsError {
                 Some("The malware scanner refused the image, so it wasn't stored.".to_owned())
             }
             // end part: files
+            Self::ExportNotReady => Some(
+                "The export's archive isn't built yet, or its job failed and it never will be."
+                    .to_owned(),
+            ),
             Self::Platform(error) => error.detail(),
             _ => None,
         }

@@ -168,6 +168,15 @@ pub(crate) async fn erasable(
     Ok(owned.is_empty() || !repo::others_in(uow, &owned, user).await?)
 }
 
+/// The workspaces whose only member is `user`, the user whose export the caller's job builds,
+/// read by their own memberships, whose content their export holds (ACCOUNTS-024, D40).
+pub(crate) async fn sole_workspaces(
+    uow: &mut UnitOfWork,
+    user: UserId,
+) -> Result<Vec<WorkspaceId>, AccessError> {
+    Ok(repo::sole(uow, user).await?)
+}
+
 /// Every membership of the caller, with its workspace and role, which the personal data contract
 /// of `workspaces` reads once [`erasable`] has locked them, so its lock holds them already.
 pub(crate) async fn held(

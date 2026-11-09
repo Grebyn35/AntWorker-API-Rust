@@ -135,6 +135,20 @@ impl Database {
         self.unattributed().await
     }
 
+    /// Opens a unit of work for the run of an export's job, under `REPEATABLE READ`, so that each
+    /// of its statements reads the rows as they were at its first, whatever commits meanwhile:
+    /// its archive then holds every module's data as of one moment (PLATFORM-085, DATA-20). Its
+    /// first statement locks the export's row, so that no write of its meets a serialization
+    /// failure.
+    pub async fn for_snapshot_job(&self, context: &JobContext) -> Result<UnitOfWork, Internal> {
+        let mut uow = self.for_job(context).await?;
+        // The transaction's first statement, as Postgres requires of its isolation level.
+        sqlx::query!("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(uow.executor())
+            .await?;
+        Ok(uow)
+    }
+
     /// Opens a unit of work for `platform`'s own mechanisms, such as the hub's reads, which act
     /// for no request and no job, and whose audit entries record no client.
     pub(crate) async fn unattributed(&self) -> Result<UnitOfWork, Internal> {

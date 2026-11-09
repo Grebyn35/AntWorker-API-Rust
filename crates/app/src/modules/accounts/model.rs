@@ -2,7 +2,10 @@
 
 use std::borrow::Cow;
 
-use platform::types::{EmailAddress, Invalid, UserId, Version, one_line};
+use platform::{
+    errors::Internal,
+    types::{EmailAddress, Invalid, Timestamp, UserId, Version, one_line},
+};
 use serde::Serialize;
 use utoipa::{
     PartialSchema, ToSchema,
@@ -111,6 +114,62 @@ pub(crate) struct PublicProfile {
     /// The path of the public download of the user's avatar, if they have one (ACCOUNTS-011).
     pub(crate) avatar_url: Option<String>,
     // end part: files
+}
+
+/// Where an export stands (ACCOUNTS-022).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ExportState {
+    /// Its archive is being built.
+    Pending,
+    /// Its archive is built, and downloads until it expires.
+    Ready,
+    /// The last attempt of its job failed, so it has no archive.
+    Failed,
+}
+
+impl ExportState {
+    /// The state named `name`, as the database's `data_export_state` names it.
+    pub(super) fn from_name(name: &str) -> Result<Self, Internal> {
+        match name {
+            "pending" => Ok(Self::Pending),
+            "ready" => Ok(Self::Ready),
+            "failed" => Ok(Self::Failed),
+            _ => Err(Internal::new(
+                "an export's state that accounts doesn't know",
+            )),
+        }
+    }
+}
+
+/// An export of the caller's data (ACCOUNTS-022).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ToSchema)]
+#[schema(as = DataExport)]
+pub(crate) struct Export {
+    /// The export's ID.
+    pub(crate) id: uuid::Uuid,
+    /// Where it stands.
+    pub(crate) state: ExportState,
+    /// When it was requested.
+    pub(crate) created_at: Timestamp,
+    /// When its archive was built, or null until it is.
+    pub(crate) ready_at: Option<Timestamp>,
+    /// When it expires: 7 days after it became ready, or after its request while it isn't
+    /// (D127).
+    pub(crate) expires_at: Timestamp,
+    /// The size of its archive, in bytes, or null until it is built.
+    pub(crate) size_bytes: Option<u64>,
+}
+
+/// The user's record, as their export holds it (the accounts spec's "What an export holds").
+#[derive(Clone, Debug, Serialize)]
+pub(super) struct ExportedProfile {
+    pub(super) id: UserId,
+    pub(super) email: EmailAddress,
+    pub(super) name: DisplayName,
+    pub(super) email_verified: bool,
+    pub(super) created_at: Timestamp,
+    pub(super) updated_at: Timestamp,
 }
 
 #[cfg(test)]

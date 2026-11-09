@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO user_files (user_id, name, media_type, size_bytes, visibility, object_key)\n        VALUES ($1, $2, $3, $4, $5::text::file_visibility, $6)\n        RETURNING id, created_at",
+  "query": "INSERT INTO user_files (user_id, name, media_type, size_bytes, crc32, visibility, object_key)\n        VALUES ($1, $2, $3, $4, $5, $6::text::file_visibility, $7)\n        RETURNING id, created_at",
   "describe": {
     "columns": [
       {
@@ -32,6 +32,7 @@
         "Text",
         "Text",
         "Int8",
+        "Int8",
         "Text",
         "Text"
       ]
@@ -41,5 +42,5 @@
       false
     ]
   },
-  "hash": "63b5d192515fc82822e107587202fbd7f35e8dc440e7c31b97dc988c36b69aac"
+  "hash": "027652ec0bc708bb83303c1139370e876a5854051ab8b283ff3e81043065ac77"
 }

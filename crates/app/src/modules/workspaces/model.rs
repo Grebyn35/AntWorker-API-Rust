@@ -138,6 +138,16 @@ pub(crate) struct Member {
     // end part: files
 }
 
+/// A workspace whose only member is the user, as their export holds it (the accounts spec's
+/// "What an export holds").
+#[derive(Debug, Serialize)]
+pub(super) struct ExportedWorkspace {
+    pub(super) id: WorkspaceId,
+    pub(super) name: WorkspaceName,
+    pub(super) created_at: Timestamp,
+    pub(super) updated_at: Timestamp,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

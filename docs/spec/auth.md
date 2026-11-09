@@ -17,7 +17,7 @@
 - `SessionVerifier`, implemented for `platform::authn`: `verify`, and `lasting`, for the hub's re-check of its streams (AUTH-018).
   Its `session` serves a signed URL (AUTH-020). <!-- part: files -->
 - The domain type `Password` (D25).
-- `Contract`, the personal data contract for `identities`, `sessions` and `device_tokens` (D31).
+- `Contract`, the personal data contract for `identities`, `sessions` and `device_tokens` (D31), which exports them without their hashes ([accounts spec](accounts.md#what-an-export-holds)), and deletes them.
 - `Principal` is built here only, after a successful credential check or a registration: clippy bans its constructor, and `auth` alone allows it, through `#[expect]`.
 
 ## Routes

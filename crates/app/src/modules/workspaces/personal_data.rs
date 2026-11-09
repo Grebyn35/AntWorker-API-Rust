@@ -1,15 +1,16 @@
-//! The personal data contract of `workspaces` (D31): once `access::erasable` has locked the
-//! user's memberships, and found that no workspace they own has another member, it has `access`
-//! end each membership, with its signal, then deletes each workspace they own, with everything in
-//! it, and in each other workspace records and publishes that they left (ACCOUNTS-013,
-//! ACCOUNTS-014, the workspaces spec's "Erasure").
+//! The personal data contract of `workspaces` (D31): it exports the workspaces whose only member
+//! is the user (the accounts spec's "What an export holds"), and, once `access::erasable` has
+//! locked the user's memberships, and found that no workspace they own has another member, it has
+//! `access` end each membership, with its signal, then deletes each workspace they own, with
+//! everything in it, and in each other workspace records and publishes that they left
+//! (ACCOUNTS-013, ACCOUNTS-014, the workspaces spec's "Erasure").
 
 use platform::{
     authn::{BoxFuture, Principal},
     db::UnitOfWork,
     errors::Internal,
     jobs,
-    personal_data::{Column, ErasureError, PersonalData},
+    personal_data::{Column, ErasureError, Export, PersonalData, pages},
     types::WorkspaceId,
 };
 
@@ -26,6 +27,24 @@ impl PersonalData for Contract {
     fn columns(&self) -> &'static [Column] {
         const COLUMNS: &[Column] = &[Column::new("workspaces", "name")];
         COLUMNS
+    }
+
+    fn export<'a>(
+        &'a self,
+        uow: &'a mut UnitOfWork,
+        export: &'a mut Export,
+    ) -> BoxFuture<'a, Result<(), Internal>> {
+        Box::pin(async move {
+            let sole = access::sole_workspaces(uow, export.user())
+                .await
+                .map_err(internal)?;
+            let mut document = export.document("workspaces/workspaces.json");
+            for ids in pages(&sole) {
+                let page = repo::exported(uow, ids).await?;
+                export.write(uow, &mut document, &page).await?;
+            }
+            export.finish(uow, document).await
+        })
     }
 
     fn erase<'a>(

@@ -5,6 +5,7 @@ mod body;
 mod browsers;
 mod client;
 mod docs;
+mod download;
 // part: files
 mod files;
 // end part: files
@@ -32,13 +33,14 @@ use utoipa_axum::router::{OpenApiRouter, UtoipaMethodRouter};
 
 pub use body::{FieldErrors, Idempotent, Json, MergePatch};
 pub use browsers::{Cookies, Origins, expired_cookie, session_cookie};
+pub use download::{Download, FileBytes};
 pub use precondition::IfMatch;
 pub use query::Query;
 pub use resource::{ResourceResponse, path_id};
 #[cfg(test)]
 pub(crate) use stack::GROUP_TIMEOUT;
 // part: files
-pub use files::{Download, FileBytes, disposition_name};
+pub use files::disposition_name;
 #[cfg(test)]
 pub(crate) use stack::UPLOAD_TIMEOUT;
 pub use upload::{Upload, Uploaded};
@@ -132,6 +134,18 @@ where
         self.add(Access::Workspace(P::NAME), route, errors)
     }
 
+    /// Adds a download route that a signed-in user calls, as [`Routes::user`] does, which
+    /// documents what a download serves beside its handler's 200, and can answer `errors` besides
+    /// the pipeline's own (PLATFORM-081, ERR-13).
+    pub fn user_download(
+        self,
+        mut route: UtoipaMethodRouter<S>,
+        errors: &[&dyn ErrorCode],
+    ) -> Self {
+        docs::download(&mut route.1);
+        self.add(Access::User, route, errors)
+    }
+
     // part: files
     /// Adds an upload route that a member of the workspace in the path calls, whose handler
     /// extracts `Authorize<P>` and reads the file's bytes through [`Upload`], and which can answer
@@ -161,12 +175,12 @@ where
     /// [`Routes::workspace`] does, whose `Authorize<P>` a signed URL may also authenticate: the
     /// route documents the URL's query parameters, and answers `errors` besides the pipeline's
     /// own (PLATFORM-080, ERR-13).
-    pub fn workspace_download<P: Permission>(
+    pub fn workspace_signed_download<P: Permission>(
         self,
         mut route: UtoipaMethodRouter<S>,
         errors: &[&dyn ErrorCode],
     ) -> Self {
-        docs::download(&mut route.1, false);
+        docs::download(&mut route.1);
         docs::signed(&mut route.1);
         self.add_with(
             Access::Workspace(P::NAME),
@@ -179,12 +193,12 @@ where
     /// Adds a download route that a signed-in user calls, as [`Routes::user`] does, whose
     /// `Principal` a signed URL may also prove: the route documents the URL's query parameters,
     /// and answers `errors` besides the pipeline's own (PLATFORM-080, ERR-13).
-    pub fn user_download(
+    pub fn user_signed_download(
         self,
         mut route: UtoipaMethodRouter<S>,
         errors: &[&dyn ErrorCode],
     ) -> Self {
-        docs::download(&mut route.1, false);
+        docs::download(&mut route.1);
         docs::signed(&mut route.1);
         self.add_with(Access::User, route, errors, stack::download_group)
     }
@@ -197,7 +211,8 @@ where
         mut route: UtoipaMethodRouter<S>,
         errors: &[&dyn ErrorCode],
     ) -> Self {
-        docs::download(&mut route.1, true);
+        docs::download(&mut route.1);
+        docs::public(&mut route.1);
         self.add(Access::Public, route, errors)
     }
     // end part: files

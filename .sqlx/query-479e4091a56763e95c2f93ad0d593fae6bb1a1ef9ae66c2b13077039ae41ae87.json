@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT mine.workspace_id FROM workspace_memberships AS mine\n        WHERE mine.user_id = $1\n            AND NOT EXISTS (\n                SELECT 1 FROM workspace_memberships AS other\n                WHERE other.workspace_id = mine.workspace_id AND other.user_id <> $1\n            )\n        ORDER BY mine.workspace_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "workspace_memberships",
+            "name": "workspace_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "479e4091a56763e95c2f93ad0d593fae6bb1a1ef9ae66c2b13077039ae41ae87"
+}

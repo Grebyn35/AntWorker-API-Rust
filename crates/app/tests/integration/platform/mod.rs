@@ -14,6 +14,7 @@ mod limits;
 mod logging;
 mod mail;
 mod migrations;
+mod personal_data;
 // part: files
 mod scanner;
 // end part: files

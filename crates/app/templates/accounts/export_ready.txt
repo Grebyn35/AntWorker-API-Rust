@@ -1,0 +1,3 @@
+The export of your {{ email.product }} data that you asked for is ready. It holds a copy of everything your account keeps, and of every workspace whose only member you are.
+
+To download it, sign in to {{ email.product }} and open your data exports. You can download it until {{ email.until }}, when it is deleted.

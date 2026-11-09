@@ -1,0 +1,45 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT chunk.offset_bytes, chunk.bytes\n        FROM data_export_chunks AS chunk\n        JOIN data_exports AS export ON export.id = chunk.export_id\n        WHERE chunk.export_id = $1 AND export.user_id = $2 AND chunk.position = $3\n            AND chunk.offset_bytes < $5\n            AND chunk.offset_bytes + octet_length(chunk.bytes) > $4\n        ORDER BY chunk.offset_bytes\n        LIMIT $6",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "offset_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "data_export_chunks",
+            "name": "offset_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "bytes",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "data_export_chunks",
+            "name": "bytes"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int4",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "fad20ad0ec841b593451a6e23e68069ed07caa60bf59108ef234131dab3ced6e"
+}

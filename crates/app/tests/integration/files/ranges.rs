@@ -27,7 +27,7 @@ async fn ranged(api: &Api, ada: &SignedIn, path: &str, headers: &[(&str, &str)])
 }
 
 #[tokio::test]
-async fn platform_081_one_range_of_a_download_answers_206_with_those_bytes() {
+async fn files_009_one_range_of_a_download_answers_206_with_those_bytes() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
     let private = uploaded(&api, &ada, &workspace, "").await;
@@ -74,7 +74,7 @@ async fn platform_081_one_range_of_a_download_answers_206_with_those_bytes() {
 }
 
 #[tokio::test]
-async fn platform_081_a_range_it_can_t_serve_or_another_tag_s_answers_every_byte() {
+async fn files_009_a_range_it_can_t_serve_or_another_tag_s_answers_every_byte() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
     let file = uploaded(&api, &ada, &workspace, "").await;
@@ -106,7 +106,7 @@ async fn platform_081_a_range_it_can_t_serve_or_another_tag_s_answers_every_byte
 }
 
 #[tokio::test]
-async fn platform_081_if_none_match_of_its_tag_answers_304_with_no_body() {
+async fn files_009_if_none_match_of_its_tag_answers_304_with_no_body() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
     let public = uploaded(&api, &ada, &workspace, "?visibility=public").await;
@@ -133,7 +133,7 @@ async fn platform_081_if_none_match_of_its_tag_answers_304_with_no_body() {
 }
 
 #[tokio::test]
-async fn platform_081_head_answers_as_get_does_without_the_bytes() {
+async fn files_009_head_answers_as_get_does_without_the_bytes() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
     let file = uploaded(&api, &ada, &workspace, "").await;

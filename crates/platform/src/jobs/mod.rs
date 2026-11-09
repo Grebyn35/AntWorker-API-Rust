@@ -127,6 +127,17 @@ pub struct JobContext {
 }
 
 impl JobContext {
+    /// The context of a run of no job, for no one, for the tests of what a run's unit of work
+    /// does, such as `Database::for_snapshot_job`'s.
+    #[cfg(feature = "test-support")]
+    pub fn for_tests() -> Self {
+        Self {
+            id: Uuid::nil(),
+            attempt: 1,
+            scope: JobScope::none(),
+        }
+    }
+
     /// The queued job's ID, or the claim of a periodic job's run.
     pub fn id(&self) -> Uuid {
         self.id

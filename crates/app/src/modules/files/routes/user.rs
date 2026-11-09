@@ -11,7 +11,8 @@ use platform::{
     http::{Download, FileBytes, Query, ResourceResponse, Routes, Upload, path_id},
     idempotency::IdempotencyKey,
     lists::List,
-    storage::{ObjectBytes, Wanted},
+    ranges::Wanted,
+    storage::ObjectBytes,
     types::Client,
 };
 use utoipa_axum::routes;
@@ -32,7 +33,7 @@ pub(super) fn routes() -> Routes<Files> {
         .user_upload(routes!(upload_own_file), &UPLOAD_ERRORS)
         .user(routes!(list_own_files), &[])
         .user(routes!(read_own_file), &[&FilesError::NotFound])
-        .user_download(routes!(download_own_file), &DOWNLOAD_ERRORS)
+        .user_signed_download(routes!(download_own_file), &DOWNLOAD_ERRORS)
         .user(routes!(delete_own_file), &[&FilesError::NotFound])
 }
 

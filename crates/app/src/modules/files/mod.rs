@@ -13,10 +13,11 @@ mod routes;
 mod service;
 
 pub(crate) use error::FilesError;
-pub(crate) use model::Settings;
+pub(crate) use model::{ExportedFile, Settings};
 pub(crate) use personal_data::Contract;
 pub(crate) use routes::routes;
 pub(crate) use service::Files;
 pub(crate) use service::avatar::{
     AVATAR_MAX_BYTES, NewAvatar, avatar_urls, delete_avatar, record_avatar, upload_avatar,
 };
+pub(crate) use service::exported::{exported, exported_bytes};

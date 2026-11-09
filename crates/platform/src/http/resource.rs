@@ -65,6 +65,17 @@ impl<T: Serialize> ResourceResponse<T> {
         }
     }
 
+    /// `202` with `body`, the resource of the work it accepted, and `location`, the path that
+    /// reads it, as the work goes on (API-04).
+    pub fn accepted(body: T, location: String) -> Self {
+        Self {
+            body,
+            status: StatusCode::ACCEPTED,
+            location: Some(location),
+            version: None,
+        }
+    }
+
     /// The response with the `ETag` of `version`, the version of the editable resource it answers.
     #[must_use]
     pub fn tagged(mut self, version: Version) -> Self {

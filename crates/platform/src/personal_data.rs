@@ -1,14 +1,46 @@
-//! The personal data contract (D31): what each module that keeps personal data declares, and how
-//! it erases a user's when their account is deleted, which the composition root registers in the
-//! order a deletion runs them (the platform spec's "Personal data"). `platform` implements it for
-//! its own tables, as [`Contract`].
+//! The personal data contract (D31): what each module that keeps personal data declares, how it
+//! exports a user's into the archive of their export, and how it erases them when their account is
+//! deleted, which the composition root registers in the order a deletion runs them (the platform
+//! spec's "Personal data"). `platform` implements it for its own tables, as [`Contract`].
+
+use std::{io::Write, mem, sync::Arc};
+
+use flate2::{Compression, write::DeflateEncoder};
+use serde::Serialize;
+use uuid::Uuid;
 
 use crate::{
+    archive,
     authn::{BoxFuture, Principal},
+    blocking::Workers,
     db::UnitOfWork,
     errors::Internal,
     jobs,
+    types::UserId,
 };
+
+/// How many records a contract reads at once of a kind whose number grows with what the user
+/// does, and writes before it reads the next (the platform spec's "Personal data").
+pub const PAGE: i64 = 1_000;
+
+/// The last record of `page`, a page of at most [`PAGE`] that a contract read, when the page is
+/// full, so the next one starts after it, or `None` once it is the last.
+pub fn next_after<T>(page: &[T]) -> Option<&T> {
+    i64::try_from(page.len())
+        .is_ok_and(|length| length >= PAGE)
+        .then(|| page.last())
+        .flatten()
+}
+
+/// `items`, such as the IDs of the workspaces whose only member is the user, in slices of at most
+/// [`PAGE`], which a contract reads a slice at a time.
+pub fn pages<T>(items: &[T]) -> impl Iterator<Item = &[T]> {
+    items.chunks(usize::try_from(PAGE).unwrap_or(1))
+}
+
+/// The most bytes of a piece of a document's deflated bytes, which the store gets as each fills
+/// (PLATFORM-084).
+pub const PIECE: usize = 1 << 20;
 
 /// A column that references `users`, or that its migration comments `personal_data` (DATA-23).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -45,6 +77,14 @@ pub trait PersonalData: Send + Sync {
     /// comments `personal_data`.
     fn columns(&self) -> &'static [Column];
 
+    /// Adds what the module keeps of the user whose export `export` is to its archive, in the
+    /// unit of work of the export's job, as the accounts spec's "What an export holds" says.
+    fn export<'a>(
+        &'a self,
+        uow: &'a mut UnitOfWork,
+        export: &'a mut Export,
+    ) -> BoxFuture<'a, Result<(), Internal>>;
+
     /// Erases what the module keeps of the user that `principal` proves, in the unit of work of
     /// their account's deletion, as the module's spec says: it deletes rows, or leaves them to
     /// the foreign keys that delete them, or set to null what names the user, as the user's row
@@ -72,11 +112,227 @@ impl PersonalData for Contract {
         COLUMNS
     }
 
+    fn export<'a>(
+        &'a self,
+        _: &'a mut UnitOfWork,
+        _: &'a mut Export,
+    ) -> BoxFuture<'a, Result<(), Internal>> {
+        // Its tables are bookkeeping, of data that the modules that own it export (DATA-23).
+        Box::pin(async { Ok(()) })
+    }
+
     fn erase<'a>(
         &'a self,
         uow: &'a mut UnitOfWork,
         principal: &'a Principal,
     ) -> BoxFuture<'a, Result<(), ErasureError>> {
         Box::pin(async move { Ok(jobs::forget_user(uow, principal.user_id()).await?) })
+    }
+}
+
+/// What keeps an export's documents, in the unit of work of its job, which `accounts` implements.
+pub trait ExportStore: Send + Sync {
+    /// Stores `bytes`, a piece of the deflated bytes of the document at `position` of the export
+    /// `export`, at `offset` among them.
+    fn piece<'a>(
+        &'a self,
+        uow: &'a mut UnitOfWork,
+        export: Uuid,
+        position: u32,
+        offset: u64,
+        bytes: Vec<u8>,
+    ) -> BoxFuture<'a, Result<(), Internal>>;
+
+    /// Stores `entry`, the document at `position` of the export `export`, once every piece of it
+    /// is stored.
+    fn entry<'a>(
+        &'a self,
+        uow: &'a mut UnitOfWork,
+        export: Uuid,
+        position: u32,
+        entry: archive::Entry,
+    ) -> BoxFuture<'a, Result<(), Internal>>;
+}
+
+/// The archive of a user's export, which each contract's `export` adds its documents to
+/// (PLATFORM-084).
+pub struct Export {
+    id: Uuid,
+    user: UserId,
+    store: Arc<dyn ExportStore>,
+    workers: Workers,
+    next: u32,
+}
+
+/// A document that a contract is writing: its position and path, its encoder until it is finished,
+/// and the deflated bytes that the store doesn't have yet, with what its entry gives.
+pub struct Document {
+    position: u32,
+    path: String,
+    encoder: Option<DeflateEncoder<Vec<u8>>>,
+    deflated: Vec<u8>,
+    crc: crc32fast::Hasher,
+    size: u64,
+    stored: u64,
+    records: u64,
+}
+
+impl Export {
+    /// The archive of the export `id`, of `user`'s data, whose documents `store` keeps, and which
+    /// deflates them through `workers` (CODE-05).
+    pub fn new(id: Uuid, user: UserId, store: Arc<dyn ExportStore>, workers: Workers) -> Self {
+        Self {
+            id,
+            user,
+            store,
+            workers,
+            next: 0,
+        }
+    }
+
+    /// The export's ID.
+    pub fn id(&self) -> Uuid {
+        self.id
+    }
+
+    /// The user whose data it exports, whom the job runs for, by whose ID a contract's queries
+    /// filter (DATA-16).
+    pub fn user(&self) -> UserId {
+        self.user
+    }
+
+    /// Starts the document at `path`, the next in the archive.
+    pub fn document(&mut self, path: impl Into<String>) -> Document {
+        let position = self.next;
+        self.next += 1;
+        Document {
+            position,
+            path: path.into(),
+            encoder: Some(DeflateEncoder::new(Vec::new(), Compression::default())),
+            deflated: Vec::new(),
+            crc: crc32fast::Hasher::new(),
+            size: 0,
+            stored: 0,
+            records: 0,
+        }
+    }
+
+    /// Writes the document at `path`, whose records are `records`, whole.
+    pub async fn whole<T: Serialize>(
+        &mut self,
+        uow: &mut UnitOfWork,
+        path: impl Into<String>,
+        records: &[T],
+    ) -> Result<(), Internal> {
+        let mut document = self.document(path);
+        self.write(uow, &mut document, records).await?;
+        self.finish(uow, document).await
+    }
+
+    /// Adds `records`, a page of them, to `document`, each on a line of its own, deflated through
+    /// the workers, and hands the store each piece of its deflated bytes that is full.
+    pub async fn write<T: Serialize>(
+        &self,
+        uow: &mut UnitOfWork,
+        document: &mut Document,
+        records: &[T],
+    ) -> Result<(), Internal> {
+        let mut text = Vec::new();
+        for record in records {
+            text.extend_from_slice(if document.records == 0 {
+                b"[\n"
+            } else {
+                b",\n"
+            });
+            serde_json::to_writer(&mut text, record).map_err(Internal::new)?;
+            document.records += 1;
+        }
+        if text.is_empty() {
+            return Ok(());
+        }
+        self.deflate(document, text, false).await?;
+        self.hand_over(uow, document, PIECE).await
+    }
+
+    /// Ends `document`, `]` after its last record or `[]` for none, then hands the store the rest
+    /// of its deflated bytes, and its entry.
+    pub async fn finish(
+        &self,
+        uow: &mut UnitOfWork,
+        mut document: Document,
+    ) -> Result<(), Internal> {
+        let end: &[u8] = if document.records == 0 {
+            b"[]\n"
+        } else {
+            b"\n]\n"
+        };
+        self.deflate(&mut document, end.to_vec(), true).await?;
+        self.hand_over(uow, &mut document, 1).await?;
+        let entry = archive::Entry {
+            path: document.path,
+            size: document.size,
+            stored_size: document.stored,
+            crc32: document.crc.finalize(),
+            deflated: true,
+        };
+        self.store
+            .entry(uow, self.id, document.position, entry)
+            .await
+    }
+
+    /// Adds `text` to `document`'s checksum and size, and deflates it, on a turn of the workers,
+    /// onto the deflated bytes that the store doesn't have yet; `last` ends the deflated stream,
+    /// and the encoder with it.
+    async fn deflate(
+        &self,
+        document: &mut Document,
+        text: Vec<u8>,
+        last: bool,
+    ) -> Result<(), Internal> {
+        document.crc.update(&text);
+        document.size += text.len() as u64;
+        let mut encoder = document
+            .encoder
+            .take()
+            .ok_or_else(|| Internal::new("a finished document was written to"))?;
+        let (encoder, deflated) = self
+            .workers
+            .run("export deflate", move || -> std::io::Result<_> {
+                encoder.write_all(&text)?;
+                if last {
+                    return Ok((None, encoder.finish()?));
+                }
+                let deflated = mem::take(encoder.get_mut());
+                Ok((Some(encoder), deflated))
+            })
+            .await
+            .map_err(Internal::new)?
+            .map_err(Internal::new)?;
+        document.encoder = encoder;
+        document.deflated.extend_from_slice(&deflated);
+        Ok(())
+    }
+
+    /// Hands the store each piece of `document`'s deflated bytes that holds `at_least` bytes or
+    /// more, of at most [`PIECE`] bytes each, keeping the rest.
+    async fn hand_over(
+        &self,
+        uow: &mut UnitOfWork,
+        document: &mut Document,
+        at_least: usize,
+    ) -> Result<(), Internal> {
+        loop {
+            let buffer = &mut document.deflated;
+            if buffer.len() < at_least || buffer.is_empty() {
+                return Ok(());
+            }
+            let rest = buffer.split_off(buffer.len().min(PIECE));
+            let piece = mem::replace(buffer, rest);
+            let offset = document.stored;
+            document.stored += piece.len() as u64;
+            self.store
+                .piece(uow, self.id, document.position, offset, piece)
+                .await?;
+        }
     }
 }

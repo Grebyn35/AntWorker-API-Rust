@@ -16,7 +16,7 @@ So does the workspace's picture, which `files` stores (D117). <!-- part: files -
 - `names(uow, &[WorkspaceId])`: workspace names for a batch of IDs that came from a query filtered by tenant, used by `invitations` (DATA-16). <!-- part: invitations -->
 - `matching(uow, &[WorkspaceId], &Search)`: the IDs among a batch, from a query filtered by tenant, of the workspaces whose name contains the search, used by `invitations` (API-20). <!-- part: invitations -->
 - The domain type `WorkspaceName` (D25), which `invitations` uses. <!-- part: invitations -->
-- `Contract`, the personal data contract for `workspaces` (D31), which deletes the workspaces whose only member is a deleted user, and records and publishes their leaving the others (ACCOUNTS-014).
+- `Contract`, the personal data contract for `workspaces` (D31), which exports the workspaces whose only member is the user ([accounts spec](accounts.md#what-an-export-holds)), and deletes the workspaces whose only member is a deleted user, and records and publishes their leaving the others (ACCOUNTS-014).
 
 ## Routes
 

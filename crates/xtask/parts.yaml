@@ -35,7 +35,7 @@ parts:
       - crates/app/tests/integration/support/scanner.rs
       - crates/platform/src/config/scanner.rs
       - crates/platform/src/config/storage.rs
-      - crates/platform/src/http/docs/downloads.rs
+      - crates/platform/src/http/docs/files.rs
       - crates/platform/src/http/files.rs
       - crates/platform/src/http/signed.rs
       - crates/platform/src/http/upload.rs

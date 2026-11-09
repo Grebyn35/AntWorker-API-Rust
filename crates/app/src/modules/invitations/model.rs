@@ -104,3 +104,16 @@ pub(crate) struct Settings {
     /// (SEC-13).
     pub(crate) limit: Bucket,
 }
+
+/// An invitation of a workspace whose only member is the user, as their export holds it (the
+/// accounts spec's "What an export holds").
+#[derive(Debug, Serialize)]
+pub(super) struct ExportedInvitation {
+    pub(super) id: uuid::Uuid,
+    pub(super) workspace_id: WorkspaceId,
+    pub(super) email: EmailAddress,
+    pub(super) role: String,
+    pub(super) expires_at: Timestamp,
+    pub(super) created_at: Timestamp,
+    pub(super) updated_at: Timestamp,
+}

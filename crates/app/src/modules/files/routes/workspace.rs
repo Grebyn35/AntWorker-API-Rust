@@ -11,7 +11,8 @@ use platform::{
     http::{Download, FileBytes, Query, ResourceResponse, Routes, Upload, path_id},
     idempotency::IdempotencyKey,
     lists::List,
-    storage::{ObjectBytes, Wanted},
+    ranges::Wanted,
+    storage::ObjectBytes,
     types::WorkspaceId,
 };
 use utoipa_axum::routes;
@@ -35,7 +36,7 @@ pub(super) fn routes() -> Routes<Files> {
         .workspace_upload::<FilesUpload>(routes!(upload_file), &UPLOAD_ERRORS)
         .workspace::<FilesRead>(routes!(list_files), &[])
         .workspace::<FilesRead>(routes!(read_file), &[&FilesError::NotFound])
-        .workspace_download::<FilesRead>(routes!(download_file), &DOWNLOAD_ERRORS)
+        .workspace_signed_download::<FilesRead>(routes!(download_file), &DOWNLOAD_ERRORS)
         .workspace::<FilesDelete>(routes!(delete_file), &[&FilesError::NotFound])
 }
 

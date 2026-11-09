@@ -202,8 +202,8 @@ pub async fn compose(
     let Resources {
         database,
         clock,
-        readiness,
         workers,
+        ..
     } = resources;
     let mut jobs = Jobs::new(database, server.job_dead_letter_retention);
     let mail = Mail::new(server.mail.clone(), clock.clone())?;
@@ -229,6 +229,16 @@ pub async fn compose(
     );
     files.register(&mut jobs).map_err(Internal::new)?;
     // end part: files
+    let exports = accounts::Exports::new(
+        database.clone(),
+        mail.clone(),
+        workers.clone(),
+        contracts(&mail),
+        // part: files
+        files.clone(),
+        // end part: files
+    );
+    exports.register(&mut jobs).map_err(Internal::new)?;
     // part: invitations
     let invitations = Invitations::new(database.clone(), mail.clone(), config.invitations);
     invitations.register(&mut jobs).map_err(Internal::new)?;
@@ -236,21 +246,18 @@ pub async fn compose(
     let features = system::Features::new(mail.is_on());
     let verifier: Arc<dyn SessionVerifier> = Arc::new(auth::Verifier(auth.clone()));
     let policy = Arc::new(access::Policy);
-    let realtime = Realtime {
-        hub: Hub::start(
-            listener,
-            policy.clone(),
-            verifier.clone(),
-            readiness.clone(),
-            clock.clone(),
-            server.stream_recheck,
-        ),
-        clock: clock.clone(),
-        heartbeat: config.heartbeat,
-    };
+    let realtime = realtime(
+        resources,
+        server,
+        config.heartbeat,
+        listener,
+        &policy,
+        &verifier,
+    );
     let routes = system::routes()
         .with_state(features)
         .merge(accounts::routes().with_state(database.clone()))
+        .merge(accounts::export_routes().with_state(exports))
         .merge(auth::routes().with_state(auth.clone()))
         // part: invitations
         .merge(invitations::routes().with_state(invitations))
@@ -276,6 +283,31 @@ pub async fn compose(
         },
         jobs,
     })
+}
+
+/// The state of `realtime`: the hub, started on `listener` with the resources' readiness and
+/// clock, which re-checks each stream as `server` says through `policy` and `verifier`, and the
+/// heartbeat its streams send every `heartbeat` (the realtime spec).
+fn realtime(
+    resources: &Resources,
+    server: &ServerConfig,
+    heartbeat: Duration,
+    listener: Listener,
+    policy: &Arc<access::Policy>,
+    verifier: &Arc<dyn SessionVerifier>,
+) -> Realtime {
+    Realtime {
+        hub: Hub::start(
+            listener,
+            policy.clone(),
+            verifier.clone(),
+            resources.readiness.clone(),
+            resources.clock.clone(),
+            server.stream_recheck,
+        ),
+        clock: resources.clock.clone(),
+        heartbeat,
+    }
 }
 
 /// The request pipeline that `config` describes, which counts its rate limits in the database of
@@ -323,6 +355,7 @@ pub fn openapi(service: Service) -> OpenApi {
     platform::http::document([
         system::routes().openapi(service),
         accounts::routes().openapi(service),
+        accounts::export_routes().openapi(service),
         auth::routes().openapi(service),
         workspaces::routes().openapi(service),
         realtime::routes().openapi(service),

@@ -8,11 +8,11 @@ publish.workspace = true
 [dependencies]
 axum = { workspace = true, features = ["matched-path"] }
 base64.workspace = true
-# part: files
 bytes.workspace = true
-# The stream of a stored file's bytes, which a download serves.
+# The stream of the bytes that a download serves.
 futures-util.workspace = true
-# end part: files
+crc32fast.workspace = true
+flate2.workspace = true
 getrandom.workspace = true
 hmac.workspace = true
 http-body-util.workspace = true
@@ -63,6 +63,9 @@ url.workspace = true
 utoipa = { workspace = true, features = ["uuid"] }
 utoipa-axum.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+zip.workspace = true
 
 [features]
 # Raw database connections, telemetry kept in memory, and a stand-in collector, for the test

@@ -6,10 +6,11 @@ use platform::{
     db::UnitOfWork,
     errors::Internal,
     lists::Page,
+    personal_data::PAGE,
     types::{EmailAddress, Timestamp, UserId, WorkspaceId},
 };
 
-use super::model::{Found, Invitation, Pending};
+use super::model::{ExportedInvitation, Found, Invitation, Pending};
 use crate::modules::access::Role;
 
 /// Inserts the invitation of `email` to `workspace` at `role`, or refreshes the one there is: its
@@ -163,4 +164,39 @@ pub(super) async fn delete(
     .execute(uow.executor())
     .await?;
     Ok(())
+}
+
+/// A page of the invitations of `workspace`, one whose only member is the user, which came from
+/// their own memberships, as their export holds them, the latest first, after `after`, an
+/// invitation's creation time and ID (ACCOUNTS-024, DATA-16).
+pub(super) async fn exported(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+    after: Option<(time::OffsetDateTime, uuid::Uuid)>,
+) -> Result<Vec<ExportedInvitation>, Internal> {
+    let rows = sqlx::query!(
+        r#"SELECT id, email, role::text AS "role!", expires_at, created_at, updated_at
+        FROM invitations
+        WHERE workspace_id = $1 AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3))
+        ORDER BY created_at DESC, id DESC
+        LIMIT $4"#,
+        workspace.uuid(),
+        after.map(|after| after.0),
+        after.map(|after| after.1),
+        PAGE,
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ExportedInvitation {
+            id: row.id,
+            workspace_id: workspace,
+            email: EmailAddress::from_stored(row.email),
+            role: row.role,
+            expires_at: Timestamp::from_database(row.expires_at),
+            created_at: Timestamp::from_database(row.created_at),
+            updated_at: Timestamp::from_database(row.updated_at),
+        })
+        .collect())
 }

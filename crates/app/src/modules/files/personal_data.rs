@@ -1,4 +1,6 @@
-//! The personal data contract of `workspace_files`, `user_files` and `avatars` (D31): it deletes
+//! The personal data contract of `workspace_files`, `user_files`, `avatars` and `exported_files`
+//! (D31): it exports the user's own files, their avatar and the files of each workspace whose only
+//! member is them, holding their bytes for the export (FILES-026), and it deletes
 //! the user's own files and their avatar before the deletion's last step locks the user's row
 //! `FOR UPDATE`, since deleting a file locks its row before the user's (the accounts spec's
 //! "Deleting an account"); their bytes go as every unreferenced object's do (FILES-011). A file
@@ -8,10 +10,11 @@
 use platform::{
     authn::{BoxFuture, Principal},
     db::UnitOfWork,
-    personal_data::{Column, ErasureError, PersonalData},
+    errors::Internal,
+    personal_data::{Column, ErasureError, Export, PersonalData},
 };
 
-use super::repo;
+use super::{repo, service::exported};
 
 /// The contract.
 pub(crate) struct Contract;
@@ -24,8 +27,18 @@ impl PersonalData for Contract {
             Column::new("user_files", "user_id"),
             Column::new("user_files", "name"),
             Column::new("avatars", "user_id"),
+            Column::new("exported_files", "user_id"),
+            Column::new("exported_files", "path"),
         ];
         COLUMNS
+    }
+
+    fn export<'a>(
+        &'a self,
+        uow: &'a mut UnitOfWork,
+        export: &'a mut Export,
+    ) -> BoxFuture<'a, Result<(), Internal>> {
+        Box::pin(exported::export(uow, export))
     }
 
     fn erase<'a>(

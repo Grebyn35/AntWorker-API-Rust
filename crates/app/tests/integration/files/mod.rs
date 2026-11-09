@@ -2,6 +2,7 @@
 //! bytes, public files, ranges of a download's bytes, and users' avatars.
 
 mod avatars;
+mod exports;
 mod links;
 mod own;
 mod public;
@@ -1168,14 +1169,15 @@ async fn files_011_the_comparison_records_each_object_no_row_names_written_an_ho
     let db = api.database();
     db.owner_executes(&format!(
         "INSERT INTO workspace_files \
-         (workspace_id, name, media_type, size_bytes, visibility, object_key) \
-         VALUES ('{workspace}', 'Named', 'text/plain; charset=utf-8', 5, 'private', \
+         (workspace_id, name, media_type, size_bytes, crc32, visibility, object_key) \
+         VALUES ('{workspace}', 'Named', 'text/plain; charset=utf-8', 5, 0, 'private', \
          'workspaces/named')"
     ))
     .await;
     db.owner_executes(&format!(
-        "INSERT INTO user_files (user_id, name, media_type, size_bytes, visibility, object_key) \
-         VALUES ('{}', 'Named', 'text/plain; charset=utf-8', 5, 'private', 'users/named')",
+        "INSERT INTO user_files \
+         (user_id, name, media_type, size_bytes, crc32, visibility, object_key) \
+         VALUES ('{}', 'Named', 'text/plain; charset=utf-8', 5, 0, 'private', 'users/named')",
         ada.user_id
     ))
     .await;

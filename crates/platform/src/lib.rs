@@ -3,6 +3,7 @@
 
 #![deny(missing_docs)]
 
+pub mod archive;
 pub mod authn;
 pub mod authz;
 pub mod blocking;
@@ -20,6 +21,7 @@ pub mod lists;
 pub mod mail;
 pub mod personal_data;
 pub mod random;
+pub mod ranges;
 pub mod rate_limit;
 // part: files
 pub mod scanner;

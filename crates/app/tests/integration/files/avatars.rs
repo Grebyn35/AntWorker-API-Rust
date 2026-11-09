@@ -428,8 +428,8 @@ async fn files_011_the_comparison_records_an_avatar_s_object_that_no_row_names()
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
     db.owner_executes(&format!(
-        "INSERT INTO avatars (user_id, media_type, size_bytes, object_key) \
-         VALUES ('{}', 'image/png', 5, 'avatars/named')",
+        "INSERT INTO avatars (user_id, media_type, size_bytes, crc32, object_key) \
+         VALUES ('{}', 'image/png', 5, 0, 'avatars/named')",
         ada.user_id
     ))
     .await;

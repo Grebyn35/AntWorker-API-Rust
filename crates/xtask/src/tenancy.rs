@@ -34,9 +34,14 @@ const ACCOUNT_DATA: &[&str] = &[
     "device_tokens",
     // The client of an audit entry, keyed by the user whose deletion deletes it (AUDIT-006).
     "audit_entry_clients",
+    "data_exports",
+    // The documents of a user's export, reached through its export's row, whose user they are.
+    "data_export_entries",
+    "data_export_chunks",
     // part: files
     "user_files",
     "avatars",
+    "exported_files",
     // end part: files
 ];
 
@@ -76,6 +81,7 @@ const TENANTS: &[&str] = &["workspaces"];
 /// The files of scheduled jobs that span tenants, which select rows by their own criteria, such
 /// as expiry (DATA-16).
 const CROSS_TENANT: &[&str] = &[
+    "crates/app/src/modules/accounts/jobs.rs",
     // part: files
     "crates/app/src/modules/files/jobs.rs",
     // end part: files
@@ -478,6 +484,9 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
             "{MIGRATION}CREATE TABLE users (id uuid);\nCREATE TABLE identities (id uuid);\n\
              CREATE TABLE sessions (id uuid);\nCREATE TABLE device_tokens (id uuid);\n\
              CREATE TABLE audit_entry_clients (id uuid);\n\
+             CREATE TABLE data_exports (id uuid, user_id uuid);\n\
+             CREATE TABLE data_export_entries (id uuid, export_id uuid);\n\
+             CREATE TABLE data_export_chunks (id uuid, export_id uuid);\n\
              CREATE TABLE rate_limit_buckets (id uuid);\n\
              CREATE TABLE idempotency_records (id uuid);\nCREATE TABLE workspaces (id uuid);\n\
              CREATE TABLE jobs (id uuid, workspace_id uuid, user_id uuid);\n\
@@ -489,6 +498,7 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
         let migrations = migrations
             + "CREATE TABLE user_files (id uuid, user_id uuid);\n\
                CREATE TABLE avatars (id uuid, user_id uuid);\n\
+               CREATE TABLE exported_files (id uuid, export_id uuid, user_id uuid);\n\
                CREATE TABLE object_deletions (id uuid, object_key text);\n";
         // end part: files
         let repo = Repo::of(&[

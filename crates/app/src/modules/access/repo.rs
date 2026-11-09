@@ -5,10 +5,11 @@ use platform::{
     db::UnitOfWork,
     errors::Internal,
     lists::Page,
+    personal_data::PAGE,
     types::{Timestamp, UserId, WorkspaceId},
 };
 
-use super::model::{Membership, Role};
+use super::model::{ExportedMembership, Membership, Role};
 
 /// Adds `user` to `workspace` at `role`, and returns when they joined.
 pub(super) async fn insert(
@@ -353,4 +354,54 @@ fn membership(
         role: Role::from_name(role)?,
         joined_at: Timestamp::from_database(joined_at),
     })
+}
+
+/// The workspaces whose only member is `user`, read by their own memberships, in the order of their
+/// IDs (ACCOUNTS-024, DATA-16).
+pub(super) async fn sole(uow: &mut UnitOfWork, user: UserId) -> Result<Vec<WorkspaceId>, Internal> {
+    let ids = sqlx::query_scalar!(
+        "SELECT mine.workspace_id FROM workspace_memberships AS mine
+        WHERE mine.user_id = $1
+            AND NOT EXISTS (
+                SELECT 1 FROM workspace_memberships AS other
+                WHERE other.workspace_id = mine.workspace_id AND other.user_id <> $1
+            )
+        ORDER BY mine.workspace_id",
+        user.uuid(),
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(ids.into_iter().map(WorkspaceId::from_uuid).collect())
+}
+
+/// A page of `user`'s memberships, as their export holds them, the latest first, after `after`,
+/// a membership's creation time and ID, through the index on the user and that time.
+pub(super) async fn exported(
+    uow: &mut UnitOfWork,
+    user: UserId,
+    after: Option<(time::OffsetDateTime, uuid::Uuid)>,
+) -> Result<Vec<ExportedMembership>, Internal> {
+    let rows = sqlx::query!(
+        r#"SELECT id, workspace_id, role::text AS "role!", created_at, updated_at
+        FROM workspace_memberships
+        WHERE user_id = $1 AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3))
+        ORDER BY created_at DESC, id DESC
+        LIMIT $4"#,
+        user.uuid(),
+        after.map(|after| after.0),
+        after.map(|after| after.1),
+        PAGE,
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ExportedMembership {
+            id: row.id,
+            workspace_id: WorkspaceId::from_uuid(row.workspace_id),
+            role: row.role,
+            created_at: Timestamp::from_database(row.created_at),
+            updated_at: Timestamp::from_database(row.updated_at),
+        })
+        .collect())
 }

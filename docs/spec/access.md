@@ -26,7 +26,8 @@
 - `erasable(uow, &Principal)`: locks every membership of the caller, and answers whether a workspace they own has another member (ACCESS-008). Called only by `accounts`, as the first lock of deleting the caller's account after the user's own row.
 - `held(uow, &Principal)`: every membership of the caller, with its workspace and role, which the personal data contract of `workspaces` reads once `erasable` has locked them.
 - `leave(uow, &Principal, workspace_id)`: ends the caller's membership in the workspace, with its signal (ACCESS-006), which the personal data contract of `workspaces` calls for each workspace the caller belongs to, as their account is deleted.
-- `Contract`, the personal data contract for `workspace_memberships` (D31), which deletes the user's memberships, each with its access-change signal.
+- `sole_workspaces(uow, UserId)`: the IDs of the workspaces whose only member is the user, read by their own memberships, whose content their export holds (D40, ACCOUNTS-024).
+- `Contract`, the personal data contract for `workspace_memberships` (D31), which exports the user's memberships ([accounts spec](accounts.md#what-an-export-holds)), and deletes them, each with its access-change signal.
 - `Role::outranks(role)`: compares two roles (SEC-09).
 
 ## Behaviors

@@ -19,13 +19,14 @@ pub(in crate::modules::files) async fn insert(
 ) -> Result<Recorded<OfUser>, Internal> {
     let size_bytes = i64::try_from(row.size_bytes).map_err(Internal::new)?;
     let inserted = sqlx::query!(
-        "INSERT INTO user_files (user_id, name, media_type, size_bytes, visibility, object_key)
-        VALUES ($1, $2, $3, $4, $5::text::file_visibility, $6)
+        "INSERT INTO user_files (user_id, name, media_type, size_bytes, crc32, visibility, object_key)
+        VALUES ($1, $2, $3, $4, $5, $6::text::file_visibility, $7)
         RETURNING id, created_at",
         user.uuid(),
         row.name.as_str(),
         row.media_type,
         size_bytes,
+        i64::from(row.crc32),
         row.visibility.name(),
         row.object_key.as_str(),
     )

@@ -5,10 +5,11 @@ use platform::{
     db::UnitOfWork,
     errors::Internal,
     lists::{Page, Search},
+    personal_data::PAGE,
     types::{Timestamp, Version, WorkspaceId},
 };
 
-use super::model::{Current, SampleItem, SampleItemName};
+use super::model::{Current, ExportedSampleItem, SampleItem, SampleItemName};
 
 /// Inserts a sample item named `name` in `workspace`, and returns it as it now stands.
 pub(super) async fn insert(
@@ -160,4 +161,36 @@ pub(super) async fn delete(
     .execute(uow.executor())
     .await?;
     Ok(deleted.rows_affected() > 0)
+}
+
+/// A page of the sample items of `workspace`, one whose only member is the user whose export the
+/// job builds, which came from their own memberships, as their export holds them, the latest
+/// created first, after `after`, a sample item's creation time and ID (D40, DATA-16).
+pub(super) async fn exported(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+    after: Option<(time::OffsetDateTime, uuid::Uuid)>,
+) -> Result<Vec<ExportedSampleItem>, Internal> {
+    let rows = sqlx::query!(
+        "SELECT id, name, created_at, updated_at FROM sample_items
+        WHERE workspace_id = $1 AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3))
+        ORDER BY created_at DESC, id DESC
+        LIMIT $4",
+        workspace.uuid(),
+        after.map(|after| after.0),
+        after.map(|after| after.1),
+        PAGE,
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ExportedSampleItem {
+            id: row.id,
+            workspace_id: workspace,
+            name: SampleItemName::from_stored(row.name),
+            created_at: Timestamp::from_database(row.created_at),
+            updated_at: Timestamp::from_database(row.updated_at),
+        })
+        .collect())
 }

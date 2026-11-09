@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT entry.position, entry.path, entry.size_bytes, entry.stored_bytes, entry.crc32\n        FROM data_export_entries AS entry\n        JOIN data_exports AS export ON export.id = entry.export_id\n        WHERE entry.export_id = $1 AND export.user_id = $2\n        ORDER BY entry.position",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "position",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "data_export_entries",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "data_export_entries",
+            "name": "path"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "data_export_entries",
+            "name": "size_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "stored_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "data_export_entries",
+            "name": "stored_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "crc32",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "data_export_entries",
+            "name": "crc32"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "051d5307d4b6f0249a9ebf5397efde32ac6d41452ff103b0d95af35df53b5f57"
+}

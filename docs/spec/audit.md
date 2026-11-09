@@ -17,7 +17,7 @@
   `Principal::joiner_scope(workspace_id)` does the same for the workspace the caller joins by accepting an invitation (INVITATIONS-005), and only accepting may call it. <!-- part: invitations -->
   `Principal::leaver_scope(workspace_id)` names the log of a workspace that the caller leaves as their account is deleted, and only the personal data contract of `workspaces` may call it (ACCOUNTS-014).
 - `SecurityEventSink`, implemented for `platform::authz`.
-- `Contract`, the personal data contract for `audit_entries` and `audit_entry_clients` (D31), whose erasure the foreign keys carry out (AUDIT-006).
+- `Contract`, the personal data contract for `audit_entries` and `audit_entry_clients` (D31), which exports the user's own log and the log of each workspace whose only member is the user, with the client of each entry the user acted in ([accounts spec](accounts.md#what-an-export-holds)), and whose erasure the foreign keys carry out (AUDIT-006).
 - `Action` and `Resource`, the types of an entry's action and of the kind of resource it happened to. Each module declares its actions, named `<resource>.<past-tense verb>`, such as `member.removed`, and its kinds of resource, such as `workspace`, as constants in its own `audit.rs` (ARCH-03): clippy bans their constructors everywhere else.
 
 ## Behaviors
