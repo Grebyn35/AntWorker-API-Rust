@@ -59,6 +59,25 @@ pub(super) async fn address(uow: &mut UnitOfWork, id: UserId) -> Result<Option<A
     }))
 }
 
+/// The address of the user `id`, and whether they proved it, as [`address`] gives them, with the
+/// user's row locked `FOR NO KEY UPDATE` until the unit of work ends, as a deletion locks it
+/// first, so whatever changes the row waits (DATA-16, DATA-20).
+pub(super) async fn address_for_update(
+    uow: &mut UnitOfWork,
+    id: UserId,
+) -> Result<Option<Address>, Internal> {
+    let row = sqlx::query!(
+        "SELECT email, email_verified FROM users WHERE id = $1 FOR NO KEY UPDATE",
+        id.uuid(),
+    )
+    .fetch_optional(uow.executor())
+    .await?;
+    Ok(row.map(|row| Address {
+        email: EmailAddress::from_stored(row.email),
+        verified: row.email_verified,
+    }))
+}
+
 /// Records that the user `id` proved their address, filtered by their own ID (DATA-16).
 pub(super) async fn verify_email(uow: &mut UnitOfWork, id: UserId) -> Result<(), Internal> {
     sqlx::query!(

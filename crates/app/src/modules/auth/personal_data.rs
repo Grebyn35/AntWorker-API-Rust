@@ -2,8 +2,8 @@
 //! `verification_codes` (D31): it exports them without their hashes (the accounts spec's "What an
 //! export holds"), and it deletes the user's identities, sessions, device tokens and codes before
 //! the deletion's last step locks the user's row `FOR UPDATE`, since a sign-in locks an identity,
-//! a refresh a session, and a code's check its code, before it reads or changes the user's row
-//! (the auth spec's "Deleting an account").
+//! and a refresh a session, before it reads the user's row through a foreign key, and a code's
+//! job holds the code it issues until it commits (the auth spec's "Deleting an account").
 
 use platform::{
     authn::{BoxFuture, Principal},

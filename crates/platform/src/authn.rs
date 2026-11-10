@@ -255,10 +255,11 @@ impl<S: Send + Sync> FromRequestParts<S> for Principal {
             return Err(internal("the request carries no authenticator"));
         };
         let client = Client::from_request_parts(parts, state).await?;
-        let principal = authenticator
-            .prove(parts, &client)
+        let verified = authenticator
+            .verified(parts, &client)
             .await
             .map_err(|error| Problem(error).into_response())?;
+        let principal = verified.principal;
         // The request's span carries the caller the session proved (OBS-09).
         tracing::Span::current().record(names::USER_ID, principal.user_id.to_string());
         let limits = RateLimits::from_request_parts(parts, state).await?;
@@ -270,22 +271,16 @@ impl<S: Send + Sync> FromRequestParts<S> for Principal {
                 LimitError::RateLimited => rejection(RequestError::RateLimited),
                 LimitError::Internal(error) => Problem(error).into_response(),
             })?;
+        // Once the user's bucket counted the request, a caller whose account must still prove
+        // its address is refused, but on a route that proving it needs (AUTH-025, PLATFORM-054).
+        if verified.must_verify_email && parts.extensions.get::<Verifying>().is_none() {
+            return Err(rejection(RequestError::EmailUnverified));
+        }
         Ok(principal)
     }
 }
 
 impl Authenticator {
-    /// The principal that the request's credential proves, for a request from `client`, refused
-    /// while its account must still prove its email address, but on a route that proving it
-    /// needs (AUTH-025).
-    async fn prove(&self, parts: &Parts, client: &Client) -> Result<Principal, PlatformError> {
-        let verified = self.verified(parts, client).await?;
-        if verified.must_verify_email && parts.extensions.get::<Verifying>().is_none() {
-            return Err(RequestError::EmailUnverified.into());
-        }
-        Ok(verified.principal)
-    }
-
     /// What the request's credential proves, for a request from `client`.
     async fn verified(&self, parts: &Parts, client: &Client) -> Result<Verified, PlatformError> {
         // part: files

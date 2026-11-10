@@ -8,6 +8,7 @@ use crate::support::{
     api::Response,
     mailbox,
     users::{self, SignedIn},
+    workspaces,
 };
 
 /// The API with email off (PLATFORM-024).
@@ -110,6 +111,29 @@ async fn auth_025_an_account_that_must_verify_is_refused_but_where_verifying_nee
         .send()
         .await;
     assert_eq!(signed_out.status, 204);
+}
+
+#[tokio::test]
+async fn auth_025_a_member_whose_account_must_verify_is_refused_on_a_workspace_route() {
+    let api = Api::new().await;
+    let ada = users::register_unverified(&api, &mailbox::address("ada")).await;
+    let acme = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+
+    let refused = api
+        .get(&format!("/v1/workspaces/{acme}"))
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.json()["code"], "request.email_unverified");
+    users::verified(&api, &ada.user_id).await;
+    let read = api
+        .get(&format!("/v1/workspaces/{acme}"))
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(read.status, 200);
 }
 
 #[tokio::test]
@@ -441,6 +465,116 @@ async fn auth_030_a_run_that_another_run_beat_to_the_next_code_issues_nothing() 
 }
 
 #[tokio::test]
+async fn auth_030_a_run_for_an_account_that_is_gone_issues_nothing() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register_unverified(&api, &address).await;
+    // The account goes, and its job, which names its user without a foreign key, stays.
+    api.database()
+        .owner_executes(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
+        .await;
+
+    assert_eq!(api.run_jobs().await, 1);
+
+    assert!(mailbox::to(&address).await.is_empty());
+    assert!(rows(&api, "SELECT kind FROM jobs").await.is_empty());
+}
+
+#[tokio::test]
+async fn auth_030_a_run_on_a_replica_with_email_off_issues_nothing() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    users::register_unverified(&api, &address).await;
+    let off = api.instance(Options::default().set("EMAIL", "off")).await;
+
+    assert_eq!(off.run_jobs().await, 1);
+
+    assert!(mailbox::to(&address).await.is_empty());
+    assert!(
+        rows(&api, "SELECT id::text FROM verification_codes")
+            .await
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn auth_030_an_attempt_after_a_failed_send_issues_a_new_code_in_place_of_its_own() {
+    let address = mailbox::address("ada");
+    let unreachable = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let failing = Api::with(Options::default().set("SMTP_PORT", unreachable.port())).await;
+    users::register_unverified(&failing, &address).await;
+    assert_eq!(failing.run_jobs().await, 1);
+    let first = rows(&failing, "SELECT id::text FROM verification_codes").await;
+    assert_eq!(first.len(), 1);
+    assert_eq!(
+        rows(&failing, "SELECT state::text || ' ' || attempts FROM jobs").await,
+        ["waiting 1"]
+    );
+    // The next attempt, on a replica that reaches the mail server.
+    failing
+        .database()
+        .owner_executes("UPDATE jobs SET run_at = now()")
+        .await;
+    let reaching = failing.instance(Options::default()).await;
+
+    assert_eq!(reaching.run_jobs().await, 1);
+
+    let second = rows(&failing, "SELECT id::text FROM verification_codes").await;
+    assert_eq!(second.len(), 1);
+    assert_ne!(second, first);
+    assert_eq!(mailbox::to(&address).await.len(), 1);
+    assert_eq!(
+        rows(
+            &failing,
+            "SELECT count(*)::text FROM audit_entries WHERE action = 'verification_code.issued'"
+        )
+        .await,
+        ["2"]
+    );
+}
+
+#[tokio::test]
+async fn auth_031_of_two_that_confirm_one_code_at_once_only_one_proves_it() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register_unverified(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    // The first confirmation, which locks the user's row, claims the code and proves the
+    // address, as a check does, held open while the second runs.
+    let mut first = api
+        .database()
+        .holding(&format!(
+            "UPDATE users SET email_verified = true WHERE id = '{0}';
+            DELETE FROM verification_codes WHERE user_id = '{0}'",
+            ada.user_id
+        ))
+        .await;
+
+    let second = tokio::spawn({
+        let api = api.clone();
+        async move { confirm(&api, &ada, &code).await }
+    });
+    crate::support::queries_wait_on_locks(api.database(), 1).await;
+    crate::support::execute_on(&mut first, "COMMIT").await;
+    let answered = second.await.unwrap();
+
+    assert_eq!(answered.status, 409);
+    assert_eq!(answered.json()["code"], "auth.email_already_verified");
+    assert_eq!(
+        rows(
+            &api,
+            "SELECT count(*)::text FROM audit_entries WHERE action = 'email.verified'"
+        )
+        .await,
+        ["0"]
+    );
+}
+
+#[tokio::test]
 async fn auth_031_the_right_code_proves_the_address_once() {
     let api = Api::new().await;
     let address = mailbox::address("ada");
@@ -477,13 +611,13 @@ async fn auth_031_the_right_code_proves_the_address_once() {
 }
 
 #[tokio::test]
-async fn auth_031_a_code_that_another_check_claims_meanwhile_proves_nothing() {
+async fn auth_032_a_code_that_a_newer_one_replaces_while_the_check_runs_answers_code_expired() {
     let api = Api::new().await;
     let address = mailbox::address("ada");
     let ada = users::register_unverified(&api, &address).await;
     let code = code_sent(&api, &address).await;
-    // Another unit of work deletes the code, as a check that claims it does, and holds it while
-    // this check runs, then commits without proving the address, as a newer code's job does.
+    // A newer code's job deletes the code, and holds it while this check runs, then commits,
+    // as the job that replaces it does.
     let mut holder = api
         .database()
         .holding(&format!(
@@ -594,14 +728,35 @@ async fn auth_032_a_code_that_isn_t_6_digits_answers_400() {
 }
 
 #[tokio::test]
-async fn auth_032_with_email_off_confirming_answers_503() {
+async fn auth_032_with_email_off_a_code_of_6_digits_answers_503_and_a_malformed_one_400() {
     let api = without_email().await;
     let ada = users::register_unverified(&api, "ada@example.com").await;
 
     let refused = confirm(&api, &ada, "123456").await;
+    let malformed = api
+        .post_raw(
+            "/v1/users/me/email/verification/confirm",
+            &json!({ "code": "12a" }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
 
     assert_eq!(refused.status, 503);
     assert_eq!(refused.json()["code"], "request.feature_disabled");
+    assert_eq!(malformed.status, 400);
+    assert_eq!(malformed.json()["errors"][0]["code"], "invalid_code");
+}
+
+#[tokio::test]
+async fn auth_032_an_account_that_proved_its_address_answers_409() {
+    let api = Api::new().await;
+    let ada = users::register(&api, &mailbox::address("ada")).await;
+
+    let refused = confirm(&api, &ada, "123456").await;
+
+    assert_eq!(refused.status, 409);
+    assert_eq!(refused.json()["code"], "auth.email_already_verified");
 }
 
 #[tokio::test]
@@ -625,27 +780,4 @@ async fn auth_033_every_check_counts_in_a_bucket_of_the_user_s() {
     );
     let bob = users::register_unverified(&api, &mailbox::address("bob")).await;
     assert_eq!(confirm(&api, &bob, "123456").await.status, 422);
-}
-
-#[tokio::test]
-async fn platform_025_each_email_that_send_now_sends_carries_a_message_id_of_its_own() {
-    let api = Api::new().await;
-    let address = mailbox::address("ada");
-    let ada = users::register_unverified(&api, &address).await;
-    code_sent(&api, &address).await;
-    ask(&api, &ada).await;
-
-    code_sent(&api, &address).await;
-
-    let emails = mailbox::to(&address).await;
-    assert_eq!(emails.len(), 2);
-    assert_ne!(emails[0].message_id, emails[1].message_id);
-    for email in &emails {
-        assert_eq!(email.from, "noreply@example.com");
-        assert!(
-            email.message_id.ends_with("@example.com"),
-            "{}",
-            email.message_id
-        );
-    }
 }

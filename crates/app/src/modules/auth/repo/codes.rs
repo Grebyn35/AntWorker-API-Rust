@@ -69,8 +69,8 @@ pub(in crate::modules::auth) async fn find(
 }
 
 /// Deletes `user_id`'s code `id`, which a check just matched, so it proves nothing again, and
-/// says whether it did: a row only one unit of work deletes, so of two checks of one code only
-/// one proves it, and a code that a newer one replaced proves nothing (AUTH-031, DATA-20).
+/// says whether it did: a row only one unit of work deletes, so a code that a newer one replaced
+/// meanwhile proves nothing (AUTH-031, AUTH-032).
 pub(in crate::modules::auth) async fn claim(
     uow: &mut UnitOfWork,
     user_id: UserId,

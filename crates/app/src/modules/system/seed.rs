@@ -1,10 +1,12 @@
 //! `seed`, which fills a development database with demo accounts and workspaces (the system
-//! spec's Seed, D28). It knows the API only through its routes, as any client does: it sends the
-//! API's router each request in process, with a JSON body and the Bearer header of the account it
-//! acts as, so every row it creates passes a client's checks and carries the audit entries and
-//! events that the request records ([system spec](../../../../../docs/spec/system.md#seed)). With
-//! email on, it proves each account's address with the code its registration sent, which it reads
-//! from an inbox of its own, as a client reads the code from its mailbox.
+//! spec's Seed, D28). It changes the API's data only through its routes, as any client does: it
+//! sends the API's router each request in process, with a JSON body and the Bearer header of the
+//! account it acts as, so every row it creates passes a client's checks and carries the audit
+//! entries and events that the request records
+//! ([system spec](../../../../../docs/spec/system.md#seed)). With email on, it also runs the jobs
+//! that its registrations enqueued, and proves each account's address with the code that their
+//! emails carry, which it reads from an inbox of its own, as a client reads the code from its
+//! mailbox.
 
 use std::net::{Ipv4Addr, SocketAddr};
 

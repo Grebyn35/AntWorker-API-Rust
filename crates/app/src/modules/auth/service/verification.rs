@@ -141,7 +141,13 @@ impl Auth {
             .check(self.settings.code_check, user_id.uuid().as_bytes())
             .await?;
         let mut uow = self.database.begin(client).await?;
-        if caller_address(&mut uow, principal).await?.verified {
+        // The user's row first, as a deletion of the account locks it first, so the two take
+        // turns, and of two checks the second reads the address as the first left it (DATA-20).
+        let address = accounts::address_for_update(&mut uow, user_id)
+            .await
+            .map_err(AuthError::from)?
+            .ok_or_else(|| Internal::new("the caller's user doesn't exist"))?;
+        if address.verified {
             return Err(AuthError::EmailAlreadyVerified);
         }
         let stored = match codes::find(&mut uow, user_id, Purpose::EmailVerification).await? {
@@ -164,14 +170,10 @@ impl Auth {
             uow.commit().await?;
             return Err(AuthError::WrongCode);
         }
-        // Another check proved the code first, which the address now says, or a newer code
-        // replaced it.
+        // A newer code replaced it while the check ran, which its job's run, which holds no lock
+        // on the user's row, may do.
         if !codes::claim(&mut uow, user_id, stored.id).await? {
-            return Err(if caller_address(&mut uow, principal).await?.verified {
-                AuthError::EmailAlreadyVerified
-            } else {
-                AuthError::CodeExpired
-            });
+            return Err(AuthError::CodeExpired);
         }
         accounts::verify_email(&mut uow, user_id).await?;
         audit_log::record(

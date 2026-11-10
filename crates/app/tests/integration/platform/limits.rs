@@ -124,6 +124,23 @@ async fn platform_054_a_user_beyond_their_limit_answers_429() {
 }
 
 #[tokio::test]
+async fn platform_054_a_request_refused_for_an_unproven_address_counts_in_its_user_s_bucket() {
+    let api = limited(1_000, 2).await;
+    let ada = users::register_unverified(&api, "ada@example.com").await;
+
+    let mut statuses = Vec::new();
+    for _ in 0..3 {
+        statuses.push(api.get("/v1/users/me").bearer(&ada.access).send().await);
+    }
+
+    assert_eq!(statuses[0].status, 403);
+    assert_eq!(statuses[0].json()["code"], "request.email_unverified");
+    assert_eq!(statuses[1].status, 403);
+    assert_eq!(statuses[2].status, 429);
+    assert_eq!(statuses[2].json()["code"], "request.rate_limited");
+}
+
+#[tokio::test]
 async fn platform_054_the_window_is_a_setting() {
     let api = Api::with(
         Options::default()

@@ -5,8 +5,10 @@ use std::{net::SocketAddr, sync::Arc};
 
 use platform::{
     clock::{SharedClock, TestClock},
+    jobs::JobFailure,
     lifecycle::Readiness,
-    mail::Mail,
+    mail::{Email, Mail},
+    types::EmailAddress,
 };
 use serde_json::json;
 use tokio::{
@@ -313,5 +315,82 @@ async fn platform_025_a_second_run_of_a_mail_job_sends_a_copy_with_the_same_mess
     assert_eq!(emails.len(), 2);
     for email in emails {
         assert_eq!(format!("<{}>", email.message_id), enqueued);
+    }
+}
+
+/// A `Mail` of `options`'s settings, as a module's job holds one.
+fn mail(options: &Options) -> Mail {
+    let (config, _) = configuration(options);
+    Mail::new(config.mail, Arc::new(TestClock::default())).unwrap()
+}
+
+/// An email of the tests' own to `to`, which holds a secret, as one that `send_now` sends does.
+fn secret_email(to: &str) -> Email {
+    Email {
+        to: EmailAddress::parse(to).unwrap(),
+        subject: "The fixture's secret".to_owned(),
+        text: "The secret: 424242.".to_owned(),
+        html: "<p>The secret: 424242.</p>".to_owned(),
+    }
+}
+
+#[tokio::test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test of send_now calls it, as a job's handler does (PLATFORM-021)"
+)]
+async fn platform_021_send_now_sends_at_once_and_tells_its_job_whether_to_retry() {
+    let to = mailbox::address("secret");
+
+    mail(&Options::default())
+        .send_now(secret_email(&to))
+        .await
+        .unwrap();
+    let unreachable = Options::default().set("SMTP_PORT", closed().await.port());
+    let failed = mail(&unreachable).send_now(secret_email(&to)).await;
+    let refusing = Options::default().set("SMTP_PORT", refusing_server().await.port());
+    let refused = mail(&refusing).send_now(secret_email(&to)).await;
+    let off = mail(&Options::default().set("EMAIL", "off"))
+        .send_now(secret_email(&to))
+        .await;
+
+    // Sent at once, with no job in between, and no queue that holds the secret.
+    assert_eq!(mailbox::to(&to).await.len(), 1);
+    // A failure that another attempt may not meet retries its job; a permanent rejection
+    // dead-letters it at once.
+    assert!(
+        matches!(failed, Err(JobFailure::Transient(_))),
+        "{failed:?}"
+    );
+    assert!(
+        matches!(refused, Err(JobFailure::Permanent(_))),
+        "{refused:?}"
+    );
+    // With email off, nothing is sent (PLATFORM-022).
+    assert!(off.is_ok());
+}
+
+#[tokio::test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test of send_now calls it, as a job's handler does (PLATFORM-021)"
+)]
+async fn platform_025_each_email_that_send_now_sends_carries_a_message_id_of_its_own() {
+    let to = mailbox::address("each");
+    let mail = mail(&Options::default());
+
+    mail.send_now(secret_email(&to)).await.unwrap();
+    mail.send_now(secret_email(&to)).await.unwrap();
+
+    let emails = mailbox::to(&to).await;
+    assert_eq!(emails.len(), 2);
+    assert_ne!(emails[0].message_id, emails[1].message_id);
+    for email in &emails {
+        assert_eq!(email.from, "noreply@example.com");
+        assert!(
+            email.message_id.ends_with("@example.com"),
+            "{}",
+            email.message_id
+        );
     }
 }

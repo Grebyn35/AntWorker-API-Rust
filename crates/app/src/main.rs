@@ -240,8 +240,8 @@ fn resources(
         { names::WORKERS_TURNS } = workers.turns(),
         "CPU-heavy work takes turns"
     );
-    let mail = Mail::new(config.mail.clone(), clock.clone())
-        .map_err(|error| failed("services", &error))?;
+    let mail =
+        Mail::new(config.mail.clone(), clock.clone()).map_err(|error| failed("mail", &error))?;
     Ok(app::Resources {
         database,
         clock,
@@ -274,7 +274,7 @@ async fn seed((config, modules): (ServerConfig, app::Config)) -> ExitCode {
     };
     let (mail, inbox) = match Mail::new(config.mail.clone(), clock.clone()) {
         Ok(mail) => mail.with_inbox(),
-        Err(error) => return failed("services", &error),
+        Err(error) => return failed("mail", &error),
     };
     let resources = app::Resources {
         database,

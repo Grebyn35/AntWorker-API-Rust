@@ -123,6 +123,45 @@ async fn accounts_012_a_workspace_whose_only_member_is_the_user_refuses_nothing(
 }
 
 #[tokio::test]
+async fn accounts_013_a_deletion_erases_the_user_s_codes_as_a_step_of_its_own() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let ada_id = &ada.user_id.clone();
+    let db = api.database();
+    db.owner_executes(&format!(
+        "INSERT INTO verification_codes (user_id, purpose, code_hash, expires_at) \
+         VALUES ('{ada_id}', 'email_verification', '\\x0123abcd', now() + interval '10 minutes')"
+    ))
+    .await;
+    // A lock on the code, as the job that issues one holds its row until it commits: the
+    // deletion waits for it as it erases the codes, where waiting is allowed, rather than meeting
+    // it through the user's row's foreign keys at its last step, which waits for no lock and would
+    // answer 409 (ACCOUNTS-016, the auth spec's "Deleting an account").
+    let mut job = db
+        .holding(&format!(
+            "SELECT id FROM verification_codes WHERE user_id = '{ada_id}' FOR SHARE"
+        ))
+        .await;
+
+    let mut deletion = tokio::spawn({
+        let api = api.clone();
+        async move { delete(&api, &ada).await }
+    });
+    tokio::select! {
+        answered = &mut deletion => panic!(
+            "the deletion answered {} without waiting for the code",
+            answered.unwrap().status
+        ),
+        () = queries_wait_on_locks(db, 1) => {}
+    }
+    execute_on(&mut job, "COMMIT").await;
+    let answered = deletion.await.unwrap();
+
+    assert_eq!(answered.status, 204);
+    assert!(naming(&api, ada_id).await.is_empty());
+}
+
+#[tokio::test]
 async fn accounts_013_a_deletion_erases_the_account_and_the_workspaces_only_it_belongs_to() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

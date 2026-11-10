@@ -71,6 +71,17 @@ pub(crate) async fn address(
     Ok(repo::address(uow, user_id).await?)
 }
 
+/// `user_id`'s address, as [`address`] gives it, with the user's row locked against every other
+/// change until the unit of work ends, as a deletion of the account locks it first, so a check of
+/// a code and a deletion take turns, and of two checks the second reads what the first left
+/// (AUTH-031, DATA-20). Callers pass the caller's ID (DATA-16).
+pub(crate) async fn address_for_update(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+) -> Result<Option<Address>, AccountsError> {
+    Ok(repo::address_for_update(uow, user_id).await?)
+}
+
 /// Records that `user_id`'s account proved its email address (AUTH-031): its record's
 /// `email_verified` becomes true (ACCOUNTS-001). Callers pass the caller's ID (DATA-16).
 pub(crate) async fn verify_email(

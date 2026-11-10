@@ -5,7 +5,8 @@
 //!   to the address at once, so the code is kept nowhere but the email (AUTH-030, SEC-03). A
 //!   second run, such as after a replica stopped once the email was sent, issues a new code and
 //!   sends it too, which replaces the first: the account receives two emails, and only the
-//!   second's code works.
+//!   second's code works, which its owner recognizes by the email's text, since each says that a
+//!   newer code replaces it (OPS-09, D128).
 
 use std::time::Duration;
 
