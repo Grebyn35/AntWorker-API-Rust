@@ -67,8 +67,12 @@ use crate::signed_urls::SignedUrls;
 enum Access {
     /// Anyone, without authentication.
     Public,
-    /// A caller whom a `Principal` proves.
+    /// A caller whom a `Principal` proves, whose account has proved its email address while the
+    /// deployment sends email (AUTH-025).
     User,
+    /// A caller whom a `Principal` proves, whose account may still have to prove its email
+    /// address: a route that proving it needs (AUTH-025).
+    Verifying,
     /// A member of the workspace in the path whom `Authorized<P>` proves, for the permission
     /// of this name.
     Workspace(&'static str),
@@ -79,7 +83,7 @@ impl Access {
     fn name(self) -> &'static str {
         match self {
             Self::Public => "public",
-            Self::User => "user",
+            Self::User | Self::Verifying => "user",
             Self::Workspace(_) => "workspace",
         }
     }
@@ -122,6 +126,13 @@ where
     /// and which can answer `errors` besides the pipeline's own (ERR-13).
     pub fn user(self, route: UtoipaMethodRouter<S>, errors: &[&dyn ErrorCode]) -> Self {
         self.add(Access::User, route, errors)
+    }
+
+    /// Adds a route that a signed-in user calls, as [`Routes::user`] does, but whose account may
+    /// still have to prove its email address: one that proving it needs, such as signing out
+    /// (AUTH-025). It can answer `errors` besides the pipeline's own (ERR-13).
+    pub fn verifying(self, route: UtoipaMethodRouter<S>, errors: &[&dyn ErrorCode]) -> Self {
+        self.add_with(Access::Verifying, route, errors, stack::verifying_group)
     }
 
     /// Adds a route that a member of the workspace in the path calls, whose handler extracts

@@ -8,6 +8,7 @@ Prometheus stores each metric under the name in its "In Prometheus" column: its 
 
 | Metric | Kind | Unit | Labels | In Prometheus | Declared in | Description |
 |---|---|---|---|---|---|---|
+| `auth.email_verifications` | counter | `{check}` | `auth.outcome` | `auth_email_verifications_total` | `crates/app/src/modules/auth/metrics.rs` | Checks of the codes that prove an account's email address, by how each ended: verified, wrong_code, code_expired or rate_limited (AUTH-031 to AUTH-033). |
 | `auth.sign_ins` | counter | `{attempt}` | `auth.outcome` | `auth_sign_ins_total` | `crates/app/src/modules/auth/metrics.rs` | Sign-in attempts, by how each ended: succeeded, invalid_credentials or rate_limited (AUTH-004 to AUTH-006). |
 | `files.uploads` | counter | `{upload}` | `files.outcome` | `files_uploads_total` | `crates/app/src/modules/files/metrics.rs` | Uploads that reached the check of their bytes, by how each ended: stored, unsupported_type, malware_detected, or failed, which a scanner that doesn't answer, and the route's timeout, count in too (FILES-013). |
 | `http.server.request.duration` | histogram | `s` | `http.request.method`, `http.route`, `http.response.status_code`, `error.type` | `http_server_request_duration_seconds_bucket`, `http_server_request_duration_seconds_sum`, `http_server_request_duration_seconds_count` | `crates/platform/src/http/stack.rs` | How long each request took, from the request log's start to its response, health probes aside. |

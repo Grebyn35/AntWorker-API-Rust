@@ -1,7 +1,7 @@
 {
   "uid": "api-sign-in",
   "title": "Sign-in",
-  "description": "How sign-in attempts end, which a credential-stuffing attack changes (the auth spec).",
+  "description": "How sign-in attempts end, which a credential-stuffing attack changes, and how the checks of the codes that prove an account's email address end, which guessing changes (the auth spec).",
   "tags": [
     "api",
     "area"
@@ -74,6 +74,46 @@
         "w": 24,
         "x": 0,
         "y": 0
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "How do checks of email codes end?",
+      "description": "Checks of the codes that prove an account's email address in the last 5 minutes, by how each ended: verified, wrong_code, code_expired, or rate_limited by the limit on each user's checks (AUTH-031 to AUTH-033). A rise in wrong_code and rate_limited is the shape of guessing an address's code.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (auth_outcome) (increase(auth_email_verifications_total[5m]))",
+          "legendFormat": "{{auth_outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 2,
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
       }
     }
   ]

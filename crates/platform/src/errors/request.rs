@@ -38,6 +38,10 @@ pub enum RequestError {
     #[error("the signed URL has expired")]
     SignedUrlExpired,
     // end part: files
+    /// The caller's account hasn't proved its email address, which the route needs, while the
+    /// deployment sends email (AUTH-025).
+    #[error("the caller's email address isn't verified")]
+    EmailUnverified,
     /// A request that changes something comes from an origin that isn't listed, or a cookie
     /// authenticates it and it names no origin (PLATFORM-059).
     #[error("the request's origin isn't allowed")]
@@ -65,6 +69,10 @@ pub enum RequestError {
     /// The request ran past its timeout (OPS-07).
     #[error("the request ran past its timeout")]
     TimedOut,
+    /// The route's feature is turned off, such as anything that needs email while the deployment
+    /// sends none (OPS-04).
+    #[error("the route's feature is turned off")]
+    FeatureDisabled,
     /// The instance is serving as many requests as it may (OPS-07).
     #[error("the instance is serving as many requests as it may")]
     Overloaded,
@@ -104,6 +112,7 @@ impl ErrorCode for RequestError {
             // part: files
             Self::SignedUrlExpired => "request.signed_url_expired",
             // end part: files
+            Self::EmailUnverified => "request.email_unverified",
             Self::OriginNotAllowed => "request.origin_not_allowed",
             Self::PermissionDenied => "request.permission_denied",
             Self::InvalidIdempotencyKey => "request.invalid_idempotency_key",
@@ -112,6 +121,7 @@ impl ErrorCode for RequestError {
             Self::PreconditionFailed => "request.precondition_failed",
             Self::RateLimited => "request.rate_limited",
             Self::TimedOut => "request.timed_out",
+            Self::FeatureDisabled => "request.feature_disabled",
             Self::Overloaded => "request.overloaded",
             Self::Unavailable => "request.unavailable",
             Self::Panicked => INTERNAL_CODE,
@@ -131,6 +141,7 @@ impl ErrorCode for RequestError {
             // part: files
             Self::SignedUrlExpired => "Signed URL expired",
             // end part: files
+            Self::EmailUnverified => "Email address not verified",
             Self::OriginNotAllowed => "Origin not allowed",
             Self::PermissionDenied => "Permission denied",
             Self::InvalidIdempotencyKey => "Invalid idempotency key",
@@ -139,6 +150,7 @@ impl ErrorCode for RequestError {
             Self::PreconditionFailed => "Precondition failed",
             Self::RateLimited => "Too many requests",
             Self::TimedOut => "Request timed out",
+            Self::FeatureDisabled => "Feature turned off",
             Self::Overloaded => "Too many requests in progress",
             Self::Unavailable => "No replica can answer",
             Self::Panicked => INTERNAL_TITLE,
@@ -158,12 +170,16 @@ impl ErrorCode for RequestError {
             // part: files
             Self::SignedUrlExpired => Category::Unauthenticated,
             // end part: files
-            Self::OriginNotAllowed | Self::PermissionDenied => Category::Forbidden,
+            Self::EmailUnverified | Self::OriginNotAllowed | Self::PermissionDenied => {
+                Category::Forbidden
+            }
             Self::IdempotencyKeyReused => Category::BusinessRule,
             Self::IdempotencyKeyInFlight => Category::Conflict,
             Self::PreconditionFailed => Category::PreconditionFailed,
             Self::RateLimited => Category::RateLimited,
-            Self::TimedOut | Self::Overloaded | Self::Unavailable => Category::Unavailable,
+            Self::TimedOut | Self::FeatureDisabled | Self::Overloaded | Self::Unavailable => {
+                Category::Unavailable
+            }
             Self::Panicked => Category::Internal,
         }
     }
@@ -184,6 +200,12 @@ impl ErrorCode for RequestError {
             Self::IdempotencyKeyInFlight => {
                 Some("The key's first request is still running: retry later.".to_owned())
             }
+            Self::EmailUnverified => Some(
+                "Verify the account's email address with the code sent to it first.".to_owned(),
+            ),
+            Self::FeatureDisabled => {
+                Some("The deployment has turned this feature off.".to_owned())
+            }
             // part: files
             Self::SignedUrlExpired => Some(
                 "The URL's time has passed: read the file again for a fresh one.".to_owned(),
@@ -201,6 +223,15 @@ impl ErrorCode for RequestError {
                 Some("The body doesn't match what the route takes.".to_owned())
             }
             _ => None,
+        }
+    }
+
+    /// An hour for a feature the deployment turned off, which only a deploy turns on again
+    /// (OPS-04), and a second for the rest.
+    fn retry_after_seconds(&self) -> u32 {
+        match self {
+            Self::FeatureDisabled => 3_600,
+            _ => 1,
         }
     }
 
@@ -284,6 +315,7 @@ impl RequestError {
         every.push(Self::SignedUrlExpired);
         // end part: files
         every.extend([
+            Self::EmailUnverified,
             Self::OriginNotAllowed,
             Self::PermissionDenied,
             Self::InvalidIdempotencyKey,
@@ -292,6 +324,7 @@ impl RequestError {
             Self::PreconditionFailed,
             Self::RateLimited,
             Self::TimedOut,
+            Self::FeatureDisabled,
             Self::Overloaded,
             Self::Unavailable,
             Self::Panicked,

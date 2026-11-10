@@ -4,3 +4,4 @@ mod devices;
 mod reauthentication;
 mod sessions;
 mod sign_in;
+mod verification;

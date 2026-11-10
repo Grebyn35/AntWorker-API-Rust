@@ -1,6 +1,6 @@
-//! The SQL of what a user's export holds of their identities, sessions and device tokens: never a
-//! password's or a token's hash (SEC-03), and filtered by the user whose export the job builds
-//! (DATA-16).
+//! The SQL of what a user's export holds of their identities, sessions, device tokens and
+//! verification codes: never a password's, a token's or a code's hash (SEC-03), and filtered by
+//! the user whose export the job builds (DATA-16).
 
 use platform::{
     db::UnitOfWork,
@@ -10,7 +10,7 @@ use platform::{
 };
 
 use crate::modules::auth::model::{
-    ExportedDeviceToken, ExportedIdentity, ExportedSession, IdentityMethod,
+    ExportedCode, ExportedDeviceToken, ExportedIdentity, ExportedSession, IdentityMethod, Purpose,
 };
 
 /// Every identity of `user`'s: one at most for each way to sign in.
@@ -99,4 +99,29 @@ pub(in crate::modules::auth) async fn device_tokens(
             expires_at: Timestamp::from_database(row.expires_at),
         })
         .collect())
+}
+
+/// Every verification code of `user`'s: one at most for each purpose.
+pub(in crate::modules::auth) async fn verification_codes(
+    uow: &mut UnitOfWork,
+    user: UserId,
+) -> Result<Vec<ExportedCode>, Internal> {
+    let rows = sqlx::query!(
+        r#"SELECT id, purpose::text AS "purpose!", created_at, expires_at FROM verification_codes
+        WHERE user_id = $1
+        ORDER BY purpose"#,
+        user.uuid(),
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(ExportedCode {
+                id: row.id,
+                purpose: Purpose::from_name(&row.purpose)?,
+                created_at: Timestamp::from_database(row.created_at),
+                expires_at: Timestamp::from_database(row.expires_at),
+            })
+        })
+        .collect()
 }

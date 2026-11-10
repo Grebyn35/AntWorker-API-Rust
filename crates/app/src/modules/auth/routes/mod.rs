@@ -1,4 +1,7 @@
-//! Registration, sign-in, refresh, and the current session (the auth spec's Routes).
+//! Registration, sign-in, refresh and the current session (the auth spec's Routes). Proving the
+//! account's email address is in `verification.rs`.
+
+mod verification;
 
 use std::sync::Arc;
 
@@ -33,14 +36,17 @@ const CURRENT_SESSION: &str = "/v1/users/me/sessions/current";
 
 /// The module's routes, which take the service as their state.
 pub(crate) fn routes() -> Routes<Arc<Auth>> {
-    Routes::new()
-        .public(routes!(register), &[&AuthError::EmailInUse])
+    verification::routes()
+        .public(
+            routes!(register),
+            &[&AuthError::EmailInUse, &LimitError::RateLimited],
+        )
         .public(routes!(sign_in), &[&AuthError::InvalidCredentials])
         .public(
             routes!(refresh),
             &[&AuthError::SessionExpired, &AuthError::InvalidRefreshToken],
         )
-        .user(routes!(current, sign_out), &[])
+        .verifying(routes!(current, sign_out), &[])
         .user(
             routes!(reauthenticate),
             &[&AuthError::WrongPassword, &LimitError::RateLimited],
@@ -198,6 +204,9 @@ pub(crate) struct SessionResponse {
     /// When its user last proved their password in it: when it began, or re-authenticated
     /// (AUTH-021).
     authenticated_at: Timestamp,
+    /// Whether its account must prove its email address, with the code sent to it, before the
+    /// API serves it anything but proving it (AUTH-025, AUTH-026).
+    email_verification_required: bool,
     /// The access token, unless the tokens went in cookies.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(nullable = false)]
@@ -226,6 +235,7 @@ impl SessionResponse {
             refresh_token_expires_at: session.refresh_token_expires_at,
             expires_at: session.expires_at,
             authenticated_at: session.authenticated_at,
+            email_verification_required: session.email_verification_required,
             access_token: tokens.map(|tokens| tokens.access.expose().clone()),
             refresh_token: tokens.map(|tokens| tokens.refresh.expose().clone()),
             device_token: device.map(|device| device.token.expose().clone()),
@@ -246,12 +256,13 @@ impl SessionResponse {
 )]
 async fn register(
     State(auth): State<Arc<Auth>>,
+    limits: RateLimits,
     client: Client,
     headers: HeaderMap,
     Json(request): Json<RegistrationRequest>,
 ) -> Result<Response, Problem<AuthError>> {
     let input = Registration::try_from(request).map_err(AuthError::from)?;
-    let (session, tokens, device) = auth.register(&client, input).await?;
+    let (session, tokens, device) = auth.register(&limits, &client, input).await?;
     Ok(created(session, &tokens, &device, delivery(&headers))?)
 }
 

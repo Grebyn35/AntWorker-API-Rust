@@ -32,6 +32,7 @@ const ACCOUNT_DATA: &[&str] = &[
     "identities",
     "sessions",
     "device_tokens",
+    "verification_codes",
     // The client of an audit entry, keyed by the user whose deletion deletes it (AUDIT-006).
     "audit_entry_clients",
     "exports",
@@ -483,6 +484,7 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
         let migrations = format!(
             "{MIGRATION}CREATE TABLE users (id uuid);\nCREATE TABLE identities (id uuid);\n\
              CREATE TABLE sessions (id uuid);\nCREATE TABLE device_tokens (id uuid);\n\
+             CREATE TABLE verification_codes (id uuid, user_id uuid);\n\
              CREATE TABLE audit_entry_clients (id uuid);\n\
              CREATE TABLE exports (id uuid, user_id uuid);\n\
              CREATE TABLE export_entries (id uuid, export_id uuid);\n\

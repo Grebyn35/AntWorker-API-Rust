@@ -91,7 +91,7 @@ The server refuses to start unless it connects as the role `app`, and that role 
 
 ### DATA-19 Least privilege in grants
 - `EXECUTE` is revoked from `PUBLIC` on every function in the application schema, including through default privileges.
-- `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no data definition statements (DDL) and no `TRUNCATE`. On `audit_entries` and `audit_entry_clients` it has only `INSERT` and `SELECT` (AUDIT-005), and on each table whose rows are never edited, and which so has no `updated_at` or `version` (DATA-02), no `UPDATE`, such as `device_tokens` (AUTH-019).
+- `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no data definition statements (DDL) and no `TRUNCATE`. On `audit_entries` and `audit_entry_clients` it has only `INSERT` and `SELECT` (AUDIT-005), and on each table whose rows are never edited, and which so has no `updated_at` or `version` (DATA-02), no `UPDATE`, such as `device_tokens` (AUTH-019) and `verification_codes` (AUTH-030).
   `export_entries` and `export_chunks` are such tables too (the accounts spec's Owns).
   So are `workspace_files`, `user_files`, `avatars`, `exported_files` and `object_deletions` (the files spec's Owns). <!-- part: files -->
   On a sequence that a mechanism of `platform` draws from, such as `events_position_seq`, it has `USAGE` alone, which takes the next value, and can't set one.

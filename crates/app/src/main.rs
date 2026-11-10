@@ -23,6 +23,7 @@ use platform::{
     },
     db::Database,
     lifecycle::{self, Readiness, Shutdown, ShutdownSignals},
+    mail::Mail,
     telemetry::{Service, names},
 };
 use tokio::{net::TcpListener, sync::watch};
@@ -171,16 +172,9 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         Ok(socket) => socket,
         Err(error) => return failed("listen", &error),
     };
-    let workers = Workers::new();
-    tracing::info!(
-        { names::WORKERS_TURNS } = workers.turns(),
-        "CPU-heavy work takes turns"
-    );
-    let resources = app::Resources {
-        database,
-        clock,
-        readiness,
-        workers,
+    let resources = match resources(database, clock, readiness, &config) {
+        Ok(resources) => resources,
+        Err(code) => return code,
     };
     let services = match app::compose(&resources, &config, modules, listener).await {
         Ok(services) => services,
@@ -233,9 +227,38 @@ async fn serve((config, modules): (ServerConfig, app::Config)) -> ExitCode {
     }
 }
 
+/// The process's resources for `serve`: `database`, `clock` and `readiness`, with the turns of
+/// CPU-heavy work, which it logs, and the deployment's emails, as `config` describes them.
+fn resources(
+    database: Database,
+    clock: SharedClock,
+    readiness: Readiness,
+    config: &ServerConfig,
+) -> Result<app::Resources, ExitCode> {
+    let workers = Workers::new();
+    tracing::info!(
+        { names::WORKERS_TURNS } = workers.turns(),
+        "CPU-heavy work takes turns"
+    );
+    let mail = Mail::new(config.mail.clone(), clock.clone())
+        .map_err(|error| failed("services", &error))?;
+    Ok(app::Resources {
+        database,
+        clock,
+        readiness,
+        workers,
+        mail,
+    })
+}
+
 /// Fills a development database through the API as `serve` builds it, without binding a port or
-/// running the jobs, and prints the accounts, their password and the workspaces (the system spec's
-/// Seed). It refuses before it connects unless `ENVIRONMENT` is development (SYSTEM-002).
+/// running a dispatcher, and prints the accounts, their password and the workspaces (the system
+/// spec's Seed). Its emails that carry a code go to an inbox of its own, which proves its accounts'
+/// addresses. It refuses before it connects unless `ENVIRONMENT` is development (SYSTEM-002).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the seed reads its accounts' codes from an inbox of its own (the system spec's Seed)"
+)]
 async fn seed((config, modules): (ServerConfig, app::Config)) -> ExitCode {
     if let Err(error) = app::seed_allowed(config.environment) {
         return failed("seed", &error);
@@ -249,18 +272,24 @@ async fn seed((config, modules): (ServerConfig, app::Config)) -> ExitCode {
         Ok(listener) => listener,
         Err(error) => return failed("listener", &error),
     };
+    let (mail, inbox) = match Mail::new(config.mail.clone(), clock.clone()) {
+        Ok(mail) => mail.with_inbox(),
+        Err(error) => return failed("services", &error),
+    };
     let resources = app::Resources {
         database,
         clock,
         readiness: Readiness::new(),
         workers: Workers::new(),
+        mail,
     };
     let services = match app::compose(&resources, &config, modules, listener).await {
         Ok(services) => services,
         Err(error) => return failed("services", &error),
     };
     let pipeline = app::pipeline(&resources, &config, &services, SERVICE);
-    match app::seed(platform::http::app(services.routes, pipeline)).await {
+    let router = platform::http::app(services.routes, pipeline);
+    match app::seed(router, &resources, &services.jobs, &inbox).await {
         Ok(report) => {
             print_seeded(&report);
             ExitCode::SUCCESS

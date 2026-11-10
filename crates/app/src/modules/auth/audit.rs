@@ -28,6 +28,13 @@ pub(super) const DEVICE_TOKEN_ISSUED: Action = Action::new("device_token.issued"
 pub(super) const SESSION_REAUTHENTICATED: Action = Action::new("session.reauthenticated");
 /// A signed-in user's password was wrong (AUTH-021).
 pub(super) const PASSWORD_CHECK_FAILED: Action = Action::new("password.check_failed");
+/// A code that proves the account's email address was issued, and sent to it (AUTH-030).
+pub(super) const VERIFICATION_CODE_ISSUED: Action = Action::new("verification_code.issued");
+/// A code that the signed-in user entered wasn't their account's (AUTH-032).
+pub(super) const VERIFICATION_CODE_CHECK_FAILED: Action =
+    Action::new("verification_code.check_failed");
+/// The account proved its email address (AUTH-031).
+pub(super) const EMAIL_VERIFIED: Action = Action::new("email.verified");
 
 /// A user's account.
 pub(super) const USER: Resource = Resource::new("user");
@@ -37,3 +44,5 @@ pub(super) const IDENTITY: Resource = Resource::new("identity");
 pub(super) const SESSION: Resource = Resource::new("session");
 /// The token that tells a sign-in from a device that signed in to the account before.
 pub(super) const DEVICE_TOKEN: Resource = Resource::new("device_token");
+/// A code sent to the account's email address, which proves that the account holds it.
+pub(super) const VERIFICATION_CODE: Resource = Resource::new("verification_code");

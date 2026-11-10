@@ -90,7 +90,7 @@ async fn accounts_008_setting_an_avatar_stores_it_records_it_and_publishes_it() 
     let response = set(&api, &ada, PNG).await;
 
     assert_eq!(response.status, 200);
-    assert_eq!(response.header("etag"), "\"2\"");
+    assert_eq!(response.header("etag"), "\"3\"");
     let body = response.json();
     assert_eq!(body["id"], ada.user_id);
     assert_eq!(body["name"], "Ada Lovelace");
@@ -144,7 +144,7 @@ async fn accounts_008_a_new_avatar_replaces_the_one_before_whose_bytes_stay() {
     let second = set(&api, &ada, gif).await;
 
     assert_eq!(second.status, 200);
-    assert_eq!(second.header("etag"), "\"3\"");
+    assert_eq!(second.header("etag"), "\"4\"");
     let url = second.json()["avatar_url"].as_str().unwrap().to_owned();
     assert_ne!(url, first);
     assert_eq!(
@@ -283,7 +283,7 @@ async fn accounts_010_removing_an_avatar_deletes_it_records_it_and_publishes_it(
     assert_eq!(download(&api, &url).await.status, 404);
     let me = api.get("/v1/users/me").bearer(&ada.access).send().await;
     assert_eq!(me.json()["avatar_url"], json!(null));
-    assert_eq!(me.header("etag"), "\"3\"");
+    assert_eq!(me.header("etag"), "\"4\"");
     let ada_id = &ada.user_id;
     let entries = db
         .owner_reads(
@@ -324,7 +324,7 @@ async fn accounts_010_removing_no_avatar_answers_204_and_changes_nothing() {
             ada.user_id
         ))
         .await;
-    assert_eq!(recorded, ["1 0 0"]);
+    assert_eq!(recorded, ["2 0 0"]);
 }
 
 #[tokio::test]

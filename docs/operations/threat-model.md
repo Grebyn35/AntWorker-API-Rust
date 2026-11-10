@@ -46,6 +46,8 @@ What the API and its reference deployment protect, from whom, and which rules an
 | A script on a page reading a browser's tokens | Browsers get their tokens only in `HttpOnly` cookies (SEC-07, AUTH-015) |
 | Another site's page acting with a browser's cookies | `SameSite=Strict` cookies, and the cross-site check of requests whose method isn't safe (SEC-07, PLATFORM-059); the headers of cross-origin resource sharing (CORS) only for listed origins (PLATFORM-058) |
 | A stolen session deleting its user's account, or guessing their password to do so | Deleting the account needs the password proved just before (AUTH-023), and every check of a signed-in user's password counts in one bucket of theirs, whatever checks it (AUTH-022, SEC-13), with each wrong one in the user's log (AUTH-021) |
+| Claiming an address one doesn't hold, by registering with it and guessing the code sent to it, which with email on would give the account what the API gives only an address's owner | A code of 6 random digits, stored only as its hash-based message authentication code (HMAC), that lasts 10 minutes and works once (SEC-03, AUTH-030, AUTH-031); 10 checks a day per account, whatever codes it asks for, about one chance in 270 a year (AUTH-033); the API serves an account nothing but proving its address until it has (AUTH-025) |
+| Flooding an address with codes' emails | 3 per 15 minutes per address, registrations and requests for a code together (AUTH-029), beside the IP and user limits |
 | Signing in with a password alone | Accepted for users, with the controls that [Second factors](#second-factors) lists; required of superadmins (D62, D63) |
 
 ### Access control

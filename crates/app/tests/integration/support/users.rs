@@ -40,11 +40,33 @@ pub fn registration(email: &str) -> Value {
     json!({ "email": email, "password": PASSWORD, "name": "Ada Lovelace" })
 }
 
-/// Registers `email`, and returns the user and their session.
+/// Registers `email`, and returns the user and their session, whose account has proved its
+/// address, as one that confirmed its first code has (AUTH-031), so a test of anything else needs
+/// no code: see [`verified`].
 pub async fn register(api: &Api, email: &str) -> SignedIn {
+    let user = register_unverified(api, email).await;
+    verified(api, &user.user_id).await;
+    user
+}
+
+/// Registers `email`, and returns the user and their session, whose account must still prove its
+/// address while email is on (AUTH-025).
+pub async fn register_unverified(api: &Api, email: &str) -> SignedIn {
     let response = api.post("/v1/users", &registration(email)).send().await;
     assert_eq!(response.status, 201, "{}", response.json());
     SignedIn::from(&response)
+}
+
+/// Makes the account of `user_id` one that proved its address, through the `owner` connection:
+/// its `email_verified` is true, and the job that would send its first code is gone, as once that
+/// job has run and its code was confirmed (AUTH-030, AUTH-031).
+pub async fn verified(api: &Api, user_id: &str) {
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE users SET email_verified = true WHERE id = '{user_id}';
+            DELETE FROM jobs WHERE kind = 'auth.send_verification_code' AND user_id = '{user_id}'"
+        ))
+        .await;
 }
 
 /// Creates an account of `email` that holds no password, as an account that a sign-in provider

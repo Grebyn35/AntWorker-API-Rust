@@ -36,7 +36,7 @@ use super::{
 use super::{signed::TakesSignedUrl, upload::UploadTurns};
 // end part: files
 use crate::{
-    authn::Authenticator,
+    authn::{Authenticator, Verifying},
     authz::Authorizer,
     clock::SharedClock,
     errors::{self, ErrorReport, FieldError, Internal, Problem, RequestError},
@@ -173,7 +173,18 @@ where
             .layer(middleware::from_fn_with_state(Arc::new(queries), query)),
     )
 }
+// end part: files
 
+/// The layers of a route that proving the caller's email address needs: a route group's, and the
+/// marker that lets `Principal` prove a caller whose account hasn't proved it (AUTH-025).
+pub(super) fn verifying_group<S>(route: MethodRouter<S>, queries: QueryNames) -> MethodRouter<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    route_group(route, queries).layer(Extension(Verifying))
+}
+
+// part: files
 /// The layers of a download route: a route group's, and the marker that lets `Principal` read a
 /// signed URL in the request's query (PLATFORM-080).
 pub(super) fn download_group<S>(route: MethodRouter<S>, queries: QueryNames) -> MethodRouter<S>

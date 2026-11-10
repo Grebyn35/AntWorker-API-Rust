@@ -230,6 +230,61 @@ async fn system_003_the_subcommand_prints_the_accounts_their_password_and_the_wo
 }
 
 #[tokio::test]
+async fn system_006_with_email_on_seed_proves_each_account_s_address() {
+    let database = TestDatabase::migrated().await;
+
+    let output = database
+        .run_api(
+            &["seed"],
+            &[("ENVIRONMENT", "development"), ("EMAIL", "smtp")],
+        )
+        .await;
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let unproven = database
+        .owner_reads("SELECT email FROM users WHERE NOT email_verified")
+        .await;
+    assert!(unproven.is_empty(), "{unproven:?}");
+    // Each account confirmed its code through the route, as a client does (AUTH-031).
+    assert_eq!(
+        database
+            .owner_reads(
+                "SELECT (SELECT count(*) FROM users)::text || ' ' \
+                 || (SELECT count(*) FROM audit_entries WHERE action = 'email.verified')"
+            )
+            .await,
+        database
+            .owner_reads(
+                "SELECT (SELECT count(*) FROM users)::text || ' ' || (SELECT count(*) FROM users)"
+            )
+            .await
+    );
+}
+
+#[tokio::test]
+async fn system_006_with_email_off_seed_confirms_nothing() {
+    let database = TestDatabase::migrated().await;
+
+    let output = database
+        .run_api(
+            &["seed"],
+            &[("ENVIRONMENT", "development"), ("EMAIL", "off")],
+        )
+        .await;
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(
+        database
+            .owner_reads(
+                "SELECT (SELECT count(*) FROM users WHERE email_verified)::text || ' ' \
+                 || (SELECT count(*) FROM jobs WHERE kind = 'auth.send_verification_code')"
+            )
+            .await,
+        ["0 0"]
+    );
+}
+
+#[tokio::test]
 async fn system_004_seed_stops_at_an_account_that_exists_and_changes_nothing_more() {
     let database = TestDatabase::migrated().await;
     seed(&database).await;

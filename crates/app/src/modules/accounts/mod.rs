@@ -12,7 +12,7 @@ mod routes;
 mod service;
 
 pub(crate) use error::AccountsError;
-pub(crate) use model::{DisplayName, PublicProfile};
+pub(crate) use model::{Address, DisplayName, PublicProfile};
 pub(crate) use routes::{export_routes, routes};
 // part: files
 pub(crate) use routes::avatar_routes;
@@ -24,4 +24,6 @@ pub(crate) use service::profile;
 pub(crate) use personal_data::Contract;
 pub(crate) use service::deletion::{Deletion, Outcome as DeletionOutcome};
 pub(crate) use service::exports::Exports;
-pub(crate) use service::{Creation, create, find_by_email, matching, me, profiles};
+pub(crate) use service::{
+    Creation, address, create, find_by_email, matching, me, profiles, verify_email,
+};

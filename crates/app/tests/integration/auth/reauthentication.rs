@@ -4,7 +4,7 @@
 use serde_json::json;
 
 use crate::support::{
-    Api,
+    Api, Options,
     api::Response,
     users::{self, PASSWORD, SignedIn},
 };
@@ -221,7 +221,9 @@ async fn auth_023_a_session_that_has_just_started_may_delete_its_account() {
 
 #[tokio::test]
 async fn auth_024_the_deletions_of_an_email_s_accounts_count_in_one_bucket_of_the_address() {
-    let api = Api::new().await;
+    // With email off, so the address's six registrations count in no bucket of theirs (AUTH-029),
+    // while each deletion still counts in its own.
+    let api = Api::with(Options::default().set("EMAIL", "off")).await;
     for _ in 0..5 {
         let ada = users::register(&api, "ada@example.com").await;
         assert_eq!(delete(&api, &ada).await.status, 204);

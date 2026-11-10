@@ -2,7 +2,9 @@
 //! spec's Seed, D28). It knows the API only through its routes, as any client does: it sends the
 //! API's router each request in process, with a JSON body and the Bearer header of the account it
 //! acts as, so every row it creates passes a client's checks and carries the audit entries and
-//! events that the request records ([system spec](../../../../../docs/spec/system.md#seed)).
+//! events that the request records ([system spec](../../../../../docs/spec/system.md#seed)). With
+//! email on, it proves each account's address with the code its registration sent, which it reads
+//! from an inbox of its own, as a client reads the code from its mailbox.
 
 use std::net::{Ipv4Addr, SocketAddr};
 
@@ -12,7 +14,10 @@ use axum::{
     extract::ConnectInfo,
     http::{Method, Request, StatusCode, header},
 };
-use platform::{config::Environment, errors::Internal};
+use platform::{
+    clock::SharedClock, config::Environment, db::Database, errors::Internal, jobs::Jobs,
+    mail::Inbox, types::EmailAddress,
+};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -33,6 +38,22 @@ pub(crate) struct Account {
     /// Its name.
     pub(crate) name: &'static str,
     access_token: String,
+    /// Whether it must still prove its address, as registering answered (AUTH-026).
+    must_verify: bool,
+}
+
+/// What the seed reads its accounts' codes with, while email is on: the API's jobs, which it runs
+/// once its accounts have registered, on the API's database and clock, and the inbox that the
+/// emails with their codes go to, rather than the mail server (the system spec's Seed).
+pub(crate) struct Mailbox<'a> {
+    /// The API's jobs, among them the one that sends a code (AUTH-030).
+    pub(crate) jobs: &'a Jobs,
+    /// The database the jobs run on.
+    pub(crate) database: &'a Database,
+    /// The clock the jobs run by.
+    pub(crate) clock: &'a SharedClock,
+    /// Where the emails with the codes go.
+    pub(crate) inbox: &'a Inbox,
 }
 
 /// What the seed created: the accounts, each with the password [`PASSWORD`], and the workspaces.
@@ -53,9 +74,10 @@ pub(crate) fn allowed(environment: Environment) -> Result<(), SystemError> {
     }
 }
 
-/// Fills the database behind `router` with the demo data (SYSTEM-003), and stops at the first
-/// account that exists already (SYSTEM-004).
-pub(crate) async fn seed(router: Router) -> Result<Seeded, SystemError> {
+/// Fills the database behind `router` with the demo data (SYSTEM-003), proving each account's
+/// address with the code that `mailbox` receives while email is on (SYSTEM-006), and stops at the
+/// first account that exists already (SYSTEM-004).
+pub(crate) async fn seed(router: Router, mailbox: Mailbox<'_>) -> Result<Seeded, SystemError> {
     let api = Api { router };
     let olivia = api.register("owner@example.com", "Olivia Owner").await?;
     let adam = api.register("admin@example.com", "Adam Admin").await?;
@@ -63,6 +85,11 @@ pub(crate) async fn seed(router: Router) -> Result<Seeded, SystemError> {
     // part: invitations
     let ian = api.register("invitee@example.com", "Ian Invitee").await?;
     // end part: invitations
+    let registered = vec![&olivia, &adam, &mia];
+    // part: invitations
+    let registered = [registered, vec![&ian]].concat();
+    // end part: invitations
+    api.verify(&mailbox, &registered).await?;
     let acme = api.create_workspace(&olivia, "Acme").await?;
     let side_project = api.create_workspace(&mia, "Side Project").await?;
     // part: invitations
@@ -113,7 +140,44 @@ impl Api {
             email,
             name,
             access_token: text(&answer, "access_token")?,
+            must_verify: answer["email_verification_required"].as_bool() == Some(true),
         })
+    }
+
+    /// Proves the address of each of `accounts` that must still prove it, with the code in the
+    /// latest email that `mailbox` received for it, once the jobs that its registration enqueued
+    /// have run (AUTH-030, AUTH-031).
+    async fn verify(
+        &self,
+        mailbox: &Mailbox<'_>,
+        accounts: &[&Account],
+    ) -> Result<(), SystemError> {
+        if !accounts.iter().any(|account| account.must_verify) {
+            return Ok(());
+        }
+        mailbox
+            .jobs
+            .run_pending(mailbox.database, mailbox.clock)
+            .await;
+        for account in accounts.iter().filter(|account| account.must_verify) {
+            let address = EmailAddress::parse(account.email)
+                .map_err(|_| SystemError::Internal(Internal::new("a seed account's address")))?;
+            let emails = mailbox.inbox.to(&address)?;
+            let code = emails
+                .last()
+                .and_then(|email| code_in(&email.text))
+                .ok_or_else(|| {
+                    SystemError::Internal(Internal::new("no code reached a seed account's inbox"))
+                })?;
+            self.send(
+                Method::POST,
+                "/v1/users/me/email/verification/confirm",
+                Some(account),
+                Some(json!({ "code": code })),
+            )
+            .await?;
+        }
+        Ok(())
     }
 
     /// Creates the workspace `name`, which `owner` owns, and returns its ID (WORKSPACES-001).
@@ -217,4 +281,10 @@ fn text(answer: &Value, field: &str) -> Result<String, SystemError> {
             "the answer has no {field}: {answer}"
         )))
     })
+}
+
+/// The code in an email's text: its one word of 6 digits (AUTH-030).
+fn code_in(text: &str) -> Option<&str> {
+    text.split_whitespace()
+        .find(|word| word.len() == 6 && word.bytes().all(|byte| byte.is_ascii_digit()))
 }

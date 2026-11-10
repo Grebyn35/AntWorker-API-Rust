@@ -243,9 +243,8 @@ impl Jobs {
     }
 
     /// Runs every queued job that is runnable now, one at a time, until none is, and returns how
-    /// many runs it made: a test's way to run the jobs its requests enqueued, without waiting
-    /// for a dispatcher's poll.
-    #[cfg(feature = "test-support")]
+    /// many runs it made: how a test, or the seed, which runs no dispatcher, runs the jobs its
+    /// requests enqueued, without waiting for a dispatcher's poll (the system spec's Seed).
     pub async fn run_pending(&self, database: &Database, clock: &SharedClock) -> usize {
         let kinds: Vec<String> = self.queued.keys().map(|kind| (*kind).to_owned()).collect();
         let mut runs = 0;

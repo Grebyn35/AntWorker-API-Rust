@@ -23,7 +23,8 @@ async fn accounts_001_the_caller_reads_their_own_record_and_no_other_user_s() {
     let response = api.get("/v1/users/me").bearer(&ada.access).send().await;
 
     assert_eq!(response.status, 200);
-    assert_eq!(response.header("etag"), "\"1\"");
+    // Proving the address, which the builder records, changed the record once (AUTH-031).
+    assert_eq!(response.header("etag"), "\"2\"");
     let record = response.json();
     // part: files
     let record = {
@@ -39,7 +40,7 @@ async fn accounts_001_the_caller_reads_their_own_record_and_no_other_user_s() {
             "id": ada.user_id,
             "email": "ada@example.com",
             "name": "Ada Lovelace",
-            "email_verified": false,
+            "email_verified": true,
         })
     );
 }
@@ -87,8 +88,9 @@ async fn accounts_003_a_display_name_is_stored_trimmed_collapsed_and_normalized(
     let response = api.post("/v1/users", &body).send().await;
 
     assert_eq!(response.status, 201);
-    let access = SignedIn::from(&response).access;
-    let me = api.get("/v1/users/me").bearer(&access).send().await;
+    let ada = SignedIn::from(&response);
+    users::verified(&api, &ada.user_id).await;
+    let me = api.get("/v1/users/me").bearer(&ada.access).send().await;
     assert_eq!(me.json()["name"], "Ren\u{e9}e Lovelace");
 }
 
@@ -148,7 +150,7 @@ async fn accounts_007_renaming_oneself_stores_the_name_records_it_and_publishes_
     assert_eq!(response.status, 200);
     assert_eq!(response.json()["id"], ada.user_id);
     assert_eq!(response.json()["name"], "Ada King");
-    assert_eq!(response.header("etag"), "\"2\"");
+    assert_eq!(response.header("etag"), "\"3\"");
     assert_eq!(stored_name(&api, &ada).await, "Ada King");
     let entries = db
         .owner_reads(
@@ -202,7 +204,7 @@ async fn accounts_007_a_rename_with_a_stale_etag_answers_412_and_changes_nothing
     assert_eq!(stale.status, 412);
     assert_eq!(stale.json()["code"], "request.precondition_failed");
     assert_eq!(current.status, 200);
-    assert_eq!(current.header("etag"), "\"3\"");
+    assert_eq!(current.header("etag"), "\"4\"");
     let recorded = api
         .database()
         .owner_reads(
@@ -248,7 +250,7 @@ async fn accounts_003_a_new_name_is_refused_unless_it_holds_a_character() {
             ada.user_id
         ))
         .await;
-    assert_eq!(stored, ["ada@example.com 1"]);
+    assert_eq!(stored, ["ada@example.com 2"]);
 }
 
 #[tokio::test]

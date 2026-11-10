@@ -482,6 +482,15 @@ async fn accounts_024_the_archive_holds_the_user_s_data_and_only_the_content_of_
  {
     let api = Api::new().await;
     let (ada, grace, own, shared) = arranged(&api).await;
+    // A code of Ada's, which a proved account holds only once a later part issues one for another
+    // purpose, so the export's document of codes has a record to show.
+    api.database()
+        .owner_executes(&format!(
+            "INSERT INTO verification_codes (user_id, purpose, code_hash, expires_at) \
+             VALUES ('{}', 'email_verification', '\\x0123abcd', now() + interval '10 minutes')",
+            ada.user_id
+        ))
+        .await;
     let id = built(&api, &ada).await;
 
     let archive = download(&api, &ada, &id, &[]).await.body;
@@ -496,6 +505,7 @@ async fn accounts_024_the_archive_holds_the_user_s_data_and_only_the_content_of_
         "auth/identities.json",
         "auth/sessions.json",
         "auth/device_tokens.json",
+        "auth/verification_codes.json",
         "audit/log.json",
         "audit/workspace_logs.json",
         "accounts/profile.json",
@@ -516,6 +526,10 @@ async fn accounts_024_the_archive_holds_the_user_s_data_and_only_the_content_of_
     assert_eq!(identities[0]["method"], "password");
     assert_eq!(document(&archive, "auth/sessions.json").len(), 1);
     assert_eq!(document(&archive, "auth/device_tokens.json").len(), 1);
+    let codes = document(&archive, "auth/verification_codes.json");
+    assert_eq!(codes.len(), 1);
+    assert_eq!(codes[0]["purpose"], "email_verification");
+    assert!(codes[0].get("code_hash").is_none());
     assert_logs(&archive, &grace, &own);
     // part: invitations
     let invited = document(&archive, "invitations/invitations.json");
@@ -532,6 +546,7 @@ async fn accounts_024_the_archive_holds_the_user_s_data_and_only_the_content_of_
         ("sessions", "access_token_hash"),
         ("sessions", "refresh_token_hash"),
         ("device_tokens", "token_hash"),
+        ("verification_codes", "code_hash"),
     ] {
         let query = format!("SELECT encode({column}, 'hex') FROM {table}");
         for hash in api.database().owner_reads(&query).await {

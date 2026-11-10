@@ -1,7 +1,9 @@
-//! The SQL of `identities`, `sessions` and `device_tokens` (ARCH-10). Every expiry comes from the
-//! database's clock (DATA-03), and a session or a device token is found by a token's hash through
-//! its unique index (DATA-16). What a user's export holds of them is in `exported.rs`.
+//! The SQL of `identities`, `sessions` and `device_tokens` (ARCH-10), with that of
+//! `verification_codes` in `codes.rs`. Every expiry comes from the database's clock (DATA-03), and
+//! a session or a device token is found by a token's hash through its unique index (DATA-16).
+//! What a user's export holds of them is in `exported.rs`.
 
+pub(super) mod codes;
 pub(super) mod exported;
 
 use platform::{
@@ -10,7 +12,7 @@ use platform::{
     types::{SessionId, Timestamp, UserId},
 };
 
-use super::model::{DeviceId, Lifetimes, Session};
+use super::model::{DeviceId, Lifetimes, StoredSession};
 
 /// A user's password identity.
 pub(super) struct PasswordIdentity {
@@ -29,7 +31,7 @@ pub(super) struct Found {
 macro_rules! session {
     ($row:expr) => {{
         let row = $row;
-        Session {
+        StoredSession {
             id: SessionId::from_uuid(row.id),
             user_id: UserId::from_uuid(row.user_id),
             device_id: row.device_id.map(DeviceId::from_stored),
@@ -122,7 +124,7 @@ pub(super) async fn insert_session(
     access: &[u8],
     refresh: &[u8],
     lifetimes: Lifetimes,
-) -> Result<Session, Internal> {
+) -> Result<StoredSession, Internal> {
     let row = sqlx::query!(
         "INSERT INTO sessions (
             user_id, device_id, access_token_hash, refresh_token_hash, access_token_expires_at,
@@ -349,7 +351,7 @@ pub(super) async fn rotate(
     access: &[u8],
     refresh: &[u8],
     lifetimes: Lifetimes,
-) -> Result<Option<Session>, Internal> {
+) -> Result<Option<StoredSession>, Internal> {
     let row = sqlx::query!(
         "UPDATE sessions SET
             access_token_hash = $4,
@@ -378,7 +380,7 @@ pub(super) async fn session(
     uow: &mut UnitOfWork,
     user_id: UserId,
     session_id: SessionId,
-) -> Result<Option<Session>, Internal> {
+) -> Result<Option<StoredSession>, Internal> {
     let row = sqlx::query!(
         "SELECT id, user_id, device_id, created_at, access_token_expires_at, refresh_token_expires_at,
             expires_at, authenticated_at
@@ -397,7 +399,7 @@ pub(super) async fn reauthenticate(
     uow: &mut UnitOfWork,
     user_id: UserId,
     session_id: SessionId,
-) -> Result<Option<Session>, Internal> {
+) -> Result<Option<StoredSession>, Internal> {
     let row = sqlx::query!(
         "UPDATE sessions SET authenticated_at = now() WHERE id = $2 AND user_id = $1
         RETURNING id, user_id, device_id, created_at, access_token_expires_at, refresh_token_expires_at,

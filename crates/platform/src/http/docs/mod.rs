@@ -65,6 +65,9 @@ enum Place {
     Unsafe,
     /// On every operation that authenticates its caller (AUTH-009).
     Authenticated,
+    /// On every operation that authenticates its caller, but those that proving the caller's
+    /// email address needs (AUTH-025).
+    Verified,
     /// On every operation that takes a body (PLATFORM-049, PLATFORM-051).
     Body,
     /// On every operation of a workspace route, which authorization guards (ACCESS-003).
@@ -79,6 +82,9 @@ enum Place {
     // end part: files
     /// Among the components' responses: the router answers it when no operation matches.
     Fallback,
+    /// On the operations whose module lists it among their errors, such as a route that needs a
+    /// feature the deployment can turn off (OPS-04).
+    Listed,
 }
 
 fn place(error: &RequestError) -> Place {
@@ -91,6 +97,8 @@ fn place(error: &RequestError) -> Place {
         | RequestError::IdempotencyKeyInFlight => Place::Keyed,
         RequestError::PreconditionFailed => Place::Conditional,
         RequestError::Unauthenticated | RequestError::AccessTokenExpired => Place::Authenticated,
+        RequestError::EmailUnverified => Place::Verified,
+        RequestError::FeatureDisabled => Place::Listed,
         // part: files
         RequestError::SignedUrlExpired => Place::Signed,
         // end part: files
@@ -111,6 +119,7 @@ fn applies(place: &Place, method: &Method, access: Access, operation: &Operation
         Place::Every => true,
         Place::Unsafe => !method.is_safe(),
         Place::Authenticated => !matches!(access, Access::Public),
+        Place::Verified => matches!(access, Access::User | Access::Workspace(_)),
         Place::Body => operation.request_body.is_some(),
         Place::Workspace => matches!(access, Access::Workspace(_)),
         Place::Keyed => takes_header(operation, IDEMPOTENCY_KEY),
@@ -118,7 +127,7 @@ fn applies(place: &Place, method: &Method, access: Access, operation: &Operation
         // part: files
         Place::Signed => query_names(operation).contains(SIGNATURE),
         // end part: files
-        Place::Fallback => false,
+        Place::Fallback | Place::Listed => false,
     }
 }
 

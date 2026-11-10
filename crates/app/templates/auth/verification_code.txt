@@ -1,0 +1,7 @@
+Enter this code in {{ email.product }} to verify your email address:
+
+{{ email.code }}
+
+It works once, for 10 minutes, and a newer code replaces it.
+
+If you didn't create a {{ email.product }} account with {{ email.to }}, ignore this email.

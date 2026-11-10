@@ -17,7 +17,7 @@ use platform::{
     http::{Origins, Pipeline, Routes},
     jobs::Jobs,
     lifecycle::Readiness,
-    mail::Mail,
+    mail::{Inbox, Mail},
     personal_data::{self, PersonalData},
     rate_limit::{Bucket, RateLimiter},
     telemetry::Service,
@@ -85,6 +85,22 @@ const DELETION_EMAIL: Bucket = Bucket {
     window: Duration::from_secs(86_400),
 };
 
+/// The bucket of the requests for a code to an email address, each of which sends the address an
+/// email: 3 in 15 minutes, fixed (AUTH-029).
+const VERIFICATION_EMAIL: Bucket = Bucket {
+    name: "verification_email",
+    limit: 3,
+    window: Duration::from_secs(900),
+};
+
+/// The bucket of each user's checks of the codes that prove their address: 10 in 24 hours,
+/// fixed (AUTH-033).
+const CODE_CHECK: Bucket = Bucket {
+    name: "code_check",
+    limit: 10,
+    window: Duration::from_secs(86_400),
+};
+
 // part: invitations
 /// The name of the per-member limit's bucket on inviting (INVITATIONS-009).
 const INVITATION_BUCKET: &str = "invitation";
@@ -137,6 +153,8 @@ impl Config {
                 )?,
                 password_check: PASSWORD_CHECK,
                 deletion_email: DELETION_EMAIL,
+                verification_email: VERIFICATION_EMAIL,
+                code_check: CODE_CHECK,
             },
             // part: files
             files: files::Settings {
@@ -175,6 +193,9 @@ pub struct Resources {
     pub readiness: Readiness,
     /// The turns of the CPU-heavy work, such as a password's hash (PLATFORM-060).
     pub workers: Workers,
+    /// The deployment's emails, which `main.rs` builds from the settings, and the seed with an
+    /// inbox of its own (the system spec's Seed).
+    pub mail: Mail,
 }
 
 /// The services the request pipeline takes from the modules.
@@ -201,14 +222,13 @@ pub async fn compose(
 ) -> Result<Services, Internal> {
     let Resources {
         database,
-        clock,
         workers,
+        mail,
         ..
     } = resources;
     let mut jobs = Jobs::new(database, server.job_dead_letter_retention);
-    let mail = Mail::new(server.mail.clone(), clock.clone())?;
     mail.register(&mut jobs).map_err(Internal::new)?;
-    let contracts = contracts(&mail);
+    let contracts = contracts(mail);
     let auth = Arc::new(
         auth::Auth::new(
             database.clone(),
@@ -216,14 +236,16 @@ pub async fn compose(
             server.hmac_key.clone(),
             workers.clone(),
             accounts::Deletion::new(contracts.clone()),
+            mail.clone(),
         )
         .await?,
     );
+    auth::register(&auth, &mut jobs).map_err(Internal::new)?;
     // part: files
     let files = Files::new(
         database.clone(),
-        Storage::new(&server.storage, clock.clone())?,
-        Scanner::new(&server.scanner, clock.clone()),
+        Storage::new(&server.storage, resources.clock.clone())?,
+        Scanner::new(&server.scanner, resources.clock.clone()),
         workers.clone(),
         SignedUrls::new(server.hmac_key.clone()),
         config.files,
@@ -392,10 +414,22 @@ pub fn seed_allowed(environment: Environment) -> Result<(), SeedError> {
     system::seed_allowed(environment).map_err(SeedError)
 }
 
-/// Fills the database behind `router`, the API as `serve` builds it, with demo accounts and
-/// workspaces, through its routes (the system spec's Seed).
-pub async fn seed(router: Router) -> Result<SeedReport, SeedError> {
-    let seeded = system::seed(router).await.map_err(SeedError)?;
+/// Fills the database behind `router`, the API as `serve` builds it on `resources`, with demo
+/// accounts and workspaces, through its routes, proving each account's address with the code in
+/// `inbox`, which `jobs` send while email is on (the system spec's Seed).
+pub async fn seed(
+    router: Router,
+    resources: &Resources,
+    jobs: &Jobs,
+    inbox: &Inbox,
+) -> Result<SeedReport, SeedError> {
+    let mailbox = system::Mailbox {
+        jobs,
+        database: &resources.database,
+        clock: &resources.clock,
+        inbox,
+    };
+    let seeded = system::seed(router, mailbox).await.map_err(SeedError)?;
     Ok(SeedReport {
         accounts: seeded
             .accounts

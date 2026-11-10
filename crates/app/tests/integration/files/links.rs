@@ -386,6 +386,25 @@ async fn auth_020_a_session_that_doesn_t_exist_proves_none() {
 }
 
 #[tokio::test]
+async fn auth_020_a_session_whose_account_must_verify_its_address_downloads_nothing() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let own = upload_own(&api, &ada, "mine.txt", b"mine", "", None)
+        .await
+        .json();
+    // The account hasn't proved its address, as one that registered while email was off hasn't
+    // once a deploy turns it on (AUTH-025).
+    api.database()
+        .owner_executes("UPDATE users SET email_verified = false")
+        .await;
+
+    let response = api.get(own["content_url"].as_str().unwrap()).send().await;
+
+    assert_eq!(response.status, 403);
+    assert_eq!(response.json()["code"], "request.email_unverified");
+}
+
+#[tokio::test]
 async fn files_021_a_list_links_each_private_file_for_the_caller_s_session() {
     let api = Api::new().await;
     let (workspace, ada, grace) = acme(&api, "member").await;

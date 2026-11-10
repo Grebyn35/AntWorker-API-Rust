@@ -12,7 +12,7 @@ use platform::{
     types::{EmailAddress, Timestamp, UserId, Version},
 };
 
-use super::model::{Current, DisplayName, ExportedProfile, Profile, PublicProfile};
+use super::model::{Address, Current, DisplayName, ExportedProfile, Profile, PublicProfile};
 
 /// Inserts a user, or `None` when another user has the email: the unique constraint
 /// `users_email_key` refuses the row, without aborting the unit of work (ACCOUNTS-004, ERR-05).
@@ -42,6 +42,32 @@ pub(super) async fn find_by_email(
         .fetch_optional(uow.executor())
         .await?;
     Ok(id.map(UserId::from_uuid))
+}
+
+/// The address of the user `id`, and whether they proved it, filtered by the user's own ID
+/// (DATA-16).
+pub(super) async fn address(uow: &mut UnitOfWork, id: UserId) -> Result<Option<Address>, Internal> {
+    let row = sqlx::query!(
+        "SELECT email, email_verified FROM users WHERE id = $1",
+        id.uuid(),
+    )
+    .fetch_optional(uow.executor())
+    .await?;
+    Ok(row.map(|row| Address {
+        email: EmailAddress::from_stored(row.email),
+        verified: row.email_verified,
+    }))
+}
+
+/// Records that the user `id` proved their address, filtered by their own ID (DATA-16).
+pub(super) async fn verify_email(uow: &mut UnitOfWork, id: UserId) -> Result<(), Internal> {
+    sqlx::query!(
+        "UPDATE users SET email_verified = true WHERE id = $1 AND NOT email_verified",
+        id.uuid(),
+    )
+    .execute(uow.executor())
+    .await?;
+    Ok(())
 }
 
 /// The record of the user `id`, with its version, filtered by the acting user's own ID

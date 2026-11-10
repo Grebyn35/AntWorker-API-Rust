@@ -7,4 +7,4 @@ mod seed;
 
 pub(crate) use error::SystemError;
 pub(crate) use routes::{Features, routes};
-pub(crate) use seed::{PASSWORD, allowed as seed_allowed, seed};
+pub(crate) use seed::{Mailbox, PASSWORD, allowed as seed_allowed, seed};

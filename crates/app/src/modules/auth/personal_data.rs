@@ -1,8 +1,9 @@
-//! The personal data contract of `identities`, `sessions` and `device_tokens` (D31): it exports
-//! them without their hashes (the accounts spec's "What an export holds"), and it deletes
-//! the user's identities, sessions and device tokens before the deletion's last step locks the
-//! user's row `FOR UPDATE`, since a sign-in locks an identity, and a refresh a session, before it
-//! reads the user's row through a foreign key (the auth spec's "Deleting an account").
+//! The personal data contract of `identities`, `sessions`, `device_tokens` and
+//! `verification_codes` (D31): it exports them without their hashes (the accounts spec's "What an
+//! export holds"), and it deletes the user's identities, sessions, device tokens and codes before
+//! the deletion's last step locks the user's row `FOR UPDATE`, since a sign-in locks an identity,
+//! a refresh a session, and a code's check its code, before it reads or changes the user's row
+//! (the auth spec's "Deleting an account").
 
 use platform::{
     authn::{BoxFuture, Principal},
@@ -22,6 +23,7 @@ impl PersonalData for Contract {
             Column::new("identities", "user_id"),
             Column::new("sessions", "user_id"),
             Column::new("device_tokens", "user_id"),
+            Column::new("verification_codes", "user_id"),
         ];
         COLUMNS
     }
@@ -58,7 +60,11 @@ impl PersonalData for Contract {
                     None => break,
                 }
             }
-            export.finish(uow, document).await
+            export.finish(uow, document).await?;
+            let codes = exported::verification_codes(uow, user).await?;
+            export
+                .whole(uow, "auth/verification_codes.json", &codes)
+                .await
         })
     }
 

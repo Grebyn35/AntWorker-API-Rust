@@ -12,6 +12,15 @@ use utoipa::{
     openapi::{ObjectBuilder, RefOr, Schema, Type},
 };
 
+/// An account's email address, and whether the account proved it (AUTH-025).
+#[derive(Clone, Debug)]
+pub(crate) struct Address {
+    /// The address.
+    pub(crate) email: EmailAddress,
+    /// Whether the account proved that it holds the address (AUTH-031).
+    pub(crate) verified: bool,
+}
+
 /// The most characters a display name has (ACCOUNTS-003).
 const NAME_MAX_CHARS: usize = 100;
 

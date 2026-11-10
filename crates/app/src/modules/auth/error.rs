@@ -36,6 +36,16 @@ pub(crate) enum AuthError {
     /// (ACCOUNTS-016).
     #[error("the account changed while it was being deleted")]
     AccountChanged,
+    /// The account proved its email address already (AUTH-028, AUTH-032).
+    #[error("the email address is verified already")]
+    EmailAlreadyVerified,
+    /// The code isn't the account's (AUTH-032).
+    #[error("the code is wrong")]
+    WrongCode,
+    /// The account has no code that lasts: its code expired, or none was issued since its last
+    /// proved one (AUTH-032).
+    #[error("the account has no code that lasts")]
+    CodeExpired,
     /// A rate limit refused the request, or couldn't count it (AUTH-006).
     #[error(transparent)]
     Limit(#[from] LimitError),
@@ -75,6 +85,9 @@ impl ErrorCode for AuthError {
             Self::ReauthenticationRequired => "auth.reauthentication_required",
             Self::OwnsSharedWorkspace => "auth.owns_shared_workspace",
             Self::AccountChanged => "auth.account_changed",
+            Self::EmailAlreadyVerified => "auth.email_already_verified",
+            Self::WrongCode => "auth.wrong_code",
+            Self::CodeExpired => "auth.code_expired",
             Self::Limit(error) => error.code(),
             Self::Request(error) => error.code(),
             Self::Internal(error) => error.code(),
@@ -91,6 +104,9 @@ impl ErrorCode for AuthError {
             Self::ReauthenticationRequired => "Re-authentication required",
             Self::OwnsSharedWorkspace => "Owner of a shared workspace",
             Self::AccountChanged => "Account changed",
+            Self::EmailAlreadyVerified => "Email address already verified",
+            Self::WrongCode => "Wrong code",
+            Self::CodeExpired => "Code expired",
             Self::Limit(error) => error.title(),
             Self::Request(error) => error.title(),
             Self::Internal(error) => error.title(),
@@ -104,7 +120,10 @@ impl ErrorCode for AuthError {
                 Category::Unauthenticated
             }
             Self::WrongPassword | Self::ReauthenticationRequired => Category::Forbidden,
-            Self::OwnsSharedWorkspace | Self::AccountChanged => Category::Conflict,
+            Self::OwnsSharedWorkspace | Self::AccountChanged | Self::EmailAlreadyVerified => {
+                Category::Conflict
+            }
+            Self::WrongCode | Self::CodeExpired => Category::BusinessRule,
             Self::Limit(error) => error.category(),
             Self::Request(error) => error.category(),
             Self::Internal(error) => error.category(),
@@ -119,6 +138,13 @@ impl ErrorCode for AuthError {
             Self::AccountChanged => Some(
                 "Another request changed the account while it was being deleted; send the \
                  deletion again."
+                    .to_owned(),
+            ),
+            Self::WrongCode => {
+                Some("The code isn't the one sent last: check it, or ask for another.".to_owned())
+            }
+            Self::CodeExpired => Some(
+                "The code's 10 minutes have passed, or a newer one replaced it: ask for another."
                     .to_owned(),
             ),
             Self::Request(error) => error.detail(),

@@ -15,6 +15,7 @@ use platform::{
     http::Routes,
     jobs::Jobs,
     lifecycle::Readiness,
+    mail::Mail,
     telemetry::{self, Service},
 };
 use serde_json::Value;
@@ -151,11 +152,13 @@ pub async fn application(
     let connection = platform::events::listen(database, clock.as_ref())
         .await
         .unwrap();
+    let mail = Mail::new(config.mail.clone(), clock.clone()).unwrap();
     let resources = app::Resources {
         database: database.clone(),
         clock,
         readiness,
         workers: Workers::new(),
+        mail,
     };
     let services = app::compose(&resources, &config, modules, connection)
         .await
@@ -237,10 +240,19 @@ impl Api {
     /// Another instance of the API, on this one's database and bucket, with the default
     /// settings, as a deployment's other replica is.
     pub async fn replica(&self) -> Self {
-        let mut options = Options::default();
+        self.instance(Options::default()).await
+    }
+    // end part: files
+
+    /// Another instance of the API, on this one's database, with `options`, as a deployment's
+    /// replica with other settings is, such as once a deploy turns email on.
+    pub async fn instance(&self, options: Options) -> Self {
+        // part: files
+        let mut options = options;
         options
             .settings
             .insert(0, ("S3_BUCKET", self.database.bucket().await));
+        // end part: files
         let clock = Arc::new(TestClock::default());
         let readiness = Readiness::new();
         let (router, document, jobs) =
@@ -255,7 +267,6 @@ impl Api {
             jobs: Arc::new(jobs),
         }
     }
-    // end part: files
 
     /// The pool the API's routes and its hub run on.
     pub fn pool(&self) -> &Database {

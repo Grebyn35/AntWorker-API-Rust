@@ -25,7 +25,7 @@ const DRAIN: Duration = Duration::from_secs(7);
 
 /// `serve` running on a free port, until the test sends the signal.
 struct Running {
-    _database: TestDatabase,
+    database: TestDatabase,
     address: SocketAddr,
     clock: Arc<TestClock>,
     gate: Arc<Gate>,
@@ -61,7 +61,7 @@ async fn start() -> Running {
         async move { received.notified().await },
     ));
     Running {
-        _database: database,
+        database,
         address,
         clock,
         gate,
@@ -167,6 +167,11 @@ async fn open_stream(address: SocketAddr, token: &str) -> TcpStream {
 async fn platform_062_once_the_delay_ends_serve_closes_the_open_streams_with_shutdown() {
     let running = start().await;
     let token = access_token(running.address).await;
+    // The account proved its address, so its stream opens (AUTH-025).
+    running
+        .database
+        .owner_executes("UPDATE users SET email_verified = true")
+        .await;
     let mut stream = open_stream(running.address, &token).await;
 
     running.signal.notify_one();

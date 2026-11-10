@@ -1,5 +1,6 @@
 //! The verifier of access tokens, which `platform::authn` asks to prove each protected request's
-//! principal (AUTH-009, AUTH-018).
+//! principal, and whether its account must still prove its email address (AUTH-009, AUTH-018,
+//! AUTH-025).
 // part: files
 //! It also proves the principal of a signed URL's session (AUTH-020).
 // end part: files
@@ -7,7 +8,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use platform::{
-    authn::{BoxFuture, Principal, SessionVerifier, Unverified},
+    authn::{BoxFuture, Principal, SessionVerifier, Unverified, Verified},
     db::UnitOfWork,
     errors::Internal,
     hashing::sha256,
@@ -25,7 +26,7 @@ impl SessionVerifier for Verifier {
         &'a self,
         token: &'a str,
         client: &'a Client,
-    ) -> BoxFuture<'a, Result<Principal, Unverified>> {
+    ) -> BoxFuture<'a, Result<Verified, Unverified>> {
         Box::pin(async move {
             let mut uow = self
                 .0
@@ -45,7 +46,7 @@ impl SessionVerifier for Verifier {
                 reason = "auth builds the principal of a verified session (the auth spec)"
             )]
             let principal = Principal::new(found.user_id, found.id);
-            Ok(principal)
+            self.0.verified(&mut uow, principal).await
         })
     }
 
@@ -55,7 +56,7 @@ impl SessionVerifier for Verifier {
         session: SessionId,
         until: time::OffsetDateTime,
         client: &'a Client,
-    ) -> BoxFuture<'a, Result<Principal, Unverified>> {
+    ) -> BoxFuture<'a, Result<Verified, Unverified>> {
         Box::pin(async move {
             let mut uow = self
                 .0
@@ -75,7 +76,7 @@ impl SessionVerifier for Verifier {
                 reason = "auth builds the principal of a session that lasts (the auth spec)"
             )]
             let principal = Principal::new(user_id, session);
-            Ok(principal)
+            self.0.verified(&mut uow, principal).await
         })
     }
     // end part: files
@@ -91,6 +92,27 @@ impl SessionVerifier for Verifier {
                 .map(|principal| (principal.user_id(), principal.session_id()))
                 .collect();
             Ok(repo::lasting(uow, &sessions).await?.into_iter().collect())
+        })
+    }
+}
+
+impl Auth {
+    /// What a verified session proves: `principal`, and whether its account must still prove its
+    /// email address, which the account's row says as `uow` reads it, so a proof counts from
+    /// the next request on (AUTH-025). An account that is gone proves none.
+    async fn verified(
+        &self,
+        uow: &mut UnitOfWork,
+        principal: Principal,
+    ) -> Result<Verified, Unverified> {
+        let must_verify_email = self
+            .must_verify(uow, principal.user_id())
+            .await
+            .map_err(Unverified::Failed)?
+            .ok_or(Unverified::Unknown)?;
+        Ok(Verified {
+            principal,
+            must_verify_email,
         })
     }
 }

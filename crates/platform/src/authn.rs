@@ -1,6 +1,8 @@
 //! Authentication: the `Principal` of a request, which the `SessionVerifier` that `auth`
 //! implements proves from the request's access token, read from the `Authorization` header or a
-//! browser's cookie (D18, D61), and the audit scope a proof gives an entry.
+//! browser's cookie (D18, D61), and the audit scope a proof gives an entry. A caller whose account
+//! must still prove its email address is refused, but on the routes that proving it needs
+//! (AUTH-025, D67).
 // part: files
 //! On a download route, the session that a signed URL names proves it instead (PLATFORM-080,
 //! D113).
@@ -170,6 +172,21 @@ impl AuditScope {
     }
 }
 
+/// What a credential proves: its principal, and whether the principal's account must still prove
+/// its email address before the API serves it anything but proving it (AUTH-025, D67).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Verified {
+    /// The caller.
+    pub principal: Principal,
+    /// Whether the deployment sends email and the caller's account hasn't proved its address.
+    pub must_verify_email: bool,
+}
+
+/// The marker of a route that proving the caller's email address needs, such as signing out,
+/// which a caller whose account must still prove it may call (AUTH-025).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Verifying;
+
 /// Why a credential proves no principal.
 #[derive(Debug)]
 pub enum Unverified {
@@ -188,24 +205,24 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// `platform` (ARCH-13).
 pub trait SessionVerifier: Send + Sync {
     /// The principal whose session holds `token` as its access token, for a request from
-    /// `client`.
+    /// `client`, and whether its account must still prove its email address.
     fn verify<'a>(
         &'a self,
         token: &'a str,
         client: &'a Client,
-    ) -> BoxFuture<'a, Result<Principal, Unverified>>;
+    ) -> BoxFuture<'a, Result<Verified, Unverified>>;
 
     // part: files
     /// The principal of the session `session`, while it lasts, for a signed URL that acts for it
     /// until `until`, for a request from `client`: [`Unverified::Expired`] once `until` has
     /// passed, by the database's clock (DATA-03), and [`Unverified::Unknown`] for a session
-    /// that doesn't last (AUTH-020).
+    /// that doesn't last (AUTH-020), and whether its account must still prove its email address.
     fn session<'a>(
         &'a self,
         session: SessionId,
         until: time::OffsetDateTime,
         client: &'a Client,
-    ) -> BoxFuture<'a, Result<Principal, Unverified>>;
+    ) -> BoxFuture<'a, Result<Verified, Unverified>>;
     // end part: files
 
     /// The sessions of `principals` that still last, read inside `uow`: those that can still be
@@ -258,11 +275,22 @@ impl<S: Send + Sync> FromRequestParts<S> for Principal {
 }
 
 impl Authenticator {
-    /// The principal that the request's credential proves, for a request from `client`.
+    /// The principal that the request's credential proves, for a request from `client`, refused
+    /// while its account must still prove its email address, but on a route that proving it
+    /// needs (AUTH-025).
     async fn prove(&self, parts: &Parts, client: &Client) -> Result<Principal, PlatformError> {
+        let verified = self.verified(parts, client).await?;
+        if verified.must_verify_email && parts.extensions.get::<Verifying>().is_none() {
+            return Err(RequestError::EmailUnverified.into());
+        }
+        Ok(verified.principal)
+    }
+
+    /// What the request's credential proves, for a request from `client`.
+    async fn verified(&self, parts: &Parts, client: &Client) -> Result<Verified, PlatformError> {
         // part: files
-        if let Some(principal) = self.signed_session(parts, client).await? {
-            return Ok(principal);
+        if let Some(verified) = self.signed_session(parts, client).await? {
+            return Ok(verified);
         }
         // end part: files
         let token = token(parts)?;
@@ -273,14 +301,14 @@ impl Authenticator {
     }
 
     // part: files
-    /// The principal of the session that the request's signed URL names, on a download route
-    /// that takes one, or none when the request holds none of the URL's parameters, so that its
+    /// What the session that the request's signed URL names proves, on a download route that
+    /// takes one, or none when the request holds none of the URL's parameters, so that its
     /// credential proves it (PLATFORM-080).
     async fn signed_session(
         &self,
         parts: &Parts,
         client: &Client,
-    ) -> Result<Option<Principal>, PlatformError> {
+    ) -> Result<Option<Verified>, PlatformError> {
         if parts.extensions.get::<TakesSignedUrl>().is_none() {
             return Ok(None);
         }

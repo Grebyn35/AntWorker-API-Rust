@@ -43,7 +43,7 @@
 
 ### Who an invitation reaches
 
-An invitation is addressed to an email, not to a user. It reaches whichever account holds the address when the invitee lists or accepts, whether or not one did when they were invited. With email on, the full `auth` module serves an account only once it has proven its address, so only the address's owner sees its invitations; with email off, an address is what its account claims ([auth spec](auth.md#email-verification), D67).
+An invitation is addressed to an email, not to a user. It reaches whichever account holds the address when the invitee lists or accepts, whether or not one did when they were invited. With email on, `auth` serves an account only once it has proved its address (AUTH-025), so only the address's owner sees its invitations; with email off, an address is what its account claims ([auth spec](auth.md#email-verification), D67).
 
 ### Inviting
 

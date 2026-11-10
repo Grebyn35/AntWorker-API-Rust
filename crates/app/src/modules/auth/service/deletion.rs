@@ -51,8 +51,8 @@ impl Auth {
 
 /// Erases what `auth` keeps of `user_id`, whose account the unit of work deletes: their
 /// identities first, which a sign-in locks before it starts a session, then their sessions, each
-/// with the signal that closes its streams, then their device tokens (the auth spec's "Deleting an
-/// account").
+/// with the signal that closes its streams, then their device tokens and their verification codes
+/// (the auth spec's "Deleting an account").
 pub(in crate::modules::auth) async fn erase(
     uow: &mut UnitOfWork,
     user_id: UserId,
@@ -68,5 +68,6 @@ pub(in crate::modules::auth) async fn erase(
         )
         .await?;
     }
-    repo::delete_device_tokens(uow, user_id).await
+    repo::delete_device_tokens(uow, user_id).await?;
+    repo::codes::delete_all(uow, user_id).await
 }

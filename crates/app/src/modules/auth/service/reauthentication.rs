@@ -57,6 +57,7 @@ impl Auth {
             ),
         )
         .await?;
+        let session = self.answer(&mut uow, session).await?;
         uow.commit().await?;
         Ok(session)
     }

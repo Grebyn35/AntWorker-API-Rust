@@ -7,10 +7,18 @@
 //! table but the queue's own. A run that sent the email and then stopped, before its success was written,
 //! leaves the job to run again, which sends a second copy with the same `Message-ID`, so the
 //! receiving system can recognize it (PLATFORM-025): no protocol sends an email exactly once.
+//!
+//! An email that holds a secret that no row may keep, such as a verification code, is sent instead
+//! by [`Mail::send_now`], from the run of the module's own job that makes the secret, so the queue
+//! never holds it (SEC-03).
 
 mod transport;
 
-use std::{fmt, sync::Arc, time::Duration};
+use std::{
+    fmt,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -73,6 +81,40 @@ impl fmt::Debug for Email {
 #[derive(Clone)]
 pub struct Mail {
     sender: Option<Arc<Sender>>,
+    /// Where the emails go in place of the mail server, for the seed (the system spec's Seed).
+    inbox: Option<Inbox>,
+}
+
+/// The emails that a [`Mail`] from [`Mail::with_inbox`] sent at once, in place of its mail server:
+/// how the seed reads an email that a request of its own sent, as a client reads its mailbox (the
+/// system spec's Seed). Clones share the emails.
+#[derive(Clone, Default)]
+pub struct Inbox(Arc<Mutex<Vec<Email>>>);
+
+impl Inbox {
+    /// The emails delivered to `to`, the oldest first.
+    pub fn to(&self, to: &EmailAddress) -> Result<Vec<Email>, Internal> {
+        let emails = self
+            .0
+            .lock()
+            .map_err(|_| Internal::new("a thread panicked while it held the inbox"))?;
+        Ok(emails
+            .iter()
+            .filter(|email| email.to.as_str() == to.as_str())
+            .cloned()
+            .collect())
+    }
+
+    /// Delivers `email` here.
+    fn deliver(&self, email: Email) -> Result<(), JobFailure> {
+        self.0
+            .lock()
+            .map_err(|_| {
+                JobFailure::Permanent(Internal::new("a thread panicked while it held the inbox"))
+            })?
+            .push(email);
+        Ok(())
+    }
 }
 
 /// The transport, and the clock that bounds each send.
@@ -108,7 +150,24 @@ impl Mail {
                 clock,
             })),
         };
-        Ok(Self { sender })
+        Ok(Self {
+            sender,
+            inbox: None,
+        })
+    }
+
+    /// The same emails, but that each one [`Mail::send_now`] sends goes to the returned inbox
+    /// rather than the mail server: the seed's, which composes the API in process and reads the
+    /// code that a registration's job sends (the system spec's Seed). What [`Mail::send`]
+    /// enqueued still goes to the mail server. Only the seed calls it; clippy bans it elsewhere.
+    #[must_use]
+    pub fn with_inbox(self) -> (Self, Inbox) {
+        let inbox = Inbox::default();
+        let mail = Self {
+            sender: self.sender,
+            inbox: Some(inbox.clone()),
+        };
+        (mail, inbox)
     }
 
     /// Whether the deployment sends email, which the capabilities endpoint reports
@@ -158,5 +217,27 @@ impl Mail {
                 "the send took longer than its timeout",
             ))),
         }
+    }
+
+    /// Sends `email` at once, with a new `Message-ID`, from the run of a job that made a secret
+    /// the email holds, such as a verification code, so no job's payload holds it (SEC-03); or
+    /// sends nothing with email off (PLATFORM-022). A failure tells the job whether its next
+    /// attempt may succeed, as `platform.send_email`'s does (PLATFORM-021). Only a job's handler
+    /// calls it, since no request waits on the mail server; clippy bans it elsewhere.
+    pub async fn send_now(&self, email: Email) -> Result<(), JobFailure> {
+        let Some(sender) = &self.sender else {
+            return Ok(());
+        };
+        let id =
+            uuid::Builder::from_random_bytes(random::bytes::<16>().map_err(JobFailure::Transient)?)
+                .into_uuid();
+        if let Some(inbox) = &self.inbox {
+            return inbox.deliver(email);
+        }
+        let delivery = Delivery {
+            message_id: format!("<{id}@{}>", sender.transport.domain()),
+            email,
+        };
+        self.deliver(delivery).await
     }
 }

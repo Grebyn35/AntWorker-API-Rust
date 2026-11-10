@@ -22,7 +22,7 @@ use super::{
     audit,
     error::AccountsError,
     events as published,
-    model::{Current, DisplayName, PublicProfile, Rename},
+    model::{Address, Current, DisplayName, PublicProfile, Rename},
     repo,
 };
 use crate::modules::{
@@ -60,6 +60,24 @@ pub(crate) async fn find_by_email(
     email: &EmailAddress,
 ) -> Result<Option<UserId>, AccountsError> {
     Ok(repo::find_by_email(uow, email).await?)
+}
+
+/// `user_id`'s address, or `None` once the account is gone. Callers pass the ID of the caller,
+/// or of the user a job runs for (DATA-16).
+pub(crate) async fn address(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+) -> Result<Option<Address>, AccountsError> {
+    Ok(repo::address(uow, user_id).await?)
+}
+
+/// Records that `user_id`'s account proved its email address (AUTH-031): its record's
+/// `email_verified` becomes true (ACCOUNTS-001). Callers pass the caller's ID (DATA-16).
+pub(crate) async fn verify_email(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+) -> Result<(), AccountsError> {
+    Ok(repo::verify_email(uow, user_id).await?)
 }
 
 /// The caller's own record, with its version, in a unit of work of its own (ACCOUNTS-001).

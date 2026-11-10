@@ -1,7 +1,7 @@
 //! Registration, sign-in, refresh and sign-out; in `reauthentication.rs`, re-authenticating; in
-//! `deletion.rs`, confirming an account's deletion; and in `verifier.rs`, the verifier of access
-//! tokens and sessions. Each operation opens its own unit of work, after any per-action limit it
-//! counts first.
+//! `deletion.rs`, confirming an account's deletion; in `verification.rs`, proving an account's
+//! email address; and in `verifier.rs`, the verifier of access tokens and sessions. Each
+//! operation opens its own unit of work, after any per-action limit it counts first.
 
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use platform::{
@@ -11,6 +11,7 @@ use platform::{
     errors::Internal,
     events::{self, AccessChange},
     hashing::{HmacKey, sha256},
+    mail::Mail,
     random,
     rate_limit::{self, Bucket, LimitError, RateLimits},
     types::{Client, EmailAddress, Secret, SessionId, UserId},
@@ -19,6 +20,7 @@ use platform::{
 mod deletion;
 mod devices;
 mod reauthentication;
+mod verification;
 mod verifier;
 
 pub(super) use deletion::erase;
@@ -28,7 +30,7 @@ use super::{
     audit,
     error::AuthError,
     metrics,
-    model::{self, DeviceId, DeviceToken, Lifetimes, Password, Session, Tokens},
+    model::{self, DeviceId, DeviceToken, Lifetimes, Password, Session, StoredSession, Tokens},
     repo,
 };
 use crate::modules::{
@@ -76,6 +78,11 @@ pub(crate) struct Settings {
     /// The bucket of the deletions of an email's accounts, each of which sends the address an
     /// email (AUTH-024).
     pub(crate) deletion_email: Bucket,
+    /// The bucket of the requests for a code to an email address, each of which sends the address
+    /// an email (AUTH-029).
+    pub(crate) verification_email: Bucket,
+    /// The bucket of each user's checks of the codes that prove their address (AUTH-033).
+    pub(crate) code_check: Bucket,
 }
 
 /// Registration, sign-in and sessions.
@@ -91,6 +98,9 @@ pub(crate) struct Auth {
     workers: Workers,
     /// What deletes an account across every module, once this module confirms it (AUTH-023).
     deletion: Deletion,
+    /// What sends the codes that prove an account's address, and says whether email is on
+    /// (AUTH-025, AUTH-030).
+    mail: Mail,
 }
 
 impl Auth {
@@ -102,6 +112,7 @@ impl Auth {
         key: HmacKey,
         workers: Workers,
         deletion: Deletion,
+        mail: Mail,
     ) -> Result<Self, Internal> {
         let dummy = Password::generated(random::token()?);
         let dummy_hash = hash(&workers, dummy).await?;
@@ -116,16 +127,28 @@ impl Auth {
             dummy_hash,
             workers,
             deletion,
+            mail,
         })
     }
 
-    /// Registers a user with a password identity and a first session, in one unit of work, and
-    /// issues their device a device token (AUTH-001, AUTH-002, AUTH-019).
+    /// Registers a user with a password identity and a first session, in one unit of work, issues
+    /// their device a device token, and, with email on, enqueues the job that sends their first
+    /// code, once the registration has counted in the bucket of the address the code goes to
+    /// (AUTH-001, AUTH-002, AUTH-019, AUTH-027, AUTH-029).
     pub(crate) async fn register(
         &self,
+        limits: &RateLimits,
         client: &Client,
         input: Registration,
     ) -> Result<(Session, Tokens, DeviceToken), AuthError> {
+        if self.mail.is_on() {
+            limits
+                .check(
+                    self.settings.verification_email,
+                    input.email.as_str().as_bytes(),
+                )
+                .await?;
+        }
         let password_hash = hash(&self.workers, input.password).await?;
         let mut uow = self.database.begin(client).await?;
         let user_id = match accounts::create(&mut uow, &input.email, &input.name).await? {
@@ -145,8 +168,9 @@ impl Auth {
         let device = self
             .issue_device_token(&mut uow, user_id, &input.email, None)
             .await?;
+        self.enqueue_code(&mut uow, &principal).await?;
         uow.commit().await?;
-        Ok((session, tokens, device))
+        Ok((session.answer(self.mail.is_on()), tokens, device))
     }
 
     /// Signs in with an email and a password (AUTH-004 to AUTH-008), issuing the device a device
@@ -237,6 +261,7 @@ impl Auth {
             Entry::new(audit::DEVICE_TOKEN_ISSUED, audit::DEVICE_TOKEN, device.id),
         )
         .await?;
+        let session = self.answer(&mut uow, session).await?;
         uow.commit().await?;
         Ok((session, tokens, device))
     }
@@ -248,7 +273,7 @@ impl Auth {
         uow: &mut UnitOfWork,
         user_id: UserId,
         device_id: Option<&DeviceId>,
-    ) -> Result<(Principal, Session, Tokens), AuthError> {
+    ) -> Result<(Principal, StoredSession, Tokens), AuthError> {
         let replaced = match device_id {
             Some(device_id) => repo::session_on_device(uow, user_id, device_id).await?,
             None => None,
@@ -325,6 +350,7 @@ impl Auth {
             Entry::new(audit::SESSION_REFRESHED, audit::SESSION, found.id.uuid()),
         )
         .await?;
+        let session = self.answer(&mut uow, session).await?;
         uow.commit().await?;
         Ok((session, tokens))
     }
@@ -336,9 +362,24 @@ impl Auth {
         principal: &Principal,
     ) -> Result<Session, AuthError> {
         let mut uow = self.database.begin(client).await?;
-        repo::session(&mut uow, principal.user_id(), principal.session_id())
+        let session = repo::session(&mut uow, principal.user_id(), principal.session_id())
             .await?
-            .ok_or_else(|| Internal::new("the caller's session doesn't exist").into())
+            .ok_or_else(|| Internal::new("the caller's session doesn't exist"))?;
+        self.answer(&mut uow, session).await
+    }
+
+    /// `session` as its client sees it, which says whether its account must still prove its
+    /// email address, as `uow` reads the account (AUTH-026).
+    async fn answer(
+        &self,
+        uow: &mut UnitOfWork,
+        session: StoredSession,
+    ) -> Result<Session, AuthError> {
+        let must_verify = self
+            .must_verify(uow, session.user_id)
+            .await?
+            .ok_or_else(|| Internal::new("the session's user doesn't exist"))?;
+        Ok(session.answer(must_verify))
     }
 
     /// Ends the session that authenticated the caller (AUTH-013).
@@ -366,7 +407,7 @@ impl Auth {
         uow: &mut UnitOfWork,
         user_id: UserId,
         device_id: Option<&DeviceId>,
-    ) -> Result<(Principal, Session, Tokens), AuthError> {
+    ) -> Result<(Principal, StoredSession, Tokens), AuthError> {
         let tokens = new_tokens()?;
         let session = repo::insert_session(
             uow,

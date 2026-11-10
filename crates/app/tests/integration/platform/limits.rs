@@ -239,8 +239,9 @@ async fn platform_057_no_bucket_holds_an_ip_address_an_email_or_a_user_id() {
         .await;
     assert_eq!(
         keys.len(),
-        4,
-        "the IP's, the user's, the email's from the address and the email's"
+        5,
+        "the IP's, the user's, the registration's of the address (AUTH-029), the email's from \
+         the address and the email's"
     );
     for key in keys {
         assert!(key.starts_with("32 "), "{key}");
