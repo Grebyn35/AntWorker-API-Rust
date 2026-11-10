@@ -1,5 +1,7 @@
-//! A user's sessions: their devices' names, their list, ending one or every other, and the
-//! events that tell the user's streams a session started or ended (AUTH-042 to AUTH-046).
+//! A user's sessions: their devices' names, their list, ending one or every other, the events
+//! that tell the user's streams a session started or ended, and the hourly job that deletes those
+//! that stopped lasting, with the answers to their tokens once it has (AUTH-042 to AUTH-047,
+//! AUTH-009, AUTH-011).
 
 use serde_json::{Value, json};
 
@@ -732,4 +734,148 @@ async fn auth_046_a_deletion_of_the_account_publishes_no_session_s_end() {
         .owner_reads("SELECT name FROM events WHERE name LIKE 'session.%'")
         .await;
     assert!(events.is_empty(), "{events:?}");
+}
+
+/// Makes `user`'s session one that stopped lasting an hour ago: its tokens and its absolute
+/// lifetime expired, a time in the past that only a test sets (TEST-09).
+async fn stopped_lasting(api: &Api, user: &SignedIn) {
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE sessions SET access_token_expires_at = now() - interval '1 hour', \
+             refresh_token_expires_at = now() - interval '1 hour', \
+             expires_at = now() - interval '1 hour' WHERE id = '{}'",
+            user.session_id
+        ))
+        .await;
+}
+
+#[tokio::test]
+async fn auth_047_the_hourly_job_deletes_every_user_s_sessions_that_stopped_lasting() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let old = sign_in_with(&api, json!({ "device_name": "Ada's old phone" })).await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let gone = users::new_session(&api, "grace@example.com").await;
+    let db = api.database();
+    stopped_lasting(&api, &old).await;
+    // A session whose refresh token alone expired has stopped lasting too (AUTH-018).
+    db.owner_executes(&format!(
+        "UPDATE sessions SET refresh_token_expires_at = now() - interval '1 second' \
+         WHERE id = '{}'",
+        gone.session_id
+    ))
+    .await;
+    db.owner_executes("DELETE FROM events").await;
+    let mut signals = db.signals().await;
+
+    api.run_periodic("auth.expire_sessions").await;
+
+    let mut left = vec![ada.session_id.clone(), grace.session_id.clone()];
+    left.sort();
+    assert_eq!(
+        db.owner_reads("SELECT id::text FROM sessions ORDER BY 1")
+            .await,
+        left
+    );
+    // Scheduled maintenance records, publishes and signals nothing.
+    let written = db
+        .owner_reads(
+            "SELECT (SELECT count(*) FROM audit_entries WHERE action = 'session.ended') \
+             || ' ' || (SELECT count(*) FROM events)",
+        )
+        .await;
+    assert_eq!(written, ["0 0"]);
+    assert!(signals.received().await.is_empty());
+}
+
+#[tokio::test]
+async fn auth_047_the_job_deletes_more_than_one_batch_and_a_second_run_nothing_more() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    // 1,500 sessions of Ada's that stopped lasting, more than one batch of 1,000.
+    db.owner_executes(&format!(
+        "INSERT INTO sessions (user_id, access_token_hash, refresh_token_hash, \
+         access_token_expires_at, refresh_token_expires_at, expires_at) \
+         SELECT '{}', sha256(('access ' || n)::bytea), sha256(('refresh ' || n)::bytea), \
+         now() - interval '1 hour', now() - interval '1 hour', now() + interval '1 day' \
+         FROM generate_series(1, 1500) AS n",
+        ada.user_id
+    ))
+    .await;
+
+    api.run_periodic("auth.expire_sessions").await;
+    let once = sessions_of(&api, &ada).await;
+    api.run_periodic("auth.expire_sessions").await;
+
+    assert_eq!(once, [ada.session_id.as_str()]);
+    assert_eq!(sessions_of(&api, &ada).await, once);
+}
+
+#[tokio::test]
+async fn auth_047_a_session_that_a_request_holds_is_left_for_the_next_run() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let held = users::new_session(&api, "ada@example.com").await;
+    let free = users::new_session(&api, "ada@example.com").await;
+    stopped_lasting(&api, &held).await;
+    stopped_lasting(&api, &free).await;
+    let db = api.database();
+    let mut request = db.owner_connection().await;
+    execute_on(&mut request, "BEGIN").await;
+    execute_on(
+        &mut request,
+        &format!(
+            "SELECT 1 FROM sessions WHERE id = '{}' FOR UPDATE",
+            held.session_id
+        ),
+    )
+    .await;
+
+    // The run waits for no lock, so it ends while the row stays held.
+    api.run_periodic("auth.expire_sessions").await;
+    let during = sessions_of(&api, &ada).await;
+    execute_on(&mut request, "COMMIT").await;
+    api.run_periodic("auth.expire_sessions").await;
+
+    let mut kept = vec![ada.session_id.clone(), held.session_id.clone()];
+    kept.sort();
+    assert_eq!(during, kept);
+    assert_eq!(sessions_of(&api, &ada).await, [ada.session_id.as_str()]);
+}
+
+#[tokio::test]
+async fn auth_011_an_expired_refresh_token_whose_session_the_job_deleted_answers_as_an_unknown_one()
+{
+    let api = Api::new().await;
+    users::register(&api, "ada@example.com").await;
+    let old = users::new_session(&api, "ada@example.com").await;
+    stopped_lasting(&api, &old).await;
+
+    let before = refresh(&api, &old.refresh).await;
+    api.run_periodic("auth.expire_sessions").await;
+    let after = refresh(&api, &old.refresh).await;
+
+    assert_eq!(before.status, 401);
+    assert_eq!(before.json()["code"], "auth.session_expired");
+    assert_eq!(after.status, 401);
+    assert_eq!(after.json()["code"], "auth.invalid_refresh_token");
+}
+
+#[tokio::test]
+async fn auth_009_an_expired_access_token_whose_session_the_job_deleted_answers_as_an_unknown_one()
+{
+    let api = Api::new().await;
+    users::register(&api, "ada@example.com").await;
+    let old = users::new_session(&api, "ada@example.com").await;
+    stopped_lasting(&api, &old).await;
+
+    let before = api.get("/v1/users/me").bearer(&old.access).send().await;
+    api.run_periodic("auth.expire_sessions").await;
+    let after = api.get("/v1/users/me").bearer(&old.access).send().await;
+
+    assert_eq!(before.status, 401);
+    assert_eq!(before.json()["code"], "request.access_token_expired");
+    assert_eq!(after.status, 401);
+    assert_eq!(after.json()["code"], "request.unauthenticated");
 }

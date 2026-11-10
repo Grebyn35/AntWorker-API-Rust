@@ -83,6 +83,7 @@ const TENANTS: &[&str] = &["workspaces"];
 /// as expiry (DATA-16).
 const CROSS_TENANT: &[&str] = &[
     "crates/app/src/modules/accounts/jobs.rs",
+    "crates/app/src/modules/auth/jobs.rs",
     // part: files
     "crates/app/src/modules/files/jobs.rs",
     // end part: files

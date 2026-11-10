@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM sessions WHERE id IN (\n                SELECT id FROM sessions WHERE refresh_token_expires_at <= now()\n                LIMIT $1 FOR UPDATE SKIP LOCKED\n            )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "64ecb84c9b66c9ff45eb5b6769b0214f59566f7c1cdc0ee6ad03015df9809423"
+}

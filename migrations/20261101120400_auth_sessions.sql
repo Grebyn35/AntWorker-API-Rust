@@ -28,6 +28,9 @@ CREATE TABLE sessions (
 -- a page at a time, and which also indexes the foreign key (DATA-05).
 CREATE INDEX sessions_user_id_created_at_id_idx ON sessions (user_id, created_at DESC, id DESC);
 
+-- The sessions whose refresh token expired, which the hourly job deletes (AUTH-047).
+CREATE INDEX sessions_refresh_token_expires_at_idx ON sessions (refresh_token_expires_at);
+
 CREATE UNIQUE INDEX sessions_user_id_device_id_key ON sessions (user_id, device_id)
 WHERE device_id IS NOT NULL;
 

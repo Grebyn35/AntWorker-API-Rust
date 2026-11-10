@@ -405,6 +405,11 @@ impl Auth {
         Ok((principal, session, tokens))
     }
 
+    /// The database, for the job that deletes the sessions that stopped lasting (AUTH-047).
+    pub(super) fn database(&self) -> Database {
+        self.database.clone()
+    }
+
     /// The start of a hash made with the current parameters, such as
     /// `$argon2id$v=19$m=19456,t=2,p=1$`: a stored hash that doesn't start with it was made with
     /// others, and is rehashed (AUTH-014).
