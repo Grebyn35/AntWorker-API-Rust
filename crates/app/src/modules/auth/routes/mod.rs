@@ -1,8 +1,10 @@
-//! Registration, sign-in, refresh and the current session (the auth spec's Routes). Proving the
-//! account's email address is in `verification.rs`, and resetting and changing the password in
-//! `password.rs`.
+//! Registration, sign-in, refresh, re-authentication and deleting the account (the auth spec's
+//! Routes). Reading, listing and ending a user's sessions, signing out among them, is in
+//! `sessions.rs`, proving the account's email address in `verification.rs`, and resetting and
+//! changing the password in `password.rs`.
 
 mod password;
+mod sessions;
 mod verification;
 
 use std::sync::Arc;
@@ -25,8 +27,11 @@ use utoipa_axum::routes;
 
 use super::{
     error::AuthError,
-    model::{DEVICE_COOKIE, DeviceId, DeviceToken, Password, Session, TokenDelivery, Tokens},
-    service::{Auth, Registration, SignIn},
+    events::{SESSION_CREATED, SESSION_ENDED},
+    model::{
+        DEVICE_COOKIE, DeviceId, DeviceName, DeviceToken, Password, Session, TokenDelivery, Tokens,
+    },
+    service::{Auth, Device, Registration, SignIn},
 };
 use crate::modules::accounts::DisplayName;
 
@@ -40,6 +45,8 @@ const CURRENT_SESSION: &str = "/v1/users/me/sessions/current";
 pub(crate) fn routes() -> Routes<Arc<Auth>> {
     verification::routes()
         .merge(password::routes())
+        .merge(sessions::routes())
+        .events(&[&SESSION_CREATED, &SESSION_ENDED])
         .public(
             routes!(register),
             &[&AuthError::EmailInUse, &LimitError::RateLimited],
@@ -49,7 +56,6 @@ pub(crate) fn routes() -> Routes<Arc<Auth>> {
             routes!(refresh),
             &[&AuthError::SessionExpired, &AuthError::InvalidRefreshToken],
         )
-        .verifying(routes!(current, sign_out), &[])
         .user(
             routes!(reauthenticate),
             &[&AuthError::WrongPassword, &LimitError::RateLimited],
@@ -82,6 +88,11 @@ pub(crate) struct RegistrationRequest {
     #[serde(default)]
     #[schema(value_type = Option<DeviceId>)]
     device_id: Option<String>,
+    /// A name for the device, such as `Ada's laptop`, which the list of the user's sessions shows
+    /// (AUTH-042).
+    #[serde(default)]
+    #[schema(value_type = Option<DeviceName>)]
+    device_name: Option<String>,
 }
 
 impl TryFrom<RegistrationRequest> for Registration {
@@ -92,15 +103,22 @@ impl TryFrom<RegistrationRequest> for Registration {
         let email = errors.check("/email", EmailAddress::parse(&request.email));
         let password = errors.check("/password", Password::parse(request.password));
         let name = errors.check("/name", DisplayName::parse(&request.name));
-        let device_id = device_id(&mut errors, request.device_id.as_deref());
-        let built = email.zip(password).zip(name).zip(device_id).map(
-            |(((email, password), name), device_id)| Self {
-                email,
-                password,
-                name,
-                device_id,
-            },
+        let device = device(
+            &mut errors,
+            request.device_id.as_deref(),
+            request.device_name.as_deref(),
         );
+        let built =
+            email
+                .zip(password)
+                .zip(name)
+                .zip(device)
+                .map(|(((email, password), name), device)| Self {
+                    email,
+                    password,
+                    name,
+                    device,
+                });
         errors.finish(built)
     }
 }
@@ -119,6 +137,11 @@ pub(crate) struct SignInRequest {
     #[serde(default)]
     #[schema(value_type = Option<DeviceId>)]
     device_id: Option<String>,
+    /// A name for the device, such as `Ada's laptop`, which the list of the user's sessions shows
+    /// (AUTH-042).
+    #[serde(default)]
+    #[schema(value_type = Option<DeviceName>)]
+    device_name: Option<String>,
     /// The device token that the account's last registration or sign-in on this device returned
     /// (AUTH-019). A browser leaves it out, and its cookie carries it. One that isn't valid for
     /// the email counts as none.
@@ -134,15 +157,19 @@ impl TryFrom<SignInRequest> for SignIn {
         let mut errors = FieldErrors::new();
         let email = errors.check("/email", EmailAddress::parse(&request.email));
         let password = errors.check("/password", Password::presented(request.password));
-        let device_id = device_id(&mut errors, request.device_id.as_deref());
+        let device = device(
+            &mut errors,
+            request.device_id.as_deref(),
+            request.device_name.as_deref(),
+        );
         let device_token = request.device_token.map(Secret::new);
         let built = email
             .zip(password)
-            .zip(device_id)
-            .map(|((email, password), device_id)| Self {
+            .zip(device)
+            .map(|((email, password), device)| Self {
                 email,
                 password,
-                device_id,
+                device,
                 device_token,
                 device_cookies: Vec::new(),
             });
@@ -150,12 +177,20 @@ impl TryFrom<SignInRequest> for SignIn {
     }
 }
 
-/// The device ID in `value`, if any: `Some(None)` without one, and `None` when it is invalid.
-fn device_id(errors: &mut FieldErrors, value: Option<&str>) -> Option<Option<DeviceId>> {
-    match value {
+/// The device of `id` and `name`, either of which may be absent, or `None` when either is
+/// invalid, which `errors` then holds.
+fn device(errors: &mut FieldErrors, id: Option<&str>, name: Option<&str>) -> Option<Device> {
+    let id = match id {
         None => Some(None),
         Some(value) => errors.check("/device_id", DeviceId::parse(value)).map(Some),
-    }
+    };
+    let name = match name {
+        None => Some(None),
+        Some(value) => errors
+            .check("/device_name", DeviceName::parse(value))
+            .map(Some),
+    };
+    id.zip(name).map(|(id, name)| Device { id, name })
 }
 
 /// What refreshing takes: the refresh token, unless a browser's cookie holds it (AUTH-010).
@@ -196,6 +231,8 @@ pub(crate) struct SessionResponse {
     user_id: UserId,
     /// The device ID the client signed in with, if any.
     device_id: Option<DeviceId>,
+    /// The name the client gave its device, if any (AUTH-042).
+    device_name: Option<DeviceName>,
     /// When the session began.
     created_at: Timestamp,
     /// When its access token expires.
@@ -233,6 +270,7 @@ impl SessionResponse {
             id: session.id,
             user_id: session.user_id,
             device_id: session.device_id,
+            device_name: session.device_name,
             created_at: session.created_at,
             access_token_expires_at: session.access_token_expires_at,
             refresh_token_expires_at: session.refresh_token_expires_at,
@@ -334,46 +372,6 @@ async fn refresh(
     Ok(response)
 }
 
-/// Reads the session that authenticated the request.
-#[utoipa::path(
-    get,
-    path = "/v1/users/me/sessions/current",
-    tag = "auth",
-    responses(
-        (status = 200, description = "The session, without its tokens.", body = Session),
-    )
-)]
-async fn current(
-    State(auth): State<Arc<Auth>>,
-    client: Client,
-    principal: Principal,
-) -> Result<axum::Json<Session>, Problem<AuthError>> {
-    Ok(axum::Json(auth.current(&client, &principal).await?))
-}
-
-/// Signs out: ends the session that authenticated the request.
-#[utoipa::path(
-    delete,
-    path = "/v1/users/me/sessions/current",
-    tag = "auth",
-    responses(
-        (status = 204, description = "The session ended."),
-    )
-)]
-async fn sign_out(
-    State(auth): State<Arc<Auth>>,
-    client: Client,
-    principal: Principal,
-) -> Result<Response, Problem<AuthError>> {
-    auth.sign_out(&client, &principal).await?;
-    let mut response = StatusCode::NO_CONTENT.into_response();
-    for name in [ACCESS_COOKIE, REFRESH_COOKIE] {
-        let cookie = expired_cookie(name).map_err(AuthError::from)?;
-        response.headers_mut().append(header::SET_COOKIE, cookie);
-    }
-    Ok(response)
-}
-
 /// Re-authenticates: proves the caller's password again in the session that authenticated the
 /// request, for an action that needs it, such as deleting the account.
 #[utoipa::path(
@@ -416,9 +414,15 @@ async fn delete_account(
     principal: Principal,
 ) -> Result<Response, Problem<AuthError>> {
     auth.delete_account(&limits, &client, &principal).await?;
+    Ok(signed_out()?)
+}
+
+/// The 204 of a request that ended the session that authenticated it, which clears a browser's
+/// session cookies (AUTH-013, AUTH-023).
+fn signed_out() -> Result<Response, AuthError> {
     let mut response = StatusCode::NO_CONTENT.into_response();
     for name in [ACCESS_COOKIE, REFRESH_COOKIE] {
-        let cookie = expired_cookie(name).map_err(AuthError::from)?;
+        let cookie = expired_cookie(name)?;
         response.headers_mut().append(header::SET_COOKIE, cookie);
     }
     Ok(response)

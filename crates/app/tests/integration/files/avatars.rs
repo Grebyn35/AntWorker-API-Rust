@@ -86,6 +86,8 @@ async fn accounts_008_setting_an_avatar_stores_it_records_it_and_publishes_it() 
     let db = api.database();
     let acme = workspaces::arrange(db, "Acme", &[(&grace.user_id, "owner")]).await;
     workspaces::join(db, &acme, &ada.user_id, "member").await;
+    // The registrations' sessions published their starts (AUTH-046).
+    db.owner_executes("DELETE FROM events").await;
 
     let response = set(&api, &ada, PNG).await;
 
@@ -311,6 +313,8 @@ async fn accounts_010_removing_an_avatar_deletes_it_records_it_and_publishes_it(
 async fn accounts_010_removing_no_avatar_answers_204_and_changes_nothing() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
+    // The registration's session published its start (AUTH-046).
+    api.database().owner_executes("DELETE FROM events").await;
 
     let response = remove(&api, &ada).await;
 

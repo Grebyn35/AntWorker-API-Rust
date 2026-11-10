@@ -44,8 +44,8 @@ pub(in crate::modules::auth) async fn sessions(
     after: Option<(time::OffsetDateTime, uuid::Uuid)>,
 ) -> Result<Vec<ExportedSession>, Internal> {
     let rows = sqlx::query!(
-        "SELECT id, device_id, created_at, updated_at, authenticated_at, access_token_expires_at,
-            refresh_token_expires_at, expires_at
+        "SELECT id, device_id, device_name, created_at, updated_at, authenticated_at,
+            access_token_expires_at, refresh_token_expires_at, expires_at
         FROM sessions
         WHERE user_id = $1 AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3))
         ORDER BY created_at DESC, id DESC
@@ -62,6 +62,7 @@ pub(in crate::modules::auth) async fn sessions(
         .map(|row| ExportedSession {
             id: row.id,
             device_id: row.device_id,
+            device_name: row.device_name,
             created_at: Timestamp::from_database(row.created_at),
             updated_at: Timestamp::from_database(row.updated_at),
             authenticated_at: Timestamp::from_database(row.authenticated_at),

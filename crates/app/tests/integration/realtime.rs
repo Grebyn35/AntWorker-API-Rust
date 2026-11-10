@@ -84,6 +84,8 @@ async fn events(stream: &mut Stream, count: usize) -> Vec<streams::Frame> {
 async fn realtime_001_a_stream_delivers_its_caller_s_events_and_their_workspaces_in_commit_order() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
+    // The registration's session published its start (AUTH-046).
+    api.database().owner_executes("DELETE FROM events").await;
     let workspace =
         workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "member")]).await;
     let mut stream = streams::connect(&api, &ada.access, None).await;
@@ -259,6 +261,8 @@ async fn realtime_004_more_than_1000_waiting_events_truncate_the_replay() {
 async fn realtime_004_an_id_the_api_doesn_t_hold_truncates_the_replay() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
+    // The registration's session published its start (AUTH-046).
+    api.database().owner_executes("DELETE FROM events").await;
 
     let mut truncated = Vec::new();
     for id in ["0190f1f3-9a4e-7c2a-9b1d-5e2f6a7b8c9d", "not-an-event"] {
@@ -286,6 +290,8 @@ async fn realtime_004_an_id_the_api_doesn_t_hold_truncates_the_replay() {
 async fn realtime_004_a_stream_that_closes_before_its_first_event_resumes_where_it_started() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
+    // The registration's session published its start (AUTH-046).
+    api.database().owner_executes("DELETE FROM events").await;
     announce(&api, &ada, 1).await;
     let mut stream = streams::connect(&api, &ada.access, None).await;
     let opened = stream.opened().await;
@@ -336,12 +342,16 @@ async fn realtime_005_signing_out_closes_that_session_s_streams_and_a_reconnect_
         .send()
         .await;
     let (_, reason) = signed_out.closed().await;
+    // The end of the session reaches the stream that stays (AUTH-046).
+    let ended = kept.event().await;
     announce(&api, &other, 1).await;
     let still = kept.event().await;
     let reconnect = streams::open_as(&api, &ada.access).await;
 
     assert_eq!(response.status, StatusCode::NO_CONTENT);
     assert_eq!(reason, "session_ended");
+    assert_eq!(ended.event.as_deref(), Some("session.ended"));
+    assert_eq!(ended.payload(), &json!({ "session_id": ada.session_id }));
     assert_eq!(still.event.as_deref(), Some("announcement.made"));
     let refused = reconnect
         .refused()

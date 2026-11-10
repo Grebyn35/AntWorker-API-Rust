@@ -456,15 +456,14 @@ async fn auth_018_a_stream_outlives_its_access_token_but_not_its_session() {
     clock.advance(RECHECK);
     let (_, reason) = ending.closed().await;
     clock.sleeping(RECHECK).await;
-    announce(
-        &api,
-        &users::new_session(&api, "grace@example.com").await,
-        1,
-    )
-    .await;
+    let again = users::new_session(&api, "grace@example.com").await;
+    announce(&api, &again, 1).await;
+    // Grace's new session's start reaches her lasting stream first (AUTH-046).
+    let started = lasting.event().await;
     let still = lasting.event().await;
 
     assert_eq!(reason, "session_ended");
+    assert_eq!(started.event.as_deref(), Some("session.created"));
     assert_eq!(still.event.as_deref(), Some("announcement.made"));
 }
 
@@ -712,7 +711,8 @@ async fn platform_034_the_hub_records_its_streams_why_it_closed_them_and_its_lag
     assert_eq!(open, Some(1.0));
     assert_eq!(closed, Some(0.0));
     assert_eq!(closes, [("shutdown".to_owned(), 1.0)]);
-    assert_eq!(lag, Some(1));
+    // The hub loaded two events: the start of Ada's session (AUTH-046), and the announcement.
+    assert_eq!(lag, Some(2));
 }
 
 #[tokio::test]
@@ -733,8 +733,12 @@ async fn platform_019_the_sweep_deletes_the_events_older_than_24_hours() {
         api.run_periodic("platform.expire_events").await;
     }
 
-    let left = api.database().owner_reads("SELECT name FROM events").await;
-    assert_eq!(left, ["announcement.made"]);
+    let left = api
+        .database()
+        .owner_reads("SELECT name FROM events ORDER BY name")
+        .await;
+    // The recent events stay: the announcement, and the start of Ada's session (AUTH-046).
+    assert_eq!(left, ["announcement.made", "session.created"]);
 }
 
 #[tokio::test]

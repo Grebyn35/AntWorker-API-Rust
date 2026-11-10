@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, device_id, created_at, updated_at, authenticated_at, access_token_expires_at,\n            refresh_token_expires_at, expires_at\n        FROM sessions\n        WHERE user_id = $1 AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3))\n        ORDER BY created_at DESC, id DESC\n        LIMIT $4",
+  "query": "SELECT id, user_id, device_id, device_name, created_at, access_token_expires_at,\n            refresh_token_expires_at, expires_at, authenticated_at\n        FROM sessions WHERE id = $2 AND user_id = $1",
   "describe": {
     "columns": [
       {
@@ -16,6 +16,17 @@
       },
       {
         "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
         "name": "device_id",
         "type_info": "Text",
         "origin": {
@@ -26,35 +37,24 @@
         }
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
+        "name": "device_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "device_name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
             "table": "sessions",
             "name": "created_at"
-          }
-        }
-      },
-      {
-        "ordinal": 3,
-        "name": "updated_at",
-        "type_info": "Timestamptz",
-        "origin": {
-          "Table": {
-            "table": "sessions",
-            "name": "updated_at"
-          }
-        }
-      },
-      {
-        "ordinal": 4,
-        "name": "authenticated_at",
-        "type_info": "Timestamptz",
-        "origin": {
-          "Table": {
-            "table": "sessions",
-            "name": "authenticated_at"
           }
         }
       },
@@ -90,20 +90,30 @@
             "name": "expires_at"
           }
         }
+      },
+      {
+        "ordinal": 8,
+        "name": "authenticated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "authenticated_at"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
-        "Timestamptz",
-        "Uuid",
-        "Int8"
+        "Uuid"
       ]
     },
     "nullable": [
       false,
-      true,
       false,
+      true,
+      true,
       false,
       false,
       false,
@@ -111,5 +121,5 @@
       false
     ]
   },
-  "hash": "b1a0bbc7f31c8141da36fcf52dad057e715ae34874322f9fb977820bd0512ab7"
+  "hash": "9733839715b9f63dabe1ad8fa6bbbcee84f19d90d54db8abab8a79cd1ff2dee9"
 }

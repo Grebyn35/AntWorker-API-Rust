@@ -22,6 +22,7 @@ impl PersonalData for Contract {
         const COLUMNS: &[Column] = &[
             Column::new("identities", "user_id"),
             Column::new("sessions", "user_id"),
+            Column::new("sessions", "device_name"),
             Column::new("device_tokens", "user_id"),
             Column::new("verification_codes", "user_id"),
         ];

@@ -6,14 +6,14 @@ use platform::{
     authn::{AuditScope, Principal},
     db::UnitOfWork,
     errors::{Internal, RequestError},
-    events::{self, AccessChange},
     jobs::JobScope,
     rate_limit::{self, LimitError, RateLimits},
-    types::{Client, EmailAddress, SessionId, UserId},
+    types::{Client, EmailAddress, UserId},
 };
 
 use super::{
     Auth, buckets, hash,
+    sessions::end_sessions,
     verification::{CODE_KIND, code_input},
 };
 use crate::modules::{
@@ -252,31 +252,4 @@ impl Auth {
         let email = PasswordChangedEmail { to }.render()?;
         self.mail.send(uow, scope, email).await
     }
-}
-
-/// Signals that each of `user_id`'s sessions in `ended` ended, so its streams close, and records
-/// each as `session.ended` in `scope` (AUTH-037, AUTH-040, D35).
-async fn end_sessions(
-    uow: &mut UnitOfWork,
-    scope: AuditScope,
-    user_id: UserId,
-    ended: &[SessionId],
-) -> Result<(), AuthError> {
-    for &session_id in ended {
-        events::signal(
-            uow,
-            AccessChange::SessionEnded {
-                user_id,
-                session_id,
-            },
-        )
-        .await?;
-        audit_log::record(
-            uow,
-            scope,
-            Entry::new(audit::SESSION_ENDED, audit::SESSION, session_id.uuid()),
-        )
-        .await?;
-    }
-    Ok(())
 }

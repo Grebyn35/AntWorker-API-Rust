@@ -3,6 +3,7 @@
 mod audit;
 mod emails;
 mod error;
+mod events;
 mod jobs;
 mod metrics;
 mod model;

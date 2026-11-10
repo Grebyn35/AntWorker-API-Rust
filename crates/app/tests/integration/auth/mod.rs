@@ -1,6 +1,7 @@
 //! Who a caller is (the auth spec).
 
 mod devices;
+mod listed;
 mod password;
 mod reauthentication;
 mod sessions;

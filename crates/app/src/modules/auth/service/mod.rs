@@ -1,8 +1,9 @@
-//! Registration, sign-in, refresh and sign-out; in `reauthentication.rs`, re-authenticating; in
+//! Registration, sign-in and refresh; in `sessions.rs`, reading, listing and ending a user's
+//! sessions, signing out among them; in `reauthentication.rs`, re-authenticating; in
 //! `deletion.rs`, confirming an account's deletion; in `verification.rs`, proving an account's
 //! email address, and the job that sends every code; in `password.rs`, resetting and changing the
-//! password; and in `verifier.rs`, the verifier of access tokens and sessions. Each
-//! operation opens its own unit of work, after any per-action limit it counts first.
+//! password; and in `verifier.rs`, the verifier of access tokens and sessions. Each operation
+//! opens its own unit of work, after any per-action limit it counts first.
 
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use platform::{
@@ -10,12 +11,11 @@ use platform::{
     blocking::Workers,
     db::{Database, UnitOfWork},
     errors::Internal,
-    events::{self, AccessChange},
     hashing::{HmacKey, sha256},
     mail::Mail,
     random,
     rate_limit::{self, Bucket, LimitError, RateLimits},
-    types::{Client, EmailAddress, Secret, SessionId, UserId},
+    types::{Client, EmailAddress, Secret, UserId},
 };
 
 mod buckets;
@@ -23,18 +23,24 @@ mod deletion;
 mod devices;
 mod password;
 mod reauthentication;
+mod sessions;
 mod verification;
 mod verifier;
 
 pub(super) use deletion::erase;
 pub(crate) use password::{PasswordChange, ResetConfirmation};
+pub(crate) use sessions::Ended;
 pub(crate) use verifier::Verifier;
 
 use super::{
     audit,
     error::AuthError,
+    events::{SESSION_CREATED, SessionChanged},
     metrics,
-    model::{self, DeviceId, DeviceToken, Lifetimes, Password, Session, StoredSession, Tokens},
+    model::{
+        self, DeviceId, DeviceName, DeviceToken, Lifetimes, Password, Session, StoredSession,
+        Tokens,
+    },
     repo,
 };
 use crate::modules::{
@@ -47,20 +53,27 @@ pub(crate) struct Registration {
     pub(crate) email: EmailAddress,
     pub(crate) password: Password,
     pub(crate) name: DisplayName,
-    pub(crate) device_id: Option<DeviceId>,
+    pub(crate) device: Device,
 }
 
 /// A sign-in's input, in domain types (AUTH-004).
 pub(crate) struct SignIn {
     pub(crate) email: EmailAddress,
     pub(crate) password: Password,
-    pub(crate) device_id: Option<DeviceId>,
+    pub(crate) device: Device,
     /// The device token the client holds, if any, which counts as none unless it is valid for the
     /// email (AUTH-019).
     pub(crate) device_token: Option<Secret<String>>,
     /// A browser's device tokens, by the names of their cookies after `__Host-`, of which the
     /// sign-in reads its email's when `device_token` is none (AUTH-015).
     pub(crate) device_cookies: Vec<(String, Secret<String>)>,
+}
+
+/// The device a registration or a sign-in comes from: its ID and its name, either of which it may
+/// leave out (AUTH-008, AUTH-042).
+pub(crate) struct Device {
+    pub(crate) id: Option<DeviceId>,
+    pub(crate) name: Option<DeviceName>,
 }
 
 /// What `auth` takes from the deployment.
@@ -148,9 +161,8 @@ impl Auth {
             Creation::EmailInUse => return Err(AuthError::EmailInUse),
         };
         repo::insert_password_identity(&mut uow, user_id, &password_hash).await?;
-        let (principal, session, tokens) = self
-            .start_session(&mut uow, user_id, input.device_id.as_ref())
-            .await?;
+        let (principal, session, tokens) =
+            self.start_session(&mut uow, user_id, &input.device).await?;
         audit_log::record(
             &mut uow,
             principal.audit_scope(),
@@ -232,7 +244,7 @@ impl Auth {
             return Err(AuthError::InvalidCredentials);
         }
         let (principal, session, tokens) = self
-            .replace_session(&mut uow, user_id, input.device_id.as_ref())
+            .replace_session(&mut uow, user_id, &input.device)
             .await?;
         if !identity.hash.starts_with(&self.current_parameters()) {
             let rehashed = hash(&self.workers, password).await?;
@@ -258,30 +270,26 @@ impl Auth {
         Ok((session, tokens, device))
     }
 
-    /// Starts a session of `user_id`, ending the one its device has, if any, through the full
-    /// sign-out path (AUTH-008).
+    /// Starts a session of `user_id` on `device`, ending the one its device has, if any, through
+    /// the full sign-out path (AUTH-008).
     async fn replace_session(
         &self,
         uow: &mut UnitOfWork,
         user_id: UserId,
-        device_id: Option<&DeviceId>,
+        device: &Device,
     ) -> Result<(Principal, StoredSession, Tokens), AuthError> {
-        let replaced = match device_id {
+        let replaced = match &device.id {
             Some(device_id) => repo::session_on_device(uow, user_id, device_id).await?,
             None => None,
         };
-        if let Some(old) = replaced {
-            end_session(uow, user_id, old).await?;
+        let mut ended = Vec::new();
+        if let Some(old) = replaced
+            && repo::delete_session(uow, user_id, old).await?
+        {
+            ended.push(old);
         }
-        let (principal, session, tokens) = self.start_session(uow, user_id, device_id).await?;
-        if let Some(old) = replaced {
-            audit_log::record(
-                uow,
-                principal.audit_scope(),
-                Entry::new(audit::SESSION_ENDED, audit::SESSION, old.uuid()),
-            )
-            .await?;
-        }
+        let (principal, session, tokens) = self.start_session(uow, user_id, device).await?;
+        sessions::end_sessions(uow, principal.audit_scope(), user_id, &ended).await?;
         audit_log::record(
             uow,
             principal.audit_scope(),
@@ -302,7 +310,9 @@ impl Auth {
         let mut uow = self.database.begin(client).await?;
         let Some(found) = repo::by_refresh_token(&mut uow, &presented).await? else {
             if let Some(reused) = repo::by_previous_refresh_token(&mut uow, &presented).await? {
-                end_session(&mut uow, reused.user_id, reused.id).await?;
+                if repo::delete_session(&mut uow, reused.user_id, reused.id).await? {
+                    sessions::close(&mut uow, reused.user_id, &[reused.id]).await?;
+                }
                 audit_log::record(
                     &mut uow,
                     AuditScope::attempt(reused.user_id),
@@ -347,19 +357,6 @@ impl Auth {
         Ok((session, tokens))
     }
 
-    /// The session that authenticated the caller (AUTH-016).
-    pub(crate) async fn current(
-        &self,
-        client: &Client,
-        principal: &Principal,
-    ) -> Result<Session, AuthError> {
-        let mut uow = self.database.begin(client).await?;
-        let session = repo::session(&mut uow, principal.user_id(), principal.session_id())
-            .await?
-            .ok_or_else(|| Internal::new("the caller's session doesn't exist"))?;
-        self.answer(&mut uow, session).await
-    }
-
     /// `session` as its client sees it, which says whether its account must still prove its
     /// email address, as `uow` reads the account (AUTH-026).
     async fn answer(
@@ -374,37 +371,19 @@ impl Auth {
         Ok(session.answer(required))
     }
 
-    /// Ends the session that authenticated the caller (AUTH-013).
-    pub(crate) async fn sign_out(
-        &self,
-        client: &Client,
-        principal: &Principal,
-    ) -> Result<(), AuthError> {
-        let mut uow = self.database.begin(client).await?;
-        let (user_id, session_id) = (principal.user_id(), principal.session_id());
-        end_session(&mut uow, user_id, session_id).await?;
-        audit_log::record(
-            &mut uow,
-            principal.audit_scope(),
-            Entry::new(audit::SESSION_ENDED, audit::SESSION, session_id.uuid()),
-        )
-        .await?;
-        uow.commit().await?;
-        Ok(())
-    }
-
-    /// Creates a session of `user_id`, with new tokens, and the principal it proves.
+    /// Creates a session of `user_id` on `device`, with new tokens, and the principal it proves,
+    /// and publishes `session.created` to the user's streams (AUTH-046).
     async fn start_session(
         &self,
         uow: &mut UnitOfWork,
         user_id: UserId,
-        device_id: Option<&DeviceId>,
+        device: &Device,
     ) -> Result<(Principal, StoredSession, Tokens), AuthError> {
         let tokens = new_tokens()?;
         let session = repo::insert_session(
             uow,
             user_id,
-            device_id,
+            (device.id.as_ref(), device.name.as_ref()),
             &sha256(tokens.access.expose().as_bytes()),
             &sha256(tokens.refresh.expose().as_bytes()),
             self.settings.lifetimes,
@@ -415,6 +394,11 @@ impl Auth {
             reason = "auth builds the principal of a session it just created (the auth spec)"
         )]
         let principal = Principal::new(user_id, session.id);
+        let payload = SessionChanged {
+            session_id: session.id,
+        };
+        uow.publish_to_user(&SESSION_CREATED, user_id, &payload)
+            .await?;
         Ok((principal, session, tokens))
     }
 
@@ -425,23 +409,6 @@ impl Auth {
         let parts: Vec<&str> = self.dummy_hash.splitn(5, '$').take(4).collect();
         format!("{}$", parts.join("$"))
     }
-}
-
-/// Deletes a session, and signals that it ended, so its streams close (AUTH-013, D35).
-async fn end_session(
-    uow: &mut UnitOfWork,
-    user_id: UserId,
-    session_id: SessionId,
-) -> Result<(), Internal> {
-    repo::delete_session(uow, user_id, session_id).await?;
-    events::signal(
-        uow,
-        AccessChange::SessionEnded {
-            user_id,
-            session_id,
-        },
-    )
-    .await
 }
 
 fn new_tokens() -> Result<Tokens, Internal> {

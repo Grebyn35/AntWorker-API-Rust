@@ -157,6 +157,8 @@ async fn platform_037_a_malformed_key_answers_400_and_keys_are_per_user() {
 async fn platform_026_a_published_event_exists_only_if_its_unit_of_work_commits() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
+    // The registration's session published its start (AUTH-046).
+    api.database().owner_executes("DELETE FROM events").await;
 
     keyed(&api, &ada, &json!({ "value": "a", "fail": true }), None).await;
     let rolled_back = api.database().owner_reads("SELECT name FROM events").await;
@@ -174,6 +176,8 @@ async fn platform_026_a_published_event_exists_only_if_its_unit_of_work_commits(
 async fn obs_07_an_event_stores_the_trace_context_that_published_it() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
+    // The registration's session published its start (AUTH-046).
+    api.database().owner_executes("DELETE FROM events").await;
 
     let response = keyed(&api, &ada, &json!({ "value": "a" }), None).await;
 

@@ -171,3 +171,14 @@ pub fn cookies(response: &Response) -> String {
         .collect::<Vec<_>>()
         .join("; ")
 }
+
+/// Each event named `name`, `session.created` or `session.ended`, as its user's ID and the ID of
+/// the session its payload names, sorted (AUTH-046).
+pub async fn session_events(api: &Api, name: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT user_id || ' ' || (payload->>'session_id') FROM events \
+             WHERE name = '{name}' ORDER BY 1"
+        ))
+        .await
+}

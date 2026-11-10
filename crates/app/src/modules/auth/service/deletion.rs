@@ -10,7 +10,7 @@ use platform::{
     types::{Client, UserId},
 };
 
-use super::{Auth, buckets};
+use super::{Auth, buckets, reauthentication::require_recent_proof};
 use crate::modules::{
     accounts::{self, DeletionOutcome},
     auth::{error::AuthError, repo},
@@ -35,12 +35,7 @@ impl Auth {
             .check(buckets::DELETION_EMAIL, email.as_str().as_bytes())
             .await?;
         let mut uow = self.database.begin(client).await?;
-        let recent =
-            repo::recently_authenticated(&mut uow, principal.user_id(), principal.session_id())
-                .await?;
-        if !recent {
-            return Err(AuthError::ReauthenticationRequired);
-        }
+        require_recent_proof(&mut uow, principal).await?;
         match self.deletion.delete(&mut uow, principal).await? {
             DeletionOutcome::Deleted => Ok(uow.commit().await?),
             DeletionOutcome::OwnsSharedWorkspace => Err(AuthError::OwnsSharedWorkspace),

@@ -144,6 +144,8 @@ async fn accounts_007_renaming_oneself_stores_the_name_records_it_and_publishes_
     workspaces::join(db, &acme, &ada.user_id, "member").await;
     let labs = workspaces::arrange(db, "Labs", &[(&ada.user_id, "owner")]).await;
     workspaces::arrange(db, "Elsewhere", &[(&grace.user_id, "owner")]).await;
+    // The registrations' sessions published their starts (AUTH-046).
+    db.owner_executes("DELETE FROM events").await;
 
     let response = rename(&api, &ada, "  Ada \t King ", None).await;
 

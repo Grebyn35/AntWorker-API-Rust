@@ -32,6 +32,8 @@ async fn create(
 async fn workspaces_001_creating_a_workspace_makes_the_caller_its_owner() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
+    // The registration's session published its start (AUTH-046).
+    api.database().owner_executes("DELETE FROM events").await;
 
     let response = create(&api, &ada, "Acme", None).await;
 
@@ -403,6 +405,8 @@ async fn workspaces_005_removing_a_member_deletes_their_membership_and_signals_i
     let db = api.database();
     let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
     workspaces::join(db, &workspace, &grace.user_id, "member").await;
+    // The registrations' sessions published their starts (AUTH-046).
+    db.owner_executes("DELETE FROM events").await;
     let mut signals = db.signals().await;
 
     let response = api
@@ -690,6 +694,8 @@ async fn workspaces_008_renaming_stores_the_name_records_it_and_publishes_it() {
     let db = api.database();
     let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
     workspaces::join(db, &workspace, &grace.user_id, "admin").await;
+    // The registrations' sessions published their starts (AUTH-046).
+    db.owner_executes("DELETE FROM events").await;
 
     let response = rename(&api, &grace, &workspace, "  Acme \t Labs ", None).await;
 

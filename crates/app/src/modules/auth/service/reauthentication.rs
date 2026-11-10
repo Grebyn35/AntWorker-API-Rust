@@ -1,5 +1,6 @@
-//! Re-authenticating a session with its user's password, and the one check of a signed-in user's
-//! password, which changing the password goes through too (AUTH-021, AUTH-022, AUTH-040, the auth
+//! Re-authenticating a session with its user's password, the one check of a signed-in user's
+//! password, which changing the password goes through too, and the check that a session proved it
+//! just before a sensitive action (AUTH-021 to AUTH-023, AUTH-040, AUTH-044, AUTH-045, the auth
 //! spec's "Re-authentication").
 
 use platform::{
@@ -20,6 +21,20 @@ use crate::modules::{
         repo,
     },
 };
+
+/// Refuses, unless the session that authenticated the caller proved their password within the
+/// last 5 minutes, by the database's clock, as its `authenticated_at` records, read in `uow`
+/// without a lock (AUTH-023, AUTH-044, AUTH-045).
+pub(super) async fn require_recent_proof(
+    uow: &mut UnitOfWork,
+    principal: &Principal,
+) -> Result<(), AuthError> {
+    if repo::recently_authenticated(uow, principal.user_id(), principal.session_id()).await? {
+        Ok(())
+    } else {
+        Err(AuthError::ReauthenticationRequired)
+    }
+}
 
 impl Auth {
     /// Re-authenticates the session that authenticated the caller with their `password`, and

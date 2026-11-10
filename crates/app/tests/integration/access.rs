@@ -267,6 +267,8 @@ async fn platform_026_an_operation_that_rolls_back_publishes_nothing() {
     let db = api.database();
     let workspace = workspaces::arrange(db, "Acme", &[(&owner.user_id, "owner")]).await;
     workspaces::join(db, &workspace, &admin.user_id, "admin").await;
+    // The registrations' sessions published their starts (AUTH-046).
+    db.owner_executes("DELETE FROM events").await;
 
     call(
         &api,

@@ -50,6 +50,9 @@ pub(crate) enum AuthError {
     /// (AUTH-038).
     #[error("the reset code resets no account's password")]
     InvalidResetCode,
+    /// None of the caller's sessions has the ID (AUTH-044).
+    #[error("no session of the caller's has the ID")]
+    SessionNotFound,
     /// A rate limit refused the request, or couldn't count it (AUTH-006).
     #[error(transparent)]
     Limit(#[from] LimitError),
@@ -93,6 +96,7 @@ impl ErrorCode for AuthError {
             Self::WrongCode => "auth.wrong_code",
             Self::CodeExpired => "auth.code_expired",
             Self::InvalidResetCode => "auth.invalid_reset_code",
+            Self::SessionNotFound => "auth.session_not_found",
             Self::Limit(error) => error.code(),
             Self::Request(error) => error.code(),
             Self::Internal(error) => error.code(),
@@ -113,6 +117,7 @@ impl ErrorCode for AuthError {
             Self::WrongCode => "Wrong code",
             Self::CodeExpired => "Code expired",
             Self::InvalidResetCode => "Invalid email or reset code",
+            Self::SessionNotFound => "Session not found",
             Self::Limit(error) => error.title(),
             Self::Request(error) => error.title(),
             Self::Internal(error) => error.title(),
@@ -131,6 +136,7 @@ impl ErrorCode for AuthError {
                 Category::Conflict
             }
             Self::WrongCode | Self::CodeExpired => Category::BusinessRule,
+            Self::SessionNotFound => Category::NotFound,
             Self::Limit(error) => error.category(),
             Self::Request(error) => error.category(),
             Self::Internal(error) => error.category(),

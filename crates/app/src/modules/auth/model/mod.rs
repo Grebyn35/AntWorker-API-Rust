@@ -1,5 +1,6 @@
 //! The domain types of sign-in (D25): passwords, device IDs and how a client takes its tokens;
-//! in `codes.rs`, the verification and reset codes sent to an account's address.
+//! in `codes.rs`, the verification and reset codes sent to an account's address; and in
+//! `sessions.rs`, a device's name and a session as a user's list of them shows it.
 
 use std::{borrow::Cow, collections::HashSet, sync::LazyLock, time::Duration};
 
@@ -14,9 +15,11 @@ use utoipa::{
 };
 
 mod codes;
+mod sessions;
 
 pub(super) use codes::{Code, Purpose};
 pub(crate) use codes::{ResetCode, VerificationCode};
+pub(crate) use sessions::{DeviceName, SessionItem};
 
 /// The fewest characters a password has (AUTH-003).
 const PASSWORD_MIN_CHARS: usize = 8;
@@ -277,6 +280,7 @@ pub(crate) struct StoredSession {
     pub(crate) id: SessionId,
     pub(crate) user_id: UserId,
     pub(crate) device_id: Option<DeviceId>,
+    pub(crate) device_name: Option<DeviceName>,
     pub(crate) created_at: Timestamp,
     pub(crate) access_token_expires_at: Timestamp,
     pub(crate) refresh_token_expires_at: Timestamp,
@@ -292,6 +296,7 @@ impl StoredSession {
             id: self.id,
             user_id: self.user_id,
             device_id: self.device_id,
+            device_name: self.device_name,
             created_at: self.created_at,
             access_token_expires_at: self.access_token_expires_at,
             refresh_token_expires_at: self.refresh_token_expires_at,
@@ -311,6 +316,8 @@ pub(crate) struct Session {
     pub(crate) user_id: UserId,
     /// The device ID the client signed in with, if any.
     pub(crate) device_id: Option<DeviceId>,
+    /// The name the client gave its device, if any (AUTH-042).
+    pub(crate) device_name: Option<DeviceName>,
     /// When the session began.
     pub(crate) created_at: Timestamp,
     /// When its access token expires.
@@ -360,6 +367,7 @@ pub(super) struct ExportedIdentity {
 pub(super) struct ExportedSession {
     pub(super) id: uuid::Uuid,
     pub(super) device_id: Option<String>,
+    pub(super) device_name: Option<String>,
     pub(super) created_at: Timestamp,
     pub(super) updated_at: Timestamp,
     pub(super) authenticated_at: Timestamp,

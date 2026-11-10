@@ -483,12 +483,14 @@ async fn accounts_024_the_archive_holds_the_user_s_data_and_only_the_content_of_
     let api = Api::new().await;
     let (ada, grace, own, shared) = arranged(&api).await;
     // A code of Ada's, which a proved account holds only once a later part issues one for another
-    // purpose, so the export's document of codes has a record to show.
+    // purpose, so the export's document of codes has a record to show, and a name for her
+    // session's device, which is personal data the export holds (AUTH-042).
     api.database()
         .owner_executes(&format!(
             "INSERT INTO verification_codes (user_id, purpose, code_hash, expires_at) \
-             VALUES ('{}', 'email_verification', '\\x0123abcd', now() + interval '10 minutes')",
-            ada.user_id
+             VALUES ('{}', 'email_verification', '\\x0123abcd', now() + interval '10 minutes'); \
+             UPDATE sessions SET device_name = 'Ada''s laptop' WHERE user_id = '{}'",
+            ada.user_id, ada.user_id
         ))
         .await;
     let id = built(&api, &ada).await;
@@ -524,7 +526,17 @@ async fn accounts_024_the_archive_holds_the_user_s_data_and_only_the_content_of_
     let identities = document(&archive, "auth/identities.json");
     assert_eq!(identities.len(), 1);
     assert_eq!(identities[0]["method"], "password");
-    assert_eq!(document(&archive, "auth/sessions.json").len(), 1);
+    let sessions = document(&archive, "auth/sessions.json");
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["id"], ada.session_id.as_str());
+    assert_eq!(sessions[0]["device_name"], "Ada's laptop");
+    for hash in [
+        "access_token_hash",
+        "refresh_token_hash",
+        "previous_refresh_token_hash",
+    ] {
+        assert!(sessions[0].get(hash).is_none(), "{hash}");
+    }
     assert_eq!(document(&archive, "auth/device_tokens.json").len(), 1);
     let codes = document(&archive, "auth/verification_codes.json");
     assert_eq!(codes.len(), 1);

@@ -571,6 +571,16 @@ async fn auth_037_the_code_resets_the_password_ends_every_session_and_starts_non
     ];
     ended.sort();
     assert_eq!(reset_entries, ended);
+    // Each session's end reaches the user's streams (AUTH-046).
+    let mut published = [
+        format!("{} {}", ada.user_id, ada.session_id),
+        format!("{} {}", ada.user_id, other.session_id),
+    ];
+    published.sort();
+    assert_eq!(
+        users::session_events(&api, "session.ended").await,
+        published
+    );
     assert_eq!(
         reset,
         format!(
@@ -860,6 +870,11 @@ async fn auth_040_changing_sets_the_password_ends_the_other_sessions_and_keeps_t
     let received: Vec<Value> = signals.received().await;
     assert_eq!(received.len(), 1);
     assert_eq!(received[0]["session_id"], other.session_id.as_str());
+    // The other session's end reaches the user's streams (AUTH-046).
+    assert_eq!(
+        users::session_events(&api, "session.ended").await,
+        [format!("{} {}", ada.user_id, other.session_id)]
+    );
     let entries = log(&api, &ada.user_id).await;
     assert_eq!(
         entries[entries.len() - 2..],
