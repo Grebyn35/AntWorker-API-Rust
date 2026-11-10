@@ -21,7 +21,7 @@ This is a Rust API built as a template to fork. Read these before changing anyth
 - **No open-ended evaluations.** Reviews follow the procedure and the stopping rule in the standards README. A conformance review runs through the `conformance-review` skill in `.claude/skills/`, which launches the `conformance-reviewer` agent in `.claude/agents/`, whose prompt is fixed.
 - **Docs and comments describe the current state only** (DOC-01, DOC-13). Edits rewrite in place. History belongs in git, architecture decision records (ADRs) and `CHANGELOG.md`.
 - **End every session with the `handoff` skill** in `.claude/skills/`, so the next session, on any machine, starts from the repository alone.
-- **A session pushes `main` when it ends.** The owner allows it without asking: once the handoff's `just ci` passes and its commit is made, the session pushes `main` and watches the CI run to its end. A push in the middle of a session still waits for the owner, as a release always does.
+- **A session pushes `main` once its commits are ready, and lets GitHub's CI run the full checks.** The owner allows it without asking, in the middle of a session as at its end: a commit is made once `just checks` passes, or, for a small change, its quick checks and the tests the change touches, and the push's CI run stands in for a local `just ci`, which takes several times as long. The session watches each run to its end, fixes a failure in a commit of its own, and cancels a queued run that a newer push makes redundant. A release still waits for the owner (below).
 - **No `TODO` or `FIXME`.** Known work is tracked as an issue, and in the tracker while the migration runs (DOC-04, DOC-07).
 - **Releases are the owner's to start.** A release makes the repository's name public in Sigstore's logs, so a session runs `just release` with a version only when the owner asks for that release. Without a version, it only shows the versions that can come next.
 - **Agents send no personal data.** An agent that may make web requests is told to put no email address, name or other personal information in any request, header or URL.
@@ -35,7 +35,7 @@ This is a Rust API built as a template to fork. Read these before changing anyth
 just setup           # checks the tools' pinned versions, and writes .env, with generated passwords
 just dev             # the API with auto-reload; `just dev observe` adds the observability stack
 just ci              # every check CI runs, the image's included
-just checks          # the checks of the code that need neither the image nor a copy of the repository: what a change runs while it is made, and `just ci` once it is done
+just checks          # the checks of the code that need neither the image nor a copy of the repository: what a change runs before its commit, while the push's CI run does the rest
 just image           # the image, for both platforms, into target/image
 just e2e             # the end-to-end tests, against the image in target/image; `just e2e obs_13` runs those whose names hold obs_13
 just release         # the versions that can come next; `just release 1.4.0` releases main as 1.4.0, once CI passes (docs/operations/release.md)

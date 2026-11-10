@@ -14,7 +14,7 @@ The caller states the scope. Without one, ask the owner.
 
 1. Pin the scope: the files in it, and each file left out with its reason, such as code the next build step rewrites.
 2. For a build-order part, settle each commitment that "Not yet carried" in `docs/inventory/decision-trace.md` gives that part: it is carried by a rule, a spec or `docs/architecture.md`, and leaves the table, or it moves to a later step, with the reason in the commit message. Reviewers check code only against what is carried, so a commitment left in the table is never checked.
-3. Make `just ci` pass. Reviewers skip what CI enforces, so it has to hold.
+3. Make CI pass: `just checks` before the pass starts, and the run of the pushed commit, which may end while the reviewers read. Reviewers skip what CI enforces, so it has to hold: a failure it reports is fixed before the pass is recorded.
 4. Fix the defects already known in the scope, so the reviewers see fixed code.
 5. List what reviewers don't report again: each row of "Known gaps" and of "Rule proposals" in `docs/MIGRATION.md`, with the findings it covers.
 
@@ -29,7 +29,7 @@ The caller states the scope. Without one, ask the owner.
 3. **Merge.** Findings that cite the same statement about the same code are one finding. Count A's findings, B's, and the ones both made. A finding is `must-fix` when either reviewer marked it so and it survived verification.
 4. **Record the pass** as a new row of "Conformance reviews" in `docs/MIGRATION.md`, before changing any code. The row's result is the outcome under "When the review stops": `next pass`, `clean`, `stopped: no progress` or `stopped: six passes`. Once the pass is acted on, the commits that acted on it follow the outcome, and their messages hold the details: each finding, its verification and its resolution (DOC-14). A commit can't name itself, so its hash goes into the row in the next commit, such as the next pass's record.
 5. **Act on the outcome:**
-   - `next pass`: fix each finding, or turn it into a proposal as the README says. A code fix comes with a test that fails before it and passes after it, wherever a test can show the defect. Run `just ci`, commit, and start the next pass with those commits as its baseline.
+   - `next pass`: fix each finding, or turn it into a proposal as the README says. A code fix comes with a test that fails before it and passes after it, wherever a test can show the defect. Run `just checks`, commit, push, and start the next pass with those commits as its baseline.
 
    A commit that acts on a pass names in its message each test it deletes or renames, with the test that proves its behavior now, since no check sees a clause lose its only test.
    - `clean`: apply the `should-fix` findings one by one, and check each. The review is complete.
@@ -46,4 +46,4 @@ The caller states the scope. Without one, ask the owner.
    - an estimate of the problems still unfound, from the last pass: (A + 1) × (B + 1) / (both + 1) − 1, minus the A + B − both findings made.
 
    A review that stopped without a clean pass says so plainly.
-4. Run `just ci` and commit.
+4. Run `just checks`, commit and push, and watch the CI run to its end.
