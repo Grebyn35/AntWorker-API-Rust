@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     api::Response,
-    lists, streams,
+    execute_on, lists, queries_wait_on_locks, streams,
     users::{self, PASSWORD, SignedIn, browser_sign_in, browsers_api, cookie},
 };
 
@@ -38,23 +38,46 @@ async fn end_others(api: &Api, user: &SignedIn) -> Response {
         .await
 }
 
+/// Sends, in a task of its own, with the access token `access`, a `POST` of `body` to `path`, or a
+/// `DELETE` of `path` without one, and gives its status and its body's JSON, or null for an empty
+/// body.
+fn spawn_request(
+    api: &Api,
+    path: &str,
+    access: &str,
+    body: Option<Value>,
+) -> tokio::task::JoinHandle<(http::StatusCode, Value)> {
+    let (api, path, access) = (api.clone(), path.to_owned(), access.to_owned());
+    tokio::spawn(async move {
+        let request = match body {
+            Some(body) => api.post(&path, &body),
+            None => api.request(http::Method::DELETE, &path),
+        };
+        let response = request.bearer(&access).send().await;
+        let body = if response.body.is_empty() {
+            Value::Null
+        } else {
+            response.json()
+        };
+        (response.status, body)
+    })
+}
+
+/// The IDs of `user`'s sessions, sorted.
+async fn sessions_of(api: &Api, user: &SignedIn) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT id::text FROM sessions WHERE user_id = '{}' ORDER BY 1",
+            user.user_id
+        ))
+        .await
+}
+
 /// Refreshes the session whose refresh token is `token`.
 async fn refresh(api: &Api, token: &str) -> Response {
     api.post("/v1/sessions/refresh", &json!({ "refresh_token": token }))
         .send()
         .await
-}
-
-/// Makes `user`'s session have proved their password 10 minutes ago, past the 5 that ending
-/// another session allows (AUTH-044).
-async fn proved_long_ago(api: &Api, user: &SignedIn) {
-    api.database()
-        .owner_executes(&format!(
-            "UPDATE sessions SET authenticated_at = now() - interval '10 minutes' \
-             WHERE id = '{}'",
-            user.session_id
-        ))
-        .await;
 }
 
 /// Whether `user`'s access token still authenticates a request.
@@ -284,7 +307,7 @@ async fn auth_044_ending_another_session_needs_a_recent_proof_then_ends_it_and_i
     let ada = users::register(&api, "ada@example.com").await;
     let phone = users::new_session(&api, "ada@example.com").await;
     let mut stream = streams::opened(&api, &phone).await;
-    proved_long_ago(&api, &ada).await;
+    users::authenticated_ago(&api, &ada, 10).await;
 
     let refused = end(&api, &ada, &phone.session_id).await;
     let still = signed_in(&api, &phone).await;
@@ -361,7 +384,7 @@ async fn auth_044_an_id_that_names_none_of_the_caller_s_sessions_answers_404_onc
     for id in [grace.session_id.as_str(), unknown, "not-a-uuid"] {
         answers.push(end(&api, &ada, id).await);
     }
-    proved_long_ago(&api, &ada).await;
+    users::authenticated_ago(&api, &ada, 10).await;
     let unproved = end(&api, &ada, "not-a-uuid").await;
 
     for answer in &answers {
@@ -416,7 +439,7 @@ async fn auth_045_ending_the_other_sessions_needs_a_recent_proof_and_keeps_the_c
             expired.session_id
         ))
         .await;
-    proved_long_ago(&api, &ada).await;
+    users::authenticated_ago(&api, &ada, 10).await;
 
     let refused = end_others(&api, &ada).await;
     let still = signed_in(&api, &phone).await;
@@ -451,6 +474,100 @@ async fn auth_045_ending_the_other_sessions_needs_a_recent_proof_and_keeps_the_c
         ))
         .await;
     assert_eq!(left, [ada.session_id.as_str()]);
+}
+
+#[tokio::test]
+async fn auth_044_an_account_that_must_verify_signs_out_through_current_alone() {
+    let api = Api::new().await;
+    let ada = users::register_unverified(&api, "ada@example.com").await;
+
+    let by_id = end(&api, &ada, &ada.session_id).await;
+    let still = api
+        .get("/v1/users/me/sessions/current")
+        .bearer(&ada.access)
+        .send()
+        .await;
+    let current = end(&api, &ada, "current").await;
+
+    assert_eq!(by_id.status, 403);
+    assert_eq!(by_id.json()["code"], "request.email_unverified");
+    assert_eq!(still.status, 200);
+    assert_eq!(current.status, 204);
+    assert!(sessions_of(&api, &ada).await.is_empty());
+}
+
+#[tokio::test]
+async fn auth_045_two_ends_of_each_other_s_sessions_take_turns_and_the_second_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let phone = users::new_session(&api, "ada@example.com").await;
+    let tablet = users::new_session(&api, "ada@example.com").await;
+    let db = api.database();
+    // A lock on the tablet's session holds the first end at its delete, once it has its proof.
+    let mut holder = db.owner_connection().await;
+    execute_on(&mut holder, "BEGIN").await;
+    execute_on(
+        &mut holder,
+        &format!(
+            "SELECT 1 FROM sessions WHERE id = '{}' FOR UPDATE",
+            tablet.session_id
+        ),
+    )
+    .await;
+    let others = "/v1/users/me/sessions/others";
+
+    let first = spawn_request(&api, others, &ada.access, None);
+    queries_wait_on_locks(db, 1).await;
+    let second = spawn_request(&api, others, &phone.access, None);
+    queries_wait_on_locks(db, 2).await;
+    execute_on(&mut holder, "COMMIT").await;
+    let (first, second) = (first.await.unwrap(), second.await.unwrap());
+
+    assert_eq!(first.0, 204);
+    // The phone's turn came once Ada's end had ended its session.
+    assert_eq!(second.0, 401);
+    assert_eq!(second.1["code"], "request.unauthenticated");
+    assert_eq!(sessions_of(&api, &ada).await, [ada.session_id.as_str()]);
+}
+
+#[tokio::test]
+async fn auth_045_a_change_of_the_password_takes_its_turn_after_an_end_of_its_session() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let phone = users::new_session(&api, "ada@example.com").await;
+    let tablet = users::new_session(&api, "ada@example.com").await;
+    let db = api.database();
+    let mut holder = db.owner_connection().await;
+    execute_on(&mut holder, "BEGIN").await;
+    execute_on(
+        &mut holder,
+        &format!(
+            "SELECT 1 FROM sessions WHERE id = '{}' FOR UPDATE",
+            tablet.session_id
+        ),
+    )
+    .await;
+    let change = json!({ "current_password": PASSWORD, "password": "lantern-orchard-58-brisk" });
+
+    let first = spawn_request(&api, "/v1/users/me/sessions/others", &ada.access, None);
+    queries_wait_on_locks(db, 1).await;
+    let second = spawn_request(
+        &api,
+        "/v1/users/me/password/change",
+        &phone.access,
+        Some(change),
+    );
+    queries_wait_on_locks(db, 2).await;
+    execute_on(&mut holder, "COMMIT").await;
+    let (first, second) = (first.await.unwrap(), second.await.unwrap());
+
+    assert_eq!(first.0, 204);
+    assert_eq!(second.0, 401);
+    assert_eq!(second.1["code"], "request.unauthenticated");
+    assert_eq!(sessions_of(&api, &ada).await, [ada.session_id.as_str()]);
+    // The change rolled back: the password is the one it had.
+    let signed_in = users::sign_in(&api, "ada@example.com", PASSWORD).await;
+    assert_eq!(signed_in.status, 201);
 }
 
 #[tokio::test]

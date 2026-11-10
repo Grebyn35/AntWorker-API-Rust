@@ -4,7 +4,7 @@
 use serde_json::{Value, json};
 
 use crate::support::{
-    Api,
+    Api, execute_on, queries_wait_on_locks,
     users::{self, PASSWORD, WEB, browser_sign_in, browsers_api, cookie, expires},
 };
 
@@ -242,6 +242,50 @@ async fn auth_012_presenting_a_rotated_refresh_token_ends_the_session() {
 }
 
 #[tokio::test]
+async fn auth_012_a_reused_token_whose_session_a_deletion_ended_first_records_nothing() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let rotated = api
+        .post(
+            "/v1/sessions/refresh",
+            &json!({ "refresh_token": ada.refresh }),
+        )
+        .send()
+        .await;
+    assert_eq!(rotated.status, 200);
+    let db = api.database();
+    // A deletion of the account that holds the session's row while the reuse waits for it.
+    let mut deletion = db.owner_connection().await;
+    execute_on(&mut deletion, "BEGIN").await;
+    execute_on(
+        &mut deletion,
+        &format!("DELETE FROM users WHERE id = '{}'", ada.user_id),
+    )
+    .await;
+
+    let reuse = tokio::spawn({
+        let api = api.clone();
+        let body = json!({ "refresh_token": ada.refresh });
+        async move {
+            let response = api.post("/v1/sessions/refresh", &body).send().await;
+            (response.status, response.json())
+        }
+    });
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, body) = reuse.await.unwrap();
+
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "auth.invalid_refresh_token");
+    let recorded = db
+        .owner_reads(
+            "SELECT count(*)::text FROM audit_entries WHERE action = 'session.reuse_detected'",
+        )
+        .await;
+    assert_eq!(recorded, ["0"]);
+}
+
+#[tokio::test]
 async fn auth_012_a_refresh_without_a_token_answers_the_same_401() {
     let api = Api::new().await;
 
@@ -382,7 +426,12 @@ async fn auth_015_a_browser_s_refresh_takes_cookies_even_with_its_token_in_the_b
 async fn auth_016_the_current_session_is_readable_without_its_tokens() {
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;
-    let body = json!({ "email": "ada@example.com", "password": PASSWORD, "device_id": "phone_2" });
+    let body = json!({
+        "email": "ada@example.com",
+        "password": PASSWORD,
+        "device_id": "phone_2",
+        "device_name": "Ada's phone",
+    });
     let signed_in = api.post("/v1/sessions", &body).send().await.json();
     let access = signed_in["access_token"].as_str().unwrap();
 
@@ -397,6 +446,7 @@ async fn auth_016_the_current_session_is_readable_without_its_tokens() {
     assert_eq!(session["id"], signed_in["id"]);
     assert_eq!(session["user_id"], signed_in["user_id"]);
     assert_eq!(session["device_id"], "phone_2");
+    assert_eq!(session["device_name"], "Ada's phone");
     assert!(session.get("access_token").is_none());
     assert!(session.get("refresh_token").is_none());
     for field in [

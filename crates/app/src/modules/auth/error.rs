@@ -25,7 +25,8 @@ pub(crate) enum AuthError {
     /// The signed-in user's password is wrong, or they have none (AUTH-021).
     #[error("the password is wrong")]
     WrongPassword,
-    /// The session hasn't proved its user's password within the last 5 minutes (AUTH-023).
+    /// The session hasn't proved its user's password within the last 5 minutes, which deleting the
+    /// account and ending another session need (AUTH-023, AUTH-044, AUTH-045).
     #[error("the action needs the password proved again")]
     ReauthenticationRequired,
     /// The user owns a workspace that has another member, so their account isn't deleted

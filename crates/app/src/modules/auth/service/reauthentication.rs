@@ -6,13 +6,14 @@
 use platform::{
     authn::Principal,
     db::UnitOfWork,
-    errors::Internal,
+    errors::{Internal, RequestError},
     rate_limit::RateLimits,
     types::{Client, UserId},
 };
 
 use super::{Auth, buckets, verify};
 use crate::modules::{
+    accounts,
     audit::{self as audit_log, Entry},
     auth::{
         audit,
@@ -24,16 +25,31 @@ use crate::modules::{
 
 /// Refuses, unless the session that authenticated the caller proved their password within the
 /// last 5 minutes, by the database's clock, as its `authenticated_at` records, read in `uow`
-/// without a lock (AUTH-023, AUTH-044, AUTH-045).
+/// without a lock (AUTH-023, AUTH-044, AUTH-045). A session that another request ended while
+/// this one waited answers 401, as a request that came after the end does (AUTH-009).
 pub(super) async fn require_recent_proof(
     uow: &mut UnitOfWork,
     principal: &Principal,
 ) -> Result<(), AuthError> {
-    if repo::recently_authenticated(uow, principal.user_id(), principal.session_id()).await? {
-        Ok(())
-    } else {
-        Err(AuthError::ReauthenticationRequired)
+    match repo::recently_authenticated(uow, principal.user_id(), principal.session_id()).await? {
+        Some(true) => Ok(()),
+        Some(false) => Err(AuthError::ReauthenticationRequired),
+        None => Err(RequestError::Unauthenticated.into()),
     }
+}
+
+/// Takes the caller's turn at ending their sessions: locks their user's row against every other
+/// change until `uow` ends, as a reset and a deletion of the account lock it first, so that two
+/// requests that each end the other's session take turns, and the second finds its own session
+/// gone (AUTH-040, AUTH-044, AUTH-045, DATA-20), and gives the user's address. A user that a
+/// deletion erased while this request waited answers 401, as the request's session went with them.
+pub(super) async fn take_turn(
+    uow: &mut UnitOfWork,
+    principal: &Principal,
+) -> Result<accounts::Address, AuthError> {
+    accounts::address_for_update(uow, principal.user_id())
+        .await?
+        .ok_or_else(|| RequestError::Unauthenticated.into())
 }
 
 impl Auth {

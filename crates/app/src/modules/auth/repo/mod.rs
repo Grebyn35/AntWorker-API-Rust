@@ -383,21 +383,20 @@ pub(super) async fn reauthenticate(
 }
 
 /// Whether the session `session_id` of `user_id` proved its user's password within the last 5
-/// minutes, by the database's clock (AUTH-023).
+/// minutes, by the database's clock, or `None` when the session is gone (AUTH-023, AUTH-044,
+/// AUTH-045).
 pub(super) async fn recently_authenticated(
     uow: &mut UnitOfWork,
     user_id: UserId,
     session_id: SessionId,
-) -> Result<bool, Internal> {
+) -> Result<Option<bool>, Internal> {
     Ok(sqlx::query_scalar!(
-        r#"SELECT EXISTS (
-            SELECT 1 FROM sessions
-            WHERE id = $2 AND user_id = $1 AND authenticated_at > now() - interval '5 minutes'
-        ) AS "recent!""#,
+        r#"SELECT authenticated_at > now() - interval '5 minutes' AS "recent!" FROM sessions
+        WHERE id = $2 AND user_id = $1"#,
         user_id.uuid(),
         session_id.uuid(),
     )
-    .fetch_one(uow.executor())
+    .fetch_optional(uow.executor())
     .await?)
 }
 

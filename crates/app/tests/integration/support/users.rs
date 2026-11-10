@@ -172,6 +172,18 @@ pub fn cookies(response: &Response) -> String {
         .join("; ")
 }
 
+/// Makes `user`'s session have proved their password `minutes` minutes ago, a time in the past
+/// that only a test sets (TEST-09), as a session that hasn't re-authenticated since (AUTH-023).
+pub async fn authenticated_ago(api: &Api, user: &SignedIn, minutes: u32) {
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE sessions SET authenticated_at = now() - make_interval(mins => {minutes}) \
+             WHERE id = '{}'",
+            user.session_id
+        ))
+        .await;
+}
+
 /// Each event named `name`, `session.created` or `session.ended`, as its user's ID and the ID of
 /// the session its payload names, sorted (AUTH-046).
 pub async fn session_events(api: &Api, name: &str) -> Vec<String> {

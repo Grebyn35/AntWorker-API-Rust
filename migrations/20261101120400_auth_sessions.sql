@@ -1,8 +1,8 @@
 -- Signed-in devices and clients (the auth spec). Each token is stored only as its SHA-256 hash,
 -- which a request's token is looked up by (AUTH-007, DATA-16). A device has at most one session
 -- per user (AUTH-008), and device_name is the name its client gave the device, if any (AUTH-042).
--- authenticated_at is when the user last proved their password in the session: when it started, or
--- re-authenticated (AUTH-021).
+-- authenticated_at is when the user last proved their password in the session: when it started,
+-- re-authenticated (AUTH-021), or changed the password (AUTH-040).
 CREATE TABLE sessions (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     user_id uuid NOT NULL,

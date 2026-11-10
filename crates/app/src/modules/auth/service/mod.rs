@@ -309,10 +309,13 @@ impl Auth {
         let presented = sha256(token.as_bytes());
         let mut uow = self.database.begin(client).await?;
         let Some(found) = repo::by_refresh_token(&mut uow, &presented).await? else {
-            if let Some(reused) = repo::by_previous_refresh_token(&mut uow, &presented).await? {
-                if repo::delete_session(&mut uow, reused.user_id, reused.id).await? {
-                    sessions::close(&mut uow, reused.user_id, &[reused.id]).await?;
-                }
+            // A session that another request ended first, as a deletion of its account does,
+            // leaves the token naming none, which records nothing (the auth spec's "A user's
+            // sessions").
+            if let Some(reused) = repo::by_previous_refresh_token(&mut uow, &presented).await?
+                && repo::delete_session(&mut uow, reused.user_id, reused.id).await?
+            {
+                sessions::close(&mut uow, reused.user_id, &[reused.id]).await?;
                 audit_log::record(
                     &mut uow,
                     AuditScope::attempt(reused.user_id),

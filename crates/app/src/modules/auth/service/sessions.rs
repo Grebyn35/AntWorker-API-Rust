@@ -12,7 +12,10 @@ use platform::{
     types::{Client, SessionId, UserId},
 };
 
-use super::{Auth, reauthentication::require_recent_proof};
+use super::{
+    Auth,
+    reauthentication::{require_recent_proof, take_turn},
+};
 use crate::modules::{
     audit::{self as audit_log, Entry},
     auth::{
@@ -83,7 +86,7 @@ impl Auth {
 
     /// Ends the caller's session `id`, which `None` gives for a path ID that isn't a UUID: their
     /// own, which signs them out, or, once their session proved their password within the last 5
-    /// minutes, another (AUTH-044, PLATFORM-072).
+    /// minutes, another, at their turn at ending their sessions (AUTH-044, PLATFORM-072).
     pub(crate) async fn end_session(
         &self,
         client: &Client,
@@ -95,6 +98,7 @@ impl Auth {
             return Ok(Ended::Own);
         }
         let mut uow = self.database.begin(client).await?;
+        take_turn(&mut uow, principal).await?;
         require_recent_proof(&mut uow, principal).await?;
         let user_id = principal.user_id();
         let Some(id) = id else {
@@ -109,13 +113,15 @@ impl Auth {
     }
 
     /// Ends every session of the caller's but the one that authenticated the request, once it
-    /// proved their password within the last 5 minutes (AUTH-045).
+    /// proved their password within the last 5 minutes, at their turn at ending their sessions
+    /// (AUTH-045).
     pub(crate) async fn end_other_sessions(
         &self,
         client: &Client,
         principal: &Principal,
     ) -> Result<(), AuthError> {
         let mut uow = self.database.begin(client).await?;
+        take_turn(&mut uow, principal).await?;
         require_recent_proof(&mut uow, principal).await?;
         let user_id = principal.user_id();
         let ended = repo::delete_other_sessions(&mut uow, user_id, principal.session_id()).await?;

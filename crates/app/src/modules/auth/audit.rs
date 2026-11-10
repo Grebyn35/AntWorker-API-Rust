@@ -19,8 +19,9 @@ pub(super) const PASSWORD_REHASHED: Action = Action::new("password.rehashed");
 pub(super) const SESSION_REFRESHED: Action = Action::new("session.refreshed");
 /// A rotated refresh token was presented again, which ended its session (AUTH-012).
 pub(super) const SESSION_REUSE_DETECTED: Action = Action::new("session.reuse_detected");
-/// A session ended, by signing out, by a sign-in on its device, or by a reset or a change of its
-/// user's password (AUTH-008, AUTH-013, AUTH-037, AUTH-040).
+/// A session ended, by signing out, by a sign-in on its device, by a reset or a change of its
+/// user's password, or as its user ended it from another of their sessions (AUTH-008, AUTH-013,
+/// AUTH-037, AUTH-040, AUTH-044, AUTH-045).
 pub(super) const SESSION_ENDED: Action = Action::new("session.ended");
 /// A sign-in issued its device a device token, ending the one it used and the account's expired
 /// ones (AUTH-019).

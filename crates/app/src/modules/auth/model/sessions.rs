@@ -114,6 +114,9 @@ mod tests {
     fn auth_042_a_device_s_name_is_one_normalized_line_of_1_to_100_characters() {
         let name = DeviceName::parse("  Ada's \t laptop \n").unwrap();
         assert_eq!(name.as_str(), "Ada's laptop");
+        // An e and a combining acute accent compose into one é.
+        let composed = DeviceName::parse("Re\u{301}my's phone").unwrap();
+        assert_eq!(composed.as_str(), "R\u{e9}my's phone");
         assert_eq!(DeviceName::parse(" \t ").unwrap_err().code, "required");
         assert!(DeviceName::parse(&"é".repeat(100)).is_ok());
         assert_eq!(

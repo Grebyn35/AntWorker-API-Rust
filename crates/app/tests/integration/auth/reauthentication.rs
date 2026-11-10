@@ -28,17 +28,6 @@ async fn delete(api: &Api, user: &SignedIn) -> Response {
         .await
 }
 
-/// Makes `user`'s session have proved their password `minutes` minutes ago.
-async fn authenticated_ago(api: &Api, user: &SignedIn, minutes: u32) {
-    api.database()
-        .owner_executes(&format!(
-            "UPDATE sessions SET authenticated_at = now() - make_interval(mins => {minutes}) \
-             WHERE id = '{}'",
-            user.session_id
-        ))
-        .await;
-}
-
 /// When `user`'s session last proved their password, as the database holds it.
 async fn authenticated_at(api: &Api, user: &SignedIn) -> String {
     api.database()
@@ -54,7 +43,7 @@ async fn authenticated_at(api: &Api, user: &SignedIn) -> String {
 async fn auth_021_the_right_password_reauthenticates_the_session() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    authenticated_ago(&api, &ada, 10).await;
+    users::authenticated_ago(&api, &ada, 10).await;
     let before = authenticated_at(&api, &ada).await;
 
     let response = reauthenticate(&api, &ada, PASSWORD).await;
@@ -89,7 +78,7 @@ async fn auth_021_the_right_password_reauthenticates_the_session() {
 async fn auth_021_a_wrong_password_answers_403_records_it_and_changes_nothing_else() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    authenticated_ago(&api, &ada, 10).await;
+    users::authenticated_ago(&api, &ada, 10).await;
     let before = authenticated_at(&api, &ada).await;
 
     let response = reauthenticate(&api, &ada, "wrong-password-123").await;
@@ -176,7 +165,7 @@ async fn auth_022_every_check_of_a_signed_in_user_s_password_counts_in_one_bucke
 async fn auth_023_a_deletion_needs_the_password_proved_within_5_minutes() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    authenticated_ago(&api, &ada, 6).await;
+    users::authenticated_ago(&api, &ada, 6).await;
     let delete = || {
         api.request(http::Method::DELETE, "/v1/users/me")
             .bearer(&ada.access)
@@ -209,7 +198,7 @@ async fn auth_023_a_deletion_needs_the_password_proved_within_5_minutes() {
 async fn auth_023_a_session_that_changed_its_password_within_5_minutes_may_delete_its_account() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    authenticated_ago(&api, &ada, 6).await;
+    users::authenticated_ago(&api, &ada, 6).await;
     let changed = api
         .post(
             "/v1/users/me/password/change",

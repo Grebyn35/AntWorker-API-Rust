@@ -13,6 +13,7 @@ use platform::{
 
 use super::{
     Auth, buckets, hash,
+    reauthentication::take_turn,
     sessions::end_sessions,
     verification::{CODE_KIND, code_input},
 };
@@ -200,7 +201,8 @@ impl Auth {
     }
 
     /// Changes the caller's password, once their current one has passed the one check of a
-    /// signed-in user's password (AUTH-040, AUTH-022), ending their other sessions.
+    /// signed-in user's password (AUTH-040, AUTH-022), ending their other sessions at their turn
+    /// at ending their sessions, so a request that ended this one's session first leaves it 401.
     pub(crate) async fn change_password(
         &self,
         limits: &RateLimits,
@@ -216,22 +218,24 @@ impl Auth {
             return Err(self.wrong_password(uow, principal).await?);
         }
         let password_hash = hash(&self.workers, change.password).await?;
+        let address = take_turn(&mut uow, principal).await?;
+        // The request proved the password, as a re-authentication does; its session, read after
+        // the turn, may have ended meanwhile.
+        if repo::reauthenticate(&mut uow, user_id, principal.session_id())
+            .await?
+            .is_none()
+        {
+            return Err(RequestError::Unauthenticated.into());
+        }
         let identity = repo::set_password(&mut uow, user_id, &password_hash).await?;
         let ended = repo::delete_other_sessions(&mut uow, user_id, principal.session_id()).await?;
         end_sessions(&mut uow, principal.audit_scope(), user_id, &ended).await?;
-        // The request proved the password, as a re-authentication does.
-        repo::reauthenticate(&mut uow, user_id, principal.session_id())
-            .await?
-            .ok_or_else(|| Internal::new("the caller's session doesn't exist"))?;
         audit_log::record(
             &mut uow,
             principal.audit_scope(),
             Entry::new(audit::PASSWORD_CHANGED, audit::IDENTITY, identity),
         )
         .await?;
-        let address = accounts::address(&mut uow, user_id)
-            .await?
-            .ok_or_else(|| Internal::new("the caller's user doesn't exist"))?;
         self.tell_password_changed(&mut uow, principal.job_scope(), address.email)
             .await?;
         uow.commit().await?;

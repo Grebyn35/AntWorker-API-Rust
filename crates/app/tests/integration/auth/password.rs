@@ -571,16 +571,6 @@ async fn auth_037_the_code_resets_the_password_ends_every_session_and_starts_non
     ];
     ended.sort();
     assert_eq!(reset_entries, ended);
-    // Each session's end reaches the user's streams (AUTH-046).
-    let mut published = [
-        format!("{} {}", ada.user_id, ada.session_id),
-        format!("{} {}", ada.user_id, other.session_id),
-    ];
-    published.sort();
-    assert_eq!(
-        users::session_events(&api, "session.ended").await,
-        published
-    );
     assert_eq!(
         reset,
         format!(
@@ -870,11 +860,6 @@ async fn auth_040_changing_sets_the_password_ends_the_other_sessions_and_keeps_t
     let received: Vec<Value> = signals.received().await;
     assert_eq!(received.len(), 1);
     assert_eq!(received[0]["session_id"], other.session_id.as_str());
-    // The other session's end reaches the user's streams (AUTH-046).
-    assert_eq!(
-        users::session_events(&api, "session.ended").await,
-        [format!("{} {}", ada.user_id, other.session_id)]
-    );
     let entries = log(&api, &ada.user_id).await;
     assert_eq!(
         entries[entries.len() - 2..],
@@ -898,6 +883,37 @@ async fn auth_040_changing_sets_the_password_ends_the_other_sessions_and_keeps_t
         users::sign_in(&api, &address, NEW_PASSWORD).await.status,
         201
     );
+}
+
+#[tokio::test]
+async fn auth_046_a_change_and_a_reset_publish_the_end_of_each_session_they_end() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let other = users::new_session(&api, &address).await;
+
+    let changed = change(&api, &ada, users::PASSWORD).await;
+    let after_change = users::session_events(&api, "session.ended").await;
+    let again = users::sign_in(&api, &address, NEW_PASSWORD).await;
+    let again = SignedIn::from(&again);
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    let reset = confirm(&api, &address, &code).await;
+
+    assert_eq!(changed.status, 204);
+    assert_eq!(reset.status, 204);
+    // The change ends the other session alone, and the reset every session left.
+    assert_eq!(
+        after_change,
+        [format!("{} {}", ada.user_id, other.session_id)]
+    );
+    let mut ended = vec![
+        format!("{} {}", ada.user_id, other.session_id),
+        format!("{} {}", ada.user_id, ada.session_id),
+        format!("{} {}", ada.user_id, again.session_id),
+    ];
+    ended.sort();
+    assert_eq!(users::session_events(&api, "session.ended").await, ended);
 }
 
 #[tokio::test]
