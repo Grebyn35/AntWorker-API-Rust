@@ -260,7 +260,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | bb32666..91685a9: as above, with pass 1's fixes | 2 | 14 (9, 6, 1 shared) | 3 | 1 | `stopped: no progress`: 80cdfac |
 | ca20278..87a4a33: step 5's second part of the full `auth` module: password reset and change (D129), with `JobScope::attempt` | 1 | 14 (11, 8, 5 shared) | 10 | 0 | `next pass`: f13eb77 |
 | ca20278..f13eb77: as above, with pass 1's fixes | 2 | 8 (8, 2, 2 shared) | 6 | 4 | `stopped: no progress`: a05a3ea |
-| bbd5f6e..fd80788: step 5's third part of the full `auth` module: a user's sessions, their devices' names and the user events of their starts and ends (AUTH-042 to AUTH-046, D130) | 1 | 8 (6, 5, 3 shared) | 4 | 0 | `next pass` |
+| bbd5f6e..fd80788: step 5's third part of the full `auth` module: a user's sessions, their devices' names and the user events of their starts and ends (AUTH-042 to AUTH-046, D130) | 1 | 8 (6, 5, 3 shared) | 4 | 0 | `next pass`: c97d06d |
+| bbd5f6e..c97d06d: as above, with pass 1's fixes | 2 | 5 (5, 2, 2 shared) | 3 | 3 | `stopped: no progress` |
 
 ## Decisions
 
