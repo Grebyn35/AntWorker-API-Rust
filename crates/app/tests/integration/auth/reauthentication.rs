@@ -171,13 +171,11 @@ async fn auth_021_a_session_that_another_request_ended_meanwhile_answers_401() {
     api.get("/v1/users/me").bearer(&ada.access).send().await;
     let checks = users::added_bucket(&api, reauthenticate(&api, &ada, PASSWORD)).await;
     // The re-authentication waits at that bucket while another request ends its session.
-    let mut ender = db.owner_connection().await;
-    execute_on(&mut ender, "BEGIN").await;
-    execute_on(
-        &mut ender,
-        &format!("SELECT 1 FROM rate_limit_buckets WHERE id = '{checks}' FOR UPDATE"),
-    )
-    .await;
+    let mut ender = db
+        .holding(&format!(
+            "SELECT 1 FROM rate_limit_buckets WHERE id = '{checks}' FOR UPDATE"
+        ))
+        .await;
 
     let again = tokio::spawn({
         let api = api.clone();
@@ -258,13 +256,11 @@ async fn auth_023_a_deletion_whose_session_another_request_ended_before_its_chec
     users::authenticated_ago(&api, &ada, 0).await;
     // The deletion waits at its bucket, once its request is authenticated, while another request
     // ends its session.
-    let mut ender = db.owner_connection().await;
-    execute_on(&mut ender, "BEGIN").await;
-    execute_on(
-        &mut ender,
-        &format!("SELECT 1 FROM rate_limit_buckets WHERE id = '{deletion_bucket}' FOR UPDATE"),
-    )
-    .await;
+    let mut ender = db
+        .holding(&format!(
+            "SELECT 1 FROM rate_limit_buckets WHERE id = '{deletion_bucket}' FOR UPDATE"
+        ))
+        .await;
 
     let deletion = tokio::spawn({
         let api = api.clone();

@@ -255,13 +255,9 @@ async fn auth_012_a_reused_token_whose_session_a_deletion_ended_first_records_no
     assert_eq!(rotated.status, 200);
     let db = api.database();
     // A deletion of the account that holds the session's row while the reuse waits for it.
-    let mut deletion = db.owner_connection().await;
-    execute_on(&mut deletion, "BEGIN").await;
-    execute_on(
-        &mut deletion,
-        &format!("DELETE FROM users WHERE id = '{}'", ada.user_id),
-    )
-    .await;
+    let mut deletion = db
+        .holding(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
+        .await;
 
     let reuse = tokio::spawn({
         let api = api.clone();
@@ -430,13 +426,11 @@ async fn auth_016_a_session_that_another_request_ended_meanwhile_answers_401() {
     // The user bucket, which every request of Ada's counts in once it is authenticated.
     let bucket =
         users::added_bucket(&api, api.get("/v1/users/me").bearer(&ada.access).send()).await;
-    let mut ender = db.owner_connection().await;
-    execute_on(&mut ender, "BEGIN").await;
-    execute_on(
-        &mut ender,
-        &format!("SELECT 1 FROM rate_limit_buckets WHERE id = '{bucket}' FOR UPDATE"),
-    )
-    .await;
+    let mut ender = db
+        .holding(&format!(
+            "SELECT 1 FROM rate_limit_buckets WHERE id = '{bucket}' FOR UPDATE"
+        ))
+        .await;
 
     let read = tokio::spawn({
         let api = api.clone();

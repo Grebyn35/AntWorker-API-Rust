@@ -13,7 +13,8 @@
 //! - `auth.expire_sessions`, periodic, every hour, deletes the sessions of every user that
 //!   stopped lasting, touching `sessions` alone (AUTH-047, D131). It spans every user by nature,
 //!   so it selects sessions by expiry alone, which `check-tenancy` lets this file alone do
-//!   (DATA-16). Scheduled maintenance isn't audited (DATA-22). A second run finds nothing more to
+//!   (DATA-16). Scheduled maintenance isn't audited (DATA-22). A run skips a row that a request
+//!   holds, which the next deletes; a run right after one that skipped none finds nothing more to
 //!   delete.
 
 use std::time::Duration;

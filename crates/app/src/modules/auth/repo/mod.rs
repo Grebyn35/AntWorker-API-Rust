@@ -52,7 +52,8 @@ fn seconds(duration: std::time::Duration) -> f64 {
 }
 
 /// Inserts a session for `user_id`, on the device `device`, whose tokens hash to `access` and
-/// `refresh`. No expiry passes the absolute lifetime (AUTH-007).
+/// `refresh`. No expiry passes the absolute lifetime, and the access token's passes no refresh
+/// token's (AUTH-007).
 pub(super) async fn insert_session(
     uow: &mut UnitOfWork,
     user_id: UserId,
@@ -67,7 +68,7 @@ pub(super) async fn insert_session(
             access_token_expires_at, refresh_token_expires_at, expires_at
         ) VALUES (
             $1, $2, $8, $3, $4,
-            now() + make_interval(secs => least($5::float8, $7::float8)),
+            now() + make_interval(secs => least($5::float8, $6::float8, $7::float8)),
             now() + make_interval(secs => least($6::float8, $7::float8)),
             now() + make_interval(secs => $7::float8)
         )
@@ -313,7 +314,7 @@ pub(super) async fn by_previous_refresh_token(
 
 /// Gives the session `id` new tokens, if `presented` is still its refresh token's hash, so two
 /// concurrent refreshes can't both succeed (AUTH-010). The refresh expiry slides, never past the
-/// absolute lifetime.
+/// absolute lifetime, and the access expiry never passes the new refresh expiry (AUTH-007).
 pub(super) async fn rotate(
     uow: &mut UnitOfWork,
     found: &Found,
@@ -327,7 +328,10 @@ pub(super) async fn rotate(
             access_token_hash = $4,
             refresh_token_hash = $5,
             previous_refresh_token_hash = $3,
-            access_token_expires_at = least(now() + make_interval(secs => $6::float8), expires_at),
+            access_token_expires_at = least(
+                now() + make_interval(secs => least($6::float8, $7::float8)),
+                expires_at
+            ),
             refresh_token_expires_at = least(now() + make_interval(secs => $7::float8), expires_at)
         WHERE id = $2 AND user_id = $1 AND refresh_token_hash = $3
         RETURNING id, user_id, device_id, device_name, created_at, access_token_expires_at,

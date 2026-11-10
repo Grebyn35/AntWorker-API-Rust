@@ -6,7 +6,7 @@
 use serde_json::{Value, json};
 
 use crate::support::{
-    Api,
+    Api, Options,
     api::Response,
     execute_on, lists, queries_wait_on_locks, streams,
     users::{self, PASSWORD, SignedIn, browser_sign_in, browsers_api, cookie},
@@ -511,16 +511,12 @@ async fn auth_045_two_ends_of_each_other_s_sessions_take_turns_and_the_second_an
     let tablet = users::new_session(&api, "ada@example.com").await;
     let db = api.database();
     // A lock on the tablet's session holds the first end at its delete, once it has its proof.
-    let mut holder = db.owner_connection().await;
-    execute_on(&mut holder, "BEGIN").await;
-    execute_on(
-        &mut holder,
-        &format!(
+    let mut holder = db
+        .holding(&format!(
             "SELECT 1 FROM sessions WHERE id = '{}' FOR UPDATE",
             tablet.session_id
-        ),
-    )
-    .await;
+        ))
+        .await;
     let others = "/v1/users/me/sessions/others";
 
     let first = spawn_request(&api, others, &ada.access, None);
@@ -544,16 +540,12 @@ async fn auth_045_a_change_of_the_password_takes_its_turn_after_an_end_of_its_se
     let phone = users::new_session(&api, "ada@example.com").await;
     let tablet = users::new_session(&api, "ada@example.com").await;
     let db = api.database();
-    let mut holder = db.owner_connection().await;
-    execute_on(&mut holder, "BEGIN").await;
-    execute_on(
-        &mut holder,
-        &format!(
+    let mut holder = db
+        .holding(&format!(
             "SELECT 1 FROM sessions WHERE id = '{}' FOR UPDATE",
             tablet.session_id
-        ),
-    )
-    .await;
+        ))
+        .await;
     let change = json!({ "current_password": PASSWORD, "password": "lantern-orchard-58-brisk" });
 
     let first = spawn_request(&api, "/v1/users/me/sessions/others", &ada.access, None);
@@ -584,13 +576,9 @@ async fn auth_044_ending_another_session_takes_its_turn_after_a_deletion_of_the_
     let phone = users::new_session(&api, "ada@example.com").await;
     let db = api.database();
     // A deletion of the account that holds the user's row, and the sessions with it.
-    let mut deletion = db.owner_connection().await;
-    execute_on(&mut deletion, "BEGIN").await;
-    execute_on(
-        &mut deletion,
-        &format!("DELETE FROM users WHERE id = '{}'", ada.user_id),
-    )
-    .await;
+    let mut deletion = db
+        .holding(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
+        .await;
 
     let path = format!("/v1/users/me/sessions/{}", phone.session_id);
     let ended = spawn_request(&api, &path, &ada.access, None);
@@ -615,16 +603,12 @@ async fn data_20_a_change_of_the_password_and_a_sign_in_on_its_device_never_dead
     let db = api.database();
     // A sign-in on the phone's device: it locks the password identity, then deletes the session
     // that its device holds.
-    let mut sign_in = db.owner_connection().await;
-    execute_on(&mut sign_in, "BEGIN").await;
-    execute_on(
-        &mut sign_in,
-        &format!(
+    let mut sign_in = db
+        .holding(&format!(
             "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
             ada.user_id
-        ),
-    )
-    .await;
+        ))
+        .await;
     let change = json!({ "current_password": PASSWORD, "password": "lantern-orchard-58-brisk" });
 
     let changed = spawn_request(
@@ -756,8 +740,16 @@ async fn auth_047_the_hourly_job_deletes_every_user_s_sessions_that_stopped_last
     let old = sign_in_with(&api, json!({ "device_name": "Ada's old phone" })).await;
     let grace = users::register(&api, "grace@example.com").await;
     let gone = users::new_session(&api, "grace@example.com").await;
+    let idle = users::new_session(&api, "grace@example.com").await;
     let db = api.database();
     stopped_lasting(&api, &old).await;
+    // A session whose access token alone expired still lasts (AUTH-018).
+    db.owner_executes(&format!(
+        "UPDATE sessions SET access_token_expires_at = now() - interval '1 second' \
+         WHERE id = '{}'",
+        idle.session_id
+    ))
+    .await;
     // A session whose refresh token alone expired has stopped lasting too (AUTH-018).
     db.owner_executes(&format!(
         "UPDATE sessions SET refresh_token_expires_at = now() - interval '1 second' \
@@ -766,11 +758,17 @@ async fn auth_047_the_hourly_job_deletes_every_user_s_sessions_that_stopped_last
     ))
     .await;
     db.owner_executes("DELETE FROM events").await;
+    let entries = "SELECT count(*)::text FROM audit_entries";
+    let before = db.owner_reads(entries).await;
     let mut signals = db.signals().await;
 
     api.run_periodic("auth.expire_sessions").await;
 
-    let mut left = vec![ada.session_id.clone(), grace.session_id.clone()];
+    let mut left = vec![
+        ada.session_id.clone(),
+        grace.session_id.clone(),
+        idle.session_id.clone(),
+    ];
     left.sort();
     assert_eq!(
         db.owner_reads("SELECT id::text FROM sessions ORDER BY 1")
@@ -778,18 +776,13 @@ async fn auth_047_the_hourly_job_deletes_every_user_s_sessions_that_stopped_last
         left
     );
     // Scheduled maintenance records, publishes and signals nothing.
-    let written = db
-        .owner_reads(
-            "SELECT (SELECT count(*) FROM audit_entries WHERE action = 'session.ended') \
-             || ' ' || (SELECT count(*) FROM events)",
-        )
-        .await;
-    assert_eq!(written, ["0 0"]);
+    assert_eq!(db.owner_reads(entries).await, before);
+    assert!(db.owner_reads("SELECT name FROM events").await.is_empty());
     assert!(signals.received().await.is_empty());
 }
 
 #[tokio::test]
-async fn auth_047_the_job_deletes_more_than_one_batch_and_a_second_run_nothing_more() {
+async fn auth_047_the_job_deletes_1500_sessions_and_a_second_run_nothing_more() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
@@ -821,16 +814,12 @@ async fn auth_047_a_session_that_a_request_holds_is_left_for_the_next_run() {
     stopped_lasting(&api, &held).await;
     stopped_lasting(&api, &free).await;
     let db = api.database();
-    let mut request = db.owner_connection().await;
-    execute_on(&mut request, "BEGIN").await;
-    execute_on(
-        &mut request,
-        &format!(
+    let mut request = db
+        .holding(&format!(
             "SELECT 1 FROM sessions WHERE id = '{}' FOR UPDATE",
             held.session_id
-        ),
-    )
-    .await;
+        ))
+        .await;
 
     // The run waits for no lock, so it ends while the row stays held.
     api.run_periodic("auth.expire_sessions").await;
@@ -878,4 +867,28 @@ async fn auth_009_an_expired_access_token_whose_session_the_job_deleted_answers_
     assert_eq!(before.json()["code"], "request.access_token_expired");
     assert_eq!(after.status, 401);
     assert_eq!(after.json()["code"], "request.unauthenticated");
+}
+
+#[tokio::test]
+async fn auth_007_no_access_token_outlives_its_refresh_token_whatever_the_settings() {
+    let options = Options::default()
+        .set("ACCESS_TOKEN_SECONDS", 7_200)
+        .set("REFRESH_TOKEN_SECONDS", 3_600);
+    let api = Api::with(options).await;
+
+    let registered = api
+        .post("/v1/users", &users::registration("ada@example.com"))
+        .send()
+        .await
+        .json();
+    let refreshed = refresh(&api, registered["refresh_token"].as_str().unwrap())
+        .await
+        .json();
+
+    for session in [&registered, &refreshed] {
+        assert_eq!(
+            session["access_token_expires_at"], session["refresh_token_expires_at"],
+            "{session}"
+        );
+    }
 }
