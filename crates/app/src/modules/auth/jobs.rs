@@ -1,15 +1,15 @@
 //! The job of `auth` (OPS-09), owned by `auth`:
 //! - `auth.send_verification_code`, enqueued by a registration with email on and by asking for a
-//!   code, for the account's user, issues a code that proves the account's email address, or,
-//!   enqueued by asking for a password reset, for the account that holds the address or for no
-//!   one, a code that resets its password, in place of the account's code of that purpose before
-//!   it, reading `users` through `accounts`, touching `verification_codes` and `audit_entries`,
-//!   and sends it to the address at once, so the code is kept nowhere but the email (AUTH-030,
-//!   AUTH-036, SEC-03). A run for no one does nothing. A second run, such as after a replica
-//!   stopped once the email was sent, issues a new code and sends it too, which replaces the
-//!   first: the account receives two emails, and only the second's code works, which its owner
-//!   recognizes by the email's text, since each says that a newer code replaces it (OPS-09,
-//!   D128).
+//!   code, for the account's user, issues a code that proves the account's email address, in
+//!   place of the one before it, or, enqueued by asking for a password reset, for the account that
+//!   holds the address or for no one, a code that resets its password, beside the account's
+//!   others, reading `users` through `accounts`, touching `verification_codes` and
+//!   `audit_entries`, and sends it to the address at once, so the code is kept nowhere but the
+//!   email (AUTH-030, AUTH-036, SEC-03). A run for no one does nothing. A second run, such as
+//!   after a replica stopped once the email was sent, issues a new code and sends it too: the
+//!   account receives two emails. Of two verification codes only the second's works, which its
+//!   owner recognizes by the email's text, since each says that a newer code replaces it; of two
+//!   reset codes, either works until it expires or a reset uses one (OPS-09, D128).
 
 use std::time::Duration;
 

@@ -1779,6 +1779,7 @@
         "description": "The 16 characters of the reset code, of Crockford's base32 alphabet, without regard to case, which hyphens and spaces may separate.",
         "maxLength": 64,
         "minLength": 16,
+        "pattern": "^[\\s-]*(?:[0-9A-TV-Za-tv-z][\\s-]*){16}$",
         "type": "string"
       },
       "ResetConfirmationRequest": {

@@ -30,7 +30,7 @@ Passwords are hashed with Argon2id at the current OWASP parameters, in the strin
 ### SEC-05 Authentication failures reveal nothing
 A failed sign-in gives the same response and the same timing whether the email exists or not, and so does a password reset, as it is asked for and as its code is checked. Enumeration is accepted only on registration and the email-change pre-flight, both rate limited (D7).
 - Why: attackers can't use sign-in to learn which accounts exist.
-- Check: `test` (identical responses for known and unknown emails), plus `review` (an unknown email does the same work as a known one, such as the same password hash).
+- Check: `test` (identical responses for known and unknown emails), plus `review` (an unknown email runs the same password hash as a known one, and a reset's request does the same work).
 
 ### SEC-06 Sessions are bounded, and lost access ends open streams
 Access tokens are short-lived. Refresh tokens rotate on every use, and reuse is detected. Every session has an absolute maximum lifetime. The auth spec sets the durations.

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM verification_codes WHERE user_id = $1 AND purpose = 'password_reset'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "445fc7a6c710daf4090c843a31310592a3dd4c840b61da801f89f5c36fc100bd"
+}

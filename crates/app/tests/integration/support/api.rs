@@ -67,6 +67,11 @@ impl Options {
         self.settings.push((name, value.to_string()));
         self
     }
+
+    /// The options of a deployment with email off (PLATFORM-024).
+    pub fn email_off() -> Self {
+        Self::default().set("EMAIL", "off")
+    }
 }
 
 /// The settings of the tests' API: the defaults, but limits high enough that only the tests of
@@ -193,6 +198,11 @@ impl Api {
     /// Every module's routes, with the pipeline's default settings.
     pub async fn new() -> Self {
         Self::with(Options::default()).await
+    }
+
+    /// The API with email off (PLATFORM-024).
+    pub async fn without_email() -> Self {
+        Self::with(Options::email_off()).await
     }
 
     /// The API with `options`.

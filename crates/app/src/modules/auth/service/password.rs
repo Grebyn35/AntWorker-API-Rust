@@ -171,22 +171,32 @@ impl Auth {
         Ok(())
     }
 
-    /// Whether `code` is `user_id`'s reset code, unexpired, which this unit of work then claimed by
-    /// deleting it, so it resets nothing again: a row only one unit of work deletes (AUTH-037).
+    /// Whether `code` is one of `user_id`'s reset codes that last, which this unit of work then
+    /// claimed by deleting it, so it resets nothing again: a row only one unit of work deletes. A
+    /// claim deletes the account's other reset codes too (AUTH-037).
     async fn claim_reset_code(
         &self,
         uow: &mut UnitOfWork,
         user_id: UserId,
         code: &ResetCode,
     ) -> Result<bool, Internal> {
-        let Some(stored) = codes::find(uow, user_id, Purpose::PasswordReset).await? else {
+        let input = code_input(user_id, code);
+        let stored = codes::find(uow, user_id, Purpose::PasswordReset).await?;
+        // Each lasting code is compared, in constant time, so the time doesn't tell which matched.
+        let mut matched = None;
+        for stored in &stored {
+            if self.key.verify(CODE_KIND, &input, &stored.hash) && !stored.expired {
+                matched = Some(stored.id);
+            }
+        }
+        let Some(id) = matched else {
             return Ok(false);
         };
-        let input = code_input(user_id, Purpose::PasswordReset, code.characters());
-        if stored.expired || !self.key.verify(CODE_KIND, &input, &stored.hash) {
+        if !codes::claim(uow, user_id, id).await? {
             return Ok(false);
         }
-        codes::claim(uow, user_id, stored.id).await
+        codes::delete_resets(uow, user_id).await?;
+        Ok(true)
     }
 
     /// Changes the caller's password, once their current one has passed the one check of a

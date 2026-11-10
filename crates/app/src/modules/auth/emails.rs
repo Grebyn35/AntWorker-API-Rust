@@ -159,7 +159,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn auth_036_the_email_carries_the_reset_code_says_a_newer_one_replaces_it_and_has_no_link() {
+    fn auth_036_the_email_carries_the_reset_code_says_how_long_it_works_and_has_no_link() {
         let to = EmailAddress::parse("alice@example.com").unwrap();
         let code = ResetCode::parse("7KQM2XWD9RTBH4NP").unwrap();
         let email = ResetCodeEmail { to, code }.render().unwrap();
@@ -167,9 +167,7 @@ mod tests {
         assert_eq!(email.subject, "Your AntWorker password reset code");
         for part in [&email.text, &email.html] {
             assert!(part.contains("7KQM-2XWD-9RTB-H4NP"), "{part}");
-            assert!(part.contains("10 minutes"), "{part}");
-            // How the account's owner recognizes the email of a second attempt (OPS-09).
-            assert!(part.contains("a newer code replaces it"), "{part}");
+            assert!(part.contains("It works once, for 10 minutes."), "{part}");
             assert!(
                 part.contains("ignore this email: nothing changes"),
                 "{part}"

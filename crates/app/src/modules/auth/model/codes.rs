@@ -45,6 +45,32 @@ impl Purpose {
     }
 }
 
+/// A code sent to an account's address, which proves one purpose: what its keyed hash covers is
+/// its account, its purpose and its characters (SEC-03).
+pub(in crate::modules::auth) trait Code {
+    /// What the code proves.
+    const PURPOSE: Purpose;
+
+    /// The code's characters, as its keyed hash covers them. Never log them.
+    fn characters(&self) -> &str;
+}
+
+impl Code for VerificationCode {
+    const PURPOSE: Purpose = Purpose::EmailVerification;
+
+    fn characters(&self) -> &str {
+        self.digits()
+    }
+}
+
+impl Code for ResetCode {
+    const PURPOSE: Purpose = Purpose::PasswordReset;
+
+    fn characters(&self) -> &str {
+        self.0.expose()
+    }
+}
+
 /// How many digits a verification code has (AUTH-030).
 const CODE_DIGITS: usize = 6;
 
@@ -171,11 +197,6 @@ impl ResetCode {
         Ok(Self(Secret::new(code)))
     }
 
-    /// The code's 16 characters, for its HMAC. Never log them.
-    pub(crate) fn characters(&self) -> &str {
-        self.0.expose()
-    }
-
     /// The code in four groups of four characters, as its email shows it (AUTH-036). Never log
     /// it.
     pub(crate) fn grouped(&self) -> String {
@@ -194,6 +215,7 @@ impl PartialSchema for ResetCode {
             .schema_type(Type::String)
             .min_length(Some(RESET_CODE_CHARS))
             .max_length(Some(RESET_CODE_MAX_INPUT))
+            .pattern(Some("^[\\s-]*(?:[0-9A-TV-Za-tv-z][\\s-]*){16}$"))
             .description(Some(
                 "The 16 characters of the reset code, of Crockford's base32 alphabet, without \
                  regard to case, which hyphens and spaces may separate.",

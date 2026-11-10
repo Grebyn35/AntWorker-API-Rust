@@ -201,7 +201,7 @@ async fn platform_013_a_job_runs_for_its_workspace_scope_after_its_member_loses_
 
 #[tokio::test]
 async fn platform_022_with_email_off_nothing_is_enqueued_and_the_capabilities_say_so() {
-    let (api, ada) = api(Options::default().set("EMAIL", "off")).await;
+    let (api, ada) = api(Options::email_off()).await;
 
     send(&api, &ada, "bob@example.com").await;
     let capabilities = api.get("/v1/capabilities").send().await;
@@ -219,7 +219,7 @@ async fn platform_022_a_replica_with_email_off_drops_a_job_enqueued_while_email_
     let clock = Arc::new(TestClock::default());
     let (_, _, off) = application(
         &database,
-        Options::default().set("EMAIL", "off"),
+        Options::email_off(),
         clock.clone(),
         Readiness::new(),
     )
@@ -350,7 +350,7 @@ async fn platform_021_send_now_sends_at_once_and_tells_its_job_whether_to_retry(
     let failed = mail(&unreachable).send_now(secret_email(&to)).await;
     let refusing = Options::default().set("SMTP_PORT", refusing_server().await.port());
     let refused = mail(&refusing).send_now(secret_email(&to)).await;
-    let off = mail(&Options::default().set("EMAIL", "off"))
+    let off = mail(&Options::email_off())
         .send_now(secret_email(&to))
         .await;
 

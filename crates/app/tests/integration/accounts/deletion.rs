@@ -10,7 +10,7 @@ use platform::{
 };
 
 use crate::support::{
-    Api, Options, TestDatabase,
+    Api, TestDatabase,
     api::Response,
     events::{self, Event},
     execute_on, mailbox, queries_wait_on_locks, streams,
@@ -459,7 +459,7 @@ async fn accounts_015_with_email_on_the_address_hears_that_the_account_is_delete
 
 #[tokio::test]
 async fn accounts_015_with_email_off_nothing_is_sent() {
-    let api = Api::with(Options::default().set("EMAIL", "off")).await;
+    let api = Api::without_email().await;
     let ada = users::register(&api, "ada@example.com").await;
 
     let response = delete(&api, &ada).await;

@@ -23,7 +23,7 @@ async fn system_001_the_capabilities_list_each_feature_a_deployment_can_turn_off
 
 #[tokio::test]
 async fn system_001_a_feature_turned_off_is_false() {
-    let api = Api::with(Options::default().set("EMAIL", "off")).await;
+    let api = Api::without_email().await;
 
     let response = api.get("/v1/capabilities").send().await;
 

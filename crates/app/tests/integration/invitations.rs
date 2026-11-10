@@ -97,7 +97,7 @@ async fn invitations_001_inviting_an_email_creates_a_pending_invitation_and_enqu
 
 #[tokio::test]
 async fn invitations_001_with_email_off_the_invitation_is_created_and_nothing_is_enqueued() {
-    let api = Api::with(Options::default().set("EMAIL", "off")).await;
+    let api = Api::without_email().await;
     let ada = users::register(&api, "ada@example.com").await;
     let workspace = acme(&api, &ada, &[]).await;
 

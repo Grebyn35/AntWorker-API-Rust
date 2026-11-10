@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, code_hash, expires_at <= now() AS \"expired!\" FROM verification_codes\n        WHERE user_id = $1 AND purpose = $2::text::verification_purpose",
+  "query": "SELECT id, code_hash, expires_at <= now() AS \"expired!\" FROM verification_codes\n        WHERE user_id = $1 AND purpose = $2::text::verification_purpose\n        ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -44,5 +44,5 @@
       null
     ]
   },
-  "hash": "ae1599fc452e9dcde47757127e481247d461eda9c0629ab4e406936e8b1cc839"
+  "hash": "ccfea431fb97ea4a370761f3a221f8e100e7ec15c0b71f45269e71c427239d88"
 }

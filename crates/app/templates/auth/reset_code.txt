@@ -2,6 +2,6 @@ Enter this code in {{ email.product }} to reset your password:
 
 {{ email.code }}
 
-It works once, for 10 minutes, and a newer code replaces it.
+It works once, for 10 minutes.
 
 If you didn't ask to reset the password of {{ email.to }}, ignore this email: nothing changes.

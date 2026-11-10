@@ -11,11 +11,6 @@ use crate::support::{
     workspaces,
 };
 
-/// The API with email off (PLATFORM-024).
-async fn without_email() -> Api {
-    Api::with(Options::default().set("EMAIL", "off")).await
-}
-
 /// Asks for a code for `user`'s account.
 async fn ask(api: &Api, user: &SignedIn) -> Response {
     api.request(http::Method::POST, "/v1/users/me/email/verification")
@@ -58,11 +53,6 @@ fn other_than(code: &str) -> String {
         char::from(first + 1)
     };
     format!("{replaced}{}", &code[1..])
-}
-
-/// The rows of `sql`, which the `owner` connection reads.
-async fn rows(api: &Api, sql: &str) -> Vec<String> {
-    api.database().owner_reads(sql).await
 }
 
 #[tokio::test]
@@ -170,7 +160,7 @@ async fn auth_025_an_account_that_must_verify_signs_out() {
 
 #[tokio::test]
 async fn auth_025_with_email_off_no_request_is_refused_for_the_address() {
-    let api = without_email().await;
+    let api = Api::without_email().await;
     let ada = users::register_unverified(&api, "ada@example.com").await;
 
     let me = api.get("/v1/users/me").bearer(&ada.access).send().await;
@@ -181,7 +171,7 @@ async fn auth_025_with_email_off_no_request_is_refused_for_the_address() {
 
 #[tokio::test]
 async fn auth_025_an_account_that_registered_while_email_was_off_must_verify_once_it_is_on() {
-    let off = without_email().await;
+    let off = Api::without_email().await;
     let ada = users::register_unverified(&off, &mailbox::address("ada")).await;
     let on = off.instance(Options::default()).await;
 
@@ -235,7 +225,7 @@ async fn auth_026_the_session_says_whether_its_account_must_still_verify() {
 
 #[tokio::test]
 async fn auth_026_with_email_off_no_session_must_verify() {
-    let api = without_email().await;
+    let api = Api::without_email().await;
 
     let registered = api
         .post("/v1/users", &users::registration("ada@example.com"))
@@ -253,11 +243,9 @@ async fn auth_027_registering_enqueues_the_job_of_the_first_code() {
     let ada = users::register_unverified(&api, &mailbox::address("ada")).await;
 
     assert_eq!(
-        rows(
-            &api,
-            "SELECT kind || ' ' || user_id || ' ' || payload::text FROM jobs"
-        )
-        .await,
+        api.database()
+            .owner_reads("SELECT kind || ' ' || user_id || ' ' || payload::text FROM jobs")
+            .await,
         [format!(
             "auth.send_verification_code {} {{\"purpose\": \"email_verification\"}}",
             ada.user_id
@@ -267,11 +255,16 @@ async fn auth_027_registering_enqueues_the_job_of_the_first_code() {
 
 #[tokio::test]
 async fn auth_027_with_email_off_registering_enqueues_nothing() {
-    let api = without_email().await;
+    let api = Api::without_email().await;
 
     users::register_unverified(&api, "ada@example.com").await;
 
-    assert!(rows(&api, "SELECT kind FROM jobs").await.is_empty());
+    assert!(
+        api.database()
+            .owner_reads("SELECT kind FROM jobs")
+            .await
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -286,7 +279,9 @@ async fn auth_028_asking_for_a_code_enqueues_its_job_and_names_the_address() {
     assert_eq!(asked.status, 202);
     assert_eq!(asked.json(), json!({ "email": address }));
     assert_eq!(
-        rows(&api, "SELECT kind || ' ' || user_id FROM jobs").await,
+        api.database()
+            .owner_reads("SELECT kind || ' ' || user_id FROM jobs")
+            .await,
         [format!("auth.send_verification_code {}", ada.user_id)]
     );
     let first = code_sent(&api, &address).await;
@@ -303,12 +298,17 @@ async fn auth_028_an_account_that_proved_its_address_answers_409() {
 
     assert_eq!(asked.status, 409);
     assert_eq!(asked.json()["code"], "auth.email_already_verified");
-    assert!(rows(&api, "SELECT kind FROM jobs").await.is_empty());
+    assert!(
+        api.database()
+            .owner_reads("SELECT kind FROM jobs")
+            .await
+            .is_empty()
+    );
 }
 
 #[tokio::test]
 async fn auth_028_with_email_off_asking_answers_503() {
-    let api = without_email().await;
+    let api = Api::without_email().await;
     let ada = users::register_unverified(&api, "ada@example.com").await;
 
     let asked = ask(&api, &ada).await;
@@ -317,7 +317,12 @@ async fn auth_028_with_email_off_asking_answers_503() {
     assert_eq!(asked.json()["code"], "request.feature_disabled");
     // Only a deploy turns the feature on again, so a client waits an hour (OPS-04).
     assert_eq!(asked.header("retry-after"), "3600");
-    assert!(rows(&api, "SELECT kind FROM jobs").await.is_empty());
+    assert!(
+        api.database()
+            .owner_reads("SELECT kind FROM jobs")
+            .await
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -333,7 +338,12 @@ async fn auth_029_asking_for_codes_counts_in_a_bucket_of_the_address() {
 
     assert_eq!(refused.status, 429);
     assert_eq!(refused.json()["code"], "request.rate_limited");
-    assert_eq!(rows(&api, "SELECT count(*)::text FROM jobs").await, ["3"]);
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT count(*)::text FROM jobs")
+            .await,
+        ["3"]
+    );
 }
 
 #[tokio::test]
@@ -379,7 +389,7 @@ async fn auth_029_registering_counts_in_the_bucket_of_its_address() {
 
 #[tokio::test]
 async fn auth_029_with_email_off_registering_counts_in_no_bucket_of_the_address() {
-    let api = without_email().await;
+    let api = Api::without_email().await;
     let registration = users::registration("ada@example.com");
     assert_eq!(
         api.post("/v1/users", &registration).send().await.status,
@@ -401,12 +411,13 @@ async fn auth_030_the_job_stores_only_the_code_s_hmac_and_sends_the_code() {
     let code = code_sent(&api, &address).await;
 
     assert_eq!(code.len(), 6);
-    let stored = rows(
-        &api,
-        "SELECT purpose || ' ' || encode(code_hash, 'hex') || ' ' \
+    let stored = api
+        .database()
+        .owner_reads(
+            "SELECT purpose || ' ' || encode(code_hash, 'hex') || ' ' \
          || (expires_at - created_at)::text FROM verification_codes",
-    )
-    .await;
+        )
+        .await;
     assert_eq!(stored.len(), 1);
     let fields: Vec<&str> = stored[0].split(' ').collect();
     assert_eq!(fields[0], "email_verification");
@@ -414,15 +425,18 @@ async fn auth_030_the_job_stores_only_the_code_s_hmac_and_sends_the_code() {
     assert!(!fields[1].contains(&code));
     assert_eq!(fields[2], "00:10:00");
     assert_eq!(
-        rows(
-            &api,
-            "SELECT user_id || ' ' || coalesce(actor_user_id::text, '-') || ' ' || resource_type \
+        api.database().owner_reads("SELECT user_id || ' ' || coalesce(actor_user_id::text, '-') || ' ' || resource_type \
              FROM audit_entries WHERE action = 'verification_code.issued'"
         )
         .await,
         [format!("{} - verification_code", ada.user_id)]
     );
-    assert!(rows(&api, "SELECT kind FROM jobs").await.is_empty());
+    assert!(
+        api.database()
+            .owner_reads("SELECT kind FROM jobs")
+            .await
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -440,7 +454,9 @@ async fn auth_030_a_newer_code_replaces_the_one_before_it() {
         assert_eq!(replaced.json()["code"], "auth.wrong_code");
     }
     assert_eq!(
-        rows(&api, "SELECT count(*)::text FROM verification_codes").await,
+        api.database()
+            .owner_reads("SELECT count(*)::text FROM verification_codes")
+            .await,
         ["1"]
     );
     assert_eq!(confirm(&api, &ada, &second).await.status, 200);
@@ -462,7 +478,8 @@ async fn auth_030_a_run_for_an_account_that_proved_its_address_issues_nothing() 
 
     assert!(mailbox::to(&address).await.is_empty());
     assert!(
-        rows(&api, "SELECT id::text FROM verification_codes")
+        api.database()
+            .owner_reads("SELECT id::text FROM verification_codes")
             .await
             .is_empty()
     );
@@ -494,12 +511,12 @@ async fn auth_030_a_run_that_another_run_beat_to_the_next_code_issues_nothing() 
     assert_eq!(run.await.unwrap(), 1);
     assert!(mailbox::to(&address).await.is_empty());
     assert_eq!(
-        rows(
-            &api,
-            "SELECT encode(code_hash, 'hex') || ' ' || (SELECT count(*) FROM audit_entries \
+        api.database()
+            .owner_reads(
+                "SELECT encode(code_hash, 'hex') || ' ' || (SELECT count(*) FROM audit_entries \
              WHERE action = 'verification_code.issued') FROM verification_codes"
-        )
-        .await,
+            )
+            .await,
         ["0123abcd 0"]
     );
 }
@@ -517,7 +534,12 @@ async fn auth_030_a_run_for_an_account_that_is_gone_issues_nothing() {
     assert_eq!(api.run_jobs().await, 1);
 
     assert!(mailbox::to(&address).await.is_empty());
-    assert!(rows(&api, "SELECT kind FROM jobs").await.is_empty());
+    assert!(
+        api.database()
+            .owner_reads("SELECT kind FROM jobs")
+            .await
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -525,13 +547,14 @@ async fn auth_030_a_run_on_a_replica_with_email_off_issues_nothing() {
     let api = Api::new().await;
     let address = mailbox::address("ada");
     users::register_unverified(&api, &address).await;
-    let off = api.instance(Options::default().set("EMAIL", "off")).await;
+    let off = api.instance(Options::email_off()).await;
 
     assert_eq!(off.run_jobs().await, 1);
 
     assert!(mailbox::to(&address).await.is_empty());
     assert!(
-        rows(&api, "SELECT id::text FROM verification_codes")
+        api.database()
+            .owner_reads("SELECT id::text FROM verification_codes")
             .await
             .is_empty()
     );
@@ -548,10 +571,16 @@ async fn auth_030_an_attempt_after_a_failed_send_issues_a_new_code_in_place_of_i
     let failing = Api::with(Options::default().set("SMTP_PORT", unreachable.port())).await;
     users::register_unverified(&failing, &address).await;
     assert_eq!(failing.run_jobs().await, 1);
-    let first = rows(&failing, "SELECT id::text FROM verification_codes").await;
+    let first = failing
+        .database()
+        .owner_reads("SELECT id::text FROM verification_codes")
+        .await;
     assert_eq!(first.len(), 1);
     assert_eq!(
-        rows(&failing, "SELECT state::text || ' ' || attempts FROM jobs").await,
+        failing
+            .database()
+            .owner_reads("SELECT state::text || ' ' || attempts FROM jobs")
+            .await,
         ["waiting 1"]
     );
     // The next attempt, on a replica that reaches the mail server.
@@ -563,16 +592,20 @@ async fn auth_030_an_attempt_after_a_failed_send_issues_a_new_code_in_place_of_i
 
     assert_eq!(reaching.run_jobs().await, 1);
 
-    let second = rows(&failing, "SELECT id::text FROM verification_codes").await;
+    let second = failing
+        .database()
+        .owner_reads("SELECT id::text FROM verification_codes")
+        .await;
     assert_eq!(second.len(), 1);
     assert_ne!(second, first);
     assert_eq!(mailbox::to(&address).await.len(), 1);
     assert_eq!(
-        rows(
-            &failing,
-            "SELECT count(*)::text FROM audit_entries WHERE action = 'verification_code.issued'"
-        )
-        .await,
+        failing
+            .database()
+            .owner_reads(
+                "SELECT count(*)::text FROM audit_entries WHERE action = 'verification_code.issued'"
+            )
+            .await,
         ["2"]
     );
 }
@@ -605,11 +638,9 @@ async fn auth_031_of_two_that_confirm_one_code_at_once_only_one_proves_it() {
     assert_eq!(answered.status, 409);
     assert_eq!(answered.json()["code"], "auth.email_already_verified");
     assert_eq!(
-        rows(
-            &api,
-            "SELECT count(*)::text FROM audit_entries WHERE action = 'email.verified'"
-        )
-        .await,
+        api.database()
+            .owner_reads("SELECT count(*)::text FROM audit_entries WHERE action = 'email.verified'")
+            .await,
         ["0"]
     );
 }
@@ -629,18 +660,19 @@ async fn auth_031_the_right_code_proves_the_address_once() {
     assert_eq!(session["email_verification_required"], false);
     assert!(session.get("access_token").is_none());
     assert_eq!(
-        rows(&api, "SELECT email_verified::text FROM users").await,
+        api.database()
+            .owner_reads("SELECT email_verified::text FROM users")
+            .await,
         ["true"]
     );
     assert!(
-        rows(&api, "SELECT id::text FROM verification_codes")
+        api.database()
+            .owner_reads("SELECT id::text FROM verification_codes")
             .await
             .is_empty()
     );
     assert_eq!(
-        rows(
-            &api,
-            "SELECT user_id || ' ' || actor_user_id || ' ' || resource_type || ' ' || resource_id \
+        api.database().owner_reads("SELECT user_id || ' ' || actor_user_id || ' ' || resource_type || ' ' || resource_id \
              FROM audit_entries WHERE action = 'email.verified'"
         )
         .await,
@@ -678,7 +710,9 @@ async fn auth_032_a_code_that_a_newer_one_replaces_while_the_check_runs_answers_
     assert_eq!(answered.status, 422);
     assert_eq!(answered.json()["code"], "auth.code_expired");
     assert_eq!(
-        rows(&api, "SELECT email_verified::text FROM users").await,
+        api.database()
+            .owner_reads("SELECT email_verified::text FROM users")
+            .await,
         ["false"]
     );
 }
@@ -694,11 +728,12 @@ async fn auth_032_a_wrong_code_is_recorded_and_leaves_the_code() {
 
     assert_eq!(wrong.status, 422);
     assert_eq!(wrong.json()["code"], "auth.wrong_code");
-    let issued = rows(&api, "SELECT id::text FROM verification_codes").await;
+    let issued = api
+        .database()
+        .owner_reads("SELECT id::text FROM verification_codes")
+        .await;
     assert_eq!(
-        rows(
-            &api,
-            "SELECT user_id || ' ' || actor_user_id || ' ' || resource_type || ' ' || resource_id \
+        api.database().owner_reads("SELECT user_id || ' ' || actor_user_id || ' ' || resource_type || ' ' || resource_id \
              FROM audit_entries WHERE action = 'verification_code.check_failed'"
         )
         .await,
@@ -732,12 +767,12 @@ async fn auth_032_an_expired_code_or_none_answers_code_expired() {
     assert_eq!(expired.status, 422);
     assert_eq!(expired.json()["code"], "auth.code_expired");
     assert_eq!(
-        rows(
-            &api,
-            "SELECT count(*)::text FROM audit_entries \
+        api.database()
+            .owner_reads(
+                "SELECT count(*)::text FROM audit_entries \
              WHERE action = 'verification_code.check_failed'"
-        )
-        .await,
+            )
+            .await,
         ["0"]
     );
 }
@@ -770,7 +805,7 @@ async fn auth_032_a_code_that_isn_t_6_digits_answers_400() {
 
 #[tokio::test]
 async fn auth_032_with_email_off_a_code_of_6_digits_answers_503_and_a_malformed_one_400() {
-    let api = without_email().await;
+    let api = Api::without_email().await;
     let ada = users::register_unverified(&api, "ada@example.com").await;
 
     let refused = confirm(&api, &ada, "123456").await;
@@ -816,7 +851,9 @@ async fn auth_033_every_check_counts_in_a_bucket_of_the_user_s() {
     assert_eq!(refused.status, 429);
     assert_eq!(refused.json()["code"], "request.rate_limited");
     assert_eq!(
-        rows(&api, "SELECT email_verified::text FROM users").await,
+        api.database()
+            .owner_reads("SELECT email_verified::text FROM users")
+            .await,
         ["false"]
     );
     let bob = users::register_unverified(&api, &mailbox::address("bob")).await;

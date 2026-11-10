@@ -22,14 +22,14 @@ use crate::modules::{
         error::AuthError,
         jobs::SendCode,
         metrics,
-        model::{Purpose, ResetCode, Session, VerificationCode},
+        model::{Code, Purpose, ResetCode, Session, VerificationCode},
         repo::{self, codes},
     },
 };
 
 /// How long a code lasts, in minutes: the most that ASVS 5.0.0 gives a code sent out of band
 /// (6.5.5), which a code sent by email is held to (AUTH-030, AUTH-036).
-const CODE_MINUTES: i32 = 10;
+pub(super) const CODE_MINUTES: i32 = 10;
 
 /// The kind of the keyed hash of a verification code or a reset code (SEC-03).
 pub(super) const CODE_KIND: &str = "verification_code";
@@ -151,11 +151,14 @@ impl Auth {
         if address.verified {
             return Err(AuthError::EmailAlreadyVerified);
         }
-        let stored = match codes::find(&mut uow, user_id, Purpose::EmailVerification).await? {
+        let stored = match codes::find(&mut uow, user_id, Purpose::EmailVerification)
+            .await?
+            .pop()
+        {
             Some(stored) if !stored.expired => stored,
             _ => return Err(AuthError::CodeExpired),
         };
-        let input = code_input(user_id, Purpose::EmailVerification, code.digits());
+        let input = code_input(user_id, &code);
         if !self.key.verify(CODE_KIND, &input, &stored.hash) {
             // A wrong code is a security failure, which commits before the answer (ARCH-11).
             audit_log::record(
@@ -191,12 +194,13 @@ impl Auth {
     }
 
     /// The run of `auth.send_verification_code` for the user the job runs for: issues a new code
-    /// of the job's purpose, in place of the one before it, commits its HMAC, and sends it to the
-    /// account's address at once, so that the code itself is kept nowhere (AUTH-030, AUTH-036,
-    /// SEC-03). A run for no one, as a reset's for an address that no account holds, or for an
-    /// account that is gone, or on a replica with email off, issues nothing; so does a run of a
-    /// verification code for an account that proved its address meanwhile, and one that another
-    /// run beat to its code, whose email carries that run's.
+    /// of the job's purpose, a verification code in place of the one before it, or a reset code
+    /// beside any other, commits its HMAC, and sends it to the account's address at once, so that
+    /// the code itself is kept nowhere (AUTH-030, AUTH-036, SEC-03). A run for no one, as a
+    /// reset's for an address that no account holds, or for an account that is gone, or on a
+    /// replica with email off, issues nothing; so does a run of a verification code for an
+    /// account that proved its address meanwhile, and one that another run beat to its code,
+    /// whose email carries that run's.
     pub(in crate::modules::auth) async fn issue_code(
         &self,
         context: &JobContext,
@@ -213,36 +217,36 @@ impl Auth {
             return Ok(());
         };
         // Rendered before anything is stored, so a template that fails stores no code.
-        let (input, email, issued) = match job.purpose {
+        let (id, email, issued) = match job.purpose {
             Purpose::EmailVerification => {
                 if address.verified {
                     return Ok(());
                 }
                 let code = VerificationCode::generate()?;
-                let input = code_input(user_id, job.purpose, code.digits());
+                let hash = self.key.hash(CODE_KIND, &code_input(user_id, &code));
                 let email = CodeEmail {
                     to: address.email,
                     code,
                 }
-                .render();
-                (input, email, audit::VERIFICATION_CODE_ISSUED)
+                .render()
+                .map_err(JobFailure::Permanent)?;
+                let Some(id) = codes::replace(&mut uow, user_id, &hash, CODE_MINUTES).await? else {
+                    return Ok(());
+                };
+                (id, email, audit::VERIFICATION_CODE_ISSUED)
             }
             Purpose::PasswordReset => {
                 let code = ResetCode::generate()?;
-                let input = code_input(user_id, job.purpose, code.characters());
+                let hash = self.key.hash(CODE_KIND, &code_input(user_id, &code));
                 let email = ResetCodeEmail {
                     to: address.email,
                     code,
                 }
-                .render();
-                (input, email, audit::PASSWORD_RESET_CODE_ISSUED)
+                .render()
+                .map_err(JobFailure::Permanent)?;
+                let id = codes::insert_reset(&mut uow, user_id, &hash, CODE_MINUTES).await?;
+                (id, email, audit::PASSWORD_RESET_CODE_ISSUED)
             }
-        };
-        let email = email.map_err(JobFailure::Permanent)?;
-        let hash = self.key.hash(CODE_KIND, &input);
-        let Some(id) = codes::replace(&mut uow, user_id, job.purpose, &hash, CODE_MINUTES).await?
-        else {
-            return Ok(());
         };
         audit_log::record(
             &mut uow,
@@ -281,12 +285,12 @@ async fn address(uow: &mut UnitOfWork, user_id: UserId) -> Result<Option<Address
 /// What a code's keyed hash covers: its user, its purpose and its characters, so a code proves
 /// only its user's purpose, and no two users' rows that hold the same characters hold the same
 /// hash.
-pub(super) fn code_input(user_id: UserId, purpose: Purpose, characters: &str) -> Vec<u8> {
+pub(super) fn code_input<C: Code>(user_id: UserId, code: &C) -> Vec<u8> {
     [
         user_id.uuid().as_bytes().as_slice(),
-        purpose.name().as_bytes(),
+        C::PURPOSE.name().as_bytes(),
         &[0],
-        characters.as_bytes(),
+        code.characters().as_bytes(),
     ]
     .concat()
 }

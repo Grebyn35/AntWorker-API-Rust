@@ -9,9 +9,10 @@ use crate::{
 };
 
 /// The user or workspace a job runs for, whose data its handler's queries filter by
-/// (PLATFORM-013). Only a proof builds one: the scope of no one too, which `platform`'s scheduler
-/// builds, `Principal::erased_job_scope` for a job that an account's deletion enqueues once the
-/// user is erased, and the tests.
+/// (PLATFORM-013). A proof builds one, and so do, for no one, `platform`'s scheduler,
+/// `Principal::erased_job_scope` for a job that an account's deletion enqueues once the user is
+/// erased, and the tests. One comes from no proof: [`JobScope::attempt`], which only a password
+/// reset builds, for the account that holds the address it names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct JobScope {
     user: Option<UserId>,

@@ -5,7 +5,7 @@ use std::io::{Cursor, Read};
 use serde_json::{Value, json};
 
 use crate::support::{
-    Api, Options,
+    Api,
     api::Response,
     audit::{self, Client},
     lists, mailbox, streams,
@@ -585,7 +585,7 @@ async fn accounts_025_with_email_on_a_ready_export_tells_the_address_until_when(
 
 #[tokio::test]
 async fn accounts_025_with_email_off_nothing_is_sent() {
-    let api = Api::with(Options::default().set("EMAIL", "off")).await;
+    let api = Api::without_email().await;
     let ada = users::register(&api, "ada@example.com").await;
 
     built(&api, &ada).await;

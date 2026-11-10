@@ -48,12 +48,13 @@ pub(super) const CODE_CHECK: Bucket = Bucket {
 };
 
 /// The bucket of the requests for a reset code to an email address, each of which sends the
-/// address an email: 3 in 15 minutes, fixed, apart from the registrations' and the verification
-/// codes' (AUTH-035).
+/// address an email: 3 in 10 minutes, fixed, apart from the registrations' and the verification
+/// codes'. Its window lasts at most as long as a code, so while it is full, a code it let through
+/// in its window still works, and no one who fills it keeps the owner from resetting (AUTH-035).
 pub(super) const RESET_EMAIL: Bucket = Bucket {
     name: "reset_email",
     limit: 3,
-    window: Duration::from_secs(900),
+    window: Duration::from_secs(600),
 };
 
 /// The bucket of an email's confirmations of a reset from one client address: 5 in 15 minutes,
@@ -64,3 +65,15 @@ pub(super) const RESET_CHECK: Bucket = Bucket {
     limit: 5,
     window: Duration::from_secs(900),
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modules::auth::service::verification::CODE_MINUTES;
+
+    #[test]
+    fn auth_035_the_window_of_the_requests_for_reset_codes_lasts_at_most_as_long_as_a_code() {
+        let lasts = Duration::from_secs(60 * u64::try_from(CODE_MINUTES).unwrap());
+        assert!(RESET_EMAIL.window <= lasts);
+    }
+}

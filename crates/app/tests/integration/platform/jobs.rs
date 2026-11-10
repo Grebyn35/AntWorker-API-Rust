@@ -235,6 +235,40 @@ async fn platform_013_a_job_that_an_account_s_deletion_enqueues_once_it_is_erase
 }
 
 #[tokio::test]
+async fn platform_013_a_job_that_an_unauthenticated_request_enqueues_runs_for_the_account_it_named_or_no_one()
+ {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let (steering, _starts) = Steering::new(&[]);
+    let jobs = registry(&database, &steering);
+    let user = UserId::from_uuid(uuid::Uuid::from_u128(7));
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test proves the scope of a job that a reset enqueues for the account it names"
+    )]
+    let named = JobScope::attempt(Some(user));
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test proves the scope of a job that a reset enqueues for no account"
+    )]
+    let nobody = JobScope::attempt(None);
+    enqueue(&database, named, &probe("named")).await;
+    enqueue(&database, nobody, &probe("nobody")).await;
+
+    let clock: SharedClock = Arc::new(TestClock::default());
+    jobs.run_pending(&database, &clock).await;
+
+    let contexts = steering.contexts.lock().unwrap();
+    let scopes: Vec<(Option<UserId>, Option<platform::types::WorkspaceId>)> = contexts
+        .iter()
+        .map(|context| (context.scope().user(), context.scope().workspace()))
+        .collect();
+    assert_eq!(scopes.len(), 2);
+    assert!(scopes.contains(&(Some(user), None)));
+    assert!(scopes.contains(&(None, None)));
+}
+
+#[tokio::test]
 async fn platform_014_a_failing_job_retries_with_backoff_then_moves_to_the_dead_letter_state() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;

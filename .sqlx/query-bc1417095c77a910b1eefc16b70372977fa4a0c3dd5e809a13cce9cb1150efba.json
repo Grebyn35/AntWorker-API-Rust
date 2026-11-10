@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO verification_codes (user_id, purpose, code_hash, expires_at)\n        VALUES ($1, $2::text::verification_purpose, $3, now() + make_interval(mins => $4))\n        ON CONFLICT ON CONSTRAINT verification_codes_user_id_purpose_key DO NOTHING\n        RETURNING id",
+  "query": "INSERT INTO verification_codes (user_id, purpose, code_hash, expires_at)\n        VALUES ($1, 'password_reset', $2, now() + make_interval(mins => $3))\n        RETURNING id",
   "describe": {
     "columns": [
       {
@@ -18,7 +18,6 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text",
         "Bytea",
         "Int4"
       ]
@@ -27,5 +26,5 @@
       false
     ]
   },
-  "hash": "255702d70c40a74a69d7160bddecc8f9e58541bf25349829ffcc11802af5deb5"
+  "hash": "bc1417095c77a910b1eefc16b70372977fa4a0c3dd5e809a13cce9cb1150efba"
 }

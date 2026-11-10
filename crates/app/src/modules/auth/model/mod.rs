@@ -15,7 +15,7 @@ use utoipa::{
 
 mod codes;
 
-pub(super) use codes::Purpose;
+pub(super) use codes::{Code, Purpose};
 pub(crate) use codes::{ResetCode, VerificationCode};
 
 /// The fewest characters a password has (AUTH-003).
