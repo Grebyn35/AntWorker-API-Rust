@@ -254,7 +254,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 6a43070..5d02f07: as above, with pass 2's fixes | 3 | 9 (7, 3, 1 shared) | 3 | 1 | `stopped: no progress`: 63e3b54 |
 | bb32666..efc3358: step 5's first part of the full `auth` module: email verification (D67, D128), with `Routes::verifying`, `request.feature_disabled`, `Mail::send_now` and the seed's inbox | 1 | 16 (14, 10, 8 shared) | 9 | 0 | `next pass`: 91685a9 |
 | bb32666..91685a9: as above, with pass 1's fixes | 2 | 14 (9, 6, 1 shared) | 3 | 1 | `stopped: no progress`: 80cdfac |
-| ca20278..87a4a33: step 5's second part of the full `auth` module: password reset and change (D129), with `JobScope::attempt` | 1 | 14 (11, 8, 5 shared) | 10 | 0 | `next pass` |
+| ca20278..87a4a33: step 5's second part of the full `auth` module: password reset and change (D129), with `JobScope::attempt` | 1 | 14 (11, 8, 5 shared) | 10 | 0 | `next pass`: f13eb77 |
+| ca20278..f13eb77: as above, with pass 1's fixes | 2 | 8 (8, 2, 2 shared) | 6 | 4 | `stopped: no progress` |
 
 ## Decisions
 
