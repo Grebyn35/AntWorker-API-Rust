@@ -346,6 +346,7 @@ async fn auth_044_ending_one_s_own_session_by_its_id_signs_out_without_a_recent_
     api.database()
         .owner_executes("UPDATE sessions SET authenticated_at = now() - interval '10 minutes'")
         .await;
+    let mut signals = api.database().signals().await;
 
     let ended = api
         .request(http::Method::DELETE, &format!("/v1/users/me/sessions/{id}"))
@@ -366,6 +367,10 @@ async fn auth_044_ending_one_s_own_session_by_its_id_signs_out_without_a_recent_
     }
     let after = api.get("/v1/users/me").bearer(&access).send().await;
     assert_eq!(after.status, 401);
+    let received: Vec<Value> = signals.received().await;
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0]["kind"], "session_ended");
+    assert_eq!(received[0]["session_id"], id.as_str());
     let entries = api
         .database()
         .owner_reads("SELECT resource_id::text FROM audit_entries WHERE action = 'session.ended'")
@@ -568,6 +573,85 @@ async fn auth_045_a_change_of_the_password_takes_its_turn_after_an_end_of_its_se
     // The change rolled back: the password is the one it had.
     let signed_in = users::sign_in(&api, "ada@example.com", PASSWORD).await;
     assert_eq!(signed_in.status, 201);
+}
+
+#[tokio::test]
+async fn auth_044_ending_another_session_takes_its_turn_after_a_deletion_of_the_account() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let phone = users::new_session(&api, "ada@example.com").await;
+    let db = api.database();
+    // A deletion of the account that holds the user's row, and the sessions with it.
+    let mut deletion = db.owner_connection().await;
+    execute_on(&mut deletion, "BEGIN").await;
+    execute_on(
+        &mut deletion,
+        &format!("DELETE FROM users WHERE id = '{}'", ada.user_id),
+    )
+    .await;
+
+    let path = format!("/v1/users/me/sessions/{}", phone.session_id);
+    let ended = spawn_request(&api, &path, &ada.access, None);
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, body) = ended.await.unwrap();
+
+    // Its turn came once the user was gone, and their sessions with them.
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+    let recorded = db
+        .owner_reads("SELECT count(*)::text FROM audit_entries WHERE action = 'session.ended'")
+        .await;
+    assert_eq!(recorded, ["0"]);
+}
+
+#[tokio::test]
+async fn data_20_a_change_of_the_password_and_a_sign_in_on_its_device_never_deadlock() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let phone = sign_in_with(&api, json!({ "device_id": "phone_1" })).await;
+    let db = api.database();
+    // A sign-in on the phone's device: it locks the password identity, then deletes the session
+    // that its device holds.
+    let mut sign_in = db.owner_connection().await;
+    execute_on(&mut sign_in, "BEGIN").await;
+    execute_on(
+        &mut sign_in,
+        &format!(
+            "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
+            ada.user_id
+        ),
+    )
+    .await;
+    let change = json!({ "current_password": PASSWORD, "password": "lantern-orchard-58-brisk" });
+
+    let changed = spawn_request(
+        &api,
+        "/v1/users/me/password/change",
+        &phone.access,
+        Some(change),
+    );
+    queries_wait_on_locks(db, 1).await;
+    // The change waits for the identity, holding no session's row, so this delete waits for
+    // nothing.
+    execute_on(
+        &mut sign_in,
+        &format!("DELETE FROM sessions WHERE id = '{}'", phone.session_id),
+    )
+    .await;
+    execute_on(&mut sign_in, "COMMIT").await;
+    let (status, body) = changed.await.unwrap();
+
+    // The sign-in ended the phone's session first, so the change finds it gone.
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+    assert_eq!(
+        users::sign_in(&api, "ada@example.com", PASSWORD)
+            .await
+            .status,
+        201
+    );
+    assert!(signed_in(&api, &ada).await);
 }
 
 #[tokio::test]

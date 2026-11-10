@@ -6,7 +6,7 @@
 use platform::{
     authn::{AuditScope, Principal},
     db::UnitOfWork,
-    errors::Internal,
+    errors::{Internal, RequestError},
     events::{self, AccessChange},
     lists::{List, Page, Search, key},
     types::{Client, SessionId, UserId},
@@ -36,7 +36,8 @@ pub(crate) enum Ended {
 }
 
 impl Auth {
-    /// The session that authenticated the caller (AUTH-016).
+    /// The session that authenticated the caller, or 401 once another request ended it
+    /// (AUTH-016).
     pub(crate) async fn current(
         &self,
         client: &Client,
@@ -45,7 +46,7 @@ impl Auth {
         let mut uow = self.database.begin(client).await?;
         let session = repo::session(&mut uow, principal.user_id(), principal.session_id())
             .await?
-            .ok_or_else(|| Internal::new("the caller's session doesn't exist"))?;
+            .ok_or(RequestError::Unauthenticated)?;
         self.answer(&mut uow, session).await
     }
 

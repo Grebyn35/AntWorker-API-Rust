@@ -241,8 +241,8 @@ pub(crate) struct SessionResponse {
     refresh_token_expires_at: Timestamp,
     /// When the session ends, whatever its refreshes.
     expires_at: Timestamp,
-    /// When its user last proved their password in it: when it began, or re-authenticated
-    /// (AUTH-021).
+    /// When its user last proved their password in it: when it began, re-authenticated, or
+    /// changed the password (AUTH-021, AUTH-040).
     authenticated_at: Timestamp,
     /// Whether its account must prove its email address, with the code sent to it, before the
     /// API serves it anything but proving it (AUTH-025, AUTH-026).

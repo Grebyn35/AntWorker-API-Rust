@@ -194,3 +194,27 @@ pub async fn session_events(api: &Api, name: &str) -> Vec<String> {
         ))
         .await
 }
+
+/// The IDs of every rate-limit bucket, sorted, so a test finds the bucket a request adds by the
+/// IDs before and after it, since a bucket's key is a keyed hash it can't name (PLATFORM-057).
+pub async fn buckets(api: &Api) -> Vec<String> {
+    api.database()
+        .owner_reads("SELECT id::text FROM rate_limit_buckets ORDER BY 1")
+        .await
+}
+
+/// The ID of the one bucket that `request`, sent once, adds to those there before it.
+pub async fn added_bucket(
+    api: &Api,
+    request: impl std::future::Future<Output = Response>,
+) -> String {
+    let before = buckets(api).await;
+    request.await;
+    let mut added: Vec<String> = buckets(api)
+        .await
+        .into_iter()
+        .filter(|id| !before.contains(id))
+        .collect();
+    assert_eq!(added.len(), 1, "{added:?}");
+    added.remove(0)
+}

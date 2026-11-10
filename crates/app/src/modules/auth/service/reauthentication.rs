@@ -6,7 +6,7 @@
 use platform::{
     authn::Principal,
     db::UnitOfWork,
-    errors::{Internal, RequestError},
+    errors::RequestError,
     rate_limit::RateLimits,
     types::{Client, UserId},
 };
@@ -69,9 +69,10 @@ impl Auth {
         if !matches {
             return Err(self.wrong_password(uow, principal).await?);
         }
+        // Another request may have ended the session since it authenticated this one.
         let session = repo::reauthenticate(&mut uow, user_id, principal.session_id())
             .await?
-            .ok_or_else(|| Internal::new("the caller's session doesn't exist"))?;
+            .ok_or(RequestError::Unauthenticated)?;
         audit_log::record(
             &mut uow,
             principal.audit_scope(),

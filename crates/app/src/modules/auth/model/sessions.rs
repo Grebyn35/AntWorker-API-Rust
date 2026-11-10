@@ -83,7 +83,8 @@ pub(crate) struct SessionItem {
     pub(crate) refresh_token_expires_at: Timestamp,
     /// When the session ends, whatever its refreshes.
     pub(crate) expires_at: Timestamp,
-    /// When its user last proved their password in it (AUTH-021).
+    /// When its user last proved their password in it: when it began, re-authenticated, or
+    /// changed the password (AUTH-021, AUTH-040).
     pub(crate) authenticated_at: Timestamp,
     /// Whether it is the session that authenticated the request.
     pub(crate) current: bool,

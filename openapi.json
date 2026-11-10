@@ -1067,7 +1067,7 @@
                 },
                 "authenticated_at": {
                   "$ref": "#/components/schemas/Timestamp",
-                  "description": "When its user last proved their password in it (AUTH-021)."
+                  "description": "When its user last proved their password in it: when it began, re-authenticated, or\nchanged the password (AUTH-021, AUTH-040)."
                 },
                 "created_at": {
                   "$ref": "#/components/schemas/Timestamp",
@@ -1946,7 +1946,7 @@
           },
           "authenticated_at": {
             "$ref": "#/components/schemas/Timestamp",
-            "description": "When its user last proved their password in it: when it began, or re-authenticated\n(AUTH-021)."
+            "description": "When its user last proved their password in it: when it began, re-authenticated, or\nchanged the password (AUTH-021, AUTH-040)."
           },
           "created_at": {
             "$ref": "#/components/schemas/Timestamp",
@@ -2127,7 +2127,7 @@
           },
           "authenticated_at": {
             "$ref": "#/components/schemas/Timestamp",
-            "description": "When its user last proved their password in it (AUTH-021)."
+            "description": "When its user last proved their password in it: when it began, re-authenticated, or\nchanged the password (AUTH-021, AUTH-040)."
           },
           "created_at": {
             "$ref": "#/components/schemas/Timestamp",
@@ -2196,7 +2196,7 @@
           },
           "authenticated_at": {
             "$ref": "#/components/schemas/Timestamp",
-            "description": "When its user last proved their password in it: when it began, or re-authenticated\n(AUTH-021)."
+            "description": "When its user last proved their password in it: when it began, re-authenticated, or\nchanged the password (AUTH-021, AUTH-040)."
           },
           "created_at": {
             "$ref": "#/components/schemas/Timestamp",

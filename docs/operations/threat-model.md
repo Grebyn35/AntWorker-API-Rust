@@ -157,6 +157,6 @@ Requirement 6.3.3 of ASVS asks every user to sign in with more than one factor, 
 
 - Passwords: of a length that AUTH-003 bounds, refused when breached or guessable (AUTH-003), hashed with Argon2id (SEC-04, AUTH-014).
 - Guessing and lockout: the [sign-in limits](#sign-in-limits) and those of a [password reset](#password-reset), and failures that reveal nothing (SEC-05, AUTH-005, AUTH-038).
-- Sessions: random tokens stored as hashes (SEC-03), bounded lifetimes (SEC-06, AUTH-007), a refresh token that works once and whose reuse ends the session (AUTH-012), signing out that ends it at once (AUTH-013), a user's list of their sessions, any of which they end once they prove their password again (AUTH-043 to AUTH-045), and browsers' tokens in cookies no script reads (SEC-07, AUTH-015).
+- Sessions: random tokens stored as hashes (SEC-03), bounded lifetimes (SEC-06, AUTH-007), a refresh token that works once and whose reuse ends the session (AUTH-012), signing out that ends it at once (AUTH-013), a user's list of their sessions, any other of which they end once they prove their password again (AUTH-043 to AUTH-045), and browsers' tokens in cookies no script reads (SEC-07, AUTH-015).
 - Detection: each failed sign-in of an existing account is recorded in its audit log (AUTH-005), with the client's address and user agent (AUDIT-003), as is the reuse of a refresh token (AUTH-012).
 - Access: lost access ends open streams (SEC-06), and authorization is checked on every workspace request (SEC-08).

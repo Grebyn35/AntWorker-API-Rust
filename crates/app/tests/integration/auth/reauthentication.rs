@@ -6,6 +6,7 @@ use serde_json::json;
 use crate::support::{
     Api,
     api::Response,
+    execute_on, queries_wait_on_locks,
     users::{self, PASSWORD, SignedIn},
 };
 
@@ -162,6 +163,57 @@ async fn auth_022_every_check_of_a_signed_in_user_s_password_counts_in_one_bucke
 }
 
 #[tokio::test]
+async fn auth_021_a_session_that_another_request_ended_meanwhile_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    // Every bucket of Ada's requests but her password checks', which a re-authentication adds.
+    api.get("/v1/users/me").bearer(&ada.access).send().await;
+    let checks = users::added_bucket(&api, reauthenticate(&api, &ada, PASSWORD)).await;
+    // The re-authentication waits at that bucket while another request ends its session.
+    let mut ender = db.owner_connection().await;
+    execute_on(&mut ender, "BEGIN").await;
+    execute_on(
+        &mut ender,
+        &format!("SELECT 1 FROM rate_limit_buckets WHERE id = '{checks}' FOR UPDATE"),
+    )
+    .await;
+
+    let again = tokio::spawn({
+        let api = api.clone();
+        let access = ada.access.clone();
+        async move {
+            let response = api
+                .post(
+                    "/v1/users/me/sessions/current/reauthenticate",
+                    &json!({ "password": PASSWORD }),
+                )
+                .bearer(&access)
+                .send()
+                .await;
+            (response.status, response.json())
+        }
+    });
+    queries_wait_on_locks(db, 1).await;
+    execute_on(
+        &mut ender,
+        &format!("DELETE FROM sessions WHERE id = '{}'", ada.session_id),
+    )
+    .await;
+    execute_on(&mut ender, "COMMIT").await;
+    let (status, body) = again.await.unwrap();
+
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+    let recorded = db
+        .owner_reads(
+            "SELECT count(*)::text FROM audit_entries WHERE action = 'session.reauthenticated'",
+        )
+        .await;
+    assert_eq!(recorded, ["1"]);
+}
+
+#[tokio::test]
 async fn auth_023_a_deletion_needs_the_password_proved_within_5_minutes() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -192,6 +244,58 @@ async fn auth_023_a_deletion_needs_the_password_proved_within_5_minutes() {
             .await,
         ["0"]
     );
+}
+
+#[tokio::test]
+async fn auth_023_a_deletion_whose_session_another_request_ended_before_its_check_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    // Every bucket of Ada's requests but a deletion's, which a refused deletion then adds.
+    api.get("/v1/users/me").bearer(&ada.access).send().await;
+    users::authenticated_ago(&api, &ada, 10).await;
+    let deletion_bucket = users::added_bucket(&api, delete(&api, &ada)).await;
+    users::authenticated_ago(&api, &ada, 0).await;
+    // The deletion waits at its bucket, once its request is authenticated, while another request
+    // ends its session.
+    let mut ender = db.owner_connection().await;
+    execute_on(&mut ender, "BEGIN").await;
+    execute_on(
+        &mut ender,
+        &format!("SELECT 1 FROM rate_limit_buckets WHERE id = '{deletion_bucket}' FOR UPDATE"),
+    )
+    .await;
+
+    let deletion = tokio::spawn({
+        let api = api.clone();
+        let access = ada.access.clone();
+        async move {
+            let response = api
+                .request(http::Method::DELETE, "/v1/users/me")
+                .bearer(&access)
+                .send()
+                .await;
+            (response.status, response.json())
+        }
+    });
+    queries_wait_on_locks(db, 1).await;
+    execute_on(
+        &mut ender,
+        &format!("DELETE FROM sessions WHERE id = '{}'", ada.session_id),
+    )
+    .await;
+    execute_on(&mut ender, "COMMIT").await;
+    let (status, body) = deletion.await.unwrap();
+
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+    let users = db
+        .owner_reads(&format!(
+            "SELECT count(*)::text FROM users WHERE id = '{}'",
+            ada.user_id
+        ))
+        .await;
+    assert_eq!(users, ["1"]);
 }
 
 #[tokio::test]

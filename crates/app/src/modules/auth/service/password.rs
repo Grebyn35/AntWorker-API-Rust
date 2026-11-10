@@ -219,6 +219,9 @@ impl Auth {
         }
         let password_hash = hash(&self.workers, change.password).await?;
         let address = take_turn(&mut uow, principal).await?;
+        // The identity before any session, as a sign-in locks them, so the two never deadlock
+        // (the auth spec's "Taking turns").
+        let identity = repo::set_password(&mut uow, user_id, &password_hash).await?;
         // The request proved the password, as a re-authentication does; its session, read after
         // the turn, may have ended meanwhile.
         if repo::reauthenticate(&mut uow, user_id, principal.session_id())
@@ -227,7 +230,6 @@ impl Auth {
         {
             return Err(RequestError::Unauthenticated.into());
         }
-        let identity = repo::set_password(&mut uow, user_id, &password_hash).await?;
         let ended = repo::delete_other_sessions(&mut uow, user_id, principal.session_id()).await?;
         end_sessions(&mut uow, principal.audit_scope(), user_id, &ended).await?;
         audit_log::record(
