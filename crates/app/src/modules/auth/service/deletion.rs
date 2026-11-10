@@ -10,7 +10,7 @@ use platform::{
     types::{Client, UserId},
 };
 
-use super::Auth;
+use super::{Auth, buckets};
 use crate::modules::{
     accounts::{self, DeletionOutcome},
     auth::{error::AuthError, repo},
@@ -32,7 +32,7 @@ impl Auth {
             .profile
             .email;
         limits
-            .check(self.settings.deletion_email, email.as_str().as_bytes())
+            .check(buckets::DELETION_EMAIL, email.as_str().as_bytes())
             .await?;
         let mut uow = self.database.begin(client).await?;
         let recent =

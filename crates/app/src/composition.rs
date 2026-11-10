@@ -69,47 +69,6 @@ const SIGN_IN_EMAIL_BUCKET: &str = "sign_in_email";
 /// The name of the bucket of the sign-in limit of a device token (AUTH-006).
 const SIGN_IN_DEVICE_BUCKET: &str = "sign_in_device";
 
-/// The bucket of each user's checks of their password, once signed in: 5 in 15 minutes, fixed
-/// (AUTH-022).
-const PASSWORD_CHECK: Bucket = Bucket {
-    name: "password_check",
-    limit: 5,
-    window: Duration::from_secs(900),
-};
-
-/// The bucket of the deletions of an email's accounts, each of which sends the address an email:
-/// 5 in 24 hours, fixed (AUTH-024).
-const DELETION_EMAIL: Bucket = Bucket {
-    name: "deletion_email",
-    limit: 5,
-    window: Duration::from_secs(86_400),
-};
-
-/// The bucket of the registrations of an email address, each of which sends the address a code
-/// while email is on: 3 in 15 minutes, fixed (AUTH-029).
-const REGISTRATION_EMAIL: Bucket = Bucket {
-    name: "registration_email",
-    limit: 3,
-    window: Duration::from_secs(900),
-};
-
-/// The bucket of the requests for a code to an email address, each of which sends the address an
-/// email: 3 in 15 minutes, fixed, apart from the registrations', which anyone may send, so that
-/// none of them keeps the account's owner from asking for a code (AUTH-029).
-const VERIFICATION_EMAIL: Bucket = Bucket {
-    name: "verification_email",
-    limit: 3,
-    window: Duration::from_secs(900),
-};
-
-/// The bucket of each user's checks of the codes that prove their address: 10 in 24 hours,
-/// fixed (AUTH-033).
-const CODE_CHECK: Bucket = Bucket {
-    name: "code_check",
-    limit: 10,
-    window: Duration::from_secs(86_400),
-};
-
 // part: invitations
 /// The name of the per-member limit's bucket on inviting (INVITATIONS-009).
 const INVITATION_BUCKET: &str = "invitation";
@@ -160,11 +119,6 @@ impl Config {
                     365 * day,
                     day..=5 * 365 * day,
                 )?,
-                password_check: PASSWORD_CHECK,
-                deletion_email: DELETION_EMAIL,
-                registration_email: REGISTRATION_EMAIL,
-                verification_email: VERIFICATION_EMAIL,
-                code_check: CODE_CHECK,
             },
             // part: files
             files: files::Settings {

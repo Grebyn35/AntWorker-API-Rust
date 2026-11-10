@@ -1,6 +1,8 @@
 //! Registration, sign-in, refresh and the current session (the auth spec's Routes). Proving the
-//! account's email address is in `verification.rs`.
+//! account's email address is in `verification.rs`, and resetting and changing the password in
+//! `password.rs`.
 
+mod password;
 mod verification;
 
 use std::sync::Arc;
@@ -37,6 +39,7 @@ const CURRENT_SESSION: &str = "/v1/users/me/sessions/current";
 /// The module's routes, which take the service as their state.
 pub(crate) fn routes() -> Routes<Arc<Auth>> {
     verification::routes()
+        .merge(password::routes())
         .public(
             routes!(register),
             &[&AuthError::EmailInUse, &LimitError::RateLimited],

@@ -115,6 +115,46 @@
         "x": 0,
         "y": 8
       }
+    },
+    {
+      "type": "timeseries",
+      "title": "How do confirmations of password resets end?",
+      "description": "Confirmations of password resets in the last 5 minutes, by how each ended: reset, invalid_reset_code, or rate_limited by the limit on an email's confirmations from one client address (AUTH-037 to AUTH-039). A rise in invalid_reset_code across many client addresses is the shape of guessing reset codes, which their 80 bits leave hopeless, and which costs a hash each.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (auth_outcome) (increase(auth_password_resets_total[5m]))",
+          "legendFormat": "{{auth_outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 3,
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      }
     }
   ]
 }

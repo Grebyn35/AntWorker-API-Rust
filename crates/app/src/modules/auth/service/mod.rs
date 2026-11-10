@@ -1,6 +1,7 @@
 //! Registration, sign-in, refresh and sign-out; in `reauthentication.rs`, re-authenticating; in
 //! `deletion.rs`, confirming an account's deletion; in `verification.rs`, proving an account's
-//! email address; and in `verifier.rs`, the verifier of access tokens and sessions. Each
+//! email address, and the job that sends every code; in `password.rs`, resetting and changing the
+//! password; and in `verifier.rs`, the verifier of access tokens and sessions. Each
 //! operation opens its own unit of work, after any per-action limit it counts first.
 
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
@@ -17,13 +18,16 @@ use platform::{
     types::{Client, EmailAddress, Secret, SessionId, UserId},
 };
 
+mod buckets;
 mod deletion;
 mod devices;
+mod password;
 mod reauthentication;
 mod verification;
 mod verifier;
 
 pub(super) use deletion::erase;
+pub(crate) use password::{PasswordChange, ResetConfirmation};
 pub(crate) use verifier::Verifier;
 
 use super::{
@@ -73,19 +77,6 @@ pub(crate) struct Settings {
     pub(crate) sign_in_device: Bucket,
     /// How long a device token lasts (AUTH-019).
     pub(crate) device_tokens: std::time::Duration,
-    /// The bucket of each user's checks of their password, once signed in (AUTH-022).
-    pub(crate) password_check: Bucket,
-    /// The bucket of the deletions of an email's accounts, each of which sends the address an
-    /// email (AUTH-024).
-    pub(crate) deletion_email: Bucket,
-    /// The bucket of the registrations of an email address, each of which sends the address a
-    /// code while email is on (AUTH-029).
-    pub(crate) registration_email: Bucket,
-    /// The bucket of the requests for a code to an email address, each of which sends the address
-    /// an email, apart from the registrations' so that no one who sends those fills it (AUTH-029).
-    pub(crate) verification_email: Bucket,
-    /// The bucket of each user's checks of the codes that prove their address (AUTH-033).
-    pub(crate) code_check: Bucket,
 }
 
 /// Registration, sign-in and sessions.
@@ -101,8 +92,9 @@ pub(crate) struct Auth {
     workers: Workers,
     /// What deletes an account across every module, once this module confirms it (AUTH-023).
     deletion: Deletion,
-    /// What sends the codes that prove an account's address, and says whether email is on
-    /// (AUTH-025, AUTH-030).
+    /// What sends the codes that prove an account's address or reset its password, and the email
+    /// that tells it its password changed, and says whether email is on (AUTH-025, AUTH-030,
+    /// AUTH-036, AUTH-041).
     mail: Mail,
 }
 
@@ -146,10 +138,7 @@ impl Auth {
     ) -> Result<(Session, Tokens, DeviceToken), AuthError> {
         if self.mail.is_on() {
             limits
-                .check(
-                    self.settings.registration_email,
-                    input.email.as_str().as_bytes(),
-                )
+                .check(buckets::REGISTRATION_EMAIL, input.email.as_str().as_bytes())
                 .await?;
         }
         let password_hash = hash(&self.workers, input.password).await?;

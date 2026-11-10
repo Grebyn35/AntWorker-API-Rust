@@ -1,0 +1,849 @@
+//! Resetting a forgotten password with a code sent to the account's address, and changing the
+//! password with the current one (the auth spec's "Password reset" and "Changing the password",
+//! AUTH-034 to AUTH-041).
+
+use serde_json::{Value, json};
+
+use crate::support::{
+    Api, Options,
+    api::Response,
+    mailbox,
+    users::{self, SignedIn},
+};
+
+/// The new password of the tests' resets and changes.
+const NEW_PASSWORD: &str = "lantern-orchard-58-brisk";
+
+/// The API with email off (PLATFORM-024).
+async fn without_email() -> Api {
+    Api::with(Options::default().set("EMAIL", "off")).await
+}
+
+/// Asks for a reset of `email`'s password.
+async fn ask(api: &Api, email: &str) -> Response {
+    api.post("/v1/password-resets", &json!({ "email": email }))
+        .send()
+        .await
+}
+
+/// Confirms a reset of `email`'s password with `code`, to [`NEW_PASSWORD`].
+async fn confirm(api: &Api, email: &str, code: &str) -> Response {
+    api.post(
+        "/v1/password-resets/confirm",
+        &json!({ "email": email, "code": code, "password": NEW_PASSWORD }),
+    )
+    .send()
+    .await
+}
+
+/// Changes `user`'s password from `current` to [`NEW_PASSWORD`].
+async fn change(api: &Api, user: &SignedIn, current: &str) -> Response {
+    api.post(
+        "/v1/users/me/password/change",
+        &json!({ "current_password": current, "password": NEW_PASSWORD }),
+    )
+    .bearer(&user.access)
+    .send()
+    .await
+}
+
+/// The reset code in the newest reset email that `address` received, once the API's jobs have
+/// run.
+async fn code_sent(api: &Api, address: &str) -> String {
+    api.run_jobs().await;
+    let emails = mailbox::to(address).await;
+    let email = emails
+        .iter()
+        .find(|email| email.subject.contains("password reset code"))
+        .expect("an email with a reset code");
+    code_in(&email.text).expect("a reset code in the email")
+}
+
+/// The code of four groups of four characters in `text`.
+fn code_in(text: &str) -> Option<String> {
+    text.split_whitespace()
+        .find(|word| {
+            word.len() == 19
+                && word.split('-').all(|group| {
+                    group.len() == 4 && group.bytes().all(|b| b.is_ascii_alphanumeric())
+                })
+        })
+        .map(str::to_owned)
+}
+
+/// A reset code that isn't `code`: its first character replaced.
+fn other_than(code: &str) -> String {
+    let replaced = if code.starts_with('Z') { 'Y' } else { 'Z' };
+    format!("{replaced}{}", &code[1..])
+}
+
+/// The rows of `sql`, which the `owner` connection reads.
+async fn rows(api: &Api, sql: &str) -> Vec<String> {
+    api.database().owner_reads(sql).await
+}
+
+/// The actions of `user_id`'s log, with each entry's actor and resource type, the oldest first.
+async fn log(api: &Api, user_id: &str) -> Vec<String> {
+    rows(
+        api,
+        &format!(
+            "SELECT action || ' ' || coalesce(actor_user_id::text, '-') || ' ' || resource_type \
+             FROM audit_entries WHERE user_id = '{user_id}' ORDER BY id"
+        ),
+    )
+    .await
+}
+
+/// `body` without its trace ID, which differs between any two responses.
+fn without_trace(mut body: Value) -> Value {
+    body.as_object_mut().unwrap().remove("trace_id");
+    body
+}
+
+#[tokio::test]
+async fn auth_034_asking_enqueues_the_reset_code_s_job_for_the_account_and_answers_202() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+
+    let asked = ask(&api, &address).await;
+
+    assert_eq!(asked.status, 202);
+    assert!(asked.body.is_empty());
+    assert_eq!(
+        rows(
+            &api,
+            "SELECT kind || ' ' || coalesce(user_id::text, '-') || ' ' || payload::text FROM jobs"
+        )
+        .await,
+        [format!(
+            "auth.send_verification_code {} {{\"purpose\": \"password_reset\"}}",
+            ada.user_id
+        )]
+    );
+    assert_eq!(code_sent(&api, &address).await.len(), 19);
+}
+
+#[tokio::test]
+async fn auth_034_an_address_that_no_account_holds_gets_the_same_answer_and_the_same_job_for_no_one()
+ {
+    let api = Api::new().await;
+    let address = mailbox::address("nobody");
+
+    let asked = ask(&api, &address).await;
+
+    assert_eq!(asked.status, 202);
+    assert!(asked.body.is_empty());
+    assert_eq!(
+        rows(
+            &api,
+            "SELECT kind || ' ' || coalesce(user_id::text, '-') || ' ' || payload::text FROM jobs"
+        )
+        .await,
+        ["auth.send_verification_code - {\"purpose\": \"password_reset\"}"]
+    );
+    assert_eq!(api.run_jobs().await, 1);
+    assert!(
+        rows(&api, "SELECT id::text FROM verification_codes")
+            .await
+            .is_empty()
+    );
+    assert!(
+        rows(&api, "SELECT id::text FROM audit_entries")
+            .await
+            .is_empty()
+    );
+    assert!(mailbox::to(&address).await.is_empty());
+}
+
+#[tokio::test]
+async fn auth_034_an_account_without_a_password_gets_a_reset_code() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    users::without_password(api.database(), &address).await;
+
+    assert_eq!(ask(&api, &address).await.status, 202);
+
+    assert_eq!(code_sent(&api, &address).await.len(), 19);
+}
+
+#[tokio::test]
+async fn auth_034_with_email_off_asking_answers_503() {
+    let api = without_email().await;
+    users::register(&api, "ada@example.com").await;
+
+    let asked = ask(&api, "ada@example.com").await;
+
+    assert_eq!(asked.status, 503);
+    assert_eq!(asked.json()["code"], "request.feature_disabled");
+    assert!(rows(&api, "SELECT kind FROM jobs").await.is_empty());
+}
+
+#[tokio::test]
+async fn auth_035_asking_counts_in_a_bucket_of_the_address_before_it_enqueues_anything() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    users::register(&api, &address).await;
+
+    let mut statuses = Vec::new();
+    for _ in 0..3 {
+        statuses.push(ask(&api, &address).await.status);
+    }
+    let refused = ask(&api, &address.to_uppercase()).await;
+    let other = ask(&api, &mailbox::address("grace")).await;
+
+    assert_eq!(statuses, [202, 202, 202]);
+    assert_eq!(refused.status, 429);
+    assert_eq!(refused.json()["code"], "request.rate_limited");
+    assert!(
+        refused
+            .header("ratelimit-policy")
+            .starts_with("\"reset_email\";q=3;w=900")
+    );
+    assert_eq!(other.status, 202);
+    assert_eq!(
+        rows(&api, "SELECT count(*)::text FROM jobs").await,
+        ["4"],
+        "the refused request enqueued nothing"
+    );
+}
+
+#[tokio::test]
+async fn auth_035_requests_for_resets_fill_neither_bucket_of_codes_that_prove_an_address() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register_unverified(&api, &address).await;
+    for _ in 0..3 {
+        assert_eq!(ask(&api, &address).await.status, 202);
+    }
+
+    let asked = api
+        .request(http::Method::POST, "/v1/users/me/email/verification")
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(asked.status, 202);
+}
+
+#[tokio::test]
+async fn auth_036_the_job_stores_only_the_reset_code_s_hmac_and_sends_the_code() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    ask(&api, &address).await;
+
+    let code = code_sent(&api, &address).await;
+
+    let stored = rows(
+        &api,
+        "SELECT purpose || ' ' || encode(code_hash, 'hex') || ' ' \
+         || (expires_at - created_at)::text FROM verification_codes",
+    )
+    .await;
+    assert_eq!(stored.len(), 1);
+    let fields: Vec<&str> = stored[0].split(' ').collect();
+    assert_eq!(fields[0], "password_reset");
+    assert_eq!(fields[1].len(), 64);
+    assert!(!fields[1].contains(&code.replace('-', "").to_lowercase()));
+    assert_eq!(fields[2], "00:10:00");
+    assert_eq!(
+        log(&api, &ada.user_id).await.last().unwrap(),
+        "password_reset_code.issued - verification_code"
+    );
+    assert!(rows(&api, "SELECT kind FROM jobs").await.is_empty());
+    let email = &mailbox::to(&address).await[0];
+    assert_eq!(email.subject, "Your AntWorker password reset code");
+}
+
+#[tokio::test]
+async fn auth_036_a_newer_reset_code_replaces_the_one_before_it() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    users::register(&api, &address).await;
+    ask(&api, &address).await;
+    let first = code_sent(&api, &address).await;
+    ask(&api, &address).await;
+    let second = code_sent(&api, &address).await;
+
+    assert_ne!(first, second);
+    assert_eq!(confirm(&api, &address, &first).await.status, 401);
+    assert_eq!(
+        rows(&api, "SELECT count(*)::text FROM verification_codes").await,
+        ["1"]
+    );
+    assert_eq!(confirm(&api, &address, &second).await.status, 204);
+}
+
+#[tokio::test]
+async fn auth_036_a_reset_code_leaves_the_account_s_verification_code_in_place() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register_unverified(&api, &address).await;
+    ask(&api, &address).await;
+
+    assert_eq!(api.run_jobs().await, 2);
+
+    assert_eq!(
+        rows(
+            &api,
+            "SELECT purpose::text FROM verification_codes ORDER BY purpose"
+        )
+        .await,
+        ["email_verification", "password_reset"]
+    );
+    let verification = mailbox::to(&address)
+        .await
+        .into_iter()
+        .find(|email| email.subject.contains("verification code"))
+        .unwrap();
+    let digits = verification
+        .text
+        .split_whitespace()
+        .find(|word| word.len() == 6 && word.bytes().all(|byte| byte.is_ascii_digit()))
+        .unwrap()
+        .to_owned();
+    let confirmed = api
+        .post(
+            "/v1/users/me/email/verification/confirm",
+            &json!({ "code": digits }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(confirmed.status, 200);
+}
+
+#[tokio::test]
+async fn auth_036_a_run_for_an_account_that_is_gone_issues_nothing() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    ask(&api, &address).await;
+    api.database()
+        .owner_executes(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
+        .await;
+
+    assert_eq!(api.run_jobs().await, 1);
+
+    assert!(
+        rows(&api, "SELECT id::text FROM verification_codes")
+            .await
+            .is_empty()
+    );
+    assert!(mailbox::to(&address).await.is_empty());
+}
+
+#[tokio::test]
+async fn auth_036_a_run_on_a_replica_with_email_off_issues_nothing() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    users::register(&api, &address).await;
+    ask(&api, &address).await;
+    let off = api.instance(Options::default().set("EMAIL", "off")).await;
+
+    assert_eq!(off.run_jobs().await, 1);
+
+    assert!(
+        rows(&api, "SELECT id::text FROM verification_codes")
+            .await
+            .is_empty()
+    );
+    assert!(mailbox::to(&address).await.is_empty());
+}
+
+#[tokio::test]
+async fn auth_037_the_code_resets_the_password_ends_every_session_and_starts_none() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let other = users::new_session(&api, &address).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    let mut signals = api.database().signals().await;
+
+    let reset = confirm(&api, &address, &code.to_lowercase().replace('-', " ")).await;
+
+    assert_eq!(reset.status, 204);
+    assert!(reset.body.is_empty());
+    for session in [&ada, &other] {
+        let refused = api.get("/v1/users/me").bearer(&session.access).send().await;
+        assert_eq!(refused.status, 401);
+    }
+    assert_eq!(
+        users::sign_in(&api, &address, users::PASSWORD).await.status,
+        401
+    );
+    let received: Vec<Value> = signals.received().await;
+    assert_eq!(received.len(), 2);
+    assert!(
+        received
+            .iter()
+            .all(|signal| signal["kind"] == "session_ended")
+    );
+    assert!(
+        rows(&api, "SELECT id::text FROM verification_codes")
+            .await
+            .is_empty()
+    );
+    let entries = log(&api, &ada.user_id).await;
+    let reset_entries: Vec<&String> = entries
+        .iter()
+        .skip_while(|entry| !entry.starts_with("password_reset_code.issued"))
+        .skip(1)
+        .take(3)
+        .collect();
+    assert_eq!(
+        reset_entries,
+        [
+            "session.ended - session",
+            "session.ended - session",
+            "password.reset - identity",
+        ]
+    );
+    let signed_in = users::sign_in(&api, &address, NEW_PASSWORD).await;
+    assert_eq!(signed_in.status, 201);
+}
+
+#[tokio::test]
+async fn auth_037_a_reset_proves_the_address_of_an_account_that_hadn_t() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register_unverified(&api, &address).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+
+    assert_eq!(confirm(&api, &address, &code).await.status, 204);
+
+    assert_eq!(
+        rows(
+            &api,
+            &format!(
+                "SELECT email_verified::text FROM users WHERE id = '{}'",
+                ada.user_id
+            )
+        )
+        .await,
+        ["true"]
+    );
+    let entries = log(&api, &ada.user_id).await;
+    assert!(entries.contains(&"email.verified - user".to_owned()));
+    let signed_in = users::sign_in(&api, &address, NEW_PASSWORD).await;
+    assert_eq!(signed_in.json()["email_verification_required"], false);
+}
+
+#[tokio::test]
+async fn auth_037_a_reset_sets_the_first_password_of_an_account_without_one() {
+    let api = Api::new().await;
+    let address = mailbox::address("owner");
+    users::without_password(api.database(), &address).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+
+    assert_eq!(confirm(&api, &address, &code).await.status, 204);
+
+    assert_eq!(
+        rows(&api, "SELECT method::text FROM identities").await,
+        ["password"]
+    );
+    assert_eq!(
+        users::sign_in(&api, &address, NEW_PASSWORD).await.status,
+        201
+    );
+}
+
+#[tokio::test]
+async fn auth_037_a_reset_code_resets_the_password_once() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    users::register(&api, &address).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    assert_eq!(confirm(&api, &address, &code).await.status, 204);
+
+    let again = confirm(&api, &address, &code).await;
+
+    assert_eq!(again.status, 401);
+    assert_eq!(again.json()["code"], "auth.invalid_reset_code");
+}
+
+#[tokio::test]
+async fn auth_037_of_two_that_confirm_one_code_at_once_only_one_resets_the_password() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    // The first confirmation, which locks the user's row and claims the code, as a confirmation
+    // does, held open while the second runs.
+    let mut first = api
+        .database()
+        .holding(&format!(
+            "SELECT 1 FROM users WHERE id = '{0}' FOR NO KEY UPDATE;
+            DELETE FROM verification_codes WHERE user_id = '{0}'",
+            ada.user_id
+        ))
+        .await;
+
+    let second = tokio::spawn({
+        let api = api.clone();
+        let address = address.clone();
+        async move { confirm(&api, &address, &code).await }
+    });
+    crate::support::queries_wait_on_locks(api.database(), 1).await;
+    crate::support::execute_on(&mut first, "COMMIT").await;
+    let answered = second.await.unwrap();
+
+    assert_eq!(answered.status, 401);
+    assert_eq!(answered.json()["code"], "auth.invalid_reset_code");
+    let entries = log(&api, &ada.user_id).await;
+    assert!(
+        !entries
+            .iter()
+            .any(|entry| entry.starts_with("password.reset "))
+    );
+    assert_eq!(
+        users::sign_in(&api, &address, users::PASSWORD).await.status,
+        201
+    );
+}
+
+#[tokio::test]
+async fn auth_038_an_unknown_address_a_missing_code_an_expired_one_and_a_wrong_one_answer_alike() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let grace_address = mailbox::address("grace");
+    let no_code_address = mailbox::address("hopper");
+    let ada = users::register(&api, &address).await;
+    let grace = users::register(&api, &grace_address).await;
+    let no_code = users::register(&api, &no_code_address).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    ask(&api, &grace_address).await;
+    let grace_code = code_sent(&api, &grace_address).await;
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE verification_codes SET expires_at = now() - interval '1 second' \
+             WHERE user_id = '{}'",
+            grace.user_id
+        ))
+        .await;
+
+    let unknown = confirm(&api, &mailbox::address("nobody"), &code).await;
+    let missing = confirm(&api, &no_code_address, &code).await;
+    let expired = confirm(&api, &grace_address, &grace_code).await;
+    let wrong = confirm(&api, &address, &other_than(&code)).await;
+
+    let first = without_trace(unknown.json());
+    assert_eq!(unknown.status, 401);
+    assert_eq!(first["code"], "auth.invalid_reset_code");
+    for answer in [&missing, &expired, &wrong] {
+        assert_eq!(answer.status, 401);
+        assert_eq!(without_trace(answer.json()), first);
+    }
+    for user in [&ada, &grace, &no_code] {
+        assert_eq!(
+            log(&api, &user.user_id).await.last().unwrap(),
+            "password_reset.failed - user"
+        );
+    }
+    assert_eq!(confirm(&api, &address, &code).await.status, 204);
+}
+
+#[tokio::test]
+async fn auth_038_a_malformed_code_and_a_refused_password_answer_400_with_both_fields() {
+    let api = Api::new().await;
+
+    let refused = api
+        .post_raw(
+            "/v1/password-resets/confirm",
+            &json!({ "email": "ada@example.com", "code": "7KQM-2XWD-9RTB-H4NU", "password": "password1" }),
+        )
+        .send()
+        .await;
+
+    assert_eq!(refused.status, 400);
+    let errors = refused.json()["errors"].clone();
+    let fields: Vec<(&str, &str)> = errors
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|error| {
+            (
+                error["field"].as_str().unwrap(),
+                error["code"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        fields,
+        [("/code", "invalid_code"), ("/password", "breached")]
+    );
+}
+
+#[tokio::test]
+async fn auth_038_with_email_off_a_confirmation_whose_body_converts_answers_503() {
+    let api = without_email().await;
+
+    let converted = confirm(&api, "ada@example.com", "7KQM-2XWD-9RTB-H4NP").await;
+    let malformed = api
+        .post_raw(
+            "/v1/password-resets/confirm",
+            &json!({ "email": "ada@example.com", "code": "7KQM", "password": NEW_PASSWORD }),
+        )
+        .send()
+        .await;
+
+    assert_eq!(converted.status, 503);
+    assert_eq!(converted.json()["code"], "request.feature_disabled");
+    assert_eq!(malformed.status, 400);
+}
+
+#[tokio::test]
+async fn auth_039_confirmations_count_per_email_from_each_client_address_before_any_work() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    let wrong = other_than(&code);
+    let from = |peer: &'static str, code: String| {
+        let api = api.clone();
+        let address = address.clone();
+        async move {
+            api.post(
+                "/v1/password-resets/confirm",
+                &json!({ "email": address, "code": code, "password": NEW_PASSWORD }),
+            )
+            .from(peer)
+            .send()
+            .await
+        }
+    };
+
+    let mut statuses = Vec::new();
+    for _ in 0..5 {
+        statuses.push(from("[2001:db8:1:2::1]:50000", wrong.clone()).await.status);
+    }
+    let refused = from("[2001:db8:1:2::2]:50000", code.clone()).await;
+    let elsewhere = from("[2001:db8:1:3::1]:50000", code.clone()).await;
+
+    assert_eq!(statuses, [401; 5]);
+    assert_eq!(refused.status, 429, "the same /64");
+    assert_eq!(refused.json()["code"], "request.rate_limited");
+    assert!(
+        refused
+            .header("ratelimit-policy")
+            .starts_with("\"reset_check\";q=5;w=900")
+    );
+    let failures = log(&api, &ada.user_id)
+        .await
+        .iter()
+        .filter(|entry| entry.starts_with("password_reset.failed"))
+        .count();
+    assert_eq!(failures, 5, "the refused confirmation read nothing");
+    assert_eq!(
+        elsewhere.status, 204,
+        "no count of the email from every address"
+    );
+}
+
+#[tokio::test]
+async fn auth_040_changing_sets_the_password_ends_the_other_sessions_and_keeps_the_caller_s() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let other = users::new_session(&api, &address).await;
+    let before = api
+        .get("/v1/users/me/sessions/current")
+        .bearer(&ada.access)
+        .send()
+        .await
+        .json()["authenticated_at"]
+        .clone();
+    let mut signals = api.database().signals().await;
+
+    let changed = change(&api, &ada, users::PASSWORD).await;
+
+    assert_eq!(changed.status, 204);
+    assert!(changed.body.is_empty());
+    let refused = api.get("/v1/users/me").bearer(&other.access).send().await;
+    assert_eq!(refused.status, 401);
+    let session = api
+        .get("/v1/users/me/sessions/current")
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(session.status, 200);
+    assert!(session.json()["authenticated_at"].as_str() > before.as_str());
+    let received: Vec<Value> = signals.received().await;
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0]["session_id"], other.session_id.as_str());
+    let entries = log(&api, &ada.user_id).await;
+    assert_eq!(
+        entries[entries.len() - 2..],
+        [
+            format!("session.ended {} session", ada.user_id),
+            format!("password.changed {} identity", ada.user_id),
+        ]
+    );
+    assert_eq!(
+        users::sign_in(&api, &address, users::PASSWORD).await.status,
+        401
+    );
+    assert_eq!(
+        users::sign_in(&api, &address, NEW_PASSWORD).await.status,
+        201
+    );
+}
+
+#[tokio::test]
+async fn auth_040_a_wrong_current_password_answers_403_and_changes_nothing_else() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let other = users::new_session(&api, &address).await;
+
+    let refused = change(&api, &ada, "not-the-password-77").await;
+
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.json()["code"], "auth.wrong_password");
+    assert_eq!(
+        log(&api, &ada.user_id).await.last().unwrap(),
+        &format!("password.check_failed {} user", ada.user_id)
+    );
+    let still = api.get("/v1/users/me").bearer(&other.access).send().await;
+    assert_eq!(still.status, 200);
+    assert_eq!(
+        users::sign_in(&api, &address, users::PASSWORD).await.status,
+        201
+    );
+}
+
+#[tokio::test]
+async fn auth_040_an_account_without_a_password_answers_403() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    api.database()
+        .owner_executes("DELETE FROM identities")
+        .await;
+
+    let refused = change(&api, &ada, users::PASSWORD).await;
+
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.json()["code"], "auth.wrong_password");
+    assert!(
+        rows(&api, "SELECT id::text FROM identities")
+            .await
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn auth_040_a_refused_new_password_and_an_empty_current_one_answer_400_with_both_fields() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let refused = api
+        .post_raw(
+            "/v1/users/me/password/change",
+            &json!({ "current_password": "", "password": "AntWorker-rules-9" }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(refused.status, 400);
+    let errors = refused.json()["errors"].clone();
+    let fields: Vec<(&str, &str)> = errors
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|error| {
+            (
+                error["field"].as_str().unwrap(),
+                error["code"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            ("/current_password", "required"),
+            ("/password", "context_word")
+        ]
+    );
+}
+
+#[tokio::test]
+async fn auth_022_a_change_counts_in_the_bucket_of_the_user_s_password_checks() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    for _ in 0..5 {
+        let reauthenticated = api
+            .post(
+                "/v1/users/me/sessions/current/reauthenticate",
+                &json!({ "password": "not-the-password-77" }),
+            )
+            .bearer(&ada.access)
+            .send()
+            .await;
+        assert_eq!(reauthenticated.status, 403);
+    }
+
+    let refused = change(&api, &ada, users::PASSWORD).await;
+
+    assert_eq!(refused.status, 429);
+    assert!(
+        refused
+            .header("ratelimit-policy")
+            .starts_with("\"password_check\";q=5;w=900")
+    );
+}
+
+#[tokio::test]
+async fn auth_041_a_reset_and_a_change_each_tell_the_address() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    users::register(&api, &address).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    confirm(&api, &address, &code).await;
+    api.run_jobs().await;
+    let signed_in = SignedIn::from(&users::sign_in(&api, &address, NEW_PASSWORD).await);
+
+    let changed = api
+        .post(
+            "/v1/users/me/password/change",
+            &json!({ "current_password": NEW_PASSWORD, "password": "quiet-harbor-73-amber" }),
+        )
+        .bearer(&signed_in.access)
+        .send()
+        .await;
+    assert_eq!(changed.status, 204);
+    api.run_jobs().await;
+
+    let told: Vec<String> = mailbox::to(&address)
+        .await
+        .into_iter()
+        .map(|email| email.subject)
+        .filter(|subject| subject.contains("has changed"))
+        .collect();
+    assert_eq!(
+        told,
+        [
+            "Your AntWorker password has changed",
+            "Your AntWorker password has changed"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn auth_041_with_email_off_a_change_enqueues_no_email() {
+    let api = without_email().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    assert_eq!(change(&api, &ada, users::PASSWORD).await.status, 204);
+
+    assert!(rows(&api, "SELECT kind FROM jobs").await.is_empty());
+}

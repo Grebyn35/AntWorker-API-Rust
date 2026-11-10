@@ -1,11 +1,12 @@
-//! The email of `auth`: the one that carries the code that proves an account's email address
-//! (AUTH-030), rendered from its templates in `templates/auth/` (the platform spec's Sending
-//! email).
+//! The emails of `auth`: the one that carries the code that proves an account's email address
+//! (AUTH-030), the one that carries the code that resets its password (AUTH-036), and the one that
+//! tells the address its password changed (AUTH-041), each rendered from its templates in
+//! `templates/auth/` (the platform spec's Sending email).
 
 use askama::Template;
 use platform::{errors::Internal, mail::Email, types::EmailAddress};
 
-use super::model::VerificationCode;
+use super::model::{ResetCode, VerificationCode};
 use crate::modules::PRODUCT;
 
 /// The values of the email that carries a verification code (AUTH-030).
@@ -57,9 +58,140 @@ struct Html<'a> {
     email: &'a Values<'a>,
 }
 
+/// The values of the email that carries a reset code (AUTH-036).
+pub(super) struct ResetCodeEmail {
+    /// The account's address, whose password the code resets.
+    pub(super) to: EmailAddress,
+    /// The code.
+    pub(super) code: ResetCode,
+}
+
+impl ResetCodeEmail {
+    /// The email, rendered from its templates, with the code in four groups of four.
+    pub(super) fn render(self) -> Result<Email, Internal> {
+        let code = self.code.grouped();
+        let values = Values {
+            product: PRODUCT,
+            to: self.to.as_str(),
+            code: &code,
+        };
+        let subject = format!("Your {PRODUCT} password reset code");
+        let text = ResetText { email: &values }
+            .render()
+            .map_err(Internal::new)?;
+        let html = ResetHtml { email: &values }
+            .render()
+            .map_err(Internal::new)?;
+        Ok(Email {
+            to: self.to,
+            subject,
+            text,
+            html,
+        })
+    }
+}
+
+/// The reset code email's plain-text part, whose values aren't escaped.
+#[derive(Template)]
+#[template(path = "auth/reset_code.txt")]
+struct ResetText<'a> {
+    email: &'a Values<'a>,
+}
+
+/// The reset code email's HTML part, whose values are escaped.
+#[derive(Template)]
+#[template(path = "auth/reset_code.html")]
+struct ResetHtml<'a> {
+    email: &'a Values<'a>,
+}
+
+/// The values of the email that tells an address its account's password changed (AUTH-041).
+pub(super) struct PasswordChangedEmail {
+    /// The account's address.
+    pub(super) to: EmailAddress,
+}
+
+impl PasswordChangedEmail {
+    /// The email, rendered from its templates.
+    pub(super) fn render(self) -> Result<Email, Internal> {
+        let values = Notice {
+            product: PRODUCT,
+            to: self.to.as_str(),
+        };
+        let subject = format!("Your {PRODUCT} password has changed");
+        let text = ChangedText { email: &values }
+            .render()
+            .map_err(Internal::new)?;
+        let html = ChangedHtml { email: &values }
+            .render()
+            .map_err(Internal::new)?;
+        Ok(Email {
+            to: self.to,
+            subject,
+            text,
+            html,
+        })
+    }
+}
+
+/// The values of the email that tells an address its password changed.
+struct Notice<'a> {
+    product: &'a str,
+    to: &'a str,
+}
+
+/// The password changed email's plain-text part, whose values aren't escaped.
+#[derive(Template)]
+#[template(path = "auth/password_changed.txt")]
+struct ChangedText<'a> {
+    email: &'a Notice<'a>,
+}
+
+/// The password changed email's HTML part, whose values are escaped.
+#[derive(Template)]
+#[template(path = "auth/password_changed.html")]
+struct ChangedHtml<'a> {
+    email: &'a Notice<'a>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auth_036_the_email_carries_the_reset_code_says_a_newer_one_replaces_it_and_has_no_link() {
+        let to = EmailAddress::parse("alice@example.com").unwrap();
+        let code = ResetCode::parse("7KQM2XWD9RTBH4NP").unwrap();
+        let email = ResetCodeEmail { to, code }.render().unwrap();
+        assert_eq!(email.to.as_str(), "alice@example.com");
+        assert_eq!(email.subject, "Your AntWorker password reset code");
+        for part in [&email.text, &email.html] {
+            assert!(part.contains("7KQM-2XWD-9RTB-H4NP"), "{part}");
+            assert!(part.contains("10 minutes"), "{part}");
+            // How the account's owner recognizes the email of a second attempt (OPS-09).
+            assert!(part.contains("a newer code replaces it"), "{part}");
+            assert!(
+                part.contains("ignore this email: nothing changes"),
+                "{part}"
+            );
+            assert!(part.contains("alice@example.com"), "{part}");
+            assert!(!part.contains("http"), "{part}");
+        }
+    }
+
+    #[test]
+    fn auth_041_the_email_says_the_password_changed_and_how_to_reset_it_with_no_secret_or_link() {
+        let to = EmailAddress::parse("alice@example.com").unwrap();
+        let email = PasswordChangedEmail { to }.render().unwrap();
+        assert_eq!(email.to.as_str(), "alice@example.com");
+        assert_eq!(email.subject, "Your AntWorker password has changed");
+        for part in [&email.text, &email.html] {
+            assert!(part.contains("has changed"), "{part}");
+            assert!(part.contains("reset your password"), "{part}");
+            assert!(part.contains("alice@example.com"), "{part}");
+            assert!(!part.contains("http"), "{part}");
+        }
+    }
 
     #[test]
     fn auth_030_the_email_carries_the_code_says_a_newer_one_replaces_it_and_has_no_link() {

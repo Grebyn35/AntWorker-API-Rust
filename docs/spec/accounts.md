@@ -17,9 +17,9 @@ A user also sets and removes their avatar here, whose image `files` keeps (D117,
 ## Interface
 
 - `create(uow, &EmailAddress, &DisplayName)`: inserts a user and returns `Creation::Created` with the user's ID, or `Creation::EmailInUse` when the unique index refuses the email (ACCOUNTS-004).
-- `find_by_email(uow, &EmailAddress)`: the ID of the user with this email, if there is one. `auth` uses it to sign in.
+- `find_by_email(uow, &EmailAddress)`: the ID of the user with this email, if there is one. `auth` uses it to sign in, and to reset a password (AUTH-034, AUTH-037).
   `invitations` uses it to find an invitee's account. <!-- part: invitations -->
-- `address(uow, UserId)`: the user's email and whether they proved it, as `Address`, or none once the account is gone, and `verify_email(uow, UserId)`, which makes the record's `email_verified` true, and `address_for_update`, which gives the address with the user's row locked `FOR NO KEY UPDATE`, as a deletion locks it first. `auth` reads the first as it authenticates each request, while email is on, and the third, then calls the second, as the user confirms their code (AUTH-025, AUTH-031). Callers pass the caller's ID, or the user's whom a job runs for (DATA-16).
+- `address(uow, UserId)`: the user's email and whether they proved it, as `Address`, or none once the account is gone, and `verify_email(uow, UserId)`, which makes the record's `email_verified` true, and `address_for_update`, which gives the address with the user's row locked `FOR NO KEY UPDATE`, as a deletion locks it first. `auth` reads the first as it authenticates each request, while email is on, and the third, then calls the second, as the user confirms their code, or a reset its code (AUTH-025, AUTH-031, AUTH-037). Callers pass the caller's ID, the user's whom a job runs for, or that of the account that holds the address a reset names (DATA-16).
 - `profile(uow, &Principal)`: the caller's own record, as ACCOUNTS-001 gives it. <!-- part: invitations -->
 - `profiles(uow, &[UserId])`: names and emails for a batch of users. Callers pass only IDs that came from a query filtered by tenant, such as a workspace's member list (DATA-16).
   Each profile also holds the link to the user's avatar (ACCOUNTS-011). <!-- part: files -->
@@ -106,7 +106,7 @@ ACCOUNTS-009's limit is fixed, beside `FILE_MAX_BYTES`, whose default is ten tim
 
 ### Email verification
 
-`email_verified` starts as `false`, and ACCOUNTS-001 returns it. `auth` makes it true through `verify_email` once the user confirms the code sent to their address (AUTH-031), and, while email is on, refuses every request of an account whose `email_verified` is false, but those that proving it needs (AUTH-025), as the [auth spec](auth.md#email-verification) says. Proving it changes the record, so its `version` moves, and its `ETag` with it.
+`email_verified` starts as `false`, and ACCOUNTS-001 returns it. `auth` makes it true through `verify_email` once the user confirms the code sent to their address (AUTH-031), or resets their password with the code sent to it (AUTH-037), and, while email is on, refuses every request of an account whose `email_verified` is false, but those that proving it needs (AUTH-025), as the [auth spec](auth.md#email-verification) says. Proving it changes the record, so its `version` moves, and its `ETag` with it.
 
 ### Deleting an account
 

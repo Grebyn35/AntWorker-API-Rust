@@ -46,6 +46,10 @@ pub(crate) enum AuthError {
     /// proved one (AUTH-032).
     #[error("the account has no code that lasts")]
     CodeExpired,
+    /// The reset code isn't the reset code of an account that holds the address, or has expired
+    /// (AUTH-038).
+    #[error("the reset code resets no account's password")]
+    InvalidResetCode,
     /// A rate limit refused the request, or couldn't count it (AUTH-006).
     #[error(transparent)]
     Limit(#[from] LimitError),
@@ -88,6 +92,7 @@ impl ErrorCode for AuthError {
             Self::EmailAlreadyVerified => "auth.email_already_verified",
             Self::WrongCode => "auth.wrong_code",
             Self::CodeExpired => "auth.code_expired",
+            Self::InvalidResetCode => "auth.invalid_reset_code",
             Self::Limit(error) => error.code(),
             Self::Request(error) => error.code(),
             Self::Internal(error) => error.code(),
@@ -107,6 +112,7 @@ impl ErrorCode for AuthError {
             Self::EmailAlreadyVerified => "Email address already verified",
             Self::WrongCode => "Wrong code",
             Self::CodeExpired => "Code expired",
+            Self::InvalidResetCode => "Invalid email or reset code",
             Self::Limit(error) => error.title(),
             Self::Request(error) => error.title(),
             Self::Internal(error) => error.title(),
@@ -116,9 +122,10 @@ impl ErrorCode for AuthError {
     fn category(&self) -> Category {
         match self {
             Self::EmailInUse => Category::Conflict,
-            Self::InvalidCredentials | Self::SessionExpired | Self::InvalidRefreshToken => {
-                Category::Unauthenticated
-            }
+            Self::InvalidCredentials
+            | Self::SessionExpired
+            | Self::InvalidRefreshToken
+            | Self::InvalidResetCode => Category::Unauthenticated,
             Self::WrongPassword | Self::ReauthenticationRequired => Category::Forbidden,
             Self::OwnsSharedWorkspace | Self::AccountChanged | Self::EmailAlreadyVerified => {
                 Category::Conflict
@@ -145,6 +152,11 @@ impl ErrorCode for AuthError {
             }
             Self::CodeExpired => Some(
                 "The code's 10 minutes have passed, or a newer one replaced it: ask for another."
+                    .to_owned(),
+            ),
+            Self::InvalidResetCode => Some(
+                "The code isn't the newest one sent to the address, or its 10 minutes have \
+                 passed: ask for another."
                     .to_owned(),
             ),
             Self::Request(error) => error.detail(),

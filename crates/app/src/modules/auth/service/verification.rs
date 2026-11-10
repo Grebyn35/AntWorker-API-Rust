@@ -1,6 +1,7 @@
 //! Proving an account's email address with a code sent to it (AUTH-025 to AUTH-033, the auth
 //! spec's "Email verification"): whether an account must still prove it, asking for a code, the
-//! job that issues a code and sends it, and entering it.
+//! job that issues a code and sends it, a verification code or a reset code (AUTH-036), and
+//! entering a verification code.
 
 use platform::{
     authn::Principal,
@@ -11,27 +12,27 @@ use platform::{
     types::{Client, EmailAddress, UserId},
 };
 
-use super::Auth;
+use super::{Auth, buckets};
 use crate::modules::{
     accounts::{self, AccountsError, Address},
     audit::{self as audit_log, AuditError, Entry},
     auth::{
         audit,
-        emails::CodeEmail,
+        emails::{CodeEmail, ResetCodeEmail},
         error::AuthError,
         jobs::SendCode,
         metrics,
-        model::{Purpose, Session, VerificationCode},
+        model::{Purpose, ResetCode, Session, VerificationCode},
         repo::{self, codes},
     },
 };
 
 /// How long a code lasts, in minutes: the most that ASVS 5.0.0 gives a code sent out of band
-/// (6.5.5), which a code sent by email is held to (AUTH-030).
+/// (6.5.5), which a code sent by email is held to (AUTH-030, AUTH-036).
 const CODE_MINUTES: i32 = 10;
 
-/// The kind of the keyed hash of a verification code (SEC-03).
-const CODE_KIND: &str = "verification_code";
+/// The kind of the keyed hash of a verification code or a reset code (SEC-03).
+pub(super) const CODE_KIND: &str = "verification_code";
 
 impl Auth {
     /// Whether `user_id`'s account must still prove its email address before the API serves it
@@ -71,7 +72,7 @@ impl Auth {
         }
         limits
             .check(
-                self.settings.verification_email,
+                buckets::VERIFICATION_EMAIL,
                 address.email.as_str().as_bytes(),
             )
             .await?;
@@ -138,7 +139,7 @@ impl Auth {
     ) -> Result<Session, AuthError> {
         let user_id = principal.user_id();
         limits
-            .check(self.settings.code_check, user_id.uuid().as_bytes())
+            .check(buckets::CODE_CHECK, user_id.uuid().as_bytes())
             .await?;
         let mut uow = self.database.begin(client).await?;
         // The user's row first, as a deletion of the account locks it first, so the two take
@@ -154,7 +155,7 @@ impl Auth {
             Some(stored) if !stored.expired => stored,
             _ => return Err(AuthError::CodeExpired),
         };
-        let input = code_input(user_id, Purpose::EmailVerification, &code);
+        let input = code_input(user_id, Purpose::EmailVerification, code.digits());
         if !self.key.verify(CODE_KIND, &input, &stored.hash) {
             // A wrong code is a security failure, which commits before the answer (ARCH-11).
             audit_log::record(
@@ -189,11 +190,13 @@ impl Auth {
         Ok(session.answer(false))
     }
 
-    /// The run of `auth.send_verification_code` for the user the job runs for: issues a new code,
-    /// in place of the one before it, commits its HMAC, and sends it to the account's address at
-    /// once, so that the code itself is kept nowhere (AUTH-030, SEC-03). A run for an account that
-    /// is gone, or that proved its address meanwhile, or on a replica with email off, issues
-    /// nothing, and so does one that another run beat to its code, whose email carries that run's.
+    /// The run of `auth.send_verification_code` for the user the job runs for: issues a new code
+    /// of the job's purpose, in place of the one before it, commits its HMAC, and sends it to the
+    /// account's address at once, so that the code itself is kept nowhere (AUTH-030, AUTH-036,
+    /// SEC-03). A run for no one, as a reset's for an address that no account holds, or for an
+    /// account that is gone, or on a replica with email off, issues nothing; so does a run of a
+    /// verification code for an account that proved its address meanwhile, and one that another
+    /// run beat to its code, whose email carries that run's.
     pub(in crate::modules::auth) async fn issue_code(
         &self,
         context: &JobContext,
@@ -202,31 +205,41 @@ impl Auth {
         if !self.mail.is_on() {
             return Ok(());
         }
-        let user_id = context
-            .scope()
-            .user()
-            .ok_or_else(|| JobFailure::Permanent(Internal::new("a code's job runs for no user")))?;
-        let scope = context
-            .audit_scope()
-            .ok_or_else(|| JobFailure::Permanent(Internal::new("a code's job runs for no user")))?;
+        let (Some(user_id), Some(scope)) = (context.scope().user(), context.audit_scope()) else {
+            return Ok(());
+        };
         let mut uow = self.database.for_job(context).await?;
         let Some(address) = address(&mut uow, user_id).await? else {
             return Ok(());
         };
-        if address.verified {
-            return Ok(());
-        }
-        let code = VerificationCode::generate()?;
-        let hash = self
-            .key
-            .hash(CODE_KIND, &code_input(user_id, job.purpose, &code));
         // Rendered before anything is stored, so a template that fails stores no code.
-        let email = CodeEmail {
-            to: address.email,
-            code,
-        }
-        .render()
-        .map_err(JobFailure::Permanent)?;
+        let (input, email, issued) = match job.purpose {
+            Purpose::EmailVerification => {
+                if address.verified {
+                    return Ok(());
+                }
+                let code = VerificationCode::generate()?;
+                let input = code_input(user_id, job.purpose, code.digits());
+                let email = CodeEmail {
+                    to: address.email,
+                    code,
+                }
+                .render();
+                (input, email, audit::VERIFICATION_CODE_ISSUED)
+            }
+            Purpose::PasswordReset => {
+                let code = ResetCode::generate()?;
+                let input = code_input(user_id, job.purpose, code.characters());
+                let email = ResetCodeEmail {
+                    to: address.email,
+                    code,
+                }
+                .render();
+                (input, email, audit::PASSWORD_RESET_CODE_ISSUED)
+            }
+        };
+        let email = email.map_err(JobFailure::Permanent)?;
+        let hash = self.key.hash(CODE_KIND, &input);
         let Some(id) = codes::replace(&mut uow, user_id, job.purpose, &hash, CODE_MINUTES).await?
         else {
             return Ok(());
@@ -234,11 +247,7 @@ impl Auth {
         audit_log::record(
             &mut uow,
             scope,
-            Entry::new(
-                audit::VERIFICATION_CODE_ISSUED,
-                audit::VERIFICATION_CODE,
-                id,
-            ),
+            Entry::new(issued, audit::VERIFICATION_CODE, id),
         )
         .await
         .map_err(|AuditError::Internal(error)| error)?;
@@ -269,14 +278,15 @@ async fn address(uow: &mut UnitOfWork, user_id: UserId) -> Result<Option<Address
         })
 }
 
-/// What a code's keyed hash covers: its user, its purpose and its digits, so a code proves only
-/// its user's purpose, and no two users' rows that hold the same digits hold the same hash.
-fn code_input(user_id: UserId, purpose: Purpose, code: &VerificationCode) -> Vec<u8> {
+/// What a code's keyed hash covers: its user, its purpose and its characters, so a code proves
+/// only its user's purpose, and no two users' rows that hold the same characters hold the same
+/// hash.
+pub(super) fn code_input(user_id: UserId, purpose: Purpose, characters: &str) -> Vec<u8> {
     [
         user_id.uuid().as_bytes().as_slice(),
         purpose.name().as_bytes(),
         &[0],
-        code.digits().as_bytes(),
+        characters.as_bytes(),
     ]
     .concat()
 }

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO identities (user_id, method, password_hash) VALUES ($1, 'password', $2)\n        ON CONFLICT ON CONSTRAINT identities_user_id_method_key\n        DO UPDATE SET password_hash = EXCLUDED.password_hash\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "identities",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "583fcf1a3788a08862b0f9a5e79a877d4311552246e11856233ad7e8507f5223"
+}

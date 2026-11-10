@@ -1,10 +1,12 @@
--- What a verification code proves: an account's email address (AUTH-030).
-CREATE TYPE verification_purpose AS ENUM ('email_verification');
+-- What a verification code proves: an account's email address (AUTH-030), or that its requester
+-- may reset its password (AUTH-036).
+CREATE TYPE verification_purpose AS ENUM ('email_verification', 'password_reset');
 
--- The codes that an account proves its email address with, one at a time for each purpose
--- (AUTH-030). A code is stored only as an HMAC under HMAC_KEY of its user, its purpose and its
--- digits, so no dump holds one (SEC-03). A row is never edited: a new code deletes the one before
--- it, and proving the address deletes the code, so app may not update one (DATA-19).
+-- The codes that an account proves its email address or resets its password with, one at a time
+-- for each purpose (AUTH-030, AUTH-036). A code is stored only as an HMAC under HMAC_KEY of its
+-- user, its purpose and its characters, so no dump holds one (SEC-03). A row is never edited: a
+-- new code deletes the one before it, and using a code deletes it, so app may not update one
+-- (DATA-19).
 CREATE TABLE verification_codes (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     user_id uuid NOT NULL,

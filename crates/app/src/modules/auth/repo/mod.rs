@@ -1,10 +1,11 @@
-//! The SQL of `identities`, `sessions` and `device_tokens` (ARCH-10), with that of
-//! `verification_codes` in `codes.rs`. Every expiry comes from the database's clock (DATA-03), and
+//! The SQL of `sessions` and `device_tokens` (ARCH-10), with that of `identities` in
+//! `identities.rs` and that of `verification_codes` in `codes.rs`. Every expiry comes from the database's clock (DATA-03), and
 //! a session or a device token is found by a token's hash through its unique index (DATA-16).
 //! What a user's export holds of them is in `exported.rs`.
 
 pub(super) mod codes;
 pub(super) mod exported;
+mod identities;
 
 use platform::{
     db::UnitOfWork,
@@ -14,11 +15,10 @@ use platform::{
 
 use super::model::{DeviceId, Lifetimes, StoredSession};
 
-/// A user's password identity.
-pub(super) struct PasswordIdentity {
-    pub(super) id: uuid::Uuid,
-    pub(super) hash: String,
-}
+pub(super) use identities::{
+    delete_identities, insert_password_identity, password_hash, password_identity_for_update,
+    set_password, update_password_hash,
+};
 
 /// A session found by one of its token hashes.
 pub(super) struct Found {
@@ -47,72 +47,6 @@ macro_rules! session {
 /// Seconds, as Postgres's `make_interval` takes them.
 fn seconds(duration: std::time::Duration) -> f64 {
     duration.as_secs_f64()
-}
-
-pub(super) async fn insert_password_identity(
-    uow: &mut UnitOfWork,
-    user_id: UserId,
-    hash: &str,
-) -> Result<(), Internal> {
-    sqlx::query!(
-        "INSERT INTO identities (user_id, method, password_hash) VALUES ($1, 'password', $2)",
-        user_id.uuid(),
-        hash,
-    )
-    .execute(uow.executor())
-    .await?;
-    Ok(())
-}
-
-/// The password identity of `user_id`, locked until the unit of work ends, so the sign-ins of
-/// one user take turns (DATA-20).
-pub(super) async fn password_identity_for_update(
-    uow: &mut UnitOfWork,
-    user_id: UserId,
-) -> Result<Option<PasswordIdentity>, Internal> {
-    let row = sqlx::query!(
-        "SELECT id, password_hash FROM identities WHERE user_id = $1 AND method = 'password'
-        FOR UPDATE",
-        user_id.uuid(),
-    )
-    .fetch_optional(uow.executor())
-    .await?;
-    Ok(row.and_then(|row| {
-        row.password_hash
-            .map(|hash| PasswordIdentity { id: row.id, hash })
-    }))
-}
-
-/// The password hash of `user_id`'s password identity, if they have one, read without a lock,
-/// for a check of a signed-in user's password (AUTH-021).
-pub(super) async fn password_hash(
-    uow: &mut UnitOfWork,
-    user_id: UserId,
-) -> Result<Option<String>, Internal> {
-    Ok(sqlx::query_scalar!(
-        "SELECT password_hash FROM identities WHERE user_id = $1 AND method = 'password'",
-        user_id.uuid(),
-    )
-    .fetch_optional(uow.executor())
-    .await?
-    .flatten())
-}
-
-pub(super) async fn update_password_hash(
-    uow: &mut UnitOfWork,
-    user_id: UserId,
-    identity_id: uuid::Uuid,
-    hash: &str,
-) -> Result<(), Internal> {
-    sqlx::query!(
-        "UPDATE identities SET password_hash = $3 WHERE id = $2 AND user_id = $1",
-        user_id.uuid(),
-        identity_id,
-        hash,
-    )
-    .execute(uow.executor())
-    .await?;
-    Ok(())
 }
 
 /// Inserts a session for `user_id`, whose tokens hash to `access` and `refresh`. No expiry passes
@@ -431,19 +365,8 @@ pub(super) async fn recently_authenticated(
     .await?)
 }
 
-/// Deletes every identity of `user_id`, whose account the unit of work deletes (ACCOUNTS-013).
-pub(super) async fn delete_identities(
-    uow: &mut UnitOfWork,
-    user_id: UserId,
-) -> Result<(), Internal> {
-    sqlx::query!("DELETE FROM identities WHERE user_id = $1", user_id.uuid())
-        .execute(uow.executor())
-        .await?;
-    Ok(())
-}
-
-/// Deletes every session of `user_id`, whose account the unit of work deletes, and returns their
-/// IDs (ACCOUNTS-013).
+/// Deletes every session of `user_id`, whose account the unit of work deletes (ACCOUNTS-013), or
+/// whose password it resets (AUTH-037), and returns their IDs.
 pub(super) async fn delete_sessions(
     uow: &mut UnitOfWork,
     user_id: UserId,
@@ -451,6 +374,23 @@ pub(super) async fn delete_sessions(
     let ids = sqlx::query_scalar!(
         "DELETE FROM sessions WHERE user_id = $1 RETURNING id",
         user_id.uuid(),
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(ids.into_iter().map(SessionId::from_uuid).collect())
+}
+
+/// Deletes every session of `user_id` but `kept`, the one whose request changes their password,
+/// and returns their IDs (AUTH-040).
+pub(super) async fn delete_other_sessions(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+    kept: SessionId,
+) -> Result<Vec<SessionId>, Internal> {
+    let ids = sqlx::query_scalar!(
+        "DELETE FROM sessions WHERE user_id = $1 AND id <> $2 RETURNING id",
+        user_id.uuid(),
+        kept.uuid(),
     )
     .fetch_all(uow.executor())
     .await?;

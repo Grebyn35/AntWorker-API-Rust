@@ -1,18 +1,22 @@
-//! The domain types of sign-in (D25): passwords, device IDs, verification codes and how a client
-//! takes its tokens.
+//! The domain types of sign-in (D25): passwords, device IDs and how a client takes its tokens;
+//! in `codes.rs`, the verification and reset codes sent to an account's address.
 
 use std::{borrow::Cow, collections::HashSet, sync::LazyLock, time::Duration};
 
 use platform::{
     errors::Internal,
-    random,
     types::{Invalid, Secret, SessionId, Timestamp, UserId},
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use utoipa::{
     PartialSchema, ToSchema,
     openapi::{ObjectBuilder, RefOr, Schema, Type},
 };
+
+mod codes;
+
+pub(super) use codes::Purpose;
+pub(crate) use codes::{ResetCode, VerificationCode};
 
 /// The fewest characters a password has (AUTH-003).
 const PASSWORD_MIN_CHARS: usize = 8;
@@ -26,7 +30,7 @@ const DIGIT_RUN: usize = 8;
 /// The passwords that breaches revealed most often, lowercased, of 8 to 128 characters: the
 /// 100,000 that Pwned Passwords counted most, as the UK's National Cyber Security Centre published
 /// them, from SecLists (MIT, `breached-passwords.LICENSE` beside the list).
-const BREACHED_PASSWORDS: &str = include_str!("../../../data/breached-passwords.txt");
+const BREACHED_PASSWORDS: &str = include_str!("../../../../data/breached-passwords.txt");
 
 /// The words that a password of this product may not contain, lowercased, such as its name
 /// (ASVS 6.2.11). `just rename` rewrites the product's name here too (ARCH-15).
@@ -324,93 +328,6 @@ pub(crate) struct Session {
     pub(crate) email_verification_required: bool,
 }
 
-/// What a verification code proves, as the database's `verification_purpose` names it
-/// (AUTH-030, DATA-04).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum Purpose {
-    /// That the account holds its email address (AUTH-031).
-    EmailVerification,
-}
-
-impl Purpose {
-    /// The purpose's name in the database.
-    pub(super) fn name(self) -> &'static str {
-        match self {
-            Self::EmailVerification => "email_verification",
-        }
-    }
-
-    /// The purpose named `name`, which a query read.
-    pub(super) fn from_name(name: &str) -> Result<Self, Internal> {
-        match name {
-            "email_verification" => Ok(Self::EmailVerification),
-            _ => Err(Internal::new("a code's purpose that auth doesn't know")),
-        }
-    }
-}
-
-/// How many digits a verification code has (AUTH-030).
-const CODE_DIGITS: usize = 6;
-
-/// How many codes of [`CODE_DIGITS`] digits there are.
-const CODES: u32 = 1_000_000;
-
-/// A verification code: 6 digits (AUTH-030), as the user typed it, or as the API drew it. Its
-/// `Debug` shows no digit (SEC-01).
-#[derive(Clone, Debug)]
-pub(crate) struct VerificationCode(Secret<String>);
-
-impl VerificationCode {
-    /// The code the user typed, trimmed, or why it isn't one (AUTH-032).
-    pub(crate) fn parse(value: &str) -> Result<Self, Invalid> {
-        let value = value.trim();
-        if value.len() == CODE_DIGITS && value.bytes().all(|byte| byte.is_ascii_digit()) {
-            Ok(Self(Secret::new(value.to_owned())))
-        } else {
-            Err(Invalid::new("invalid_code", "A code is 6 digits."))
-        }
-    }
-
-    /// A new code, each of the million as likely, from the operating system's secure random source
-    /// (AUTH-030, SEC-03): a number of 32 random bits is drawn again while it is at or above the
-    /// largest multiple of a million that 32 bits hold, so its remainder is uniform.
-    pub(crate) fn generate() -> Result<Self, Internal> {
-        const UNIFORM_BELOW: u32 = u32::MAX - u32::MAX % CODES;
-        loop {
-            let value = u32::from_be_bytes(random::bytes::<4>()?);
-            if value < UNIFORM_BELOW {
-                return Ok(Self(Secret::new(format!("{:06}", value % CODES))));
-            }
-        }
-    }
-
-    /// The code's digits, for its HMAC and its email. Never log them.
-    pub(crate) fn digits(&self) -> &str {
-        self.0.expose()
-    }
-}
-
-impl PartialSchema for VerificationCode {
-    fn schema() -> RefOr<Schema> {
-        ObjectBuilder::new()
-            .schema_type(Type::String)
-            .min_length(Some(CODE_DIGITS))
-            .max_length(Some(32))
-            .pattern(Some("^\\s*[0-9]{6}\\s*$"))
-            .description(Some(
-                "The 6 digits of the code, which spaces around them may surround.",
-            ))
-            .into()
-    }
-}
-
-impl ToSchema for VerificationCode {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("VerificationCode")
-    }
-}
-
 /// A way to sign in, as the database's `identity_method` names it (DATA-04).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -520,45 +437,5 @@ mod tests {
         assert!(BREACHED.iter().all(|password| {
             (8..=128).contains(&password.chars().count()) && password.to_lowercase() == *password
         }));
-    }
-
-    #[test]
-    fn auth_030_a_code_is_6_digits_of_any_value() {
-        let codes: Vec<String> = (0..2_000)
-            .map(|_| VerificationCode::generate().unwrap().digits().to_owned())
-            .collect();
-        assert!(
-            codes
-                .iter()
-                .all(|code| code.len() == 6 && code.bytes().all(|byte| byte.is_ascii_digit()))
-        );
-        // Codes start with every digit, a leading zero among them.
-        for digit in b'0'..=b'9' {
-            assert!(
-                codes.iter().any(|code| code.as_bytes()[0] == digit),
-                "{digit}"
-            );
-        }
-    }
-
-    #[test]
-    fn auth_032_a_typed_code_is_6_digits_once_trimmed() {
-        assert_eq!(
-            VerificationCode::parse(" 012345\t").unwrap().digits(),
-            "012345"
-        );
-        for refused in ["12345", "1234567", "12 456", "12a456", "", "\u{661}23456"] {
-            assert_eq!(
-                VerificationCode::parse(refused).unwrap_err().code,
-                "invalid_code",
-                "{refused}"
-            );
-        }
-    }
-
-    #[test]
-    fn sec_01_a_code_s_debug_shows_no_digit() {
-        let code = VerificationCode::parse("424242").unwrap();
-        assert!(!format!("{code:?}").contains("4242"));
     }
 }

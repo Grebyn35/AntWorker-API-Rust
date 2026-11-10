@@ -1,5 +1,6 @@
 //! Re-authenticating a session with its user's password, and the one check of a signed-in user's
-//! password (AUTH-021, AUTH-022, the auth spec's "Re-authentication").
+//! password, which changing the password goes through too (AUTH-021, AUTH-022, AUTH-040, the auth
+//! spec's "Re-authentication").
 
 use platform::{
     authn::Principal,
@@ -9,7 +10,7 @@ use platform::{
     types::{Client, UserId},
 };
 
-use super::{Auth, verify};
+use super::{Auth, buckets, verify};
 use crate::modules::{
     audit::{self as audit_log, Entry},
     auth::{
@@ -35,14 +36,7 @@ impl Auth {
             .check_password(limits, client, user_id, password)
             .await?;
         if !matches {
-            audit_log::record(
-                &mut uow,
-                principal.audit_scope(),
-                Entry::new(audit::PASSWORD_CHECK_FAILED, audit::USER, user_id.uuid()),
-            )
-            .await?;
-            uow.commit().await?;
-            return Err(AuthError::WrongPassword);
+            return Err(self.wrong_password(uow, principal).await?);
         }
         let session = repo::reauthenticate(&mut uow, user_id, principal.session_id())
             .await?
@@ -62,12 +56,33 @@ impl Auth {
         Ok(session)
     }
 
+    /// Records in `uow` that the caller's password was wrong, a security failure, which commits
+    /// before the answer, and returns the answer (AUTH-021, AUTH-040, ARCH-11).
+    pub(super) async fn wrong_password(
+        &self,
+        mut uow: UnitOfWork,
+        principal: &Principal,
+    ) -> Result<AuthError, AuthError> {
+        audit_log::record(
+            &mut uow,
+            principal.audit_scope(),
+            Entry::new(
+                audit::PASSWORD_CHECK_FAILED,
+                audit::USER,
+                principal.user_id().uuid(),
+            ),
+        )
+        .await?;
+        uow.commit().await?;
+        Ok(AuthError::WrongPassword)
+    }
+
     /// Whether `password` is `user_id`'s, with the operation's unit of work, open: the one check of
     /// a signed-in user's password, which counts in their bucket before the unit of work opens,
     /// then reads their password identity in it and verifies the password through `workers`,
     /// against the dummy hash when they have none, so a missing password costs what a wrong one
     /// does (AUTH-021, AUTH-022, SEC-13, ARCH-11).
-    async fn check_password(
+    pub(super) async fn check_password(
         &self,
         limits: &RateLimits,
         client: &Client,
@@ -75,7 +90,7 @@ impl Auth {
         password: Password,
     ) -> Result<(UnitOfWork, bool), AuthError> {
         limits
-            .check(self.settings.password_check, user_id.uuid().as_bytes())
+            .check(buckets::PASSWORD_CHECK, user_id.uuid().as_bytes())
             .await?;
         let mut uow = self.database.begin(client).await?;
         let stored = repo::password_hash(&mut uow, user_id).await?;

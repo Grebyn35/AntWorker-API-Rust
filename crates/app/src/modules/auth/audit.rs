@@ -19,7 +19,8 @@ pub(super) const PASSWORD_REHASHED: Action = Action::new("password.rehashed");
 pub(super) const SESSION_REFRESHED: Action = Action::new("session.refreshed");
 /// A rotated refresh token was presented again, which ended its session (AUTH-012).
 pub(super) const SESSION_REUSE_DETECTED: Action = Action::new("session.reuse_detected");
-/// A session ended, by signing out or by a sign-in on its device (AUTH-008, AUTH-013).
+/// A session ended, by signing out, by a sign-in on its device, or by a reset or a change of its
+/// user's password (AUTH-008, AUTH-013, AUTH-037, AUTH-040).
 pub(super) const SESSION_ENDED: Action = Action::new("session.ended");
 /// A sign-in issued its device a device token, ending the one it used and the account's expired
 /// ones (AUTH-019).
@@ -33,8 +34,16 @@ pub(super) const VERIFICATION_CODE_ISSUED: Action = Action::new("verification_co
 /// A code that the signed-in user entered wasn't their account's (AUTH-032).
 pub(super) const VERIFICATION_CODE_CHECK_FAILED: Action =
     Action::new("verification_code.check_failed");
-/// The account proved its email address (AUTH-031).
+/// The account proved its email address (AUTH-031), or a reset proved it (AUTH-037).
 pub(super) const EMAIL_VERIFIED: Action = Action::new("email.verified");
+/// A code that resets the account's password was issued, and sent to its address (AUTH-036).
+pub(super) const PASSWORD_RESET_CODE_ISSUED: Action = Action::new("password_reset_code.issued");
+/// A confirmation of a reset for the account didn't reset its password (AUTH-038).
+pub(super) const PASSWORD_RESET_FAILED: Action = Action::new("password_reset.failed");
+/// A reset set the account's password (AUTH-037).
+pub(super) const PASSWORD_RESET: Action = Action::new("password.reset");
+/// The signed-in user changed their password (AUTH-040).
+pub(super) const PASSWORD_CHANGED: Action = Action::new("password.changed");
 
 /// A user's account.
 pub(super) const USER: Resource = Resource::new("user");
@@ -44,5 +53,6 @@ pub(super) const IDENTITY: Resource = Resource::new("identity");
 pub(super) const SESSION: Resource = Resource::new("session");
 /// The token that tells a sign-in from a device that signed in to the account before.
 pub(super) const DEVICE_TOKEN: Resource = Resource::new("device_token");
-/// A code sent to the account's email address, which proves that the account holds it.
+/// A code sent to the account's email address, which proves that the account holds it, or that
+/// resets its password.
 pub(super) const VERIFICATION_CODE: Resource = Resource::new("verification_code");

@@ -160,7 +160,7 @@ Audit entries (`audit::record`), events (`uow.publish_to_user` and `uow.publish_
 
 What is audited:
 - Every change that a request or an enqueued job makes to data a module owns.
-- Each security failure: those D6 lists, a failed sign-in, a wrong current password, a reused refresh token and a refused authorization, and a wrong verification code, a guess at what proves an account's address (AUTH-032). A failed sign-in commits its audit entry and then answers 401 (ARCH-11, PLATFORM-008). Refusals are reported to the `SecurityEventSink` (PLATFORM-010).
+- Each security failure: those D6 lists, a failed sign-in, a wrong current password, a reused refresh token and a refused authorization, and a wrong verification code, a guess at what proves an account's address (AUTH-032) or resets its password (AUTH-038). A failed sign-in commits its audit entry and then answers 401 (ARCH-11, PLATFORM-008). Refusals are reported to the `SecurityEventSink` (PLATFORM-010).
 - Reads that a module spec names as audited, such as the download of an export (D31).
 
 Platform bookkeeping (rate-limit buckets, idempotency records, job state) and scheduled maintenance (retention, sweeps) aren't audited. Metrics count them instead. Deleting an account records only the entries that the logs of the workspaces the user shared keep, since their own log goes with the account (ACCOUNTS-014, D31).

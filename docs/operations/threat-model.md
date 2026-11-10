@@ -40,7 +40,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | Guessing one account's password online | The sign-in limits ([below](#sign-in-limits)), and a slow hash (SEC-04, AUTH-014) |
 | Credential stuffing: one guess each at many accounts, from leaked lists | The IP limit (SEC-13, PLATFORM-054), as [below](#sign-in-limits) says; a password on the breached-password list is refused when set (AUTH-003) |
 | Locking an account's owner out by failing their sign-ins | The sign-in limits, and the device tokens of the devices the owner signed in on (AUTH-019, [below](#sign-in-limits)) |
-| Learning which emails have accounts | One answer, after the same hashing work, for an unknown email, an account without a password and a wrong password (SEC-05, AUTH-005); registration's answer is the exception SEC-05 accepts, under the IP limit |
+| Learning which emails have accounts | One answer, after the same hashing work, for an unknown email, an account without a password and a wrong password (SEC-05, AUTH-005); a reset answers alike, and does the same work, whether or not an account holds the address, as it is asked for and as its code is checked (AUTH-034, AUTH-038); registration's answer is the exception SEC-05 accepts, under the IP limit |
 | Cracking a stolen password hash | Argon2id at the parameters that the Open Worldwide Application Security Project (OWASP) recommends, rehashed when they rise (SEC-04, AUTH-014) |
 | Using a stolen session token | Tokens are random and stored only as hashes (SEC-03, AUTH-007); an access token is short-lived, and every session has an absolute lifetime (SEC-06, AUTH-007); a refresh token works once, and its reuse ends the session (AUTH-012); signing out ends it at once, streams included (AUTH-013) |
 | A script on a page reading a browser's tokens | Browsers get their tokens only in `HttpOnly` cookies (SEC-07, AUTH-015) |
@@ -48,6 +48,9 @@ What the API and its reference deployment protect, from whom, and which rules an
 | A stolen session deleting its user's account, or guessing their password to do so | Deleting the account needs the password proved just before (AUTH-023), and every check of a signed-in user's password counts in one bucket of theirs, whatever checks it (AUTH-022, SEC-13), with each wrong one in the user's log (AUTH-021) |
 | Claiming an address one doesn't hold, by registering with it and guessing the code sent to it, which with email on would give the account what the API gives only an address's owner | A code of 6 random digits, stored only as its hash-based message authentication code (HMAC), that lasts 10 minutes and works once (SEC-03, AUTH-030, AUTH-031); 10 checks a day per account, whatever codes it asks for, about one chance in 270 a year (AUTH-033); the API serves an account nothing but proving its address until it has (AUTH-025) |
 | Flooding an address with codes' emails, or keeping its owner from asking for a code | 3 registrations and 3 requests for a code per 15 minutes per address, each in a bucket of its own, so registrations, which anyone who knows the address may send, never fill the owner's (AUTH-029), beside the IP and user limits |
+| Taking an account over through a reset, by guessing the code sent to its address | A code of 80 random bits, stored only as its HMAC, that lasts 10 minutes and works once (SEC-03, AUTH-036, AUTH-037); each check counts per email from its client address, and costs an Argon2id hash (AUTH-038, AUTH-039), as [below](#password-reset) says |
+| Keeping an account's owner from resetting, by failing checks of their email or filling its requests | No count of a reset that another address shares: the checks of an email count per client address alone (AUTH-039), and each request that fills the address's bucket sends its owner the newest code (AUTH-035, [below](#password-reset)) |
+| A stolen session changing its user's password | The current password is required, and each check of it counts in the user's one bucket (AUTH-022, AUTH-040); the address is told, and its owner's reset ends every session (AUTH-041, AUTH-037) |
 | Signing in with a password alone | Accepted for users, with the controls that [Second factors](#second-factors) lists; required of superadmins (D62, D63) |
 
 ### Access control
@@ -133,6 +136,16 @@ Requirement 6.1.1 of ASVS asks how the controls defend against credential stuffi
 
 **What remains.** An attacker with enough addresses can keep the accounts they target refusing password sign-ins from every device that holds no valid token for them: a new device, or one whose token expired, waits for a window that the attack leaves, while the owner's known devices sign in as before. The API asks no challenge that tells a person from a program, such as a CAPTCHA (Completely Automated Public Turing test to tell Computers and Humans Apart), which a client that isn't a browser can't show; a product that needs more can lower the limits, or add a second factor, which every user may (D63). And each attempt the limits let through costs the replica an Argon2id hash, so an attack on many accounts at once costs processor time, which the concurrency limit and the timeouts bound (OPS-07), at the cost of refusing other requests while it lasts.
 
+## Password reset
+
+A reset is the other way in with a password, so requirement 6.1.1 of ASVS asks of it what it asks of a sign-in. Its limits are fixed, beside the IP limit (PLATFORM-054): 3 requests per 15 minutes to an address (AUTH-035), and 5 checks per 15 minutes of an email from one client address (AUTH-039).
+
+**Guessing.** A reset code has 80 random bits and lasts 10 minutes (AUTH-036), and each check that the limits let through costs an Argon2id hash (AUTH-038), so the replicas' processors bound how many codes an attacker tries, from however many addresses: 10,000 a second, all at one account, for a year, have about one chance in 4 × 10^12 of finding its code. A guess at one account is no guess at another, since a code's HMAC covers its account (SEC-03).
+
+**Lockout.** No count of a reset is shared between client addresses: an attacker who fails confirmations fills the counts of their own addresses, never the owner's. An attacker who asks for resets fills the address's bucket, and each request replaces the owner's code, but each also sends the owner the newest code, which works until the next, of at most 3 in 15 minutes: an owner whose request the bucket refuses finds a code in their inbox. A user who shares a client address with an attacker, such as behind one carrier's network address translation, shares their count, as with the sign-in limits.
+
+**What remains.** Each request sends the address an email its owner didn't ask for, up to 3 in 15 minutes, which says that ignoring it changes nothing. Each check costs a replica an Argon2id hash, which the concurrency limit and the timeouts bound, as they bound a sign-in's (OPS-07).
+
 ## Second factors
 
 Requirement 6.3.3 of ASVS asks every user to sign in with more than one factor, and asks an application that relaxes it for a documented rationale and a comprehensive set of mitigating controls.
@@ -142,7 +155,7 @@ Requirement 6.3.3 of ASVS asks every user to sign in with more than one factor, 
 **The mitigating controls,** each in its home:
 
 - Passwords: of a length that AUTH-003 bounds, refused when breached or guessable (AUTH-003), hashed with Argon2id (SEC-04, AUTH-014).
-- Guessing and lockout: the [sign-in limits](#sign-in-limits), and failures that reveal nothing (SEC-05, AUTH-005).
+- Guessing and lockout: the [sign-in limits](#sign-in-limits) and those of a [password reset](#password-reset), and failures that reveal nothing (SEC-05, AUTH-005, AUTH-038).
 - Sessions: random tokens stored as hashes (SEC-03), bounded lifetimes (SEC-06, AUTH-007), a refresh token that works once and whose reuse ends the session (AUTH-012), signing out that ends it at once (AUTH-013), and browsers' tokens in cookies no script reads (SEC-07, AUTH-015).
 - Detection: each failed sign-in of an existing account is recorded in its audit log (AUTH-005), with the client's address and user agent (AUDIT-003), as is the reuse of a refresh token (AUTH-012).
 - Access: lost access ends open streams (SEC-06), and authorization is checked on every workspace request (SEC-08).
