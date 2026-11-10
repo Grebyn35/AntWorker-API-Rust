@@ -99,6 +99,7 @@ async fn auth_025_an_account_that_must_verify_is_refused_but_where_verifying_nee
         .send()
         .await;
     assert_eq!(session.status, 200);
+    assert_eq!(ask(&api, &ada).await.status, 202);
     let code = code_sent(&api, &address).await;
     assert_eq!(confirm(&api, &ada, &code).await.status, 200);
 
@@ -134,6 +135,23 @@ async fn auth_025_a_member_whose_account_must_verify_is_refused_on_a_workspace_r
         .send()
         .await;
     assert_eq!(read.status, 200);
+}
+
+#[tokio::test]
+async fn auth_025_a_session_that_a_sign_in_started_is_refused_alike() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    users::register_unverified(&api, &address).await;
+    let signed_in = users::new_session(&api, &address).await;
+
+    let refused = api
+        .get("/v1/users/me")
+        .bearer(&signed_in.access)
+        .send()
+        .await;
+
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.json()["code"], "request.email_unverified");
 }
 
 #[tokio::test]
@@ -297,6 +315,8 @@ async fn auth_028_with_email_off_asking_answers_503() {
 
     assert_eq!(asked.status, 503);
     assert_eq!(asked.json()["code"], "request.feature_disabled");
+    // Only a deploy turns the feature on again, so a client waits an hour (OPS-04).
+    assert_eq!(asked.header("retry-after"), "3600");
     assert!(rows(&api, "SELECT kind FROM jobs").await.is_empty());
 }
 
@@ -306,15 +326,35 @@ async fn auth_029_asking_for_codes_counts_in_a_bucket_of_the_address() {
     let ada = users::register_unverified(&api, &mailbox::address("ada")).await;
     api.run_jobs().await;
 
-    // The registration counted once, so two requests are left in the window.
-    for _ in 0..2 {
+    for _ in 0..3 {
         assert_eq!(ask(&api, &ada).await.status, 202);
     }
     let refused = ask(&api, &ada).await;
 
     assert_eq!(refused.status, 429);
     assert_eq!(refused.json()["code"], "request.rate_limited");
-    assert_eq!(rows(&api, "SELECT count(*)::text FROM jobs").await, ["2"]);
+    assert_eq!(rows(&api, "SELECT count(*)::text FROM jobs").await, ["3"]);
+}
+
+#[tokio::test]
+async fn auth_029_registrations_of_an_address_never_fill_the_bucket_of_its_codes() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register_unverified(&api, &address).await;
+    api.run_jobs().await;
+    // Anyone who knows the address registers it until its registrations' bucket, which Ada's
+    // registration counted in first, is full.
+    let registration = users::registration(&address);
+    for status in [409, 409, 429] {
+        assert_eq!(
+            api.post("/v1/users", &registration).send().await.status,
+            status
+        );
+    }
+
+    let asked = ask(&api, &ada).await;
+
+    assert_eq!(asked.status, 202);
 }
 
 #[tokio::test]
@@ -586,6 +626,7 @@ async fn auth_031_the_right_code_proves_the_address_once() {
     assert_eq!(confirmed.status, 200);
     let session = confirmed.json();
     assert_eq!(session["id"], ada.session_id.as_str());
+    assert_eq!(session["email_verification_required"], false);
     assert!(session.get("access_token").is_none());
     assert_eq!(
         rows(&api, "SELECT email_verified::text FROM users").await,

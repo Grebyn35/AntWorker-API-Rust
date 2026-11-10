@@ -85,8 +85,17 @@ const DELETION_EMAIL: Bucket = Bucket {
     window: Duration::from_secs(86_400),
 };
 
+/// The bucket of the registrations of an email address, each of which sends the address a code
+/// while email is on: 3 in 15 minutes, fixed (AUTH-029).
+const REGISTRATION_EMAIL: Bucket = Bucket {
+    name: "registration_email",
+    limit: 3,
+    window: Duration::from_secs(900),
+};
+
 /// The bucket of the requests for a code to an email address, each of which sends the address an
-/// email: 3 in 15 minutes, fixed (AUTH-029).
+/// email: 3 in 15 minutes, fixed, apart from the registrations', which anyone may send, so that
+/// none of them keeps the account's owner from asking for a code (AUTH-029).
 const VERIFICATION_EMAIL: Bucket = Bucket {
     name: "verification_email",
     limit: 3,
@@ -153,6 +162,7 @@ impl Config {
                 )?,
                 password_check: PASSWORD_CHECK,
                 deletion_email: DELETION_EMAIL,
+                registration_email: REGISTRATION_EMAIL,
                 verification_email: VERIFICATION_EMAIL,
                 code_check: CODE_CHECK,
             },

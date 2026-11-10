@@ -179,7 +179,7 @@ pub struct Verified {
     /// The caller.
     pub principal: Principal,
     /// Whether the deployment sends email and the caller's account hasn't proved its address.
-    pub must_verify_email: bool,
+    pub email_verification_required: bool,
 }
 
 /// The marker of a route that proving the caller's email address needs, such as signing out,
@@ -273,7 +273,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Principal {
             })?;
         // Once the user's bucket counted the request, a caller whose account must still prove
         // its address is refused, but on a route that proving it needs (AUTH-025, PLATFORM-054).
-        if verified.must_verify_email && parts.extensions.get::<Verifying>().is_none() {
+        if verified.email_verification_required && parts.extensions.get::<Verifying>().is_none() {
             return Err(rejection(RequestError::EmailUnverified));
         }
         Ok(principal)

@@ -41,7 +41,7 @@ pub(crate) struct Account {
     pub(crate) name: &'static str,
     access_token: String,
     /// Whether it must still prove its address, as registering answered (AUTH-026).
-    must_verify: bool,
+    email_verification_required: bool,
 }
 
 /// What the seed reads its accounts' codes with, while email is on: the API's jobs, which it runs
@@ -142,7 +142,8 @@ impl Api {
             email,
             name,
             access_token: text(&answer, "access_token")?,
-            must_verify: answer["email_verification_required"].as_bool() == Some(true),
+            email_verification_required: answer["email_verification_required"].as_bool()
+                == Some(true),
         })
     }
 
@@ -154,14 +155,20 @@ impl Api {
         mailbox: &Mailbox<'_>,
         accounts: &[&Account],
     ) -> Result<(), SystemError> {
-        if !accounts.iter().any(|account| account.must_verify) {
+        if !accounts
+            .iter()
+            .any(|account| account.email_verification_required)
+        {
             return Ok(());
         }
         mailbox
             .jobs
             .run_pending(mailbox.database, mailbox.clock)
             .await;
-        for account in accounts.iter().filter(|account| account.must_verify) {
+        for account in accounts
+            .iter()
+            .filter(|account| account.email_verification_required)
+        {
             let address = EmailAddress::parse(account.email)
                 .map_err(|_| SystemError::Internal(Internal::new("a seed account's address")))?;
             let emails = mailbox.inbox.to(&address)?;

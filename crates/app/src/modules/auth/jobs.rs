@@ -1,7 +1,8 @@
 //! The job of `auth` (OPS-09), owned by `auth`:
 //! - `auth.send_verification_code`, enqueued by a registration with email on and by asking for a
 //!   code, for the account's user, issues a code that proves the account's email address, in
-//!   place of the one before it, touching `verification_codes` and `audit_entries`, and sends it
+//!   place of the one before it, reading `users` through `accounts`, touching
+//!   `verification_codes` and `audit_entries`, and sends it
 //!   to the address at once, so the code is kept nowhere but the email (AUTH-030, SEC-03). A
 //!   second run, such as after a replica stopped once the email was sent, issues a new code and
 //!   sends it too, which replaces the first: the account receives two emails, and only the
@@ -29,7 +30,7 @@ impl Job for SendCode {
     const TIME_LIMIT: Duration = Duration::from_secs(60);
 }
 
-/// Registers the job of `auth` on `auth`.
+/// Registers in `jobs` the job of `auth`, which `auth` runs.
 pub(crate) fn register(auth: &std::sync::Arc<Auth>, jobs: &mut Jobs) -> Result<(), Duplicate> {
     let auth = auth.clone();
     jobs.queued(move |context: JobContext, job: SendCode| {

@@ -295,6 +295,13 @@ impl ErrorCode for PlatformError {
             Self::Internal(_) => None,
         }
     }
+
+    fn retry_after_seconds(&self) -> u32 {
+        match self {
+            Self::Request(error) => error.retry_after_seconds(),
+            Self::Internal(error) => error.retry_after_seconds(),
+        }
+    }
 }
 
 impl RequestError {

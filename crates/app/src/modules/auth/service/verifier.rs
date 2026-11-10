@@ -105,14 +105,14 @@ impl Auth {
         uow: &mut UnitOfWork,
         principal: Principal,
     ) -> Result<Verified, Unverified> {
-        let must_verify_email = self
-            .must_verify(uow, principal.user_id())
+        let email_verification_required = self
+            .email_verification_required(uow, principal.user_id())
             .await
             .map_err(Unverified::Failed)?
             .ok_or(Unverified::Unknown)?;
         Ok(Verified {
             principal,
-            must_verify_email,
+            email_verification_required,
         })
     }
 }

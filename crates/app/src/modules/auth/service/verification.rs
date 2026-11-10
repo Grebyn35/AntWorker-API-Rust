@@ -37,7 +37,7 @@ impl Auth {
     /// Whether `user_id`'s account must still prove its email address before the API serves it
     /// anything but proving it: while email is on and it hasn't (AUTH-025, AUTH-026), or `None`
     /// once the account is gone.
-    pub(super) async fn must_verify(
+    pub(super) async fn email_verification_required(
         &self,
         uow: &mut UnitOfWork,
         user_id: UserId,

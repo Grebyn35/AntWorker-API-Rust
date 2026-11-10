@@ -78,8 +78,11 @@ pub(crate) struct Settings {
     /// The bucket of the deletions of an email's accounts, each of which sends the address an
     /// email (AUTH-024).
     pub(crate) deletion_email: Bucket,
+    /// The bucket of the registrations of an email address, each of which sends the address a
+    /// code while email is on (AUTH-029).
+    pub(crate) registration_email: Bucket,
     /// The bucket of the requests for a code to an email address, each of which sends the address
-    /// an email (AUTH-029).
+    /// an email, apart from the registrations' so that no one who sends those fills it (AUTH-029).
     pub(crate) verification_email: Bucket,
     /// The bucket of each user's checks of the codes that prove their address (AUTH-033).
     pub(crate) code_check: Bucket,
@@ -144,7 +147,7 @@ impl Auth {
         if self.mail.is_on() {
             limits
                 .check(
-                    self.settings.verification_email,
+                    self.settings.registration_email,
                     input.email.as_str().as_bytes(),
                 )
                 .await?;
@@ -375,11 +378,11 @@ impl Auth {
         uow: &mut UnitOfWork,
         session: StoredSession,
     ) -> Result<Session, AuthError> {
-        let must_verify = self
-            .must_verify(uow, session.user_id)
+        let required = self
+            .email_verification_required(uow, session.user_id)
             .await?
             .ok_or_else(|| Internal::new("the session's user doesn't exist"))?;
-        Ok(session.answer(must_verify))
+        Ok(session.answer(required))
     }
 
     /// Ends the session that authenticated the caller (AUTH-013).

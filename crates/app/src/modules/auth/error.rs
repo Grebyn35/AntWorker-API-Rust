@@ -158,4 +158,14 @@ impl ErrorCode for AuthError {
             _ => None,
         }
     }
+
+    /// The wrapped error's, such as a disabled feature's hour (OPS-04).
+    fn retry_after_seconds(&self) -> u32 {
+        match self {
+            Self::Limit(error) => error.retry_after_seconds(),
+            Self::Request(error) => error.retry_after_seconds(),
+            Self::Internal(error) => error.retry_after_seconds(),
+            _ => 1,
+        }
+    }
 }

@@ -62,7 +62,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn auth_030_the_email_carries_the_code_and_no_link() {
+    fn auth_030_the_email_carries_the_code_says_a_newer_one_replaces_it_and_has_no_link() {
         let to = EmailAddress::parse("alice@example.com").unwrap();
         let code = VerificationCode::parse("042917").unwrap();
         let email = CodeEmail { to, code }.render().unwrap();
@@ -72,6 +72,8 @@ mod tests {
         for part in [&email.text, &email.html] {
             assert!(part.contains("042917"), "{part}");
             assert!(part.contains("10 minutes"), "{part}");
+            // How the account's owner recognizes the email of a second attempt (OPS-09).
+            assert!(part.contains("a newer code replaces it"), "{part}");
             assert!(part.contains("alice@example.com"), "{part}");
             assert!(!part.contains("http"), "{part}");
         }
