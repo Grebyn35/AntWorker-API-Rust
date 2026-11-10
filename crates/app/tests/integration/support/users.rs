@@ -42,7 +42,9 @@ pub fn registration(email: &str) -> Value {
 
 /// Registers `email`, and returns the user and their session, whose account has proved its
 /// address, as one that confirmed its first code has (AUTH-031), so a test of anything else needs
-/// no code: see [`verified`].
+/// no code: see [`verified`]. The registration publishes `session.created` (AUTH-046), so a test
+/// that reads the whole `events` table, or a stream's newest event, deletes the setup's events
+/// first.
 pub async fn register(api: &Api, email: &str) -> SignedIn {
     let user = register_unverified(api, email).await;
     verified(api, &user.user_id).await;
