@@ -130,8 +130,8 @@ impl TryFrom<PasswordChangeRequest> for PasswordChange {
 }
 
 /// Asks for a code that resets the password of the account that holds the address, which an
-/// email to the address carries, in place of any reset code before it. The answer is the same
-/// whether or not an account holds the address.
+/// email to the address carries, and which works for 10 minutes beside any other reset code sent
+/// to it. The answer is the same whether or not an account holds the address.
 #[utoipa::path(
     post,
     path = "/v1/password-resets",

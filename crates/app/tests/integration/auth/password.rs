@@ -152,6 +152,28 @@ async fn auth_034_an_account_without_a_password_gets_a_reset_code() {
 }
 
 #[tokio::test]
+async fn auth_034_a_request_whose_email_isn_t_an_address_answers_400_at_email() {
+    let api = Api::new().await;
+
+    let refused = api
+        .post_raw("/v1/password-resets", &json!({ "email": "ada" }))
+        .send()
+        .await;
+
+    assert_eq!(refused.status, 400);
+    let error = &refused.json()["errors"][0];
+    assert_eq!(error["field"], "/email");
+    assert_eq!(error["code"], "invalid_email");
+    assert_eq!(refused.json()["errors"].as_array().unwrap().len(), 1);
+    assert!(
+        api.database()
+            .owner_reads("SELECT kind FROM jobs")
+            .await
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn auth_034_with_email_off_asking_answers_503_once_its_body_converts() {
     let api = Api::without_email().await;
     users::register(&api, "ada@example.com").await;
@@ -314,6 +336,39 @@ async fn auth_036_a_newer_reset_code_leaves_the_one_before_it_working() {
     assert_eq!(confirm(&api, &address, &first).await.status, 204);
     // The reset deleted every reset code of the account.
     assert_eq!(confirm(&api, &address, &second).await.status, 401);
+}
+
+#[tokio::test]
+async fn auth_036_issuing_a_reset_code_deletes_the_account_s_codes_that_expired() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    users::register(&api, &address).await;
+    ask(&api, &address).await;
+    api.run_jobs().await;
+    ask(&api, &address).await;
+    api.run_jobs().await;
+    // The first code's 10 minutes pass.
+    let first = api
+        .database()
+        .owner_reads("SELECT id::text FROM verification_codes ORDER BY id LIMIT 1")
+        .await
+        .remove(0);
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE verification_codes SET expires_at = now() - interval '1 second' \
+             WHERE id = '{first}'"
+        ))
+        .await;
+
+    ask(&api, &address).await;
+    api.run_jobs().await;
+
+    let left = api
+        .database()
+        .owner_reads("SELECT id::text FROM verification_codes")
+        .await;
+    assert_eq!(left.len(), 2);
+    assert!(!left.contains(&first));
 }
 
 #[tokio::test]
@@ -494,6 +549,13 @@ async fn auth_037_the_code_resets_the_password_ends_every_session_and_starts_non
             .await
             .is_empty()
     );
+    // It starts no session.
+    assert!(
+        api.database()
+            .owner_reads("SELECT id::text FROM sessions")
+            .await
+            .is_empty()
+    );
     let entries = log(&api, &ada.user_id).await;
     let mut reset_entries: Vec<String> = entries
         .into_iter()
@@ -666,13 +728,13 @@ async fn auth_038_an_unknown_address_a_missing_code_an_expired_one_and_a_wrong_o
 }
 
 #[tokio::test]
-async fn auth_038_a_malformed_code_and_a_refused_password_answer_400_with_both_fields() {
+async fn auth_038_a_malformed_address_code_and_password_answer_400_with_every_field() {
     let api = Api::new().await;
 
     let refused = api
         .post_raw(
             "/v1/password-resets/confirm",
-            &json!({ "email": "ada@example.com", "code": "7KQM-2XWD-9RTB-H4NU", "password": "password1" }),
+            &json!({ "email": "ada", "code": "7KQM-2XWD-9RTB-H4NU", "password": "password1" }),
         )
         .send()
         .await;
@@ -692,7 +754,11 @@ async fn auth_038_a_malformed_code_and_a_refused_password_answer_400_with_both_f
         .collect();
     assert_eq!(
         fields,
-        [("/code", "invalid_code"), ("/password", "breached")]
+        [
+            ("/email", "invalid_email"),
+            ("/code", "invalid_code"),
+            ("/password", "breached")
+        ]
     );
 }
 

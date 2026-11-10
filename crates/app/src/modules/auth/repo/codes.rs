@@ -46,13 +46,20 @@ pub(in crate::modules::auth) async fn replace(
 }
 
 /// Inserts a reset code of `user_id`'s, whose HMAC is `hash`, lasting `minutes` from now, beside
-/// any other that lasts, and returns its ID (AUTH-036).
+/// any other that lasts, once it has deleted those that expired, and returns its ID (AUTH-036).
 pub(in crate::modules::auth) async fn insert_reset(
     uow: &mut UnitOfWork,
     user_id: UserId,
     hash: &[u8],
     minutes: i32,
 ) -> Result<uuid::Uuid, Internal> {
+    sqlx::query!(
+        "DELETE FROM verification_codes
+        WHERE user_id = $1 AND purpose = 'password_reset' AND expires_at <= now()",
+        user_id.uuid(),
+    )
+    .execute(uow.executor())
+    .await?;
     Ok(sqlx::query_scalar!(
         "INSERT INTO verification_codes (user_id, purpose, code_hash, expires_at)
         VALUES ($1, 'password_reset', $2, now() + make_interval(mins => $3))

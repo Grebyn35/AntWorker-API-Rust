@@ -206,6 +206,30 @@ async fn auth_023_a_deletion_needs_the_password_proved_within_5_minutes() {
 }
 
 #[tokio::test]
+async fn auth_023_a_session_that_changed_its_password_within_5_minutes_may_delete_its_account() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    authenticated_ago(&api, &ada, 6).await;
+    let changed = api
+        .post(
+            "/v1/users/me/password/change",
+            &json!({ "current_password": PASSWORD, "password": "lantern-orchard-58-brisk" }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(changed.status, 204);
+
+    let deleted = api
+        .request(http::Method::DELETE, "/v1/users/me")
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(deleted.status, 204);
+}
+
+#[tokio::test]
 async fn auth_023_a_session_that_has_just_started_may_delete_its_account() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

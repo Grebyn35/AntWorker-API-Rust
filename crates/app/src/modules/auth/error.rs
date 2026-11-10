@@ -155,8 +155,8 @@ impl ErrorCode for AuthError {
                     .to_owned(),
             ),
             Self::InvalidResetCode => Some(
-                "The code isn't the newest one sent to the address, or its 10 minutes have \
-                 passed: ask for another."
+                "The code isn't one sent to the address, or its 10 minutes have passed, or a \
+                 reset used one of the address's codes: ask for another."
                     .to_owned(),
             ),
             Self::Request(error) => error.detail(),

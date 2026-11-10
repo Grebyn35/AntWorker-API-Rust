@@ -1,7 +1,7 @@
 {
   "uid": "api-sign-in",
   "title": "Sign-in",
-  "description": "How sign-in attempts end, which a credential-stuffing attack changes, and how the checks of the codes that prove an account's email address end, which guessing changes (the auth spec).",
+  "description": "How sign-in attempts end, which a credential-stuffing attack changes, and how the checks of the codes that prove an account's email address, and the confirmations of password resets, end, which guessing changes (the auth spec).",
   "tags": [
     "api",
     "area"

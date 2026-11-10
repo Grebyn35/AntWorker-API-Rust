@@ -4,7 +4,8 @@ CREATE TYPE verification_purpose AS ENUM ('email_verification', 'password_reset'
 
 -- The codes that an account proves its email address or resets its password with: one code at a
 -- time that proves its address (AUTH-030), and one reset code for each request for a reset, which
--- lasts its 10 minutes or until a reset uses one (AUTH-036). A code is stored only as an HMAC under
+-- lasts its 10 minutes or until a reset uses one, and which the next one's issue deletes once it
+-- has expired (AUTH-036). A code is stored only as an HMAC under
 -- HMAC_KEY of its user, its purpose and its characters, so no dump holds one (SEC-03). A row is
 -- never edited: a new code that proves the address deletes the one before it, and using a code
 -- deletes it, so app may not update one (DATA-19).

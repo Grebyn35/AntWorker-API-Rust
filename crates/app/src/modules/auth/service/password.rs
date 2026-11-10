@@ -114,7 +114,7 @@ impl Auth {
         // A zero byte, which no email address holds, ends the email in the key.
         let from_address = [email, &[0], &rate_limit::address(client.ip)].concat();
         limits.check(buckets::RESET_CHECK, &from_address).await?;
-        // Hashed before anything is read, so the confirmation does the same work whatever it
+        // Hashed before anything is read, so the confirmation costs the same hash whatever it
         // finds (AUTH-038).
         let password_hash = hash(&self.workers, confirmation.password).await?;
         let mut uow = self.database.begin(client).await?;
