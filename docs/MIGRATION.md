@@ -265,7 +265,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | ca20278..f13eb77: as above, with pass 1's fixes | 2 | 8 (8, 2, 2 shared) | 6 | 4 | `stopped: no progress`: a05a3ea |
 | bbd5f6e..fd80788: step 5's third part of the full `auth` module: a user's sessions, their devices' names and the user events of their starts and ends (AUTH-042 to AUTH-046, D130) | 1 | 8 (6, 5, 3 shared) | 4 | 0 | `next pass`: c97d06d |
 | bbd5f6e..c97d06d: as above, with pass 1's fixes | 2 | 5 (5, 2, 2 shared) | 3 | 3 | `stopped: no progress`: 67243fe |
-| f99ed87..14eccb4: step 5's fourth part of the full `auth` module: the hourly expiry of sessions that stopped lasting (AUTH-047, D131) | 1 | 7 (6, 3, 2 shared) | 5 | 0 | `next pass` |
+| f99ed87..14eccb4: step 5's fourth part of the full `auth` module: the hourly expiry of sessions that stopped lasting (AUTH-047, D131) | 1 | 7 (6, 3, 2 shared) | 5 | 0 | `next pass`: 608071c |
+| f99ed87..608071c: as above, with pass 1's fixes | 2 | 5 (3, 2, 0 shared) | 2 | 1 | `stopped: no progress` |
 
 ## Decisions
 
