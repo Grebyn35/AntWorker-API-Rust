@@ -1,4 +1,5 @@
-//! Registration and sign-in (AUTH-001 to AUTH-008, AUTH-014).
+//! Registration and sign-in, and the lifetimes of a session's tokens (AUTH-001 to AUTH-008,
+//! AUTH-014).
 
 use argon2::{Algorithm, Argon2, Params, PasswordHasher, Version};
 use serde_json::json;
@@ -459,4 +460,33 @@ async fn platform_008_a_failed_sign_in_commits_its_record_then_answers_401() {
         .owner_reads("SELECT user_id::text FROM audit_entries WHERE action = 'sign_in.failed'")
         .await;
     assert_eq!(recorded, [ada.user_id]);
+}
+
+#[tokio::test]
+async fn auth_007_no_access_token_outlives_its_refresh_token_whatever_the_settings() {
+    let options = Options::default()
+        .set("ACCESS_TOKEN_SECONDS", 7_200)
+        .set("REFRESH_TOKEN_SECONDS", 3_600);
+    let api = Api::with(options).await;
+
+    let registered = api
+        .post("/v1/users", &users::registration("ada@example.com"))
+        .send()
+        .await
+        .json();
+    let refreshed = api
+        .post(
+            "/v1/sessions/refresh",
+            &json!({ "refresh_token": registered["refresh_token"] }),
+        )
+        .send()
+        .await
+        .json();
+
+    for session in [&registered, &refreshed] {
+        assert_eq!(
+            session["access_token_expires_at"], session["refresh_token_expires_at"],
+            "{session}"
+        );
+    }
 }

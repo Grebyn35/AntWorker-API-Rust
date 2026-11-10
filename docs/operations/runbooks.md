@@ -137,7 +137,7 @@ With a managed database, run the same query in the provider's console. Add `payl
 
 ## PeriodicJobFailing
 
-**What it means.** A periodic job failed at least twice within 3 hours, as an hourly job that keeps failing does, or twice within 49 hours with no run that succeeded, as a daily job that keeps failing does from an hour after its second failure. Each failed run waits for its next interval, so what it deletes stays meanwhile; nothing a request reads changes ([platform spec](../spec/platform.md#the-job-queue)).
+**What it means.** A periodic job failed at least twice within 3 hours, as an hourly job that keeps failing does, or twice within 49 hours with no run that succeeded, as a daily job that keeps failing does from an hour after its second failure. Each failed run waits for its next interval, so what it deletes stays meanwhile, and a request meets it as its module's spec says of a row that waits for its job, such as an expired session's token, which answers as expired rather than unknown until `auth.expire_sessions` deletes it ([auth spec](../spec/auth.md#a-users-sessions), [platform spec](../spec/platform.md#the-job-queue)).
 
 **Look first.** The API's `WARN` line "periodic job failed, and runs again at its next interval" names the job and the failure.
 

@@ -220,3 +220,16 @@ pub async fn added_bucket(
     assert_eq!(added.len(), 1, "{added:?}");
     added.remove(0)
 }
+
+/// Makes `user`'s session one that stopped lasting an hour ago: its tokens and its absolute
+/// lifetime expired, a time in the past that only a test sets (TEST-09).
+pub async fn stopped_lasting(api: &Api, user: &SignedIn) {
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE sessions SET access_token_expires_at = now() - interval '1 hour', \
+             refresh_token_expires_at = now() - interval '1 hour', \
+             expires_at = now() - interval '1 hour' WHERE id = '{}'",
+            user.session_id
+        ))
+        .await;
+}

@@ -458,6 +458,47 @@ async fn auth_016_a_session_that_another_request_ended_meanwhile_answers_401() {
 }
 
 #[tokio::test]
+async fn auth_016_a_session_that_the_job_deleted_meanwhile_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let bucket =
+        users::added_bucket(&api, api.get("/v1/users/me").bearer(&ada.access).send()).await;
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM rate_limit_buckets WHERE id = '{bucket}' FOR UPDATE"
+        ))
+        .await;
+
+    let read = tokio::spawn({
+        let api = api.clone();
+        let access = ada.access.clone();
+        async move {
+            let response = api
+                .get("/v1/users/me/sessions/current")
+                .bearer(&access)
+                .send()
+                .await;
+            (response.status, response.json())
+        }
+    });
+    queries_wait_on_locks(db, 1).await;
+    // The session stops lasting while the request waits, and the hourly job deletes it.
+    users::stopped_lasting(&api, &ada).await;
+    api.run_periodic("auth.expire_sessions").await;
+    execute_on(&mut held, "COMMIT").await;
+    let (status, body) = read.await.unwrap();
+
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+    assert!(
+        db.owner_reads("SELECT id::text FROM sessions")
+            .await
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn auth_016_the_current_session_is_readable_without_its_tokens() {
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;

@@ -6,7 +6,7 @@
 use serde_json::{Value, json};
 
 use crate::support::{
-    Api, Options,
+    Api,
     api::Response,
     execute_on, lists, queries_wait_on_locks, streams,
     users::{self, PASSWORD, SignedIn, browser_sign_in, browsers_api, cookie},
@@ -720,19 +720,6 @@ async fn auth_046_a_deletion_of_the_account_publishes_no_session_s_end() {
     assert!(events.is_empty(), "{events:?}");
 }
 
-/// Makes `user`'s session one that stopped lasting an hour ago: its tokens and its absolute
-/// lifetime expired, a time in the past that only a test sets (TEST-09).
-async fn stopped_lasting(api: &Api, user: &SignedIn) {
-    api.database()
-        .owner_executes(&format!(
-            "UPDATE sessions SET access_token_expires_at = now() - interval '1 hour', \
-             refresh_token_expires_at = now() - interval '1 hour', \
-             expires_at = now() - interval '1 hour' WHERE id = '{}'",
-            user.session_id
-        ))
-        .await;
-}
-
 #[tokio::test]
 async fn auth_047_the_hourly_job_deletes_every_user_s_sessions_that_stopped_lasting() {
     let api = Api::new().await;
@@ -742,7 +729,7 @@ async fn auth_047_the_hourly_job_deletes_every_user_s_sessions_that_stopped_last
     let gone = users::new_session(&api, "grace@example.com").await;
     let idle = users::new_session(&api, "grace@example.com").await;
     let db = api.database();
-    stopped_lasting(&api, &old).await;
+    users::stopped_lasting(&api, &old).await;
     // A session whose access token alone expired still lasts (AUTH-018).
     db.owner_executes(&format!(
         "UPDATE sessions SET access_token_expires_at = now() - interval '1 second' \
@@ -811,8 +798,8 @@ async fn auth_047_a_session_that_a_request_holds_is_left_for_the_next_run() {
     let ada = users::register(&api, "ada@example.com").await;
     let held = users::new_session(&api, "ada@example.com").await;
     let free = users::new_session(&api, "ada@example.com").await;
-    stopped_lasting(&api, &held).await;
-    stopped_lasting(&api, &free).await;
+    users::stopped_lasting(&api, &held).await;
+    users::stopped_lasting(&api, &free).await;
     let db = api.database();
     let mut request = db
         .holding(&format!(
@@ -839,7 +826,7 @@ async fn auth_011_an_expired_refresh_token_whose_session_the_job_deleted_answers
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;
     let old = users::new_session(&api, "ada@example.com").await;
-    stopped_lasting(&api, &old).await;
+    users::stopped_lasting(&api, &old).await;
 
     let before = refresh(&api, &old.refresh).await;
     api.run_periodic("auth.expire_sessions").await;
@@ -857,7 +844,7 @@ async fn auth_009_an_expired_access_token_whose_session_the_job_deleted_answers_
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;
     let old = users::new_session(&api, "ada@example.com").await;
-    stopped_lasting(&api, &old).await;
+    users::stopped_lasting(&api, &old).await;
 
     let before = api.get("/v1/users/me").bearer(&old.access).send().await;
     api.run_periodic("auth.expire_sessions").await;
@@ -867,28 +854,4 @@ async fn auth_009_an_expired_access_token_whose_session_the_job_deleted_answers_
     assert_eq!(before.json()["code"], "request.access_token_expired");
     assert_eq!(after.status, 401);
     assert_eq!(after.json()["code"], "request.unauthenticated");
-}
-
-#[tokio::test]
-async fn auth_007_no_access_token_outlives_its_refresh_token_whatever_the_settings() {
-    let options = Options::default()
-        .set("ACCESS_TOKEN_SECONDS", 7_200)
-        .set("REFRESH_TOKEN_SECONDS", 3_600);
-    let api = Api::with(options).await;
-
-    let registered = api
-        .post("/v1/users", &users::registration("ada@example.com"))
-        .send()
-        .await
-        .json();
-    let refreshed = refresh(&api, registered["refresh_token"].as_str().unwrap())
-        .await
-        .json();
-
-    for session in [&registered, &refreshed] {
-        assert_eq!(
-            session["access_token_expires_at"], session["refresh_token_expires_at"],
-            "{session}"
-        );
-    }
 }

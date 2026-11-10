@@ -1,7 +1,8 @@
 //! A user's sessions: reading the current one, listing them, and ending them, the current one,
 //! which is signing out, another, or every other (AUTH-013, AUTH-016, AUTH-043 to AUTH-046, the
-//! auth spec's "A user's sessions"). Every way a session ends but a deletion of the account goes
-//! through [`close`].
+//! auth spec's "A user's sessions"). Every request that ends a session, but a deletion of the
+//! account, goes through [`close`]; the hourly job deletes the sessions that stopped lasting
+//! without it (AUTH-047).
 
 use platform::{
     authn::{AuditScope, Principal},
@@ -36,8 +37,8 @@ pub(crate) enum Ended {
 }
 
 impl Auth {
-    /// The session that authenticated the caller, or 401 once another request ended it
-    /// (AUTH-016).
+    /// The session that authenticated the caller, or 401 once it is gone, because another request
+    /// ended it or the hourly job deleted it (AUTH-016).
     pub(crate) async fn current(
         &self,
         client: &Client,
@@ -69,8 +70,8 @@ impl Auth {
         Ok(page.list(items, |item| key(item.created_at, item.id.uuid())))
     }
 
-    /// Ends the session that authenticated the caller, unless another request ended it first
-    /// (AUTH-013).
+    /// Ends the session that authenticated the caller, unless another request ended it, or the
+    /// hourly job deleted it, first (AUTH-013).
     pub(crate) async fn sign_out(
         &self,
         client: &Client,

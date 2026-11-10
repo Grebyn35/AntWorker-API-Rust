@@ -240,9 +240,9 @@ pub(crate) enum TokenDelivery {
 /// How long a session's tokens last (AUTH-007).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Lifetimes {
-    /// How long an access token lasts.
+    /// How long an access token lasts, at most as long as its refresh token (AUTH-007).
     pub(crate) access: Duration,
-    /// How long a refresh token lasts, sliding with each refresh.
+    /// How long a refresh token lasts, sliding with each refresh, at most as long as its session.
     pub(crate) refresh: Duration,
     /// How long a session lasts at most, whatever its refreshes.
     pub(crate) absolute: Duration,

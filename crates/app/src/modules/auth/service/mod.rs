@@ -309,9 +309,9 @@ impl Auth {
         let presented = sha256(token.as_bytes());
         let mut uow = self.database.begin(client).await?;
         let Some(found) = repo::by_refresh_token(&mut uow, &presented).await? else {
-            // A session that another request ended first, as a deletion of its account does,
-            // leaves the token naming none, which records nothing (the auth spec's "A user's
-            // sessions").
+            // A session that another request ended first, as a deletion of its account does, or
+            // that the hourly job deleted, leaves the token naming none, which records nothing
+            // (the auth spec's "A user's sessions").
             if let Some(reused) = repo::by_previous_refresh_token(&mut uow, &presented).await?
                 && repo::delete_session(&mut uow, reused.user_id, reused.id).await?
             {
