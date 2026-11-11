@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 
-use crate::support::{TestDatabase, not_unicode};
+use crate::support::{Options, TestDatabase, api, not_unicode};
 
 #[tokio::test]
 async fn ops_01_a_setting_that_isnt_unicode_fails_startup() {
@@ -89,102 +89,32 @@ fn ops_01_the_deletion_delay_that_a_deploy_derives_is_one_that_the_api_takes() {
 }
 // end part: files
 
-/// The settings that the API's `serve` needs and has no default for, each with a valid value.
-fn base_settings() -> Vec<(&'static str, &'static str)> {
-    let base = [
-        ("ENVIRONMENT", "test"),
-        ("LISTEN_ADDR", "0.0.0.0:8080"),
-        ("DATABASE_URL", "postgres://app:secret@localhost:5432/api"),
-        ("HMAC_KEY", "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="),
-        ("EMAIL", "smtp"),
-        ("SMTP_HOST", "127.0.0.1"),
-        ("SMTP_SECURITY", "none"),
-        ("EMAIL_FROM", "AntWorker <noreply@example.com>"),
-    ];
-    // part: files
-    let base = [
-        &base[..],
-        &[
-            ("S3_ENDPOINT", "https://bucket.invalid"),
-            ("S3_REGION", "us-east-1"),
-            ("S3_BUCKET", "files"),
-            ("S3_ACCESS_KEY_ID", "key"),
-            ("S3_SECRET_ACCESS_KEY", "secret"),
-            ("CLAMD_ADDRESS", "127.0.0.1:3310"),
-        ],
-    ]
-    .concat();
-    // end part: files
-    base.into_iter().collect()
-}
-
-/// The settings of `base_settings`, with `changed` set as well, as `Settings` reads them.
-fn settings_with(
-    changed: &[(&str, &str)],
-) -> platform::config::Settings<
-    impl Fn(&str) -> Option<OsString>,
-    impl Fn(&std::path::Path) -> std::io::Result<String>,
-> {
-    let mut vars: std::collections::HashMap<String, OsString> = base_settings()
-        .iter()
-        .map(|(key, value)| ((*key).to_owned(), OsString::from(*value)))
-        .collect();
-    for (key, value) in changed {
-        vars.insert((*key).to_owned(), OsString::from(*value));
-    }
-    platform::config::Settings::new(
-        move |key: &str| vars.get(key).cloned(),
-        |_: &std::path::Path| Err(std::io::Error::from(std::io::ErrorKind::NotFound)),
-    )
-}
-
 #[test]
 fn auth_007_startup_refuses_an_access_token_that_would_outlive_its_refresh_token() {
-    let longer = settings_with(&[
-        ("ACCESS_TOKEN_SECONDS", "7200"),
-        ("REFRESH_TOKEN_SECONDS", "3600"),
-    ]);
-    let equal = settings_with(&[
-        ("ACCESS_TOKEN_SECONDS", "3600"),
-        ("REFRESH_TOKEN_SECONDS", "3600"),
-    ]);
+    let longer = Options::default()
+        .set("ACCESS_TOKEN_SECONDS", 7_200)
+        .set("REFRESH_TOKEN_SECONDS", 3_600);
+    let equal = Options::default()
+        .set("ACCESS_TOKEN_SECONDS", 3_600)
+        .set("REFRESH_TOKEN_SECONDS", 3_600);
 
     assert_eq!(
-        app::Config::read(&longer)
-            .err()
-            .map(|error| error.to_string()),
-        Some("ACCESS_TOKEN_SECONDS must be at most REFRESH_TOKEN_SECONDS".to_owned())
+        api::refusal(&longer),
+        "ACCESS_TOKEN_SECONDS must be at most REFRESH_TOKEN_SECONDS"
     );
-    assert!(app::Config::read(&equal).is_ok());
+    // An access token that lasts as long as its refresh token is one startup takes.
+    api::configuration(&equal);
 }
 
 #[test]
 fn ops_01_each_number_setting_is_refused_just_outside_its_range() {
-    let ranged = ranged_settings();
-    let base = base_settings();
-
-    for (name, low, high) in &ranged {
+    for (name, low, high) in &ranged_settings() {
         for value in [low - 1, high + 1] {
-            let mut vars: std::collections::HashMap<String, OsString> = base
-                .iter()
-                .map(|(key, value)| ((*key).to_owned(), OsString::from(*value)))
-                .collect();
-            vars.insert(name.clone(), OsString::from(value.to_string()));
-            let settings = platform::config::Settings::new(
-                move |key: &str| vars.get(key).cloned(),
-                |_: &std::path::Path| Err(std::io::Error::from(std::io::ErrorKind::NotFound)),
-            );
-
-            let error = settings
-                .server()
-                .err()
-                .or_else(|| app::Config::read(&settings).err());
+            let refusal = api::refusal(&Options::default().set(name.clone(), value));
 
             assert_eq!(
-                error.map(|error| error.to_string()),
-                Some(format!(
-                    "{name} must be a whole number from {low} to {high}"
-                )),
+                refusal,
+                format!("{name} must be a whole number from {low} to {high}"),
                 "{name}={value}"
             );
         }

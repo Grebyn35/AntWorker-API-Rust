@@ -41,7 +41,7 @@ pub struct Options {
     /// Routes the tests add, such as the fixtures.
     pub routes: Option<Routes>,
     /// The settings `serve` would read, beyond the tests' own.
-    pub settings: Vec<(&'static str, String)>,
+    pub settings: Vec<(String, String)>,
 }
 
 impl Options {
@@ -63,8 +63,8 @@ impl Options {
     }
 
     /// The options, with the setting `name` set to `value`.
-    pub fn set(mut self, name: &'static str, value: impl ToString) -> Self {
-        self.settings.push((name, value.to_string()));
+    pub fn set(mut self, name: impl Into<String>, value: impl ToString) -> Self {
+        self.settings.push((name.into(), value.to_string()));
         self
     }
 
@@ -119,7 +119,7 @@ fn environment(options: &Options) -> HashMap<String, String> {
     );
     // end part: files
     for (name, value) in &options.settings {
-        env.insert((*name).to_owned(), value.clone());
+        env.insert(name.clone(), value.clone());
     }
     env
 }
@@ -228,7 +228,7 @@ impl Api {
         let mut options = options;
         options
             .settings
-            .insert(0, ("S3_BUCKET", database.bucket().await));
+            .insert(0, ("S3_BUCKET".to_owned(), database.bucket().await));
         // end part: files
         let database = Arc::new(database);
         let clock = Arc::new(TestClock::default());
@@ -261,7 +261,7 @@ impl Api {
         let mut options = options;
         options
             .settings
-            .insert(0, ("S3_BUCKET", self.database.bucket().await));
+            .insert(0, ("S3_BUCKET".to_owned(), self.database.bucket().await));
         // end part: files
         let clock = Arc::new(TestClock::default());
         let readiness = Readiness::new();

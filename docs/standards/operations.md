@@ -8,7 +8,7 @@ Configuration, background jobs, runtime behavior, CI, releases, deploys, backups
 `platform::config` loads every setting once at startup into typed values:
 - Values are trimmed, and an empty value counts as unset.
 - A setting can be read from a file named by `<NAME>_FILE` (SEC-01).
-- Numbers are range-checked, and unknown values for a closed set are errors.
+- Numbers are range-checked, a number that another setting bounds is refused beyond it, such as an access token's lifetime beyond its refresh token's (AUTH-007), and unknown values for a closed set are errors.
 - Required settings have no defaults. `ENVIRONMENT` is required.
 - Why: a misconfiguration fails at startup, never in the middle of a request (D9).
 - Check: `test` (a test reads each whole number's range from `.env.example`, and refuses the values just outside it).

@@ -304,6 +304,35 @@ async fn auth_007_the_three_lifetimes_are_settings() {
 }
 
 #[tokio::test]
+async fn auth_007_no_token_outlives_its_session_s_absolute_lifetime() {
+    // The absolute lifetime is the shortest of the three, so it caps both tokens.
+    let options = Options::default()
+        .set("ACCESS_TOKEN_SECONDS", 7_200)
+        .set("REFRESH_TOKEN_SECONDS", 7_200)
+        .set("SESSION_LIFETIME_SECONDS", 3_600);
+    let api = Api::with(options).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let lifetimes = "SELECT round(extract(epoch FROM access_token_expires_at - created_at))::text \
+                     || ' ' || round(extract(epoch FROM refresh_token_expires_at - created_at))::text \
+                     || ' ' || round(extract(epoch FROM expires_at - created_at))::text FROM sessions";
+    let started = api.database().owner_reads(lifetimes).await;
+
+    let refreshed = api
+        .post(
+            "/v1/sessions/refresh",
+            &json!({ "refresh_token": ada.refresh }),
+        )
+        .send()
+        .await;
+
+    assert_eq!(started, ["3600 3600 3600"]);
+    assert_eq!(refreshed.status, 200);
+    let session = refreshed.json();
+    assert_eq!(session["access_token_expires_at"], session["expires_at"]);
+    assert_eq!(session["refresh_token_expires_at"], session["expires_at"]);
+}
+
+#[tokio::test]
 async fn auth_008_signing_in_again_on_a_device_ends_its_old_session() {
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;
