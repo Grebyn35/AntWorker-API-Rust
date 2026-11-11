@@ -520,7 +520,7 @@ async fn auth_051_a_confirmation_that_waited_for_the_account_s_deletion_answers_
 }
 
 #[tokio::test]
-async fn auth_051_a_reset_code_sent_to_the_address_before_a_change_resets_nothing_after_it() {
+async fn auth_038_a_reset_code_sent_to_the_address_before_a_change_resets_nothing_after_it() {
     let api = Api::new().await;
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
@@ -982,6 +982,24 @@ async fn auth_052_a_code_that_a_newer_one_replaces_while_the_check_runs_answers_
     assert_eq!(status, 422);
     assert_eq!(body["code"], "auth.code_expired");
     assert_eq!(address_of(&api, &ada).await, format!("{address}|true"));
+}
+
+#[tokio::test]
+async fn auth_026_re_authentication_s_answer_says_whether_the_account_must_prove_its_address() {
+    let api = Api::new().await;
+    let ada = users::register_unverified(&api, &mailbox::address("ada")).await;
+
+    let reauthenticated = api
+        .post(
+            "/v1/users/me/sessions/current/reauthenticate",
+            &json!({ "password": PASSWORD }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(reauthenticated.status, 200);
+    assert_eq!(reauthenticated.json()["email_verification_required"], true);
 }
 
 #[tokio::test]

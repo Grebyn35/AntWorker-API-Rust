@@ -362,3 +362,53 @@ async fn accounts_019_a_read_that_finds_the_account_gone_answers_401() {
     assert_eq!(status, 401);
     assert_eq!(body["code"], "request.unauthenticated");
 }
+
+#[tokio::test]
+async fn accounts_019_a_check_of_the_password_that_waited_for_the_account_s_deletion_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let mut deletion = db
+        .holding(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
+        .await;
+
+    let checked = api.spawn(
+        http::Method::POST,
+        "/v1/users/me/sessions/current/reauthenticate",
+        &ada.access,
+        Some(json!({ "password": PASSWORD })),
+    );
+    // The check takes the user's turn before it reads the password (AUTH-022).
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, body) = checked.await.unwrap();
+
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+}
+
+// part: files
+#[tokio::test]
+async fn accounts_019_an_avatar_s_change_that_waited_for_the_account_s_deletion_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let mut deletion = db
+        .holding(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
+        .await;
+
+    // Removing an avatar locks the user's row first, whether or not they have one.
+    let removed = api.spawn(
+        http::Method::DELETE,
+        "/v1/users/me/avatar",
+        &ada.access,
+        None,
+    );
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, body) = removed.await.unwrap();
+
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+}
+// end part: files
