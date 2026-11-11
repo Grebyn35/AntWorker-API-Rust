@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     api::Response,
-    mailbox,
+    execute_on, mailbox, queries_wait_on_locks,
     second_factors::{self, App, add_app, code, confirm, forget_steps, other_code, start_setup},
     users::{self, PASSWORD, SignedIn},
 };
@@ -294,6 +294,7 @@ async fn auth_062_a_recovery_code_works_once_in_place_of_the_app_s_and_only_its_
     let plain = recovery_codes[0].replace('-', "");
     assert!(stored.iter().all(|hash| !hash.contains(&plain)));
 
+    let before = reads(&api, "SELECT id::text FROM recovery_codes ORDER BY 1").await;
     // Lowercase, without its hyphens, it reads as the code.
     let typed = recovery_codes[0].replace('-', "").to_lowercase();
     let first = reauthenticate(
@@ -307,9 +308,14 @@ async fn auth_062_a_recovery_code_works_once_in_place_of_the_app_s_and_only_its_
         reads(&api, "SELECT count(*)::text FROM recovery_codes").await,
         ["9"]
     );
-    let code_ids = entries(&api, "recovery_code.used").await;
-    assert_eq!(code_ids.len(), 1);
-    assert!(code_ids[0].contains(" recovery_code "), "{}", code_ids[0]);
+    let after = reads(&api, "SELECT id::text FROM recovery_codes ORDER BY 1").await;
+    let used: Vec<&String> = before.iter().filter(|id| !after.contains(id)).collect();
+    assert_eq!(used.len(), 1);
+    let ada_id = &ada.user_id;
+    assert_eq!(
+        entries(&api, "recovery_code.used").await,
+        [format!("{ada_id} {ada_id} recovery_code {}", used[0])]
+    );
 
     let second = reauthenticate(
         &api,
@@ -382,6 +388,14 @@ async fn auth_064_removing_the_app_deletes_it_with_its_codes_and_challenges_once
     let nothing = remove(&api, &ada).await;
     assert_eq!(nothing.status, 204);
     assert!(entries(&api, "second_factor.removed").await.is_empty());
+    assert!(
+        reads(
+            &api,
+            "SELECT id::text FROM jobs WHERE kind = 'platform.send_email'"
+        )
+        .await
+        .is_empty()
+    );
 
     add_app(&api, &ada).await;
     let challenge = second_factors::challenge(&api, "ada@example.com").await;
@@ -593,4 +607,134 @@ async fn auth_068_with_email_off_no_change_of_the_second_factor_enqueues_an_emai
         .await
         .is_empty()
     );
+}
+
+/// What `user`'s request `method` of `path` answers when another request ends its session once
+/// the request is authenticated: it waits at the bucket `bucket`, which it counts once its session
+/// is verified, while the session ends (AUTH-016).
+async fn after_its_session_ended(
+    api: &Api,
+    user: &SignedIn,
+    bucket: &str,
+    method: http::Method,
+    path: &str,
+) -> (http::StatusCode, Value) {
+    let db = api.database();
+    let mut ender = db
+        .holding(&format!(
+            "SELECT 1 FROM rate_limit_buckets WHERE id = '{bucket}' FOR UPDATE"
+        ))
+        .await;
+    let sent = api.spawn(method, path, &user.access, None);
+    queries_wait_on_locks(db, 1).await;
+    execute_on(
+        &mut ender,
+        &format!("DELETE FROM sessions WHERE id = '{}'", user.session_id),
+    )
+    .await;
+    execute_on(&mut ender, "COMMIT").await;
+    sent.await.unwrap()
+}
+
+#[tokio::test]
+async fn auth_055_a_setup_whose_session_ended_once_it_was_authenticated_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // Her first authenticated request adds her bucket of requests (PLATFORM-054).
+    let bucket =
+        users::added_bucket(&api, api.get("/v1/users/me").bearer(&ada.access).send()).await;
+
+    let (status, body) = after_its_session_ended(
+        &api,
+        &ada,
+        &bucket,
+        http::Method::POST,
+        "/v1/users/me/second-factors/totp/setup",
+    )
+    .await;
+
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+    assert!(
+        reads(&api, "SELECT id::text FROM totp_setups")
+            .await
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn auth_063_new_codes_whose_session_ended_once_they_were_authenticated_answer_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    add_app(&api, &ada).await;
+    // A first request adds the bucket that new codes and removals share (AUTH-063).
+    let bucket = users::added_bucket(&api, new_codes(&api, &ada)).await;
+    let codes = reads(&api, "SELECT id::text FROM recovery_codes ORDER BY 1").await;
+
+    let (status, body) = after_its_session_ended(
+        &api,
+        &ada,
+        &bucket,
+        http::Method::POST,
+        "/v1/users/me/second-factors/recovery-codes",
+    )
+    .await;
+
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+    assert_eq!(
+        reads(&api, "SELECT id::text FROM recovery_codes ORDER BY 1").await,
+        codes
+    );
+}
+
+#[tokio::test]
+async fn auth_064_a_removal_whose_session_ended_once_it_was_authenticated_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    add_app(&api, &ada).await;
+    let bucket = users::added_bucket(&api, new_codes(&api, &ada)).await;
+
+    let (status, body) = after_its_session_ended(
+        &api,
+        &ada,
+        &bucket,
+        http::Method::DELETE,
+        "/v1/users/me/second-factors/totp",
+    )
+    .await;
+
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+    assert_eq!(
+        reads(&api, "SELECT count(*)::text FROM totp_factors").await,
+        ["1"]
+    );
+}
+
+#[tokio::test]
+async fn auth_063_new_codes_and_removals_of_the_app_count_in_one_bucket_of_the_user_s() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    add_app(&api, &ada).await;
+    for _ in 0..10 {
+        assert_eq!(new_codes(&api, &ada).await.status, 200);
+    }
+
+    let limited = remove(&api, &ada).await;
+
+    assert_eq!(limited.status, 429);
+    assert_eq!(limited.json()["code"], "request.rate_limited");
+    assert!(
+        limited
+            .header("ratelimit-policy")
+            .starts_with("\"second_factor_change\";q=10;w=86400"),
+        "{}",
+        limited.header("ratelimit-policy")
+    );
+    assert_eq!(
+        reads(&api, "SELECT count(*)::text FROM totp_factors").await,
+        ["1"]
+    );
+    assert_eq!(new_codes(&api, &ada).await.status, 429);
 }

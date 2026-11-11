@@ -467,7 +467,7 @@ volumes:
   grafana:
 
 # The secret files, in secrets/ of the deployment's directory. deploy.sh writes the URLs of the
-# bundled Postgres, the API's HMAC key and encryption keys and Grafana's password, and an empty SMTP password when the
+# bundled Postgres, the API's HMAC key and Grafana's password, and an empty SMTP password when the
 # mail server takes none; `just server-setup` writes the others (docs/operations/deploy.md).
 secrets:
   database_url:

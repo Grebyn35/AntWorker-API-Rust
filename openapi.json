@@ -1200,7 +1200,7 @@
                 },
                 "authenticated_at": {
                   "$ref": "#/components/schemas/Timestamp",
-                  "description": "When its user last proved their password in it: when it began, re-authenticated, or\nchanged the password (AUTH-021, AUTH-040)."
+                  "description": "When its user last proved who they are in it, their password and the second factor of an\naccount that has one: when it began, re-authenticated, or changed the password (AUTH-021,\nAUTH-040, AUTH-065)."
                 },
                 "created_at": {
                   "$ref": "#/components/schemas/Timestamp",
@@ -2173,7 +2173,7 @@
           },
           "authenticated_at": {
             "$ref": "#/components/schemas/Timestamp",
-            "description": "When its user last proved their password in it: when it began, re-authenticated, or\nchanged the password (AUTH-021, AUTH-040)."
+            "description": "When its user last proved who they are in it, their password and the second factor of an\naccount that has one: when it began, re-authenticated, or changed the password (AUTH-021,\nAUTH-040, AUTH-065)."
           },
           "created_at": {
             "$ref": "#/components/schemas/Timestamp",
@@ -2354,7 +2354,7 @@
           },
           "authenticated_at": {
             "$ref": "#/components/schemas/Timestamp",
-            "description": "When its user last proved their password in it: when it began, re-authenticated, or\nchanged the password (AUTH-021, AUTH-040)."
+            "description": "When its user last proved who they are in it, their password and the second factor of an\naccount that has one: when it began, re-authenticated, or changed the password (AUTH-021,\nAUTH-040, AUTH-065)."
           },
           "created_at": {
             "$ref": "#/components/schemas/Timestamp",
@@ -2423,7 +2423,7 @@
           },
           "authenticated_at": {
             "$ref": "#/components/schemas/Timestamp",
-            "description": "When its user last proved their password in it: when it began, re-authenticated, or\nchanged the password (AUTH-021, AUTH-040)."
+            "description": "When its user last proved who they are in it, their password and the second factor of an\naccount that has one: when it began, re-authenticated, or changed the password (AUTH-021,\nAUTH-040, AUTH-065)."
           },
           "created_at": {
             "$ref": "#/components/schemas/Timestamp",
@@ -15557,6 +15557,7 @@
                       "properties": {
                         "code": {
                           "enum": [
+                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -15568,7 +15569,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -15850,6 +15851,7 @@
                       "properties": {
                         "code": {
                           "enum": [
+                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -15861,7 +15863,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",

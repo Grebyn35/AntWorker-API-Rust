@@ -187,7 +187,7 @@ write() {
                 ;;
             secret)
                 case $first in
-                    database_admin_url | database_owner_url | database_url | postgres_password | backup_s3_key | backup_s3_key_secret | backup_cipher_pass | managed_otlp_token | managed_grafana_token | smtp_password) ;;
+                    encryption_keys | database_admin_url | database_owner_url | database_url | postgres_password | backup_s3_key | backup_s3_key_secret | backup_cipher_pass | managed_otlp_token | managed_grafana_token | smtp_password) ;;
                     # part: files
                     files_s3_key | files_s3_key_secret) ;;
                     # end part: files
@@ -222,13 +222,19 @@ write() {
             *) fail "no item is named $kind" ;;
         esac
     done
+    # The key ring that encrypts the secrets the database holds, when no answer gave one: one key,
+    # version 1, the base64 of 32 random bytes (PLATFORM-086).
+    generated=""
+    if [ ! -s "$deployment/secrets/encryption_keys" ]; then
+        printf '1:%s' "$(head -c 32 /dev/urandom | base64 | tr -d '\n')" > "$deployment/secrets/encryption_keys"
+        generated=" encryption_keys"
+    fi
     # The bundled database's secrets that no answer gave: the passphrase that encrypts the backups,
     # and the superuser's password, which a restored database keeps. Each is 24 random bytes in
     # hex, which a URL holds as it is.
     database=$(sed -n 's/^DATABASE=//p' "$deployment/settings.env" | tail -n 1)
-    if [ "${database:-bundled}" != bundled ]; then return; fi
-    generated=""
     for name in backup_cipher_pass postgres_password; do
+        if [ "${database:-bundled}" != bundled ]; then break; fi
         if [ ! -s "$deployment/secrets/$name" ]; then
             od -An -N24 -tx1 /dev/urandom | tr -d ' \n' > "$deployment/secrets/$name"
             generated="$generated $name"
@@ -240,7 +246,7 @@ write() {
         printf '\n    %s: %s\n' "$name" "$(cat "$deployment/secrets/$name")"
     done
     printf '\n'
-    say "keep a copy of each off the server, such as in a password manager: without them, no backup can be restored (docs/operations/backups.md)"
+    say "keep a copy of each off the server, such as in a password manager: without them, no backup can be restored, and no authenticator app read (docs/operations/backups.md)"
 }
 
 case ${1:-} in

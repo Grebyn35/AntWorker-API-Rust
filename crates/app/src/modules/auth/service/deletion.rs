@@ -48,14 +48,21 @@ impl Auth {
 }
 
 /// Erases what `auth` keeps of `user_id`, whose account the unit of work deletes: their
-/// identities first, which a sign-in locks before it starts a session, then their sessions, each
-/// with the signal that closes its streams, then their device tokens and their verification codes
-/// (the auth spec's "Deleting an account").
+/// identities first, which a sign-in and a sign-in's completion lock before they start a session,
+/// then their authenticator app, its setup, their recovery codes and their sign-in challenges,
+/// then their sessions, each with the signal that closes its streams, then their device tokens
+/// and their verification codes (the auth spec's "Deleting an account").
 pub(in crate::modules::auth) async fn erase(
     uow: &mut UnitOfWork,
     user_id: UserId,
 ) -> Result<(), Internal> {
     repo::delete_identities(uow, user_id).await?;
+    // The second factors before the sessions, the order of every operation's locks (the auth
+    // spec's "A user's sessions").
+    let _ = repo::second_factors::delete_app(uow, user_id).await?;
+    repo::second_factors::delete_setup(uow, user_id).await?;
+    repo::second_factors::delete_recovery_codes(uow, user_id).await?;
+    repo::second_factors::delete_challenges(uow, user_id).await?;
     for session_id in repo::delete_sessions(uow, user_id).await? {
         events::signal(
             uow,
@@ -67,9 +74,5 @@ pub(in crate::modules::auth) async fn erase(
         .await?;
     }
     repo::delete_device_tokens(uow, user_id).await?;
-    repo::codes::delete_all(uow, user_id).await?;
-    let _ = repo::second_factors::delete_app(uow, user_id).await?;
-    repo::second_factors::delete_setup(uow, user_id).await?;
-    repo::second_factors::delete_recovery_codes(uow, user_id).await?;
-    repo::second_factors::delete_challenges(uow, user_id).await
+    repo::codes::delete_all(uow, user_id).await
 }

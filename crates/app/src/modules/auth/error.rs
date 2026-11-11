@@ -192,9 +192,9 @@ impl ErrorCode for AuthError {
                  deletion again."
                     .to_owned(),
             ),
-            Self::WrongCode => {
-                Some("The code isn't the one sent last: check it, or ask for another.".to_owned())
-            }
+            Self::WrongCode => Some(
+                "The code is wrong: check it and type it again, or ask for another.".to_owned(),
+            ),
             Self::CodeExpired => Some(
                 "The code's 10 minutes have passed, or a newer one replaced it: ask for another."
                     .to_owned(),

@@ -14,6 +14,10 @@ pub(super) struct File {
     pub(super) needed: fn(&[(String, String)]) -> bool,
 }
 
+fn every(_: &[(String, String)]) -> bool {
+    true
+}
+
 fn bundled(settings: &[(String, String)]) -> bool {
     matches!(get(settings, "DATABASE"), "bundled" | "")
 }
@@ -43,6 +47,15 @@ fn smtp_credentials(settings: &[(String, String)]) -> bool {
 /// The secrets that the operator holds, as docs/operations/deploy.md lists them; the server
 /// generates those it can, for the operator to keep, unless the operator gives a lost server's.
 pub(super) const SECRETS: &[File] = &[
+    File {
+        name: "encryption_keys",
+        what: "The key ring that encrypts the secrets the database holds, such as authenticator \
+               apps'. Enter generates one on the server, the first time, which the setup shows \
+               once; type a lost server's to restore its backups, or a ring with a new key to \
+               replace one (docs/operations/deploy.md).",
+        generated: true,
+        needed: every,
+    },
     File {
         name: "database_admin_url",
         what: "The managed database's URL for its administrator, as .env.example describes \

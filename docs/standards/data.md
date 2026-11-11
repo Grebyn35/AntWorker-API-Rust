@@ -51,7 +51,7 @@ Migrations define no stored procedures and no `SECURITY DEFINER` functions. The 
 - Check: `ci: check-schema` (the schema's one function is the trigger function that the `BEFORE UPDATE` row triggers of the tables outside `platform`'s bookkeeping run, and it isn't `SECURITY DEFINER`).
 
 ### DATA-08 The database generates IDs
-Inserts take their rows' IDs from the column default, using `RETURNING`. Application code creates no row's ID; a value that names no row, such as an email's `Message-ID`, isn't one.
+Inserts take their rows' IDs from the column default, using `RETURNING`, but for a row whose secret is encrypted bound to its ID, which exists before the secret is written (SEC-02): its ID comes from the database's `uuidv7()`, the default's own function, in a statement just before the insert. Application code creates no row's ID; a value that names no row, such as an email's `Message-ID`, isn't one.
 - Why: one source of IDs (D24).
 - Check: `clippy` (`Uuid::new_v4` and `Uuid::now_v7` are in `disallowed_methods`).
 
@@ -130,6 +130,7 @@ A row ID alone never addresses tenant data. These reads are exempt:
 - the export of a user's data, which reads the workspaces whose only member is the user by the IDs of the user's own memberships, and those workspaces' content by them (ACCOUNTS-024)
 - the position of the event that a stream's `Last-Event-ID` names, read by the event's ID alone, so a client resumes after the last event it received even from a workspace it has since left; the replay after that position filters by tenant, and the lookup tells a caller only whether an event ID it holds names an event, which a UUIDv7's random bits keep anyone from guessing (REALTIME-004)
 - scheduled jobs that span tenants, which select rows by their own criteria, such as expiry
+- the startup check of the versions of the key ring under which secrets are stored, which reads the versions alone, of every user's rows (AUTH-066)
 - a public file's download, which reads its row by its ID and its visibility alone, and an avatar's, which reads its row by its ID alone, since whoever holds a public file's ID, or an avatar's, may read it ([files spec](../spec/files.md#visibility)) <!-- part: files -->
 - Why: there is no row-level security, so the application's filters are the only guard between tenants, and they are checked by machine and by test (D4).
 - Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, unless it belongs to a listed cross-tenant job or to a listed file of the reads that this rule exempts, and every other table is listed), `test` (TEST-08 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
@@ -162,7 +163,7 @@ Audit entries (`audit::record`), events (`uow.publish_to_user` and `uow.publish_
 
 What is audited:
 - Every change that a request or an enqueued job makes to data a module owns.
-- Each security failure: those D6 lists, a failed sign-in, a wrong current password, a reused refresh token and a refused authorization, and a wrong verification code, a guess at what proves an account's address (AUTH-032) or resets its password (AUTH-038). A failed sign-in commits its audit entry and then answers 401 (ARCH-11, PLATFORM-008). Refusals are reported to the `SecurityEventSink` (PLATFORM-010).
+- Each security failure: those D6 lists, a failed sign-in, a wrong current password, a reused refresh token and a refused authorization, a wrong verification code, a guess at what proves an account's address (AUTH-032), resets its password (AUTH-038) or changes its address (AUTH-052), and a wrong code of a second factor (AUTH-056, AUTH-060, AUTH-065). A failed sign-in commits its audit entry and then answers 401 (ARCH-11, PLATFORM-008). Refusals are reported to the `SecurityEventSink` (PLATFORM-010).
 - Reads that a module spec names as audited, such as the download of an export (D31).
 
 Platform bookkeeping (rate-limit buckets, idempotency records, job state) and scheduled maintenance (retention, sweeps) aren't audited. Metrics count them instead. Deleting an account records only the entries that the logs of the workspaces the user shared keep, since their own log goes with the account (ACCOUNTS-014, D31).

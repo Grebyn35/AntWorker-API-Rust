@@ -38,12 +38,6 @@ write_secrets() {
         head -c 32 /dev/urandom | base64 | tr -d '\n' > "$secrets/hmac_key"
         say "wrote the API's HMAC key to $secrets/hmac_key"
     fi
-    # The ring of the keys that encrypt the secrets the database holds, written once with one key,
-    # version 1: losing it loses every authenticator app (PLATFORM-086).
-    if [ ! -s "$secrets/encryption_keys" ]; then
-        printf '1:%s' "$(head -c 32 /dev/urandom | base64 | tr -d '\n')" > "$secrets/encryption_keys"
-        say "wrote the API's encryption keys to $secrets/encryption_keys"
-    fi
     # The mail server's password, which the replicas read as a file even when the server takes
     # none: empty, the API reads it as unset.
     if [ ! -f "$secrets/smtp_password" ]; then
@@ -74,6 +68,7 @@ write_secrets() {
 # `just server-setup` writes.
 check_secrets() {
     secrets=$deployment/secrets
+    if [ ! -s "$secrets/encryption_keys" ]; then fail "$secrets/encryption_keys is missing: just server-setup generates it (docs/operations/deploy.md#the-encryption-keys)"; fi
     if [ "$database" = managed ]; then
         for name in database_url database_owner_url database_admin_url; do
             if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi

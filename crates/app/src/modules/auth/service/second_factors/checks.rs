@@ -7,11 +7,12 @@ use platform::{
     db::UnitOfWork,
     encryption::{Binding, Sealed},
     errors::{Internal, RequestError},
+    hashing::sha256,
     rate_limit::{Bucket, LimitError, RateLimits},
     types::UserId,
 };
 
-use super::{APPS, RECOVERY_CODE_KIND, SECRET};
+use super::{APPS, SECRET};
 use crate::modules::{
     accounts,
     audit::{self as audit_log, Entry},
@@ -142,15 +143,12 @@ impl Auth {
                 }
             }
             FactorProof::Recovery(code) => {
-                let value = recovery_value(user_id, code);
-                let stored = factors::recovery_codes(uow, user_id).await?;
-                // Every code is compared, in constant time, whichever matches (SEC-03).
-                let matched = stored.iter().fold(None, |found, (id, hash)| {
-                    let matches = self.key.verify(RECOVERY_CODE_KIND, &value, hash);
-                    found.or(matches.then_some(*id))
-                });
-                match matched {
-                    Some(id) if factors::claim_recovery_code(uow, user_id, id).await? => {
+                // Found by its hash, as a token is, and claimed by its deletion, which only one
+                // unit of work makes (SEC-03).
+                match factors::claim_recovery_code(uow, user_id, &recovery_hash(user_id, code))
+                    .await?
+                {
+                    Some(id) => {
                         audit_log::record(
                             uow,
                             scope,
@@ -159,7 +157,7 @@ impl Auth {
                         .await?;
                         Checked::Passed(Some(factors::count_recovery_codes(uow, user_id).await?))
                     }
-                    _ => Checked::Wrong,
+                    None => Checked::Wrong,
                 }
             }
         };
@@ -209,13 +207,16 @@ impl Auth {
     }
 }
 
-/// What a recovery code's HMAC covers: its user's ID and its characters (AUTH-062).
-pub(super) fn recovery_value(user_id: UserId, code: &RecoveryCode) -> Vec<u8> {
-    [
-        user_id.uuid().as_bytes().as_slice(),
-        code.characters().as_bytes(),
-    ]
-    .concat()
+/// The SHA-256 hash that stands in for a recovery code: of its user's ID and its characters, so
+/// it holds for that user alone (AUTH-062, SEC-03).
+pub(super) fn recovery_hash(user_id: UserId, code: &RecoveryCode) -> [u8; 32] {
+    sha256(
+        &[
+            user_id.uuid().as_bytes().as_slice(),
+            code.characters().as_bytes(),
+        ]
+        .concat(),
+    )
 }
 
 /// Counts the request in `bucket`, under `key`, and counts a refusal in the second factors'

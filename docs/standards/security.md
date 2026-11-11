@@ -18,7 +18,7 @@ Secrets stored in the database that the API must read back, such as an authentic
 ## Credentials and tokens
 
 ### SEC-03 Tokens and codes are random, hashed and compared in constant time
-Access tokens, refresh tokens and verification codes come from the operating system's secure random source. Tokens are 256 bits and are stored only as SHA-256 hashes. Verification codes are short enough to guess, so they are stored as HMAC-SHA-256 (a hash-based message authentication code with SHA-256) under a secret key; the auth spec sets their lengths. Rotating that key invalidates outstanding codes, which expire within minutes anyway. Any comparison involving a secret is constant-time.
+Access tokens, refresh tokens and verification codes come from the operating system's secure random source. Tokens are 256 bits and are stored only as SHA-256 hashes, and so are recovery codes, whose 120 bits are too many to guess, each hash covering its user's ID (AUTH-062). Verification codes are short enough to guess, so they are stored as HMAC-SHA-256 (a hash-based message authentication code with SHA-256) under a secret key; the auth spec sets their lengths. Rotating that key invalidates outstanding codes, which expire within minutes anyway. Any comparison involving a secret is constant-time.
 - Why: a database dump reveals no usable token or code, and timing reveals nothing (D32).
 - Check: `test`, plus `review`.
 

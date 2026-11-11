@@ -5,7 +5,7 @@
 use serde_json::json;
 
 use crate::support::{
-    Api, Options, TestDatabase, mailbox,
+    Api, Options, TestDatabase, execute_on, mailbox,
     second_factors::{add_app, challenge, code, complete, forget_steps, other_code},
     users::{self, PASSWORD, WEB},
 };
@@ -71,11 +71,11 @@ async fn auth_058_signing_in_to_an_account_with_an_app_answers_a_challenge_and_n
     assert_eq!(
         reads(
             &api,
-            "SELECT user_id || ' ' || coalesce(actor_user_id::text, '-') FROM audit_entries \
-             WHERE action = 'sign_in.challenged'"
+            "SELECT user_id || ' ' || coalesce(actor_user_id::text, '-') || ' ' || resource_type \
+             || ' ' || resource_id FROM audit_entries WHERE action = 'sign_in.challenged'"
         )
         .await,
-        [format!("{ada_id} -")]
+        [format!("{ada_id} - user {ada_id}")]
     );
 }
 
@@ -104,6 +104,25 @@ async fn auth_058_a_browser_takes_the_challenge_in_a_cookie_and_completes_with_i
 
     assert_eq!(response.status, 200);
     assert!(response.json().get("challenge").is_none());
+    let set = response
+        .headers("set-cookie")
+        .into_iter()
+        .find(|set| set.starts_with("__Host-sign_in_challenge="))
+        .expect("the challenge's cookie")
+        .to_owned();
+    assert!(
+        set.ends_with("; Path=/; Secure; HttpOnly; SameSite=Strict"),
+        "{set}"
+    );
+    assert!(!set.contains("Domain"), "{set}");
+    // It expires with the challenge, to the second.
+    let expires = reads(
+        &api,
+        "SELECT to_char(expires_at AT TIME ZONE 'UTC', 'Dy, DD Mon YYYY HH24:MI:SS \"GMT\"') \
+         FROM sign_in_challenges",
+    )
+    .await;
+    assert_eq!(users::expires(&response, "sign_in_challenge"), expires[0]);
     let cookie = users::cookie(&response, "sign_in_challenge");
     let completed = api
         .post(
@@ -290,6 +309,8 @@ async fn auth_060_an_unknown_expired_or_used_challenge_answers_invalid_challenge
     api.database()
         .owner_executes("UPDATE sign_in_challenges SET expires_at = now() - interval '1 second'")
         .await;
+    let counts = "SELECT id || ' ' || count FROM rate_limit_buckets ORDER BY id";
+    let before = reads(&api, counts).await;
     let expired = complete(
         &api,
         &token,
@@ -297,6 +318,12 @@ async fn auth_060_an_unknown_expired_or_used_challenge_answers_invalid_challenge
     )
     .await;
     assert_eq!(expired.json()["code"], "auth.invalid_challenge");
+    // The pipeline counts the request in the IP limit; no bucket of the user's or of a device
+    // token's counts it, since it checks no code (AUTH-061).
+    let after = reads(&api, counts).await;
+    assert_eq!(after.len(), before.len());
+    let changed = after.iter().filter(|row| !before.contains(row)).count();
+    assert_eq!(changed, 1, "{before:?} then {after:?}");
 
     let token = challenge(&api, "ada@example.com").await;
     let done = complete(
@@ -461,6 +488,24 @@ async fn auth_061_a_signed_in_user_s_checks_of_codes_count_in_one_bucket_of_thei
         .send()
         .await;
     assert_eq!(reauthenticated.status, 429);
+    // So does a change of the password that carries a code, before its password's bucket.
+    let changed = api
+        .post(
+            "/v1/users/me/password/change",
+            &json!({ "current_password": PASSWORD, "password": "violet-harbor-73-brisk",
+                     "code": right }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(changed.status, 429);
+    assert!(
+        changed
+            .header("ratelimit-policy")
+            .starts_with("\"second_factor_check\""),
+        "{}",
+        changed.header("ratelimit-policy")
+    );
     // Another user's bucket is their own.
     add_app(&api, &bob).await;
 }
@@ -517,7 +562,12 @@ async fn auth_066_the_hourly_job_moves_every_secret_to_the_current_key() {
         .instance(Options::default().set("ENCRYPTION_KEYS", format!("1:{},2:{}", key(1), key(2))))
         .await;
     next.run_periodic("auth.reencrypt_secrets").await;
+    let stored = "SELECT key_version || ' ' || encode(secret, 'hex') FROM totp_factors ORDER BY 1";
+    let moved = reads(&next, stored).await;
+    next.run_periodic("auth.reencrypt_secrets").await;
 
+    // A second run finds nothing more to move, and changes nothing.
+    assert_eq!(reads(&next, stored).await, moved);
     let versions = reads(
         &next,
         "SELECT key_version::text FROM totp_factors ORDER BY 1",
@@ -550,7 +600,14 @@ async fn auth_066_serve_refuses_a_ring_without_a_version_that_a_stored_secret_ne
         .await;
 
     let output = database
-        .run_api(&["serve"], &[("ENCRYPTION_KEYS", format!("1:{}", key(1)))])
+        .run_api(
+            &["serve"],
+            &[
+                ("ENCRYPTION_KEYS", format!("1:{}", key(1))),
+                // A port of its own, beside the other tests that run serve.
+                ("LISTEN_ADDR", "127.0.0.1:0".to_owned()),
+            ],
+        )
         .await;
 
     assert!(!output.status.success());
@@ -566,44 +623,71 @@ async fn auth_066_serve_refuses_a_ring_without_a_version_that_a_stored_secret_ne
 async fn auth_067_the_hourly_job_deletes_the_setups_and_challenges_that_expired() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
     add_app(&api, &ada).await;
     let lasting = challenge(&api, "ada@example.com").await;
     challenge(&api, "ada@example.com").await;
-    users::authenticated_ago(&api, &ada, 0).await;
     let setup = crate::support::second_factors::start_setup(&api, &ada).await;
     assert_eq!(setup.status, 200);
+    let kept = crate::support::second_factors::start_setup(&api, &bob).await;
+    assert_eq!(kept.status, 200);
     api.database()
         .owner_executes(&format!(
             "UPDATE sign_in_challenges SET expires_at = now() - interval '1 second' \
              WHERE token_hash <> decode('{}', 'hex');
-            UPDATE totp_setups SET expires_at = now() - interval '1 second'",
-            hex_sha256(&lasting)
+            UPDATE totp_setups SET expires_at = now() - interval '1 second' \
+             WHERE user_id = '{}'",
+            hex_sha256(&lasting),
+            ada.user_id
+        ))
+        .await;
+    let entries = "SELECT count(*)::text FROM audit_entries";
+    let before = reads(&api, entries).await;
+    let challenges = "SELECT encode(token_hash, 'hex') FROM sign_in_challenges";
+    let setups = "SELECT user_id::text FROM totp_setups";
+
+    api.run_periodic("auth.expire_unfinished").await;
+    let once = (reads(&api, challenges).await, reads(&api, setups).await);
+    api.run_periodic("auth.expire_unfinished").await;
+
+    assert_eq!(once.0, [hex_sha256(&lasting)]);
+    assert_eq!(once.1, std::slice::from_ref(&bob.user_id));
+    // A second run finds nothing more to delete.
+    assert_eq!(reads(&api, challenges).await, once.0);
+    assert_eq!(reads(&api, setups).await, once.1);
+    // Scheduled maintenance records nothing.
+    assert_eq!(reads(&api, entries).await, before);
+}
+
+#[tokio::test]
+async fn auth_067_a_run_that_meets_a_row_that_a_request_holds_ends_and_the_next_deletes_it() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    add_app(&api, &ada).await;
+    let held = challenge(&api, "ada@example.com").await;
+    api.database()
+        .owner_executes("UPDATE sign_in_challenges SET expires_at = now() - interval '1 second'")
+        .await;
+    // A request that deletes the challenge, as a reset deletes its user's, and hasn't committed.
+    let mut request = api
+        .database()
+        .holding(&format!(
+            "DELETE FROM sign_in_challenges WHERE token_hash = decode('{}', 'hex')",
+            hex_sha256(&held)
         ))
         .await;
 
+    // The run waits for no lock, so it ends while the row stays held.
+    api.run_periodic("auth.expire_unfinished").await;
+    execute_on(&mut request, "ROLLBACK").await;
+    let during = reads(&api, "SELECT count(*)::text FROM sign_in_challenges").await;
     api.run_periodic("auth.expire_unfinished").await;
 
-    assert_eq!(
-        reads(
-            &api,
-            "SELECT encode(token_hash, 'hex') FROM sign_in_challenges"
-        )
-        .await,
-        [hex_sha256(&lasting)]
-    );
+    assert_eq!(during, ["1"]);
     assert!(
-        reads(&api, "SELECT id::text FROM totp_setups")
+        reads(&api, "SELECT id::text FROM sign_in_challenges")
             .await
             .is_empty()
-    );
-    assert!(
-        reads(
-            &api,
-            "SELECT id::text FROM audit_entries WHERE action LIKE 'sign_in.%' \
-             AND created_at > now() - interval '1 second' AND action <> 'sign_in.challenged'"
-        )
-        .await
-        .is_empty()
     );
 }
 
@@ -709,4 +793,108 @@ async fn auth_069_a_deletion_of_the_account_deletes_every_row_of_its_second_fact
             "{table}"
         );
     }
+}
+
+#[tokio::test]
+async fn auth_046_a_completion_of_a_sign_in_publishes_session_created() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = add_app(&api, &ada).await;
+    let token = challenge(&api, "ada@example.com").await;
+    api.database().owner_executes("DELETE FROM events").await;
+
+    let completed = complete(
+        &api,
+        &token,
+        json!({ "code": code(&api, &app.secret).await }),
+    )
+    .await;
+
+    assert_eq!(completed.status, 201);
+    assert_eq!(
+        users::session_events(&api, "session.created").await,
+        [format!(
+            "{} {}",
+            ada.user_id,
+            completed.json()["id"].as_str().unwrap()
+        )]
+    );
+}
+
+#[tokio::test]
+async fn auth_066_a_confirmation_stores_the_setup_s_secret_under_the_current_version() {
+    let both = format!("1:{},2:{}", key(1), key(2));
+    let api = Api::on(
+        TestDatabase::migrated().await,
+        Options::default()
+            .set("ENCRYPTION_KEYS", &both)
+            .set("ENCRYPTION_KEY_VERSION", "1"),
+    )
+    .await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let setup = crate::support::second_factors::start_setup(&api, &ada)
+        .await
+        .json();
+    assert_eq!(
+        reads(&api, "SELECT key_version::text FROM totp_setups").await,
+        ["1"]
+    );
+    let next = api
+        .instance(Options::default().set("ENCRYPTION_KEYS", &both))
+        .await;
+
+    let confirmed = crate::support::second_factors::confirm(
+        &next,
+        &ada,
+        &code(&next, setup["secret"].as_str().unwrap()).await,
+    )
+    .await;
+
+    assert_eq!(confirmed.status, 200, "{}", confirmed.json());
+    assert_eq!(
+        reads(&next, "SELECT key_version::text FROM totp_factors").await,
+        ["2"]
+    );
+}
+
+#[tokio::test]
+async fn auth_066_serve_refuses_a_ring_without_a_lasting_setup_s_version_and_not_an_expired_one() {
+    let database = TestDatabase::migrated().await;
+    let user = users::without_password(&database, "ada@example.com").await;
+    database
+        .owner_executes(&format!(
+            "INSERT INTO totp_setups (user_id, key_version, secret, expires_at) \
+             VALUES ('{user}', 9, '\\x00', now() + interval '15 minutes')"
+        ))
+        .await;
+    let ring = format!("1:{}", key(1));
+
+    let lasting = database
+        .run_api(
+            &["serve"],
+            &[
+                ("ENCRYPTION_KEYS", ring.as_str()),
+                ("LISTEN_ADDR", "127.0.0.1:0"),
+            ],
+        )
+        .await;
+    database
+        .owner_executes("UPDATE totp_setups SET expires_at = now() - interval '1 second'")
+        .await;
+    // It starts, and listens, since no secret it may read needs the missing version.
+    let started = database
+        .serve(&[
+            ("ENCRYPTION_KEYS", ring.as_str()),
+            ("ENVIRONMENT", "production"),
+        ])
+        .await;
+
+    assert!(!lasting.status.success());
+    let printed = String::from_utf8_lossy(&lasting.stdout).to_string()
+        + &String::from_utf8_lossy(&lasting.stderr);
+    assert!(
+        printed.contains("ENCRYPTION_KEYS lacks version 9"),
+        "{printed}"
+    );
+    drop(started);
 }

@@ -817,6 +817,11 @@ impl Server {
         let secrets = vec![
             ("backup_s3_key", "e2e"),
             ("backup_s3_key_secret", "e2e-secret"),
+            // The API's key ring, which `just server-setup` generates: one key, 32 bytes of 7.
+            (
+                "encryption_keys",
+                "1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+            ),
         ];
         // part: files
         self.shell_ok(&format!(

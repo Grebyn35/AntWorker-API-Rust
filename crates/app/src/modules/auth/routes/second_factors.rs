@@ -54,12 +54,19 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
                 &LimitError::RateLimited,
             ],
         )
-        .user(routes!(remove_app), &[&AuthError::ReauthenticationRequired])
+        .user(
+            routes!(remove_app),
+            &[
+                &AuthError::ReauthenticationRequired,
+                &LimitError::RateLimited,
+            ],
+        )
         .user(
             routes!(new_recovery_codes),
             &[
                 &AuthError::ReauthenticationRequired,
                 &AuthError::NoSecondFactor,
+                &LimitError::RateLimited,
             ],
         )
 }
@@ -352,10 +359,11 @@ async fn confirm_setup(
 )]
 async fn remove_app(
     State(auth): State<Arc<Auth>>,
+    limits: RateLimits,
     client: Client,
     principal: Principal,
 ) -> Result<Response, Problem<AuthError>> {
-    auth.remove_app(&client, &principal).await?;
+    auth.remove_app(&limits, &client, &principal).await?;
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
@@ -371,9 +379,12 @@ async fn remove_app(
 )]
 async fn new_recovery_codes(
     State(auth): State<Arc<Auth>>,
+    limits: RateLimits,
     client: Client,
     principal: Principal,
 ) -> Result<axum::Json<RecoveryCodesResponse>, Problem<AuthError>> {
-    let codes = auth.new_recovery_codes(&client, &principal).await?;
+    let codes = auth
+        .new_recovery_codes(&limits, &client, &principal)
+        .await?;
     Ok(axum::Json(RecoveryCodesResponse::new(&codes)))
 }

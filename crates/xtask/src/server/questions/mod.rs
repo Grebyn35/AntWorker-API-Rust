@@ -468,6 +468,8 @@ mod tests {
         "",
         "",
         "",
+        // Enter generates the key ring.
+        "",
         // part: files
         // The files bucket's key pair.
         "files-key",
@@ -589,8 +591,9 @@ mod tests {
             ],
             certs: Vec::new(),
         };
-        // An empty answer to every setting, every secret, and the registry's token.
-        let asked = setting_questions(held) + 3 + 1;
+        // An empty answer to every setting, every secret, the key ring among them, and the
+        // registry's token.
+        let asked = setting_questions(held) + 1 + 3 + 1;
         // part: files
         // The files bucket's key pair and its authority.
         let asked = asked + 2 + 1;
@@ -649,9 +652,9 @@ mod tests {
             ],
             certs: Vec::new(),
         };
-        // Enter for every setting and the database's URLs, the mail server's password, then Enter
-        // for the registry's token.
-        let asked = setting_questions(held) + 3;
+        // Enter for every setting, the key ring and the database's URLs, the mail server's
+        // password, then Enter for the registry's token.
+        let asked = setting_questions(held) + 1 + 3;
         // part: files
         // The files bucket's key pair.
         let asked = asked + 2;
@@ -713,9 +716,9 @@ mod tests {
                            \x20     - url_file: /etc/alertmanager-secrets/new_url\n\
                            \x20     - url_file: /etc/alertmanager-secrets/held_url\n",
         };
-        // Enter for every setting and the database's URLs, a new credential and Enter for the
-        // held one, then Enter for the registry's token.
-        let asked = setting_questions(held) + 3;
+        // Enter for every setting, the key ring and the database's URLs, a new credential and Enter
+        // for the held one, then Enter for the registry's token.
+        let asked = setting_questions(held) + 1 + 3;
         // part: files
         // The files bucket's key pair.
         let asked = asked + 2;

@@ -58,6 +58,7 @@ The argument is the server as SSH names it, signed in as `root`, or as a user th
 
 - For each setting of [deploy/settings.env.example](../../deploy/settings.env.example) that the choices need, such as the backups' bucket's with the bundled database, and the managed backend's with `TELEMETRY=managed`, under the comment that says what it means, with the value the server holds, or the example's, which Enter keeps. `IMAGE_REPOSITORY` and `SOURCE` start from the checkout's repository on GitHub.
 - For each secret the choices need, which you type unseen, and which Enter keeps when the server holds it:
+  - In every deployment: `encryption_keys`, the ring of the keys that encrypt the secrets the database holds, which the setup generates the first time and shows once; type a lost server's to restore its backups, or a ring with a new key to replace one ([the encryption keys](#the-encryption-keys)).
   - In every deployment: `files_s3_key` and `files_s3_key_secret`, the files bucket's key pair, which reaches only that bucket ([the files bucket](#the-files-bucket)). <!-- part: files -->
   - With the bundled database: `backup_s3_key` and `backup_s3_key_secret`, the bucket's key pair; `backup_cipher_pass`, the passphrase that encrypts the backups, which the setup generates the first time and shows once; and `postgres_password`, the database's superuser password, which the setup also generates the first time and shows once, unless you give a lost server's, whose backups the new server restores. Keep a copy of the passphrase off the server: without it, no backup can be restored ([backups.md](backups.md#what-to-keep-off-the-server)).
   - With a managed database: `database_admin_url`, `database_owner_url` and `database_url`, as `.env.example` describes `DATABASE_ADMIN_URL`, `DATABASE_OWNER_URL` and `DATABASE_URL`, each with `sslmode=verify-full` (OPS-17).
@@ -238,11 +239,11 @@ With a managed backend, its Grafana shows the dashboards in the folder `API`, an
 
 ## The encryption keys
 
-The API encrypts each secret that it must read back, such as an authenticator app's, under the key ring in `secrets/encryption_keys`, which the first deploy writes with one key, version 1 (SEC-02, PLATFORM-086). Keep a copy off the server ([backups](backups.md#what-to-keep-off-the-server)). To replace a key, such as one that may have leaked:
+The API encrypts each secret that it must read back, such as an authenticator app's, under the key ring in `secrets/encryption_keys`, which `just server-setup` generates the first time, with one key, version 1, and shows once (SEC-02, PLATFORM-086). Keep a copy off the server ([backups](backups.md#what-to-keep-off-the-server)). A key is the base64 of 32 random bytes, as `head -c 32 /dev/urandom | base64` writes it. To replace a key, such as one that may have leaked:
 
-1. Add a key with the next version to the file, such as `1:<old key>,2:<new key>`, where a key is the base64 of 32 random bytes, as `head -c 32 /dev/urandom | base64` writes it; set `ENCRYPTION_KEY_VERSION=1` in `settings.env`; and deploy, so that every replica reads the new key before any encrypts with it.
-2. Remove `ENCRYPTION_KEY_VERSION`, so that the highest version encrypts, and deploy. Each check of an app's code, and the hourly job `auth.reencrypt_secrets`, encrypts its secret again under the new key (AUTH-066).
-3. An hour after that deploy's replicas serve, remove the old key from the file, and deploy. A replica refuses to start while a stored secret still needs the old key, so the deploy keeps the replicas that serve until the job has moved every secret.
+1. Run `just server-setup`, and give `encryption_keys` the ring with a key of the next version beside the old one, such as `1:<old key>,2:<new key>`, and `ENCRYPTION_KEY_VERSION` the old version, 1; then deploy, so that every replica holds the new key before any encrypts with it.
+2. Run `just server-setup` again, and leave `ENCRYPTION_KEY_VERSION` empty, so that the highest version encrypts; then deploy. Each check of an app's code, and the hourly job `auth.reencrypt_secrets`, stores its secret again under the new key (AUTH-066). While the deploy's old replicas still serve, one of them may store a secret under the old key again, which the next run moves back.
+3. An hour after that deploy's replicas serve, run `just server-setup`, and give `encryption_keys` the ring without the old key, such as `2:<new key>`; then deploy. A replica refuses to start while a stored secret still needs the old key, so the deploy keeps the replicas that serve until the job has moved every secret.
 
 ## The files on the server
 

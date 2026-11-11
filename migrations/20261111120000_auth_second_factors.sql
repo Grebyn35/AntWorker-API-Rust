@@ -47,8 +47,8 @@ CREATE INDEX totp_setups_expires_at_idx ON totp_setups (expires_at);
 REVOKE UPDATE ON totp_setups FROM app;
 
 -- An account's recovery codes, ten at most, each of which works once in place of its app's code
--- (AUTH-062). A code is stored only as an HMAC under HMAC_KEY of its user and its characters,
--- whose 120 bits need no slower hash (SEC-03). A row is never edited: a new set deletes the one
+-- (AUTH-062). A code is stored only as the SHA-256 of its user's ID and its characters, whose 120
+-- bits need no slower hash, as a token's don't (SEC-03), and which a change of HMAC_KEY leaves. A row is never edited: a new set deletes the one
 -- before it, and using a code deletes it, so app may not update one (DATA-19).
 CREATE TABLE recovery_codes (
     id uuid PRIMARY KEY DEFAULT uuidv7(),

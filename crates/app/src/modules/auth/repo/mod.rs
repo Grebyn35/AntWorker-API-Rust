@@ -1,7 +1,8 @@
 //! The SQL of `sessions` and `device_tokens` (ARCH-10), with that of `identities` in
-//! `identities.rs` and that of `verification_codes` in `codes.rs`. Every expiry comes from the database's clock (DATA-03), and
-//! a session or a device token is found by a token's hash through its unique index (DATA-16).
-//! What a user's export holds of them is in `exported.rs`.
+//! `identities.rs`, that of `verification_codes` in `codes.rs`, and that of second factors and
+//! sign-in challenges in `second_factors.rs`. Every expiry comes from the database's clock
+//! (DATA-03), and a session or a device token is found by a token's hash through its unique index
+//! (DATA-16). What a user's export holds of them is in `exported.rs`.
 
 pub(super) mod codes;
 pub(super) mod exported;

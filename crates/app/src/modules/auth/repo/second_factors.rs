@@ -255,7 +255,7 @@ pub(in crate::modules::auth) async fn claim_setup(
     Ok(deleted == 1)
 }
 
-/// Makes `hashes` the HMACs of `user_id`'s recovery codes, in place of those before them
+/// Makes `hashes` the SHA-256 hashes of `user_id`'s recovery codes, in place of those before them
 /// (AUTH-056, AUTH-063).
 pub(in crate::modules::auth) async fn replace_recovery_codes(
     uow: &mut UnitOfWork,
@@ -274,23 +274,6 @@ pub(in crate::modules::auth) async fn replace_recovery_codes(
     Ok(())
 }
 
-/// The IDs and HMACs of `user_id`'s recovery codes, the oldest first (AUTH-062).
-pub(in crate::modules::auth) async fn recovery_codes(
-    uow: &mut UnitOfWork,
-    user_id: UserId,
-) -> Result<Vec<(uuid::Uuid, Vec<u8>)>, Internal> {
-    let rows = sqlx::query!(
-        "SELECT id, code_hash FROM recovery_codes WHERE user_id = $1 ORDER BY id",
-        user_id.uuid(),
-    )
-    .fetch_all(uow.executor())
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| (row.id, row.code_hash))
-        .collect())
-}
-
 /// How many recovery codes `user_id` holds (AUTH-054, AUTH-068).
 pub(in crate::modules::auth) async fn count_recovery_codes(
     uow: &mut UnitOfWork,
@@ -304,22 +287,21 @@ pub(in crate::modules::auth) async fn count_recovery_codes(
     .await?)
 }
 
-/// Deletes `user_id`'s recovery code `id`, which a check just matched, and says whether it did:
-/// a row only one unit of work deletes, so a code works once (AUTH-062).
+/// Deletes `user_id`'s recovery code whose hash is `hash`, and gives its ID, or `None` when the
+/// user holds no such code: a row only one unit of work deletes, so a code works once
+/// (AUTH-062).
 pub(in crate::modules::auth) async fn claim_recovery_code(
     uow: &mut UnitOfWork,
     user_id: UserId,
-    id: uuid::Uuid,
-) -> Result<bool, Internal> {
-    let deleted = sqlx::query!(
-        "DELETE FROM recovery_codes WHERE user_id = $1 AND id = $2",
+    hash: &[u8],
+) -> Result<Option<uuid::Uuid>, Internal> {
+    Ok(sqlx::query_scalar!(
+        "DELETE FROM recovery_codes WHERE user_id = $1 AND code_hash = $2 RETURNING id",
         user_id.uuid(),
-        id,
+        hash,
     )
-    .execute(uow.executor())
-    .await?
-    .rows_affected();
-    Ok(deleted == 1)
+    .fetch_optional(uow.executor())
+    .await?)
 }
 
 /// Deletes every recovery code of `user_id` (AUTH-064).
@@ -439,4 +421,19 @@ pub(in crate::modules::auth) async fn delete_setup(
         .execute(uow.executor())
         .await?;
     Ok(())
+}
+
+/// The versions of the key ring under which an app's secret, or a lasting setup's, is stored, of
+/// every user's rows: the one read that spans every user outside a job, which startup makes, and
+/// which reads the versions alone (AUTH-066, DATA-16).
+pub(in crate::modules::auth) async fn stored_key_versions(
+    uow: &mut UnitOfWork,
+) -> Result<Vec<i16>, Internal> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT key_version AS "key_version!" FROM totp_factors
+        UNION
+        SELECT key_version FROM totp_setups WHERE expires_at > now()"#,
+    )
+    .fetch_all(uow.executor())
+    .await?)
 }

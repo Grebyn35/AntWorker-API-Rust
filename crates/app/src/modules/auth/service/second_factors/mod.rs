@@ -9,8 +9,8 @@ mod completion;
 
 use platform::{
     authn::Principal,
-    db::UnitOfWork,
-    encryption::Binding,
+    db::{Database, UnitOfWork},
+    encryption::{Binding, Keyring},
     errors::Internal,
     jobs::JobScope,
     rate_limit::RateLimits,
@@ -19,7 +19,7 @@ use platform::{
 
 pub(crate) use completion::{Challenge, Completion};
 
-use self::checks::{count, recovery_value};
+use self::checks::{count, recovery_hash};
 use super::{Auth, buckets, reauthentication};
 use crate::modules::{
     PRODUCT,
@@ -39,9 +39,6 @@ const SETUP_MINUTES: i32 = 15;
 
 /// How many recovery codes each set holds (AUTH-056, AUTH-063).
 const RECOVERY_CODES: usize = 10;
-
-/// The kind of the keyed hash of a recovery code (AUTH-062).
-const RECOVERY_CODE_KIND: &str = "recovery_code";
 
 /// The tables and the column whose rows' secrets the key ring seals (SEC-02).
 const APPS: &str = "totp_factors";
@@ -187,10 +184,15 @@ impl Auth {
     /// session proved who they are within the last 5 minutes (AUTH-063).
     pub(crate) async fn new_recovery_codes(
         &self,
+        limits: &RateLimits,
         client: &Client,
         principal: &Principal,
     ) -> Result<Vec<RecoveryCode>, AuthError> {
         let user_id = principal.user_id();
+        // Each sends the address an email (SEC-13).
+        limits
+            .check(buckets::SECOND_FACTOR_CHANGE, user_id.uuid().as_bytes())
+            .await?;
         let mut uow = self.database.begin(client).await?;
         reauthentication::require_recent_proof(&mut uow, principal).await?;
         let address = reauthentication::take_turn(&mut uow, principal).await?;
@@ -220,10 +222,16 @@ impl Auth {
     /// nothing (AUTH-064, AUTH-069).
     pub(crate) async fn remove_app(
         &self,
+        limits: &RateLimits,
         client: &Client,
         principal: &Principal,
     ) -> Result<(), AuthError> {
         let user_id = principal.user_id();
+        // Each sends the address an email, as new recovery codes do, whose bucket it shares
+        // (SEC-13).
+        limits
+            .check(buckets::SECOND_FACTOR_CHANGE, user_id.uuid().as_bytes())
+            .await?;
         let mut uow = self.database.begin(client).await?;
         reauthentication::require_recent_proof(&mut uow, principal).await?;
         let address = reauthentication::take_turn(&mut uow, principal).await?;
@@ -249,7 +257,7 @@ impl Auth {
         Ok(())
     }
 
-    /// Ten new recovery codes of `user_id`'s, whose HMACs replace those before them (AUTH-062).
+    /// Ten new recovery codes of `user_id`'s, whose hashes replace those before them (AUTH-062).
     async fn issue_recovery_codes(
         &self,
         uow: &mut UnitOfWork,
@@ -260,11 +268,7 @@ impl Auth {
             .collect::<Result<Vec<_>, _>>()?;
         let hashes: Vec<Vec<u8>> = codes
             .iter()
-            .map(|code| {
-                self.key
-                    .hash(RECOVERY_CODE_KIND, &recovery_value(user_id, code))
-                    .to_vec()
-            })
+            .map(|code| recovery_hash(user_id, code).to_vec())
             .collect();
         factors::replace_recovery_codes(uow, user_id, &hashes).await?;
         Ok(codes)
@@ -292,4 +296,32 @@ fn step_start(step: i64) -> Result<Timestamp, Internal> {
     let at = time::OffsetDateTime::from_unix_timestamp(step * STEP_SECONDS)
         .map_err(|_| Internal::new("an app's last used step is out of range"))?;
     Ok(Timestamp::from_database(at))
+}
+
+/// Refuses `keyring` when it lacks a version under which an app's secret, or a lasting setup's,
+/// is stored, naming the version, so `serve` starts only with a ring that opens every secret it
+/// may read (AUTH-066).
+pub(in crate::modules::auth::service) async fn refuse_missing_versions(
+    database: &Database,
+    keyring: &Keyring,
+) -> Result<(), Internal> {
+    // Startup has no request, so its unit of work, which writes nothing and so records no
+    // client, names the loopback address.
+    let startup = Client {
+        ip: std::net::Ipv4Addr::LOCALHOST.into(),
+        user_agent: None,
+    };
+    let mut uow = database.begin(&startup).await?;
+    let versions = factors::stored_key_versions(&mut uow).await?;
+    drop(uow);
+    match versions
+        .into_iter()
+        .find(|version| !keyring.holds(*version))
+    {
+        Some(version) => Err(Internal::new(format!(
+            "ENCRYPTION_KEYS lacks version {version}, under which a stored secret is encrypted: \
+             add it back, and remove it once auth.reencrypt_secrets has run"
+        ))),
+        None => Ok(()),
+    }
 }

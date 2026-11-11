@@ -25,9 +25,8 @@
 //!   run that meets a row that a request holds ends there, and the next deletes the rest.
 //! - `auth.reencrypt_secrets`, periodic, every hour, stores every authenticator app's secret that
 //!   another version of the key ring holds anew under the current one, touching `totp_factors`
-//!   alone, by key version alone (AUTH-066). It spans every user by nature, as the startup check
-//!   of the versions that stored secrets need does, which reads `totp_factors` and `totp_setups`.
-//!   An app whose row a request holds is left for the next run.
+//!   alone, by key version alone (AUTH-066). It spans every user by nature. An app whose row a
+//!   request holds is left for the next run.
 
 use std::time::Duration;
 
@@ -36,19 +35,20 @@ use platform::{
     encryption::{Binding, Keyring, Sealed},
     errors::Internal,
     jobs::{Duplicate, Job, JobContext, Jobs},
-    types::{Client, EmailAddress},
+    types::EmailAddress,
 };
 use serde::{Deserialize, Serialize};
 
 use super::{model::Purpose, service::Auth};
 
-/// How often the sweep of sessions runs.
+/// How often each periodic job of `auth` runs: the sweep of sessions, the sweep of setups and
+/// challenges, and the re-encryption of apps' secrets.
 const EXPIRE_INTERVAL: Duration = Duration::from_secs(3_600);
 
-/// How long one run of the sweep may take.
+/// How long one run of each may take.
 const EXPIRE_TIME_LIMIT: Duration = Duration::from_secs(300);
 
-/// The most sessions one transaction of the sweep deletes.
+/// The most rows of each table that one transaction of each deletes or encrypts again.
 const BATCH: i64 = 1_000;
 
 /// The payload of `auth.send_verification_code`: what the code proves, or resets, and, for a
@@ -221,39 +221,5 @@ async fn reencrypt(
         if count < usize::try_from(BATCH).unwrap_or(usize::MAX) {
             return Ok(());
         }
-    }
-}
-
-/// Refuses `keyring` when it lacks a version under which an app's secret, or a lasting setup's,
-/// is stored, naming the version, so `serve` starts only with a ring that opens every secret it
-/// may read (AUTH-066).
-pub(super) async fn refuse_missing_versions(
-    database: &Database,
-    keyring: &Keyring,
-) -> Result<(), Internal> {
-    // Startup has no request, so its unit of work, which writes nothing and so records no
-    // client, names the loopback address.
-    let startup = Client {
-        ip: std::net::Ipv4Addr::LOCALHOST.into(),
-        user_agent: None,
-    };
-    let mut uow = database.begin(&startup).await?;
-    let versions = sqlx::query_scalar!(
-        r#"SELECT key_version AS "key_version!" FROM totp_factors
-        UNION
-        SELECT key_version FROM totp_setups WHERE expires_at > now()"#,
-    )
-    .fetch_all(uow.executor())
-    .await?;
-    drop(uow);
-    match versions
-        .into_iter()
-        .find(|version| !keyring.holds(*version))
-    {
-        Some(version) => Err(Internal::new(format!(
-            "ENCRYPTION_KEYS lacks version {version}, under which a stored secret is encrypted: \
-             add it back, and remove it once auth.reencrypt_secrets has run"
-        ))),
-        None => Ok(()),
     }
 }

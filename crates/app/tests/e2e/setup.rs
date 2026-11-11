@@ -83,7 +83,8 @@ fn new_server() -> (Server, String) {
 }
 
 /// Asserts what the first setup of a new server did, which wrote `output`, and that it wrote
-/// `settings`, and generated the secrets `generated` and no others. Returns the passphrase.
+/// `settings`, and generated the key ring and the secrets `generated` and no others. Returns the
+/// passphrase.
 fn assert_set_up(
     server: &Server,
     output: &std::process::Output,
@@ -119,6 +120,19 @@ fn assert_set_up(
             assert!(!shown, "{name}, which the setup was given: {output}");
         }
     }
+    // The key ring, which every first setup generates: one key, version 1, the base64 of 32
+    // random bytes, shown once (PLATFORM-086).
+    let ring = server.shell_ok(&format!("cat {DEPLOYMENT}/secrets/encryption_keys"));
+    assert!(
+        ring.len() == 46 && ring.starts_with("1:") && ring.ends_with('='),
+        "{ring}"
+    );
+    assert!(
+        output
+            .lines()
+            .any(|line| line.trim() == format!("encryption_keys: {ring}")),
+        "encryption_keys, shown once: {output}"
+    );
     assert_eq!(
         server.shell_ok(&format!("stat -c '%U %a' {DEPLOYMENT}/secrets")),
         "deploy 700"

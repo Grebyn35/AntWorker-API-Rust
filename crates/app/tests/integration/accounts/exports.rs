@@ -568,6 +568,58 @@ async fn accounts_024_the_archive_holds_the_user_s_data_and_only_the_content_of_
 }
 
 #[tokio::test]
+async fn accounts_024_the_archive_holds_the_second_factors_without_their_secrets_or_hashes() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let app = crate::support::second_factors::add_app(&api, &ada).await;
+    // A sign-in that waits for its code, from a named device, and a new setup, which waits for
+    // its confirmation.
+    let challenged = api
+        .post(
+            "/v1/sessions",
+            &json!({ "email": address, "password": users::PASSWORD,
+                     "device_id": "phone", "device_name": "Ada's phone" }),
+        )
+        .send()
+        .await;
+    assert_eq!(challenged.status, 200);
+    let setup = crate::support::second_factors::start_setup(&api, &ada).await;
+    assert_eq!(setup.status, 200);
+    let id = built(&api, &ada).await;
+
+    let archive = download(&api, &ada, &id, &[]).await.body;
+
+    let apps = document(&archive, "auth/totp_factors.json");
+    assert_eq!(apps.len(), 1);
+    assert!(apps[0]["last_used_step"].is_i64(), "{apps:?}");
+    assert!(apps[0].get("secret").is_none());
+    let setups = document(&archive, "auth/totp_setups.json");
+    assert_eq!(setups.len(), 1);
+    assert!(setups[0].get("secret").is_none());
+    assert_eq!(document(&archive, "auth/recovery_codes.json").len(), 10);
+    let challenges = document(&archive, "auth/sign_in_challenges.json");
+    assert_eq!(challenges.len(), 1);
+    assert_eq!(challenges[0]["device_id"], "phone");
+    assert_eq!(challenges[0]["device_name"], "Ada's phone");
+    // No secret, no code and no hash of one.
+    assert!(!holds(&archive, &app.secret));
+    assert!(!holds(&archive, setup.json()["secret"].as_str().unwrap()));
+    assert!(!holds(&archive, &app.recovery_codes[0]));
+    for (table, column) in [
+        ("totp_factors", "secret"),
+        ("totp_setups", "secret"),
+        ("recovery_codes", "code_hash"),
+        ("sign_in_challenges", "token_hash"),
+    ] {
+        let query = format!("SELECT encode({column}, 'hex') FROM {table}");
+        for hash in api.database().owner_reads(&query).await {
+            assert!(!holds(&archive, &hash), "{table}.{column}");
+        }
+    }
+}
+
+#[tokio::test]
 async fn accounts_025_with_email_on_a_ready_export_tells_the_address_until_when() {
     let api = Api::new().await;
     let address = mailbox::address("ada");

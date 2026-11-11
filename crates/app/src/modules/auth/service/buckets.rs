@@ -101,6 +101,14 @@ pub(super) const SECOND_FACTOR_DEVICE: Bucket = Bucket {
     window: Duration::from_secs(86_400),
 };
 
+/// The bucket of each user's requests for new recovery codes and removals of their app, each of
+/// which sends the address an email: 10 in 24 hours, fixed (AUTH-063, AUTH-064).
+pub(super) const SECOND_FACTOR_CHANGE: Bucket = Bucket {
+    name: "second_factor_change",
+    limit: 10,
+    window: Duration::from_secs(86_400),
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

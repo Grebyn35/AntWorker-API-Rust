@@ -1,10 +1,11 @@
-//! Registration and refresh; in `sign_in.rs`, signing in; in `sessions.rs`, reading, listing and ending a user's
-//! sessions, signing out among them; in `reauthentication.rs`, re-authenticating; in
-//! `deletion.rs`, confirming an account's deletion; in `verification.rs`, proving an account's
+//! Registration and refresh; in `sign_in.rs`, signing in; in `sessions.rs`, reading, listing and
+//! ending a user's sessions, signing out among them; in `reauthentication.rs`, re-authenticating;
+//! in `deletion.rs`, confirming an account's deletion; in `verification.rs`, proving an account's
 //! email address, and the job that sends every code; in `password.rs`, resetting and changing the
-//! password; in `email_change.rs`, changing the account's address; and in `verifier.rs`, the
-//! verifier of access tokens and sessions. Each operation
-//! opens its own unit of work, after any per-action limit it counts first.
+//! password; in `email_change.rs`, changing the account's address; in `second_factors/`, second
+//! factors and the completion of a sign-in with one; and in `verifier.rs`, the verifier of access
+//! tokens and sessions. Each operation opens its own unit of work, after any per-action limit it
+//! counts first.
 
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use platform::{
@@ -146,7 +147,7 @@ impl Auth {
             .run("load_breached_passwords", model::load_breached_passwords)
             .await
             .map_err(Internal::new)?;
-        super::jobs::refuse_missing_versions(&database, &keyring).await?;
+        second_factors::refuse_missing_versions(&database, &keyring).await?;
         Ok(Self {
             database,
             settings,
