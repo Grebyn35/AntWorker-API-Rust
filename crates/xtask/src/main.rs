@@ -43,6 +43,7 @@ mod shell;
 mod sql;
 mod sql_bans;
 mod stack;
+mod tasks;
 mod telemetry_config;
 mod tenancy;
 mod test_map;
@@ -207,38 +208,9 @@ enum Command {
         /// shows the versions that can come next.
         version: Option<String>,
     },
-    /// Deploys the release `version`, or the latest release, to the reference deployment that SSH
-    /// reaches at `host` (OPS-14).
-    Deploy {
-        /// The server, as SSH names it: user@address, or a Host of ~/.ssh/config.
-        host: String,
-        /// The release's version, such as 1.4.0; the latest by default.
-        version: Option<String>,
-        /// Restarts a service that runs once, such as Postgres or Caddy, if the release changes
-        /// it, which interrupts requests.
-        // part: files
-        /// The scanner's restart interrupts only uploads.
-        // end part: files
-        #[arg(long)]
-        allow_restart: bool,
-    },
-    /// Takes a full base backup of the bundled database of the deployment at `host` (OPS-15).
-    Backup {
-        /// The server, as SSH names it.
-        host: String,
-    },
-    /// Restores the bundled database of the deployment at `host`, as it stood at `moment`, or at
-    /// the latest moment its backups hold (OPS-15).
-    Restore {
-        /// The server, as SSH names it.
-        host: String,
-        /// The moment: a time with its offset from UTC, as Postgres writes it.
-        moment: Option<String>,
-        /// Restores although the database's log doesn't reach the bucket, which leaves the
-        /// changes that the bucket lacks only in the data that the restore moves aside.
-        #[arg(long)]
-        allow_unarchived: bool,
-    },
+    /// A task on a reference deployment's server (OPS-19).
+    #[command(flatten)]
+    Server(tasks::ServerTask),
     /// Prints the backup and the timeline of a restore to `moment`, or to the latest state, from
     /// what the backup bucket records, which deploy.sh's `restore-inputs` printed to standard
     /// input, as `just restore` plans one (OPS-15). The end-to-end tests run it, as they run
@@ -248,40 +220,6 @@ enum Command {
         /// The moment: a time with its offset from UTC, as Postgres writes it; without one, the
         /// latest state.
         moment: Option<String>,
-    },
-    /// Shows the state of the deployment at `host`: which color serves, its containers, its
-    /// backups, and the server's free disk and memory (OPS-19).
-    Status {
-        /// The server, as SSH names it.
-        host: String,
-    },
-    /// Sets up the server that SSH reaches at `host`, as root or a user that may run sudo without
-    /// a password: installs Docker, prepares the deployment's user, and writes the settings and
-    /// the secrets it asks for (OPS-19). Run again, it changes them.
-    #[command(name = "server-setup")]
-    ServerSetup {
-        /// The server, as SSH names it.
-        host: String,
-        /// The release whose files the setup follows, such as 1.4.0; the latest by default.
-        version: Option<String>,
-    },
-    /// Checks what a deploy of the release `version`, or of the latest release, to the
-    /// deployment at `host` needs, and changes nothing (OPS-19).
-    #[command(name = "server-check")]
-    ServerCheck {
-        /// The server, as SSH names it, as the user that runs the deployment.
-        host: String,
-        /// The release's version, such as 1.4.0.
-        version: Option<String>,
-    },
-    /// Shows the last lines of the logs of the deployment's services at `host` (OPS-19).
-    Logs {
-        /// The server, as SSH names it.
-        host: String,
-        /// The services, `api` for both colors' replicas, or none for all of them, and
-        /// `--follow` to go on showing the lines that follow.
-        #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
-        arguments: Vec<String>,
     },
     /// Warns of each setting of `.env.example` that `.env` lacks, or still sets to an earlier
     /// value of the example's, which `just setup` and `just dev` run (OPS-20).
@@ -359,6 +297,7 @@ pub struct Outcome {
 
 fn main() -> ExitCode {
     let command = match Cli::parse().command {
+        Command::Server(task) => return task.run(),
         Command::Remove { parts } => return parts::remove(&parts),
         Command::CheckRemovable { runs } => return parts::check_removable(&runs),
         Command::NewModule { module, resource } => return new_module::run(&module, resource),
@@ -366,25 +305,10 @@ fn main() -> ExitCode {
         Command::Release { version } => return release::run(version.as_deref()),
         Command::ReleaseCheck { version } => return release::check(&version),
         Command::Inputs { directory } => return inputs::run(&directory),
-        Command::Deploy {
-            host,
-            version,
-            allow_restart,
-        } => return deploy::deploy(&host, version.as_deref(), allow_restart),
-        Command::Backup { host } => return deploy::backup(&host),
         Command::LoadTest { route } => return load::run(&route),
         Command::EnvDrift => return env_drift::run(),
         Command::Mirror { platform } => return mirror::run(&platform),
-        Command::Restore {
-            host,
-            moment,
-            allow_unarchived,
-        } => return deploy::restore(&host, moment.as_deref(), allow_unarchived),
         Command::RestorePlan { moment } => return restore::run(moment.as_deref()),
-        Command::Status { host } => return deploy::status(&host),
-        Command::Logs { host, arguments } => return deploy::logs(&host, &arguments),
-        Command::ServerSetup { host, version } => return server::setup(&host, version.as_deref()),
-        Command::ServerCheck { host, version } => return server::check(&host, version.as_deref()),
         command => command,
     };
     let repo = match repo::Repo::load() {
@@ -424,14 +348,8 @@ fn main() -> ExitCode {
         | Command::Release { .. }
         | Command::ReleaseCheck { .. }
         | Command::Inputs { .. }
-        | Command::Deploy { .. }
-        | Command::Backup { .. }
-        | Command::Restore { .. }
+        | Command::Server(_)
         | Command::RestorePlan { .. }
-        | Command::Status { .. }
-        | Command::Logs { .. }
-        | Command::ServerSetup { .. }
-        | Command::ServerCheck { .. }
         | Command::LoadTest { .. }
         | Command::EnvDrift
         | Command::Mirror { .. } => Outcome::default(),
@@ -482,16 +400,17 @@ fn unreadable(error: &io::Error) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tasks::ServerTask;
 
     /// The version and the option of a deploy to `production` with `args`, if they make one.
     fn deploy(args: &[&str]) -> Option<(Option<String>, bool)> {
         let cli = Cli::try_parse_from([&["xtask", "deploy", "production"], args].concat()).ok()?;
         match cli.command {
-            Command::Deploy {
+            Command::Server(ServerTask::Deploy {
                 version,
                 allow_restart,
                 ..
-            } => Some((version, allow_restart)),
+            }) => Some((version, allow_restart)),
             _ => None,
         }
     }
@@ -512,11 +431,11 @@ mod tests {
     fn restore(args: &[&str]) -> Option<(Option<String>, bool)> {
         let cli = Cli::try_parse_from([&["xtask", "restore", "production"], args].concat()).ok()?;
         match cli.command {
-            Command::Restore {
+            Command::Server(ServerTask::Restore {
                 moment,
                 allow_unarchived,
                 ..
-            } => Some((moment, allow_unarchived)),
+            }) => Some((moment, allow_unarchived)),
             _ => None,
         }
     }
@@ -531,5 +450,23 @@ mod tests {
             restore(&[moment, "--allow-unarchived"]),
             Some((Some(moment.to_owned()), true))
         );
+    }
+
+    #[test]
+    fn auth_072_the_operator_s_removal_takes_a_server_and_an_address() {
+        let cli = Cli::try_parse_from([
+            "xtask",
+            "remove-second-factor",
+            "production",
+            "ada@example.com",
+        ])
+        .unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Command::Server(ServerTask::RemoveSecondFactor { host, email })
+                if host == "production" && email == "ada@example.com"
+        ));
+        assert!(Cli::try_parse_from(["xtask", "remove-second-factor", "production"]).is_err());
     }
 }

@@ -27,7 +27,7 @@ A user also sets and removes their avatar here, whose image `files` keeps (D117,
 - `matching(uow, &[UserId], &Search)`: the IDs among a batch, passed under the same terms, of the users whose name or email contains the search (API-20).
 - The domain type `DisplayName` (D25). `EmailAddress` is in `platform::types`.
 - `Deletion`, which the composition root builds from every module's personal data contract, in the order it registers them, and whose `delete(uow, &Principal)` deletes the caller's account in the unit of work of `auth` that confirmed it, and reports whether it did, or why not, which `auth` answers with codes of its own (ACCOUNTS-012 to ACCOUNTS-016, AUTH-023).
-- `Exports`, which the composition root builds from every module's personal data contract, in the order it registers them, and whose `register` registers the export's job and its expiry (Design: Exporting).
+- `Exports`, which the composition root builds from every module's personal data contract, in the order it registers them, whose `register` registers the export's job and its expiry, and whose `request(limits, client, principal)` requests an export of the caller's data, which `auth` calls as it serves `POST /v1/users/me/exports`, once the caller's session has proved who they are just before (ACCOUNTS-020, D137, Design: Exporting).
 - `Contract`, the personal data contract for `users` and the user's exports, which the composition root registers last (D31).
 
 ## Routes
@@ -38,12 +38,11 @@ A user also sets and removes their avatar here, whose image `files` keeps (D117,
 | `PATCH /v1/users/me` | user | ACCOUNTS-003, ACCOUNTS-007 |
 | `PUT /v1/users/me/avatar` | user | ACCOUNTS-008, ACCOUNTS-009 <!-- part: files --> |
 | `DELETE /v1/users/me/avatar` | user | ACCOUNTS-010 <!-- part: files --> |
-| `POST /v1/users/me/exports` | user | ACCOUNTS-020, ACCOUNTS-021 |
 | `GET /v1/users/me/exports` | user | ACCOUNTS-022 |
 | `GET /v1/users/me/exports/{export_id}` | user | ACCOUNTS-022 |
 | `GET /v1/users/me/exports/{export_id}/content` | user | ACCOUNTS-026 |
 
-`PATCH /v1/users/me` accepts an `If-Match` (API-13, PLATFORM-071).
+`PATCH /v1/users/me` accepts an `If-Match` (API-13, PLATFORM-071). `POST /v1/users/me/exports`, which ACCOUNTS-020 and ACCOUNTS-021 describe, is served by `auth`, which confirms it, as it serves the deletion of an account ([auth spec](auth.md#requesting-an-export)).
 `PUT` and `DELETE /v1/users/me/avatar` accept one too, since each changes the record, its `version` with it. <!-- part: files -->
 `PUT /v1/users/me/avatar` is an upload route, added through `Routes::user_upload`, whose body is the image's bytes, which it reads through `Upload` with the avatar's limit (ACCOUNTS-009, PLATFORM-074). <!-- part: files -->
 
@@ -146,7 +145,7 @@ A request of the user's own that started before that lock can still have added a
 
 An export copies what each module keeps of the user into an archive that the user downloads, as the General Data Protection Regulation's rights of access and portability ask (Articles 15 and 20): every module's records of them, as JSON, and the bytes of what they uploaded, where a module keeps any (D31). It runs in a job, since a user with many records or files would outlast a request.
 
-1. The request counts in the user's bucket `export` (ACCOUNTS-021), then a unit of work inserts the export, `pending`, which expires 7 days later, records `export.requested`, enqueues `accounts.export` for the caller, and commits (ACCOUNTS-020).
+1. `auth` reads whether the caller's session proved who they are within the last 5 minutes (ACCOUNTS-020, D137), in a short transaction that writes nothing, then `Exports::request` counts the request in the user's bucket `export` (ACCOUNTS-021), so a request without the proof counts nothing, then a unit of work inserts the export, `pending`, which expires 7 days later, records `export.requested`, enqueues `accounts.export` for the caller, and commits (ACCOUNTS-020).
 2. The job opens its unit of work through `Database::for_snapshot_job`, under `REPEATABLE READ`, so every module's part reads the user's data as of one moment, and the archive holds no membership of a workspace whose content it lacks, nor bytes whose record it lacks ([platform spec](platform.md#personal-data)). It locks the export's row, and ends unless it is still `pending` (ACCOUNTS-023).
 3. It runs each module's personal data contract, in the order the composition root registers them, a deletion's order, the contract of `accounts` last. A contract whose module keeps content of workspaces finds those whose only member is the user through `access::sole_workspaces`, by the user's own memberships, and reads their content by their IDs (DATA-16). Each adds its documents through `personal_data::ExportArchive`, which deflates a page of records at a time through `Workers`, and hands the deflated bytes, in chunks of at most 1 MiB, to the store of `accounts`, which inserts them into `export_chunks`, and each document, once written, into `export_entries` (PLATFORM-084). A contract reads a kind of record that may be numerous a page of 1,000 at a time, so a run holds a page of records, and a document's last chunk, in memory, however many records the user keeps, beside what grows with the archive's size, which is small beside it: the IDs of the workspaces whose only member is the user, and, to lay the archive out, each entry's path, sizes and checksum, a hundred bytes or so, as each download holds them too.
 4. It sets the export `ready`, with `ready_at`, and `expires_at` 7 days later (D127), and `size_bytes`, the archive's, which `archive::Layout` gives from the entries; records `export.completed` in the user's own log, through the scope that the job's `JobContext` gives, with no actor, since no request of theirs acts (DATA-22); enqueues the email of ACCOUNTS-025; publishes `export.completed`; and commits.

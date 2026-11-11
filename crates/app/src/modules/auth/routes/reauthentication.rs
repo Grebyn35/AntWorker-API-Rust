@@ -63,7 +63,7 @@ impl TryFrom<ReauthenticationRequest> for (Password, Option<FactorProof>) {
         let password = errors.check("/password", Password::presented(request.password));
         let proof = second_factors::factor_proof(
             &mut errors,
-            request.code.as_deref(),
+            ("/code", request.code.as_deref()),
             request.recovery_code.as_deref(),
             false,
         );

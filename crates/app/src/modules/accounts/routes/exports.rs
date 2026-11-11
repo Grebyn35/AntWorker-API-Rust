@@ -1,5 +1,5 @@
-//! Requesting an export of the caller's data, reading their exports, and downloading an export's
-//! archive (the accounts spec's Routes, D31).
+//! Reading the caller's exports, and downloading an export's archive (the accounts spec's Routes,
+//! D31). `auth` serves the request of an export, which it confirms (D137).
 
 use axum::extract::{RawPathParams, State};
 use platform::{
@@ -8,7 +8,6 @@ use platform::{
     http::{Download, FieldErrors, FileBytes, Query, ResourceResponse, Routes, path_id},
     lists::{Cursor, Limit, List, Page},
     ranges::Wanted,
-    rate_limit::RateLimits,
     types::Client,
 };
 use serde::Deserialize;
@@ -26,7 +25,7 @@ use crate::modules::accounts::{
 pub(crate) fn export_routes() -> Routes<Exports> {
     Routes::new()
         .events(&[&EXPORT_COMPLETED, &EXPORT_FAILED])
-        .user(routes!(request_export, list_exports), &[])
+        .user(routes!(list_exports), &[])
         .user(routes!(read_export), &[&AccountsError::ExportNotFound])
         .user_download(routes!(download_export), &DOWNLOAD_ERRORS)
 }
@@ -36,27 +35,6 @@ const DOWNLOAD_ERRORS: [&dyn ErrorCode; 2] = [
     &AccountsError::ExportNotFound,
     &AccountsError::ExportNotReady,
 ];
-
-/// Requests an export of the caller's data, whose archive a job builds.
-#[utoipa::path(
-    post,
-    path = "/v1/users/me/exports",
-    tag = "accounts",
-    responses(
-        (status = 202, description = "The export, pending until its archive is built.", body = Export,
-            headers(("location" = String, description = "The export: `/v1/users/me/exports/{id}`."))),
-    )
-)]
-async fn request_export(
-    State(exports): State<Exports>,
-    limits: RateLimits,
-    client: Client,
-    principal: Principal,
-) -> Result<ResourceResponse<Export>, Problem<AccountsError>> {
-    let export = exports.request(&limits, &client, &principal).await?;
-    let location = format!("/v1/users/me/exports/{}", export.id);
-    Ok(ResourceResponse::accepted(export, location))
-}
 
 /// The query of the list of exports (ACCOUNTS-022).
 #[derive(Deserialize, IntoParams)]

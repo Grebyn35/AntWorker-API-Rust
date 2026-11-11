@@ -911,6 +911,11 @@ async fn ops_19_status_shows_what_serves_and_the_backups_and_logs_show_the_servi
     let status = deployment.server.deploy(&["status"]);
     let logs = deployment.server.deploy(&["logs", "api", "caddy"]);
     let refused = deployment.server.deploy(&["logs", "--since=1h"]);
+    // The operator's removal of a second factor runs the API's subcommand with the image and the
+    // settings of the color that serves, against the deployment's database (AUTH-072).
+    let removal = deployment
+        .server
+        .deploy(&["remove-second-factor", "nobody@example.com"]);
 
     assert!(status.status.success(), "{}", lossy(&status));
     let status = lossy(&status);
@@ -969,6 +974,12 @@ async fn ops_19_status_shows_what_serves_and_the_backups_and_logs_show_the_servi
         lossy(&refused).contains("unknown option --since=1h"),
         "{}",
         lossy(&refused)
+    );
+    assert_eq!(removal.status.code(), Some(1), "{}", lossy(&removal));
+    assert!(
+        lossy(&removal).contains("No account holds nobody@example.com: nothing changed."),
+        "{}",
+        lossy(&removal)
     );
 }
 

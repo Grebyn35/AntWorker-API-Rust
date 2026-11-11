@@ -268,6 +268,9 @@ pub(super) enum FactorChange {
     CodesReplaced,
     /// The account's app was removed, with its recovery codes (AUTH-064).
     AppRemoved,
+    /// The operator removed the account's app, with its recovery codes, and ended its sessions
+    /// (AUTH-072).
+    AppRemovedByOperator,
     /// A recovery code stood in for the app's code, with this many left (AUTH-062).
     RecoveryCodeUsed(i64),
 }
@@ -285,59 +288,7 @@ impl FactorChangedEmail {
     /// The email, rendered from its templates: what happened, and what the owner does if it
     /// wasn't them. It holds no secret and no link.
     pub(super) fn render(self) -> Result<Email, Internal> {
-        let to = self.to.as_str();
-        let (subject, what, advice) = match self.change {
-            FactorChange::AppAdded => (
-                format!("An authenticator app now signs in to your {PRODUCT} account"),
-                format!(
-                    "An authenticator app now signs in to your {PRODUCT} account, {to}, beside its \
-                     password, with new recovery codes."
-                ),
-                format!(
-                    "If you set it up, there is nothing to do. If you didn't, someone who knows \
-                     your password did: reset your password in {PRODUCT} now, which ends every \
-                     session of the account, and ask {PRODUCT}'s operator to remove the app."
-                ),
-            ),
-            FactorChange::CodesReplaced => (
-                format!("New recovery codes for your {PRODUCT} account"),
-                format!(
-                    "New recovery codes replaced the old ones of your {PRODUCT} account, {to}, \
-                     which work no more."
-                ),
-                format!(
-                    "If you asked for them, keep them where only you can reach them. If you \
-                     didn't, someone who knows your password and holds your app did: reset your \
-                     password in {PRODUCT} now, which ends every session of the account."
-                ),
-            ),
-            FactorChange::AppRemoved => (
-                format!("The authenticator app of your {PRODUCT} account was removed"),
-                format!(
-                    "The authenticator app of your {PRODUCT} account, {to}, was removed, with its \
-                     recovery codes, so the account signs in with its password alone."
-                ),
-                format!(
-                    "If you removed it, there is nothing to do. If you didn't, reset your password \
-                     in {PRODUCT} now, which ends every session of the account, and set up an app \
-                     again."
-                ),
-            ),
-            FactorChange::RecoveryCodeUsed(left) => (
-                format!("A recovery code was used on your {PRODUCT} account"),
-                format!(
-                    "A recovery code of your {PRODUCT} account, {to}, was used in place of its \
-                     app's code. {}",
-                    codes_left(left)
-                ),
-                format!(
-                    "If you used it, there is nothing to do, but ask for new codes before none is \
-                     left. If you didn't, someone knows your password and holds your recovery \
-                     codes: reset your password in {PRODUCT} now, which ends every session of the \
-                     account, and ask for new recovery codes."
-                ),
-            ),
-        };
+        let (subject, what, advice) = said(self.change, self.to.as_str());
         let values = Change {
             subject: &subject,
             what: &what,
@@ -355,6 +306,76 @@ impl FactorChangedEmail {
             text,
             html,
         })
+    }
+}
+
+/// What the email of `change` says to `to`: its subject, what happened, and what the owner does
+/// if it wasn't them (AUTH-068).
+fn said(change: FactorChange, to: &str) -> (String, String, String) {
+    match change {
+        FactorChange::AppAdded => (
+            format!("An authenticator app now signs in to your {PRODUCT} account"),
+            format!(
+                "An authenticator app now signs in to your {PRODUCT} account, {to}, beside its \
+                     password, with new recovery codes."
+            ),
+            format!(
+                "If you set it up, there is nothing to do. If you didn't, someone who knows \
+                     your password did: reset your password in {PRODUCT} now, which ends every \
+                     session of the account, and ask {PRODUCT}'s operator to remove the app."
+            ),
+        ),
+        FactorChange::CodesReplaced => (
+            format!("New recovery codes for your {PRODUCT} account"),
+            format!(
+                "New recovery codes replaced the old ones of your {PRODUCT} account, {to}, \
+                     which work no more."
+            ),
+            format!(
+                "If you asked for them, keep them where only you can reach them. If you \
+                     didn't, someone who knows your password and holds your app did: reset your \
+                     password in {PRODUCT} now, which ends every session of the account."
+            ),
+        ),
+        FactorChange::AppRemoved => (
+            format!("The authenticator app of your {PRODUCT} account was removed"),
+            format!(
+                "The authenticator app of your {PRODUCT} account, {to}, was removed, with its \
+                     recovery codes, so the account signs in with its password alone."
+            ),
+            format!(
+                "If you removed it, there is nothing to do. If you didn't, reset your password \
+                     in {PRODUCT} now, which ends every session of the account, and set up an app \
+                     again."
+            ),
+        ),
+        FactorChange::AppRemovedByOperator => (
+            format!("The authenticator app of your {PRODUCT} account was removed"),
+            format!(
+                "{PRODUCT}'s operator removed the authenticator app of your {PRODUCT} account, \
+                     {to}, with its recovery codes, and ended every session of the account, so it \
+                     signs in with its password alone."
+            ),
+            format!(
+                "If you asked the operator for it, sign in and set up an app again. If you \
+                     didn't, reset your password in {PRODUCT} now, which ends every session of \
+                     the account, set up an app again, and tell {PRODUCT}'s operator."
+            ),
+        ),
+        FactorChange::RecoveryCodeUsed(left) => (
+            format!("A recovery code was used on your {PRODUCT} account"),
+            format!(
+                "A recovery code of your {PRODUCT} account, {to}, was used in place of its \
+                     app's code. {}",
+                codes_left(left)
+            ),
+            format!(
+                "If you used it, there is nothing to do, but ask for new codes before none is \
+                     left. If you didn't, someone knows your password and holds your recovery \
+                     codes: reset your password in {PRODUCT} now, which ends every session of the \
+                     account, and ask for new recovery codes."
+            ),
+        ),
     }
 }
 
@@ -429,6 +450,11 @@ mod tests {
                 FactorChange::AppRemoved,
                 "The authenticator app of your AntWorker account was removed",
                 "set up an app again",
+            ),
+            (
+                FactorChange::AppRemovedByOperator,
+                "The authenticator app of your AntWorker account was removed",
+                "operator removed the authenticator app",
             ),
             (
                 FactorChange::RecoveryCodeUsed(1),

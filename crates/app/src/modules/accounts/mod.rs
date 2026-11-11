@@ -12,7 +12,7 @@ mod routes;
 mod service;
 
 pub(crate) use error::AccountsError;
-pub(crate) use model::{Address, DisplayName, PublicProfile};
+pub(crate) use model::{Address, DisplayName, Export, PublicProfile};
 pub(crate) use routes::{export_routes, routes};
 // part: files
 pub(crate) use routes::avatar_routes;

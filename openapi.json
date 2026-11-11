@@ -2107,6 +2107,28 @@
           "password": {
             "$ref": "#/components/schemas/Password",
             "description": "The account's new password (AUTH-003)."
+          },
+          "recovery_code": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RecoveryCode",
+                "description": "One of the account's recovery codes, in place of `second_factor_code`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "second_factor_code": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AppCode",
+                "description": "The code that the account's authenticator app shows, which an account with an app sends,\nor else `recovery_code` (AUTH-037)."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2217,6 +2239,10 @@
             "$ref": "#/components/schemas/Timestamp",
             "description": "When its refresh token expires, unless a refresh slides it."
           },
+          "second_factor_setup_required": {
+            "description": "Whether its account must set up an authenticator app before the API serves it anything\nbut that and proving its address: true while the deployment requires a second factor and\nthe account has none (AUTH-070).",
+            "type": "boolean"
+          },
           "user_id": {
             "$ref": "#/components/schemas/UserId",
             "description": "The user the session signs in."
@@ -2230,7 +2256,8 @@
           "refresh_token_expires_at",
           "expires_at",
           "authenticated_at",
-          "email_verification_required"
+          "email_verification_required",
+          "second_factor_setup_required"
         ],
         "type": "object"
       },
@@ -2475,6 +2502,10 @@
             "$ref": "#/components/schemas/Timestamp",
             "description": "When its refresh token expires, unless a refresh slides it."
           },
+          "second_factor_setup_required": {
+            "description": "Whether its account must set up an authenticator app before the API serves it anything\nbut that and proving its address: true while the deployment requires a second factor and\nthe account has none (AUTH-070).",
+            "type": "boolean"
+          },
           "user_id": {
             "$ref": "#/components/schemas/UserId",
             "description": "The user the session signs in."
@@ -2488,7 +2519,8 @@
           "refresh_token_expires_at",
           "expires_at",
           "authenticated_at",
-          "email_verification_required"
+          "email_verification_required",
+          "second_factor_setup_required"
         ],
         "type": "object"
       },
@@ -3663,7 +3695,8 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "auth.invalid_reset_code"
+                            "auth.invalid_reset_code",
+                            "auth.invalid_second_factor"
                           ],
                           "type": "string"
                         }
@@ -3674,7 +3707,7 @@
                 }
               }
             },
-            "description": "`auth.invalid_reset_code`: Invalid email or reset code.",
+            "description": "`auth.invalid_reset_code`: Invalid email or reset code. `auth.invalid_second_factor`: Invalid second factor.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -3702,7 +3735,8 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.origin_not_allowed"
+                            "request.origin_not_allowed",
+                            "auth.second_factor_required"
                           ],
                           "type": "string"
                         }
@@ -3713,7 +3747,7 @@
                 }
               }
             },
-            "description": "`request.origin_not_allowed`: Origin not allowed.",
+            "description": "`request.origin_not_allowed`: Origin not allowed. `auth.second_factor_required`: Second factor required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -3876,7 +3910,7 @@
             }
           }
         },
-        "summary": "Resets the password of the account that holds the address with the reset code sent to it,\nends every session of the account, and proves its address. It starts no session: sign in with\nthe new password.",
+        "summary": "Resets the password of the account that holds the address with the reset code sent to it,\nand, for an account with an authenticator app, the app's code or a recovery code, ends every\nsession of the account, and proves its address. It starts no session: sign in with the new\npassword.",
         "tags": [
           "auth"
         ],
@@ -6863,6 +6897,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed",
                             "auth.reauthentication_required"
                           ],
@@ -6875,7 +6910,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed. `auth.reauthentication_required`: Re-authentication required.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed. `auth.reauthentication_required`: Re-authentication required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -7207,7 +7242,8 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.email_unverified"
+                            "request.email_unverified",
+                            "request.second_factor_setup_required"
                           ],
                           "type": "string"
                         }
@@ -7218,7 +7254,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -7536,6 +7572,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed"
                           ],
                           "type": "string"
@@ -7547,7 +7584,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -7881,6 +7918,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed"
                           ],
                           "type": "string"
@@ -7892,7 +7930,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -8250,6 +8288,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed"
                           ],
                           "type": "string"
@@ -8261,7 +8300,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -10118,7 +10157,8 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.email_unverified"
+                            "request.email_unverified",
+                            "request.second_factor_setup_required"
                           ],
                           "type": "string"
                         }
@@ -10129,7 +10169,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -10482,7 +10522,8 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.email_unverified"
+                            "request.email_unverified",
+                            "request.second_factor_setup_required"
                           ],
                           "type": "string"
                         }
@@ -10493,7 +10534,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -10785,7 +10826,9 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
-                            "request.origin_not_allowed"
+                            "request.second_factor_setup_required",
+                            "request.origin_not_allowed",
+                            "auth.reauthentication_required"
                           ],
                           "type": "string"
                         }
@@ -10796,7 +10839,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed. `auth.reauthentication_required`: Re-authentication required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -10863,6 +10906,7 @@
                       "properties": {
                         "code": {
                           "enum": [
+                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -10874,7 +10918,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -10957,9 +11001,9 @@
             }
           }
         },
-        "summary": "Requests an export of the caller's data, whose archive a job builds.",
+        "summary": "Requests an export of the caller's data, whose archive a job builds, once the session that\nauthenticates the request has proved who its user is within the last 5 minutes, since the\narchive holds everything the user keeps.",
         "tags": [
-          "accounts"
+          "auth"
         ],
         "x-access": "user"
       }
@@ -11095,7 +11139,8 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.email_unverified"
+                            "request.email_unverified",
+                            "request.second_factor_setup_required"
                           ],
                           "type": "string"
                         }
@@ -11106,7 +11151,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -11572,7 +11617,8 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.email_unverified"
+                            "request.email_unverified",
+                            "request.second_factor_setup_required"
                           ],
                           "type": "string"
                         }
@@ -11583,7 +11629,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -11985,7 +12031,8 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.email_unverified"
+                            "request.email_unverified",
+                            "request.second_factor_setup_required"
                           ],
                           "type": "string"
                         }
@@ -11996,7 +12043,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -12346,6 +12393,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed"
                           ],
                           "type": "string"
@@ -12357,7 +12405,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -12732,6 +12780,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed"
                           ],
                           "type": "string"
@@ -12743,7 +12792,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -13079,7 +13128,8 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.email_unverified"
+                            "request.email_unverified",
+                            "request.second_factor_setup_required"
                           ],
                           "type": "string"
                         }
@@ -13090,7 +13140,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -13731,7 +13781,8 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.email_unverified"
+                            "request.email_unverified",
+                            "request.second_factor_setup_required"
                           ],
                           "type": "string"
                         }
@@ -13742,7 +13793,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -14106,7 +14157,8 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.email_unverified"
+                            "request.email_unverified",
+                            "request.second_factor_setup_required"
                           ],
                           "type": "string"
                         }
@@ -14117,7 +14169,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -14417,6 +14469,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed"
                           ],
                           "type": "string"
@@ -14428,7 +14481,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -14838,6 +14891,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed",
                             "auth.wrong_password",
                             "auth.second_factor_required",
@@ -14852,7 +14906,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed. `auth.wrong_password`: Wrong password. `auth.second_factor_required`: Second factor required. `auth.wrong_second_factor`: Wrong second factor.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed. `auth.wrong_password`: Wrong password. `auth.second_factor_required`: Second factor required. `auth.wrong_second_factor`: Wrong second factor.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -15439,6 +15493,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed",
                             "auth.reauthentication_required"
                           ],
@@ -15451,7 +15506,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed. `auth.reauthentication_required`: Re-authentication required.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed. `auth.reauthentication_required`: Re-authentication required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -15772,6 +15827,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed",
                             "auth.reauthentication_required"
                           ],
@@ -15784,7 +15840,46 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed. `auth.reauthentication_required`: Re-authentication required.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed. `auth.reauthentication_required`: Re-authentication required.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "auth.second_factor_mandatory"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`auth.second_factor_mandatory`: Second factor mandatory.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -16761,7 +16856,8 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.email_unverified"
+                            "request.email_unverified",
+                            "request.second_factor_setup_required"
                           ],
                           "type": "string"
                         }
@@ -16772,7 +16868,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -17915,6 +18011,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed",
                             "auth.reauthentication_required"
                           ],
@@ -17927,7 +18024,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed. `auth.reauthentication_required`: Re-authentication required.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed. `auth.reauthentication_required`: Re-authentication required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -18220,6 +18317,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed",
                             "auth.reauthentication_required"
                           ],
@@ -18232,7 +18330,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed. `auth.reauthentication_required`: Re-authentication required.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed. `auth.reauthentication_required`: Re-authentication required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -18595,7 +18693,8 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.email_unverified"
+                            "request.email_unverified",
+                            "request.second_factor_setup_required"
                           ],
                           "type": "string"
                         }
@@ -18606,7 +18705,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -18936,6 +19035,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed"
                           ],
                           "type": "string"
@@ -18947,7 +19047,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -19330,6 +19430,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.permission_denied"
                           ],
                           "type": "string"
@@ -19341,7 +19442,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.permission_denied`: Permission denied.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.permission_denied`: Permission denied.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -19708,6 +19809,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed",
                             "request.permission_denied"
                           ],
@@ -19720,7 +19822,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed. `request.permission_denied`: Permission denied.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed. `request.permission_denied`: Permission denied.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -20133,6 +20235,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.permission_denied"
                           ],
                           "type": "string"
@@ -20144,7 +20247,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.permission_denied`: Permission denied.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.permission_denied`: Permission denied.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -20543,6 +20646,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed",
                             "request.permission_denied"
                           ],
@@ -20555,7 +20659,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed. `request.permission_denied`: Permission denied.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed. `request.permission_denied`: Permission denied.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -20979,6 +21083,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed",
                             "request.permission_denied"
                           ],
@@ -20991,7 +21096,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed. `request.permission_denied`: Permission denied.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed. `request.permission_denied`: Permission denied.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -21339,6 +21444,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.permission_denied"
                           ],
                           "type": "string"
@@ -21350,7 +21456,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.permission_denied`: Permission denied.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.permission_denied`: Permission denied.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -22003,6 +22109,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.permission_denied"
                           ],
                           "type": "string"
@@ -22014,7 +22121,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.permission_denied`: Permission denied.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.permission_denied`: Permission denied.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -22415,6 +22522,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed",
                             "request.permission_denied"
                           ],
@@ -22427,7 +22535,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed. `request.permission_denied`: Permission denied.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed. `request.permission_denied`: Permission denied.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -22889,6 +22997,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.permission_denied"
                           ],
                           "type": "string"
@@ -22900,7 +23009,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.permission_denied`: Permission denied.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.permission_denied`: Permission denied.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -23241,6 +23350,7 @@
                         "code": {
                           "enum": [
                             "request.email_unverified",
+                            "request.second_factor_setup_required",
                             "request.origin_not_allowed",
                             "request.permission_denied"
                           ],
@@ -23253,7 +23363,7 @@
                 }
               }
             },
-            "description": "`request.email_unverified`: Email address not verified. `request.origin_not_allowed`: Origin not allowed. `request.permission_denied`: Permission denied.",
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed. `request.permission_denied`: Permission denied.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",

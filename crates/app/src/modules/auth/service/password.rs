@@ -35,6 +35,8 @@ pub(crate) struct ResetConfirmation {
     pub(crate) email: EmailAddress,
     pub(crate) code: ResetCode,
     pub(crate) password: Password,
+    /// The second factor's code, which an account with an authenticator app gives (AUTH-037).
+    pub(crate) proof: Option<FactorProof>,
 }
 
 /// A change of the signed-in user's password, in domain types (AUTH-040).
@@ -120,6 +122,10 @@ impl Auth {
         // Hashed before anything is read, so the confirmation costs the same hash whatever it
         // finds (AUTH-038).
         let password_hash = hash(&self.workers, confirmation.password).await?;
+        if confirmation.proof.is_some() {
+            self.count_reset_factor(limits, client, &confirmation.email, &confirmation.code)
+                .await?;
+        }
         let mut uow = self.database.begin(client).await?;
         let Some(user_id) = accounts::find_by_email(&mut uow, &confirmation.email).await? else {
             return Err(AuthError::InvalidResetCode);
@@ -130,10 +136,15 @@ impl Auth {
             return Err(AuthError::InvalidResetCode);
         };
         let scope = AuditScope::attempt(user_id);
-        if !self
-            .claim_reset_code(&mut uow, user_id, &address.email, &confirmation.code)
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a reset enqueues its emails for the account whose code it checked (PLATFORM-013)"
+        )]
+        let job_scope = JobScope::attempt(Some(user_id));
+        let Some(code) = self
+            .matching_reset_code(&mut uow, user_id, &address.email, &confirmation.code)
             .await?
-        {
+        else {
             // A failed reset of an existing account is a security failure, which commits before
             // the answer (ARCH-11).
             audit_log::record(
@@ -144,7 +155,25 @@ impl Auth {
             .await?;
             uow.commit().await?;
             return Err(AuthError::InvalidResetCode);
+        };
+        // The app's code, or a recovery code, of an account with an app, once the reset code
+        // matched, so whoever reads the mailbox alone resets nothing; a refusal leaves the reset
+        // codes as they were (D136).
+        let mut uow = self
+            .check_reset_factor(
+                uow,
+                user_id,
+                (&address.email, job_scope),
+                confirmation.proof.as_ref(),
+            )
+            .await?;
+        // The job of another request's code deletes the codes that expired, holding no turn of
+        // the user's, so a code that expired while the check ran may be gone: the reset then
+        // rolls back whole, the second factor's check with it (AUTH-037).
+        if !codes::claim(&mut uow, user_id, code).await? {
+            return Err(AuthError::InvalidResetCode);
         }
+        codes::delete_resets(&mut uow, user_id).await?;
         let identity = repo::set_password(&mut uow, user_id, &password_hash).await?;
         // No challenge issued for the password before completes a sign-in (AUTH-069).
         repo::second_factors::delete_challenges(&mut uow, user_id).await?;
@@ -165,28 +194,52 @@ impl Auth {
             Entry::new(audit::PASSWORD_RESET, audit::IDENTITY, identity),
         )
         .await?;
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "a reset enqueues its email for the account whose code it checked (PLATFORM-013)"
-        )]
-        let job_scope = JobScope::attempt(Some(user_id));
         self.tell_password_changed(&mut uow, job_scope, address.email)
             .await?;
         uow.commit().await?;
         Ok(())
     }
 
-    /// Whether `code` is one of `user_id`'s reset codes that last, sent to `address`, their
-    /// address, which this unit of work then claimed by deleting it, so it resets nothing again:
-    /// a row only one unit of work deletes. A claim deletes the account's other reset codes too
-    /// (AUTH-037).
-    async fn claim_reset_code(
+    /// Counts a confirmation's check of a second factor, which it gives, once its reset code
+    /// matched, in the bucket of the user it names: a read before the unit of work opens, in one
+    /// of its own that writes nothing, finds the user and whether the code matches, so a reset
+    /// code that doesn't match counts in no user's bucket, and whoever knows the address alone
+    /// fills none (AUTH-037, AUTH-061, ARCH-11).
+    async fn count_reset_factor(
+        &self,
+        limits: &RateLimits,
+        client: &Client,
+        email: &EmailAddress,
+        code: &ResetCode,
+    ) -> Result<(), AuthError> {
+        let mut read = self.database.begin(client).await?;
+        let mut matched = None;
+        if let Some(user_id) = accounts::find_by_email(&mut read, email).await?
+            && let Some(address) = accounts::address(&mut read, user_id).await?
+            && self
+                .matching_reset_code(&mut read, user_id, &address.email, code)
+                .await?
+                .is_some()
+        {
+            matched = Some(user_id);
+        }
+        drop(read);
+        match matched {
+            Some(user_id) => self.count_reset_check(limits, user_id).await,
+            None => Ok(()),
+        }
+    }
+
+    /// The ID of `user_id`'s reset code that lasts and is `code`, sent to `address`, their
+    /// address, if any (AUTH-037, AUTH-038). A unit of work claims it by deleting it, so it resets
+    /// nothing again: a row only one unit of work deletes.
+    async fn matching_reset_code(
         &self,
         uow: &mut UnitOfWork,
         user_id: UserId,
         address: &EmailAddress,
         code: &ResetCode,
-    ) -> Result<bool, Internal> {
+    ) -> Result<Option<uuid::Uuid>, Internal> {
         let input = code_input(user_id, address, code);
         let stored = codes::find(uow, user_id, Purpose::PasswordReset).await?;
         // Each lasting code is compared, in constant time, so the time doesn't tell which matched.
@@ -196,14 +249,7 @@ impl Auth {
                 matched = Some(stored.id);
             }
         }
-        let Some(id) = matched else {
-            return Ok(false);
-        };
-        if !codes::claim(uow, user_id, id).await? {
-            return Ok(false);
-        }
-        codes::delete_resets(uow, user_id).await?;
-        Ok(true)
+        Ok(matched)
     }
 
     /// Changes the caller's password, once their current one has passed the one check of a

@@ -30,7 +30,9 @@ use crate::modules::auth::{
 /// The name of the cookie that holds a browser's sign-in challenge, after `__Host-` (AUTH-058).
 pub(super) const CHALLENGE_COOKIE: &str = "sign_in_challenge";
 
-/// The routes of second factors (AUTH-054 to AUTH-064).
+/// The routes of second factors (AUTH-054 to AUTH-064). Reading one's second factors, setting up
+/// an app and confirming the setup serve an account that has none while the deployment requires
+/// one (AUTH-070).
 pub(super) fn routes() -> Routes<Arc<Auth>> {
     Routes::new()
         .public(
@@ -41,12 +43,12 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
                 &LimitError::RateLimited,
             ],
         )
-        .user(routes!(second_factors), &[])
-        .user(
+        .enrolling(routes!(second_factors), &[])
+        .enrolling(
             routes!(start_setup),
             &[&AuthError::ReauthenticationRequired],
         )
-        .user(
+        .enrolling(
             routes!(confirm_setup),
             &[
                 &AuthError::WrongCode,
@@ -58,6 +60,7 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
             routes!(remove_app),
             &[
                 &AuthError::ReauthenticationRequired,
+                &AuthError::SecondFactorMandatory,
                 &LimitError::RateLimited,
             ],
         )
@@ -71,24 +74,26 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
         )
 }
 
-/// The second factor that a request gives, `code` or `recovery_code`, or `None` when it gives
-/// neither and `required` is false, or `None` with the refusals in `errors` (AUTH-060, AUTH-065).
+/// The second factor that a request gives, `code`, the app's code at the JSON Pointer `code_at`,
+/// or `recovery_code`, or `None` when it gives neither and `required` is false, or `None` with the
+/// refusals in `errors`, which name `code_at` when it gives both, or neither while `required`
+/// (AUTH-037, AUTH-060, AUTH-065).
 pub(super) fn factor_proof(
     errors: &mut FieldErrors,
-    code: Option<&str>,
+    (code_at, code): (&'static str, Option<&str>),
     recovery_code: Option<&str>,
     required: bool,
 ) -> Option<Option<FactorProof>> {
     match (code, recovery_code) {
         (Some(code), None) => errors
-            .check("/code", AppCode::parse(code))
+            .check(code_at, AppCode::parse(code))
             .map(|code| Some(FactorProof::App(code))),
         (None, Some(code)) => errors
             .check("/recovery_code", RecoveryCode::parse(code))
             .map(|code| Some(FactorProof::Recovery(code))),
         (None, None) if !required => Some(None),
         _ => errors.check(
-            "/code",
+            code_at,
             Err(Invalid::new(
                 "invalid_code",
                 "Send the app's code or a recovery code, one of them.",
@@ -177,7 +182,7 @@ async fn complete_sign_in(
     let mut errors = FieldErrors::new();
     let proof = factor_proof(
         &mut errors,
-        request.code.as_deref(),
+        ("/code", request.code.as_deref()),
         request.recovery_code.as_deref(),
         true,
     )

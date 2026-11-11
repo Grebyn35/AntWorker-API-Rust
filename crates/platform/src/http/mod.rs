@@ -73,6 +73,10 @@ enum Access {
     /// A caller whom a `Principal` proves, whose account may still have to prove its email
     /// address: a route that proving it needs (AUTH-025).
     Verifying,
+    /// A caller whom a `Principal` proves, whose account has proved its email address while the
+    /// deployment sends email, and may have no second factor while the deployment requires one: a
+    /// route that setting one up needs (AUTH-070).
+    Enrolling,
     /// A member of the workspace in the path whom `Authorized<P>` proves, for the permission
     /// of this name.
     Workspace(&'static str),
@@ -83,7 +87,7 @@ impl Access {
     fn name(self) -> &'static str {
         match self {
             Self::Public => "public",
-            Self::User | Self::Verifying => "user",
+            Self::User | Self::Verifying | Self::Enrolling => "user",
             Self::Workspace(_) => "workspace",
         }
     }
@@ -133,6 +137,14 @@ where
     /// (AUTH-025). It can answer `errors` besides the pipeline's own (ERR-13).
     pub fn verifying(self, route: UtoipaMethodRouter<S>, errors: &[&dyn ErrorCode]) -> Self {
         self.add_with(Access::Verifying, route, errors, stack::verifying_group)
+    }
+
+    /// Adds a route that a signed-in user calls, as [`Routes::user`] does, but whose account may
+    /// have no second factor while the deployment requires one: one that setting one up needs,
+    /// such as confirming a setup (AUTH-070). It can answer `errors` besides the pipeline's own
+    /// (ERR-13).
+    pub fn enrolling(self, route: UtoipaMethodRouter<S>, errors: &[&dyn ErrorCode]) -> Self {
+        self.add_with(Access::Enrolling, route, errors, stack::enrolling_group)
     }
 
     /// Adds a route that a member of the workspace in the path calls, whose handler extracts

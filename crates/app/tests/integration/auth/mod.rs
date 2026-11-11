@@ -6,6 +6,7 @@ mod email_change;
 mod listed;
 mod password;
 mod reauthentication;
+mod required;
 mod second_factors;
 mod sessions;
 mod sign_in;

@@ -1,6 +1,7 @@
 //! Registration and refresh; in `sign_in.rs`, signing in; in `sessions.rs`, reading, listing and
 //! ending a user's sessions, signing out among them; in `reauthentication.rs`, re-authenticating;
-//! in `deletion.rs`, confirming an account's deletion; in `verification.rs`, proving an account's
+//! in `deletion.rs`, confirming an account's deletion; in `exports.rs`, confirming the request of
+//! an export of the caller's data; in `verification.rs`, proving an account's
 //! email address, and the job that sends every code; in `password.rs`, resetting and changing the
 //! password; in `email_change.rs`, changing the account's address; in `second_factors/`, second
 //! factors and the completion of a sign-in with one; and in `verifier.rs`, the verifier of access
@@ -25,6 +26,7 @@ mod buckets;
 mod deletion;
 mod devices;
 mod email_change;
+mod exports;
 mod password;
 mod reauthentication;
 mod second_factors;
@@ -36,7 +38,9 @@ mod verifier;
 pub(super) use deletion::erase;
 pub(crate) use email_change::ChangeConfirmation;
 pub(crate) use password::{PasswordChange, ResetConfirmation};
-pub(crate) use second_factors::{Challenge, Completion, SecondFactors, Setup};
+pub(crate) use second_factors::{
+    Challenge, Completion, Removal, SecondFactors, Setup, remove_second_factor,
+};
 pub(crate) use sessions::Ended;
 pub(crate) use sign_in::{SignIn, SignedIn};
 pub(crate) use verifier::Verifier;
@@ -46,8 +50,8 @@ use super::{
     error::AuthError,
     events::{SESSION_CREATED, SessionChanged},
     model::{
-        self, DeviceId, DeviceName, DeviceToken, Lifetimes, Password, Session, StoredSession,
-        Tokens,
+        self, DeviceId, DeviceName, DeviceToken, Lifetimes, Password, Required, Session,
+        StoredSession, Tokens,
     },
     repo,
 };
@@ -85,6 +89,9 @@ pub(crate) struct Settings {
     pub(crate) sign_in_device: Bucket,
     /// How long a device token lasts (AUTH-019).
     pub(crate) device_tokens: std::time::Duration,
+    /// Whether every account must have a second factor, `SECOND_FACTOR_REQUIRED` (AUTH-070,
+    /// D133).
+    pub(crate) second_factor_required: bool,
 }
 
 /// The keys that `auth` takes from the deployment: the key of its keyed hashes, and the ring that
@@ -195,7 +202,12 @@ impl Auth {
             .await?;
         self.enqueue_code(&mut uow, &principal).await?;
         uow.commit().await?;
-        Ok((session.answer(self.mail.is_on()), tokens, device))
+        // A new account has proved no address and has no app.
+        let required = Required {
+            email_verification: self.mail.is_on(),
+            second_factor_setup: self.settings.second_factor_required,
+        };
+        Ok((session.answer(required), tokens, device))
     }
 
     /// Starts a session of `user_id` on `device`, ending the one its device has, if any, through
@@ -289,19 +301,38 @@ impl Auth {
     }
 
     /// `session` as its client sees it, which says whether its account must still prove its
-    /// email address, as `uow` reads the account (AUTH-026). An account that a deletion took
-    /// since the session was read went with the session, so the request answers as one sent after
-    /// the deletion does (AUTH-016, ACCOUNTS-019).
+    /// email address or set up a second factor, as `uow` reads the account (AUTH-026, AUTH-070).
+    /// An account that a deletion took since the session was read went with the session, so the
+    /// request answers as one sent after the deletion does (AUTH-016, ACCOUNTS-019).
     async fn answer(
         &self,
         uow: &mut UnitOfWork,
         session: StoredSession,
     ) -> Result<Session, AuthError> {
         let required = self
-            .email_verification_required(uow, session.user_id)
+            .required(uow, session.user_id)
             .await?
             .ok_or(RequestError::Unauthenticated)?;
         Ok(session.answer(required))
+    }
+
+    /// What `user_id`'s account must still do before the API serves it anything else, as `uow`
+    /// reads it: prove its email address (AUTH-025), or set up a second factor, while the
+    /// deployment requires one (AUTH-070); or `None` once the account is gone.
+    async fn required(
+        &self,
+        uow: &mut UnitOfWork,
+        user_id: UserId,
+    ) -> Result<Option<Required>, Internal> {
+        let Some(email_verification) = self.email_verification_required(uow, user_id).await? else {
+            return Ok(None);
+        };
+        let second_factor_setup = self.settings.second_factor_required
+            && !repo::second_factors::has_app(uow, user_id).await?;
+        Ok(Some(Required {
+            email_verification,
+            second_factor_setup,
+        }))
     }
 
     /// Creates a session of `user_id` on `device`, with new tokens, and the principal it proves,

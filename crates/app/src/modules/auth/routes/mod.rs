@@ -2,10 +2,12 @@
 //! Routes). Reading, listing and ending a user's sessions, signing out among them, is in
 //! `sessions.rs`, proving the account's email address in `verification.rs`, resetting and
 //! changing the password in `password.rs`, changing the address in `email_change.rs`,
-//! re-authenticating in `reauthentication.rs`, and second factors, completing a sign-in with one
-//! among them, in `second_factors.rs`.
+//! re-authenticating in `reauthentication.rs`, second factors, completing a sign-in with one
+//! among them, in `second_factors.rs`, and requesting an export of the caller's data, which this
+//! module confirms, in `exports.rs`.
 
 mod email_change;
+mod exports;
 mod password;
 mod reauthentication;
 mod second_factors;
@@ -39,6 +41,8 @@ use super::{
     service::{Auth, Device, Registration, SignIn, SignedIn},
 };
 use crate::modules::accounts::DisplayName;
+
+pub(crate) use exports::{ExportRequests, export_routes};
 
 /// The name of the cookie that holds a browser's refresh token, after `__Host-` (AUTH-015).
 const REFRESH_COOKIE: &str = "refresh_token";
@@ -233,6 +237,10 @@ pub(crate) struct SessionResponse {
     /// Whether its account must prove its email address, with the code sent to it, before the
     /// API serves it anything but proving it (AUTH-025, AUTH-026).
     email_verification_required: bool,
+    /// Whether its account must set up an authenticator app before the API serves it anything
+    /// but that and proving its address: true while the deployment requires a second factor and
+    /// the account has none (AUTH-070).
+    second_factor_setup_required: bool,
     /// The access token, unless the tokens went in cookies.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(nullable = false)]
@@ -263,6 +271,7 @@ impl SessionResponse {
             expires_at: session.expires_at,
             authenticated_at: session.authenticated_at,
             email_verification_required: session.email_verification_required,
+            second_factor_setup_required: session.second_factor_setup_required,
             access_token: tokens.map(|tokens| tokens.access.expose().clone()),
             refresh_token: tokens.map(|tokens| tokens.refresh.expose().clone()),
             device_token: device.map(|device| device.token.expose().clone()),

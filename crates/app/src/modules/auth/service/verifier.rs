@@ -1,6 +1,6 @@
 //! The verifier of access tokens, which `platform::authn` asks to prove each protected request's
-//! principal, and whether its account must still prove its email address (AUTH-009, AUTH-018,
-//! AUTH-025).
+//! principal, and whether its account must still prove its email address or set up a second
+//! factor (AUTH-009, AUTH-018, AUTH-025, AUTH-070).
 // part: files
 //! It also proves the principal of a signed URL's session (AUTH-020).
 // end part: files
@@ -98,21 +98,23 @@ impl SessionVerifier for Verifier {
 
 impl Auth {
     /// What a verified session proves: `principal`, and whether its account must still prove its
-    /// email address, which the account's row says as `uow` reads it, so a proof counts from
-    /// the next request on (AUTH-025). An account that is gone proves none.
+    /// email address or set up a second factor, which the account's rows say as `uow` reads them,
+    /// so a proof or an app counts from the next request on (AUTH-025, AUTH-070). An account that
+    /// is gone proves none.
     async fn verified(
         &self,
         uow: &mut UnitOfWork,
         principal: Principal,
     ) -> Result<Verified, Unverified> {
-        let email_verification_required = self
-            .email_verification_required(uow, principal.user_id())
+        let required = self
+            .required(uow, principal.user_id())
             .await
             .map_err(Unverified::Failed)?
             .ok_or(Unverified::Unknown)?;
         Ok(Verified {
             principal,
-            email_verification_required,
+            email_verification_required: required.email_verification,
+            second_factor_setup_required: required.second_factor_setup,
         })
     }
 }

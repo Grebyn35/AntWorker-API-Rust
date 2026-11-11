@@ -1,6 +1,6 @@
-//! `deploy`, `backup`, `restore`, `status` and `logs`, which the `just` recipes of the same names
-//! run on a developer's machine: they run the reference deployment's deploy/deploy.sh on its
-//! server over SSH (OPS-14, OPS-15, OPS-19). A deploy takes a release by its version: it refuses
+//! `deploy`, `backup`, `restore`, `status`, `logs` and `remove-second-factor`, which the `just`
+//! recipes of the same names run on a developer's machine: they run the reference deployment's
+//! deploy/deploy.sh on its server over SSH (OPS-14, OPS-15, OPS-19, AUTH-072). A deploy takes a release by its version: it refuses
 //! a version that no release has, sends the server the deployment's files from the release's tag,
 //! and runs that release's deploy.sh, which verifies the release's images before it pulls them.
 //! The other tasks run the deploy.sh of the release that the last deploy installed. The server
@@ -168,6 +168,18 @@ pub fn status(host: &str) -> ExitCode {
     on_server(
         host,
         &format!("DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh status"),
+    )
+}
+
+/// Removes the authenticator app of the account that holds `email` on the deployment that SSH
+/// reaches at `host`, through the API's subcommand `remove-second-factor` (AUTH-072).
+pub fn remove_second_factor(host: &str, email: &str) -> ExitCode {
+    on_server(
+        host,
+        &format!(
+            "DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh remove-second-factor {}",
+            quoted(email)
+        ),
     )
 }
 

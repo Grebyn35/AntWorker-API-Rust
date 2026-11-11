@@ -122,6 +122,7 @@ impl Config {
                     365 * day,
                     day..=5 * 365 * day,
                 )?,
+                second_factor_required: settings.flag("SECOND_FACTOR_REQUIRED", false)?,
             },
             // part: files
             files: files::Settings {
@@ -247,8 +248,9 @@ pub async fn compose(
     let routes = system::routes()
         .with_state(features)
         .merge(accounts::routes().with_state(database.clone()))
-        .merge(accounts::export_routes().with_state(exports))
+        .merge(accounts::export_routes().with_state(exports.clone()))
         .merge(auth::routes().with_state(auth.clone()))
+        .merge(auth::export_routes().with_state(auth::ExportRequests::new(auth.clone(), exports)))
         // part: invitations
         .merge(invitations::routes().with_state(invitations))
         // end part: invitations
@@ -347,6 +349,7 @@ pub fn openapi(service: Service) -> OpenApi {
         accounts::routes().openapi(service),
         accounts::export_routes().openapi(service),
         auth::routes().openapi(service),
+        auth::export_routes().openapi(service),
         workspaces::routes().openapi(service),
         realtime::routes().openapi(service),
         // part: invitations
@@ -357,6 +360,35 @@ pub fn openapi(service: Service) -> OpenApi {
         files::routes().openapi(service),
         // end part: files
     ])
+}
+
+/// What the subcommand `remove-second-factor` found (AUTH-072).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SecondFactorRemoval {
+    /// The account's authenticator app is removed, its sessions ended, and its address told.
+    Removed,
+    /// No account holds the address, so nothing changed.
+    NoAccount,
+    /// The account that holds the address has no authenticator app, so nothing changed.
+    NoApp,
+}
+
+/// Removes the authenticator app and the recovery codes of the account that holds `email`, on
+/// `database`, ends every session of its user, and tells the address through `mail`, for the
+/// subcommand `remove-second-factor`, which the operator runs once they have checked that the
+/// person who asks owns the account (AUTH-072, D135).
+pub async fn remove_second_factor(
+    database: &Database,
+    mail: &Mail,
+    email: &platform::types::EmailAddress,
+) -> Result<SecondFactorRemoval, Internal> {
+    Ok(
+        match auth::remove_second_factor(database, mail, email).await? {
+            auth::Removal::Removed => SecondFactorRemoval::Removed,
+            auth::Removal::NoAccount => SecondFactorRemoval::NoAccount,
+            auth::Removal::NoApp => SecondFactorRemoval::NoApp,
+        },
+    )
 }
 
 /// What `seed` created: each account's email address and name, which all share `password`, and

@@ -12,7 +12,8 @@ use crate::{
 /// (PLATFORM-013). A proof builds one, and so do, for no one, `platform`'s scheduler,
 /// `Principal::erased_job_scope` for a job that an account's deletion enqueues once the user is
 /// erased, and the tests. One comes from no proof: [`JobScope::attempt`], which only a password
-/// reset builds, for the account that holds the address it names.
+/// reset builds, for the account that holds the address it names, and the operator's removal of a
+/// second factor, for the account whose factor it removes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct JobScope {
     user: Option<UserId>,
@@ -40,10 +41,11 @@ impl JobScope {
         Self { user, workspace }
     }
 
-    /// The scope of a job that an unauthenticated request enqueues for the account it named, as
-    /// [`AuditScope::attempt`](crate::authn::AuditScope::attempt) scopes an entry: that account's
-    /// user, or no one when no account holds what it named, so that the request does the same work
-    /// either way (PLATFORM-013, SEC-05). Only a password reset calls it; clippy bans it elsewhere.
+    /// The scope of a job that an unauthenticated request, or an operator's subcommand, enqueues
+    /// for the account it named, as [`AuditScope::attempt`](crate::authn::AuditScope::attempt)
+    /// scopes an entry: that account's user, or no one when no account holds what it named, so
+    /// that the request does the same work either way (PLATFORM-013, SEC-05). Only a password reset
+    /// and the operator's removal of a second factor call it; clippy bans it elsewhere.
     pub fn attempt(user: Option<UserId>) -> Self {
         Self {
             user,

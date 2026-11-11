@@ -1,6 +1,7 @@
 //! The check of a second factor's code: an authenticator app's, or a recovery code, which a
-//! completion of a sign-in, a re-authentication and a change of the password go through, with the
-//! buckets that count them (AUTH-057, AUTH-061, AUTH-062, AUTH-065, AUTH-066).
+//! completion of a sign-in, a re-authentication, a change of the password and a reset of it go
+//! through, with the buckets that count them (AUTH-037, AUTH-057, AUTH-061, AUTH-062, AUTH-065,
+//! AUTH-066).
 
 use platform::{
     authn::{AuditScope, Principal},
@@ -8,8 +9,9 @@ use platform::{
     encryption::{Binding, Sealed},
     errors::{Internal, RequestError},
     hashing::sha256,
+    jobs::JobScope,
     rate_limit::{Bucket, LimitError, RateLimits},
-    types::UserId,
+    types::{EmailAddress, UserId},
 };
 
 use super::{APPS, SECRET};
@@ -88,6 +90,57 @@ impl Auth {
                 Ok(uow)
             }
         }
+    }
+
+    /// The second factor of a reset of `user_id`'s password, once its reset code matched in
+    /// `uow`: nothing for an account without an app, or else `proof`, which must be the app's code
+    /// or a recovery code. A wrong one is recorded in the account's log, with no actor, whose unit
+    /// of work commits before the answer, as a completion's does; a recovery code that it uses is
+    /// told to `address`, in a job of `scope` (AUTH-037, AUTH-062, ARCH-11). Its bucket counted the
+    /// request before `uow` opened (AUTH-061). It locks the password identity, then the app, the
+    /// order of every operation that locks both (DATA-20).
+    pub(in crate::modules::auth::service) async fn check_reset_factor(
+        &self,
+        mut uow: UnitOfWork,
+        user_id: UserId,
+        (address, scope): (&EmailAddress, JobScope),
+        proof: Option<&FactorProof>,
+    ) -> Result<UnitOfWork, AuthError> {
+        let attempt = AuditScope::attempt(user_id);
+        repo::password_identity_for_update(&mut uow, user_id).await?;
+        match self.check_factor(&mut uow, attempt, user_id, proof).await? {
+            Checked::NoApp | Checked::Passed(None) => Ok(uow),
+            Checked::Missing => Err(AuthError::SecondFactorRequired),
+            Checked::Wrong => Err(self
+                .wrong_factor(uow, attempt, user_id, AuthError::InvalidSecondFactor)
+                .await?),
+            Checked::Passed(Some(left)) => {
+                self.tell_factor_changed(
+                    &mut uow,
+                    scope,
+                    address.clone(),
+                    FactorChange::RecoveryCodeUsed(left),
+                )
+                .await?;
+                Ok(uow)
+            }
+        }
+    }
+
+    /// Counts a reset's check of `user_id`'s second factor in the bucket of their completions of
+    /// a sign-in, before its unit of work opens, once its reset code matched (AUTH-037,
+    /// AUTH-061).
+    pub(in crate::modules::auth::service) async fn count_reset_check(
+        &self,
+        limits: &RateLimits,
+        user_id: UserId,
+    ) -> Result<(), AuthError> {
+        count(
+            limits,
+            buckets::SECOND_FACTOR_SIGN_IN,
+            user_id.uuid().as_bytes(),
+        )
+        .await
     }
 
     /// Counts a signed-in user's check of a second factor in their bucket, before its unit of

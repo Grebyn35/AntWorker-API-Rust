@@ -2,8 +2,9 @@
 # The reference deployment's tasks on its server (D45): deploys a release with no downtime
 # (OPS-14), and with a managed backend, imports its dashboards and alert rules into the backend's
 # Grafana through import-grafana.sh (D42), takes and restores the bundled database's backups
-# (OPS-15), and shows the deployment's state and its services' logs (OPS-19). `just deploy`,
-# `just backup`, `just restore`, `just status` and `just logs` run it over SSH from a developer's
+# (OPS-15), shows the deployment's state and its services' logs (OPS-19), and removes a lost
+# second factor from an account (AUTH-072). `just deploy`, `just backup`, `just restore`,
+# `just status`, `just logs` and `just remove-second-factor` run it over SSH from a developer's
 # machine; docs/operations/deploy.md describes the deployment. Each task's code is a file of
 # tasks/, which this script sources.
 #
@@ -41,6 +42,11 @@
 #       Shows the last 100 lines of each service's log, of every service without one, and with
 #       --follow, the lines that follow. `api` names both colors' replicas. With caddy, or every
 #       service, Caddy's lines of the requests it answered itself follow too (D53).
+#   deploy.sh remove-second-factor <email>
+#       Removes the authenticator app and the recovery codes of the account that holds <email>,
+#       ends every session of the account, and tells the address, through the API's subcommand of
+#       the same name, with the image of the color that serves. Fails, changing nothing, when no
+#       account holds the address or it has no app.
 #   deploy.sh check <version>
 #   deploy.sh check-images <API image> <Postgres image>
 #       Checks what a deploy of the release <version>, or of the two images, each named by
@@ -70,6 +76,7 @@ project=deployment
 . "$here/tasks/backups.sh"
 . "$here/tasks/status.sh"
 . "$here/tasks/check.sh"
+. "$here/tasks/accounts.sh"
 
 # Prints yes when $2, a command's last argument, is the option $1, and no when it's empty.
 allowed() {
@@ -104,6 +111,10 @@ case $command in
         shift
         logs "$@"
         ;;
+    remove-second-factor)
+        if [ "$#" -ne 2 ]; then fail "usage: deploy.sh remove-second-factor <email>"; fi
+        remove_second_factor "$2"
+        ;;
     check)
         if [ "$#" -ne 2 ]; then fail "usage: deploy.sh check <version>"; fi
         check "$2"
@@ -112,5 +123,5 @@ case $command in
         if [ "$#" -ne 3 ]; then fail "usage: deploy.sh check-images <API image> <Postgres image>"; fi
         check "$2" "$3"
         ;;
-    *) fail "usage: deploy.sh deploy|apply|backup|restore|restore-inputs|status|logs|check|check-images (see the comment at the top of deploy.sh)" ;;
+    *) fail "usage: deploy.sh deploy|apply|backup|restore|restore-inputs|status|logs|remove-second-factor|check|check-images (see the comment at the top of deploy.sh)" ;;
 esac

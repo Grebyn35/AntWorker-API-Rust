@@ -159,6 +159,16 @@ just logs production api
 
 shows the last 100 lines of the logs of both colors' replicas. Name any of the deployment's services instead, such as `caddy`, `postgres` or `backup`, or none for all of them, and add `--follow` to go on showing the lines that follow, until Ctrl-C. With `caddy`, or no service named, the last 100 of Caddy's lines of the requests it answered itself follow, such as its 503 while no replica runs, each headed `caddy requests`: Caddy writes them to a file, which the collector reads when the deployment has telemetry, and each holds the request's trace ID as `traceID`. Each container keeps the last 100 megabytes of its log, in five files of 20 megabytes, the older ones compressed. With the self-hosted stack, Grafana also keeps the API's logs, to search ([observability.md](observability.md)).
 
+## Removing a lost second factor
+
+A user who lost their authenticator app and their recovery codes can't sign in on their own. Once you have checked, your own way, that the person who asks owns the account,
+
+```
+just remove-second-factor production ada@example.com
+```
+
+removes the account's app and its recovery codes, ends every session of the account, records the removal in the account's own log, and tells the address ([auth spec](../spec/auth.md#second-factors), D135). The account then signs in with its password alone, and its user sets up an app again, at once when `SECOND_FACTOR_REQUIRED` is true. It runs the API's subcommand `remove-second-factor` with the image and the settings of the color that serves, so it needs a replica running, and it exits 1, changing nothing, when no account holds the address or the account has no app.
+
 ## Scaling
 
 `API_REPLICAS` sets how many replicas serve, and `API_CPUS` and `API_MEMORY` what each one may use; `just load-test` measures what one replica serves under the default limits (OPS-16). A replica hashes one password at once per whole CPU it may use, and at least one, each hash with 19 MiB of memory (AUTH-014), and a burst of sign-ins waits its turns (PLATFORM-060), so raising `API_CPUS` raises the memory such a burst takes too.

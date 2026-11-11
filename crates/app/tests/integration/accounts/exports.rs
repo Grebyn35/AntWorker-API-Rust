@@ -136,6 +136,40 @@ async fn accounts_020_a_request_answers_202_with_the_pending_export_records_it_a
 }
 
 #[tokio::test]
+async fn accounts_020_a_session_that_proved_its_user_more_than_5_minutes_ago_is_refused_and_counts_nothing()
+ {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    users::authenticated_ago(&api, &ada, 6).await;
+
+    let refused = request(&api, &ada).await;
+
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.json()["code"], "auth.reauthentication_required");
+    assert_eq!(one(&api, "SELECT count(*)::text FROM exports").await, "0");
+    assert_eq!(
+        one(
+            &api,
+            "SELECT count(*)::text FROM audit_entries WHERE action = 'export.requested'"
+        )
+        .await,
+        "0"
+    );
+    // The refusal took nothing of the day's one export: once the session proves its user again,
+    // the request is let through (ACCOUNTS-021).
+    let reauthenticated = api
+        .post(
+            "/v1/users/me/sessions/current/reauthenticate",
+            &json!({ "password": users::PASSWORD }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(reauthenticated.status, 200);
+    assert_eq!(request(&api, &ada).await.status, 202);
+}
+
+#[tokio::test]
 async fn accounts_021_a_second_request_within_24_hours_answers_429_and_creates_nothing() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

@@ -112,6 +112,7 @@ Every route except the health probes (OPS-05) and the API reference that develop
 - `public`: no authentication.
 - `user`: requires a `Principal`, whose account has proved its email address while email is on (AUTH-025).
 - `verifying`: as `user`, for a route that proving the caller's email address, or correcting it, needs, which a caller whose account must still prove it may call (AUTH-025).
+- `enrolling`: as `user`, for a route that setting up a second factor needs, which a caller whose account has none may call while the deployment requires one (AUTH-070).
 - `workspace::<P>`: requires `Authorized<P>` for the workspace in the path, where `P` is a permission.
 - `workspace_upload::<P>` and `user_upload`: as `workspace::<P>` and `user`, for a route whose body is a file's bytes, or an avatar's, which its handler reads through `Upload` in a group of its own: once `Authorize::check` has authorized a member, on a workspace's, and once `Principal` has authenticated the caller, on a user's (PLATFORM-073, PLATFORM-074). <!-- part: files -->
 - `user_download`: as `user`, for a route that serves bytes that never change, such as an export's archive, or a range of them (PLATFORM-081).

@@ -1,11 +1,12 @@
 //! Second factors (D134): reading a user's, setting up an authenticator app and confirming the
 //! setup, new recovery codes and removing the app; in `completion.rs`, a sign-in's challenge and
-//! its completion with a code; and in `checks.rs`, the check of a code, which a completion, a
-//! re-authentication and a change of the password go through (AUTH-054 to AUTH-069, the auth
-//! spec's "Second factors").
+//! its completion with a code; in `checks.rs`, the check of a code, which a completion, a
+//! re-authentication, a change of the password and a reset go through; and in `removal.rs`, the
+//! operator's removal of a lost app (AUTH-054 to AUTH-072, the auth spec's "Second factors").
 
 mod checks;
 mod completion;
+mod removal;
 
 use platform::{
     authn::Principal,
@@ -18,6 +19,7 @@ use platform::{
 };
 
 pub(crate) use completion::{Challenge, Completion};
+pub(crate) use removal::{Removal, remove_second_factor};
 
 use self::checks::{count, recovery_hash};
 use super::{Auth, buckets, reauthentication};
@@ -219,7 +221,8 @@ impl Auth {
 
     /// Removes the caller's app, with their recovery codes and their sign-in challenges, once
     /// their session proved who they are within the last 5 minutes; without an app, it changes
-    /// nothing (AUTH-064, AUTH-069).
+    /// nothing (AUTH-064, AUTH-069). While the deployment requires a second factor, it refuses,
+    /// since the app may only be replaced (AUTH-071).
     pub(crate) async fn remove_app(
         &self,
         limits: &RateLimits,
@@ -232,6 +235,9 @@ impl Auth {
         limits
             .check(buckets::SECOND_FACTOR_CHANGE, user_id.uuid().as_bytes())
             .await?;
+        if self.settings.second_factor_required {
+            return Err(AuthError::SecondFactorMandatory);
+        }
         let mut uow = self.database.begin(client).await?;
         reauthentication::require_recent_proof(&mut uow, principal).await?;
         let address = reauthentication::take_turn(&mut uow, principal).await?;

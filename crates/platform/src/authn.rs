@@ -2,7 +2,8 @@
 //! implements proves from the request's access token, read from the `Authorization` header or a
 //! browser's cookie (D18, D61), and the audit scope a proof gives an entry. A caller whose account
 //! must still prove its email address is refused, but on the routes that proving it needs
-//! (AUTH-025, D67).
+//! (AUTH-025, D67), and so is one without a second factor while the deployment requires one, but
+//! on the routes that setting one up needs (AUTH-070, D133).
 // part: files
 //! On a download route, the session that a signed URL names proves it instead (PLATFORM-080,
 //! D113).
@@ -172,20 +173,29 @@ impl AuditScope {
     }
 }
 
-/// What a credential proves: its principal, and whether the principal's account must still prove
-/// its email address before the API serves it anything but proving it (AUTH-025, D67).
+/// What a credential proves: its principal, whether the principal's account must still prove
+/// its email address before the API serves it anything but proving it (AUTH-025, D67), and
+/// whether it must set up a second factor before the API serves it anything but that (AUTH-070,
+/// D133).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Verified {
     /// The caller.
     pub principal: Principal,
     /// Whether the deployment sends email and the caller's account hasn't proved its address.
     pub email_verification_required: bool,
+    /// Whether the deployment requires a second factor and the caller's account has none.
+    pub second_factor_setup_required: bool,
 }
 
 /// The marker of a route that proving the caller's email address needs, such as signing out,
 /// which a caller whose account must still prove it may call (AUTH-025).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Verifying;
+
+/// The marker of a route that setting up a second factor needs, such as confirming a setup,
+/// which a caller whose account has none may call while the deployment requires one (AUTH-070).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Enrolling;
 
 /// Why a credential proves no principal.
 #[derive(Debug)]
@@ -205,7 +215,8 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// `platform` (ARCH-13).
 pub trait SessionVerifier: Send + Sync {
     /// The principal whose session holds `token` as its access token, for a request from
-    /// `client`, and whether its account must still prove its email address.
+    /// `client`, and whether its account must still prove its email address or set up a second
+    /// factor.
     fn verify<'a>(
         &'a self,
         token: &'a str,
@@ -216,7 +227,8 @@ pub trait SessionVerifier: Send + Sync {
     /// The principal of the session `session`, while it lasts, for a signed URL that acts for it
     /// until `until`, for a request from `client`: [`Unverified::Expired`] once `until` has
     /// passed, by the database's clock (DATA-03), and [`Unverified::Unknown`] for a session
-    /// that doesn't last (AUTH-020), and whether its account must still prove its email address.
+    /// that doesn't last (AUTH-020), and whether its account must still prove its email address
+    /// or set up a second factor.
     fn session<'a>(
         &'a self,
         session: SessionId,
@@ -272,9 +284,16 @@ impl<S: Send + Sync> FromRequestParts<S> for Principal {
                 LimitError::Internal(error) => Problem(error).into_response(),
             })?;
         // Once the user's bucket counted the request, a caller whose account must still prove
-        // its address is refused, but on a route that proving it needs (AUTH-025, PLATFORM-054).
-        if verified.email_verification_required && parts.extensions.get::<Verifying>().is_none() {
+        // its address is refused, but on a route that proving it needs (AUTH-025, PLATFORM-054),
+        // and then one whose account must set up a second factor, but on a route that proving the
+        // address or setting the factor up needs (AUTH-070).
+        let verifying = parts.extensions.get::<Verifying>().is_some();
+        if verified.email_verification_required && !verifying {
             return Err(rejection(RequestError::EmailUnverified));
+        }
+        let enrolling = parts.extensions.get::<Enrolling>().is_some();
+        if verified.second_factor_setup_required && !verifying && !enrolling {
+            return Err(rejection(RequestError::SecondFactorSetupRequired));
         }
         Ok(principal)
     }

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api, Options,
     api::Response,
-    mailbox,
+    mailbox, second_factors,
     users::{self, SignedIn},
 };
 
@@ -1053,4 +1053,274 @@ async fn auth_041_with_email_off_a_change_enqueues_no_email() {
             .await
             .is_empty()
     );
+}
+
+/// The body of a confirmation of a reset of `email`'s password with `code`, to
+/// [`NEW_PASSWORD`], with `factor`'s fields, a second factor's code, added.
+fn with_factor(email: &str, code: &str, factor: Value) -> Value {
+    let mut body = json!({ "email": email, "code": code, "password": NEW_PASSWORD });
+    for (name, value) in factor.as_object().unwrap() {
+        body[name] = value.clone();
+    }
+    body
+}
+
+/// Confirms a reset of `email`'s password with `code`, to [`NEW_PASSWORD`], with `factor`'s
+/// fields, a second factor's code (AUTH-037).
+async fn confirm_with(api: &Api, email: &str, code: &str, factor: Value) -> Response {
+    api.post(
+        "/v1/password-resets/confirm",
+        &with_factor(email, code, factor),
+    )
+    .send()
+    .await
+}
+
+/// How many reset codes `user_id`'s account holds.
+async fn reset_codes(api: &Api, user_id: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT count(*)::text FROM verification_codes \
+             WHERE user_id = '{user_id}' AND purpose = 'password_reset'"
+        ))
+        .await
+}
+
+#[tokio::test]
+async fn auth_037_an_account_with_an_app_resets_only_with_the_app_s_code_too() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let app = second_factors::add_app(&api, &ada).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+
+    let missing = confirm(&api, &address, &code).await;
+    let wrong = confirm_with(
+        &api,
+        &address,
+        &code,
+        json!({ "second_factor_code":
+            second_factors::other_code(&second_factors::code(&api, &app.secret).await) }),
+    )
+    .await;
+
+    // Whoever reads the mailbox alone resets nothing, and the reset codes stay (D136).
+    assert_eq!(missing.status, 403);
+    assert_eq!(missing.json()["code"], "auth.second_factor_required");
+    assert_eq!(wrong.status, 401);
+    assert_eq!(wrong.json()["code"], "auth.invalid_second_factor");
+    assert_eq!(reset_codes(&api, &ada.user_id).await, ["1"]);
+    let failed: Vec<String> = log(&api, &ada.user_id)
+        .await
+        .into_iter()
+        .filter(|entry| entry.starts_with("second_factor.check_failed"))
+        .collect();
+    assert_eq!(
+        failed,
+        [format!(
+            "second_factor.check_failed - user {} {{}}",
+            ada.user_id
+        )]
+    );
+    let me = api.get("/v1/users/me").bearer(&ada.access).send().await;
+    assert_eq!(me.status, 200, "the session lasts");
+
+    let reset = confirm_with(
+        &api,
+        &address,
+        &code,
+        json!({ "second_factor_code": second_factors::code(&api, &app.secret).await }),
+    )
+    .await;
+
+    assert_eq!(reset.status, 204, "{}", reset.json());
+    assert_eq!(reset_codes(&api, &ada.user_id).await, ["0"]);
+    let me = api.get("/v1/users/me").bearer(&ada.access).send().await;
+    assert_eq!(me.status, 401);
+    // The app stays, so the next sign-in asks for it (AUTH-069).
+    let signed_in = users::sign_in(&api, &address, NEW_PASSWORD).await;
+    assert_eq!(signed_in.status, 200);
+    assert!(signed_in.json()["challenge"].is_string());
+}
+
+#[tokio::test]
+async fn auth_037_a_recovery_code_resets_in_place_of_the_app_s_code_and_is_told() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let app = second_factors::add_app(&api, &ada).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+
+    let reset = confirm_with(
+        &api,
+        &address,
+        &code,
+        json!({ "recovery_code": app.recovery_codes[0] }),
+    )
+    .await;
+
+    assert_eq!(reset.status, 204, "{}", reset.json());
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT count(*)::text FROM recovery_codes")
+            .await,
+        ["9"]
+    );
+    let used: Vec<String> = log(&api, &ada.user_id)
+        .await
+        .into_iter()
+        .filter(|entry| entry.starts_with("recovery_code.used"))
+        .collect();
+    assert_eq!(used.len(), 1, "{used:?}");
+    assert!(
+        used[0].starts_with("recovery_code.used - recovery_code "),
+        "{used:?}"
+    );
+    api.run_jobs().await;
+    let told = mailbox::to(&address)
+        .await
+        .into_iter()
+        .find(|email| email.subject.contains("A recovery code was used"))
+        .expect("the email that tells the address");
+    assert!(
+        told.text.contains("9 recovery codes are left."),
+        "{}",
+        told.text
+    );
+}
+
+#[tokio::test]
+async fn auth_061_a_reset_counts_its_second_factor_in_the_bucket_of_the_user_s_completions_once_its_code_matched()
+ {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let app = second_factors::add_app(&api, &ada).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    let factor =
+        || async { json!({ "second_factor_code": second_factors::code(&api, &app.secret).await }) };
+    // The confirmation's own bucket, of the address from the client's address (AUTH-039).
+    confirm(&api, &address, &mailbox::other_grouped_code(&code)).await;
+
+    // A reset code that matches nothing counts the code in no user's bucket, so whoever knows
+    // the address alone fills none.
+    let wrong_code = users::buckets(&api).await;
+    confirm_with(
+        &api,
+        &address,
+        &mailbox::other_grouped_code(&code),
+        factor().await,
+    )
+    .await;
+    assert_eq!(users::buckets(&api).await, wrong_code);
+
+    let wrong_factor = json!({ "second_factor_code":
+        second_factors::other_code(&second_factors::code(&api, &app.secret).await) });
+    let bucket = users::added_bucket(&api, confirm_with(&api, &address, &code, wrong_factor)).await;
+
+    // The same bucket that the user's completions of a sign-in count in, without a device token.
+    let challenge = second_factors::challenge(&api, &address).await;
+    let before = users::buckets(&api).await;
+    let completed = second_factors::complete(
+        &api,
+        &challenge,
+        json!({ "code": second_factors::code(&api, &app.secret).await }),
+    )
+    .await;
+    assert_eq!(completed.status, 201, "{}", completed.json());
+    assert_eq!(users::buckets(&api).await, before);
+    assert!(before.contains(&bucket));
+}
+
+#[tokio::test]
+async fn auth_037_a_code_that_the_job_deleted_as_it_expired_while_the_factor_was_checked_changes_nothing()
+ {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let app = second_factors::add_app(&api, &ada).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    let db = api.database();
+    // The confirmation waits at the password identity, once its reset code has matched, while the
+    // code's row goes, as the job of another request's code deletes a code that expired.
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
+            ada.user_id
+        ))
+        .await;
+    let sent = api.spawn(
+        http::Method::POST,
+        "/v1/password-resets/confirm",
+        "",
+        Some(with_factor(
+            &address,
+            &code,
+            json!({ "recovery_code": app.recovery_codes[0] }),
+        )),
+    );
+    crate::support::queries_wait_on_locks(db, 1).await;
+    crate::support::execute_on(
+        &mut held,
+        &format!(
+            "DELETE FROM verification_codes WHERE user_id = '{}' AND purpose = 'password_reset'",
+            ada.user_id
+        ),
+    )
+    .await;
+    crate::support::execute_on(&mut held, "COMMIT").await;
+
+    let (status, body) = sent.await.unwrap();
+
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "auth.invalid_reset_code");
+    // The recovery code that the check accepted still works, and nothing was recorded or sent.
+    assert_eq!(
+        db.owner_reads("SELECT count(*)::text FROM recovery_codes")
+            .await,
+        ["10"]
+    );
+    assert!(
+        log(&api, &ada.user_id)
+            .await
+            .iter()
+            .all(|entry| !entry.starts_with("recovery_code.used")
+                && !entry.starts_with("password.reset"))
+    );
+    let me = api.get("/v1/users/me").bearer(&ada.access).send().await;
+    assert_eq!(me.status, 200, "the session lasts");
+}
+
+#[tokio::test]
+async fn auth_038_a_malformed_second_factor_answers_400_at_its_field() {
+    let api = Api::new().await;
+    let code = "7KQM-2XWD-9RTB-H4NP";
+
+    for (factor, field) in [
+        (
+            json!({ "second_factor_code": "12345" }),
+            "/second_factor_code",
+        ),
+        (
+            json!({ "second_factor_code": "123456", "recovery_code": "AAAA-AAAA-AAAA-AAAA-AAAA-AAAA" }),
+            "/second_factor_code",
+        ),
+        (json!({ "recovery_code": "AAAA" }), "/recovery_code"),
+    ] {
+        let refused = api
+            .post_raw(
+                "/v1/password-resets/confirm",
+                &with_factor("ada@example.com", code, factor),
+            )
+            .send()
+            .await;
+        assert_eq!(refused.status, 400, "{field}");
+        let errors = refused.json()["errors"].clone();
+        assert_eq!(errors[0]["field"], field, "{errors}");
+        assert_eq!(errors[0]["code"], "invalid_code", "{errors}");
+    }
 }

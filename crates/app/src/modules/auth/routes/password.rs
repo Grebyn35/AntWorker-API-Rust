@@ -36,6 +36,8 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
             routes!(confirm_reset),
             &[
                 &AuthError::InvalidResetCode,
+                &AuthError::SecondFactorRequired,
+                &AuthError::InvalidSecondFactor,
                 &LimitError::RateLimited,
                 &RequestError::FeatureDisabled,
             ],
@@ -83,6 +85,15 @@ pub(crate) struct ResetConfirmationRequest {
     /// The account's new password (AUTH-003).
     #[schema(value_type = Password)]
     password: String,
+    /// The code that the account's authenticator app shows, which an account with an app sends,
+    /// or else `recovery_code` (AUTH-037).
+    #[serde(default)]
+    #[schema(value_type = Option<crate::modules::auth::model::AppCode>)]
+    second_factor_code: Option<String>,
+    /// One of the account's recovery codes, in place of `second_factor_code`.
+    #[serde(default)]
+    #[schema(value_type = Option<crate::modules::auth::model::RecoveryCode>)]
+    recovery_code: Option<String>,
 }
 
 impl TryFrom<ResetConfirmationRequest> for ResetConfirmation {
@@ -93,14 +104,23 @@ impl TryFrom<ResetConfirmationRequest> for ResetConfirmation {
         let email = errors.check("/email", EmailAddress::parse(&request.email));
         let code = errors.check("/code", ResetCode::parse(&request.code));
         let password = errors.check("/password", Password::parse(request.password));
-        let built = email
-            .zip(code)
-            .zip(password)
-            .map(|((email, code), password)| Self {
-                email,
-                code,
-                password,
-            });
+        let proof = super::second_factors::factor_proof(
+            &mut errors,
+            ("/second_factor_code", request.second_factor_code.as_deref()),
+            request.recovery_code.as_deref(),
+            false,
+        );
+        let built =
+            email
+                .zip(code)
+                .zip(password)
+                .zip(proof)
+                .map(|(((email, code), password), proof)| Self {
+                    email,
+                    code,
+                    password,
+                    proof,
+                });
         errors.finish(built)
     }
 }
@@ -138,7 +158,7 @@ impl TryFrom<PasswordChangeRequest> for PasswordChange {
         let password = errors.check("/password", Password::parse(request.password));
         let proof = super::second_factors::factor_proof(
             &mut errors,
-            request.code.as_deref(),
+            ("/code", request.code.as_deref()),
             request.recovery_code.as_deref(),
             false,
         );
@@ -178,8 +198,9 @@ async fn request_reset(
 }
 
 /// Resets the password of the account that holds the address with the reset code sent to it,
-/// ends every session of the account, and proves its address. It starts no session: sign in with
-/// the new password.
+/// and, for an account with an authenticator app, the app's code or a recovery code, ends every
+/// session of the account, and proves its address. It starts no session: sign in with the new
+/// password.
 #[utoipa::path(
     post,
     path = "/v1/password-resets/confirm",

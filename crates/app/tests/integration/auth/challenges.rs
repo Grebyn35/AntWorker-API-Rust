@@ -725,7 +725,7 @@ async fn auth_069_a_reset_deletes_the_challenges_and_leaves_the_app_that_the_nex
     let api = Api::new().await;
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
-    add_app(&api, &ada).await;
+    let app = add_app(&api, &ada).await;
     challenge(&api, &address).await;
     let asked = api
         .post("/v1/password-resets", &json!({ "email": address }))
@@ -743,7 +743,8 @@ async fn auth_069_a_reset_deletes_the_challenges_and_leaves_the_app_that_the_nex
     let reset = api
         .post(
             "/v1/password-resets/confirm",
-            &json!({ "email": address, "code": reset_code, "password": "violet-harbor-73-brisk" }),
+            &json!({ "email": address, "code": reset_code, "password": "violet-harbor-73-brisk",
+                     "second_factor_code": code(&api, &app.secret).await }),
         )
         .send()
         .await;

@@ -5,8 +5,8 @@ mod composition;
 mod modules;
 
 pub use composition::{
-    Config, MIGRATIONS, Resources, SeedError, SeedReport, Services, compose, openapi, pipeline,
-    seed, seed_allowed,
+    Config, MIGRATIONS, Resources, SecondFactorRemoval, SeedError, SeedReport, Services, compose,
+    openapi, pipeline, remove_second_factor, seed, seed_allowed,
 };
 #[cfg(feature = "test-support")]
 pub use composition::{permissions, personal_data_columns};

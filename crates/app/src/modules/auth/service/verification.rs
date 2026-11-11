@@ -194,8 +194,9 @@ impl Auth {
         let session = repo::session(&mut uow, user_id, principal.session_id())
             .await?
             .ok_or(RequestError::Unauthenticated)?;
+        let session = self.answer(&mut uow, session).await?;
         uow.commit().await?;
-        Ok(session.answer(false))
+        Ok(session)
     }
 
     /// The run of `auth.send_verification_code` for the user the job runs for: issues a new code

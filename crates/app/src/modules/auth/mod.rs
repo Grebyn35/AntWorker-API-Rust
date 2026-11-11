@@ -15,5 +15,5 @@ mod service;
 pub(crate) use jobs::register;
 pub(crate) use model::Lifetimes;
 pub(crate) use personal_data::Contract;
-pub(crate) use routes::routes;
-pub(crate) use service::{Auth, Keys, Settings, Verifier};
+pub(crate) use routes::{ExportRequests, export_routes, routes};
+pub(crate) use service::{Auth, Keys, Removal, Settings, Verifier, remove_second_factor};

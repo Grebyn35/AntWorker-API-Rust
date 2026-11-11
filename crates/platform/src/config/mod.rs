@@ -148,6 +148,17 @@ pub struct HealthConfig {
     pub listen_addr: SocketAddr,
 }
 
+/// The settings that a subcommand an operator runs against the accounts reads, such as
+/// `remove-second-factor`: the database, as the role `app`, and the deployment's emails, which it
+/// enqueues for `serve` to send (ARCH-14).
+#[derive(Clone, Debug)]
+pub struct OperatorConfig {
+    /// The role `app`'s connection.
+    pub database_url: DatabaseUrl,
+    /// Whether the deployment sends email, and through which server (PLATFORM-024).
+    pub mail: MailConfig,
+}
+
 /// The settings `migrate` reads.
 #[derive(Clone, Debug)]
 pub struct MigrateConfig {
@@ -360,6 +371,20 @@ where
         Ok(HealthConfig {
             listen_addr: self.required("LISTEN_ADDR", LISTEN_ADDR_EXPECTED)?,
         })
+    }
+
+    /// The settings for a subcommand that an operator runs against the accounts, such as
+    /// `remove-second-factor`.
+    pub fn operator(&self) -> Result<OperatorConfig, ConfigError> {
+        Ok(OperatorConfig {
+            database_url: self.database_url("DATABASE_URL")?,
+            mail: self.mail()?,
+        })
+    }
+
+    /// The setting `name`, `true` or `false`, or `default` when it is unset (OPS-01).
+    pub fn flag(&self, name: &str, default: bool) -> Result<bool, ConfigError> {
+        self.optional(name, default, "true or false")
     }
 
     /// The settings for `migrate`.

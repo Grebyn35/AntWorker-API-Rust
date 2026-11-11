@@ -68,6 +68,9 @@ enum Place {
     /// On every operation that authenticates its caller, but those that proving the caller's
     /// email address needs (AUTH-025).
     Verified,
+    /// On every operation that authenticates its caller, but those that proving the caller's
+    /// email address needs and those that setting up a second factor needs (AUTH-070).
+    Enrolled,
     /// On every operation that takes a body (PLATFORM-049, PLATFORM-051).
     Body,
     /// On every operation of a workspace route, which authorization guards (ACCESS-003).
@@ -98,6 +101,7 @@ fn place(error: &RequestError) -> Place {
         RequestError::PreconditionFailed => Place::Conditional,
         RequestError::Unauthenticated | RequestError::AccessTokenExpired => Place::Authenticated,
         RequestError::EmailUnverified => Place::Verified,
+        RequestError::SecondFactorSetupRequired => Place::Enrolled,
         RequestError::FeatureDisabled => Place::Listed,
         // part: files
         RequestError::SignedUrlExpired => Place::Signed,
@@ -119,7 +123,11 @@ fn applies(place: &Place, method: &Method, access: Access, operation: &Operation
         Place::Every => true,
         Place::Unsafe => !method.is_safe(),
         Place::Authenticated => !matches!(access, Access::Public),
-        Place::Verified => matches!(access, Access::User | Access::Workspace(_)),
+        Place::Verified => matches!(
+            access,
+            Access::User | Access::Enrolling | Access::Workspace(_)
+        ),
+        Place::Enrolled => matches!(access, Access::User | Access::Workspace(_)),
         Place::Body => operation.request_body.is_some(),
         Place::Workspace => matches!(access, Access::Workspace(_)),
         Place::Keyed => takes_header(operation, IDEMPOTENCY_KEY),

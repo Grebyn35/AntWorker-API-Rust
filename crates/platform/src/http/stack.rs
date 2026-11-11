@@ -36,7 +36,7 @@ use super::{
 use super::{signed::TakesSignedUrl, upload::UploadTurns};
 // end part: files
 use crate::{
-    authn::{Authenticator, Verifying},
+    authn::{Authenticator, Enrolling, Verifying},
     authz::Authorizer,
     clock::SharedClock,
     errors::{self, ErrorReport, FieldError, Internal, Problem, RequestError},
@@ -182,6 +182,16 @@ where
     S: Clone + Send + Sync + 'static,
 {
     route_group(route, queries).layer(Extension(Verifying))
+}
+
+/// The layers of a route that setting up a second factor needs: a route group's, and the marker
+/// that lets `Principal` prove a caller whose account has none while the deployment requires one
+/// (AUTH-070).
+pub(super) fn enrolling_group<S>(route: MethodRouter<S>, queries: QueryNames) -> MethodRouter<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    route_group(route, queries).layer(Extension(Enrolling))
 }
 
 // part: files

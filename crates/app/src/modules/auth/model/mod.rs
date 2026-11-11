@@ -276,8 +276,18 @@ pub(crate) struct DeviceToken {
     pub(crate) expires_at: Timestamp,
 }
 
+/// What a session's account must still do before the API serves it anything else: prove its email
+/// address (AUTH-025, AUTH-026), or set up a second factor (AUTH-070).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Required {
+    /// While email is on, the account hasn't proved its address.
+    pub(crate) email_verification: bool,
+    /// While the deployment requires a second factor, the account has none.
+    pub(crate) second_factor_setup: bool,
+}
+
 /// A session as the database holds it, before the service adds what its account must still do
-/// (AUTH-026).
+/// (AUTH-026, AUTH-070).
 #[derive(Clone, Debug)]
 pub(crate) struct StoredSession {
     pub(crate) id: SessionId,
@@ -292,9 +302,9 @@ pub(crate) struct StoredSession {
 }
 
 impl StoredSession {
-    /// The session as its client sees it, whose account must still prove its email address when
-    /// `email_verification_required` (AUTH-026).
-    pub(crate) fn answer(self, email_verification_required: bool) -> Session {
+    /// The session as its client sees it, whose account must still do what `required` says
+    /// (AUTH-026, AUTH-070).
+    pub(crate) fn answer(self, required: Required) -> Session {
         Session {
             id: self.id,
             user_id: self.user_id,
@@ -305,7 +315,8 @@ impl StoredSession {
             refresh_token_expires_at: self.refresh_token_expires_at,
             expires_at: self.expires_at,
             authenticated_at: self.authenticated_at,
-            email_verification_required,
+            email_verification_required: required.email_verification,
+            second_factor_setup_required: required.second_factor_setup,
         }
     }
 }
@@ -337,6 +348,10 @@ pub(crate) struct Session {
     /// API serves it anything but proving it: true while the deployment sends email and the
     /// address isn't proven (AUTH-025, AUTH-026).
     pub(crate) email_verification_required: bool,
+    /// Whether its account must set up an authenticator app before the API serves it anything
+    /// but that and proving its address: true while the deployment requires a second factor and
+    /// the account has none (AUTH-070).
+    pub(crate) second_factor_setup_required: bool,
 }
 
 /// A way to sign in, as the database's `identity_method` names it (DATA-04).

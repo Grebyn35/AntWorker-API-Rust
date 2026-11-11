@@ -42,6 +42,10 @@ pub enum RequestError {
     /// deployment sends email (AUTH-025).
     #[error("the caller's email address isn't verified")]
     EmailUnverified,
+    /// The caller's account has no second factor, which the deployment requires of every account
+    /// and the route needs (AUTH-070).
+    #[error("the caller's account has no second factor")]
+    SecondFactorSetupRequired,
     /// A request that changes something comes from an origin that isn't listed, or a cookie
     /// authenticates it and it names no origin (PLATFORM-059).
     #[error("the request's origin isn't allowed")]
@@ -113,6 +117,7 @@ impl ErrorCode for RequestError {
             Self::SignedUrlExpired => "request.signed_url_expired",
             // end part: files
             Self::EmailUnverified => "request.email_unverified",
+            Self::SecondFactorSetupRequired => "request.second_factor_setup_required",
             Self::OriginNotAllowed => "request.origin_not_allowed",
             Self::PermissionDenied => "request.permission_denied",
             Self::InvalidIdempotencyKey => "request.invalid_idempotency_key",
@@ -142,6 +147,7 @@ impl ErrorCode for RequestError {
             Self::SignedUrlExpired => "Signed URL expired",
             // end part: files
             Self::EmailUnverified => "Email address not verified",
+            Self::SecondFactorSetupRequired => "Second factor required",
             Self::OriginNotAllowed => "Origin not allowed",
             Self::PermissionDenied => "Permission denied",
             Self::InvalidIdempotencyKey => "Invalid idempotency key",
@@ -170,9 +176,10 @@ impl ErrorCode for RequestError {
             // part: files
             Self::SignedUrlExpired => Category::Unauthenticated,
             // end part: files
-            Self::EmailUnverified | Self::OriginNotAllowed | Self::PermissionDenied => {
-                Category::Forbidden
-            }
+            Self::EmailUnverified
+            | Self::SecondFactorSetupRequired
+            | Self::OriginNotAllowed
+            | Self::PermissionDenied => Category::Forbidden,
             Self::IdempotencyKeyReused => Category::BusinessRule,
             Self::IdempotencyKeyInFlight => Category::Conflict,
             Self::PreconditionFailed => Category::PreconditionFailed,
@@ -202,6 +209,10 @@ impl ErrorCode for RequestError {
             }
             Self::EmailUnverified => Some(
                 "Verify the account's email address with the code sent to it first.".to_owned(),
+            ),
+            Self::SecondFactorSetupRequired => Some(
+                "The deployment requires a second factor: set up an authenticator app first."
+                    .to_owned(),
             ),
             Self::FeatureDisabled => {
                 Some("The deployment has turned this feature off.".to_owned())
@@ -323,6 +334,7 @@ impl RequestError {
         // end part: files
         every.extend([
             Self::EmailUnverified,
+            Self::SecondFactorSetupRequired,
             Self::OriginNotAllowed,
             Self::PermissionDenied,
             Self::InvalidIdempotencyKey,

@@ -135,8 +135,8 @@ impl Auth {
 
 /// [`close`]s each of `user_id`'s sessions in `ended`, which the unit of work deleted, and
 /// records each as `session.ended` in `scope` (AUTH-008, AUTH-013, AUTH-037, AUTH-040, AUTH-044,
-/// AUTH-045).
-pub(super) async fn end_sessions(
+/// AUTH-045, AUTH-072).
+pub(in crate::modules::auth::service) async fn end_sessions(
     uow: &mut UnitOfWork,
     scope: AuditScope,
     user_id: UserId,

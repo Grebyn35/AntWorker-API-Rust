@@ -103,8 +103,9 @@ impl Exports {
 
     /// Requests an export of the caller's data, once their bucket counts it, in a unit of work
     /// of `client`'s request that records it in their own log and enqueues its job
-    /// (ACCOUNTS-020, ACCOUNTS-021).
-    pub(in crate::modules::accounts) async fn request(
+    /// (ACCOUNTS-020, ACCOUNTS-021). `auth` calls it, once the caller's session has proved who
+    /// they are just before (D137).
+    pub(crate) async fn request(
         &self,
         limits: &RateLimits,
         client: &Client,

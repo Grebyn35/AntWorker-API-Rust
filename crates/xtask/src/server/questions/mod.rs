@@ -468,6 +468,7 @@ mod tests {
         "",
         "",
         "",
+        "",
         // Enter generates the key ring.
         "",
         // part: files

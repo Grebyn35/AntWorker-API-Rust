@@ -184,8 +184,9 @@ impl Auth {
         let session = repo::session(&mut uow, user_id, principal.session_id())
             .await?
             .ok_or(RequestError::Unauthenticated)?;
+        let session = self.answer(&mut uow, session).await?;
         uow.commit().await?;
-        Ok(session.answer(false))
+        Ok(session)
     }
 
     /// Enqueues in `uow` the email that tells `to`, the address the account had proved before a

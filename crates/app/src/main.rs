@@ -18,13 +18,14 @@ use platform::{
     blocking::Workers,
     clock::SharedClock,
     config::{
-        BootstrapConfig, ConfigError, Environment, HealthConfig, MigrateConfig, ServerConfig,
-        TelemetryConfig,
+        BootstrapConfig, ConfigError, Environment, HealthConfig, MigrateConfig, OperatorConfig,
+        ServerConfig, TelemetryConfig,
     },
     db::Database,
     lifecycle::{self, Readiness, Shutdown, ShutdownSignals},
     mail::Mail,
     telemetry::{Service, names},
+    types::EmailAddress,
 };
 use tokio::{net::TcpListener, sync::watch};
 
@@ -61,6 +62,14 @@ enum Command {
     /// Asks the instance that `LISTEN_ADDR` names whether it is ready, for a container's health
     /// check, and exits 0 only if it is.
     Health,
+    /// Removes the authenticator app and the recovery codes of the account that holds an
+    /// address, ends every session of the account, and tells the address, for a user who lost
+    /// both, once the operator has checked that the person who asks owns the account. Exits 1,
+    /// changing nothing, when no account holds the address or it has no app.
+    RemoveSecondFactor {
+        /// The account's email address.
+        email: String,
+    },
     /// Writes the OpenAPI document of every route to a file (API-17).
     Openapi {
         /// The file to write.
@@ -87,6 +96,11 @@ fn main() -> ExitCode {
             start(settings.telemetry(), config, seed)
         }
         Command::Health => health(settings.health()),
+        Command::RemoveSecondFactor { email } => {
+            start(settings.telemetry(), settings.operator(), |config| {
+                remove_second_factor(config, email)
+            })
+        }
         Command::Openapi { path } => openapi(&path),
     }
 }
@@ -295,6 +309,54 @@ async fn seed((config, modules): (ServerConfig, app::Config)) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => failed("seed", &error),
+    }
+}
+
+/// The most connections an operator's subcommand opens: it runs one unit of work at a time.
+const OPERATOR_CONNECTIONS: u32 = 2;
+
+/// Removes the authenticator app of the account that holds `email`, and says what it did, or why
+/// it changed nothing (AUTH-072, D135).
+#[expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "what the subcommand did is its output, for the operator who ran it (CODE-03)"
+)]
+async fn remove_second_factor(config: OperatorConfig, email: String) -> ExitCode {
+    let Ok(email) = EmailAddress::parse(&email) else {
+        eprintln!("{email} isn't an email address, so no account holds it: nothing changed.");
+        return ExitCode::FAILURE;
+    };
+    let database =
+        match Database::connect(&config.database_url, OPERATOR_CONNECTIONS, &app::MIGRATIONS).await
+        {
+            Ok(database) => database,
+            Err(error) => return failed("database", &error),
+        };
+    let clock: SharedClock = Arc::new(SystemClock);
+    let mail = match Mail::new(config.mail, clock) {
+        Ok(mail) => mail,
+        Err(error) => return failed("mail", &error),
+    };
+    let address = email.as_str();
+    match app::remove_second_factor(&database, &mail, &email).await {
+        Ok(app::SecondFactorRemoval::Removed) => {
+            println!(
+                "Removed the authenticator app and the recovery codes of {address}, and ended \
+                 every session of the account. The account signs in with its password alone, and \
+                 the address is told."
+            );
+            ExitCode::SUCCESS
+        }
+        Ok(app::SecondFactorRemoval::NoAccount) => {
+            eprintln!("No account holds {address}: nothing changed.");
+            ExitCode::FAILURE
+        }
+        Ok(app::SecondFactorRemoval::NoApp) => {
+            eprintln!("The account of {address} has no authenticator app: nothing changed.");
+            ExitCode::FAILURE
+        }
+        Err(error) => failed("remove-second-factor", &error),
     }
 }
 

@@ -66,3 +66,14 @@ status host:
 [group('server')]
 logs host *services:
     {{ xtask }} logs {{ host }} {{ services }}
+
+# Removes the authenticator app and the recovery codes of the account that holds `email` on the
+# reference deployment on `host`, ends every session of the account, and tells the address, for a
+# user who lost both, once you have checked, your own way, that the person who asks owns the
+# account (AUTH-072, D135). It runs the API's subcommand `remove-second-factor` with the image of
+# the color that serves, and exits 1, changing nothing, when no account holds the address or it has
+# no app. docs/operations/deploy.md says when to run it.
+[doc("Removes a lost authenticator app from an account on a server")]
+[group('server')]
+remove-second-factor host email:
+    {{ xtask }} remove-second-factor {{ host }} {{ quote(email) }}

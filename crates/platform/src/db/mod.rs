@@ -149,6 +149,13 @@ impl Database {
         Ok(uow)
     }
 
+    /// Opens a unit of work for a subcommand that an operator runs, such as
+    /// `remove-second-factor`, which acts for no request and no job, so its audit entries record
+    /// no client (ARCH-14). Only such a subcommand opens one; clippy bans it elsewhere.
+    pub async fn for_operator(&self) -> Result<UnitOfWork, Internal> {
+        self.unattributed().await
+    }
+
     /// Opens a unit of work for `platform`'s own mechanisms, such as the hub's reads, which act
     /// for no request and no job, and whose audit entries record no client.
     pub(crate) async fn unattributed(&self) -> Result<UnitOfWork, Internal> {
