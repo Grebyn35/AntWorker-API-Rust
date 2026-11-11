@@ -76,6 +76,31 @@ pub(super) const CHANGE_EMAIL: Bucket = Bucket {
     window: Duration::from_secs(600),
 };
 
+/// The bucket of each user's checks of a second factor from a signed-in session, a setup's
+/// confirmation's, a re-authentication's or a change of the password's: 10 in 24 hours, fixed
+/// (AUTH-061).
+pub(super) const SECOND_FACTOR_CHECK: Bucket = Bucket {
+    name: "second_factor_check",
+    limit: 10,
+    window: Duration::from_secs(86_400),
+};
+
+/// The bucket of each user's completions of a sign-in that bring no valid device token: 10 in 24
+/// hours, fixed (AUTH-061).
+pub(super) const SECOND_FACTOR_SIGN_IN: Bucket = Bucket {
+    name: "second_factor_sign_in",
+    limit: 10,
+    window: Duration::from_secs(86_400),
+};
+
+/// The bucket of the completions of a sign-in whose challenge holds a valid device token, in place
+/// of the user's, so no completion from elsewhere fills it: 10 in 24 hours, fixed (AUTH-061).
+pub(super) const SECOND_FACTOR_DEVICE: Bucket = Bucket {
+    name: "second_factor_device",
+    limit: 10,
+    window: Duration::from_secs(86_400),
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

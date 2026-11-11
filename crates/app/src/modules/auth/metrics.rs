@@ -6,8 +6,8 @@ use platform::telemetry::{metrics::Counter, names};
 static SIGN_INS: Counter<1> = Counter::new(
     "auth.sign_ins",
     "{attempt}",
-    "Sign-in attempts, by how each ended: succeeded, invalid_credentials or rate_limited \
-     (AUTH-004 to AUTH-006).",
+    "Sign-in attempts, by how each ended: succeeded, challenged, for an account whose second \
+     factor completes it, invalid_credentials or rate_limited (AUTH-004 to AUTH-006, AUTH-058).",
     [names::AUTH_OUTCOME],
 );
 
@@ -16,6 +16,8 @@ static SIGN_INS: Counter<1> = Counter::new(
 pub(super) enum SignIn {
     /// A session began (AUTH-004).
     Succeeded,
+    /// The password matched, and a challenge waits for the account's second factor (AUTH-058).
+    Challenged,
     /// The credentials matched no account (AUTH-005).
     InvalidCredentials,
     /// A sign-in limit refused it: one of the email's, or its device token's (AUTH-006).
@@ -26,6 +28,7 @@ pub(super) enum SignIn {
 pub(super) fn sign_in(outcome: SignIn) {
     let label = match outcome {
         SignIn::Succeeded => "succeeded",
+        SignIn::Challenged => "challenged",
         SignIn::InvalidCredentials => "invalid_credentials",
         SignIn::RateLimited => "rate_limited",
     };
@@ -129,4 +132,35 @@ pub(super) fn email_change(outcome: EmailChange) {
         EmailChange::RateLimited => "rate_limited",
     };
     EMAIL_CHANGES.add(1, [label.into()]);
+}
+
+/// Checks of second factors' codes, by how each ended.
+static SECOND_FACTOR_CHECKS: Counter<1> = Counter::new(
+    "auth.second_factor_checks",
+    "{check}",
+    "Checks of second factors' codes, an authenticator app's or a recovery code, at a sign-in's \
+     completion, a setup's confirmation, a re-authentication or a change of the password, by how \
+     each ended: passed, wrong_code or rate_limited (AUTH-056 to AUTH-065).",
+    [names::AUTH_OUTCOME],
+);
+
+/// How a check of a second factor's code ended.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum FactorCheck {
+    /// The code was the account's (AUTH-057, AUTH-062).
+    Passed,
+    /// The code wasn't the account's (AUTH-056, AUTH-060, AUTH-065).
+    WrongCode,
+    /// A limit on the checks refused it (AUTH-061).
+    RateLimited,
+}
+
+/// Counts a check of a second factor's code that ended as `outcome`.
+pub(super) fn factor_check(outcome: FactorCheck) {
+    let label = match outcome {
+        FactorCheck::Passed => "passed",
+        FactorCheck::WrongCode => "wrong_code",
+        FactorCheck::RateLimited => "rate_limited",
+    };
+    SECOND_FACTOR_CHECKS.add(1, [label.into()]);
 }

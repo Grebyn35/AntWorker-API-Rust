@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT floor(extract(epoch FROM now()))::int8 AS \"now!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "now!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "eb9f99b83d6f71c5e494e1796d57f9ee0db9198ed2d546c715f9845ed41b23cf"
+}

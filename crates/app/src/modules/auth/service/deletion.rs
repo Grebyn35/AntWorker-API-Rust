@@ -67,5 +67,9 @@ pub(in crate::modules::auth) async fn erase(
         .await?;
     }
     repo::delete_device_tokens(uow, user_id).await?;
-    repo::codes::delete_all(uow, user_id).await
+    repo::codes::delete_all(uow, user_id).await?;
+    let _ = repo::second_factors::delete_app(uow, user_id).await?;
+    repo::second_factors::delete_setup(uow, user_id).await?;
+    repo::second_factors::delete_recovery_codes(uow, user_id).await?;
+    repo::second_factors::delete_challenges(uow, user_id).await
 }

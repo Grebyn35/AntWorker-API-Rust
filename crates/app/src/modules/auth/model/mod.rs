@@ -1,6 +1,7 @@
 //! The domain types of sign-in (D25): passwords, device IDs and how a client takes its tokens;
-//! in `codes.rs`, the verification, reset and change codes sent to an address; and in
-//! `sessions.rs`, a device's name and a session as a user's list of them shows it.
+//! in `codes.rs`, the verification, reset and change codes sent to an address, and recovery codes;
+//! in `second_factors.rs`, an authenticator app's secret and codes; and in `sessions.rs`, a
+//! device's name and a session as a user's list of them shows it.
 
 use std::{borrow::Cow, collections::HashSet, sync::LazyLock, time::Duration};
 
@@ -15,10 +16,12 @@ use utoipa::{
 };
 
 mod codes;
+mod second_factors;
 mod sessions;
 
-pub(crate) use codes::{ChangeCode, ResetCode, VerificationCode};
+pub(crate) use codes::{ChangeCode, RecoveryCode, ResetCode, VerificationCode};
 pub(super) use codes::{Code, Purpose};
+pub(crate) use second_factors::{AppCode, AppSecret, FactorProof, STEP_SECONDS};
 pub(crate) use sessions::{DeviceName, SessionItem};
 
 /// The fewest characters a password has (AUTH-003).
@@ -381,6 +384,41 @@ pub(super) struct ExportedSession {
 pub(super) struct ExportedCode {
     pub(super) id: uuid::Uuid,
     pub(super) purpose: Purpose,
+    pub(super) created_at: Timestamp,
+    pub(super) expires_at: Timestamp,
+}
+
+/// An authenticator app, as its user's export holds it, without its secret (SEC-02).
+#[derive(Debug, Serialize)]
+pub(super) struct ExportedApp {
+    pub(super) id: uuid::Uuid,
+    pub(super) created_at: Timestamp,
+    pub(super) updated_at: Timestamp,
+    pub(super) last_used_step: i64,
+}
+
+/// A setup of an authenticator app, as its user's export holds it, without its secret.
+#[derive(Debug, Serialize)]
+pub(super) struct ExportedSetup {
+    pub(super) id: uuid::Uuid,
+    pub(super) created_at: Timestamp,
+    pub(super) expires_at: Timestamp,
+}
+
+/// A recovery code, as its user's export holds it, without its hash (SEC-03).
+#[derive(Debug, Serialize)]
+pub(super) struct ExportedRecoveryCode {
+    pub(super) id: uuid::Uuid,
+    pub(super) created_at: Timestamp,
+}
+
+/// A sign-in that waits for its second factor, as its user's export holds it, without its token's
+/// hash or its device token's.
+#[derive(Debug, Serialize)]
+pub(super) struct ExportedChallenge {
+    pub(super) id: uuid::Uuid,
+    pub(super) device_id: Option<DeviceId>,
+    pub(super) device_name: Option<DeviceName>,
     pub(super) created_at: Timestamp,
     pub(super) expires_at: Timestamp,
 }

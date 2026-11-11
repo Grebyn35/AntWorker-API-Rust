@@ -29,14 +29,17 @@ askama.workspace = true
 axum.workspace = true
 bytes.workspace = true
 clap.workspace = true
+data-encoding.workspace = true
 futures-util.workspace = true
 ipnet.workspace = true
+percent-encoding.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
+totp-rs.workspace = true
 # seed sends the API's router its requests in process.
 tower.workspace = true
 tracing.workspace = true

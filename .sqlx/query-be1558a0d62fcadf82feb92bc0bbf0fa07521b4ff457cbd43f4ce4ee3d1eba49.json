@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE totp_factors\n        SET last_used_step = $3,\n            key_version = coalesce($4, key_version),\n            secret = coalesce($5, secret)\n        WHERE user_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int2",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "be1558a0d62fcadf82feb92bc0bbf0fa07521b4ff457cbd43f4ce4ee3d1eba49"
+}

@@ -33,6 +33,8 @@ x-api: &api
     DATABASE_MAX_CONNECTIONS: ${DATABASE_MAX_CONNECTIONS:-10}
     DATABASE_URL_FILE: /run/secrets/database_url
     HMAC_KEY_FILE: /run/secrets/hmac_key
+    ENCRYPTION_KEYS_FILE: /run/secrets/encryption_keys
+    ENCRYPTION_KEY_VERSION: ${ENCRYPTION_KEY_VERSION:-}
     OTEL_EXPORTER_OTLP_ENDPOINT: ${API_TELEMETRY_ENDPOINT:-}
     # Caddy stops sending requests to a draining replica within its health checks' interval and
     # timeout (deploy/caddy/sites/api.caddy), so the replica keeps serving for longer (OPS-06).
@@ -91,6 +93,7 @@ x-api: &api
   secrets:
     - database_url
     - hmac_key
+    - encryption_keys
     - smtp_password
     # part: files
     - files_s3_key
@@ -464,13 +467,15 @@ volumes:
   grafana:
 
 # The secret files, in secrets/ of the deployment's directory. deploy.sh writes the URLs of the
-# bundled Postgres, the API's HMAC key and Grafana's password, and an empty SMTP password when the
+# bundled Postgres, the API's HMAC key and encryption keys and Grafana's password, and an empty SMTP password when the
 # mail server takes none; `just server-setup` writes the others (docs/operations/deploy.md).
 secrets:
   database_url:
     file: ./secrets/database_url
   hmac_key:
     file: ./secrets/hmac_key
+  encryption_keys:
+    file: ./secrets/encryption_keys
   smtp_password:
     file: ./secrets/smtp_password
   database_owner_url:

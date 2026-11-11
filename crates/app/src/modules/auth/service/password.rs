@@ -25,7 +25,7 @@ use crate::modules::{
         error::AuthError,
         jobs::SendCode,
         metrics,
-        model::{Password, Purpose, ResetCode},
+        model::{FactorProof, Password, Purpose, ResetCode},
         repo::{self, codes},
     },
 };
@@ -41,6 +41,8 @@ pub(crate) struct ResetConfirmation {
 pub(crate) struct PasswordChange {
     pub(crate) current: Password,
     pub(crate) password: Password,
+    /// The second factor's code, which an account with an authenticator app gives (AUTH-065).
+    pub(crate) proof: Option<FactorProof>,
 }
 
 impl Auth {
@@ -144,6 +146,8 @@ impl Auth {
             return Err(AuthError::InvalidResetCode);
         }
         let identity = repo::set_password(&mut uow, user_id, &password_hash).await?;
+        // No challenge issued for the password before completes a sign-in (AUTH-069).
+        repo::second_factors::delete_challenges(&mut uow, user_id).await?;
         let ended = repo::delete_sessions(&mut uow, user_id).await?;
         end_sessions(&mut uow, scope, user_id, &ended).await?;
         if !address.verified {
@@ -214,18 +218,25 @@ impl Auth {
         change: PasswordChange,
     ) -> Result<(), AuthError> {
         let user_id = principal.user_id();
+        self.count_signed_in_check(limits, principal, change.proof.as_ref())
+            .await?;
         // The check takes the user's turn, so a change that came first has set its hash, which
         // this check reads (AUTH-022, DATA-20).
-        let (mut uow, address, matches) = self
+        let (uow, address, matches) = self
             .check_password(limits, client, principal, change.current)
             .await?;
         if !matches {
             return Err(self.wrong_password(uow, principal).await?);
         }
+        let mut uow = self
+            .check_signed_in_factor(uow, principal, change.proof.as_ref())
+            .await?;
         let password_hash = hash(&self.workers, change.password).await?;
         // The identity before any session, as a sign-in locks them, so the two never deadlock
         // (the auth spec's "Taking turns").
         let identity = repo::set_password(&mut uow, user_id, &password_hash).await?;
+        // No challenge issued for the password before completes a sign-in (AUTH-069).
+        repo::second_factors::delete_challenges(&mut uow, user_id).await?;
         // The request proved the password, as a re-authentication does; its session, read after
         // the turn, may have ended meanwhile.
         if repo::reauthenticate(&mut uow, user_id, principal.session_id())

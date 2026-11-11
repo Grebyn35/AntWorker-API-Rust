@@ -1,6 +1,7 @@
-//! The SQL of what a user's export holds of their identities, sessions, device tokens and
-//! verification codes: never a password's, a token's or a code's hash (SEC-03), and filtered by
-//! the user whose export the job builds (DATA-16).
+//! The SQL of what a user's export holds of their identities, sessions, device tokens,
+//! verification codes and second factors: never a password's, a token's or a code's hash
+//! (SEC-03), nor an app's secret (SEC-02), and filtered by the user whose export the job builds
+//! (DATA-16).
 
 use platform::{
     db::UnitOfWork,
@@ -10,7 +11,9 @@ use platform::{
 };
 
 use crate::modules::auth::model::{
-    ExportedCode, ExportedDeviceToken, ExportedIdentity, ExportedSession, IdentityMethod, Purpose,
+    DeviceId, DeviceName, ExportedApp, ExportedChallenge, ExportedCode, ExportedDeviceToken,
+    ExportedIdentity, ExportedRecoveryCode, ExportedSession, ExportedSetup, IdentityMethod,
+    Purpose,
 };
 
 /// Every identity of `user`'s: one at most for each way to sign in.
@@ -125,4 +128,87 @@ pub(in crate::modules::auth) async fn verification_codes(
             })
         })
         .collect()
+}
+
+/// `user`'s authenticator app, one at most, and its setup, one at most.
+pub(in crate::modules::auth) async fn apps(
+    uow: &mut UnitOfWork,
+    user: UserId,
+) -> Result<(Vec<ExportedApp>, Vec<ExportedSetup>), Internal> {
+    let apps = sqlx::query!(
+        "SELECT id, created_at, updated_at, last_used_step FROM totp_factors WHERE user_id = $1",
+        user.uuid(),
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    let setups = sqlx::query!(
+        "SELECT id, created_at, expires_at FROM totp_setups WHERE user_id = $1",
+        user.uuid(),
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok((
+        apps.into_iter()
+            .map(|row| ExportedApp {
+                id: row.id,
+                created_at: Timestamp::from_database(row.created_at),
+                updated_at: Timestamp::from_database(row.updated_at),
+                last_used_step: row.last_used_step,
+            })
+            .collect(),
+        setups
+            .into_iter()
+            .map(|row| ExportedSetup {
+                id: row.id,
+                created_at: Timestamp::from_database(row.created_at),
+                expires_at: Timestamp::from_database(row.expires_at),
+            })
+            .collect(),
+    ))
+}
+
+/// Every recovery code of `user`'s, ten at most.
+pub(in crate::modules::auth) async fn recovery_codes(
+    uow: &mut UnitOfWork,
+    user: UserId,
+) -> Result<Vec<ExportedRecoveryCode>, Internal> {
+    let rows = sqlx::query!(
+        "SELECT id, created_at FROM recovery_codes WHERE user_id = $1 ORDER BY id",
+        user.uuid(),
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ExportedRecoveryCode {
+            id: row.id,
+            created_at: Timestamp::from_database(row.created_at),
+        })
+        .collect())
+}
+
+/// Every sign-in challenge of `user`'s, which the sign-in limits and their 5 minutes keep few
+/// (AUTH-006, AUTH-067).
+pub(in crate::modules::auth) async fn challenges(
+    uow: &mut UnitOfWork,
+    user: UserId,
+) -> Result<Vec<ExportedChallenge>, Internal> {
+    let rows = sqlx::query!(
+        "SELECT id, device_id, device_name, created_at, expires_at FROM sign_in_challenges
+        WHERE user_id = $1
+        ORDER BY id",
+        user.uuid(),
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ExportedChallenge {
+            id: row.id,
+            device_id: row.device_id.map(DeviceId::from_stored),
+            device_name: row.device_name.map(DeviceName::from_stored),
+            created_at: Timestamp::from_database(row.created_at),
+            expires_at: Timestamp::from_database(row.expires_at),
+        })
+        .collect())
 }

@@ -6,6 +6,7 @@
 pub(super) mod codes;
 pub(super) mod exported;
 mod identities;
+pub(super) mod second_factors;
 
 use platform::{
     db::UnitOfWork,

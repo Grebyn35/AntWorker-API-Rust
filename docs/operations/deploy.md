@@ -236,6 +236,14 @@ With the self-hosted stack, Grafana answers at `https://<GRAFANA_ADDRESS>`. Sign
 
 With a managed backend, its Grafana shows the dashboards in the folder `API`, and its notification policies route the alerts ([observability.md](observability.md#a-managed-backend)).
 
+## The encryption keys
+
+The API encrypts each secret that it must read back, such as an authenticator app's, under the key ring in `secrets/encryption_keys`, which the first deploy writes with one key, version 1 (SEC-02, PLATFORM-086). Keep a copy off the server ([backups](backups.md#what-to-keep-off-the-server)). To replace a key, such as one that may have leaked:
+
+1. Add a key with the next version to the file, such as `1:<old key>,2:<new key>`, where a key is the base64 of 32 random bytes, as `head -c 32 /dev/urandom | base64` writes it; set `ENCRYPTION_KEY_VERSION=1` in `settings.env`; and deploy, so that every replica reads the new key before any encrypts with it.
+2. Remove `ENCRYPTION_KEY_VERSION`, so that the highest version encrypts, and deploy. Each check of an app's code, and the hourly job `auth.reencrypt_secrets`, encrypts its secret again under the new key (AUTH-066).
+3. An hour after that deploy's replicas serve, remove the old key from the file, and deploy. A replica refuses to start while a stored secret still needs the old key, so the deploy keeps the replicas that serve until the job has moved every secret.
+
 ## The files on the server
 
 | Path in `~/deployment` | Holds | Written by |

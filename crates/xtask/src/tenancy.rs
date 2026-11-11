@@ -33,6 +33,12 @@ const ACCOUNT_DATA: &[&str] = &[
     "sessions",
     "device_tokens",
     "verification_codes",
+    // A user's second factors, and the challenges of their sign-ins (the auth spec's "Second
+    // factors").
+    "totp_factors",
+    "totp_setups",
+    "recovery_codes",
+    "sign_in_challenges",
     // The client of an audit entry, keyed by the user whose deletion deletes it (AUDIT-006).
     "audit_entry_clients",
     "exports",
@@ -486,6 +492,10 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
             "{MIGRATION}CREATE TABLE users (id uuid);\nCREATE TABLE identities (id uuid);\n\
              CREATE TABLE sessions (id uuid);\nCREATE TABLE device_tokens (id uuid);\n\
              CREATE TABLE verification_codes (id uuid, user_id uuid);\n\
+             CREATE TABLE totp_factors (id uuid, user_id uuid);\n\
+             CREATE TABLE totp_setups (id uuid, user_id uuid);\n\
+             CREATE TABLE recovery_codes (id uuid, user_id uuid);\n\
+             CREATE TABLE sign_in_challenges (id uuid, user_id uuid);\n\
              CREATE TABLE audit_entry_clients (id uuid);\n\
              CREATE TABLE exports (id uuid, user_id uuid);\n\
              CREATE TABLE export_entries (id uuid, export_id uuid);\n\

@@ -1,6 +1,6 @@
 # Security rules (`SEC`)
 
-The security bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) (D26), but for its requirement 6.3.3, which requires a second factor of every user to sign in: here every user may add a second factor, and every superadmin must, so a product's users can sign in without setting one up (D63). These rules cover the mechanisms every module relies on. The threat model in `docs/operations/threat-model.md` maps each threat to the rules that mitigate it, and records the controls that stand in for requirement 6.3.3, as the requirement asks of an application that relaxes it.
+The security bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) (D26), but for its requirement 6.3.3, which requires a second factor of every user to sign in: here every user may add a second factor, and every superadmin must, so a product's users can sign in without setting one up (D63), and a deployment may require one of every user, which meets the requirement in full (D133). These rules cover the mechanisms every module relies on. The threat model in `docs/operations/threat-model.md` maps each threat to the rules that mitigate it, and records the controls that stand in for requirement 6.3.3, as the requirement asks of an application that relaxes it.
 
 ## Secrets
 
@@ -11,7 +11,7 @@ A signed URL's signature isn't one: it is a keyed hash, under `HMAC_KEY`, which 
 - Check: `compiler` (`Secret` has no way to print its value), plus `review`.
 
 ### SEC-02 Secrets at rest are encrypted with associated data
-Third-party credentials stored in the database, such as OAuth provider tokens, are encrypted with AES-256-GCM. The key is versioned. The associated data binds each ciphertext to its table, its column, and the ID of the row that owns the secret (for a provider token, its identity), which exists before the secret is written. No other column is encrypted at the application level.
+Secrets stored in the database that the API must read back, such as an authenticator app's secret and an OAuth provider's tokens, are encrypted with AES-256-GCM. The key is versioned: `ENCRYPTION_KEYS` holds each version, `ENCRYPTION_KEY_VERSION` names the one that encrypts, and each ciphertext records its own (PLATFORM-086). The associated data binds each ciphertext to its table, its column, and the ID of the row that owns the secret (for a provider token, its identity), which exists before the secret is written. No other column is encrypted at the application level.
 - Why: a ciphertext can't be moved to another row, and the encryption scope stays small (D14).
 - Check: `test`.
 
@@ -111,7 +111,7 @@ The reference deployment publishes only Caddy's ports, 80 and 443. Caddy serves 
 - Check: `ci: deny`, plus `ci: image-scan` and `ci: image-rescan`.
 
 ### SEC-16 Only vetted cryptography
-Cryptography comes from the RustCrypto crates (`aes-gcm`, `hmac`, `sha2`, `argon2`) and from `rustls` with its `ring` provider. This codebase builds no primitive or construction of its own. Crates that implement the Postgres protocol may build its standard constructions from those crates' primitives: the database driver's SCRAM-SHA-256 (Salted Challenge Response Authentication Mechanism) sign-in, and the password verifier that `bootstrap` computes with `postgres-protocol` (PLATFORM-002).
+Cryptography comes from the RustCrypto crates (`aes-gcm`, `hmac`, `sha2`, `argon2`) and from `rustls` with its `ring` provider. This codebase builds no primitive or construction of its own. `totp-rs` builds the one-time passwords of RFC 6238 from RustCrypto's `hmac` and `sha1`, for authenticator apps (AUTH-057). Crates that implement the Postgres protocol may build its standard constructions from those crates' primitives: the database driver's SCRAM-SHA-256 (Salted Challenge Response Authentication Mechanism) sign-in, and the password verifier that `bootstrap` computes with `postgres-protocol` (PLATFORM-002).
 - Why: cryptography is easy to get subtly wrong, so it comes from vetted crates, and a protocol's standard construction is safer in its driver than rebuilt here. The `ring` provider builds on every supported platform without extra toolchains.
 - Check: `ci: deny` (bans `openssl`, `native-tls` and `aws-lc-rs`), plus `review`.
 

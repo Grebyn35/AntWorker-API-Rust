@@ -19,14 +19,24 @@
 //!   (DATA-16). Scheduled maintenance isn't audited (DATA-22). A run skips a row that a request
 //!   holds, which the next deletes; a run right after one that skipped none finds nothing more to
 //!   delete.
+//! - `auth.expire_unfinished`, periodic, every hour, deletes the setups of authenticator apps and
+//!   the sign-in challenges of every user that expired, touching `totp_setups` and
+//!   `sign_in_challenges` alone, by expiry alone, as `auth.expire_sessions` does (AUTH-067). A
+//!   run that meets a row that a request holds ends there, and the next deletes the rest.
+//! - `auth.reencrypt_secrets`, periodic, every hour, stores every authenticator app's secret that
+//!   another version of the key ring holds anew under the current one, touching `totp_factors`
+//!   alone, by key version alone (AUTH-066). It spans every user by nature, as the startup check
+//!   of the versions that stored secrets need does, which reads `totp_factors` and `totp_setups`.
+//!   An app whose row a request holds is left for the next run.
 
 use std::time::Duration;
 
 use platform::{
-    db::Database,
+    db::{Database, is_lock_timeout},
+    encryption::{Binding, Keyring, Sealed},
     errors::Internal,
     jobs::{Duplicate, Job, JobContext, Jobs},
-    types::EmailAddress,
+    types::{Client, EmailAddress},
 };
 use serde::{Deserialize, Serialize};
 
@@ -76,6 +86,28 @@ pub(crate) fn register(auth: &std::sync::Arc<Auth>, jobs: &mut Jobs) -> Result<(
             let database = database.clone();
             async move { expire(&database, &context).await }
         },
+    )?;
+    let database = auth.database();
+    jobs.periodic(
+        "auth.expire_unfinished",
+        EXPIRE_INTERVAL,
+        EXPIRE_TIME_LIMIT,
+        move |context| {
+            let database = database.clone();
+            async move { expire_unfinished(&database, &context).await }
+        },
+    )?;
+    let database = auth.database();
+    let keyring = auth.keyring();
+    jobs.periodic(
+        "auth.reencrypt_secrets",
+        EXPIRE_INTERVAL,
+        EXPIRE_TIME_LIMIT,
+        move |context| {
+            let database = database.clone();
+            let keyring = keyring.clone();
+            async move { reencrypt(&database, &keyring, &context).await }
+        },
     )
 }
 
@@ -101,5 +133,127 @@ async fn expire(database: &Database, context: &JobContext) -> Result<(), Interna
         if deleted < BATCH.unsigned_abs() {
             return Ok(());
         }
+    }
+}
+
+/// Deletes the setups of apps and the sign-in challenges of every user that expired, a batch at a
+/// time. `app` holds no `UPDATE` on either table, which `SELECT ... FOR UPDATE` asks for, so a
+/// batch can't skip the rows that a request holds (DATA-19): it waits for no lock, but the
+/// millisecond that is the least `lock_timeout` Postgres takes, so a request that holds one of its
+/// rows, such as a reset that deletes the user's challenges, never waits for the sweep while the
+/// sweep waits for it, and the run ends there, leaving the rest to the next (AUTH-067, DATA-20).
+async fn expire_unfinished(database: &Database, context: &JobContext) -> Result<(), Internal> {
+    loop {
+        let mut uow = database.for_job(context).await?;
+        uow.wait_for_locks_at_most(Duration::from_millis(1)).await?;
+        let deleted = async {
+            let setups = sqlx::query!(
+                "DELETE FROM totp_setups WHERE id IN (
+                    SELECT id FROM totp_setups WHERE expires_at <= now() ORDER BY id LIMIT $1
+                )",
+                BATCH,
+            )
+            .execute(uow.executor())
+            .await?
+            .rows_affected();
+            let challenges = sqlx::query!(
+                "DELETE FROM sign_in_challenges WHERE id IN (
+                    SELECT id FROM sign_in_challenges WHERE expires_at <= now()
+                    ORDER BY id LIMIT $1
+                )",
+                BATCH,
+            )
+            .execute(uow.executor())
+            .await?
+            .rows_affected();
+            Ok::<_, sqlx::Error>((setups, challenges))
+        }
+        .await;
+        let (setups, challenges) = match deleted {
+            Ok(counts) => counts,
+            Err(error) if is_lock_timeout(&error) => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        uow.commit().await?;
+        if setups < BATCH.unsigned_abs() && challenges < BATCH.unsigned_abs() {
+            return Ok(());
+        }
+    }
+}
+
+/// Stores every app's secret that another version of `keyring` holds anew under its current
+/// version, a batch at a time, skipping an app that a request holds, which the next run takes
+/// (AUTH-066, DATA-20).
+async fn reencrypt(
+    database: &Database,
+    keyring: &Keyring,
+    context: &JobContext,
+) -> Result<(), Internal> {
+    loop {
+        let mut uow = database.for_job(context).await?;
+        let rows = sqlx::query!(
+            "SELECT id, key_version, secret FROM totp_factors
+            WHERE key_version <> $1
+            LIMIT $2 FOR UPDATE SKIP LOCKED",
+            keyring.current(),
+            BATCH,
+        )
+        .fetch_all(uow.executor())
+        .await?;
+        let count = rows.len();
+        for row in rows {
+            let binding = Binding::new("totp_factors", "secret", row.id);
+            let stored = Sealed {
+                version: row.key_version,
+                bytes: row.secret,
+            };
+            let sealed = keyring.seal(&binding, keyring.open(&binding, &stored)?.expose())?;
+            sqlx::query!(
+                "UPDATE totp_factors SET key_version = $2, secret = $3 WHERE id = $1",
+                row.id,
+                sealed.version,
+                sealed.bytes,
+            )
+            .execute(uow.executor())
+            .await?;
+        }
+        uow.commit().await?;
+        if count < usize::try_from(BATCH).unwrap_or(usize::MAX) {
+            return Ok(());
+        }
+    }
+}
+
+/// Refuses `keyring` when it lacks a version under which an app's secret, or a lasting setup's,
+/// is stored, naming the version, so `serve` starts only with a ring that opens every secret it
+/// may read (AUTH-066).
+pub(super) async fn refuse_missing_versions(
+    database: &Database,
+    keyring: &Keyring,
+) -> Result<(), Internal> {
+    // Startup has no request, so its unit of work, which writes nothing and so records no
+    // client, names the loopback address.
+    let startup = Client {
+        ip: std::net::Ipv4Addr::LOCALHOST.into(),
+        user_agent: None,
+    };
+    let mut uow = database.begin(&startup).await?;
+    let versions = sqlx::query_scalar!(
+        r#"SELECT key_version AS "key_version!" FROM totp_factors
+        UNION
+        SELECT key_version FROM totp_setups WHERE expires_at > now()"#,
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    drop(uow);
+    match versions
+        .into_iter()
+        .find(|version| !keyring.holds(*version))
+    {
+        Some(version) => Err(Internal::new(format!(
+            "ENCRYPTION_KEYS lacks version {version}, under which a stored secret is encrypted: \
+             add it back, and remove it once auth.reencrypt_secrets has run"
+        ))),
+        None => Ok(()),
     }
 }

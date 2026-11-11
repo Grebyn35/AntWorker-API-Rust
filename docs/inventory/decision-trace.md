@@ -64,7 +64,7 @@ Modules carry their own; the build order step of each other area is in parenthes
 |---|---|
 | `access` | the permission that reveals IP addresses in audit entries; the ADR on custom roles (D2) |
 | `audit` | reads filtered by permission (D2); the target filterable and visible to that user; bounded retention (D6) |
-| `auth` | the ADR on accepted enumeration (D7); with email on, a provider that vouches for an address proves it (D67); the OAuth redirect allowlist (D18); with the key that encrypts provider tokens (SEC-02), a backup of that key kept apart from the database's (D30) |
+| `auth` | the ADR on accepted enumeration (D7); with email on, a provider that vouches for an address proves it (D67); the OAuth redirect allowlist (D18) |
 | `accounts` | the ADR on immediate deletion (D16) |
 | Template (6) | a GitHub template repository (D29); the ADR on hard deletes (D24) |
 | Security (6) | the ASVS Level 2 conformance pass (D26) |

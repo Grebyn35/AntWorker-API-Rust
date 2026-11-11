@@ -51,6 +51,21 @@ pub(super) const EMAIL_CHANGE_CODE_ISSUED: Action = Action::new("email_change_co
 /// The signed-in user changed their account's address to one they proved (AUTH-051).
 pub(super) const EMAIL_CHANGED: Action = Action::new("email.changed");
 
+/// A sign-in's password matched, for an account with an authenticator app, which issued a
+/// challenge for its code (AUTH-058).
+pub(super) const SIGN_IN_CHALLENGED: Action = Action::new("sign_in.challenged");
+/// A setup of an authenticator app began (AUTH-055).
+pub(super) const SECOND_FACTOR_SETUP_STARTED: Action = Action::new("second_factor.setup_started");
+/// A setup's confirmation made its authenticator app the account's (AUTH-056).
+pub(super) const SECOND_FACTOR_ENABLED: Action = Action::new("second_factor.enabled");
+/// The account's authenticator app was removed (AUTH-064, AUTH-072).
+pub(super) const SECOND_FACTOR_REMOVED: Action = Action::new("second_factor.removed");
+/// A second factor's code that a request gave wasn't the account's (AUTH-056, AUTH-060, AUTH-065).
+pub(super) const SECOND_FACTOR_CHECK_FAILED: Action = Action::new("second_factor.check_failed");
+/// A recovery code stood in for the app's code, which used it up (AUTH-062).
+pub(super) const RECOVERY_CODE_USED: Action = Action::new("recovery_code.used");
+/// New recovery codes replaced the account's (AUTH-063).
+pub(super) const RECOVERY_CODES_ISSUED: Action = Action::new("recovery_codes.issued");
 /// A user's account.
 pub(super) const USER: Resource = Resource::new("user");
 /// A user's way of signing in, such as their password.
@@ -62,3 +77,7 @@ pub(super) const DEVICE_TOKEN: Resource = Resource::new("device_token");
 /// A code sent to an address, which proves that the account holds its address, resets its
 /// password, or changes its address to the one the code was sent to.
 pub(super) const VERIFICATION_CODE: Resource = Resource::new("verification_code");
+/// A user's second factor: their authenticator app, or its setup.
+pub(super) const SECOND_FACTOR: Resource = Resource::new("second_factor");
+/// A code that stands in once for an authenticator app's code.
+pub(super) const RECOVERY_CODE: Resource = Resource::new("recovery_code");

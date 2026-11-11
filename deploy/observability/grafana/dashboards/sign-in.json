@@ -1,7 +1,7 @@
 {
   "uid": "api-sign-in",
   "title": "Sign-in",
-  "description": "How sign-in attempts end, which a credential-stuffing attack changes, and how the checks of the codes that prove an account's email address, the confirmations of password resets, and the confirmations of changes of an account's address, end, which guessing changes (the auth spec).",
+  "description": "How sign-in attempts end, which a credential-stuffing attack changes, and how the checks of the codes that prove an account's email address, the confirmations of password resets, the confirmations of changes of an account's address, and the checks of second factors end, which guessing changes (the auth spec).",
   "tags": [
     "api",
     "area"
@@ -39,7 +39,7 @@
     {
       "type": "timeseries",
       "title": "How do sign-in attempts end?",
-      "description": "Sign-in attempts in the last 5 minutes, by how each ended: succeeded, invalid_credentials, or rate_limited by a sign-in limit (AUTH-004 to AUTH-006). A rise in invalid_credentials across many emails is the shape of credential stuffing.",
+      "description": "Sign-in attempts in the last 5 minutes, by how each ended: succeeded, challenged, for an account whose second factor then completes it, invalid_credentials, or rate_limited by a sign-in limit (AUTH-004 to AUTH-006, AUTH-058). A rise in invalid_credentials across many emails is the shape of credential stuffing.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -194,6 +194,46 @@
         "w": 24,
         "x": 0,
         "y": 24
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "How do checks of second factors end?",
+      "description": "Checks of second factors' codes in the last 5 minutes, an authenticator app's or a recovery code, at a sign-in's completion, a setup's confirmation, a re-authentication or a change of the password, by how each ended: passed, wrong_code, or rate_limited by the buckets of each user's and each device token's checks (AUTH-056 to AUTH-065). A rise in wrong_code across many accounts is the shape of guessing with stolen passwords, which the buckets bound to 10 guesses a day.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (auth_outcome) (increase(auth_second_factor_checks_total[5m]))",
+          "legendFormat": "{{auth_outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 5,
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
       }
     }
   ]

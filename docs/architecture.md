@@ -316,7 +316,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 - **Validation (D25).** Request types reject unknown fields and convert at the boundary into domain types that can only hold valid values. Code past the boundary accepts only those types.
 - **Authentication (D5, D18, D61, D63, D67).** Sessions slide on refresh but have an absolute maximum lifetime. Desktop and web clients are both supported: credentials arrive in the Bearer header from a client that sets its own headers, or in an `HttpOnly` cookie from a browser, whose requests CSRF protection guards, from the origins that the CORS allowlist names. With email on, an account proves its address, with a code sent to it, before the API serves it anything else.
   A download also takes a URL signed for a session, whose user it authorizes as any caller's (D113). <!-- part: files -->
-  Every user may add a second factor, and every superadmin must. Revoking a session closes its streams.
+  Every user may add a second factor, an authenticator app with recovery codes, and every superadmin must; a deployment may require one of every user. Revoking a session closes its streams.
 - **Authorization (D2, D62).** One permission matrix, in `access/permissions.rs`, maps roles to permissions. Every workspace route declares its permission in its type. Role rank limits who may change whom. A route of `superadmins` is authorized by the caller being a superadmin instead, and reaches no workspace's content.
 - **Observability (D10, D19).** Every response except the health probes carries a trace ID that leads to its logs, and to its trace whenever the request ended in an error. Metrics are declared in code. The metric catalog is generated from the declarations, and CI checks the dashboards and alerts against it.
 - **Configuration (D9).** Strict and typed, with no defaults that are unsafe in production. A disabled feature answers 503 and is advertised by the capabilities endpoint.
@@ -416,6 +416,10 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Session | One signed-in device or client, holding an access token and a refresh token. |
 | Provider token | A credential from an OAuth provider, stored encrypted (SEC-02). It is revoked when the session or identity that needs it ends. |
 | Device token | A token that a registration or a sign-in gives the device, for the account's email, so that the device's next sign-in to that account counts only in a limit of its own, which no attempt from elsewhere fills (AUTH-019). |
+| Second factor | A way of proving who one is beside the password: an authenticator app, with recovery codes (D134). |
+| Authenticator app | A second factor whose codes are the time-based one-time passwords (TOTP) of RFC 6238, which the API and the database call `totp`, as in `/v1/users/me/second-factors/totp` and `totp_factors`. |
+| Recovery code | One of ten codes, each of which stands in once for an authenticator app's code (AUTH-062). |
+| Challenge | What a sign-in whose password matched answers for an account with an authenticator app: a token that the app's code, or a recovery code, completes into a session (AUTH-058). |
 | Principal | The authenticated caller of a request, produced by `platform::authn` (D18). |
 | Workspace | A space whose members share its data: a team's, an organization's, or one user's own (§5). Owns the data its members share, and its audit log. |
 | Workspace shape | How a product uses workspaces: who creates them and who joins them, which the optional parts a fork keeps decide (§5). |

@@ -1,7 +1,7 @@
 //! The codes that `auth` sends to an address (D25): a verification code, which proves the
 //! account's address (AUTH-030), a reset code, which resets its password (AUTH-036), and a change
 //! code, which changes its address to the one the code was sent to (AUTH-050), with what each
-//! proves.
+//! proves; and a recovery code, which stands in for an authenticator app's code (AUTH-062).
 
 use std::{borrow::Cow, marker::PhantomData};
 
@@ -141,49 +141,72 @@ impl ToSchema for VerificationCode {
 /// L, O and U (AUTH-036).
 const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-/// How many characters a reset code or a change code has: the 80 bits of 10 random bytes, 5 to a
-/// character (AUTH-036, AUTH-050).
-const LONG_CODE_CHARS: usize = 16;
-
-/// The most characters a typed reset code or change code has, its hyphens and spaces among them.
+/// The most characters a typed code of Crockford's base32 alphabet has, its hyphens and spaces
+/// among them.
 const LONG_CODE_MAX_INPUT: usize = 64;
 
-/// What a code of 16 characters of Crockford's base32 alphabet proves, with the name its schema
-/// has in the API's document.
-pub(crate) trait LongPurpose {
-    /// What the code proves.
-    const PURPOSE: Purpose;
+/// What a code of Crockford's base32 alphabet is: how many characters it has, 5 bits to a
+/// character, and the name its schema has in the API's document.
+pub(crate) trait LongKind {
+    /// How many characters the code has: 16 for a reset code or a change code, the 80 bits of 10
+    /// random bytes (AUTH-036, AUTH-050), and 24 for a recovery code, 120 bits (AUTH-062).
+    const CHARS: usize;
     /// The name of the code's schema.
     const SCHEMA: &'static str;
-    /// What the code is called, in the sentence that refuses one.
+    /// The sentence that refuses one.
     const REFUSAL: &'static str;
+}
+
+/// What a code of Crockford's base32 alphabet that `auth` sends to an address proves.
+pub(crate) trait LongPurpose: LongKind {
+    /// What the code proves.
+    const PURPOSE: Purpose;
 }
 
 /// That a code resets the account's password (AUTH-036).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ForReset;
 
-impl LongPurpose for ForReset {
-    const PURPOSE: Purpose = Purpose::PasswordReset;
+impl LongKind for ForReset {
+    const CHARS: usize = 16;
     const SCHEMA: &'static str = "ResetCode";
     const REFUSAL: &'static str =
         "A reset code is 16 letters and digits, which hyphens and spaces may separate.";
+}
+
+impl LongPurpose for ForReset {
+    const PURPOSE: Purpose = Purpose::PasswordReset;
 }
 
 /// That a code changes the account's address to the one it was sent to (AUTH-050).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ForChange;
 
-impl LongPurpose for ForChange {
-    const PURPOSE: Purpose = Purpose::EmailChange;
+impl LongKind for ForChange {
+    const CHARS: usize = 16;
     const SCHEMA: &'static str = "ChangeCode";
     const REFUSAL: &'static str =
         "A change code is 16 letters and digits, which hyphens and spaces may separate.";
 }
 
-/// A code of 16 characters of Crockford's base32 alphabet, 80 random bits, which proves what `P`
-/// says, as the API drew it, or as the user typed it, read as Crockford's decoding reads it. Its
-/// `Debug` shows no character (SEC-01).
+impl LongPurpose for ForChange {
+    const PURPOSE: Purpose = Purpose::EmailChange;
+}
+
+/// That a code stands in once for an authenticator app's code (AUTH-062).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ForRecovery;
+
+impl LongKind for ForRecovery {
+    const CHARS: usize = 24;
+    const SCHEMA: &'static str = "RecoveryCode";
+    const REFUSAL: &'static str =
+        "A recovery code is 24 letters and digits, which hyphens and spaces may separate.";
+}
+
+/// A code of Crockford's base32 alphabet, as long as `P` says, 5 random bits to a character, as
+/// the API drew it, or as the user typed it, read as Crockford's decoding reads it. Its `Debug`
+/// shows no character (SEC-01).
 #[derive(Clone, Debug)]
 pub(crate) struct LongCode<P>(Secret<String>, PhantomData<P>);
 
@@ -193,15 +216,23 @@ pub(crate) type ResetCode = LongCode<ForReset>;
 /// A code that changes the account's address to the one it was sent to (AUTH-050).
 pub(crate) type ChangeCode = LongCode<ForChange>;
 
-impl<P: LongPurpose> LongCode<P> {
+/// A recovery code (AUTH-062).
+pub(crate) type RecoveryCode = LongCode<ForRecovery>;
+
+impl<P: LongKind> LongCode<P> {
+    /// The code's characters, as its keyed hash covers them. Never log them.
+    pub(crate) fn characters(&self) -> &str {
+        self.0.expose()
+    }
+
     /// The code the user typed, read without regard to case, without its hyphens and spaces, and
-    /// with I and L read as 1 and O as 0, or why it isn't one (AUTH-038, AUTH-052).
+    /// with I and L read as 1 and O as 0, or why it isn't one (AUTH-038, AUTH-052, AUTH-062).
     pub(crate) fn parse(value: &str) -> Result<Self, Invalid> {
         let refused = || Invalid::new("invalid_code", P::REFUSAL);
         if value.chars().count() > LONG_CODE_MAX_INPUT {
             return Err(refused());
         }
-        let mut code = String::with_capacity(LONG_CODE_CHARS);
+        let mut code = String::with_capacity(P::CHARS);
         for character in value.chars() {
             let read = match character.to_ascii_uppercase() {
                 '-' => continue,
@@ -213,20 +244,19 @@ impl<P: LongPurpose> LongCode<P> {
             };
             code.push(read);
         }
-        if code.len() == LONG_CODE_CHARS {
+        if code.len() == P::CHARS {
             Ok(Self(Secret::new(code), PhantomData))
         } else {
             Err(refused())
         }
     }
 
-    /// A new code, the 80 bits of 10 bytes from the operating system's secure random source, 5 to
-    /// a character, each character as likely as any other (AUTH-036, AUTH-050, SEC-03).
+    /// A new code, 5 bits to a character of the operating system's secure random source, each
+    /// character as likely as any other (AUTH-036, AUTH-050, AUTH-062, SEC-03): the low bits of
+    /// 16 random bytes, of which a character takes 5 at a time.
     pub(crate) fn generate() -> Result<Self, Internal> {
-        let mut bits = [0; 16];
-        bits[6..].copy_from_slice(&random::bytes::<10>()?);
-        let value = u128::from_be_bytes(bits);
-        let code = (0..LONG_CODE_CHARS)
+        let value = u128::from_be_bytes(random::bytes::<16>()?);
+        let code = (0..P::CHARS)
             .rev()
             .map(|place| {
                 let index = usize::try_from((value >> (5 * place)) & 0x1f).unwrap_or(0);
@@ -236,8 +266,8 @@ impl<P: LongPurpose> LongCode<P> {
         Ok(Self(Secret::new(code), PhantomData))
     }
 
-    /// The code in four groups of four characters, as its email shows it (AUTH-036, AUTH-050).
-    /// Never log it.
+    /// The code in groups of four characters, as its email or its answer shows it (AUTH-036,
+    /// AUTH-050, AUTH-062). Never log it.
     pub(crate) fn grouped(&self) -> String {
         let characters: Vec<char> = self.0.expose().chars().collect();
         characters
@@ -248,22 +278,26 @@ impl<P: LongPurpose> LongCode<P> {
     }
 }
 
-impl<P: LongPurpose> PartialSchema for LongCode<P> {
+impl<P: LongKind> PartialSchema for LongCode<P> {
     fn schema() -> RefOr<Schema> {
         ObjectBuilder::new()
             .schema_type(Type::String)
-            .min_length(Some(LONG_CODE_CHARS))
+            .min_length(Some(P::CHARS))
             .max_length(Some(LONG_CODE_MAX_INPUT))
-            .pattern(Some("^[\\s-]*(?:[0-9A-TV-Za-tv-z][\\s-]*){16}$"))
-            .description(Some(
-                "The 16 characters of the code, of Crockford's base32 alphabet, without regard to \
+            .pattern(Some(format!(
+                "^[\\s-]*(?:[0-9A-TV-Za-tv-z][\\s-]*){{{}}}$",
+                P::CHARS
+            )))
+            .description(Some(format!(
+                "The {} characters of the code, of Crockford's base32 alphabet, without regard to \
                  case, which hyphens and spaces may separate.",
-            ))
+                P::CHARS
+            )))
             .into()
     }
 }
 
-impl<P: LongPurpose> ToSchema for LongCode<P> {
+impl<P: LongKind> ToSchema for LongCode<P> {
     fn name() -> Cow<'static, str> {
         Cow::Borrowed(P::SCHEMA)
     }
@@ -404,6 +438,34 @@ mod tests {
             "{}",
             refused.message
         );
+    }
+
+    #[test]
+    fn auth_062_a_recovery_code_is_24_characters_of_crockford_s_base32_in_six_groups() {
+        let codes: Vec<String> = (0..2_000)
+            .map(|_| RecoveryCode::generate().unwrap().characters().to_owned())
+            .collect();
+        assert!(codes.iter().all(|code| {
+            code.len() == 24 && code.bytes().all(|byte| CROCKFORD.contains(&byte))
+        }));
+        for &character in CROCKFORD {
+            assert!(
+                codes.iter().any(|code| code.as_bytes()[0] == character),
+                "{character}"
+            );
+        }
+        let code = RecoveryCode::parse("7kqm-2xwd 9rtb-h4np-ilo0-abcd").unwrap();
+        assert_eq!(code.characters(), "7KQM2XWD9RTBH4NP1100ABCD");
+        assert_eq!(code.grouped(), "7KQM-2XWD-9RTB-H4NP-1100-ABCD");
+        for refused in [
+            "7KQM-2XWD-9RTB-H4NP",
+            "7KQM-2XWD-9RTB-H4NP-1100-ABCDE",
+            "7KQM-2XWD-9RTB-H4NP-1100-ABCU",
+        ] {
+            let refusal = RecoveryCode::parse(refused).unwrap_err();
+            assert_eq!(refusal.code, "invalid_code", "{refused}");
+            assert!(refusal.message.starts_with("A recovery code"), "{refused}");
+        }
     }
 
     #[test]

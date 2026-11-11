@@ -144,6 +144,10 @@ fn example_settings() -> std::collections::BTreeMap<String, OsString> {
                 .replace(
                     "__HMAC_KEY__",
                     "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+                )
+                .replace(
+                    "__ENCRYPTION_KEYS__",
+                    "1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
                 );
             (name, OsString::from(value))
         })

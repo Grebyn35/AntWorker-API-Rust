@@ -54,6 +54,24 @@ pub(crate) enum AuthError {
     /// None of the caller's sessions has the ID (AUTH-044).
     #[error("no session of the caller's has the ID")]
     SessionNotFound,
+    /// The caller has no setup of an authenticator app that lasts (AUTH-056).
+    #[error("no setup of an authenticator app lasts")]
+    SetupExpired,
+    /// The caller has no authenticator app (AUTH-063).
+    #[error("the account has no authenticator app")]
+    NoSecondFactor,
+    /// No sign-in waits for its second factor with the challenge (AUTH-060).
+    #[error("the challenge completes no sign-in")]
+    InvalidChallenge,
+    /// The code that completes a sign-in isn't its user's (AUTH-060).
+    #[error("the second factor's code is wrong")]
+    InvalidSecondFactor,
+    /// The account has an authenticator app, whose code the request lacks (AUTH-065).
+    #[error("the request lacks the second factor's code")]
+    SecondFactorRequired,
+    /// The signed-in user's second factor's code is wrong (AUTH-065).
+    #[error("the second factor's code is wrong")]
+    WrongSecondFactor,
     /// A rate limit refused the request, or couldn't count it (AUTH-006).
     #[error(transparent)]
     Limit(#[from] LimitError),
@@ -100,6 +118,12 @@ impl ErrorCode for AuthError {
             Self::CodeExpired => "auth.code_expired",
             Self::InvalidResetCode => "auth.invalid_reset_code",
             Self::SessionNotFound => "auth.session_not_found",
+            Self::SetupExpired => "auth.setup_expired",
+            Self::NoSecondFactor => "auth.no_second_factor",
+            Self::InvalidChallenge => "auth.invalid_challenge",
+            Self::InvalidSecondFactor => "auth.invalid_second_factor",
+            Self::SecondFactorRequired => "auth.second_factor_required",
+            Self::WrongSecondFactor => "auth.wrong_second_factor",
             Self::Limit(error) => error.code(),
             Self::Request(error) => error.code(),
             Self::Internal(error) => error.code(),
@@ -121,6 +145,12 @@ impl ErrorCode for AuthError {
             Self::CodeExpired => "Code expired",
             Self::InvalidResetCode => "Invalid email or reset code",
             Self::SessionNotFound => "Session not found",
+            Self::SetupExpired => "Setup expired",
+            Self::NoSecondFactor => "No second factor",
+            Self::InvalidChallenge => "Invalid challenge",
+            Self::InvalidSecondFactor => "Invalid second factor",
+            Self::SecondFactorRequired => "Second factor required",
+            Self::WrongSecondFactor => "Wrong second factor",
             Self::Limit(error) => error.title(),
             Self::Request(error) => error.title(),
             Self::Internal(error) => error.title(),
@@ -133,12 +163,18 @@ impl ErrorCode for AuthError {
             Self::InvalidCredentials
             | Self::SessionExpired
             | Self::InvalidRefreshToken
-            | Self::InvalidResetCode => Category::Unauthenticated,
-            Self::WrongPassword | Self::ReauthenticationRequired => Category::Forbidden,
-            Self::OwnsSharedWorkspace | Self::AccountChanged | Self::EmailAlreadyVerified => {
-                Category::Conflict
-            }
-            Self::WrongCode | Self::CodeExpired => Category::BusinessRule,
+            | Self::InvalidResetCode
+            | Self::InvalidChallenge
+            | Self::InvalidSecondFactor => Category::Unauthenticated,
+            Self::WrongPassword
+            | Self::ReauthenticationRequired
+            | Self::SecondFactorRequired
+            | Self::WrongSecondFactor => Category::Forbidden,
+            Self::OwnsSharedWorkspace
+            | Self::AccountChanged
+            | Self::EmailAlreadyVerified
+            | Self::NoSecondFactor => Category::Conflict,
+            Self::WrongCode | Self::CodeExpired | Self::SetupExpired => Category::BusinessRule,
             Self::SessionNotFound => Category::NotFound,
             Self::Limit(error) => error.category(),
             Self::Request(error) => error.category(),
@@ -166,6 +202,19 @@ impl ErrorCode for AuthError {
             Self::InvalidResetCode => Some(
                 "The code isn't one sent to the address, or its 10 minutes have passed, or a \
                  reset used one of the address's codes: ask for another."
+                    .to_owned(),
+            ),
+            Self::SetupExpired => Some(
+                "The setup's 15 minutes have passed, or another confirmation ended it: start \
+                 another."
+                    .to_owned(),
+            ),
+            Self::InvalidChallenge => {
+                Some("The sign-in's 5 minutes have passed, or it ended: sign in again.".to_owned())
+            }
+            Self::SecondFactorRequired => Some(
+                "The account has an authenticator app: send its code, or a recovery code, with \
+                 the password."
                     .to_owned(),
             ),
             Self::Request(error) => error.detail(),

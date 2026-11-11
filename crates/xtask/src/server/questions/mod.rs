@@ -467,6 +467,7 @@ mod tests {
         "",
         "",
         "",
+        "",
         // part: files
         // The files bucket's key pair.
         "files-key",

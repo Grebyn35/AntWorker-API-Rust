@@ -1,15 +1,15 @@
 # Threat model
 
-What the API and its reference deployment protect, from whom, and which rules and behaviors stop each threat. The bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS), but for its requirement 6.3.3, as [the security rules](../standards/security.md) say (D26, D63). Each mitigation is stated in its home, a rule or a behavior, which this file cites by ID rather than restating it (DOC-07), and a change that adds a threat, or changes what stops one, changes this file in the same commit. Parts not built yet, such as second factors, are listed with the rules that already bind them, and arrive with step 5 of [the migration](../MIGRATION.md#build-order).
+What the API and its reference deployment protect, from whom, and which rules and behaviors stop each threat. The bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS), but for its requirement 6.3.3, as [the security rules](../standards/security.md) say (D26, D63). Each mitigation is stated in its home, a rule or a behavior, which this file cites by ID rather than restating it (DOC-07), and a change that adds a threat, or changes what stops one, changes this file in the same commit. Parts not built yet, such as a deployment's requirement of a second factor, are listed with the rules that already bind them, and arrive with step 5 of [the migration](../MIGRATION.md#build-order).
 
 ## What it protects
 
-- **Accounts and sessions:** password hashes, and the tokens of sessions, which act as their user.
+- **Accounts and sessions:** password hashes, authenticator apps' secrets and recovery codes, and the tokens of sessions, which act as their user.
 - **Workspaces:** what each holds, who belongs to it, and with which role.
 - **Files:** the bytes of the files that a workspace's members upload, in the files bucket off the server, and their names, which are personal data ([files spec](../spec/files.md)). <!-- part: files -->
 - **Personal data:** email addresses and names, and the client IP addresses and user agents that audit entries record (SEC-18).
 - **The audit logs:** who did what, which an attacker would want to change or erase.
-- **Secrets:** the key of every keyed hash, such as a rate-limit bucket's key (PLATFORM-057), the database roles' passwords, the password of the mail server, reached over the Simple Mail Transfer Protocol (SMTP), the backups' encryption passphrase, the key pair of the backups' bucket, and Grafana's credentials (SEC-01).
+- **Secrets:** the key of every keyed hash, such as a rate-limit bucket's key (PLATFORM-057), the keys that encrypt the secrets the database holds (SEC-02), the database roles' passwords, the password of the mail server, reached over the Simple Mail Transfer Protocol (SMTP), the backups' encryption passphrase, the key pair of the backups' bucket, and Grafana's credentials (SEC-01).
   The files bucket's key pair is one too. <!-- part: files -->
 - **The backups**, which hold the database, and so all of the above but the secrets, in a bucket off the server ([what is backed up](backups.md#what-is-backed-up)).
 - **The deployment's server**, its Postgres, and its observability stack.
@@ -54,7 +54,12 @@ What the API and its reference deployment protect, from whom, and which rules an
 | A stolen session ending its user's other sessions, to keep the owner out | Ending a session other than the request's own needs the password proved just before, as deleting the account does (AUTH-044, AUTH-045, AUTH-023) |
 | A stolen session changing its user's password | The current password is required, and each check of it counts in the user's one bucket (AUTH-022, AUTH-040); the address is told, and its owner's reset ends every session (AUTH-041, AUTH-037) |
 | A stolen session moving its account to an address the thief reads, to take the account through resets | Asking for the change needs the password proved just before (AUTH-048, AUTH-023), whose checks count in the user's one bucket (AUTH-022); the new address must prove itself with the code sent to it (AUTH-051); the address before is told, with the new one named, so its owner signs in with it, or from a device still signed in, changes it back (AUTH-053) |
-| Signing in with a password alone | Accepted for users, with the controls that [Second factors](#second-factors) lists; required of superadmins (D62, D63) |
+| Signing in with a password alone | Accepted for users who add no authenticator app, with the controls that [Second factors](#second-factors) lists, unless the deployment requires one of every user (AUTH-070, D133); required of superadmins (D62, D63) |
+| Guessing an authenticator app's code with a stolen password | Each step's code works once, and only two steps' codes work at a time (AUTH-057); each check counts in a bucket of 10 a day, its user's or its device token's, so a guesser with the password finds a code with a chance of about 1 in 140 a year, and keeps no known device of the owner's from completing its sign-in (AUTH-061); each wrong code is recorded in the user's log (AUTH-060, AUTH-065) |
+| Reading authenticator apps' codes from a copy of the database or of a backup | Each app's secret is encrypted under a key that the database never holds (SEC-02, AUTH-066); recovery codes are stored only as HMACs (AUTH-062) |
+| A stolen session, with the password, adding or removing a second factor, or taking new recovery codes | Each needs the password, and the app's code when there is one, proved just before (AUTH-055, AUTH-063, AUTH-064, AUTH-065); each tells the address, which tells its owner what to do (AUTH-068) |
+| Getting past a second factor through a reset, or through a challenge issued before the password changed | A reset starts no session, so the next sign-in asks for the factor (AUTH-069); a reset, a change of the password and a removal of the app delete the user's sign-in challenges (AUTH-069) |
+| Getting past a second factor with the password and the mailbox, as an account recovery would | No route removes a factor; only the operator does, once they have checked who the person is (AUTH-072, D135) |
 
 ### Access control
 
@@ -153,7 +158,7 @@ A reset is the other way in with a password, so requirement 6.1.1 of ASVS asks o
 
 Requirement 6.3.3 of ASVS asks every user to sign in with more than one factor, and asks an application that relaxes it for a documented rationale and a comprehensive set of mitigating controls.
 
-**The rationale.** The template is the start of products whose users must be able to sign in without setting a factor up: requiring one of every user would turn away the products for which a password, or a provider's sign-in, is the expected bar. So every user may add a second factor, and every superadmin, who acts across workspaces, must (D62, D63), with the full `auth` module and `superadmins`.
+**The rationale.** The template is the start of products whose users must be able to sign in without setting a factor up: requiring one of every user would turn away the products for which a password, or a provider's sign-in, is the expected bar. So every user may add an authenticator app, with recovery codes (D134), and every superadmin, who acts across workspaces, must (D62, D63). A deployment whose product needs the requirement in full turns `SECOND_FACTOR_REQUIRED` on, which requires an app of every user (D133).
 
 **The mitigating controls,** each in its home:
 
@@ -162,3 +167,4 @@ Requirement 6.3.3 of ASVS asks every user to sign in with more than one factor, 
 - Sessions: random tokens stored as hashes (SEC-03), bounded lifetimes (SEC-06, AUTH-007), a refresh token that works once and whose reuse ends the session (AUTH-012), signing out that ends it at once (AUTH-013), a user's list of their sessions, any other of which they end once they prove their password again (AUTH-043 to AUTH-045), and browsers' tokens in cookies no script reads (SEC-07, AUTH-015).
 - Detection: each failed sign-in of an existing account is recorded in its audit log (AUTH-005), with the client's address and user agent (AUDIT-003), as is the reuse of a refresh token (AUTH-012).
 - Access: lost access ends open streams (SEC-06), and authorization is checked on every workspace request (SEC-08).
+- A second factor for whoever wants one: an authenticator app, which a sign-in, a re-authentication and a change of the password then ask for (AUTH-058, AUTH-065), with its secret encrypted at rest (AUTH-066).

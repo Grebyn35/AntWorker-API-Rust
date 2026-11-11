@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO totp_factors (id, user_id, key_version, secret, last_used_step)\n        VALUES ($2, $1, $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int2",
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b9a0fa501de5b016ca78693d35845e518088258e90a9fc8fc3a943f6b527910e"
+}

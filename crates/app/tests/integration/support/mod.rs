@@ -37,6 +37,7 @@ pub mod proxy;
 // part: files
 pub mod scanner;
 // end part: files
+pub mod second_factors;
 pub mod streams;
 pub mod users;
 pub mod workspaces;

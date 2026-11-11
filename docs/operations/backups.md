@@ -105,6 +105,7 @@ The deploy stops before its replicas start, because the new server's database, w
 Keep a copy of these where the server's loss doesn't reach them, such as a password manager:
 
 - **`secrets/backup_cipher_pass`.** Without it, no backup can be read, by you or anyone else.
+- **`secrets/encryption_keys`.** Without it, no stored authenticator app can be read, and each user who has one signs in again only once the operator removes it (AUTH-066, AUTH-072).
 - **`secrets/postgres_password`**, the database's superuser password, which a restored database keeps. `bootstrap` sets the other roles' passwords from the URLs that the deploy writes.
 - **The key pair of the backups' bucket**, and **`settings.env`**, unless you can make them again, as a provider makes a new key pair for its bucket.
   The files bucket's key pair too. <!-- part: files -->

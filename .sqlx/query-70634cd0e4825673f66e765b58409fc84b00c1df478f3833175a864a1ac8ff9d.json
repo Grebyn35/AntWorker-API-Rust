@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO totp_setups (id, user_id, key_version, secret, expires_at)\n        VALUES ($2, $1, $3, $4, now() + make_interval(mins => $5))\n        RETURNING expires_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "totp_setups",
+            "name": "expires_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int2",
+        "Bytea",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "70634cd0e4825673f66e765b58409fc84b00c1df478f3833175a864a1ac8ff9d"
+}

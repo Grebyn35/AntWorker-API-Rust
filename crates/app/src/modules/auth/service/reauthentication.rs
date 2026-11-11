@@ -14,7 +14,7 @@ use crate::modules::{
     auth::{
         audit,
         error::AuthError,
-        model::{Password, Session},
+        model::{FactorProof, Password, Session},
         repo,
     },
 };
@@ -52,22 +52,29 @@ pub(super) async fn take_turn(
 }
 
 impl Auth {
-    /// Re-authenticates the session that authenticated the caller with their `password`, and
-    /// answers it, or records a wrong password in their log (AUTH-021).
+    /// Re-authenticates the session that authenticated the caller with their `password`, and the
+    /// second factor's code of an account that has one, and answers it, or records a wrong
+    /// password or code in their log (AUTH-021, AUTH-065).
     pub(crate) async fn reauthenticate(
         &self,
         limits: &RateLimits,
         client: &Client,
         principal: &Principal,
         password: Password,
+        proof: Option<FactorProof>,
     ) -> Result<Session, AuthError> {
         let user_id = principal.user_id();
-        let (mut uow, _, matches) = self
+        self.count_signed_in_check(limits, principal, proof.as_ref())
+            .await?;
+        let (uow, _, matches) = self
             .check_password(limits, client, principal, password)
             .await?;
         if !matches {
             return Err(self.wrong_password(uow, principal).await?);
         }
+        let mut uow = self
+            .check_signed_in_factor(uow, principal, proof.as_ref())
+            .await?;
         // Another request may have ended the session since it authenticated this one.
         let session = repo::reauthenticate(&mut uow, user_id, principal.session_id())
             .await?

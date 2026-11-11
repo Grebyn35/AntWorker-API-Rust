@@ -10,6 +10,9 @@ publish = false
 [workspace.dependencies]
 platform = { path = "crates/platform" }
 
+# The encryption of the secrets that the database holds and the API reads back, such as an
+# authenticator app's (SEC-02, PLATFORM-087).
+aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc"] }
 argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "password-hash"] }
 askama = { version = "0.16.1", default-features = false, features = ["derive", "std"] }
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
@@ -20,6 +23,8 @@ bytes = "1.12.1"
 # The CRC-32 of each entry of an export's archive, and of each file's bytes (D126).
 crc32fast = { version = "1.5.4", default-features = false, features = ["std"] }
 clap ={ version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+# An authenticator app's secret in base32 (RFC 4648), as its setup shows it (AUTH-055).
+data-encoding = { version = "2.11.1", default-features = false, features = ["alloc"] }
 dotenvy = "0.15.7"
 # Deflates the documents of an export's archive, in Rust alone (D126).
 flate2 = { version = "1.1.11", default-features = false, features = ["rust_backend"] }
@@ -70,6 +75,8 @@ syn = { version = "3.0.9", default-features = false, features = ["full", "parsin
 thiserror = "2.0.21"
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "sync"] }
+# The one-time passwords of RFC 6238 that authenticator apps show (SEC-16, AUTH-057).
+totp-rs = { version = "6.0.0", default-features = false }
 tower = { version = "0.5.3", default-features = false, features = ["util"] }
 tower-http = { version = "0.7.1", default-features = false }
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }

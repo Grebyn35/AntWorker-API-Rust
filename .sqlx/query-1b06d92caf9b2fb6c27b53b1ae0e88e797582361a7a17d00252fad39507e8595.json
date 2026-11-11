@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT key_version AS \"key_version!\" FROM totp_factors\n        UNION\n        SELECT key_version FROM totp_setups WHERE expires_at > now()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key_version!",
+        "type_info": "Int2",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1b06d92caf9b2fb6c27b53b1ae0e88e797582361a7a17d00252fad39507e8595"
+}

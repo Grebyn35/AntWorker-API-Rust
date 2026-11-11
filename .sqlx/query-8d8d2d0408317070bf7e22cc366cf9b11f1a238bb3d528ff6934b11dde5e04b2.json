@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM sign_in_challenges WHERE id IN (\n                    SELECT id FROM sign_in_challenges WHERE expires_at <= now()\n                    ORDER BY id LIMIT $1\n                )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8d8d2d0408317070bf7e22cc366cf9b11f1a238bb3d528ff6934b11dde5e04b2"
+}

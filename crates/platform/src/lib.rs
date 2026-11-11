@@ -10,6 +10,7 @@ pub mod blocking;
 pub mod clock;
 pub mod config;
 pub mod db;
+pub mod encryption;
 pub mod errors;
 pub mod events;
 pub mod hashing;

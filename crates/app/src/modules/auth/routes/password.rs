@@ -42,7 +42,12 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
         )
         .user(
             routes!(change_password),
-            &[&AuthError::WrongPassword, &LimitError::RateLimited],
+            &[
+                &AuthError::WrongPassword,
+                &AuthError::SecondFactorRequired,
+                &AuthError::WrongSecondFactor,
+                &LimitError::RateLimited,
+            ],
         )
 }
 
@@ -110,6 +115,15 @@ pub(crate) struct PasswordChangeRequest {
     /// The caller's new password (AUTH-003).
     #[schema(value_type = Password)]
     password: String,
+    /// The code that the account's authenticator app shows, which an account with an app sends,
+    /// or else `recovery_code` (AUTH-065).
+    #[serde(default)]
+    #[schema(value_type = Option<crate::modules::auth::model::AppCode>)]
+    code: Option<String>,
+    /// One of the account's recovery codes, in place of `code`.
+    #[serde(default)]
+    #[schema(value_type = Option<crate::modules::auth::model::RecoveryCode>)]
+    recovery_code: Option<String>,
 }
 
 impl TryFrom<PasswordChangeRequest> for PasswordChange {
@@ -122,9 +136,20 @@ impl TryFrom<PasswordChangeRequest> for PasswordChange {
             Password::presented(request.current_password),
         );
         let password = errors.check("/password", Password::parse(request.password));
+        let proof = super::second_factors::factor_proof(
+            &mut errors,
+            request.code.as_deref(),
+            request.recovery_code.as_deref(),
+            false,
+        );
         let built = current
             .zip(password)
-            .map(|(current, password)| Self { current, password });
+            .zip(proof)
+            .map(|((current, password), proof)| Self {
+                current,
+                password,
+                proof,
+            });
         errors.finish(built)
     }
 }

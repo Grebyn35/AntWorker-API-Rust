@@ -2,8 +2,9 @@
 //! (AUTH-030), the one that carries the code that resets its password (AUTH-036), the one that
 //! tells the address its password changed (AUTH-041), the one that carries the code that changes
 //! the account's address to the one it goes to (AUTH-050), and the one that tells the address
-//! before a change that it changed (AUTH-053), each rendered from its templates in
-//! `templates/auth/` (the platform spec's Sending email).
+//! before a change that it changed (AUTH-053), and the one that tells the address its second
+//! factor changed (AUTH-068), each rendered from its templates in `templates/auth/` (the platform
+//! spec's Sending email).
 
 use askama::Template;
 use platform::{errors::Internal, mail::Email, types::EmailAddress};
@@ -258,6 +259,135 @@ struct MovedHtml<'a> {
     email: &'a Moved<'a>,
 }
 
+/// What happened to an account's second factor, which its email tells the address (AUTH-068).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FactorChange {
+    /// An authenticator app now signs in to the account, with new recovery codes (AUTH-056).
+    AppAdded,
+    /// New recovery codes replaced the old ones (AUTH-063).
+    CodesReplaced,
+    /// The account's app was removed, with its recovery codes (AUTH-064).
+    AppRemoved,
+    /// A recovery code stood in for the app's code, with this many left (AUTH-062).
+    RecoveryCodeUsed(i64),
+}
+
+/// The values of the email that tells an address its account's second factor changed
+/// (AUTH-068).
+pub(super) struct FactorChangedEmail {
+    /// The account's address.
+    pub(super) to: EmailAddress,
+    /// What changed.
+    pub(super) change: FactorChange,
+}
+
+impl FactorChangedEmail {
+    /// The email, rendered from its templates: what happened, and what the owner does if it
+    /// wasn't them. It holds no secret and no link.
+    pub(super) fn render(self) -> Result<Email, Internal> {
+        let to = self.to.as_str();
+        let (subject, what, advice) = match self.change {
+            FactorChange::AppAdded => (
+                format!("An authenticator app now signs in to your {PRODUCT} account"),
+                format!(
+                    "An authenticator app now signs in to your {PRODUCT} account, {to}, beside its \
+                     password, with new recovery codes."
+                ),
+                format!(
+                    "If you set it up, there is nothing to do. If you didn't, someone who knows \
+                     your password did: reset your password in {PRODUCT} now, which ends every \
+                     session of the account, and ask {PRODUCT}'s operator to remove the app."
+                ),
+            ),
+            FactorChange::CodesReplaced => (
+                format!("New recovery codes for your {PRODUCT} account"),
+                format!(
+                    "New recovery codes replaced the old ones of your {PRODUCT} account, {to}, \
+                     which work no more."
+                ),
+                format!(
+                    "If you asked for them, keep them where only you can reach them. If you \
+                     didn't, someone who knows your password and holds your app did: reset your \
+                     password in {PRODUCT} now, which ends every session of the account."
+                ),
+            ),
+            FactorChange::AppRemoved => (
+                format!("The authenticator app of your {PRODUCT} account was removed"),
+                format!(
+                    "The authenticator app of your {PRODUCT} account, {to}, was removed, with its \
+                     recovery codes, so the account signs in with its password alone."
+                ),
+                format!(
+                    "If you removed it, there is nothing to do. If you didn't, reset your password \
+                     in {PRODUCT} now, which ends every session of the account, and set up an app \
+                     again."
+                ),
+            ),
+            FactorChange::RecoveryCodeUsed(left) => (
+                format!("A recovery code was used on your {PRODUCT} account"),
+                format!(
+                    "A recovery code of your {PRODUCT} account, {to}, was used in place of its \
+                     app's code. {}",
+                    codes_left(left)
+                ),
+                format!(
+                    "If you used it, there is nothing to do, but ask for new codes before none is \
+                     left. If you didn't, someone knows your password and holds your recovery \
+                     codes: reset your password in {PRODUCT} now, which ends every session of the \
+                     account, and ask for new recovery codes."
+                ),
+            ),
+        };
+        let values = Change {
+            subject: &subject,
+            what: &what,
+            advice: &advice,
+        };
+        let text = FactorText { email: &values }
+            .render()
+            .map_err(Internal::new)?;
+        let html = FactorHtml { email: &values }
+            .render()
+            .map_err(Internal::new)?;
+        Ok(Email {
+            to: self.to,
+            subject,
+            text,
+            html,
+        })
+    }
+}
+
+/// How many recovery codes are left, as a sentence.
+fn codes_left(left: i64) -> String {
+    match left {
+        0 => "No recovery code is left.".to_owned(),
+        1 => "1 recovery code is left.".to_owned(),
+        many => format!("{many} recovery codes are left."),
+    }
+}
+
+/// The values of the email that tells an address its second factor changed.
+struct Change<'a> {
+    subject: &'a str,
+    what: &'a str,
+    advice: &'a str,
+}
+
+/// The second factor email's plain-text part, whose values aren't escaped.
+#[derive(Template)]
+#[template(path = "auth/second_factor_changed.txt")]
+struct FactorText<'a> {
+    email: &'a Change<'a>,
+}
+
+/// The second factor email's HTML part, whose values are escaped.
+#[derive(Template)]
+#[template(path = "auth/second_factor_changed.html")]
+struct FactorHtml<'a> {
+    email: &'a Change<'a>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,6 +409,49 @@ mod tests {
             assert!(part.contains("alice@example.com"), "{part}");
             assert!(!part.contains("http"), "{part}");
         }
+    }
+
+    #[test]
+    fn auth_068_each_change_of_a_second_factor_says_what_happened_and_what_to_do_with_no_link() {
+        let to = EmailAddress::parse("alice@example.com").unwrap();
+        for (change, subject, said) in [
+            (
+                FactorChange::AppAdded,
+                "An authenticator app now signs in to your AntWorker account",
+                "operator to remove the app",
+            ),
+            (
+                FactorChange::CodesReplaced,
+                "New recovery codes for your AntWorker account",
+                "which work no more",
+            ),
+            (
+                FactorChange::AppRemoved,
+                "The authenticator app of your AntWorker account was removed",
+                "set up an app again",
+            ),
+            (
+                FactorChange::RecoveryCodeUsed(1),
+                "A recovery code was used on your AntWorker account",
+                "1 recovery code is left.",
+            ),
+        ] {
+            let email = FactorChangedEmail {
+                to: to.clone(),
+                change,
+            }
+            .render()
+            .unwrap();
+            assert_eq!(email.subject, subject);
+            for part in [&email.text, &email.html] {
+                assert!(part.contains("alice@example.com"), "{part}");
+                assert!(part.contains(said), "{part}");
+                assert!(part.contains("If you didn"), "{part}");
+                assert!(!part.contains("http"), "{part}");
+            }
+        }
+        assert_eq!(codes_left(0), "No recovery code is left.");
+        assert_eq!(codes_left(7), "7 recovery codes are left.");
     }
 
     #[test]

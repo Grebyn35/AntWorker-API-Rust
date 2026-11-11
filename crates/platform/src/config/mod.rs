@@ -9,6 +9,7 @@
 use std::{ffi::OsString, io, net::SocketAddr, path::Path, str::FromStr, time::Duration};
 
 mod error;
+mod keys;
 mod mail;
 mod numbers;
 // part: files
@@ -24,7 +25,10 @@ use ipnet::IpNet;
 
 pub use web::{Origin, RateLimitConfig};
 
-use crate::{db::DatabaseUrl, hashing::HmacKey, mail::MailConfig, telemetry::OtlpEndpoint};
+use crate::{
+    db::DatabaseUrl, encryption::Keyring, hashing::HmacKey, mail::MailConfig,
+    telemetry::OtlpEndpoint,
+};
 // part: files
 use crate::{scanner::ScannerConfig, storage::StorageConfig};
 // end part: files
@@ -113,6 +117,9 @@ pub struct ServerConfig {
     pub shutdown_drain: Duration,
     /// The key of every keyed hash, such as a rate limit's bucket key (SEC-03).
     pub hmac_key: HmacKey,
+    /// The keys that encrypt the secrets the database holds and the API reads back (SEC-02,
+    /// PLATFORM-086).
+    pub encryption_keys: Keyring,
     /// The proxies whose `X-Forwarded-For` names the client (PLATFORM-053).
     pub trusted_proxies: Vec<IpNet>,
     /// The origins of web clients (PLATFORM-058).
@@ -287,6 +294,7 @@ where
             shutdown_delay: self.seconds("SHUTDOWN_DELAY_SECONDS", 5)?,
             shutdown_drain: self.duration("SHUTDOWN_DRAIN_SECONDS", DRAIN, DRAIN..=300)?,
             hmac_key: self.with("HMAC_KEY", HMAC_KEY_EXPECTED, web::hmac_key)?,
+            encryption_keys: self.keyring()?,
             trusted_proxies: self
                 .optional_with("TRUSTED_PROXIES", PROXIES_EXPECTED, web::proxies)?
                 .unwrap_or_default(),
@@ -473,6 +481,10 @@ mod tests {
             ("LISTEN_ADDR", "0.0.0.0:8080"),
             ("DATABASE_URL", "postgres://app:secret@localhost:5432/api"),
             ("HMAC_KEY", "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="),
+            (
+                "ENCRYPTION_KEYS",
+                "1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+            ),
             ("EMAIL", "off"),
         ];
         // part: files
@@ -575,6 +587,52 @@ mod tests {
             format!("DATABASE_URL must be {DATABASE_URL_EXPECTED}")
         );
         assert!(!error.to_string().contains("localhost"));
+    }
+
+    #[test]
+    fn platform_086_the_key_ring_is_required_and_its_refusal_names_the_setting_alone() {
+        let key = "1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=";
+        let missing = settings(&with(&server_vars(), &[("ENCRYPTION_KEYS", "")]), &[])
+            .server()
+            .unwrap_err();
+        assert_eq!(missing.to_string(), "ENCRYPTION_KEYS is required");
+        let invalid = settings(
+            &with(&server_vars(), &[("ENCRYPTION_KEYS", "1:c2VjcmV0")]),
+            &[],
+        )
+        .server()
+        .unwrap_err();
+        assert_eq!(
+            invalid.to_string(),
+            format!("ENCRYPTION_KEYS must be {}", keys::KEYS_EXPECTED)
+        );
+        assert!(!invalid.to_string().contains("c2VjcmV0"));
+        let version = settings(
+            &with(
+                &server_vars(),
+                &[("ENCRYPTION_KEYS", key), ("ENCRYPTION_KEY_VERSION", "2")],
+            ),
+            &[],
+        )
+        .server()
+        .unwrap_err();
+        assert_eq!(
+            version.to_string(),
+            format!("ENCRYPTION_KEY_VERSION must be {}", keys::VERSION_EXPECTED)
+        );
+        let config = settings(
+            &with(
+                &server_vars(),
+                &[
+                    ("ENCRYPTION_KEYS", ""),
+                    ("ENCRYPTION_KEYS_FILE", "/run/secrets/encryption_keys"),
+                ],
+            ),
+            &[("/run/secrets/encryption_keys", &format!("{key}\n"))],
+        )
+        .server()
+        .unwrap();
+        assert_eq!(config.encryption_keys.current(), 1);
     }
 
     #[test]

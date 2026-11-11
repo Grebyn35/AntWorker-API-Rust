@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, key_version, secret, last_used_step, created_at FROM totp_factors\n        WHERE user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "totp_factors",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "key_version",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "totp_factors",
+            "name": "key_version"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "secret",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "totp_factors",
+            "name": "secret"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "last_used_step",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "totp_factors",
+            "name": "last_used_step"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "totp_factors",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9432609598e6307fedd3183d50ec3651fe2db5e7bbc29f6eb7c93b2aac501bc7"
+}

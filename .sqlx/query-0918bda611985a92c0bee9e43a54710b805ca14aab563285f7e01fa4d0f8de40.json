@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM totp_setups WHERE id IN (\n                    SELECT id FROM totp_setups WHERE expires_at <= now() ORDER BY id LIMIT $1\n                )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0918bda611985a92c0bee9e43a54710b805ca14aab563285f7e01fa4d0f8de40"
+}

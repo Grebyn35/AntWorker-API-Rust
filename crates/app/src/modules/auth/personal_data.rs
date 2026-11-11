@@ -1,6 +1,7 @@
-//! The personal data contract of `identities`, `sessions`, `device_tokens` and
-//! `verification_codes` (D31): it exports them without their hashes (the accounts spec's "What an
-//! export holds"), and it deletes the user's identities, sessions, device tokens and codes before
+//! The personal data contract of `identities`, `sessions`, `device_tokens`, `verification_codes`,
+//! `totp_factors`, `totp_setups`, `recovery_codes` and `sign_in_challenges` (D31): it exports
+//! them without their hashes and secrets (the accounts spec's "What an export holds"), and it
+//! deletes the user's identities, sessions, device tokens, codes and second factors before
 //! the deletion's last step locks the user's row `FOR UPDATE`, since a sign-in locks an identity,
 //! and a refresh a session, before it reads the user's row through a foreign key, and a code's
 //! job holds the code it issues until it commits (the auth spec's "Deleting an account").
@@ -25,6 +26,11 @@ impl PersonalData for Contract {
             Column::new("sessions", "device_name"),
             Column::new("device_tokens", "user_id"),
             Column::new("verification_codes", "user_id"),
+            Column::new("totp_factors", "user_id"),
+            Column::new("totp_setups", "user_id"),
+            Column::new("recovery_codes", "user_id"),
+            Column::new("sign_in_challenges", "user_id"),
+            Column::new("sign_in_challenges", "device_name"),
         ];
         COLUMNS
     }
@@ -65,6 +71,17 @@ impl PersonalData for Contract {
             let codes = exported::verification_codes(uow, user).await?;
             export
                 .whole(uow, "auth/verification_codes.json", &codes)
+                .await?;
+            let (apps, setups) = exported::apps(uow, user).await?;
+            export.whole(uow, "auth/totp_factors.json", &apps).await?;
+            export.whole(uow, "auth/totp_setups.json", &setups).await?;
+            let recovery_codes = exported::recovery_codes(uow, user).await?;
+            export
+                .whole(uow, "auth/recovery_codes.json", &recovery_codes)
+                .await?;
+            let challenges = exported::challenges(uow, user).await?;
+            export
+                .whole(uow, "auth/sign_in_challenges.json", &challenges)
                 .await
         })
     }

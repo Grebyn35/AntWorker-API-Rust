@@ -1,10 +1,14 @@
-//! Registration, sign-in, refresh, re-authentication and deleting the account (the auth spec's
+//! Registration, sign-in, refresh and deleting the account (the auth spec's
 //! Routes). Reading, listing and ending a user's sessions, signing out among them, is in
 //! `sessions.rs`, proving the account's email address in `verification.rs`, resetting and
-//! changing the password in `password.rs`, and changing the address in `email_change.rs`.
+//! changing the password in `password.rs`, changing the address in `email_change.rs`,
+//! re-authenticating in `reauthentication.rs`, and second factors, completing a sign-in with one
+//! among them, in `second_factors.rs`.
 
 mod email_change;
 mod password;
+mod reauthentication;
+mod second_factors;
 mod sessions;
 mod verification;
 
@@ -32,7 +36,7 @@ use super::{
     model::{
         DEVICE_COOKIE, DeviceId, DeviceName, DeviceToken, Password, Session, TokenDelivery, Tokens,
     },
-    service::{Auth, Device, Registration, SignIn},
+    service::{Auth, Device, Registration, SignIn, SignedIn},
 };
 use crate::modules::accounts::DisplayName;
 
@@ -48,6 +52,8 @@ pub(crate) fn routes() -> Routes<Arc<Auth>> {
         .merge(email_change::routes())
         .merge(password::routes())
         .merge(sessions::routes())
+        .merge(second_factors::routes())
+        .merge(reauthentication::routes())
         .events(&[&SESSION_CREATED, &SESSION_ENDED])
         .public(
             routes!(register),
@@ -57,12 +63,6 @@ pub(crate) fn routes() -> Routes<Arc<Auth>> {
         .public(
             routes!(refresh),
             &[&AuthError::SessionExpired, &AuthError::InvalidRefreshToken],
-        )
-        // A caller whose account must still prove its address re-authenticates to change it
-        // (AUTH-025, AUTH-048).
-        .verifying(
-            routes!(reauthenticate),
-            &[&AuthError::WrongPassword, &LimitError::RateLimited],
         )
         .user(
             routes!(delete_account),
@@ -207,25 +207,6 @@ pub(crate) struct RefreshRequest {
     refresh_token: Option<String>,
 }
 
-/// What re-authenticating takes (AUTH-021).
-#[derive(Deserialize, ToSchema)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ReauthenticationRequest {
-    /// The caller's password.
-    #[schema(min_length = 1, max_length = 128, format = Password)]
-    password: String,
-}
-
-impl TryFrom<ReauthenticationRequest> for Password {
-    type Error = RequestError;
-
-    fn try_from(request: ReauthenticationRequest) -> Result<Self, Self::Error> {
-        let mut errors = FieldErrors::new();
-        let password = errors.check("/password", Password::presented(request.password));
-        errors.finish(password)
-    }
-}
-
 /// A session, and its tokens when they go in the body.
 #[derive(Serialize, ToSchema)]
 pub(crate) struct SessionResponse {
@@ -320,6 +301,7 @@ async fn register(
     responses(
         (status = 201, description = "The new session.", body = SessionResponse,
             headers(("location" = String, description = "The new session: `/v1/users/me/sessions/current`."))),
+        (status = 200, description = "The challenge that the account's second factor completes, at `/v1/sessions/second-factor`.", body = second_factors::ChallengeResponse),
     )
 )]
 async fn sign_in(
@@ -336,8 +318,15 @@ async fn sign_in(
         .into_iter()
         .map(|(name, token)| (name.to_owned(), Secret::new(token.to_owned())))
         .collect();
-    let (session, tokens, device) = auth.sign_in(&limits, &client, input).await?;
-    Ok(created(session, &tokens, &device, delivery(&headers))?)
+    match auth.sign_in(&limits, &client, input).await? {
+        SignedIn::Session(started) => {
+            let (session, tokens, device) = *started;
+            Ok(created(session, &tokens, &device, delivery(&headers))?)
+        }
+        SignedIn::Challenged(challenge) => {
+            Ok(second_factors::challenged(challenge, delivery(&headers))?)
+        }
+    }
 }
 
 /// Gives the session a new pair of tokens.
@@ -374,31 +363,6 @@ async fn refresh(
         response.headers_mut().append(header::SET_COOKIE, cookie);
     }
     Ok(response)
-}
-
-/// Re-authenticates: proves the caller's password again in the session that authenticated the
-/// request, for an action that needs it, such as deleting the account.
-#[utoipa::path(
-    post,
-    path = "/v1/users/me/sessions/current/reauthenticate",
-    tag = "auth",
-    request_body = ReauthenticationRequest,
-    responses(
-        (status = 200, description = "The session, without its tokens.", body = Session),
-    )
-)]
-async fn reauthenticate(
-    State(auth): State<Arc<Auth>>,
-    limits: RateLimits,
-    client: Client,
-    principal: Principal,
-    Json(request): Json<ReauthenticationRequest>,
-) -> Result<axum::Json<Session>, Problem<AuthError>> {
-    let password = Password::try_from(request).map_err(AuthError::from)?;
-    let session = auth
-        .reauthenticate(&limits, &client, &principal, password)
-        .await?;
-    Ok(axum::Json(session))
 }
 
 /// Deletes the caller's account, and everything it holds, once the session that authenticated

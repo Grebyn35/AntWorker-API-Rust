@@ -16,4 +16,4 @@ pub(crate) use jobs::register;
 pub(crate) use model::Lifetimes;
 pub(crate) use personal_data::Contract;
 pub(crate) use routes::routes;
-pub(crate) use service::{Auth, Settings, Verifier};
+pub(crate) use service::{Auth, Keys, Settings, Verifier};

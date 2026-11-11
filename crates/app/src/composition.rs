@@ -200,7 +200,7 @@ pub async fn compose(
         auth::Auth::new(
             database.clone(),
             config.auth,
-            server.hmac_key.clone(),
+            auth::Keys::of(server),
             workers.clone(),
             accounts::Deletion::new(contracts.clone()),
             mail.clone(),
