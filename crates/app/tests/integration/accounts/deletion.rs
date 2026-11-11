@@ -13,7 +13,7 @@ use crate::support::{
     Api, TestDatabase,
     api::Response,
     events::{self, Event},
-    execute_on, mailbox, queries_wait_on_locks, streams,
+    execute_on, mailbox, queries_wait_on_locks, queries_waiting_on_locks, streams,
     users::{self, SignedIn},
     workspaces,
 };
@@ -627,6 +627,41 @@ async fn accounts_019_a_deletion_that_waited_for_another_of_the_account_answers_
     assert_eq!(first.status, 204);
     assert_eq!(second.status, 204);
     assert_eq!(one(&api, "SELECT count(*)::text FROM users").await, "0");
+}
+
+#[tokio::test]
+async fn accounts_019_a_deletion_that_finds_the_account_gone_as_it_reads_its_email_answers_204() {
+    // With email off, authenticating reads the session alone, so the read of the email that
+    // counts the deletion is the request's first statement that reads `users` (AUTH-024).
+    let api = Api::without_email().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let mut other = db
+        .holding("LOCK TABLE users IN ACCESS EXCLUSIVE MODE")
+        .await;
+
+    let deleted = tokio::spawn({
+        let api = api.clone();
+        let access = ada.access.clone();
+        async move {
+            api.request(http::Method::DELETE, "/v1/users/me")
+                .bearer(&access)
+                .send()
+                .await
+                .status
+        }
+    });
+    queries_wait_on_locks(db, 1).await;
+    let waiting = queries_waiting_on_locks(db).await;
+    assert!(waiting[0].contains("FROM users WHERE id"), "{waiting:?}");
+    execute_on(
+        &mut other,
+        &format!("DELETE FROM users WHERE id = '{}'", ada.user_id),
+    )
+    .await;
+    execute_on(&mut other, "COMMIT").await;
+
+    assert_eq!(deleted.await.unwrap(), 204);
 }
 
 #[tokio::test]

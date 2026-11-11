@@ -2,7 +2,8 @@
 //! sessions, signing out among them; in `reauthentication.rs`, re-authenticating; in
 //! `deletion.rs`, confirming an account's deletion; in `verification.rs`, proving an account's
 //! email address, and the job that sends every code; in `password.rs`, resetting and changing the
-//! password; and in `verifier.rs`, the verifier of access tokens and sessions. Each operation
+//! password; in `email_change.rs`, changing the account's address; and in `verifier.rs`, the
+//! verifier of access tokens and sessions. Each operation
 //! opens its own unit of work, after any per-action limit it counts first.
 
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
@@ -21,6 +22,7 @@ use platform::{
 mod buckets;
 mod deletion;
 mod devices;
+mod email_change;
 mod password;
 mod reauthentication;
 mod sessions;
@@ -28,6 +30,7 @@ mod verification;
 mod verifier;
 
 pub(super) use deletion::erase;
+pub(crate) use email_change::ChangeConfirmation;
 pub(crate) use password::{PasswordChange, ResetConfirmation};
 pub(crate) use sessions::Ended;
 pub(crate) use verifier::Verifier;

@@ -1,15 +1,18 @@
 //! The jobs of `auth` (OPS-09), owned by `auth`:
 //! - `auth.send_verification_code`, enqueued by a registration with email on and by asking for a
 //!   code, for the account's user, issues a code that proves the account's email address, in
-//!   place of the one before it, or, enqueued by asking for a password reset, for the account that
+//!   place of the one before it; enqueued by asking for a password reset, for the account that
 //!   holds the address or for no one, a code that resets its password, beside the account's
-//!   others, reading `users` through `accounts`, touching `verification_codes` and
-//!   `audit_entries`, and sends it to the address at once, so the code is kept nowhere but the
-//!   email (AUTH-030, AUTH-036, SEC-03). A run for no one does nothing. A second run, such as
-//!   after a replica stopped once the email was sent, issues a new code and sends it too: the
-//!   account receives two emails. Of two verification codes only the second's works, which its
-//!   owner recognizes by the email's text, since each says that a newer code replaces it; of two
-//!   reset codes, either works until it expires or a reset uses one (OPS-09, D128).
+//!   others; or, enqueued by asking to change the account's address, for the account's user, a
+//!   code that changes it to the address its payload names, in place of the one before it. It
+//!   reads `users` through `accounts`, touches `verification_codes` and `audit_entries`, and sends
+//!   the code at once, to the account's address, or to the one a change asked for, so the code is
+//!   kept nowhere but the email (AUTH-030, AUTH-036, AUTH-050, SEC-03). A run for no one does
+//!   nothing. A second run, such as after a replica stopped once the email was sent, issues a new
+//!   code and sends it too: the address receives two emails. Of two verification codes, or two
+//!   change codes, only the second's works, which its owner recognizes by the email's text, since
+//!   each says that a newer code replaces it; of two reset codes, either works until it expires or
+//!   a reset uses one (OPS-09, D128).
 //! - `auth.expire_sessions`, periodic, every hour, deletes the sessions of every user that
 //!   stopped lasting, touching `sessions` alone (AUTH-047, D131). It spans every user by nature,
 //!   so it selects sessions by expiry alone, which `check-tenancy` lets this file alone do
@@ -23,6 +26,7 @@ use platform::{
     db::Database,
     errors::Internal,
     jobs::{Duplicate, Job, JobContext, Jobs},
+    types::EmailAddress,
 };
 use serde::{Deserialize, Serialize};
 
@@ -37,10 +41,15 @@ const EXPIRE_TIME_LIMIT: Duration = Duration::from_secs(300);
 /// The most sessions one transaction of the sweep deletes.
 const BATCH: i64 = 1_000;
 
-/// The payload of `auth.send_verification_code`: what the code proves, or resets.
+/// The payload of `auth.send_verification_code`: what the code proves, or resets, and, for a
+/// change of the address, the address asked for, which a payload of a release before it lacks
+/// (OPS-09).
 #[derive(Serialize, Deserialize)]
 pub(super) struct SendCode {
     pub(super) purpose: Purpose,
+    /// The address that a change code goes to, and changes the account's address to (AUTH-050).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) email: Option<EmailAddress>,
 }
 
 impl Job for SendCode {

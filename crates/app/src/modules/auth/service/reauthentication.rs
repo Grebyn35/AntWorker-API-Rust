@@ -1,14 +1,10 @@
 //! Re-authenticating a session with its user's password, the one check of a signed-in user's
 //! password, which changing the password goes through too, and the check that a session proved it
-//! just before a sensitive action (AUTH-021 to AUTH-023, AUTH-040, AUTH-044, AUTH-045, the auth
-//! spec's "Re-authentication").
+//! just before a sensitive action (AUTH-021 to AUTH-023, AUTH-040, AUTH-044, AUTH-045, AUTH-048,
+//! the auth spec's "Re-authentication").
 
 use platform::{
-    authn::Principal,
-    db::UnitOfWork,
-    errors::RequestError,
-    rate_limit::RateLimits,
-    types::{Client, UserId},
+    authn::Principal, db::UnitOfWork, errors::RequestError, rate_limit::RateLimits, types::Client,
 };
 
 use super::{Auth, buckets, verify};
@@ -25,7 +21,7 @@ use crate::modules::{
 
 /// Refuses, unless the session that authenticated the caller proved their password within the
 /// last 5 minutes, by the database's clock, as its `authenticated_at` records, read in `uow`
-/// without a lock (AUTH-023, AUTH-044, AUTH-045). A session that is gone since it authenticated
+/// without a lock (AUTH-023, AUTH-044, AUTH-045, AUTH-048). A session that is gone since it authenticated
 /// the request, because another request ended it or the hourly job deleted it, answers 401, as a
 /// request that came after does (AUTH-009).
 pub(super) async fn require_recent_proof(
@@ -39,11 +35,13 @@ pub(super) async fn require_recent_proof(
     }
 }
 
-/// Takes the caller's turn at ending their sessions: locks their user's row against every other
-/// change until `uow` ends, as a reset and a deletion of the account lock it first, so that two
-/// requests that each end the other's session take turns, and the second finds its own session
-/// gone (AUTH-040, AUTH-044, AUTH-045, DATA-20), and gives the user's address. A user that a
-/// deletion erased while this request waited answers 401, as the request's session went with them.
+/// Takes the caller's turn at changing what proves who they are: locks their user's row against
+/// every other change until `uow` ends, as a reset and a deletion of the account lock it first, so
+/// that two requests that each end the other's session take turns, and the second finds its own
+/// session gone (AUTH-044, AUTH-045), and two checks of their password take turns, and the second
+/// reads the password the first set (AUTH-022, AUTH-040, DATA-20), and gives the user's address. A
+/// user that a deletion erased while this request waited answers 401, as the request's session
+/// went with them (ACCOUNTS-019).
 pub(super) async fn take_turn(
     uow: &mut UnitOfWork,
     principal: &Principal,
@@ -64,8 +62,8 @@ impl Auth {
         password: Password,
     ) -> Result<Session, AuthError> {
         let user_id = principal.user_id();
-        let (mut uow, matches) = self
-            .check_password(limits, client, user_id, password)
+        let (mut uow, _, matches) = self
+            .check_password(limits, client, principal, password)
             .await?;
         if !matches {
             return Err(self.wrong_password(uow, principal).await?);
@@ -110,26 +108,29 @@ impl Auth {
         Ok(AuthError::WrongPassword)
     }
 
-    /// Whether `password` is `user_id`'s, with the operation's unit of work, open: the one check of
-    /// a signed-in user's password, which counts in their bucket before the unit of work opens,
-    /// then reads their password identity in it and verifies the password through `workers`,
-    /// against the dummy hash when they have none, so a missing password costs what a wrong one
-    /// does (AUTH-021, AUTH-022, SEC-13, ARCH-11).
+    /// Whether `password` is the caller's, with the operation's unit of work, open, and their
+    /// address: the one check of a signed-in user's password, which counts in their bucket before
+    /// the unit of work opens, then takes the user's turn in it, so it reads the password that the
+    /// last change of it left, then reads their password identity and verifies the password
+    /// through `workers`, against the dummy hash when they have none, so a missing password costs
+    /// what a wrong one does (AUTH-021, AUTH-022, AUTH-040, SEC-13, ARCH-11, DATA-20).
     pub(super) async fn check_password(
         &self,
         limits: &RateLimits,
         client: &Client,
-        user_id: UserId,
+        principal: &Principal,
         password: Password,
-    ) -> Result<(UnitOfWork, bool), AuthError> {
+    ) -> Result<(UnitOfWork, accounts::Address, bool), AuthError> {
+        let user_id = principal.user_id();
         limits
             .check(buckets::PASSWORD_CHECK, user_id.uuid().as_bytes())
             .await?;
         let mut uow = self.database.begin(client).await?;
+        let address = take_turn(&mut uow, principal).await?;
         let stored = repo::password_hash(&mut uow, user_id).await?;
         let has_password = stored.is_some();
         let hash = stored.unwrap_or_else(|| self.dummy_hash.clone());
         let (matches, _) = verify(&self.workers, hash, password).await?;
-        Ok((uow, matches && has_password))
+        Ok((uow, address, matches && has_password))
     }
 }

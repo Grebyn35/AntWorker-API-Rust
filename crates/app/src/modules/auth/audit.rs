@@ -32,7 +32,7 @@ pub(super) const SESSION_REAUTHENTICATED: Action = Action::new("session.reauthen
 pub(super) const PASSWORD_CHECK_FAILED: Action = Action::new("password.check_failed");
 /// A code that proves the account's email address was issued, and sent to it (AUTH-030).
 pub(super) const VERIFICATION_CODE_ISSUED: Action = Action::new("verification_code.issued");
-/// A code that the signed-in user entered wasn't their account's (AUTH-032).
+/// A code that the signed-in user entered wasn't their account's (AUTH-032, AUTH-052).
 pub(super) const VERIFICATION_CODE_CHECK_FAILED: Action =
     Action::new("verification_code.check_failed");
 /// The account proved its email address (AUTH-031), or a reset proved it (AUTH-037).
@@ -45,6 +45,11 @@ pub(super) const PASSWORD_RESET_FAILED: Action = Action::new("password_reset.fai
 pub(super) const PASSWORD_RESET: Action = Action::new("password.reset");
 /// The signed-in user changed their password (AUTH-040).
 pub(super) const PASSWORD_CHANGED: Action = Action::new("password.changed");
+/// A code that changes the account's address to the one it was sent to was issued, and sent there
+/// (AUTH-050).
+pub(super) const EMAIL_CHANGE_CODE_ISSUED: Action = Action::new("email_change_code.issued");
+/// The signed-in user changed their account's address to one they proved (AUTH-051).
+pub(super) const EMAIL_CHANGED: Action = Action::new("email.changed");
 
 /// A user's account.
 pub(super) const USER: Resource = Resource::new("user");
@@ -54,6 +59,6 @@ pub(super) const IDENTITY: Resource = Resource::new("identity");
 pub(super) const SESSION: Resource = Resource::new("session");
 /// The token that tells a sign-in from a device that signed in to the account before.
 pub(super) const DEVICE_TOKEN: Resource = Resource::new("device_token");
-/// A code sent to the account's email address, which proves that the account holds it, or that
-/// resets its password.
+/// A code sent to an address, which proves that the account holds its address, resets its
+/// password, or changes its address to the one the code was sent to.
 pub(super) const VERIFICATION_CODE: Resource = Resource::new("verification_code");

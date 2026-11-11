@@ -650,6 +650,16 @@ pub async fn queries_wait_on_locks(db: &TestDatabase, count: usize) {
     }
 }
 
+/// The text of each query of the test database that waits on a lock, as the administrator sees
+/// them, so a test shows which of a request's statements waits.
+pub async fn queries_waiting_on_locks(db: &TestDatabase) -> Vec<String> {
+    db.admin_reads(&format!(
+        "SELECT query FROM pg_stat_activity WHERE datname = '{}' AND wait_event_type = 'Lock'",
+        db.name()
+    ))
+    .await
+}
+
 fn settings() -> BootstrapConfig {
     if let Err(error) = dotenvy::dotenv() {
         assert!(error.not_found(), "can't read .env: {error}");

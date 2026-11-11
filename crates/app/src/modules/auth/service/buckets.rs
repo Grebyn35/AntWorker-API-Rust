@@ -39,8 +39,8 @@ pub(super) const VERIFICATION_EMAIL: Bucket = Bucket {
     window: Duration::from_secs(900),
 };
 
-/// The bucket of each user's checks of the codes that prove their address: 10 in 24 hours,
-/// fixed (AUTH-033).
+/// The bucket of each user's checks of the codes that prove their address, or a new one: 10 in
+/// 24 hours, fixed (AUTH-033).
 pub(super) const CODE_CHECK: Bucket = Bucket {
     name: "code_check",
     limit: 10,
@@ -66,6 +66,16 @@ pub(super) const RESET_CHECK: Bucket = Bucket {
     window: Duration::from_secs(900),
 };
 
+/// The bucket of the requests to change an account's address to an email address, each of which
+/// sends that address an email: 3 in 10 minutes, fixed, apart from the registrations', the
+/// verification codes' and the resets'. Its window lasts at most as long as a code, so while it is
+/// full, the last code it let through still works (AUTH-049).
+pub(super) const CHANGE_EMAIL: Bucket = Bucket {
+    name: "change_email",
+    limit: 3,
+    window: Duration::from_secs(600),
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,5 +85,16 @@ mod tests {
     fn auth_035_the_window_of_the_requests_for_reset_codes_lasts_at_most_as_long_as_a_code() {
         let lasts = Duration::from_secs(60 * u64::try_from(CODE_MINUTES).unwrap());
         assert!(RESET_EMAIL.window <= lasts);
+    }
+
+    #[test]
+    fn auth_049_the_window_of_the_requests_to_change_to_an_address_lasts_at_most_as_long_as_a_code()
+    {
+        let lasts = Duration::from_secs(60 * u64::try_from(CODE_MINUTES).unwrap());
+        assert!(CHANGE_EMAIL.window <= lasts);
+        assert_eq!(
+            (CHANGE_EMAIL.limit, CHANGE_EMAIL.window.as_secs()),
+            (3, 600)
+        );
     }
 }

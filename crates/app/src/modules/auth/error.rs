@@ -1,7 +1,7 @@
 //! What `auth` reports (ERR-01).
 
 use platform::{
-    errors::{Category, ErrorCode, FieldError, Internal, RequestError},
+    errors::{Category, ErrorCode, FieldError, Internal, PlatformError, RequestError},
     rate_limit::LimitError,
 };
 
@@ -68,7 +68,9 @@ pub(crate) enum AuthError {
 impl From<AccountsError> for AuthError {
     fn from(error: AccountsError) -> Self {
         match error {
-            AccountsError::Internal(error) => Self::Internal(error),
+            AccountsError::Internal(error)
+            | AccountsError::Platform(PlatformError::Internal(error)) => Self::Internal(error),
+            AccountsError::Platform(PlatformError::Request(error)) => Self::Request(error),
             other => Self::Internal(Internal::new(other)),
         }
     }

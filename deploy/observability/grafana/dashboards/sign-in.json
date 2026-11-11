@@ -1,7 +1,7 @@
 {
   "uid": "api-sign-in",
   "title": "Sign-in",
-  "description": "How sign-in attempts end, which a credential-stuffing attack changes, and how the checks of the codes that prove an account's email address, and the confirmations of password resets, end, which guessing changes (the auth spec).",
+  "description": "How sign-in attempts end, which a credential-stuffing attack changes, and how the checks of the codes that prove an account's email address, the confirmations of password resets, and the confirmations of changes of an account's address, end, which guessing changes (the auth spec).",
   "tags": [
     "api",
     "area"
@@ -154,6 +154,46 @@
         "w": 24,
         "x": 0,
         "y": 16
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "How do confirmations of changes of the address end?",
+      "description": "Confirmations of changes of an account's email address in the last 5 minutes, by how each ended: changed, wrong_code, code_expired, email_in_use, or rate_limited by the limit on each user's checks of codes (AUTH-051, AUTH-052, AUTH-033). A rise in wrong_code across many accounts is the shape of guessing the codes of an address that they each asked for, which the codes' 80 bits leave hopeless.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (auth_outcome) (increase(auth_email_changes_total[5m]))",
+          "legendFormat": "{{auth_outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 4,
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 24
       }
     }
   ]

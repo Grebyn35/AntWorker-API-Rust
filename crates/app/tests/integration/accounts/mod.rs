@@ -9,7 +9,7 @@ use crate::support::{
     Api,
     api::Response,
     events::{self, Event},
-    streams,
+    execute_on, queries_wait_on_locks, queries_waiting_on_locks, streams,
     users::{self, PASSWORD, SignedIn},
     workspaces,
 };
@@ -309,4 +309,83 @@ async fn sec_19_member_updated_reaches_the_members_and_no_replay_from_before_joi
     // made after.
     assert_eq!(after_joining.event.as_deref(), Some("member.updated"));
     assert_eq!(after_joining.id, seen[1]);
+}
+
+/// Sends, in a task of its own, `method` to `path` with `user`'s access token, and `body` when
+/// there is one, and gives the response's status and its body's JSON, or null for an empty body.
+fn spawn_request(
+    api: &Api,
+    method: http::Method,
+    path: &str,
+    user: &SignedIn,
+    body: Option<serde_json::Value>,
+) -> tokio::task::JoinHandle<(http::StatusCode, serde_json::Value)> {
+    let (api, path, access) = (api.clone(), path.to_owned(), user.access.clone());
+    tokio::spawn(async move {
+        let call = match body {
+            Some(body) if method == http::Method::PATCH => api.patch(&path, &body),
+            Some(body) => api.post(&path, &body),
+            None => api.request(method, &path),
+        };
+        let response = call.bearer(&access).send().await;
+        let body = if response.body.is_empty() {
+            serde_json::Value::Null
+        } else {
+            response.json()
+        };
+        (response.status, body)
+    })
+}
+
+#[tokio::test]
+async fn accounts_019_a_rename_that_waited_for_the_account_s_deletion_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    // A deletion of the account that holds the user's row, and their sessions with it.
+    let mut deletion = db
+        .holding(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
+        .await;
+
+    let renamed = spawn_request(
+        &api,
+        http::Method::PATCH,
+        "/v1/users/me",
+        &ada,
+        Some(json!({ "name": "Ada King" })),
+    );
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, body) = renamed.await.unwrap();
+
+    // Its turn came once the user was gone, and their session with them.
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+}
+
+#[tokio::test]
+async fn accounts_019_a_read_that_finds_the_account_gone_answers_401() {
+    // With email off, authenticating reads the session alone, so the read of the record is the
+    // request's first statement that reads `users`.
+    let api = Api::without_email().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let mut deletion = db
+        .holding("LOCK TABLE users IN ACCESS EXCLUSIVE MODE")
+        .await;
+
+    let read = spawn_request(&api, http::Method::GET, "/v1/users/me", &ada, None);
+    queries_wait_on_locks(db, 1).await;
+    let waiting = queries_waiting_on_locks(db).await;
+    assert!(waiting[0].contains("FROM users WHERE id"), "{waiting:?}");
+    execute_on(
+        &mut deletion,
+        &format!("DELETE FROM users WHERE id = '{}'", ada.user_id),
+    )
+    .await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, body) = read.await.unwrap();
+
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
 }

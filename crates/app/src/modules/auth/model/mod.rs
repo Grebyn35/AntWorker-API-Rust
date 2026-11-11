@@ -1,5 +1,5 @@
 //! The domain types of sign-in (D25): passwords, device IDs and how a client takes its tokens;
-//! in `codes.rs`, the verification and reset codes sent to an account's address; and in
+//! in `codes.rs`, the verification, reset and change codes sent to an address; and in
 //! `sessions.rs`, a device's name and a session as a user's list of them shows it.
 
 use std::{borrow::Cow, collections::HashSet, sync::LazyLock, time::Duration};
@@ -17,8 +17,8 @@ use utoipa::{
 mod codes;
 mod sessions;
 
+pub(crate) use codes::{ChangeCode, ResetCode, VerificationCode};
 pub(super) use codes::{Code, Purpose};
-pub(crate) use codes::{ResetCode, VerificationCode};
 pub(crate) use sessions::{DeviceName, SessionItem};
 
 /// The fewest characters a password has (AUTH-003).

@@ -25,6 +25,6 @@ pub(crate) use personal_data::Contract;
 pub(crate) use service::deletion::{Deletion, Outcome as DeletionOutcome};
 pub(crate) use service::exports::Exports;
 pub(crate) use service::{
-    Creation, address, address_for_update, create, find_by_email, matching, me, profiles,
-    verify_email,
+    Creation, EmailChange, address, address_for_update, change_email, create, find_by_email,
+    matching, profiles, verify_email,
 };

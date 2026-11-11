@@ -71,7 +71,12 @@ impl PersonalData for Contract {
             )]
             let scope = principal.erased_job_scope();
             self.mail.send(uow, scope, email).await?;
-            repo::lock(uow, user).await?;
+            // The deletion holds the row since its first step, so the lock finds it.
+            if !repo::lock(uow, user).await? {
+                return Err(
+                    Internal::new("the user whose row the deletion holds doesn't exist").into(),
+                );
+            }
             uow.wait_for_locks_at_most(NO_WAIT).await?;
             repo::delete(uow, user).await?;
             Ok(uow.wait_for_locks_as_before().await?)

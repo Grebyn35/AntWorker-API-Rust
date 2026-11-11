@@ -8,6 +8,7 @@ Prometheus stores each metric under the name in its "In Prometheus" column: its 
 
 | Metric | Kind | Unit | Labels | In Prometheus | Declared in | Description |
 |---|---|---|---|---|---|---|
+| `auth.email_changes` | counter | `{confirmation}` | `auth.outcome` | `auth_email_changes_total` | `crates/app/src/modules/auth/metrics.rs` | Confirmations of changes of an account's email address, by how each ended: changed, wrong_code, code_expired, email_in_use or rate_limited (AUTH-051, AUTH-052, AUTH-033). |
 | `auth.email_verifications` | counter | `{check}` | `auth.outcome` | `auth_email_verifications_total` | `crates/app/src/modules/auth/metrics.rs` | Checks of the codes that prove an account's email address, by how each ended: verified, wrong_code, code_expired or rate_limited (AUTH-031 to AUTH-033). |
 | `auth.password_resets` | counter | `{confirmation}` | `auth.outcome` | `auth_password_resets_total` | `crates/app/src/modules/auth/metrics.rs` | Confirmations of password resets, by how each ended: reset, invalid_reset_code or rate_limited (AUTH-037 to AUTH-039). |
 | `auth.sign_ins` | counter | `{attempt}` | `auth.outcome` | `auth_sign_ins_total` | `crates/app/src/modules/auth/metrics.rs` | Sign-in attempts, by how each ended: succeeded, invalid_credentials or rate_limited (AUTH-004 to AUTH-006). |

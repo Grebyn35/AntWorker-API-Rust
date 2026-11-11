@@ -1,0 +1,5 @@
+The email address of your {{ email.product }} account has changed from {{ email.to }} to {{ email.new }}.
+
+If you changed it, there is nothing to do.
+
+If you didn't, someone who knows your password did. Sign in with {{ email.new }} and your password, or where you are still signed in, change the address back to {{ email.to }}, then change your password.

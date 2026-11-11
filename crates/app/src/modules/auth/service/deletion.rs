@@ -20,17 +20,20 @@ impl Auth {
     /// Deletes the caller's account, once their session has proved their password within the
     /// last 5 minutes, through `accounts`, in one unit of work (AUTH-023), once the deletion has
     /// counted in the bucket of the account's email, which a read before the unit of work finds
-    /// (AUTH-024, ARCH-11).
+    /// (AUTH-024, ARCH-11). An account that another deletion took before that read is deleted
+    /// already, as the deletion asked (ACCOUNTS-019).
     pub(crate) async fn delete_account(
         &self,
         limits: &RateLimits,
         client: &Client,
         principal: &Principal,
     ) -> Result<(), AuthError> {
-        let email = accounts::me(&self.database, client, principal)
-            .await?
-            .profile
-            .email;
+        let mut uow = self.database.begin(client).await?;
+        let address = accounts::address(&mut uow, principal.user_id()).await?;
+        drop(uow);
+        let Some(accounts::Address { email, .. }) = address else {
+            return Ok(());
+        };
         limits
             .check(buckets::DELETION_EMAIL, email.as_str().as_bytes())
             .await?;

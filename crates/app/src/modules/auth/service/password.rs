@@ -13,7 +13,6 @@ use platform::{
 
 use super::{
     Auth, buckets, hash,
-    reauthentication::take_turn,
     sessions::end_sessions,
     verification::{CODE_KIND, code_input},
 };
@@ -71,6 +70,7 @@ impl Auth {
             scope,
             &SendCode {
                 purpose: Purpose::PasswordReset,
+                email: None,
             },
         )
         .await?;
@@ -129,7 +129,7 @@ impl Auth {
         };
         let scope = AuditScope::attempt(user_id);
         if !self
-            .claim_reset_code(&mut uow, user_id, &confirmation.code)
+            .claim_reset_code(&mut uow, user_id, &address.email, &confirmation.code)
             .await?
         {
             // A failed reset of an existing account is a security failure, which commits before
@@ -172,16 +172,18 @@ impl Auth {
         Ok(())
     }
 
-    /// Whether `code` is one of `user_id`'s reset codes that last, which this unit of work then
-    /// claimed by deleting it, so it resets nothing again: a row only one unit of work deletes. A
-    /// claim deletes the account's other reset codes too (AUTH-037).
+    /// Whether `code` is one of `user_id`'s reset codes that last, sent to `address`, their
+    /// address, which this unit of work then claimed by deleting it, so it resets nothing again:
+    /// a row only one unit of work deletes. A claim deletes the account's other reset codes too
+    /// (AUTH-037).
     async fn claim_reset_code(
         &self,
         uow: &mut UnitOfWork,
         user_id: UserId,
+        address: &EmailAddress,
         code: &ResetCode,
     ) -> Result<bool, Internal> {
-        let input = code_input(user_id, code);
+        let input = code_input(user_id, address, code);
         let stored = codes::find(uow, user_id, Purpose::PasswordReset).await?;
         // Each lasting code is compared, in constant time, so the time doesn't tell which matched.
         let mut matched = None;
@@ -201,8 +203,9 @@ impl Auth {
     }
 
     /// Changes the caller's password, once their current one has passed the one check of a
-    /// signed-in user's password (AUTH-040, AUTH-022), ending their other sessions at their turn
-    /// at ending their sessions, so a request that ended this one's session first leaves it 401.
+    /// signed-in user's password (AUTH-040, AUTH-022), ending their other sessions at the turn at
+    /// ending their sessions that the check took, so a request that ended this one's session first
+    /// leaves it 401.
     pub(crate) async fn change_password(
         &self,
         limits: &RateLimits,
@@ -211,14 +214,15 @@ impl Auth {
         change: PasswordChange,
     ) -> Result<(), AuthError> {
         let user_id = principal.user_id();
-        let (mut uow, matches) = self
-            .check_password(limits, client, user_id, change.current)
+        // The check takes the user's turn, so a change that came first has set its hash, which
+        // this check reads (AUTH-022, DATA-20).
+        let (mut uow, address, matches) = self
+            .check_password(limits, client, principal, change.current)
             .await?;
         if !matches {
             return Err(self.wrong_password(uow, principal).await?);
         }
         let password_hash = hash(&self.workers, change.password).await?;
-        let address = take_turn(&mut uow, principal).await?;
         // The identity before any session, as a sign-in locks them, so the two never deadlock
         // (the auth spec's "Taking turns").
         let identity = repo::set_password(&mut uow, user_id, &password_hash).await?;

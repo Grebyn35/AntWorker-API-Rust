@@ -94,3 +94,39 @@ pub(super) fn reset(outcome: PasswordReset) {
     };
     PASSWORD_RESETS.add(1, [label.into()]);
 }
+
+/// Confirmations of changes of an account's address, by how each ended.
+static EMAIL_CHANGES: Counter<1> = Counter::new(
+    "auth.email_changes",
+    "{confirmation}",
+    "Confirmations of changes of an account's email address, by how each ended: changed, \
+     wrong_code, code_expired, email_in_use or rate_limited (AUTH-051, AUTH-052, AUTH-033).",
+    [names::AUTH_OUTCOME],
+);
+
+/// How a confirmation of a change of the address ended.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum EmailChange {
+    /// The account's address changed (AUTH-051).
+    Changed,
+    /// The code wasn't the account's for the address (AUTH-052).
+    WrongCode,
+    /// The account had no code for a change that lasted (AUTH-052).
+    CodeExpired,
+    /// Another account took the address since the code was issued (AUTH-052).
+    EmailInUse,
+    /// The limit on the account's checks of codes refused it (AUTH-033).
+    RateLimited,
+}
+
+/// Counts a confirmation of a change of the address that ended as `outcome`.
+pub(super) fn email_change(outcome: EmailChange) {
+    let label = match outcome {
+        EmailChange::Changed => "changed",
+        EmailChange::WrongCode => "wrong_code",
+        EmailChange::CodeExpired => "code_expired",
+        EmailChange::EmailInUse => "email_in_use",
+        EmailChange::RateLimited => "rate_limited",
+    };
+    EMAIL_CHANGES.add(1, [label.into()]);
+}

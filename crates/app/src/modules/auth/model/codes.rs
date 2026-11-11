@@ -1,8 +1,9 @@
-//! The codes that `auth` sends to an account's address (D25): a verification code, which proves
-//! the address (AUTH-030), and a reset code, which resets its password (AUTH-036), with what
-//! each proves.
+//! The codes that `auth` sends to an address (D25): a verification code, which proves the
+//! account's address (AUTH-030), a reset code, which resets its password (AUTH-036), and a change
+//! code, which changes its address to the one the code was sent to (AUTH-050), with what each
+//! proves.
 
-use std::borrow::Cow;
+use std::{borrow::Cow, marker::PhantomData};
 
 use platform::{
     errors::Internal,
@@ -19,11 +20,13 @@ use utoipa::{
 /// (AUTH-030, DATA-04).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(in crate::modules::auth) enum Purpose {
+pub(crate) enum Purpose {
     /// That the account holds its email address (AUTH-031).
     EmailVerification,
     /// That its requester may reset the account's password (AUTH-037).
     PasswordReset,
+    /// That the account may change its address to the one the code was sent to (AUTH-051).
+    EmailChange,
 }
 
 impl Purpose {
@@ -32,6 +35,7 @@ impl Purpose {
         match self {
             Self::EmailVerification => "email_verification",
             Self::PasswordReset => "password_reset",
+            Self::EmailChange => "email_change",
         }
     }
 
@@ -40,13 +44,14 @@ impl Purpose {
         match name {
             "email_verification" => Ok(Self::EmailVerification),
             "password_reset" => Ok(Self::PasswordReset),
+            "email_change" => Ok(Self::EmailChange),
             _ => Err(Internal::new("a code's purpose that auth doesn't know")),
         }
     }
 }
 
-/// A code sent to an account's address, which proves one purpose: what its keyed hash covers is
-/// its account, its purpose and its characters (SEC-03).
+/// A code sent to an address, which proves one purpose: what its keyed hash covers is its
+/// account, its purpose, the address it was sent to and its characters (SEC-03).
 pub(in crate::modules::auth) trait Code {
     /// What the code proves.
     const PURPOSE: Purpose;
@@ -63,8 +68,8 @@ impl Code for VerificationCode {
     }
 }
 
-impl Code for ResetCode {
-    const PURPOSE: Purpose = Purpose::PasswordReset;
+impl<P: LongPurpose> Code for LongCode<P> {
+    const PURPOSE: Purpose = P::PURPOSE;
 
     fn characters(&self) -> &str {
         self.0.expose()
@@ -136,33 +141,67 @@ impl ToSchema for VerificationCode {
 /// L, O and U (AUTH-036).
 const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-/// How many characters a reset code has: the 80 bits of 10 random bytes, 5 to a character
-/// (AUTH-036).
-const RESET_CODE_CHARS: usize = 16;
+/// How many characters a reset code or a change code has: the 80 bits of 10 random bytes, 5 to a
+/// character (AUTH-036, AUTH-050).
+const LONG_CODE_CHARS: usize = 16;
 
-/// The most characters a typed reset code has, its hyphens and spaces among them.
-const RESET_CODE_MAX_INPUT: usize = 64;
+/// The most characters a typed reset code or change code has, its hyphens and spaces among them.
+const LONG_CODE_MAX_INPUT: usize = 64;
 
-/// A reset code: 16 characters of Crockford's base32 alphabet (AUTH-036), as the API drew it, or as
-/// the user typed it, read as Crockford's decoding reads it. Its `Debug` shows no character
-/// (SEC-01).
+/// What a code of 16 characters of Crockford's base32 alphabet proves, with the name its schema
+/// has in the API's document.
+pub(crate) trait LongPurpose {
+    /// What the code proves.
+    const PURPOSE: Purpose;
+    /// The name of the code's schema.
+    const SCHEMA: &'static str;
+    /// What the code is called, in the sentence that refuses one.
+    const REFUSAL: &'static str;
+}
+
+/// That a code resets the account's password (AUTH-036).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ForReset;
+
+impl LongPurpose for ForReset {
+    const PURPOSE: Purpose = Purpose::PasswordReset;
+    const SCHEMA: &'static str = "ResetCode";
+    const REFUSAL: &'static str =
+        "A reset code is 16 letters and digits, which hyphens and spaces may separate.";
+}
+
+/// That a code changes the account's address to the one it was sent to (AUTH-050).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ForChange;
+
+impl LongPurpose for ForChange {
+    const PURPOSE: Purpose = Purpose::EmailChange;
+    const SCHEMA: &'static str = "ChangeCode";
+    const REFUSAL: &'static str =
+        "A change code is 16 letters and digits, which hyphens and spaces may separate.";
+}
+
+/// A code of 16 characters of Crockford's base32 alphabet, 80 random bits, which proves what `P`
+/// says, as the API drew it, or as the user typed it, read as Crockford's decoding reads it. Its
+/// `Debug` shows no character (SEC-01).
 #[derive(Clone, Debug)]
-pub(crate) struct ResetCode(Secret<String>);
+pub(crate) struct LongCode<P>(Secret<String>, PhantomData<P>);
 
-impl ResetCode {
+/// A reset code (AUTH-036).
+pub(crate) type ResetCode = LongCode<ForReset>;
+
+/// A code that changes the account's address to the one it was sent to (AUTH-050).
+pub(crate) type ChangeCode = LongCode<ForChange>;
+
+impl<P: LongPurpose> LongCode<P> {
     /// The code the user typed, read without regard to case, without its hyphens and spaces, and
-    /// with I and L read as 1 and O as 0, or why it isn't one (AUTH-038).
+    /// with I and L read as 1 and O as 0, or why it isn't one (AUTH-038, AUTH-052).
     pub(crate) fn parse(value: &str) -> Result<Self, Invalid> {
-        let refused = || {
-            Invalid::new(
-                "invalid_code",
-                "A reset code is 16 letters and digits, which hyphens and spaces may separate.",
-            )
-        };
-        if value.chars().count() > RESET_CODE_MAX_INPUT {
+        let refused = || Invalid::new("invalid_code", P::REFUSAL);
+        if value.chars().count() > LONG_CODE_MAX_INPUT {
             return Err(refused());
         }
-        let mut code = String::with_capacity(RESET_CODE_CHARS);
+        let mut code = String::with_capacity(LONG_CODE_CHARS);
         for character in value.chars() {
             let read = match character.to_ascii_uppercase() {
                 '-' => continue,
@@ -174,31 +213,31 @@ impl ResetCode {
             };
             code.push(read);
         }
-        if code.len() == RESET_CODE_CHARS {
-            Ok(Self(Secret::new(code)))
+        if code.len() == LONG_CODE_CHARS {
+            Ok(Self(Secret::new(code), PhantomData))
         } else {
             Err(refused())
         }
     }
 
     /// A new code, the 80 bits of 10 bytes from the operating system's secure random source, 5 to
-    /// a character, each character as likely as any other (AUTH-036, SEC-03).
+    /// a character, each character as likely as any other (AUTH-036, AUTH-050, SEC-03).
     pub(crate) fn generate() -> Result<Self, Internal> {
         let mut bits = [0; 16];
         bits[6..].copy_from_slice(&random::bytes::<10>()?);
         let value = u128::from_be_bytes(bits);
-        let code = (0..RESET_CODE_CHARS)
+        let code = (0..LONG_CODE_CHARS)
             .rev()
             .map(|place| {
                 let index = usize::try_from((value >> (5 * place)) & 0x1f).unwrap_or(0);
                 char::from(CROCKFORD[index])
             })
             .collect();
-        Ok(Self(Secret::new(code)))
+        Ok(Self(Secret::new(code), PhantomData))
     }
 
-    /// The code in four groups of four characters, as its email shows it (AUTH-036). Never log
-    /// it.
+    /// The code in four groups of four characters, as its email shows it (AUTH-036, AUTH-050).
+    /// Never log it.
     pub(crate) fn grouped(&self) -> String {
         let characters: Vec<char> = self.0.expose().chars().collect();
         characters
@@ -209,24 +248,24 @@ impl ResetCode {
     }
 }
 
-impl PartialSchema for ResetCode {
+impl<P: LongPurpose> PartialSchema for LongCode<P> {
     fn schema() -> RefOr<Schema> {
         ObjectBuilder::new()
             .schema_type(Type::String)
-            .min_length(Some(RESET_CODE_CHARS))
-            .max_length(Some(RESET_CODE_MAX_INPUT))
+            .min_length(Some(LONG_CODE_CHARS))
+            .max_length(Some(LONG_CODE_MAX_INPUT))
             .pattern(Some("^[\\s-]*(?:[0-9A-TV-Za-tv-z][\\s-]*){16}$"))
             .description(Some(
-                "The 16 characters of the reset code, of Crockford's base32 alphabet, without \
-                 regard to case, which hyphens and spaces may separate.",
+                "The 16 characters of the code, of Crockford's base32 alphabet, without regard to \
+                 case, which hyphens and spaces may separate.",
             ))
             .into()
     }
 }
 
-impl ToSchema for ResetCode {
+impl<P: LongPurpose> ToSchema for LongCode<P> {
     fn name() -> Cow<'static, str> {
-        Cow::Borrowed("ResetCode")
+        Cow::Borrowed(P::SCHEMA)
     }
 }
 
@@ -333,6 +372,37 @@ mod tests {
                 .unwrap_err()
                 .code,
             "invalid_code"
+        );
+    }
+
+    #[test]
+    fn auth_050_a_change_code_is_16_characters_of_crockford_s_base32_apart_from_a_reset_code() {
+        let code = ChangeCode::generate().unwrap();
+        assert!(code.characters().len() == 16);
+        assert!(
+            code.characters()
+                .bytes()
+                .all(|byte| CROCKFORD.contains(&byte))
+        );
+        assert_eq!(code.grouped().len(), 19);
+        assert_eq!(ChangeCode::PURPOSE, Purpose::EmailChange);
+        assert_eq!(ResetCode::PURPOSE, Purpose::PasswordReset);
+    }
+
+    #[test]
+    fn auth_052_a_typed_change_code_is_read_as_a_reset_code_is() {
+        assert_eq!(
+            ChangeCode::parse("7kqm-2xwd 9rtb-h4np")
+                .unwrap()
+                .characters(),
+            "7KQM2XWD9RTBH4NP"
+        );
+        let refused = ChangeCode::parse("7KQM-2XWD-9RTB-H4NU").unwrap_err();
+        assert_eq!(refused.code, "invalid_code");
+        assert!(
+            refused.message.starts_with("A change code"),
+            "{}",
+            refused.message
         );
     }
 

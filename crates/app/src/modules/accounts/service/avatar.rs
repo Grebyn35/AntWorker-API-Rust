@@ -12,7 +12,7 @@ use platform::{
     types::{Client, Version},
 };
 
-use super::{current, publish_updated};
+use super::{current, lock_caller, publish_updated};
 use crate::modules::{
     accounts::{
         audit,
@@ -59,7 +59,7 @@ pub(in crate::modules::accounts) async fn set(
     files::upload_avatar(&avatars.files, bytes, async |avatar: NewAvatar| {
         let mut uow = avatars.database.begin(client).await?;
         let user = principal.user_id();
-        repo::lock(&mut uow, user).await?;
+        lock_caller(&mut uow, principal).await?;
         if !repo::touch(&mut uow, user, versions).await? {
             return Err(RequestError::PreconditionFailed.into());
         }
@@ -87,7 +87,7 @@ pub(in crate::modules::accounts) async fn remove(
 ) -> Result<(), AccountsError> {
     let mut uow = avatars.database.begin(client).await?;
     let user = principal.user_id();
-    repo::lock(&mut uow, user).await?;
+    lock_caller(&mut uow, principal).await?;
     if !repo::touch(&mut uow, user, versions).await? {
         return Err(RequestError::PreconditionFailed.into());
     }

@@ -13,7 +13,7 @@ pub(super) mod exports;
 use platform::{
     authn::Principal,
     db::{Database, UnitOfWork},
-    errors::{Internal, RequestError},
+    errors::RequestError,
     lists::Search,
     types::{Client, EmailAddress, UserId, Version},
 };
@@ -40,6 +40,15 @@ pub(crate) enum Creation {
     Created(UserId),
     /// Another user has the email, so nothing was written.
     EmailInUse,
+}
+
+/// What changing a user's email came to (AUTH-051).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EmailChange {
+    /// The user's email is the new one, which they proved.
+    Changed,
+    /// Another user has the email: the unit of work is aborted, and rolls back as it is dropped.
+    InUse,
 }
 
 /// Creates a user with `email` and `name`, unless another user has the email (ACCOUNTS-004).
@@ -82,6 +91,24 @@ pub(crate) async fn address_for_update(
     Ok(repo::address_for_update(uow, user_id).await?)
 }
 
+/// Makes `email` the caller's address, which they proved with the code sent to it, so their
+/// record's `email_verified` is true, and publishes that their record changed, as a rename does,
+/// unless another user has the email (AUTH-051, ACCOUNTS-004). The caller holds the user's row
+/// through [`address_for_update`]; the update of `email`, which has a unique index, holds it
+/// `FOR UPDATE`, so the workspaces it publishes in are all of the user's until it commits
+/// (DATA-20).
+pub(crate) async fn change_email(
+    uow: &mut UnitOfWork,
+    principal: &Principal,
+    email: &EmailAddress,
+) -> Result<EmailChange, AccountsError> {
+    if !repo::change_email(uow, principal.user_id(), email).await? {
+        return Ok(EmailChange::InUse);
+    }
+    publish_updated(uow, principal).await?;
+    Ok(EmailChange::Changed)
+}
+
 /// Records that `user_id`'s account proved its email address (AUTH-031): its record's
 /// `email_verified` becomes true (ACCOUNTS-001). Callers pass the caller's ID (DATA-16).
 pub(crate) async fn verify_email(
@@ -111,14 +138,15 @@ pub(crate) async fn profile(
 }
 // end part: invitations
 
-/// The caller's own record, with its version, as ACCOUNTS-001 gives it.
+/// The caller's own record, with its version, as ACCOUNTS-001 gives it, or 401 once a deletion
+/// of their account has taken it, and their session with it (ACCOUNTS-019).
 pub(super) async fn current(
     uow: &mut UnitOfWork,
     principal: &Principal,
 ) -> Result<Current, AccountsError> {
     let current = repo::profile(uow, principal.user_id())
         .await?
-        .ok_or_else(|| Internal::new("the caller's user doesn't exist"))?;
+        .ok_or(RequestError::Unauthenticated)?;
     // part: files
     let current = avatar::with_link(uow, current).await?;
     // end part: files
@@ -139,7 +167,7 @@ pub(crate) async fn rename(
 ) -> Result<Current, AccountsError> {
     let mut uow = database.begin(client).await?;
     let user = principal.user_id();
-    repo::lock(&mut uow, user).await?;
+    lock_caller(&mut uow, principal).await?;
     if !repo::rename(&mut uow, user, &rename.name, versions).await? {
         return Err(RequestError::PreconditionFailed.into());
     }
@@ -149,6 +177,20 @@ pub(crate) async fn rename(
     let current = current(&mut uow, principal).await?;
     uow.commit().await?;
     Ok(current)
+}
+
+/// Locks the caller's row `FOR UPDATE`, before any other statement of a change of their record,
+/// or refuses with 401 once a deletion of their account that the lock waited for has taken it,
+/// and their session with it, as a request sent after the deletion is refused (ACCOUNTS-019).
+pub(super) async fn lock_caller(
+    uow: &mut UnitOfWork,
+    principal: &Principal,
+) -> Result<(), AccountsError> {
+    if repo::lock(uow, principal.user_id()).await? {
+        Ok(())
+    } else {
+        Err(RequestError::Unauthenticated.into())
+    }
 }
 
 /// Publishes that the caller's record changed: `user.updated` to their own streams, and

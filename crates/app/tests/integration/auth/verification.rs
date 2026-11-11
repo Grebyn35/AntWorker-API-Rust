@@ -73,6 +73,14 @@ async fn auth_025_an_account_that_must_verify_is_refused_but_where_verifying_nee
         .await;
     assert_eq!(workspace.status, 403);
     assert_eq!(workspace.json()["code"], "request.email_unverified");
+
+    let session = api
+        .get("/v1/users/me/sessions/current")
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(session.status, 200);
+    // Re-authenticating serves a change of the address, which corrects a mistyped one (AUTH-048).
     let reauthenticated = api
         .post(
             "/v1/users/me/sessions/current/reauthenticate",
@@ -81,14 +89,7 @@ async fn auth_025_an_account_that_must_verify_is_refused_but_where_verifying_nee
         .bearer(&ada.access)
         .send()
         .await;
-    assert_eq!(reauthenticated.status, 403);
-
-    let session = api
-        .get("/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await;
-    assert_eq!(session.status, 200);
+    assert_eq!(reauthenticated.status, 200);
     assert_eq!(ask(&api, &ada).await.status, 202);
     let code = code_sent(&api, &address).await;
     assert_eq!(confirm(&api, &ada, &code).await.status, 200);
@@ -643,6 +644,69 @@ async fn auth_031_of_two_that_confirm_one_code_at_once_only_one_proves_it() {
             .await,
         ["0"]
     );
+}
+
+#[tokio::test]
+async fn auth_031_a_session_that_another_request_ended_meanwhile_proves_nothing_and_answers_401() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register_unverified(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    let session = ada.session_id.clone();
+    // A lock on the user's row, as a deletion of the account or another check takes it first,
+    // which the confirmation waits for.
+    let mut held = api
+        .database()
+        .holding(&format!(
+            "SELECT 1 FROM users WHERE id = '{}' FOR NO KEY UPDATE",
+            ada.user_id
+        ))
+        .await;
+
+    let confirmed = tokio::spawn({
+        let api = api.clone();
+        async move { confirm(&api, &ada, &code).await }
+    });
+    crate::support::queries_wait_on_locks(api.database(), 1).await;
+    crate::support::execute_on(
+        &mut held,
+        &format!("DELETE FROM sessions WHERE id = '{session}'"),
+    )
+    .await;
+    crate::support::execute_on(&mut held, "COMMIT").await;
+    let answered = confirmed.await.unwrap();
+
+    assert_eq!(answered.status, 401);
+    assert_eq!(answered.json()["code"], "request.unauthenticated");
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT email_verified::text || ' ' || (SELECT count(*) FROM verification_codes) FROM users")
+            .await,
+        ["false 1"]
+    );
+}
+
+#[tokio::test]
+async fn auth_031_a_confirmation_that_waited_for_the_account_s_deletion_answers_401() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register_unverified(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    let mut deletion = api
+        .database()
+        .holding(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
+        .await;
+
+    let confirmed = tokio::spawn({
+        let api = api.clone();
+        async move { confirm(&api, &ada, &code).await }
+    });
+    crate::support::queries_wait_on_locks(api.database(), 1).await;
+    crate::support::execute_on(&mut deletion, "COMMIT").await;
+    let answered = confirmed.await.unwrap();
+
+    assert_eq!(answered.status, 401);
+    assert_eq!(answered.json()["code"], "request.unauthenticated");
 }
 
 #[tokio::test]

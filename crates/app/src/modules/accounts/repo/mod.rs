@@ -78,6 +78,41 @@ pub(super) async fn address_for_update(
     }))
 }
 
+/// The unique constraint that keeps two users from one email (ACCOUNTS-004).
+const UNIQUE_EMAIL: &str = "users_email_key";
+
+/// Makes `email` the address of the user `id`, which they proved, filtered by their own ID, and
+/// returns whether it did: `false` when the unique constraint `users_email_key` refuses it, which
+/// aborts the unit of work (ACCOUNTS-004, AUTH-051, ERR-05).
+pub(super) async fn change_email(
+    uow: &mut UnitOfWork,
+    id: UserId,
+    email: &EmailAddress,
+) -> Result<bool, Internal> {
+    let changed = sqlx::query!(
+        "UPDATE users SET email = $2, email_verified = true WHERE id = $1",
+        id.uuid(),
+        email.as_str(),
+    )
+    .execute(uow.executor())
+    .await;
+    match changed {
+        Ok(changed) if changed.rows_affected() == 1 => Ok(true),
+        Ok(_) => Err(Internal::new(
+            "the user whose row the change holds doesn't exist",
+        )),
+        Err(error)
+            if error
+                .as_database_error()
+                .and_then(|error| error.constraint())
+                .is_some_and(|constraint| constraint == UNIQUE_EMAIL) =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
 /// Records that the user `id` proved their address, filtered by their own ID (DATA-16).
 pub(super) async fn verify_email(uow: &mut UnitOfWork, id: UserId) -> Result<(), Internal> {
     sqlx::query!(
@@ -140,13 +175,14 @@ pub(super) async fn exported(
 }
 
 /// Locks the row of the user `id` until the unit of work ends, `FOR UPDATE`, which the insert of
-/// a membership of theirs waits for, since its foreign key reads the row `FOR KEY SHARE` (DATA-20,
-/// the accounts spec's "Renaming").
-pub(super) async fn lock(uow: &mut UnitOfWork, id: UserId) -> Result<(), Internal> {
-    sqlx::query!("SELECT id FROM users WHERE id = $1 FOR UPDATE", id.uuid())
-        .fetch_one(uow.executor())
+/// a membership of theirs waits for, since its foreign key reads the row `FOR KEY SHARE`, and
+/// returns whether it is there: a deletion of the account that committed while the lock waited
+/// leaves none (DATA-20, ACCOUNTS-019, the accounts spec's "Renaming").
+pub(super) async fn lock(uow: &mut UnitOfWork, id: UserId) -> Result<bool, Internal> {
+    let locked = sqlx::query_scalar!("SELECT id FROM users WHERE id = $1 FOR UPDATE", id.uuid())
+        .fetch_optional(uow.executor())
         .await?;
-    Ok(())
+    Ok(locked.is_some())
 }
 
 /// Holds the row of the user `id` against every other change of it, `FOR NO KEY UPDATE`, until the

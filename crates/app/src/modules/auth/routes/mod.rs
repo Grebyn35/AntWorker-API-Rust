@@ -1,8 +1,9 @@
 //! Registration, sign-in, refresh, re-authentication and deleting the account (the auth spec's
 //! Routes). Reading, listing and ending a user's sessions, signing out among them, is in
-//! `sessions.rs`, proving the account's email address in `verification.rs`, and resetting and
-//! changing the password in `password.rs`.
+//! `sessions.rs`, proving the account's email address in `verification.rs`, resetting and
+//! changing the password in `password.rs`, and changing the address in `email_change.rs`.
 
+mod email_change;
 mod password;
 mod sessions;
 mod verification;
@@ -44,6 +45,7 @@ const CURRENT_SESSION: &str = "/v1/users/me/sessions/current";
 /// The module's routes, which take the service as their state.
 pub(crate) fn routes() -> Routes<Arc<Auth>> {
     verification::routes()
+        .merge(email_change::routes())
         .merge(password::routes())
         .merge(sessions::routes())
         .events(&[&SESSION_CREATED, &SESSION_ENDED])
@@ -56,7 +58,9 @@ pub(crate) fn routes() -> Routes<Arc<Auth>> {
             routes!(refresh),
             &[&AuthError::SessionExpired, &AuthError::InvalidRefreshToken],
         )
-        .user(
+        // A caller whose account must still prove its address re-authenticates to change it
+        // (AUTH-025, AUTH-048).
+        .verifying(
             routes!(reauthenticate),
             &[&AuthError::WrongPassword, &LimitError::RateLimited],
         )
