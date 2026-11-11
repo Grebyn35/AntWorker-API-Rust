@@ -11,7 +11,7 @@ Configuration, background jobs, runtime behavior, CI, releases, deploys, backups
 - Numbers are range-checked, a number that another setting bounds is refused beyond it, such as an access token's lifetime beyond its refresh token's (AUTH-007), and unknown values for a closed set are errors.
 - Required settings have no defaults. `ENVIRONMENT` is required.
 - Why: a misconfiguration fails at startup, never in the middle of a request (D9).
-- Check: `test` (a test reads each whole number's range from `.env.example`, and refuses the values just outside it).
+- Check: `test` (a test reads each whole number's range from `.env.example`, and refuses the values just outside it, and the test of each bounded pair, such as AUTH-007's, refuses a value beyond its bound), plus `review` (which settings another bounds).
 
 ### OPS-02 Every setting earns its place and is documented
 A setting exists only if two deployments would set it differently, such as a URL, a credential, a capacity or a feature switch. A value every deployment would share is a constant in code. Every setting of the API appears in `.env.example`, and every setting of the reference deployment in `deploy/settings.env.example`, each with its type, default and meaning. Compose passes each container only the settings it reads.
