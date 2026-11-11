@@ -270,6 +270,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | de08e9e..8ef6f02: as above, with pass 1's fixes | 2 | 2 (2, 0, 0 shared) | 0 | 0 | `clean` |
 | 6189fd7..818ed56: step 5's `auth` part email change (AUTH-048 to AUTH-053, D132), with the DATA-20 proposal's turn before a check of the password and ACCOUNTS-019's 401 | 1 | 12 (11, 8, 7 shared) | 10 | 0 | `next pass`: ae5de7f |
 | 6189fd7..ae5de7f: as above, with pass 1's fixes | 2 | 5 (4, 2, 1 shared) | 2 | 1 | `stopped: no progress`: resolved 39e0fb2 |
+| 7ea9a0b..929019f: step 5's `auth` part second factors (AUTH-054 to AUTH-069, PLATFORM-086, PLATFORM-087, D133 to D135), with the key ring that encrypts the secrets the API reads back | 1 | 16 (15, 8, 7 shared) | 12 | 0 | `next pass` |
 
 ## Decisions
 
