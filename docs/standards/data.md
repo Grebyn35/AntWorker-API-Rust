@@ -118,6 +118,7 @@ Tenancy is enforced by the application, and every query on user or workspace dat
 - A lookup by a presented token's hash, or of a user by an email address, goes through a unique index:
   - before sign-in, by the token or the sign-in email
   - in a password reset, by the address it names (AUTH-034, AUTH-037)
+  - when asking to change one's address, by the address asked for, which no account may hold (AUTH-048)
   - when inviting, by the invitee's email <!-- part: invitations -->
   - in the setup subcommand, by its owner's email
   - for a signed URL, of its session by the ID that its signature proves the API gave (PLATFORM-080) <!-- part: files -->

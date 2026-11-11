@@ -38,6 +38,25 @@ pub fn address(name: &str) -> String {
     format!("{name}-{tag}@example.com")
 }
 
+/// The code of four groups of four characters in `text`, an email's, such as a reset code
+/// (AUTH-036) or a change code (AUTH-050).
+pub fn grouped_code_in(text: &str) -> Option<String> {
+    text.split_whitespace()
+        .find(|word| {
+            word.len() == 19
+                && word.split('-').all(|group| {
+                    group.len() == 4 && group.bytes().all(|b| b.is_ascii_alphanumeric())
+                })
+        })
+        .map(str::to_owned)
+}
+
+/// A code of four groups of four characters that isn't `code`: its first character replaced.
+pub fn other_grouped_code(code: &str) -> String {
+    let replaced = if code.starts_with('Z') { 'Y' } else { 'Z' };
+    format!("{replaced}{}", &code[1..])
+}
+
 /// The emails sent to `address`, the newest first.
 pub async fn to(address: &str) -> Vec<Email> {
     let query: String =

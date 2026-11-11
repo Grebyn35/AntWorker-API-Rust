@@ -372,6 +372,34 @@ impl Api {
         call
     }
 
+    /// Sends, in a task of its own, with the access token `access`, `method` to `path`, with
+    /// `body` as JSON when there is one, which a `PATCH` sends as a merge patch, and gives the
+    /// response's status and its body's JSON, or null for an empty body: a request that a test
+    /// holds at a lock while it changes what the request then finds.
+    pub fn spawn(
+        &self,
+        method: Method,
+        path: &str,
+        access: &str,
+        body: Option<Value>,
+    ) -> tokio::task::JoinHandle<(StatusCode, Value)> {
+        let (api, path, access) = (self.clone(), path.to_owned(), access.to_owned());
+        tokio::spawn(async move {
+            let call = match body {
+                Some(body) if method == Method::PATCH => api.patch(&path, &body),
+                Some(body) => api.post(&path, &body),
+                None => api.request(method, &path),
+            };
+            let response = call.bearer(&access).send().await;
+            let body = if response.body.is_empty() {
+                Value::Null
+            } else {
+                response.json()
+            };
+            (response.status, body)
+        })
+    }
+
     /// A request with `method` to `path`, which may hold a query.
     pub fn request(&self, method: Method, path: &str) -> Call<'_> {
         Call {

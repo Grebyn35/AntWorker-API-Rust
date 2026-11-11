@@ -51,25 +51,7 @@ async fn code_sent(api: &Api, address: &str) -> String {
         .iter()
         .find(|email| email.subject.contains("password reset code"))
         .expect("an email with a reset code");
-    code_in(&email.text).expect("a reset code in the email")
-}
-
-/// The code of four groups of four characters in `text`.
-fn code_in(text: &str) -> Option<String> {
-    text.split_whitespace()
-        .find(|word| {
-            word.len() == 19
-                && word.split('-').all(|group| {
-                    group.len() == 4 && group.bytes().all(|b| b.is_ascii_alphanumeric())
-                })
-        })
-        .map(str::to_owned)
-}
-
-/// A reset code that isn't `code`: its first character replaced.
-fn other_than(code: &str) -> String {
-    let replaced = if code.starts_with('Z') { 'Y' } else { 'Z' };
-    format!("{replaced}{}", &code[1..])
+    mailbox::grouped_code_in(&email.text).expect("a reset code in the email")
 }
 
 /// The entries of `user_id`'s log, the oldest first: each one's action, actor, resource type,
@@ -709,7 +691,7 @@ async fn auth_038_an_unknown_address_a_missing_code_an_expired_one_and_a_wrong_o
     let unknown = confirm(&api, &mailbox::address("nobody"), &code).await;
     let missing = confirm(&api, &no_code_address, &code).await;
     let expired = confirm(&api, &grace_address, &grace_code).await;
-    let wrong = confirm(&api, &address, &other_than(&code)).await;
+    let wrong = confirm(&api, &address, &mailbox::other_grouped_code(&code)).await;
 
     let first = without_trace(unknown.json());
     assert_eq!(unknown.status, 401);
@@ -787,7 +769,7 @@ async fn auth_039_confirmations_count_per_email_from_each_client_address_before_
     let ada = users::register(&api, &address).await;
     ask(&api, &address).await;
     let code = code_sent(&api, &address).await;
-    let wrong = other_than(&code);
+    let wrong = mailbox::other_grouped_code(&code);
     let from = |peer: &'static str, code: String| {
         let api = api.clone();
         let address = address.clone();

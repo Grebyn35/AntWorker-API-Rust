@@ -2,7 +2,7 @@
 //! "Changing the email address", AUTH-048 to AUTH-053), and the turn a check of the password takes
 //! (AUTH-022, AUTH-040).
 
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::support::{
     Api, Options,
@@ -31,26 +31,6 @@ async fn confirm(api: &Api, user: &SignedIn, email: &str, code: &str) -> Respons
     .await
 }
 
-/// Sends, in a task of its own, with `user`'s access token, a `POST` of `body` to `path`, and
-/// gives its status and its body's JSON, or null for an empty body.
-fn spawn_post(
-    api: &Api,
-    path: &str,
-    user: &SignedIn,
-    body: Value,
-) -> tokio::task::JoinHandle<(http::StatusCode, Value)> {
-    let (api, path, access) = (api.clone(), path.to_owned(), user.access.clone());
-    tokio::spawn(async move {
-        let response = api.post(&path, &body).bearer(&access).send().await;
-        let body = if response.body.is_empty() {
-            Value::Null
-        } else {
-            response.json()
-        };
-        (response.status, body)
-    })
-}
-
 /// The change code in the newest email with one that `address` received, once the API's jobs
 /// have run.
 async fn code_sent(api: &Api, address: &str) -> String {
@@ -60,25 +40,7 @@ async fn code_sent(api: &Api, address: &str) -> String {
         .iter()
         .find(|email| email.subject.contains("email change code"))
         .expect("an email with a change code");
-    grouped_code_in(&email.text).expect("a change code in the email")
-}
-
-/// The code of four groups of four characters in `text`.
-fn grouped_code_in(text: &str) -> Option<String> {
-    text.split_whitespace()
-        .find(|word| {
-            word.len() == 19
-                && word.split('-').all(|group| {
-                    group.len() == 4 && group.bytes().all(|b| b.is_ascii_alphanumeric())
-                })
-        })
-        .map(str::to_owned)
-}
-
-/// A code that isn't `code`: its first character replaced.
-fn other_than(code: &str) -> String {
-    let replaced = if code.starts_with('Z') { 'Y' } else { 'Z' };
-    format!("{replaced}{}", &code[1..])
+    mailbox::grouped_code_in(&email.text).expect("a change code in the email")
 }
 
 /// `user`'s address and whether they proved it, as `address|true`.
@@ -476,13 +438,18 @@ async fn auth_051_of_two_that_confirm_one_code_at_once_only_one_changes_the_addr
     let mut held = api.database().holding(&user_lock(&ada)).await;
     let body = json!({ "email": new, "code": code });
 
-    let first = spawn_post(
-        &api,
+    let first = api.spawn(
+        http::Method::POST,
         "/v1/users/me/email/change/confirm",
-        &ada,
-        body.clone(),
+        &ada.access,
+        Some(body.clone()),
     );
-    let second = spawn_post(&api, "/v1/users/me/email/change/confirm", &phone, body);
+    let second = api.spawn(
+        http::Method::POST,
+        "/v1/users/me/email/change/confirm",
+        &phone.access,
+        Some(body),
+    );
     queries_wait_on_locks(db, 2).await;
     execute_on(&mut held, "COMMIT").await;
     let mut answers = [first.await.unwrap(), second.await.unwrap()];
@@ -505,11 +472,11 @@ async fn auth_051_a_session_that_another_request_ended_meanwhile_answers_401_and
     let db = api.database();
     let mut held = api.database().holding(&user_lock(&ada)).await;
 
-    let confirmed = spawn_post(
-        &api,
+    let confirmed = api.spawn(
+        http::Method::POST,
         "/v1/users/me/email/change/confirm",
-        &ada,
-        json!({ "email": new, "code": code }),
+        &ada.access,
+        Some(json!({ "email": new, "code": code })),
     );
     queries_wait_on_locks(db, 1).await;
     execute_on(
@@ -538,11 +505,11 @@ async fn auth_051_a_confirmation_that_waited_for_the_account_s_deletion_answers_
         .holding(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
         .await;
 
-    let confirmed = spawn_post(
-        &api,
+    let confirmed = api.spawn(
+        http::Method::POST,
         "/v1/users/me/email/change/confirm",
-        &ada,
-        json!({ "email": new, "code": code }),
+        &ada.access,
+        Some(json!({ "email": new, "code": code })),
     );
     queries_wait_on_locks(db, 1).await;
     execute_on(&mut deletion, "COMMIT").await;
@@ -586,11 +553,11 @@ async fn auth_051_a_reset_code_sent_to_the_address_before_a_change_resets_nothin
         async move { api.run_jobs().await }
     });
     queries_wait_on_locks(db, 1).await;
-    let changed = spawn_post(
-        &api,
+    let changed = api.spawn(
+        http::Method::POST,
         "/v1/users/me/email/change/confirm",
-        &ada,
-        json!({ "email": new, "code": change_code }),
+        &ada.access,
+        Some(json!({ "email": new, "code": change_code })),
     );
     queries_wait_on_locks(db, 2).await;
     execute_on(&mut held, "COMMIT").await;
@@ -605,7 +572,7 @@ async fn auth_051_a_reset_code_sent_to_the_address_before_a_change_resets_nothin
         .iter()
         .find(|email| email.subject.contains("password reset code"))
         .expect("the reset code's email");
-    let reset_code = grouped_code_in(&reset.text).unwrap();
+    let reset_code = mailbox::grouped_code_in(&reset.text).unwrap();
     for email in [new.as_str(), address.as_str()] {
         let refused = api
             .post(
@@ -633,7 +600,7 @@ async fn auth_052_a_wrong_code_and_the_right_code_with_another_address_answer_42
         .await
         .remove(0);
 
-    let wrong = confirm(&api, &ada, &new, &other_than(&code)).await;
+    let wrong = confirm(&api, &ada, &new, &mailbox::other_grouped_code(&code)).await;
     let elsewhere = confirm(&api, &ada, &mailbox::address("elsewhere"), &code).await;
 
     for refused in [&wrong, &elsewhere] {
@@ -748,7 +715,9 @@ async fn auth_033_a_change_s_checks_count_in_the_bucket_of_the_user_s_code_check
 
     for _ in 0..9 {
         assert_eq!(
-            confirm(&api, &ada, &new, &other_than(&code)).await.status,
+            confirm(&api, &ada, &new, &mailbox::other_grouped_code(&code))
+                .await
+                .status,
             422
         );
     }
@@ -829,8 +798,18 @@ async fn auth_040_of_two_changes_sent_at_once_the_second_checks_against_the_firs
     let path = "/v1/users/me/password/change";
     let to = |password: &str| json!({ "current_password": PASSWORD, "password": password });
 
-    let first = spawn_post(&api, path, &ada, to("lantern-orchard-58-brisk"));
-    let second = spawn_post(&api, path, &ada, to("meadow-copper-73-swift"));
+    let first = api.spawn(
+        http::Method::POST,
+        path,
+        &ada.access,
+        Some(to("lantern-orchard-58-brisk")),
+    );
+    let second = api.spawn(
+        http::Method::POST,
+        path,
+        &ada.access,
+        Some(to("meadow-copper-73-swift")),
+    );
     // Each waits for the user's turn before it reads the password.
     queries_wait_on_locks(db, 2).await;
     execute_on(&mut held, "COMMIT").await;
@@ -847,6 +826,278 @@ async fn auth_040_of_two_changes_sent_at_once_the_second_checks_against_the_firs
     assert_eq!(refused.1["code"], "auth.wrong_password");
     assert_eq!(
         users::sign_in(&api, "ada@example.com", changed)
+            .await
+            .status,
+        201
+    );
+}
+
+#[tokio::test]
+async fn auth_048_a_session_that_another_request_ended_before_its_proof_is_read_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, &mailbox::address("ada")).await;
+    let new = mailbox::address("ada-new");
+    let db = api.database();
+    // Every bucket of Ada's requests but the change's, which a first request then adds.
+    api.get("/v1/users/me").bearer(&ada.access).send().await;
+    let change_bucket = users::added_bucket(&api, ask(&api, &ada, &new)).await;
+    // The request waits at its bucket, once it is authenticated, while another request ends its
+    // session.
+    let mut ender = db
+        .holding(&format!(
+            "SELECT 1 FROM rate_limit_buckets WHERE id = '{change_bucket}' FOR UPDATE"
+        ))
+        .await;
+
+    let asked = api.spawn(
+        http::Method::POST,
+        "/v1/users/me/email/change",
+        &ada.access,
+        Some(json!({ "email": new })),
+    );
+    queries_wait_on_locks(db, 1).await;
+    execute_on(
+        &mut ender,
+        &format!("DELETE FROM sessions WHERE id = '{}'", ada.session_id),
+    )
+    .await;
+    execute_on(&mut ender, "COMMIT").await;
+    let (status, body) = asked.await.unwrap();
+
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+    // The first request's job alone.
+    assert_eq!(jobs(&api).await.len(), 1);
+}
+
+#[tokio::test]
+async fn auth_049_requests_for_changes_and_the_buckets_of_registrations_and_codes_count_apart() {
+    let api = Api::new().await;
+    let new = mailbox::address("new");
+    // The address's registrations and requests for codes fill their buckets (AUTH-029): one
+    // registration and three requests for codes by its account, then two registrations more.
+    let holder = users::register_unverified(&api, &new).await;
+    for _ in 0..3 {
+        let asked = api
+            .request(http::Method::POST, "/v1/users/me/email/verification")
+            .bearer(&holder.access)
+            .send()
+            .await;
+        assert_eq!(asked.status, 202);
+    }
+    for _ in 0..2 {
+        let again = api
+            .post("/v1/users", &users::registration(&new))
+            .send()
+            .await;
+        assert_eq!(again.status, 409);
+    }
+    let db = api.database();
+    db.owner_executes(&format!(
+        "DELETE FROM users WHERE id = '{}'; DELETE FROM jobs",
+        holder.user_id
+    ))
+    .await;
+    let ada = users::register(&api, &mailbox::address("ada")).await;
+
+    for _ in 0..3 {
+        assert_eq!(ask(&api, &ada, &new).await.status, 202);
+    }
+    assert_eq!(ask(&api, &ada, &new).await.status, 429);
+}
+
+#[tokio::test]
+async fn auth_050_an_attempt_after_a_failed_send_issues_a_new_code_in_place_of_its_own() {
+    let unreachable = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let failing = Api::with(Options::default().set("SMTP_PORT", unreachable.port())).await;
+    let ada = users::register(&failing, &mailbox::address("ada")).await;
+    let new = mailbox::address("ada-new");
+    ask(&failing, &ada, &new).await;
+    assert_eq!(failing.run_jobs().await, 1);
+    let db = failing.database();
+    let first = db
+        .owner_reads("SELECT id::text FROM verification_codes")
+        .await;
+    assert_eq!(first.len(), 1);
+    assert_eq!(
+        db.owner_reads("SELECT state::text || ' ' || attempts FROM jobs")
+            .await,
+        ["waiting 1"]
+    );
+    // The next attempt, on a replica that reaches the mail server.
+    db.owner_executes("UPDATE jobs SET run_at = now()").await;
+    let reaching = failing.instance(Options::default()).await;
+
+    assert_eq!(reaching.run_jobs().await, 1);
+
+    let second = db
+        .owner_reads("SELECT id::text FROM verification_codes")
+        .await;
+    assert_eq!(second.len(), 1);
+    assert_ne!(second, first);
+    assert_eq!(mailbox::to(&new).await.len(), 1);
+    assert_eq!(
+        entries(&failing, &ada.user_id, "email_change_code.issued")
+            .await
+            .len(),
+        2
+    );
+    // The code that the email carries is the second attempt's.
+    let code = code_sent(&failing, &new).await;
+    assert_eq!(confirm(&failing, &ada, &new, &code).await.status, 200);
+}
+
+#[tokio::test]
+async fn auth_052_a_code_that_a_newer_one_replaces_while_the_check_runs_answers_code_expired() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let new = mailbox::address("ada-new");
+    ask(&api, &ada, &new).await;
+    let code = code_sent(&api, &new).await;
+    // A newer code's job deletes the code, and holds it while this check runs, then commits, as
+    // the job that replaces it does.
+    let mut holder = api
+        .database()
+        .holding(&format!(
+            "DELETE FROM verification_codes WHERE user_id = '{}' AND purpose = 'email_change'",
+            ada.user_id
+        ))
+        .await;
+
+    let confirmed = api.spawn(
+        http::Method::POST,
+        "/v1/users/me/email/change/confirm",
+        &ada.access,
+        Some(json!({ "email": new, "code": code })),
+    );
+    queries_wait_on_locks(api.database(), 1).await;
+    execute_on(&mut holder, "COMMIT").await;
+    let (status, body) = confirmed.await.unwrap();
+
+    assert_eq!(status, 422);
+    assert_eq!(body["code"], "auth.code_expired");
+    assert_eq!(address_of(&api, &ada).await, format!("{address}|true"));
+}
+
+#[tokio::test]
+async fn auth_026_a_change_s_confirmation_says_the_account_needn_t_prove_its_address() {
+    let api = Api::new().await;
+    let ada = users::register_unverified(&api, &mailbox::address("ada-mistyped")).await;
+    let new = mailbox::address("ada");
+    ask(&api, &ada, &new).await;
+    let code = code_sent(&api, &new).await;
+
+    let confirmed = confirm(&api, &ada, &new, &code).await;
+
+    assert_eq!(confirmed.status, 200);
+    assert_eq!(confirmed.json()["email_verification_required"], false);
+    let session = api
+        .get("/v1/users/me/sessions/current")
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(session.json()["email_verification_required"], false);
+}
+
+#[tokio::test]
+async fn auth_022_a_check_that_waits_for_a_change_or_a_reset_reads_the_password_it_set() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let db = api.database();
+    let changed_to = "lantern-orchard-58-brisk";
+    let reset_to = "meadow-copper-73-swift";
+    let reauthenticate = |password: &str| {
+        api.spawn(
+            http::Method::POST,
+            "/v1/users/me/sessions/current/reauthenticate",
+            &ada.access,
+            Some(json!({ "password": password })),
+        )
+    };
+
+    // A re-authentication with the password a change replaces, which waits for the change.
+    let mut held = db.holding(&user_lock(&ada)).await;
+    let change = api.spawn(
+        http::Method::POST,
+        "/v1/users/me/password/change",
+        &ada.access,
+        Some(json!({ "current_password": PASSWORD, "password": changed_to })),
+    );
+    queries_wait_on_locks(db, 1).await;
+    let after_change = reauthenticate(PASSWORD);
+    queries_wait_on_locks(db, 2).await;
+    execute_on(&mut held, "COMMIT").await;
+    assert_eq!(change.await.unwrap().0, 204);
+    let (status, body) = after_change.await.unwrap();
+    assert_eq!(status, 403);
+    assert_eq!(body["code"], "auth.wrong_password");
+
+    // A re-authentication with the password a reset replaces, which waits for the reset.
+    api.post("/v1/password-resets", &json!({ "email": address }))
+        .send()
+        .await;
+    api.run_jobs().await;
+    let emails = mailbox::to(&address).await;
+    let reset_email = emails
+        .iter()
+        .find(|email| email.subject.contains("password reset code"))
+        .expect("the reset code's email");
+    let reset_code = mailbox::grouped_code_in(&reset_email.text).unwrap();
+    let mut held = db.holding(&user_lock(&ada)).await;
+    let reset = tokio::spawn({
+        let api = api.clone();
+        let body = json!({ "email": address, "code": reset_code, "password": reset_to });
+        async move {
+            api.post("/v1/password-resets/confirm", &body)
+                .send()
+                .await
+                .status
+        }
+    });
+    queries_wait_on_locks(db, 1).await;
+    let after_reset = reauthenticate(changed_to);
+    queries_wait_on_locks(db, 2).await;
+    execute_on(&mut held, "COMMIT").await;
+    assert_eq!(reset.await.unwrap(), 204);
+    let (status, body) = after_reset.await.unwrap();
+    assert_eq!(status, 403);
+    assert_eq!(body["code"], "auth.wrong_password");
+}
+
+#[tokio::test]
+async fn auth_040_of_two_changes_sent_at_once_that_keep_the_password_both_answer_204() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let mut held = db.holding(&user_lock(&ada)).await;
+    let keep = json!({ "current_password": PASSWORD, "password": PASSWORD });
+
+    let first = api.spawn(
+        http::Method::POST,
+        "/v1/users/me/password/change",
+        &ada.access,
+        Some(keep.clone()),
+    );
+    let second = api.spawn(
+        http::Method::POST,
+        "/v1/users/me/password/change",
+        &ada.access,
+        Some(keep),
+    );
+    queries_wait_on_locks(db, 2).await;
+    execute_on(&mut held, "COMMIT").await;
+
+    // The first kept the password it had, which the second's check then reads.
+    assert_eq!(first.await.unwrap().0, 204);
+    assert_eq!(second.await.unwrap().0, 204);
+    assert_eq!(
+        users::sign_in(&api, "ada@example.com", PASSWORD)
             .await
             .status,
         201

@@ -11,7 +11,7 @@ use platform::{
     authn::{AuditScope, Principal},
     blocking::Workers,
     db::{Database, UnitOfWork},
-    errors::Internal,
+    errors::{Internal, RequestError},
     hashing::{HmacKey, sha256},
     mail::Mail,
     random,
@@ -364,7 +364,9 @@ impl Auth {
     }
 
     /// `session` as its client sees it, which says whether its account must still prove its
-    /// email address, as `uow` reads the account (AUTH-026).
+    /// email address, as `uow` reads the account (AUTH-026). An account that a deletion took
+    /// since the session was read went with the session, so the request answers as one sent after
+    /// the deletion does (AUTH-016, ACCOUNTS-019).
     async fn answer(
         &self,
         uow: &mut UnitOfWork,
@@ -373,7 +375,7 @@ impl Auth {
         let required = self
             .email_verification_required(uow, session.user_id)
             .await?
-            .ok_or_else(|| Internal::new("the session's user doesn't exist"))?;
+            .ok_or(RequestError::Unauthenticated)?;
         Ok(session.answer(required))
     }
 

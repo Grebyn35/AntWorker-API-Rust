@@ -49,20 +49,12 @@ fn spawn_request(
     access: &str,
     body: Option<Value>,
 ) -> tokio::task::JoinHandle<(http::StatusCode, Value)> {
-    let (api, path, access) = (api.clone(), path.to_owned(), access.to_owned());
-    tokio::spawn(async move {
-        let request = match body {
-            Some(body) => api.post(&path, &body),
-            None => api.request(http::Method::DELETE, &path),
-        };
-        let response = request.bearer(&access).send().await;
-        let body = if response.body.is_empty() {
-            Value::Null
-        } else {
-            response.json()
-        };
-        (response.status, body)
-    })
+    let method = if body.is_some() {
+        http::Method::POST
+    } else {
+        http::Method::DELETE
+    };
+    api.spawn(method, path, access, body)
 }
 
 /// The IDs of `user`'s sessions, sorted.
