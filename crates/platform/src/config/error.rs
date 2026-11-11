@@ -18,6 +18,8 @@ pub(super) enum Problem {
     Invalid(&'static str),
     #[error("must be a whole number from {0} to {1}")]
     OutOfRange(u32, u32),
+    #[error("must be at most {0}")]
+    AtMost(&'static str),
     #[error("names a file that can't be read")]
     UnreadableFile,
     #[error("must be valid Unicode")]

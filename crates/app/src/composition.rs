@@ -84,15 +84,18 @@ impl Config {
         let day: u32 = 86_400;
         let sign_in_attempts = settings.number("SIGN_IN_ATTEMPTS", 5, 1..=1_000)?;
         let sign_in_window = settings.duration("SIGN_IN_WINDOW_SECONDS", 900, 1..=day)?;
+        let refresh = settings.duration("REFRESH_TOKEN_SECONDS", 30 * day, 3_600..=365 * day)?;
         Ok(Self {
             auth: auth::Settings {
                 lifetimes: auth::Lifetimes {
-                    access: settings.duration("ACCESS_TOKEN_SECONDS", 3_600, 60..=day)?,
-                    refresh: settings.duration(
-                        "REFRESH_TOKEN_SECONDS",
-                        30 * day,
-                        3_600..=365 * day,
+                    // No access token outlives its refresh token (AUTH-007).
+                    access: settings.duration_at_most(
+                        "ACCESS_TOKEN_SECONDS",
+                        3_600,
+                        60..=day,
+                        ("REFRESH_TOKEN_SECONDS", refresh),
                     )?,
+                    refresh,
                     absolute: settings.duration(
                         "SESSION_LIFETIME_SECONDS",
                         90 * day,

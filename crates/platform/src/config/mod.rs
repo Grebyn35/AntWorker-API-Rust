@@ -6,13 +6,11 @@
 //! Errors name the setting and the problem, and never the value, which may be a secret.
 //! Each subcommand reads only the settings it uses.
 
-use std::{
-    ffi::OsString, io, net::SocketAddr, ops::RangeInclusive, path::Path, str::FromStr,
-    time::Duration,
-};
+use std::{ffi::OsString, io, net::SocketAddr, path::Path, str::FromStr, time::Duration};
 
 mod error;
 mod mail;
+mod numbers;
 // part: files
 mod scanner;
 mod storage;
@@ -311,38 +309,6 @@ where
             // end part: files
             stream_recheck: self.duration("STREAM_RECHECK_SECONDS", 60, 10..=3_600)?,
         })
-    }
-
-    /// A whole number from the setting `name`, or `default` when it is unset (OPS-01).
-    pub fn number(
-        &self,
-        name: &str,
-        default: u32,
-        range: RangeInclusive<u32>,
-    ) -> Result<u32, ConfigError> {
-        let Some(value) = self.value(name)? else {
-            return Ok(default);
-        };
-        value
-            .parse()
-            .ok()
-            .filter(|number| range.contains(number))
-            .ok_or_else(|| {
-                ConfigError::new(name, Problem::OutOfRange(*range.start(), *range.end()))
-            })
-    }
-
-    /// A duration in whole seconds from the setting `name`, or `default` seconds when it is
-    /// unset.
-    pub fn duration(
-        &self,
-        name: &str,
-        default: u32,
-        range: RangeInclusive<u32>,
-    ) -> Result<Duration, ConfigError> {
-        Ok(Duration::from_secs(
-            self.number(name, default, range)?.into(),
-        ))
     }
 
     /// The origins of `CORS_ALLOWED_ORIGINS`, which `ENVIRONMENT` decides whether plain `http`

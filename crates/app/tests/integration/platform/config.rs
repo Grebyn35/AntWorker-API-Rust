@@ -89,9 +89,8 @@ fn ops_01_the_deletion_delay_that_a_deploy_derives_is_one_that_the_api_takes() {
 }
 // end part: files
 
-#[test]
-fn ops_01_each_number_setting_is_refused_just_outside_its_range() {
-    let ranged = ranged_settings();
+/// The settings that the API's `serve` needs and has no default for, each with a valid value.
+fn base_settings() -> Vec<(&'static str, &'static str)> {
     let base = [
         ("ENVIRONMENT", "test"),
         ("LISTEN_ADDR", "0.0.0.0:8080"),
@@ -116,6 +115,53 @@ fn ops_01_each_number_setting_is_refused_just_outside_its_range() {
     ]
     .concat();
     // end part: files
+    base.into_iter().collect()
+}
+
+/// The settings of `base_settings`, with `changed` set as well, as `Settings` reads them.
+fn settings_with(
+    changed: &[(&str, &str)],
+) -> platform::config::Settings<
+    impl Fn(&str) -> Option<OsString>,
+    impl Fn(&std::path::Path) -> std::io::Result<String>,
+> {
+    let mut vars: std::collections::HashMap<String, OsString> = base_settings()
+        .iter()
+        .map(|(key, value)| ((*key).to_owned(), OsString::from(*value)))
+        .collect();
+    for (key, value) in changed {
+        vars.insert((*key).to_owned(), OsString::from(*value));
+    }
+    platform::config::Settings::new(
+        move |key: &str| vars.get(key).cloned(),
+        |_: &std::path::Path| Err(std::io::Error::from(std::io::ErrorKind::NotFound)),
+    )
+}
+
+#[test]
+fn auth_007_startup_refuses_an_access_token_that_would_outlive_its_refresh_token() {
+    let longer = settings_with(&[
+        ("ACCESS_TOKEN_SECONDS", "7200"),
+        ("REFRESH_TOKEN_SECONDS", "3600"),
+    ]);
+    let equal = settings_with(&[
+        ("ACCESS_TOKEN_SECONDS", "3600"),
+        ("REFRESH_TOKEN_SECONDS", "3600"),
+    ]);
+
+    assert_eq!(
+        app::Config::read(&longer)
+            .err()
+            .map(|error| error.to_string()),
+        Some("ACCESS_TOKEN_SECONDS must be at most REFRESH_TOKEN_SECONDS".to_owned())
+    );
+    assert!(app::Config::read(&equal).is_ok());
+}
+
+#[test]
+fn ops_01_each_number_setting_is_refused_just_outside_its_range() {
+    let ranged = ranged_settings();
+    let base = base_settings();
 
     for (name, low, high) in &ranged {
         for value in [low - 1, high + 1] {
