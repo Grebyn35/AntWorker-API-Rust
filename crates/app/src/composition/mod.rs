@@ -1,9 +1,14 @@
 //! The composition root: builds every service once and mounts every module's routes (ARCH-12).
-//! `main.rs` opens the process's resources, such as the database, and hands them here.
+//! `main.rs` opens the process's resources, such as the database, and hands them here. The entry
+//! points of the other subcommands that run the modules' logic are in `tasks.rs`.
+
+mod tasks;
+
+pub use tasks::{
+    SecondFactorRemoval, SeedError, SeedReport, remove_second_factor, seed, seed_allowed,
+};
 
 use std::{ffi::OsString, io, path::Path, sync::Arc, time::Duration};
-
-use axum::Router;
 
 use platform::{
     authn::SessionVerifier,
@@ -17,7 +22,7 @@ use platform::{
     http::{Origins, Pipeline, Routes},
     jobs::Jobs,
     lifecycle::Readiness,
-    mail::{Inbox, Mail},
+    mail::Mail,
     personal_data::{self, PersonalData},
     rate_limit::{Bucket, RateLimiter},
     telemetry::Service,
@@ -234,7 +239,6 @@ pub async fn compose(
     let invitations = Invitations::new(database.clone(), mail.clone(), config.invitations);
     invitations.register(&mut jobs).map_err(Internal::new)?;
     // end part: invitations
-    let features = system::Features::new(mail.is_on());
     let verifier: Arc<dyn SessionVerifier> = Arc::new(auth::Verifier(auth.clone()));
     let policy = Arc::new(access::Policy);
     let realtime = realtime(
@@ -245,28 +249,20 @@ pub async fn compose(
         &policy,
         &verifier,
     );
-    let routes = system::routes()
-        .with_state(features)
-        .merge(accounts::routes().with_state(database.clone()))
-        .merge(accounts::export_routes().with_state(exports.clone()))
-        .merge(auth::routes().with_state(auth.clone()))
-        .merge(auth::export_routes().with_state(auth::ExportRequests::new(auth.clone(), exports)))
+    let states = States {
+        features: system::Features::new(mail.is_on()),
+        auth,
+        exports,
+        realtime,
         // part: invitations
-        .merge(invitations::routes().with_state(invitations))
+        invitations,
         // end part: invitations
-        .merge(workspaces::routes().with_state(database.clone()))
-        .merge(realtime::routes().with_state(realtime));
-    // part: files
-    let routes = routes
-        .merge(accounts::avatar_routes().with_state(accounts::Avatars::new(
-            database.clone(),
-            files.clone(),
-            workers.clone(),
-        )))
-        .merge(files::routes().with_state(files));
-    // end part: files
+        // part: files
+        files,
+        // end part: files
+    };
     Ok(Services {
-        routes,
+        routes: routes(resources, states),
         verifier,
         authorizer: Authorizer {
             database: database.clone(),
@@ -275,6 +271,48 @@ pub async fn compose(
         },
         jobs,
     })
+}
+
+/// The states of the modules' routes that `compose` builds, which [`routes`] mounts.
+struct States {
+    features: system::Features,
+    auth: Arc<auth::Auth>,
+    exports: accounts::Exports,
+    realtime: Realtime,
+    // part: invitations
+    invitations: Invitations,
+    // end part: invitations
+    // part: files
+    files: Files,
+    // end part: files
+}
+
+/// Every module's routes, each with its state from `states`, or the pool or the workers of
+/// `resources`. `just new-module` adds a module's routes before the chain's last link.
+fn routes(resources: &Resources, states: States) -> Routes {
+    let database = &resources.database;
+    system::routes()
+        .with_state(states.features)
+        .merge(accounts::routes().with_state(database.clone()))
+        .merge(accounts::export_routes().with_state(states.exports.clone()))
+        .merge(auth::routes().with_state(states.auth.clone()))
+        .merge(
+            auth::export_routes()
+                .with_state(auth::ExportRequests::new(states.auth, states.exports)),
+        )
+        // part: invitations
+        .merge(invitations::routes().with_state(states.invitations))
+        // end part: invitations
+        // part: files
+        .merge(accounts::avatar_routes().with_state(accounts::Avatars::new(
+            database.clone(),
+            states.files.clone(),
+            resources.workers.clone(),
+        )))
+        .merge(files::routes().with_state(states.files))
+        // end part: files
+        .merge(workspaces::routes().with_state(database.clone()))
+        .merge(realtime::routes().with_state(states.realtime))
 }
 
 /// The state of `realtime`: the hub, started on `listener` with the resources' readiness and
@@ -360,84 +398,6 @@ pub fn openapi(service: Service) -> OpenApi {
         files::routes().openapi(service),
         // end part: files
     ])
-}
-
-/// What the subcommand `remove-second-factor` found (AUTH-072).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SecondFactorRemoval {
-    /// The account's authenticator app is removed, its sessions ended, and its address told.
-    Removed,
-    /// No account holds the address, so nothing changed.
-    NoAccount,
-    /// The account that holds the address has no authenticator app, so nothing changed.
-    NoApp,
-}
-
-/// Removes the authenticator app and the recovery codes of the account that holds `email`, on
-/// `database`, ends every session of its user, and tells the address through `mail`, for the
-/// subcommand `remove-second-factor`, which the operator runs once they have checked that the
-/// person who asks owns the account (AUTH-072, D135).
-pub async fn remove_second_factor(
-    database: &Database,
-    mail: &Mail,
-    email: &platform::types::EmailAddress,
-) -> Result<SecondFactorRemoval, Internal> {
-    Ok(
-        match auth::remove_second_factor(database, mail, email).await? {
-            auth::Removal::Removed => SecondFactorRemoval::Removed,
-            auth::Removal::NoAccount => SecondFactorRemoval::NoAccount,
-            auth::Removal::NoApp => SecondFactorRemoval::NoApp,
-        },
-    )
-}
-
-/// What `seed` created: each account's email address and name, which all share `password`, and
-/// each workspace's name and ID (SYSTEM-003).
-pub struct SeedReport {
-    /// Each account's email address and name, in the order it registered them.
-    pub accounts: Vec<(&'static str, &'static str)>,
-    /// Every account's password.
-    pub password: &'static str,
-    /// Each workspace's name and ID.
-    pub workspaces: Vec<(&'static str, String)>,
-}
-
-/// Why `seed` refused, or stopped (SYSTEM-002, SYSTEM-004).
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub struct SeedError(system::SystemError);
-
-/// Refuses `seed` unless `environment` is development, before it connects to anything
-/// (SYSTEM-002).
-pub fn seed_allowed(environment: Environment) -> Result<(), SeedError> {
-    system::seed_allowed(environment).map_err(SeedError)
-}
-
-/// Fills the database behind `router`, the API as `serve` builds it on `resources`, with demo
-/// accounts and workspaces, through its routes, proving each account's address with the code in
-/// `inbox`, which `jobs` send while email is on (the system spec's Seed).
-pub async fn seed(
-    router: Router,
-    resources: &Resources,
-    jobs: &Jobs,
-    inbox: &Inbox,
-) -> Result<SeedReport, SeedError> {
-    let mailbox = system::Mailbox {
-        jobs,
-        database: &resources.database,
-        clock: &resources.clock,
-        inbox,
-    };
-    let seeded = system::seed(router, mailbox).await.map_err(SeedError)?;
-    Ok(SeedReport {
-        accounts: seeded
-            .accounts
-            .iter()
-            .map(|account| (account.email, account.name))
-            .collect(),
-        password: system::PASSWORD,
-        workspaces: seeded.workspaces,
-    })
 }
 
 /// Every module's personal data contract, in the order an account's deletion runs them, the

@@ -107,7 +107,7 @@ crates/app/
   src/
     main.rs            the subcommands (§9)
     lib.rs             the crate root: makes public only the composition root's entry points (CODE-15)
-    composition.rs     the composition root: builds every service once at startup and mounts every module's routes
+    composition/       the composition root: builds every service once at startup and mounts every module's routes, in mod.rs, and gives the other subcommands that run the modules' logic their entry points, in tasks.rs
     modules/           one directory per module (§5)
   templates/           each module's email templates, in a directory named after the module
   tests/               integration tests over HTTP, against the real services, and end-to-end tests in tests/e2e/

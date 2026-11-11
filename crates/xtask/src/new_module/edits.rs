@@ -91,10 +91,10 @@ fn code(plan: &mut Plan<'_>, module: &str, inserts: &Inserts) {
         },
     );
     plan.place(
-        "crates/app/src/composition.rs",
+        "crates/app/src/composition/mod.rs",
         &format!(
             "`{module},` among the imports of `crate::modules`, `.merge({module}::routes())` \
-             among the routes `compose` merges, `{module}::routes().openapi(service),` among the \
+             among the routes that `routes` mounts, `{module}::routes().openapi(service),` among the \
              documents of `openapi`, and `Arc::new({module}::Contract),` among the contracts of \
              `contracts`, before the contract of `accounts`"
         ),
@@ -240,8 +240,8 @@ fn before(text: &str, at: usize, insert: &str) -> String {
     joined(&all, text)
 }
 
-/// The composition root with the module's import, its routes merged into those `compose` builds,
-/// and its document among those `openapi` merges.
+/// The composition root with the module's import, its routes merged into those that `routes`
+/// mounts, before the last link of its chain, and its document among those `openapi` merges.
 fn composition(text: &str, module: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
     let imports = find(&lines, 0, |line| line.starts_with("use crate::modules::{"))?;
@@ -262,16 +262,12 @@ fn composition(text: &str, module: &str) -> Option<String> {
     all.extend(lines[imports_end..].iter().map(|line| (*line).to_owned()));
     let text = joined(&all.iter().map(String::as_str).collect::<Vec<_>>(), text);
     let lines: Vec<&str> = text.lines().collect();
-    let routes = find(&lines, 0, |line| {
-        line.trim_start().starts_with("let routes = ")
-    })?;
-    let routes_end = find(&lines, routes, |line| line.trim_end().ends_with(';'))?;
-    let indent = indentation(lines[routes_end]);
-    let text = before(
-        &text,
-        routes_end,
-        &format!("{indent}.merge({module}::routes())"),
-    );
+    let routes = find(&lines, 0, |line| line.starts_with("fn routes("))?;
+    let routes_end = find(&lines, routes, |line| line == "}")?;
+    // The chain's last link, which ends the function, outside any part's markers.
+    let last = routes_end.checked_sub(1).filter(|last| *last > routes)?;
+    let indent = indentation(lines[last]);
+    let text = before(&text, last, &format!("{indent}.merge({module}::routes())"));
     let lines: Vec<&str> = text.lines().collect();
     let document = find(&lines, 0, |line| {
         line.contains("platform::http::document([")
@@ -441,8 +437,8 @@ mod tests {
     #[test]
     fn arch_03_the_composition_root_imports_mounts_and_documents_the_module() {
         let root = "use crate::modules::{\n    access,\n    realtime::{self, Realtime},\n    \
-                    system,\n};\n\nfn compose() {\n    let routes = system::routes()\n        \
-                    .merge(access::routes())\n        .merge(realtime::routes());\n}\n\n\
+                    system,\n};\n\nfn routes() -> Routes {\n    system::routes()\n        \
+                    .merge(access::routes())\n        .merge(realtime::routes())\n}\n\n\
                     fn openapi() {\n    platform::http::document([\n        \
                     system::routes().openapi(service),\n    ])\n}\n\nfn contracts() {\n    \
                     vec![\n        Arc::new(access::Contract),\n        \
@@ -451,15 +447,22 @@ mod tests {
         assert_eq!(
             composition(root, "items").unwrap(),
             "use crate::modules::{\n    access,\n    items,\n    realtime::{self, Realtime},\n    \
-             system,\n};\n\nfn compose() {\n    let routes = system::routes()\n        \
+             system,\n};\n\nfn routes() -> Routes {\n    system::routes()\n        \
              .merge(access::routes())\n        .merge(items::routes())\n        \
-             .merge(realtime::routes());\n}\n\nfn openapi() {\n    platform::http::document([\n        \
+             .merge(realtime::routes())\n}\n\nfn openapi() {\n    platform::http::document([\n        \
              system::routes().openapi(service),\n        items::routes().openapi(service),\n    \
              ])\n}\n\nfn contracts() {\n    vec![\n        Arc::new(access::Contract),\n        \
              Arc::new(items::Contract),\n        \
              Arc::new(accounts::Contract::new(mail.clone())),\n    ]\n}\n"
         );
         assert_eq!(composition("fn compose() {}\n", "items"), None);
+        assert_eq!(
+            composition(
+                "use crate::modules::{\n    system,\n};\n\nfn routes() {\n}\n",
+                "items"
+            ),
+            None
+        );
     }
 
     #[test]

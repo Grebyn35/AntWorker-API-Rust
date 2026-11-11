@@ -41,7 +41,7 @@ SQL in a module references only the tables that module owns: those its own migra
 ### ARCH-07 Optional parts are removable
 These parts are optional:
 - Each OAuth provider is one file in `auth/providers/` plus one line in that directory's registry.
-- The `client_telemetry` module is registered only in `composition.rs`.
+- The `client_telemetry` module is registered only in the composition root, `composition/`.
 - The `files` module, with the avatars and workspace pictures, whose images it keeps. <!-- part: files -->
 - Each part that gives a product its workspace shape ([architecture.md §5](../architecture.md#workspace-shapes)):
   - users creating workspaces through `POST /v1/workspaces`
@@ -90,7 +90,7 @@ Three records are written outside it, each so that what happens to the operation
 ## Composition
 
 ### ARCH-12 One composition root
-`composition.rs` builds every service once at startup, hands each one its dependencies, registers the four `platform` traits that architecture §5 lists as registered there, and mounts every module's routes. Nothing else constructs services. The process's resources aren't services: `main.rs` opens them before the services are built, each that can fail as a step of startup with its own `startup.area` (OPS-03), and hands them to `composition.rs`. They are the signal handlers, the database, the clock, readiness, the listener, the workers, the turns of CPU-heavy work, and the mail, the transport to the mail server that `Mail` holds, with `startup.area` `mail`. Global mutable state is not allowed. The only exceptions are metric handles and other read-only values that are initialized once, and the state the test support keeps for the tests of one process, such as the template database's name, or for the thread of one test, such as the watch of its lines.
+The composition root, `composition/`, builds every service once at startup, hands each one its dependencies, registers the four `platform` traits that architecture §5 lists as registered there, and mounts every module's routes. Nothing else constructs services. The process's resources aren't services: `main.rs` opens them before the services are built, each that can fail as a step of startup with its own `startup.area` (OPS-03), and hands them to `composition.rs`. They are the signal handlers, the database, the clock, readiness, the listener, the workers, the turns of CPU-heavy work, and the mail, the transport to the mail server that `Mail` holds, with `startup.area` `mail`. Global mutable state is not allowed. The only exceptions are metric handles and other read-only values that are initialized once, and the state the test support keeps for the tests of one process, such as the template database's name, or for the thread of one test, such as the watch of its lines.
 - Why: every dependency is visible in one file, and tests build the same graph.
 - Check: `review`.
 
