@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** close the review of email change (6189fd7..818ed56), then step 5's full `auth` module, its next part: second factors, in the order of its spec's Purpose, which decides the proposal on requiring a second factor beyond superadmins (D63). The trial server runs 0.1.0-rc.11; its Grafana Cloud alerts reach no contact point. Its next release needs a files bucket at Backblaze B2 with its own key pair and "Keep only the last version of the file", and `--allow-restart`; its first deploy proves the scanner's first start and settles the platform spec's `UNSIGNED-PAYLOAD` question. The first restore after it measures a restore's downtime. The owner releases when it needs `main`, and merges Dependabot's pull requests: #14 and #20 passed CI; #17 needs a rebase past 2b70070; #21 fails `deploy::ops_14_a_secret_that_the_setup_replaced_recreates_the_services_that_read_it` at `deploy.rs:797` on both platforms, where pgBackRest finds nothing on the backup bucket's port for 60 seconds, with SeaweedFS 4.50 to 4.52 among its updates.
+**Next:** step 5's full `auth` module, its next part: second factors, in the order of its spec's Purpose, which decides the proposal on requiring a second factor beyond superadmins (D63). Waiting on the owner: whether email change (D132) keeps out three old behaviors, with 818ed56's reasons: the old address's notice at the request, which now comes at the change, the new address's confirmation, and a password change cancelling a pending change. The trial server runs 0.1.0-rc.11; its Grafana Cloud alerts reach no contact point. Its next release needs a files bucket at Backblaze B2 with its own key pair and "Keep only the last version of the file", and `--allow-restart`; its first deploy proves the scanner's first start and settles the platform spec's `UNSIGNED-PAYLOAD` question. The first restore after it measures a restore's downtime. The owner releases when it needs `main`, and merges Dependabot's pull requests: #14 and #20 passed CI; #17 needs a rebase past 2b70070; #21 fails `deploy::ops_14_a_secret_that_the_setup_replaced_recreates_the_services_that_read_it` at `deploy.rs:797` on both platforms, where pgBackRest finds nothing on the backup bucket's port for 60 seconds, with SeaweedFS 4.50 to 4.52 among its updates.
 
 ## Build order
 
@@ -270,7 +270,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | de08e9e..6b53c2b: startup's refusal of an access token's lifetime above the refresh token's (AUTH-007, OPS-01), in place of 608071c's cap in the SQL | 1 | 4 (2, 3, 1 shared) | 3 | 0 | `next pass`: 8ef6f02 |
 | de08e9e..8ef6f02: as above, with pass 1's fixes | 2 | 2 (2, 0, 0 shared) | 0 | 0 | `clean` |
 | 6189fd7..818ed56: step 5's `auth` part email change (AUTH-048 to AUTH-053, D132), with the DATA-20 proposal's turn before a check of the password and ACCOUNTS-019's 401 | 1 | 12 (11, 8, 7 shared) | 10 | 0 | `next pass`: ae5de7f |
-| 6189fd7..ae5de7f: as above, with pass 1's fixes | 2 | 5 (4, 2, 1 shared) | 2 | 1 | `stopped: no progress` |
+| 6189fd7..ae5de7f: as above, with pass 1's fixes | 2 | 5 (4, 2, 1 shared) | 2 | 1 | `stopped: no progress`: resolved 39e0fb2 |
 
 ## Decisions
 
