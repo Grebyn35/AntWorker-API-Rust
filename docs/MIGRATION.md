@@ -267,6 +267,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | bbd5f6e..c97d06d: as above, with pass 1's fixes | 2 | 5 (5, 2, 2 shared) | 3 | 3 | `stopped: no progress`: 67243fe |
 | f99ed87..14eccb4: step 5's fourth part of the full `auth` module: the hourly expiry of sessions that stopped lasting (AUTH-047, D131) | 1 | 7 (6, 3, 2 shared) | 5 | 0 | `next pass`: 608071c |
 | f99ed87..608071c: as above, with pass 1's fixes | 2 | 5 (3, 2, 0 shared) | 2 | 1 | `stopped: no progress`: a7a8f0a |
+| de08e9e..6b53c2b: startup's refusal of an access token's lifetime above the refresh token's (AUTH-007, OPS-01), in place of 608071c's cap in the SQL | 1 | 4 (2, 3, 1 shared) | 3 | 0 | `next pass` |
 
 ## Decisions
 
