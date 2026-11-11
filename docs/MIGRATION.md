@@ -269,7 +269,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | f99ed87..608071c: as above, with pass 1's fixes | 2 | 5 (3, 2, 0 shared) | 2 | 1 | `stopped: no progress`: a7a8f0a |
 | de08e9e..6b53c2b: startup's refusal of an access token's lifetime above the refresh token's (AUTH-007, OPS-01), in place of 608071c's cap in the SQL | 1 | 4 (2, 3, 1 shared) | 3 | 0 | `next pass`: 8ef6f02 |
 | de08e9e..8ef6f02: as above, with pass 1's fixes | 2 | 2 (2, 0, 0 shared) | 0 | 0 | `clean` |
-| 6189fd7..818ed56: step 5's `auth` part email change (AUTH-048 to AUTH-053, D132), with the DATA-20 proposal's turn before a check of the password and ACCOUNTS-019's 401 | 1 | 12 (11, 8, 7 shared) | 10 | 0 | `next pass` |
+| 6189fd7..818ed56: step 5's `auth` part email change (AUTH-048 to AUTH-053, D132), with the DATA-20 proposal's turn before a check of the password and ACCOUNTS-019's 401 | 1 | 12 (11, 8, 7 shared) | 10 | 0 | `next pass`: ae5de7f |
+| 6189fd7..ae5de7f: as above, with pass 1's fixes | 2 | 5 (4, 2, 1 shared) | 2 | 1 | `stopped: no progress` |
 
 ## Decisions
 
