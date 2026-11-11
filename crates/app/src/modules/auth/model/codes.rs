@@ -56,7 +56,7 @@ pub(in crate::modules::auth) trait Code {
     /// What the code proves.
     const PURPOSE: Purpose;
 
-    /// The code's characters, as its keyed hash covers them. Never log them.
+    /// The code's characters, as the hash that stands in for it covers them. Never log them.
     fn characters(&self) -> &str;
 }
 
@@ -454,6 +454,12 @@ mod tests {
                 "{character}"
             );
         }
+        assert_eq!(
+            RecoveryCode::parse(&format!("7KQM2XWD9RTBH4NP1100ABCD{}", " ".repeat(41)))
+                .unwrap_err()
+                .code,
+            "invalid_code"
+        );
         let code = RecoveryCode::parse("7kqm-2xwd 9rtb-h4np-ilo0-abcd").unwrap();
         assert_eq!(code.characters(), "7KQM2XWD9RTBH4NP1100ABCD");
         assert_eq!(code.grouped(), "7KQM-2XWD-9RTB-H4NP-1100-ABCD");

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM sign_in_challenges WHERE user_id = $1 AND id = $2 AND expires_at > now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "db23ff7c3171c1708f9e2af6a8e4402599855094692d4abc0c8d898569247b60"
+}

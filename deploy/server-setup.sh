@@ -10,9 +10,10 @@
 #       user the deployment runs as, its settings, and the secrets and certificates it holds.
 #   server-setup.sh apply
 #       Installs Docker, unless Docker 29 or later runs, creates the deployment's user, then, as
-#       that user, writes what its standard input holds, and generates the backups' passphrase and
-#       the bundled database's superuser password when it has none. Its input holds one item per line, each value in
-#       base64:
+#       that user, writes what its standard input holds, and generates the key ring that encrypts
+#       the secrets the database holds, and, with the bundled database, the backups' passphrase and
+#       the superuser's password, each when it has none, and shows each once. Its input holds one
+#       item per line, each value in base64:
 #           settings <value>                    the deployment's settings.env
 #           secret <name> <value>               the secret file secrets/<name>, such as
 #                                               alertmanager/<file> for an alert integration's

@@ -278,7 +278,8 @@ async fn auth_057_the_step_that_a_check_accepted_works_no_more() {
 }
 
 #[tokio::test]
-async fn auth_062_a_recovery_code_works_once_in_place_of_the_app_s_and_only_its_hmac_is_stored() {
+async fn auth_062_a_recovery_code_works_once_in_place_of_the_app_s_and_only_its_sha_256_is_stored()
+{
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let App { recovery_codes, .. } = add_app(&api, &ada).await;
@@ -286,13 +287,24 @@ async fn auth_062_a_recovery_code_works_once_in_place_of_the_app_s_and_only_its_
         assert_eq!(code.len(), 29, "{code}");
         assert_eq!(code.split('-').count(), 6, "{code}");
     }
-    let stored = reads(
+    // Each code's hash is the SHA-256 of its user's ID and its characters, and holds no code.
+    let plain = recovery_codes[0].replace('-', "");
+    let stored = reads(&api, "SELECT encode(code_hash, 'hex') FROM recovery_codes").await;
+    let expected = reads(
+        &api,
+        &format!(
+            "SELECT encode(sha256(uuid_send('{}'::uuid) || convert_to('{plain}', 'UTF8')), 'hex')",
+            ada.user_id
+        ),
+    )
+    .await;
+    assert!(stored.contains(&expected[0]), "{stored:?}");
+    let raw = reads(
         &api,
         "SELECT encode(code_hash, 'escape') FROM recovery_codes",
     )
     .await;
-    let plain = recovery_codes[0].replace('-', "");
-    assert!(stored.iter().all(|hash| !hash.contains(&plain)));
+    assert!(raw.iter().all(|hash| !hash.contains(&plain)));
 
     let before = reads(&api, "SELECT id::text FROM recovery_codes ORDER BY 1").await;
     // Lowercase, without its hyphens, it reads as the code.
@@ -737,4 +749,27 @@ async fn auth_063_new_codes_and_removals_of_the_app_count_in_one_bucket_of_the_u
         ["1"]
     );
     assert_eq!(new_codes(&api, &ada).await.status, 429);
+}
+
+#[tokio::test]
+async fn auth_062_a_recovery_code_outlives_a_change_of_hmac_key() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = add_app(&api, &ada).await;
+    // A replica with another HMAC_KEY, 32 bytes of 8, as after the key's change.
+    let other = api
+        .instance(
+            crate::support::Options::default()
+                .set("HMAC_KEY", "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg="),
+        )
+        .await;
+
+    let response = reauthenticate(
+        &other,
+        &ada,
+        &json!({ "password": PASSWORD, "recovery_code": app.recovery_codes[0] }),
+    )
+    .await;
+
+    assert_eq!(response.status, 200, "{}", response.json());
 }

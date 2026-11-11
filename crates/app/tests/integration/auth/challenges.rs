@@ -898,3 +898,121 @@ async fn auth_066_serve_refuses_a_ring_without_a_lasting_setup_s_version_and_not
     );
     drop(started);
 }
+
+#[tokio::test]
+async fn auth_061_a_completion_with_a_valid_device_token_counts_in_that_token_s_bucket() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = add_app(&api, &ada).await;
+    let first = challenge(&api, "ada@example.com").await;
+    let session = complete(
+        &api,
+        &first,
+        json!({ "code": code(&api, &app.secret).await }),
+    )
+    .await;
+    let device_token = session.json()["device_token"].as_str().unwrap().to_owned();
+    let trusted = api
+        .post(
+            "/v1/sessions",
+            &json!({ "email": "ada@example.com", "password": PASSWORD,
+                     "device_token": device_token }),
+        )
+        .send()
+        .await
+        .json()["challenge"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    forget_steps(&api, &ada.user_id).await;
+    let right = code(&api, &app.secret).await;
+    for _ in 0..10 {
+        let wrong = complete(&api, &trusted, json!({ "code": other_code(&right) })).await;
+        assert_eq!(wrong.status, 401);
+    }
+
+    let limited = complete(&api, &trusted, json!({ "code": right })).await;
+
+    assert_eq!(limited.status, 429);
+    assert!(
+        limited
+            .header("ratelimit-policy")
+            .starts_with("\"second_factor_device\";q=10;w=86400"),
+        "{}",
+        limited.header("ratelimit-policy")
+    );
+    // The user's own bucket, which a completion without a valid token counts in, isn't full.
+    let untrusted = challenge(&api, "ada@example.com").await;
+    let completed = complete(&api, &untrusted, json!({ "code": right })).await;
+    assert_eq!(completed.status, 201, "{}", completed.json());
+}
+
+#[tokio::test]
+async fn auth_066_an_app_s_secret_moved_to_another_row_opens_nowhere() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = add_app(&api, &ada).await;
+    let bob = users::register(&api, "bob@example.com").await;
+    add_app(&api, &bob).await;
+    // Bob's row takes Ada's ciphertext, as one who could write the database but holds no key
+    // might move it, to sign in as Bob with Ada's app.
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE totp_factors SET secret = (SELECT secret FROM totp_factors \
+             WHERE user_id = '{}') WHERE user_id = '{}'",
+            ada.user_id, bob.user_id
+        ))
+        .await;
+    let sessions = reads(&api, "SELECT count(*)::text FROM sessions").await;
+    let token = challenge(&api, "bob@example.com").await;
+
+    let completed = complete(
+        &api,
+        &token,
+        json!({ "code": code(&api, &app.secret).await }),
+    )
+    .await;
+
+    assert_eq!(completed.status, 500);
+    assert_eq!(completed.json()["code"], "request.internal_error");
+    assert_eq!(
+        reads(&api, "SELECT count(*)::text FROM sessions").await,
+        sessions
+    );
+}
+
+#[tokio::test]
+async fn auth_060_a_challenge_that_expired_while_its_completion_waited_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = add_app(&api, &ada).await;
+    let token = challenge(&api, "ada@example.com").await;
+    let right = code(&api, &app.secret).await;
+    let db = api.database();
+    let sessions = reads(&api, "SELECT count(*)::text FROM sessions").await;
+    // A sign-in of Ada's holds her password identity, which the completion waits for.
+    let mut sign_in = db
+        .holding(&format!(
+            "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
+            ada.user_id
+        ))
+        .await;
+
+    let completion = {
+        let api = api.clone();
+        let token = token.clone();
+        tokio::spawn(async move { complete(&api, &token, json!({ "code": right })).await })
+    };
+    crate::support::queries_wait_on_locks(db, 1).await;
+    db.owner_executes("UPDATE sign_in_challenges SET expires_at = now() - interval '1 second'")
+        .await;
+    execute_on(&mut sign_in, "COMMIT").await;
+    let completed = completion.await.unwrap();
+
+    assert_eq!(completed.status, 401);
+    assert_eq!(completed.json()["code"], "auth.invalid_challenge");
+    assert_eq!(
+        reads(&api, "SELECT count(*)::text FROM sessions").await,
+        sessions
+    );
+}

@@ -379,15 +379,16 @@ pub(in crate::modules::auth) async fn challenge(
     .transpose()
 }
 
-/// Deletes `user_id`'s challenge `id`, which its completion ends, and says whether it did: a row
-/// only one unit of work deletes, so a challenge completes one sign-in (AUTH-059).
+/// Deletes `user_id`'s challenge `id`, which its completion ends, while it lasts, and says whether
+/// it did: a row only one unit of work deletes, so a challenge completes one sign-in, and none
+/// that expired while its completion waited for its turn (AUTH-059, AUTH-060).
 pub(in crate::modules::auth) async fn claim_challenge(
     uow: &mut UnitOfWork,
     user_id: UserId,
     id: uuid::Uuid,
 ) -> Result<bool, Internal> {
     let deleted = sqlx::query!(
-        "DELETE FROM sign_in_challenges WHERE user_id = $1 AND id = $2",
+        "DELETE FROM sign_in_challenges WHERE user_id = $1 AND id = $2 AND expires_at > now()",
         user_id.uuid(),
         id,
     )
