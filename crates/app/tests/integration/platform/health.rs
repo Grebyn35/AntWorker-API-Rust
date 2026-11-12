@@ -10,7 +10,7 @@ use std::{
 use http::StatusCode;
 use serde_json::{Value, json};
 
-use crate::support::{Api, TestDatabase, run_binary};
+use crate::support::{Api, TestDatabase, http_request, run_binary};
 
 /// How often the instance checks the listener.
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
@@ -95,6 +95,21 @@ async fn health(address: SocketAddr) -> Output {
     run_binary(&["health"], &[("LISTEN_ADDR", &address.to_string())]).await
 }
 
+/// Waits until the instance at `address` answers its readiness probe with 200: it has built its
+/// services, which read the database as they start, after the line that says it listens, and its
+/// hub reaches the database. A test that cuts the database off waits for it first, so the cut
+/// meets the readiness it tests, not the startup (TEST-06).
+async fn ready(address: SocketAddr) {
+    loop {
+        if let Ok(response) = http_request(address, "GET", "/health/ready", &[]).await
+            && response.starts_with("HTTP/1.1 200")
+        {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+}
+
 /// The one line `health` wrote on stderr, as JSON, after it exited 1.
 fn failure(output: &Output) -> Value {
     let stderr = String::from_utf8(output.stderr.clone()).unwrap();
@@ -129,6 +144,7 @@ async fn platform_063_health_exits_0_while_the_instance_is_ready() {
 async fn platform_063_health_exits_1_and_names_the_answer_while_the_instance_isn_t_ready() {
     let database = TestDatabase::migrated().await;
     let mut server = database.serve(&[("ENVIRONMENT", "production")]).await;
+    ready(server.address()).await;
     // Nothing can connect as app any more, and its open connections end.
     database.cut_off_app().await;
     server
