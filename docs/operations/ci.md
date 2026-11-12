@@ -9,7 +9,7 @@ CI runs on GitHub Actions, in workflows that only orchestrate `just` tasks (OPS-
 | Job | Runs | Needs |
 |---|---|---|
 | `checks` | `just setup`, then `just checks`: every check of the code in the table below that needs neither the image nor a copy of the repository; then `just setup-smoke` | |
-| `removable` | On `main` only: `just setup`, then `just check-removable`, which runs `just checks` on a copy of the repository without the optional parts of each run that `crates/xtask/parts.yaml` lists (ARCH-07) | |
+| `removable` | On `main` only, one job for each run that `crates/xtask/parts.yaml` lists: `just setup`, then `just check-removable <run>`, which runs `just checks` on a copy of the repository without the run's optional parts (ARCH-07) | |
 | `new-module` | On `main` only: `just setup`, then `just check-new-module`, which runs `just checks` on a copy of the repository with two modules that `just new-module` wrote (ARCH-03) | |
 | `image` | `just image`: the API's image and the reference deployment's Postgres, each built once for linux/amd64 and linux/arm64 with its software bill of materials (SBOM) and its provenance, into an image layout of the Open Container Initiative (OCI), which the later jobs download (OPS-12) | |
 | `scan` | `just image-scan`, against the digests that `image` built, on a runner of its own, so the scanner's database takes none of `verify`'s disk | `image` |
