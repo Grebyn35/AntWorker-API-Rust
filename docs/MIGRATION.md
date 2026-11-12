@@ -287,7 +287,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 7e71656..812473a: as above, with pass 1's fixes | 2 | 9 (6, 7, 4 shared) | 4 | 3 | `stopped: no progress`: resolved 9d21983 |
 | e5e146f..1255d89: step 5's `auth` part that signs in, registers and re-authenticates through a provider, Google or GitHub (AUTH-073 to AUTH-081, D139, D140), with the configured client of `platform::outbound` | 1 | 17 (15, 13, 11 shared) | 12 | 0 | `next pass`: 0246a3a, d24250e |
 | e5e146f..d24250e: as above, with pass 1's fixes | 2 | 10 (8, 8, 6 shared) | 6 | 3 | `stopped: no progress`: resolved 9f251f9 |
-| 44bd29b..357a004: a sign-in provider of each kind kept as an example, the registry's read of the identity that OpenID Connect defines, and the provider that the settings name (D141), with the guide's steps of adding a provider | 1 | 9 (6, 3, 0 shared) | 1 | 0 | `next pass` |
+| 44bd29b..357a004: a sign-in provider of each kind kept as an example, the registry's read of the identity that OpenID Connect defines, and the provider that the settings name (D141), with the guide's steps of adding a provider | 1 | 9 (6, 3, 0 shared) | 1 | 0 | `next pass`: 2a17560 |
+| 44bd29b..2a17560: as above, with pass 1's fixes | 2 | 4 (3, 1, 0 shared) | 1 | 0 | `stopped: no progress` |
 
 ## Decisions
 
