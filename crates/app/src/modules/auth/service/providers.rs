@@ -48,7 +48,7 @@ pub(crate) struct ProviderSignIn {
 const EXCHANGE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(6);
 
 /// How long a provider may take to let go of the token after the exchange, within the same 10
-/// seconds (AUTH-079, AUTH-083).
+/// seconds (AUTH-079).
 const DISCARD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The longest a name of a new account is, cut from its address (AUTH-074).
@@ -347,7 +347,7 @@ impl Auth {
 impl Auth {
     /// Lets `provider` go of `token`, within its own deadline, after the exchange's: a deletion
     /// that fails, or that doesn't end in time, refuses nothing, and is logged and counted
-    /// (AUTH-079, AUTH-083, ERR-11).
+    /// (AUTH-079, ERR-11).
     async fn discard(
         &self,
         provider: &dyn Provider,
