@@ -44,6 +44,7 @@ use super::{
 use crate::modules::accounts::DisplayName;
 
 pub(crate) use exports::{ExportRequests, export_routes};
+pub(crate) use providers::{ProviderRoutes, provider_routes};
 
 /// The name of the cookie that holds a browser's refresh token, after `__Host-` (AUTH-015).
 const REFRESH_COOKIE: &str = "refresh_token";
@@ -59,7 +60,6 @@ pub(crate) fn routes() -> Routes<Arc<Auth>> {
         .merge(sessions::routes())
         .merge(second_factors::routes())
         .merge(reauthentication::routes())
-        .merge(providers::routes())
         .events(&[&SESSION_CREATED, &SESSION_ENDED])
         .public(
             routes!(register),
@@ -239,7 +239,7 @@ pub(crate) struct SessionResponse {
     refresh_token_expires_at: Timestamp,
     /// When the session ends, whatever its refreshes.
     expires_at: Timestamp,
-    /// When its user last proved who they are in it, their password and the second factor of an
+    /// When its user last proved who they are in it, their password or their account at a provider, and the second factor of an
     /// account that has one: when it began, re-authenticated, or changed the password (AUTH-021,
     /// AUTH-040, AUTH-065).
     authenticated_at: Timestamp,
@@ -386,7 +386,7 @@ async fn refresh(
 }
 
 /// Deletes the caller's account, and everything it holds, once the session that authenticated
-/// the request has proved their password within the last 5 minutes.
+/// the request has proved who they are within the last 5 minutes.
 #[utoipa::path(
     delete,
     path = "/v1/users/me",

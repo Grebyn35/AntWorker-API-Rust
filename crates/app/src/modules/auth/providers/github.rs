@@ -2,7 +2,6 @@
 
 use futures_util::future::BoxFuture;
 use platform::{
-    errors,
     outbound::{Configured, Request, Response},
     types::Secret,
 };
@@ -14,7 +13,7 @@ use crate::modules::PRODUCT;
 /// GitHub in the registry, with one client, an OAuth app, whose callback URLs list a loopback
 /// redirect and an `https` one alike (AUTH-083).
 pub(super) const ENTRY: Entry = Entry {
-    id: "github",
+    key: "github",
     clients: &["GITHUB_"],
     build: |clients| Box::new(GitHub { clients }),
 };
@@ -54,8 +53,8 @@ struct Email {
 }
 
 impl Provider for GitHub {
-    fn id(&self) -> &'static str {
-        ENTRY.id
+    fn key(&self) -> &'static str {
+        ENTRY.key
     }
 
     fn name(&self) -> &'static str {
@@ -99,18 +98,23 @@ impl Provider for GitHub {
         }
     }
 
-    /// Reads the identity, then deletes the token, whatever the outcome (D139).
     fn identify<'a>(
+        &'a self,
+        outbound: &'a Configured,
+        _client: &'a Client,
+        token: &'a Secret<String>,
+    ) -> BoxFuture<'a, Result<Identity, ProviderError>> {
+        Box::pin(read(outbound, token))
+    }
+
+    /// Deletes the token, which never lapses (D139).
+    fn discard<'a>(
         &'a self,
         outbound: &'a Configured,
         client: &'a Client,
         token: &'a Secret<String>,
-    ) -> BoxFuture<'a, Result<Identity, ProviderError>> {
-        Box::pin(async move {
-            let identity = read(outbound, token).await;
-            delete(outbound, client, token).await;
-            identity
-        })
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(delete(outbound, client, token))
     }
 }
 
@@ -171,24 +175,22 @@ fn readable<T: serde::de::DeserializeOwned>(
 }
 
 /// Deletes `token` through GitHub's endpoint that deletes one token and keeps the user's grant,
-/// since GitHub's tokens don't lapse, so no token outlives the request (AUTH-079, D139). A
-/// failure refuses nothing: it is logged and counted (ERR-11).
-async fn delete(outbound: &Configured, client: &Client, token: &Secret<String>) {
+/// since GitHub's tokens don't lapse, so no token outlives the request (AUTH-079, D139), or says
+/// why it couldn't.
+async fn delete(
+    outbound: &Configured,
+    client: &Client,
+    token: &Secret<String>,
+) -> Result<(), String> {
     let request = Request::delete(format!("{API}/applications/{}/token", client.id))
         .header("accept", "application/vnd.github+json")
         .header("x-github-api-version", API_VERSION)
         .header("user-agent", PRODUCT)
         .basic(&client.id, &client.secret)
         .json(&serde_json::json!({ "access_token": token.expose() }));
-    let failure = match outbound.send(request).await {
-        Ok(answer) if answer.status == 204 => return,
-        Ok(answer) => format!("DELETE of the token answered {}", answer.status),
-        Err(error) => error.to_string(),
-    };
-    errors::ignore(&TokenKept(failure), "provider_token_not_deleted");
+    match outbound.send(request).await {
+        Ok(answer) if answer.status == 204 => Ok(()),
+        Ok(answer) => Err(format!("DELETE of the token answered {}", answer.status)),
+        Err(error) => Err(error.to_string()),
+    }
 }
-
-/// GitHub didn't delete a token that a sign-in used (AUTH-079).
-#[derive(Debug, thiserror::Error)]
-#[error("GitHub's token wasn't deleted: {0}")]
-struct TokenKept(String);

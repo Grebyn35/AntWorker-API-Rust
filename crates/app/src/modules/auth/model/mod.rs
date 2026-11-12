@@ -345,7 +345,7 @@ pub(crate) struct Session {
     pub(crate) refresh_token_expires_at: Timestamp,
     /// When the session ends, whatever its refreshes.
     pub(crate) expires_at: Timestamp,
-    /// When its user last proved who they are in it, their password and the second factor of an
+    /// When its user last proved who they are in it, their password or their account at a provider, and the second factor of an
     /// account that has one: when it began, re-authenticated, or changed the password (AUTH-021,
     /// AUTH-040, AUTH-065).
     pub(crate) authenticated_at: Timestamp,

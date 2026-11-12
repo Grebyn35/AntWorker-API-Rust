@@ -2,10 +2,7 @@
 
 use serde_json::{Value, json};
 
-use crate::support::{Api, api::Response, upstream::Upstream};
-
-/// A verifier of a PKCE challenge, of the 43 characters that RFC 7636 asks at least.
-const VERIFIER: &str = "a-verifier-of-at-least-43-characters.0123456789";
+use crate::support::{Api, api::Response, providers::VERIFIER, upstream::Upstream};
 
 /// A stand-in of Google's endpoints, and an API with both of Google's clients.
 async fn google() -> (Upstream, Api) {
@@ -126,4 +123,27 @@ async fn auth_082_an_address_google_doesn_t_host_is_a_claim() {
 
     assert_eq!(response.status, 201, "{}", response.json());
     assert_eq!(response.json()["email_verification_required"], true);
+}
+
+#[tokio::test]
+async fn auth_082_google_is_listed_by_its_key_name_scopes_and_two_clients() {
+    let (_upstream, api) = google().await;
+
+    let capabilities = api.get("/v1/capabilities").send().await.json();
+
+    let google = &capabilities["sign_in_providers"][0];
+    assert_eq!(google["provider"], "google");
+    assert_eq!(google["name"], "Google");
+    assert_eq!(google["scopes"], json!(["openid", "email", "profile"]));
+    assert_eq!(
+        google["authorization_endpoint"],
+        "https://accounts.google.com/o/oauth2/v2/auth"
+    );
+    let clients: Vec<&str> = google["clients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|client| client["client_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(clients, ["google-web", "google-desktop"]);
 }

@@ -19,6 +19,7 @@ use super::{created, delivery, device, second_factors};
 use crate::modules::auth::{
     error::AuthError,
     model::{DEVICE_COOKIE, DeviceId, DeviceName, FactorProof, Session},
+    providers::Providers,
     service::{Auth, Grant, ProviderSignIn, SignedIn},
 };
 
@@ -28,10 +29,26 @@ const CODE_MAX_CHARS: usize = 2_048;
 /// The shortest and longest verifier of a PKCE challenge, as RFC 7636 allows them (AUTH-077).
 const VERIFIER_CHARS: std::ops::RangeInclusive<usize> = 43..=128;
 
+/// The state of the routes that sign in and re-authenticate through a provider: the service, and
+/// the providers that the deployment configures, whose clients' redirect URIs a request's
+/// conversion reads (AUTH-078, API-10).
+#[derive(Clone)]
+pub(crate) struct ProviderRoutes {
+    auth: Arc<Auth>,
+    providers: Arc<Providers>,
+}
+
+impl ProviderRoutes {
+    /// The state of `auth`, and of `providers`, which it was built with.
+    pub(crate) fn new(auth: Arc<Auth>, providers: Arc<Providers>) -> Self {
+        Self { auth, providers }
+    }
+}
+
 /// The routes that sign in and re-authenticate through a provider; re-authenticating serves a
 /// caller whose account must still prove its address, to change the address (AUTH-025,
 /// AUTH-080).
-pub(super) fn routes() -> Routes<Arc<Auth>> {
+pub(crate) fn provider_routes() -> Routes<ProviderRoutes> {
     let exchange: [&dyn platform::errors::ErrorCode; 3] = [
         &AuthError::ProviderNotFound,
         &AuthError::ProviderUnavailable(platform::errors::Internal::new("the provider")),
@@ -122,7 +139,7 @@ pub(crate) struct ProviderReauthenticationRequest {
 /// `errors` then holds, so one 400 names every field (AUTH-077, AUTH-078, API-10).
 fn grant(
     errors: &mut FieldErrors,
-    auth: &Auth,
+    providers: &Providers,
     provider: &str,
     (code, verifier, redirect_uri): (String, String, String),
 ) -> Option<Grant> {
@@ -154,7 +171,8 @@ fn grant(
     );
     let listed = errors.check(
         "/redirect_uri",
-        auth.lists(provider, &redirect_uri)
+        providers
+            .lists(provider, &redirect_uri)
             .then_some(())
             .ok_or_else(|| {
                 Invalid::new(
@@ -186,7 +204,7 @@ fn grant(
     )
 )]
 async fn sign_in_through(
-    State(auth): State<Arc<Auth>>,
+    State(ProviderRoutes { auth, providers }): State<ProviderRoutes>,
     limits: RateLimits,
     client: Client,
     cookies: Cookies,
@@ -196,7 +214,7 @@ async fn sign_in_through(
     let mut errors = FieldErrors::new();
     let grant = grant(
         &mut errors,
-        &auth,
+        &providers,
         &request.provider,
         (request.code, request.code_verifier, request.redirect_uri),
     );
@@ -243,7 +261,7 @@ async fn sign_in_through(
     )
 )]
 async fn reauthenticate_through(
-    State(auth): State<Arc<Auth>>,
+    State(ProviderRoutes { auth, providers }): State<ProviderRoutes>,
     limits: RateLimits,
     client: Client,
     principal: Principal,
@@ -252,7 +270,7 @@ async fn reauthenticate_through(
     let mut errors = FieldErrors::new();
     let grant = grant(
         &mut errors,
-        &auth,
+        &providers,
         &request.provider,
         (request.code, request.code_verifier, request.redirect_uri),
     );

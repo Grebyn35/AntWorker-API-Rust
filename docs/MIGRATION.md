@@ -167,6 +167,11 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of e5e146f..1255d89 | ARCH-07: whether a provider's words in `parts.yaml` take its plain name, `Google` or `GitHub`, which the repository's CI and docs also use for other things, or `check-parts` flags a core line that names a kept part, so the review stops being the only check of an example that names one | 6, with the review of the whole codebase |
 | Conformance review of e5e146f..1255d89 | DATA-04: whether a provider's key, which `provider_identities`, `sessions` and `sign_in_challenges` store as `text`, is a closed set that needs a Postgres enum, though a fork's parts and the tests' stand-in change the set | 6, with the review of the whole codebase |
 | Conformance review of e5e146f..1255d89 | DOC-02 and CODE-16: whether a check reads the doc comments of crate-visible items, which an item inserted between another's comment and the item can take | 6, with the review of the whole codebase |
+| Conformance review of e5e146f..d24250e | ARCH-07: whether a check reads the `removable` matrix of `.github/workflows/ci.yml` against the runs of `crates/xtask/parts.yaml`, so a run that a fork adds isn't left out of CI | 6, with the review of the whole codebase |
+| Conformance review of e5e146f..d24250e | ARCH-08: whether `check-layers` counts a routes helper's calls on a parameter of its module's service type, as it counts calls on a `State` binding | 6, with the review of the whole codebase |
+| Conformance review of e5e146f..d24250e | ARCH-13: whether its list of external systems with more than one implementation names OAuth providers, which `providers::Provider` stands for | 6, with the review of the whole codebase |
+| Conformance review of e5e146f..d24250e | ERR-09: whether a code's `detail` holds on every route that answers it, as `auth.second_factor_required`'s "with the password" doesn't on a re-authentication through a provider | 6, with the review of the whole codebase |
+| Building OAuth's sign-in | ARCH-07: whether `check-parts` fails on a line left that cites a behavior whose row the removal deletes, as it fails on one that cites a decision's, since only `check-docs` on a copy, in `check-removable`, finds it now: CI run 43207465734 failed on a review's row that cited AUTH-083 | 6, with the review of the whole codebase |
 
 
 ## Conformance reviews
@@ -280,7 +285,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 7ea9a0b..ea660e1: as above, with pass 1's fixes | 2 | 12 (9, 6, 3 shared) | 9 | 2 | `stopped: no progress`: resolved 12ec44e |
 | 7e71656..098e6b3: step 5's `auth` part the requirement and the operator's removal of second factors (AUTH-070 to AUTH-072, D133, D135), with a reset's second factor (D136) and an export's fresh proof (D137) | 1 | 14 (11, 9, 6 shared) | 7 | 6 | `next pass`: 65d057b, b9d7dcb, 812473a |
 | 7e71656..812473a: as above, with pass 1's fixes | 2 | 9 (6, 7, 4 shared) | 4 | 3 | `stopped: no progress`: resolved 9d21983 |
-| e5e146f..1255d89: step 5's `auth` part that signs in, registers and re-authenticates through a provider, Google or GitHub (AUTH-073 to AUTH-083, D139, D140), with the configured client of `platform::outbound` | 1 | 17 (15, 13, 11 shared) | 12 | 0 | `next pass`: 0246a3a, d24250e |
+| e5e146f..1255d89: step 5's `auth` part that signs in, registers and re-authenticates through a provider, Google or GitHub (AUTH-073 to AUTH-081, D139, D140), with the configured client of `platform::outbound` | 1 | 17 (15, 13, 11 shared) | 12 | 0 | `next pass`: 0246a3a, d24250e |
 | e5e146f..d24250e: as above, with pass 1's fixes | 2 | 10 (8, 8, 6 shared) | 6 | 3 | `stopped: no progress` |
 
 ## Decisions

@@ -1,73 +1,24 @@
 //! Signing in, registering and re-authenticating through a provider, which every provider shares,
 //! proven through the tests' stand-in provider (the auth spec's "Signing in through a provider").
 
+use platform::telemetry::testing;
 use serde_json::{Value, json};
 
 use crate::support::{
     Api,
     api::{self, Options, Response},
-    execute_on, queries_wait_on_locks, second_factors,
+    execute_on,
+    providers::{self, VERIFIER, gives, grant, identity, sign_in, signed_in},
+    queries_wait_on_locks, second_factors,
     upstream::Upstream,
     users::{self, SignedIn},
 };
 
-/// A verifier of a PKCE challenge, of the 43 characters that RFC 7636 asks at least.
-const VERIFIER: &str = "a-verifier-of-at-least-43-characters.0123456789";
-
-/// The stand-in's browser redirect URI, and its loopback one.
-const REDIRECT_URIS: &str = "https://app.example.com/callback,http://127.0.0.1/callback";
-
-/// The options of an API whose stand-in provider has one client, which answers at `upstream`.
-fn configured(upstream: &Upstream) -> Options {
-    upstream
-        .options()
-        .set("STAND_IN_CLIENT_ID", "stand-in-client")
-        .set("STAND_IN_CLIENT_SECRET", "stand-in-secret")
-        .set("STAND_IN_REDIRECT_URIS", REDIRECT_URIS)
-}
-
 /// A stand-in provider, and an API that signs in through it.
 async fn standing() -> (Upstream, Api) {
     let upstream = Upstream::start().await;
-    let api = Api::with(configured(&upstream)).await;
+    let api = Api::with(providers::stand_in(&upstream)).await;
     (upstream, api)
-}
-
-/// Makes the stand-in give a token for any code, and `identity` for it.
-fn gives(upstream: &Upstream, identity: Value) {
-    upstream.set(
-        "POST",
-        "/token",
-        200,
-        json!({ "access_token": "a-provider-token" }),
-    );
-    upstream.set("GET", "/identity", 200, identity);
-}
-
-/// The identity of `subject`, with `email`, which the provider proves when `proved` says so.
-fn identity(subject: &str, email: &str, proved: bool) -> Value {
-    json!({ "subject": subject, "email": email, "proved": proved, "name": "Ada Lovelace" })
-}
-
-/// The body of a sign-in through the stand-in, with its browser redirect URI.
-fn grant() -> Value {
-    json!({
-        "provider": "stand_in",
-        "code": "a-code",
-        "code_verifier": VERIFIER,
-        "redirect_uri": "https://app.example.com/callback",
-    })
-}
-
-async fn sign_in(api: &Api, body: &Value) -> Response {
-    api.post("/v1/sessions/provider", body).send().await
-}
-
-/// Signs in through the stand-in, which must start a session.
-async fn signed_in(api: &Api) -> SignedIn {
-    let response = sign_in(api, &grant()).await;
-    assert_eq!(response.status, 201, "{}", response.json());
-    SignedIn::from(&response)
 }
 
 /// The actions of the entries whose details name the stand-in.
@@ -341,8 +292,8 @@ async fn auth_077_a_provider_that_doesn_t_answer_answers_503_at_the_exchange_s_d
         tokio::spawn(async move { sign_in(&api, &grant()).await })
     };
 
-    clock.sleeping(std::time::Duration::from_secs(8)).await;
-    clock.advance(std::time::Duration::from_secs(8));
+    clock.sleeping(std::time::Duration::from_secs(6)).await;
+    clock.advance(std::time::Duration::from_secs(6));
 
     let response = call.await.unwrap();
     assert_eq!(response.status, 503);
@@ -796,4 +747,194 @@ async fn accounts_013_a_deletion_erases_the_user_s_provider_identities() {
             .await,
         ["0"]
     );
+}
+
+/// Whether a line that the tests' telemetry holds contains `text`.
+fn logged(text: &str) -> bool {
+    testing::all_logged()
+        .iter()
+        .any(|line| line.to_string().contains(text))
+}
+
+#[tokio::test]
+async fn auth_077_the_log_of_a_refusal_names_its_status_and_rfc_6749_s_code_alone() {
+    let (upstream, api) = standing().await;
+    upstream.set(
+        "POST",
+        "/token",
+        401,
+        json!({ "error": "invalid_client", "error_description": "detail-that-no-log-holds" }),
+    );
+    assert_eq!(sign_in(&api, &grant()).await.status, 503);
+    upstream.set(
+        "POST",
+        "/token",
+        400,
+        json!({ "error": "a_code_that_no_log_holds" }),
+    );
+    assert_eq!(sign_in(&api, &grant()).await.status, 503);
+
+    let failures: Vec<String> = testing::all_logged()
+        .into_iter()
+        .filter(|line| line["error.type"] == "auth.provider_unavailable")
+        .map(|line| {
+            line["exception.message"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect();
+    assert!(
+        failures
+            .iter()
+            .any(|cause| cause.contains("stand_in")
+                && cause.contains("invalid_client, and status 401")),
+        "{failures:?}"
+    );
+    assert!(
+        failures
+            .iter()
+            .any(|cause| cause.contains("another code, and status 400")),
+        "{failures:?}"
+    );
+    assert!(!logged("detail-that-no-log-holds"));
+    assert!(!logged("a_code_that_no_log_holds"));
+}
+
+#[tokio::test]
+async fn auth_079_the_provider_s_token_reaches_no_log() {
+    let (upstream, api) = standing().await;
+    upstream.set(
+        "POST",
+        "/token",
+        200,
+        json!({ "access_token": "a-token-that-no-log-holds" }),
+    );
+    upstream.set(
+        "GET",
+        "/identity",
+        200,
+        identity("subject-1", "ada@example.com", true),
+    );
+
+    assert_eq!(sign_in(&api, &grant()).await.status, 201);
+
+    assert!(!logged("a-token-that-no-log-holds"));
+}
+
+#[tokio::test]
+async fn auth_080_a_wrong_second_factor_answers_403_and_a_recovery_code_proves_it() {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let ada = signed_in(&api).await;
+    let app = second_factors::add_app(&api, &ada).await;
+    let right = second_factors::code(&api, &app.secret).await;
+
+    let wrong = reauthenticate(
+        &api,
+        &ada,
+        json!({ "second_factor_code": second_factors::other_code(&right) }),
+    )
+    .await;
+    assert_eq!(wrong.status, 403);
+    assert_eq!(wrong.json()["code"], "auth.wrong_second_factor");
+    assert_eq!(
+        api.database()
+            .owner_reads(
+                "SELECT action FROM audit_entries WHERE action = 'second_factor.check_failed'"
+            )
+            .await,
+        ["second_factor.check_failed"]
+    );
+
+    let recovered = reauthenticate(
+        &api,
+        &ada,
+        json!({ "recovery_code": app.recovery_codes[0] }),
+    )
+    .await;
+    assert_eq!(recovered.status, 200, "{}", recovered.json());
+}
+
+#[tokio::test]
+async fn auth_073_a_device_token_of_the_account_s_email_ends_and_one_of_another_counts_as_none() {
+    let (upstream, api) = standing().await;
+    let bob = api
+        .post("/v1/users", &users::registration("bob@example.com"))
+        .send()
+        .await;
+    let bobs_token = bob.json()["device_token"].as_str().unwrap().to_owned();
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let first = sign_in(&api, &grant()).await;
+    let adas_token = first.json()["device_token"].as_str().unwrap().to_owned();
+    let user = first.json()["user_id"].as_str().unwrap().to_owned();
+    let tokens = |user: String| {
+        let api = api.clone();
+        async move {
+            api.database()
+                .owner_reads(&format!(
+                    "SELECT count(*)::text FROM device_tokens WHERE user_id = '{user}'"
+                ))
+                .await
+                .remove(0)
+        }
+    };
+
+    let mut body = grant();
+    body["device_token"] = json!(adas_token);
+    let again = sign_in(&api, &body).await;
+    assert_eq!(again.status, 201);
+    assert_ne!(again.json()["device_token"], json!(adas_token));
+    assert_eq!(tokens(user.clone()).await, "1", "the one it brought ended");
+
+    body["device_token"] = json!(bobs_token);
+    assert_eq!(sign_in(&api, &body).await.status, 201);
+    assert_eq!(
+        tokens(user).await,
+        "2",
+        "another email's counts as none, and ends nothing"
+    );
+    let bob_id = bob.json()["user_id"].as_str().unwrap().to_owned();
+    assert_eq!(tokens(bob_id).await, "1");
+}
+
+#[tokio::test]
+async fn auth_008_a_sign_in_through_a_provider_on_a_device_replaces_its_session() {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let mut body = grant();
+    body["device_id"] = json!("laptop");
+
+    let first = sign_in(&api, &body).await;
+    let second = sign_in(&api, &body).await;
+
+    assert_eq!(second.status, 201);
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT id::text FROM sessions WHERE device_id = 'laptop'")
+            .await,
+        [second.json()["id"].as_str().unwrap()]
+    );
+    assert_ne!(first.json()["id"], second.json()["id"]);
+}
+
+#[tokio::test]
+async fn auth_015_a_browser_s_sign_in_through_a_provider_takes_its_tokens_in_cookies() {
+    let upstream = Upstream::start().await;
+    let api =
+        Api::with(providers::stand_in(&upstream).set("CORS_ALLOWED_ORIGINS", users::WEB)).await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+
+    let response = api
+        .post("/v1/sessions/provider", &grant())
+        .header("origin", users::WEB)
+        .send()
+        .await;
+
+    assert_eq!(response.status, 201, "{}", response.json());
+    assert!(response.json().get("access_token").is_none());
+    let cookies = users::cookies(&response);
+    assert!(cookies.contains("__Host-access_token="), "{cookies}");
+    assert!(cookies.contains("__Host-refresh_token="), "{cookies}");
+    assert!(cookies.contains("__Host-device_token_"), "{cookies}");
 }

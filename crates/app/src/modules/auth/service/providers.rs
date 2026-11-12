@@ -4,7 +4,7 @@
 use platform::{
     authn::{AuditScope, Principal},
     db::UnitOfWork,
-    errors::{FieldError, Internal, RequestError},
+    errors::{self, FieldError, Internal, RequestError},
     rate_limit::RateLimits,
     types::{Client, EmailAddress, Secret, UserId},
 };
@@ -42,10 +42,14 @@ pub(crate) struct ProviderSignIn {
     pub(crate) device_cookies: Vec<(String, Secret<String>)>,
 }
 
-/// How long an exchange at a provider may take, every request to it included, so that a
-/// provider that hangs answers 503 `auth.provider_unavailable`, and is counted, within its
-/// route's 10 seconds (AUTH-077, PLATFORM-042).
-const EXCHANGE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(8);
+/// How long an exchange at a provider may take, its token's request and the reads of the identity,
+/// so that a provider that hangs answers 503 `auth.provider_unavailable`, and is counted, within
+/// its route's 10 seconds (AUTH-077, PLATFORM-042).
+const EXCHANGE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(6);
+
+/// How long a provider may take to let go of the token after the exchange, within the same 10
+/// seconds (AUTH-079, AUTH-083).
+const DISCARD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The longest a name of a new account is, cut from its address (AUTH-074).
 const NAME_MAX_CHARS: usize = 100;
@@ -65,7 +69,7 @@ impl Auth {
             .await?;
         let mut uow = self.database.begin(client).await?;
         if let Some(user_id) =
-            repo::user_of_subject(&mut uow, provider.id(), &identity.subject).await?
+            repo::user_of_subject(&mut uow, provider.key(), &identity.subject).await?
             // The user's turn, as a deletion of the account takes it first: a sign-in that waited
             // for one finds no user, and registers (the auth spec's "Taking turns").
             && let Some(address) = accounts::address_for_update(&mut uow, user_id).await?
@@ -89,13 +93,12 @@ impl Auth {
         provider: &dyn Provider,
         identity: &Identity,
     ) -> Result<(), AuthError> {
-        let Some(email) =
-            proved_address(identity).filter(|_| self.mail.is_on() && !identity.proved)
+        let Some(email) = given_address(identity).filter(|_| self.mail.is_on() && !identity.proved)
         else {
             return Ok(());
         };
         let mut read = self.database.begin(client).await?;
-        let linked = repo::user_of_subject(&mut read, provider.id(), &identity.subject).await?;
+        let linked = repo::user_of_subject(&mut read, provider.key(), &identity.subject).await?;
         drop(read);
         if linked.is_none() {
             limits
@@ -121,7 +124,7 @@ impl Auth {
         repo::password_identity_for_update(&mut uow, user_id).await?;
         if identity.proved
             && !address.verified
-            && proved_address(identity).as_ref() == Some(&address.email)
+            && given_address(identity).as_ref() == Some(&address.email)
         {
             accounts::verify_email(&mut uow, user_id).await?;
             audit_log::record(
@@ -183,7 +186,8 @@ impl Auth {
             Creation::Created(id) => id,
             Creation::EmailInUse => return Err(AuthError::EmailInUse),
         };
-        repo::insert_provider_identity(&mut uow, user_id, provider.id(), &identity.subject).await?;
+        repo::insert_provider_identity(&mut uow, user_id, provider.key(), &identity.subject)
+            .await?;
         if identity.proved {
             accounts::verify_email(&mut uow, user_id).await?;
         }
@@ -194,7 +198,7 @@ impl Auth {
             principal.audit_scope(),
             through(
                 Entry::new(audit::USER_REGISTERED, audit::USER, user_id.uuid()),
-                provider.id(),
+                provider.key(),
             ),
         )
         .await?;
@@ -241,14 +245,14 @@ impl Auth {
         };
         let mut uow = self.database.begin(client).await?;
         take_turn(&mut uow, principal).await?;
-        let subject = repo::provider_subject(&mut uow, user_id, provider.id()).await?;
+        let subject = repo::provider_subject(&mut uow, user_id, provider.key()).await?;
         if subject.as_deref() != Some(identity.subject.as_str()) {
             audit_log::record(
                 &mut uow,
                 principal.audit_scope(),
                 through(
                     Entry::new(audit::IDENTITY_CHECK_FAILED, audit::USER, user_id.uuid()),
-                    provider.id(),
+                    provider.key(),
                 ),
             )
             .await?;
@@ -271,23 +275,13 @@ impl Auth {
                     audit::SESSION,
                     session.id.uuid(),
                 ),
-                provider.id(),
+                provider.key(),
             ),
         )
         .await?;
         let session = self.answer(&mut uow, session).await?;
         uow.commit().await?;
         Ok(session)
-    }
-
-    /// Whether the clients of the provider that `provider` names list `redirect_uri`, as a
-    /// request's conversion asks, so its 400 names every field; a provider that the deployment
-    /// doesn't configure lists any, since its refusal is the service's (AUTH-077, AUTH-078).
-    pub(crate) fn lists(&self, provider: &str, redirect_uri: &str) -> bool {
-        match self.providers.find(provider) {
-            Found::On(provider) => providers::client_for(provider, redirect_uri).is_some(),
-            Found::Off | Found::Unknown => true,
-        }
     }
 
     /// The provider that `id` names, and the identity that `grant`'s code gives there, which its
@@ -316,30 +310,67 @@ impl Auth {
             verifier: &grant.verifier,
             redirect_uri: &grant.redirect_uri,
         };
-        let exchanged = providers::identify(provider, &self.outbound, exchange);
-        let deadline = self.clock.sleep(EXCHANGE_DEADLINE);
+        // The token is kept outside the exchange's future, so the provider lets go of it whatever
+        // ends the exchange, the deadline included (AUTH-079).
+        let mut token = None;
+        let exchanged = async {
+            let got = providers::token(provider, &self.outbound, &exchange).await?;
+            let token = token.insert(got);
+            provider.identify(&self.outbound, client, token).await
+        };
         let identified = tokio::select! {
             identified = exchanged => identified,
-            () = deadline => Err(ProviderError::Unavailable(format!(
+            () = self.clock.sleep(EXCHANGE_DEADLINE) => Err(ProviderError::Unavailable(format!(
                 "no identity within {} seconds",
                 EXCHANGE_DEADLINE.as_secs()
             ))),
         };
+        if let Some(token) = token {
+            self.discard(provider, client, &token).await;
+        }
         let outcome = match &identified {
             Ok(_) => metrics::Exchange::Succeeded,
             Err(ProviderError::Rejected) => metrics::Exchange::Rejected,
             Err(ProviderError::Unavailable(_)) => metrics::Exchange::Unavailable,
         };
-        metrics::exchange(provider.id(), outcome);
+        metrics::exchange(provider.key(), outcome);
         match identified {
             Ok(identity) => Ok((provider, identity)),
             Err(ProviderError::Rejected) => Err(AuthError::ProviderCodeRejected),
             Err(ProviderError::Unavailable(cause)) => Err(AuthError::ProviderUnavailable(
-                Internal::new(format!("{}: {cause}", provider.id())),
+                Internal::new(format!("{}: {cause}", provider.key())),
             )),
         }
     }
 }
+
+impl Auth {
+    /// Lets `provider` go of `token`, within its own deadline, after the exchange's: a deletion
+    /// that fails, or that doesn't end in time, refuses nothing, and is logged and counted
+    /// (AUTH-079, AUTH-083, ERR-11).
+    async fn discard(
+        &self,
+        provider: &dyn Provider,
+        client: &providers::Client,
+        token: &Secret<String>,
+    ) {
+        let discarded = tokio::select! {
+            discarded = provider.discard(&self.outbound, client, token) => discarded,
+            () = self.clock.sleep(DISCARD_DEADLINE) => Err(format!(
+                "no answer within {} seconds",
+                DISCARD_DEADLINE.as_secs()
+            )),
+        };
+        if let Err(cause) = discarded {
+            errors::ignore(&TokenKept(cause), "provider_token_not_deleted");
+        }
+    }
+}
+
+/// A provider's token that wasn't let go of, as its provider asks (AUTH-079).
+#[derive(Debug, thiserror::Error)]
+#[error("the provider's token wasn't deleted: {0}")]
+struct TokenKept(String);
 
 /// `entry`, with the provider whose sign-in it records in its details (AUTH-073).
 pub(super) fn through(mut entry: Entry, provider: &str) -> Entry {
@@ -347,8 +378,9 @@ pub(super) fn through(mut entry: Entry, provider: &str) -> Entry {
     entry
 }
 
-/// The address that `identity`'s provider proves, as ACCOUNTS-002 normalizes it (AUTH-075).
-fn proved_address(identity: &Identity) -> Option<EmailAddress> {
+/// The address that `identity`'s provider gives, as ACCOUNTS-002 normalizes it, whether or not
+/// the provider proves it (AUTH-075).
+fn given_address(identity: &Identity) -> Option<EmailAddress> {
     identity
         .email
         .as_deref()

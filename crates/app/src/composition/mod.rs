@@ -2,6 +2,7 @@
 //! `main.rs` opens the process's resources, such as the database, and hands them here. The entry
 //! points of the other subcommands that run the modules' logic are in `tasks.rs`.
 
+mod providers;
 mod tasks;
 
 pub use tasks::{RemovalRefused, SeedError, SeedReport, remove_second_factor, seed, seed_allowed};
@@ -214,23 +215,7 @@ pub async fn compose(
     mail.register(&mut jobs).map_err(Internal::new)?;
     let contracts = contracts(mail);
     let providers = Arc::new(config.providers);
-    let outbound = Configured::new(server.environment, &server.outbound).map_err(Internal::new)?;
-    let auth = Arc::new(
-        auth::Auth::new(
-            database.clone(),
-            config.auth,
-            auth::Keys::of(server),
-            workers.clone(),
-            accounts::Deletion::new(contracts.clone()),
-            auth::Outside {
-                mail: mail.clone(),
-                providers: providers.clone(),
-                outbound,
-                clock: resources.clock.clone(),
-            },
-        )
-        .await?,
-    );
+    let auth = auth_service(resources, server, config.auth, &providers, &contracts).await?;
     auth::register(&auth, &mut jobs).map_err(Internal::new)?;
     // part: files
     let files = Files::new(
@@ -270,9 +255,10 @@ pub async fn compose(
     let states = States {
         capabilities: system::Capabilities::new(
             system::Features::new(mail.is_on()),
-            sign_in_providers(&providers),
+            providers::sign_in_providers(&providers),
         ),
         auth,
+        providers,
         exports,
         realtime,
         // part: invitations
@@ -294,33 +280,40 @@ pub async fn compose(
     })
 }
 
-/// The providers that `providers` configures, as the capabilities endpoint lists them
-/// (AUTH-081).
-fn sign_in_providers(providers: &auth::Providers) -> Vec<system::SignInProvider> {
-    providers
-        .listed()
-        .into_iter()
-        .map(|listed| system::SignInProvider {
-            provider: listed.provider,
-            name: listed.name,
-            authorization_endpoint: listed.authorization_endpoint,
-            scopes: listed.scopes.to_vec(),
-            clients: listed
-                .clients
-                .into_iter()
-                .map(|(client_id, redirect_uris)| system::SignInClient {
-                    client_id,
-                    redirect_uris,
-                })
-                .collect(),
-        })
-        .collect()
+/// The service of `auth`, on `resources`, with `server`'s keys and outbound settings, the module's
+/// `settings`, the deployment's `providers`, and the personal data `contracts` that a deletion
+/// erases.
+async fn auth_service(
+    resources: &Resources,
+    server: &ServerConfig,
+    settings: auth::Settings,
+    providers: &Arc<auth::Providers>,
+    contracts: &[Arc<dyn PersonalData>],
+) -> Result<Arc<auth::Auth>, Internal> {
+    let outbound = Configured::new(server.environment, &server.outbound).map_err(Internal::new)?;
+    Ok(Arc::new(
+        auth::Auth::new(
+            resources.database.clone(),
+            settings,
+            auth::Keys::of(server),
+            resources.workers.clone(),
+            accounts::Deletion::new(contracts.to_vec()),
+            auth::Outside {
+                mail: resources.mail.clone(),
+                providers: providers.clone(),
+                outbound,
+                clock: resources.clock.clone(),
+            },
+        )
+        .await?,
+    ))
 }
 
 /// The states of the modules' routes that `compose` builds, which [`routes`] mounts.
 struct States {
     capabilities: system::Capabilities,
     auth: Arc<auth::Auth>,
+    providers: Arc<auth::Providers>,
     exports: accounts::Exports,
     realtime: Realtime,
     // part: invitations
@@ -340,6 +333,12 @@ fn routes(resources: &Resources, states: States) -> Routes {
         .merge(accounts::routes().with_state(database.clone()))
         .merge(accounts::export_routes().with_state(states.exports.clone()))
         .merge(auth::routes().with_state(states.auth.clone()))
+        .merge(
+            auth::provider_routes().with_state(auth::ProviderRoutes::new(
+                states.auth.clone(),
+                states.providers,
+            )),
+        )
         .merge(
             auth::export_routes()
                 .with_state(auth::ExportRequests::new(states.auth, states.exports)),
@@ -432,6 +431,7 @@ pub fn openapi(service: Service) -> OpenApi {
         accounts::export_routes().openapi(service),
         auth::routes().openapi(service),
         auth::export_routes().openapi(service),
+        auth::provider_routes().openapi(service),
         workspaces::routes().openapi(service),
         realtime::routes().openapi(service),
         // part: invitations

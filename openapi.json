@@ -112,7 +112,7 @@
             "description": "One member per feature a deployment can turn off, `true` while the feature is on, and one\nper optional part that changes what a client offers, `true` while the fork keeps it. A\nfeature or a part this API doesn't have is absent."
           },
           "sign_in_providers": {
-            "description": "The OAuth providers that a user signs in through, each of which the deployment\nconfigures, by their IDs, with what a client builds the authorization request from\n(AUTH-081).",
+            "description": "The OAuth providers that a user signs in through, each of which the deployment\nconfigures, by their keys, with what a client builds the authorization request from\n(AUTH-081).",
             "items": {
               "$ref": "#/components/schemas/SignInProvider"
             },
@@ -1208,7 +1208,7 @@
                 },
                 "authenticated_at": {
                   "$ref": "#/components/schemas/Timestamp",
-                  "description": "When its user last proved who they are in it, their password and the second factor of an\naccount that has one: when it began, re-authenticated, or changed the password (AUTH-021,\nAUTH-040, AUTH-065)."
+                  "description": "When its user last proved who they are in it, their password or their account at a provider, and the second factor of an\naccount that has one: when it began, re-authenticated, or changed the password (AUTH-021,\nAUTH-040, AUTH-065)."
                 },
                 "created_at": {
                   "$ref": "#/components/schemas/Timestamp",
@@ -2341,7 +2341,7 @@
           },
           "authenticated_at": {
             "$ref": "#/components/schemas/Timestamp",
-            "description": "When its user last proved who they are in it, their password and the second factor of an\naccount that has one: when it began, re-authenticated, or changed the password (AUTH-021,\nAUTH-040, AUTH-065)."
+            "description": "When its user last proved who they are in it, their password or their account at a provider, and the second factor of an\naccount that has one: when it began, re-authenticated, or changed the password (AUTH-021,\nAUTH-040, AUTH-065)."
           },
           "created_at": {
             "$ref": "#/components/schemas/Timestamp",
@@ -2534,7 +2534,7 @@
           },
           "authenticated_at": {
             "$ref": "#/components/schemas/Timestamp",
-            "description": "When its user last proved who they are in it, their password and the second factor of an\naccount that has one: when it began, re-authenticated, or changed the password (AUTH-021,\nAUTH-040, AUTH-065)."
+            "description": "When its user last proved who they are in it, their password or their account at a provider, and the second factor of an\naccount that has one: when it began, re-authenticated, or changed the password (AUTH-021,\nAUTH-040, AUTH-065)."
           },
           "created_at": {
             "$ref": "#/components/schemas/Timestamp",
@@ -2610,7 +2610,7 @@
           },
           "authenticated_at": {
             "$ref": "#/components/schemas/Timestamp",
-            "description": "When its user last proved who they are in it, their password and the second factor of an\naccount that has one: when it began, re-authenticated, or changed the password (AUTH-021,\nAUTH-040, AUTH-065)."
+            "description": "When its user last proved who they are in it, their password or their account at a provider, and the second factor of an\naccount that has one: when it began, re-authenticated, or changed the password (AUTH-021,\nAUTH-040, AUTH-065)."
           },
           "created_at": {
             "$ref": "#/components/schemas/Timestamp",
@@ -7798,7 +7798,7 @@
             }
           }
         },
-        "summary": "Deletes the caller's account, and everything it holds, once the session that authenticated\nthe request has proved their password within the last 5 minutes.",
+        "summary": "Deletes the caller's account, and everything it holds, once the session that authenticated\nthe request has proved who they are within the last 5 minutes.",
         "tags": [
           "auth"
         ],
@@ -19227,7 +19227,7 @@
             }
           }
         },
-        "summary": "Ends every session of the caller's but the one that authenticated the request, once it has\nproved their password within the last 5 minutes.",
+        "summary": "Ends every session of the caller's but the one that authenticated the request, once it has\nproved who they are within the last 5 minutes.",
         "tags": [
           "auth"
         ],
@@ -19572,7 +19572,7 @@
             }
           }
         },
-        "summary": "Ends one of the caller's sessions: their own, which signs them out, or, once the session that\nauthenticated the request has proved their password within the last 5 minutes, another.",
+        "summary": "Ends one of the caller's sessions: their own, which signs them out, or, once the session that\nauthenticated the request has proved who they are within the last 5 minutes, another.",
         "tags": [
           "auth"
         ],

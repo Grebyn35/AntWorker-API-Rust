@@ -14,7 +14,7 @@ pub(crate) struct Capabilities {
     /// feature or a part this API doesn't have is absent.
     features: Features,
     /// The OAuth providers that a user signs in through, each of which the deployment
-    /// configures, by their IDs, with what a client builds the authorization request from
+    /// configures, by their keys, with what a client builds the authorization request from
     /// (AUTH-081).
     sign_in_providers: Vec<SignInProvider>,
 }

@@ -6,15 +6,16 @@
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
+use tracing::Instrument;
 
-use crate::{config::Environment, types::Secret};
+use crate::{config::Environment, telemetry::names, types::Secret};
 
 /// How long the configured client waits for a connection (the auth spec's "The requests").
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// How long the configured client waits for a whole answer, the connection's time included,
 /// within the 10 seconds of a route's timeout (PLATFORM-042).
-const TIMEOUT: Duration = Duration::from_secs(8);
+const TIMEOUT: Duration = Duration::from_secs(6);
 
 /// The most bytes of an answer's body that the configured client reads.
 const MAX_BODY_BYTES: usize = 1 << 20;
@@ -202,6 +203,31 @@ impl Configured {
     pub async fn send(&self, request: Request) -> Result<Response, OutboundError> {
         let url = self.target(&request.url)?;
         let host = url.host_str().unwrap_or_default().to_owned();
+        let span = tracing::info_span!(
+            "http",
+            { names::OTEL_NAME } = %request.method,
+            { names::OTEL_KIND } = "client",
+            { names::HTTP_REQUEST_METHOD } = %request.method,
+            { names::SERVER_ADDRESS } = %host,
+            { names::HTTP_RESPONSE_STATUS_CODE } = tracing::field::Empty,
+        );
+        let answered = self
+            .answer(request, url, host)
+            .instrument(span.clone())
+            .await;
+        if let Ok(response) = &answered {
+            span.record(names::HTTP_RESPONSE_STATUS_CODE, response.status);
+        }
+        answered
+    }
+
+    /// Sends `request` to `url`, of the host `host`, and reads its answer whole.
+    async fn answer(
+        &self,
+        request: Request,
+        url: url::Url,
+        host: String,
+    ) -> Result<Response, OutboundError> {
         let mut builder = self.client.request(request.method.clone(), url);
         for (name, value) in &request.headers {
             builder = builder.header(*name, value);
@@ -286,7 +312,7 @@ mod tests {
     fn sec_10_the_test_origin_keeps_each_request_s_path_and_query() {
         let test = client(Environment::Test, Some("http://127.0.0.1:4000"));
         let target = test
-            .target("https://api.github.com/user/emails?page=1")
+            .target("https://provider.test/user/emails?page=1")
             .unwrap();
         assert_eq!(target.as_str(), "http://127.0.0.1:4000/user/emails?page=1");
     }

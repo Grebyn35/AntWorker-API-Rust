@@ -8,7 +8,7 @@ use crate::support::{
     Api,
     api::Response,
     audit::{self, Client},
-    lists, mailbox, streams,
+    lists, mailbox, providers, streams,
     users::{self, SignedIn},
     workspaces,
 };
@@ -959,35 +959,12 @@ async fn platform_081_if_none_match_answers_304_and_head_answers_without_the_byt
 #[tokio::test]
 async fn accounts_024_the_archive_holds_the_provider_identities_and_each_session_s_provider() {
     let upstream = crate::support::upstream::Upstream::start().await;
-    let api = Api::with(
-        upstream
-            .options()
-            .set("STAND_IN_CLIENT_ID", "client")
-            .set("STAND_IN_CLIENT_SECRET", "secret")
-            .set("STAND_IN_REDIRECT_URIS", "https://app.example.com/callback"),
-    )
-    .await;
-    upstream.set("POST", "/token", 200, json!({ "access_token": "token" }));
-    upstream.set(
-        "GET",
-        "/identity",
-        200,
-        json!({ "subject": "subject-1", "email": mailbox::address("ada"), "proved": true }),
+    let api = Api::with(providers::stand_in(&upstream)).await;
+    providers::gives(
+        &upstream,
+        providers::identity("subject-1", &mailbox::address("ada"), true),
     );
-    let signed_in = api
-        .post(
-            "/v1/sessions/provider",
-            &json!({
-                "provider": "stand_in",
-                "code": "a-code",
-                "code_verifier": "a-verifier-of-at-least-43-characters.0123456789",
-                "redirect_uri": "https://app.example.com/callback",
-            }),
-        )
-        .send()
-        .await;
-    assert_eq!(signed_in.status, 201, "{}", signed_in.json());
-    let ada = SignedIn::from(&signed_in);
+    let ada = providers::signed_in(&api).await;
     let id = built(&api, &ada).await;
 
     let archive = download(&api, &ada, &id, &[]).await.body;

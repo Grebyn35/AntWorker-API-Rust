@@ -19,7 +19,7 @@ use crate::modules::{
     },
 };
 
-/// Refuses, unless the session that authenticated the caller proved their password within the
+/// Refuses, unless the session that authenticated the caller proved who they are within the
 /// last 5 minutes, by the database's clock, as its `authenticated_at` records, read in `uow`
 /// without a lock (AUTH-023, AUTH-044, AUTH-045, AUTH-048). A session that is gone since it authenticated
 /// the request, because another request ended it or the hourly job deleted it, answers 401, as a

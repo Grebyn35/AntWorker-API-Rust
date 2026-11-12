@@ -87,7 +87,7 @@ impl Auth {
     }
 
     /// Ends the caller's session `id`, which `None` gives for a path ID that isn't a UUID: their
-    /// own, which signs them out, or, once their session proved their password within the last 5
+    /// own, which signs them out, or, once their session proved who they are within the last 5
     /// minutes, another, at their turn at ending their sessions (AUTH-044, PLATFORM-072).
     pub(crate) async fn end_session(
         &self,
@@ -115,7 +115,7 @@ impl Auth {
     }
 
     /// Ends every session of the caller's but the one that authenticated the request, once it
-    /// proved their password within the last 5 minutes, at their turn at ending their sessions
+    /// proved who they are within the last 5 minutes, at their turn at ending their sessions
     /// (AUTH-045).
     pub(crate) async fn end_other_sessions(
         &self,

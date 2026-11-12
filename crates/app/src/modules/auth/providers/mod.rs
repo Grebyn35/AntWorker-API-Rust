@@ -40,7 +40,7 @@ const STAND_IN: &[Entry] = &[];
 /// A provider of the registry.
 struct Entry {
     /// Its key, which a sign-in's `provider` names.
-    id: &'static str,
+    key: &'static str,
     /// The prefix of each of its clients' settings, such as `STAND_IN_` for `STAND_IN_CLIENT_ID`,
     /// `STAND_IN_CLIENT_SECRET` and `STAND_IN_REDIRECT_URIS` (AUTH-081).
     clients: &'static [&'static str],
@@ -52,7 +52,7 @@ struct Entry {
 /// user's identity (ARCH-13: one implementation per provider).
 pub(super) trait Provider: Send + Sync {
     /// Its key, which a sign-in's `provider` names.
-    fn id(&self) -> &'static str;
+    fn key(&self) -> &'static str;
 
     /// Its name, as a client shows it.
     fn name(&self) -> &'static str;
@@ -85,25 +85,36 @@ pub(super) trait Provider: Send + Sync {
             })
     }
 
-    /// Reads the identity of the user whose access token `token` is, for `client`, and keeps no
-    /// token, deleting one that doesn't lapse (AUTH-079, D139).
+    /// Reads the identity of the user whose access token `token` is.
     fn identify<'a>(
         &'a self,
         outbound: &'a Configured,
         client: &'a Client,
         token: &'a Secret<String>,
     ) -> BoxFuture<'a, Result<Identity, ProviderError>>;
+
+    /// Lets go of `token`, which `client`'s exchange got, once the identity is read or its
+    /// reading failed: a provider whose tokens lapse does nothing, and one whose tokens don't
+    /// deletes it, or says why it couldn't (AUTH-079, D139).
+    fn discard<'a>(
+        &'a self,
+        _outbound: &'a Configured,
+        _client: &'a Client,
+        _token: &'a Secret<String>,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
-/// Exchanges `exchange`'s code at `provider` for an access token, as RFC 6749 asks (§4.1.3), and
-/// reads the user's identity with it (AUTH-073, AUTH-077). A refusal of the code, its verifier or
-/// its redirect URI is the token endpoint's `invalid_grant` (§5.2); any other refusal is of the
-/// API's own client or request, which no user can fix, so it is an unavailable provider.
-pub(super) async fn identify(
+/// Exchanges `exchange`'s code at `provider` for an access token, as RFC 6749 asks (§4.1.3)
+/// (AUTH-073, AUTH-077). A refusal of the code, its verifier or its redirect URI is the token
+/// endpoint's `invalid_grant` (§5.2); any other refusal is of the API's own client or request,
+/// which no user can fix, so it is an unavailable provider.
+pub(super) async fn token(
     provider: &dyn Provider,
     outbound: &Configured,
-    exchange: Exchange<'_>,
-) -> Result<Identity, ProviderError> {
+    exchange: &Exchange<'_>,
+) -> Result<Secret<String>, ProviderError> {
     let answer = outbound
         .send(
             Request::post(provider.token_endpoint())
@@ -122,8 +133,7 @@ pub(super) async fn identify(
     if !answer.is_success() {
         return Err(refusal(&answer));
     }
-    let token = provider.token(&answer)?;
-    provider.identify(outbound, exchange.client, &token).await
+    provider.token(&answer)
 }
 
 /// Why the token endpoint refused the exchange, from its answer `answer` (RFC 6749, §5.2).
@@ -221,7 +231,7 @@ pub(crate) struct Listed {
     pub(crate) clients: Vec<(String, Vec<String>)>,
 }
 
-/// What a provider ID finds (AUTH-077).
+/// What a provider's key finds (AUTH-077).
 pub(super) enum Found<'a> {
     /// A provider that the deployment configures.
     On(&'a dyn Provider),
@@ -274,18 +284,28 @@ impl Providers {
             known: REGISTRY
                 .iter()
                 .chain(STAND_IN)
-                .map(|entry| entry.id)
+                .map(|entry| entry.key)
                 .collect(),
             on,
         })
     }
 
-    /// The provider that `id` names (AUTH-077).
-    pub(super) fn find(&self, id: &str) -> Found<'_> {
-        if let Some(provider) = self.on.iter().find(|provider| provider.id() == id) {
+    /// Whether the clients of the provider that `provider` names list `redirect_uri`, as a
+    /// request's conversion asks, so its 400 names every field; a provider that the deployment
+    /// doesn't configure lists any, since the service answers it (AUTH-077, AUTH-078).
+    pub(crate) fn lists(&self, provider: &str, redirect_uri: &str) -> bool {
+        match self.find(provider) {
+            Found::On(provider) => client_for(provider, redirect_uri).is_some(),
+            Found::Off | Found::Unknown => true,
+        }
+    }
+
+    /// The provider that `key` names (AUTH-077).
+    pub(super) fn find(&self, key: &str) -> Found<'_> {
+        if let Some(provider) = self.on.iter().find(|provider| provider.key() == key) {
             return Found::On(provider.as_ref());
         }
-        if self.known.contains(&id) {
+        if self.known.contains(&key) {
             Found::Off
         } else {
             Found::Unknown
@@ -299,7 +319,7 @@ impl Providers {
             .on
             .iter()
             .map(|provider| Listed {
-                provider: provider.id(),
+                provider: provider.key(),
                 name: provider.name(),
                 authorization_endpoint: provider.authorization_endpoint(),
                 scopes: provider.scopes(),

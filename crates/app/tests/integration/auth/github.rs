@@ -4,10 +4,7 @@ use serde_json::{Value, json};
 
 use platform::telemetry::testing;
 
-use crate::support::{Api, api::Response, upstream::Upstream};
-
-/// A verifier of a PKCE challenge, of the 43 characters that RFC 7636 asks at least.
-const VERIFIER: &str = "a-verifier-of-at-least-43-characters.0123456789";
+use crate::support::{Api, api::Response, providers::VERIFIER, upstream::Upstream};
 
 /// A stand-in of GitHub's endpoints, and an API with GitHub's client.
 async fn github() -> (Upstream, Api) {
@@ -194,4 +191,63 @@ async fn auth_083_a_refusal_of_the_client_is_the_api_s_and_any_other_the_code_s(
     );
     let response = sign_in(&api).await;
     assert_eq!(response.status, 503);
+}
+
+#[tokio::test]
+async fn auth_083_a_deletion_that_doesn_t_end_in_time_refuses_nothing() {
+    let (upstream, api) = github().await;
+    gives(
+        &upstream,
+        json!({ "id": 7, "login": "ada", "name": "Ada" }),
+        primary("ada@example.com"),
+    );
+    upstream.hang("DELETE", "/applications/github-client/token");
+    let clock = api.clock();
+    let call = {
+        let api = api.clone();
+        tokio::spawn(async move { sign_in(&api).await })
+    };
+
+    // The deletion's deadline waits once its request is sent, so the clock moves only then.
+    for _ in 0..100_000 {
+        if upstream
+            .received()
+            .iter()
+            .any(|received| received.method == "DELETE")
+        {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    clock.sleeping(std::time::Duration::from_secs(2)).await;
+    clock.advance(std::time::Duration::from_secs(2));
+
+    let response = call.await.unwrap();
+    assert_eq!(response.status, 201, "{}", response.json());
+    assert!(
+        testing::all_logged().iter().any(|line| {
+            line["error.type"] == "provider_token_not_deleted"
+                && line["exception.message"]
+                    .as_str()
+                    .is_some_and(|cause| cause.contains("no answer within 2 seconds"))
+        }),
+        "ERR-11's line"
+    );
+}
+
+#[tokio::test]
+async fn auth_083_github_is_listed_by_its_key_name_and_scopes() {
+    let (_upstream, api) = github().await;
+
+    let capabilities = api.get("/v1/capabilities").send().await.json();
+
+    let github = &capabilities["sign_in_providers"][0];
+    assert_eq!(github["provider"], "github");
+    assert_eq!(github["name"], "GitHub");
+    assert_eq!(github["scopes"], json!(["user:email"]));
+    assert_eq!(
+        github["authorization_endpoint"],
+        "https://github.com/login/oauth/authorize"
+    );
+    assert_eq!(github["clients"][0]["client_id"], "github-client");
 }

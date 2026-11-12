@@ -130,7 +130,7 @@ async fn list_sessions(
 }
 
 /// Ends one of the caller's sessions: their own, which signs them out, or, once the session that
-/// authenticated the request has proved their password within the last 5 minutes, another.
+/// authenticated the request has proved who they are within the last 5 minutes, another.
 #[utoipa::path(
     delete,
     path = "/v1/users/me/sessions/{session_id}",
@@ -156,7 +156,7 @@ async fn end_session(
 }
 
 /// Ends every session of the caller's but the one that authenticated the request, once it has
-/// proved their password within the last 5 minutes.
+/// proved who they are within the last 5 minutes.
 #[utoipa::path(
     delete,
     path = "/v1/users/me/sessions/others",

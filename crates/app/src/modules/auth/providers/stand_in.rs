@@ -16,7 +16,7 @@ use super::{Client, Entry, Identity, Provider, ProviderError};
 /// The stand-in in the registry, with two clients, whose settings start with `STAND_IN_` and
 /// `STAND_IN_SECOND_`.
 pub(super) const ENTRY: Entry = Entry {
-    id: "stand_in",
+    key: "stand_in",
     clients: &["STAND_IN_", "STAND_IN_SECOND_"],
     build: |clients| Box::new(StandIn { clients }),
 };
@@ -36,8 +36,8 @@ struct Answer {
 }
 
 impl Provider for StandIn {
-    fn id(&self) -> &'static str {
-        ENTRY.id
+    fn key(&self) -> &'static str {
+        ENTRY.key
     }
 
     fn name(&self) -> &'static str {

@@ -17,7 +17,7 @@ use crate::modules::{
 };
 
 impl Auth {
-    /// Deletes the caller's account, once their session has proved their password within the
+    /// Deletes the caller's account, once their session has proved who they are within the
     /// last 5 minutes, through `accounts`, in one unit of work (AUTH-023), once the deletion has
     /// counted in the bucket of the account's email, which a read before the unit of work finds
     /// (AUTH-024, ARCH-11). An account that another deletion took before that read is deleted

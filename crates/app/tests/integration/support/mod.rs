@@ -33,6 +33,7 @@ pub mod invitations;
 pub mod jobs;
 pub mod lists;
 pub mod mailbox;
+pub mod providers;
 pub mod proxy;
 // part: files
 pub mod scanner;

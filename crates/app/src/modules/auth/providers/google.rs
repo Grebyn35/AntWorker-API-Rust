@@ -13,7 +13,7 @@ use super::{Client, Entry, Identity, Provider, ProviderError};
 /// since Google's client for a desktop app takes a loopback redirect at any port, and its client
 /// for a web application only redirect URIs that match exactly (AUTH-082).
 pub(super) const ENTRY: Entry = Entry {
-    id: "google",
+    key: "google",
     clients: &["GOOGLE_", "GOOGLE_DESKTOP_"],
     build: |clients| Box::new(Google { clients }),
 };
@@ -42,8 +42,8 @@ struct UserInfo {
 }
 
 impl Provider for Google {
-    fn id(&self) -> &'static str {
-        ENTRY.id
+    fn key(&self) -> &'static str {
+        ENTRY.key
     }
 
     fn name(&self) -> &'static str {

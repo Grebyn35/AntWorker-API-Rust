@@ -25,9 +25,9 @@ pub(crate) enum AuthError {
     /// The signed-in user's password is wrong, or they have none (AUTH-021).
     #[error("the password is wrong")]
     WrongPassword,
-    /// The session hasn't proved its user's password within the last 5 minutes, which deleting the
+    /// The session hasn't proved who its user is within the last 5 minutes, which deleting the
     /// account and ending another session need (AUTH-023, AUTH-044, AUTH-045).
-    #[error("the action needs the password proved again")]
+    #[error("the action needs its user proved again")]
     ReauthenticationRequired,
     /// The user owns a workspace that has another member, so their account isn't deleted
     /// (ACCOUNTS-012).
@@ -82,7 +82,7 @@ pub(crate) enum AuthError {
     #[error("the second factor's code is wrong")]
     WrongSecondFactor,
     /// The request's `provider` names no provider of the API (AUTH-077).
-    #[error("no provider of the API has the ID")]
+    #[error("no provider of the API has the key")]
     ProviderNotFound,
     /// The provider refused the exchange of the code (AUTH-077).
     #[error("the provider refused the code")]

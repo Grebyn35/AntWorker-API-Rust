@@ -387,7 +387,7 @@ pub(super) async fn reauthenticate(
     Ok(row.map(|row| session!(row)))
 }
 
-/// Whether the session `session_id` of `user_id` proved its user's password within the last 5
+/// Whether the session `session_id` of `user_id` proved who its user is within the last 5
 /// minutes, by the database's clock, or `None` when the session is gone (AUTH-023, AUTH-044,
 /// AUTH-045).
 pub(super) async fn recently_authenticated(
