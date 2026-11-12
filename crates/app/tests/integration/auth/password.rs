@@ -1106,8 +1106,8 @@ async fn auth_037_an_account_with_an_app_resets_only_with_the_app_s_code_too() {
     .await;
 
     // Whoever reads the mailbox alone resets nothing, and the reset codes stay (D136).
-    assert_eq!(missing.status, 403);
-    assert_eq!(missing.json()["code"], "auth.second_factor_required");
+    assert_eq!(missing.status, 401);
+    assert_eq!(missing.json()["code"], "auth.second_factor_missing");
     assert_eq!(wrong.status, 401);
     assert_eq!(wrong.json()["code"], "auth.invalid_second_factor");
     assert_eq!(reset_codes(&api, &ada.user_id).await, ["1"]);

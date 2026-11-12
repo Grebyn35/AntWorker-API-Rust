@@ -117,6 +117,28 @@ x-api: &api
     - telemetry
   restart: unless-stopped
 
+# The operator's removal of a lost second factor, which runs with the image of either color, so
+# it is a service of each (AUTH-072).
+x-operator: &operator
+  logging: *logging
+  profiles: [tasks]
+  command: ["remove-second-factor"]
+  read_only: true
+  environment:
+    ENVIRONMENT: production
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${API_TELEMETRY_ENDPOINT:-}
+    DATABASE_URL_FILE: /run/secrets/database_url
+    EMAIL: ${EMAIL:?whether the API sends email, smtp or off, in settings.env}
+    SMTP_HOST: ${SMTP_HOST:-}
+    SMTP_SECURITY: ${SMTP_SECURITY:-}
+    SMTP_PORT: ${SMTP_PORT:-}
+    SMTP_USERNAME: ${SMTP_USERNAME:-}
+    SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+    EMAIL_FROM: ${EMAIL_FROM:-}
+  secrets: [database_url, smtp_password]
+  networks: [data, telemetry]
+
 # pgBackRest's settings, from the deployment's (deploy/postgres/pgbackrest.conf has the rest).
 x-backups: &backups
   PGBACKREST_REPO1_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
@@ -270,6 +292,17 @@ services:
       DATABASE_OWNER_URL_FILE: /run/secrets/database_owner_url
     secrets: [database_owner_url]
     networks: [data, telemetry]
+
+  # The operator's removal of a lost second factor (AUTH-072), which `just remove-second-factor`
+  # runs with the image of the color that serves, through the service of that color, and with
+  # only the settings the subcommand reads (OPS-02).
+  remove-second-factor-blue:
+    <<: *operator
+    image: ${API_IMAGE_BLUE:?the image of the blue replicas, in state/deploy.env}
+
+  remove-second-factor-green:
+    <<: *operator
+    image: ${API_IMAGE_GREEN:?the image of the green replicas, in state/deploy.env}
 
   # The bundled Postgres, which archives its write-ahead log to the backup bucket (OPS-15). Only
   # the network `data` reaches it.

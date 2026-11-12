@@ -108,7 +108,8 @@ pub(in crate::modules::auth) async fn app_for_update(
     }))
 }
 
-/// Whether `user_id` has an app, which a sign-in reads once their password matched (AUTH-058).
+/// Whether `user_id` has an app, which a sign-in reads once their password matched (AUTH-058), and
+/// the verifier as it authenticates each request while the deployment requires one (AUTH-070).
 pub(in crate::modules::auth) async fn has_app(
     uow: &mut UnitOfWork,
     user_id: UserId,

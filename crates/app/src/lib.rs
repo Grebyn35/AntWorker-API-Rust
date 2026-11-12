@@ -5,7 +5,7 @@ mod composition;
 mod modules;
 
 pub use composition::{
-    Config, MIGRATIONS, Resources, SecondFactorRemoval, SeedError, SeedReport, Services, compose,
+    Config, MIGRATIONS, RemovalRefused, Resources, SeedError, SeedReport, Services, compose,
     openapi, pipeline, remove_second_factor, seed, seed_allowed,
 };
 #[cfg(feature = "test-support")]

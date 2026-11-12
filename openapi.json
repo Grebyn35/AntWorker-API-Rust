@@ -3696,6 +3696,7 @@
                         "code": {
                           "enum": [
                             "auth.invalid_reset_code",
+                            "auth.second_factor_missing",
                             "auth.invalid_second_factor"
                           ],
                           "type": "string"
@@ -3707,7 +3708,7 @@
                 }
               }
             },
-            "description": "`auth.invalid_reset_code`: Invalid email or reset code. `auth.invalid_second_factor`: Invalid second factor.",
+            "description": "`auth.invalid_reset_code`: Invalid email or reset code. `auth.second_factor_missing`: Second factor missing. `auth.invalid_second_factor`: Invalid second factor.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -3735,8 +3736,7 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.origin_not_allowed",
-                            "auth.second_factor_required"
+                            "request.origin_not_allowed"
                           ],
                           "type": "string"
                         }
@@ -3747,7 +3747,7 @@
                 }
               }
             },
-            "description": "`request.origin_not_allowed`: Origin not allowed. `auth.second_factor_required`: Second factor required.",
+            "description": "`request.origin_not_allowed`: Origin not allowed.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -15856,45 +15856,6 @@
               }
             }
           },
-          "409": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/Problem"
-                    },
-                    {
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "auth.second_factor_mandatory"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "`auth.second_factor_mandatory`: Second factor mandatory.",
-            "headers": {
-              "ratelimit": {
-                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "ratelimit-policy": {
-                "description": "That bucket's quota, and its window in seconds.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
           "413": {
             "content": {
               "application/problem+json": {
@@ -15919,6 +15880,45 @@
               }
             },
             "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "auth.second_factor_mandatory"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`auth.second_factor_mandatory`: Second factor mandatory.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",

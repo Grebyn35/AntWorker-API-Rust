@@ -207,6 +207,11 @@ fn subcommand_settings(subcommand: &str) -> Option<std::collections::BTreeSet<St
             settings.migrate()?;
             Ok(())
         }),
+        "remove-second-factor" => settings_read(|settings| {
+            settings.telemetry()?;
+            settings.operator()?;
+            Ok(())
+        }),
         _ => return None,
     })
 }
@@ -228,14 +233,15 @@ fn container_settings(service: &serde_json::Value) -> std::collections::BTreeSet
     reason = "a test may block (CODE-05), and reads the deployment's Compose file"
 )]
 fn ops_02_each_setting_the_api_reads_is_documented_and_each_container_gets_only_its_own() {
-    let read: std::collections::BTreeSet<String> = ["serve", "bootstrap", "migrate"]
-        .into_iter()
-        .flat_map(|subcommand| subcommand_settings(subcommand).unwrap_or_default())
-        .chain(settings_read(|settings| {
-            settings.health()?;
-            Ok(())
-        }))
-        .collect();
+    let read: std::collections::BTreeSet<String> =
+        ["serve", "bootstrap", "migrate", "remove-second-factor"]
+            .into_iter()
+            .flat_map(|subcommand| subcommand_settings(subcommand).unwrap_or_default())
+            .chain(settings_read(|settings| {
+                settings.health()?;
+                Ok(())
+            }))
+            .collect();
     let documented: std::collections::BTreeSet<String> = example_settings()
         .into_keys()
         .filter(|name| name != COMPOSE_SETTING)
@@ -285,7 +291,7 @@ fn ops_02_each_setting_the_api_reads_is_documented_and_each_container_gets_only_
     }
     assert_eq!(
         subcommands,
-        ["bootstrap", "migrate", "serve"].into(),
+        ["bootstrap", "migrate", "remove-second-factor", "serve"].into(),
         "the services that run the API's image"
     );
 }

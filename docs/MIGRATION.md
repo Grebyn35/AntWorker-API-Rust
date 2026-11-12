@@ -162,6 +162,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of f99ed87..14eccb4 | ARCH-11: whether a periodic sweep's batches, each a transaction of its own, are named among the units of work an operation may open, as the platform's sweeps, `accounts.expire_exports` and `auth.expire_sessions` open them | 6, with the review of the whole codebase |
 | Conformance review of f99ed87..14eccb4 | TEST-01 and OPS-09: whether a test reads each periodic job's interval and time limit from the registry, so that a behavior's "every hour", such as AUTH-047's and ACCOUNTS-027's, is asserted, which `run_periodic` doesn't show | 6, with the review of the whole codebase |
 | Conformance review of f99ed87..14eccb4 | DATA-16: whether `check-tenancy` exempts a cross-tenant job's queries by function rather than by its whole `jobs.rs`, since `auth/jobs.rs` also registers `auth.send_verification_code`, and a query a later change writes there goes unchecked | 6, with the review of the whole codebase |
+| Conformance review of 7e71656..098e6b3 | ERR-03: whether `check-openapi` refuses a 403 among a public route's problems, but `request.origin_not_allowed`, since `Forbidden` is an authenticated caller's refusal, so that an unauthenticated route's missing credential answers 401, as a reset's missing second factor now does | 6, with the review of the whole codebase |
 
 
 ## Conformance reviews

@@ -221,8 +221,9 @@ impl Auth {
 
     /// Removes the caller's app, with their recovery codes and their sign-in challenges, once
     /// their session proved who they are within the last 5 minutes; without an app, it changes
-    /// nothing (AUTH-064, AUTH-069). While the deployment requires a second factor, it refuses,
-    /// since the app may only be replaced (AUTH-071).
+    /// nothing (AUTH-064, AUTH-069). While the deployment requires a second factor, it refuses
+    /// once its bucket has counted it, before it reads the proof, since the app may only be
+    /// replaced, whatever the proof (AUTH-071).
     pub(crate) async fn remove_app(
         &self,
         limits: &RateLimits,

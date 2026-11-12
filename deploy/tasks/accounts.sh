@@ -1,5 +1,6 @@
 # The operator's tasks on the deployment's accounts, each a subcommand of the API that runs with
-# the image and the settings of the color that serves (ARCH-14).
+# the image of the color that serves, in a service of compose.yaml of its own, which passes it only
+# the settings it reads (ARCH-14, OPS-02).
 
 # Removes the authenticator app and the recovery codes of the account that holds the address $1,
 # ends every session of the account, and tells the address, through the API's subcommand
@@ -11,7 +12,7 @@ remove_second_factor() {
     read_settings
     color=$(live_color)
     if [ -z "$color" ]; then fail "no replica runs, so the API's image can't be run; deploy first"; fi
-    # A one-off container of the color that serves, with its settings, its secrets and its
-    # networks, which runs the subcommand in place of serve, and goes once it ends.
-    compose run --rm --no-deps -T "api-$color" remove-second-factor "$1"
+    # A one-off container of the service of that color, which goes once the subcommand ends; its
+    # arguments replace the service's command, so they name the subcommand again.
+    compose --profile tasks run --rm --no-deps -T "remove-second-factor-$color" remove-second-factor "$1"
 }

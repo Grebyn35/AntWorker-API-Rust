@@ -110,7 +110,7 @@ impl Auth {
         repo::password_identity_for_update(&mut uow, user_id).await?;
         match self.check_factor(&mut uow, attempt, user_id, proof).await? {
             Checked::NoApp | Checked::Passed(None) => Ok(uow),
-            Checked::Missing => Err(AuthError::SecondFactorRequired),
+            Checked::Missing => Err(AuthError::SecondFactorMissing),
             Checked::Wrong => Err(self
                 .wrong_factor(uow, attempt, user_id, AuthError::InvalidSecondFactor)
                 .await?),

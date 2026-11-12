@@ -312,20 +312,17 @@ async fn seed((config, modules): (ServerConfig, app::Config)) -> ExitCode {
     }
 }
 
-/// The most connections an operator's subcommand opens: it runs one unit of work at a time.
-const OPERATOR_CONNECTIONS: u32 = 2;
+/// The most connections an operator's subcommand opens: it runs one unit of work at a time, and
+/// the deploy's budget counts one for it (OPS-18).
+const OPERATOR_CONNECTIONS: u32 = 1;
 
-/// Removes the authenticator app of the account that holds `email`, and says what it did, or why
-/// it changed nothing (AUTH-072, D135).
-#[expect(
-    clippy::print_stdout,
-    clippy::print_stderr,
-    reason = "what the subcommand did is its output, for the operator who ran it (CODE-03)"
-)]
+/// Removes the authenticator app of the account that holds `email`, and logs what it did, or,
+/// as a failure that ends the subcommand, why it changed nothing, without the address, which the
+/// logs never hold (AUTH-072, OPS-03, OBS-04).
 async fn remove_second_factor(config: OperatorConfig, email: String) -> ExitCode {
+    const AREA: &str = "remove-second-factor";
     let Ok(email) = EmailAddress::parse(&email) else {
-        eprintln!("{email} isn't an email address, so no account holds it: nothing changed.");
-        return ExitCode::FAILURE;
+        return failed(AREA, &app::RemovalRefused::NotAnAddress);
     };
     let database =
         match Database::connect(&config.database_url, OPERATOR_CONNECTIONS, &app::MIGRATIONS).await
@@ -338,25 +335,24 @@ async fn remove_second_factor(config: OperatorConfig, email: String) -> ExitCode
         Ok(mail) => mail,
         Err(error) => return failed("mail", &error),
     };
-    let address = email.as_str();
     match app::remove_second_factor(&database, &mail, &email).await {
-        Ok(app::SecondFactorRemoval::Removed) => {
-            println!(
-                "Removed the authenticator app and the recovery codes of {address}, and ended \
-                 every session of the account. The account signs in with its password alone, and \
-                 the address is told."
+        Ok(()) if mail.is_on() => {
+            tracing::info!(
+                "removed the account's authenticator app and recovery codes, and ended every \
+                 session of it; the account signs in with its password alone, and its address is \
+                 told"
             );
             ExitCode::SUCCESS
         }
-        Ok(app::SecondFactorRemoval::NoAccount) => {
-            eprintln!("No account holds {address}: nothing changed.");
-            ExitCode::FAILURE
+        Ok(()) => {
+            tracing::info!(
+                "removed the account's authenticator app and recovery codes, and ended every \
+                 session of it; the account signs in with its password alone, and email is off, \
+                 so its address isn't told"
+            );
+            ExitCode::SUCCESS
         }
-        Ok(app::SecondFactorRemoval::NoApp) => {
-            eprintln!("The account of {address} has no authenticator app: nothing changed.");
-            ExitCode::FAILURE
-        }
-        Err(error) => failed("remove-second-factor", &error),
+        Err(refused) => failed(AREA, &refused),
     }
 }
 

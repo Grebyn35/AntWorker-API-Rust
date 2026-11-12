@@ -36,7 +36,7 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
             routes!(confirm_reset),
             &[
                 &AuthError::InvalidResetCode,
-                &AuthError::SecondFactorRequired,
+                &AuthError::SecondFactorMissing,
                 &AuthError::InvalidSecondFactor,
                 &LimitError::RateLimited,
                 &RequestError::FeatureDisabled,

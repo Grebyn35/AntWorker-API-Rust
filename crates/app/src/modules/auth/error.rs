@@ -66,9 +66,14 @@ pub(crate) enum AuthError {
     /// The code that completes a sign-in isn't its user's (AUTH-060).
     #[error("the second factor's code is wrong")]
     InvalidSecondFactor,
-    /// The account has an authenticator app, whose code the request lacks (AUTH-037, AUTH-065).
+    /// The signed-in user's account has an authenticator app, whose code the request lacks
+    /// (AUTH-065).
     #[error("the request lacks the second factor's code")]
     SecondFactorRequired,
+    /// The account whose password a reset sets has an authenticator app, whose code the
+    /// confirmation lacks (AUTH-037).
+    #[error("the confirmation lacks the second factor's code")]
+    SecondFactorMissing,
     /// The deployment requires a second factor, so the caller's app can't be removed, only
     /// replaced (AUTH-071).
     #[error("the deployment requires a second factor")]
@@ -128,6 +133,7 @@ impl ErrorCode for AuthError {
             Self::InvalidChallenge => "auth.invalid_challenge",
             Self::InvalidSecondFactor => "auth.invalid_second_factor",
             Self::SecondFactorRequired => "auth.second_factor_required",
+            Self::SecondFactorMissing => "auth.second_factor_missing",
             Self::SecondFactorMandatory => "auth.second_factor_mandatory",
             Self::WrongSecondFactor => "auth.wrong_second_factor",
             Self::Limit(error) => error.code(),
@@ -156,6 +162,7 @@ impl ErrorCode for AuthError {
             Self::InvalidChallenge => "Invalid challenge",
             Self::InvalidSecondFactor => "Invalid second factor",
             Self::SecondFactorRequired => "Second factor required",
+            Self::SecondFactorMissing => "Second factor missing",
             Self::SecondFactorMandatory => "Second factor mandatory",
             Self::WrongSecondFactor => "Wrong second factor",
             Self::Limit(error) => error.title(),
@@ -172,7 +179,8 @@ impl ErrorCode for AuthError {
             | Self::InvalidRefreshToken
             | Self::InvalidResetCode
             | Self::InvalidChallenge
-            | Self::InvalidSecondFactor => Category::Unauthenticated,
+            | Self::InvalidSecondFactor
+            | Self::SecondFactorMissing => Category::Unauthenticated,
             Self::WrongPassword
             | Self::ReauthenticationRequired
             | Self::SecondFactorRequired
@@ -180,9 +188,11 @@ impl ErrorCode for AuthError {
             Self::OwnsSharedWorkspace
             | Self::AccountChanged
             | Self::EmailAlreadyVerified
-            | Self::NoSecondFactor
-            | Self::SecondFactorMandatory => Category::Conflict,
-            Self::WrongCode | Self::CodeExpired | Self::SetupExpired => Category::BusinessRule,
+            | Self::NoSecondFactor => Category::Conflict,
+            Self::WrongCode
+            | Self::CodeExpired
+            | Self::SetupExpired
+            | Self::SecondFactorMandatory => Category::BusinessRule,
             Self::SessionNotFound => Category::NotFound,
             Self::Limit(error) => error.category(),
             Self::Request(error) => error.category(),
@@ -221,7 +231,13 @@ impl ErrorCode for AuthError {
                 Some("The sign-in's 5 minutes have passed, or it ended: sign in again.".to_owned())
             }
             Self::SecondFactorRequired => Some(
-                "The account has an authenticator app: send its code, or a recovery code, too."
+                "The account has an authenticator app: send its code, or a recovery code, with \
+                 the password."
+                    .to_owned(),
+            ),
+            Self::SecondFactorMissing => Some(
+                "The account has an authenticator app: send its code, or a recovery code, with \
+                 the reset code."
                     .to_owned(),
             ),
             Self::SecondFactorMandatory => Some(

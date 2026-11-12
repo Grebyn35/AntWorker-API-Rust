@@ -283,10 +283,10 @@ read_settings() {
 # Fails unless the connections of both colors' replicas and of migrate fit within what Postgres
 # allows the roles that aren't superusers, as docs/operations/deploy.md's Scaling says (OPS-18).
 check_connections() {
-    needed=$((2 * replicas * (pool + 1) + 1))
+    needed=$((2 * replicas * (pool + 1) + 2))
     allowed=$((connections - 3))
     if [ "$needed" -gt "$allowed" ]; then
-        fail "a deploy runs 2 colors of $replicas replicas, each opening up to $((pool + 1)) connections, and migrate 1, which is $needed; Postgres allows $allowed (POSTGRES_MAX_CONNECTIONS less 3). Lower API_REPLICAS or DATABASE_MAX_CONNECTIONS, or raise POSTGRES_MAX_CONNECTIONS"
+        fail "a deploy runs 2 colors of $replicas replicas, each opening up to $((pool + 1)) connections, migrate 1, and an operator's subcommand 1 beside them, which is $needed; Postgres allows $allowed (POSTGRES_MAX_CONNECTIONS less 3). Lower API_REPLICAS or DATABASE_MAX_CONNECTIONS, or raise POSTGRES_MAX_CONNECTIONS"
     fi
 }
 

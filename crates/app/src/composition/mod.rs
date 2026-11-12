@@ -4,9 +4,7 @@
 
 mod tasks;
 
-pub use tasks::{
-    SecondFactorRemoval, SeedError, SeedReport, remove_second_factor, seed, seed_allowed,
-};
+pub use tasks::{RemovalRefused, SeedError, SeedReport, remove_second_factor, seed, seed_allowed};
 
 use std::{ffi::OsString, io, path::Path, sync::Arc, time::Duration};
 

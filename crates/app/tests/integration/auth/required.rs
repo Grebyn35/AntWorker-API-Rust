@@ -50,12 +50,25 @@ async fn remove(api: &Api, email: &str) -> Output {
         .await
 }
 
-/// What `output` wrote to stdout and stderr.
-fn printed(output: &Output) -> (String, String) {
-    (
-        String::from_utf8_lossy(&output.stdout).into_owned(),
-        String::from_utf8_lossy(&output.stderr).into_owned(),
+/// What `output` wrote, its logs among it, to stdout and stderr together.
+fn printed(output: &Output) -> String {
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     )
+}
+
+/// Asserts that `output` exited 1 with the one failure that OPS-03 gives a subcommand, whose
+/// message is `message`, and that it never wrote `address`, since the logs hold no personal data
+/// (OBS-04).
+fn refused(output: &Output, message: &str, address: &str) {
+    let written = printed(output);
+    assert_eq!(output.status.code(), Some(1), "{written}");
+    assert!(written.contains("startup failed"), "{written}");
+    assert!(written.contains("remove-second-factor"), "{written}");
+    assert!(written.contains(message), "{written}");
+    assert!(!written.contains(address), "{written}");
 }
 
 #[tokio::test]
@@ -229,6 +242,71 @@ async fn auth_070_every_answer_that_holds_a_session_says_whether_its_account_mus
 }
 
 #[tokio::test]
+async fn auth_070_the_confirmations_of_a_code_and_of_a_change_of_the_address_say_it_too() {
+    let api = requiring().await;
+    let address = mailbox::address("ada");
+    let ada = users::register_unverified(&api, &address).await;
+    let asked = api
+        .request(http::Method::POST, "/v1/users/me/email/verification")
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(asked.status, 202);
+    api.run_jobs().await;
+    let code = mailbox::to(&address)
+        .await
+        .first()
+        .and_then(|email| {
+            email
+                .text
+                .split_whitespace()
+                .find(|word| word.len() == 6 && word.bytes().all(|byte| byte.is_ascii_digit()))
+                .map(str::to_owned)
+        })
+        .expect("a verification code");
+
+    let verified = api
+        .post(
+            "/v1/users/me/email/verification/confirm",
+            &json!({ "code": code }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(verified.status, 200, "{}", verified.json());
+    assert_eq!(verified.json()["email_verification_required"], false);
+    assert_eq!(verified.json()["second_factor_setup_required"], true);
+
+    let new = mailbox::address("ada-new");
+    let asked = api
+        .post("/v1/users/me/email/change", &json!({ "email": new }))
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(asked.status, 202, "{}", asked.json());
+    api.run_jobs().await;
+    let code = mailbox::to(&new)
+        .await
+        .iter()
+        .find(|email| email.subject.contains("email change code"))
+        .and_then(|email| mailbox::grouped_code_in(&email.text))
+        .expect("a change code");
+
+    let changed = api
+        .post(
+            "/v1/users/me/email/change/confirm",
+            &json!({ "email": new, "code": code }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(changed.status, 200, "{}", changed.json());
+    assert_eq!(changed.json()["second_factor_setup_required"], true);
+}
+
+#[tokio::test]
 async fn auth_070_the_setting_is_true_or_false() {
     let refusal = api::refusal(&Options::default().set("SECOND_FACTOR_REQUIRED", "yes"));
 
@@ -236,19 +314,27 @@ async fn auth_070_the_setting_is_true_or_false() {
 }
 
 #[tokio::test]
-async fn auth_071_with_the_setting_on_removing_the_app_answers_409_and_changes_nothing() {
+async fn auth_071_with_the_setting_on_removing_the_app_answers_422_and_changes_nothing() {
     let api = requiring().await;
     let ada = users::register(&api, "ada@example.com").await;
     add_app(&api, &ada).await;
     let before = reads(&api, "SELECT id::text FROM totp_factors").await;
+    let remove_app = || async {
+        api.request(http::Method::DELETE, "/v1/users/me/second-factors/totp")
+            .bearer(&ada.access)
+            .send()
+            .await
+    };
 
-    let refused = api
-        .request(http::Method::DELETE, "/v1/users/me/second-factors/totp")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let refused = remove_app().await;
+    // Before the proof is read, so a session that proved nothing lately is told the same.
+    users::authenticated_ago(&api, &ada, 10).await;
+    let stale = remove_app().await;
+    users::authenticated_ago(&api, &ada, 0).await;
 
-    assert_eq!(refused.status, 409);
+    assert_eq!(stale.status, 422);
+    assert_eq!(stale.json()["code"], "auth.second_factor_mandatory");
+    assert_eq!(refused.status, 422);
     assert_eq!(refused.json()["code"], "auth.second_factor_mandatory");
     assert_eq!(
         reads(&api, "SELECT id::text FROM totp_factors").await,
@@ -304,14 +390,16 @@ async fn auth_072_the_subcommand_removes_the_app_and_ends_the_sessions_and_tells
 
     let removed = remove(&api, &address.to_uppercase()).await;
 
-    let (stdout, stderr) = printed(&removed);
-    assert_eq!(removed.status.code(), Some(0), "{stdout}{stderr}");
+    let written = printed(&removed);
+    assert_eq!(removed.status.code(), Some(0), "{written}");
     assert!(
-        stdout.contains(&format!(
-            "Removed the authenticator app and the recovery codes of {address}"
-        )),
-        "{stdout}"
+        written.contains(
+            "removed the account's authenticator app and recovery codes, and ended every session \
+             of it; the account signs in with its password alone, and its address is told"
+        ),
+        "{written}"
     );
+    assert!(!written.contains(&address), "{written}");
     for table in [
         "totp_factors",
         "recovery_codes",
@@ -371,6 +459,61 @@ async fn auth_072_the_subcommand_removes_the_app_and_ends_the_sessions_and_tells
     assert_eq!(signed_in.status, 201, "{}", signed_in.json());
 }
 
+/// The user of each email job whose payload names `subject`, `-` for no one.
+async fn email_jobs(api: &Api, subject: &str) -> Vec<String> {
+    reads(
+        api,
+        &format!(
+            "SELECT coalesce(user_id::text, '-') FROM jobs WHERE kind = 'platform.send_email' \
+             AND payload::text LIKE '%{subject}%'"
+        ),
+    )
+    .await
+}
+
+/// The subject of the email that tells an address the operator removed its account's app.
+const REMOVED: &str = "The authenticator app of your AntWorker account was removed";
+
+#[tokio::test]
+async fn auth_068_the_operator_s_removal_tells_the_address_that_the_operator_removed_the_app() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    add_app(&api, &ada).await;
+
+    let removed = remove(&api, &address).await;
+
+    assert_eq!(removed.status.code(), Some(0), "{}", printed(&removed));
+    assert_eq!(email_jobs(&api, REMOVED).await.len(), 1);
+    api.run_jobs().await;
+    let emails = mailbox::to(&address).await;
+    let told = emails
+        .iter()
+        .find(|email| email.subject == REMOVED)
+        .expect("the email that tells the address");
+    for part in [&told.text, &told.html] {
+        assert!(
+            part.contains("operator removed the authenticator app"),
+            "{part}"
+        );
+        assert!(part.contains("ended every session"), "{part}");
+        assert!(!part.contains("http"), "{part}");
+    }
+}
+
+#[tokio::test]
+async fn platform_013_the_operator_s_removal_enqueues_its_email_for_the_account_it_names() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    add_app(&api, &ada).await;
+
+    let removed = remove(&api, &address).await;
+
+    assert_eq!(removed.status.code(), Some(0), "{}", printed(&removed));
+    assert_eq!(email_jobs(&api, REMOVED).await, [ada.user_id]);
+}
+
 #[tokio::test]
 async fn auth_072_an_unknown_address_or_an_account_without_an_app_changes_nothing_and_exits_1() {
     let api = Api::new().await;
@@ -383,27 +526,20 @@ async fn auth_072_an_unknown_address_or_an_account_without_an_app_changes_nothin
     let no_app = remove(&api, &address).await;
     let malformed = remove(&api, "not an address").await;
 
-    assert_eq!(unknown.status.code(), Some(1));
-    assert!(
-        printed(&unknown)
-            .1
-            .contains(&format!("No account holds {nobody}: nothing changed.")),
-        "{:?}",
-        printed(&unknown)
+    refused(
+        &unknown,
+        "no account holds the address: nothing changed",
+        &nobody,
     );
-    assert_eq!(no_app.status.code(), Some(1));
-    assert!(
-        printed(&no_app).1.contains(&format!(
-            "The account of {address} has no authenticator app: nothing changed."
-        )),
-        "{:?}",
-        printed(&no_app)
+    refused(
+        &no_app,
+        "the account that holds the address has no authenticator app: nothing changed",
+        &address,
     );
-    assert_eq!(malformed.status.code(), Some(1));
-    assert!(
-        printed(&malformed).1.contains("isn't an email address"),
-        "{:?}",
-        printed(&malformed)
+    refused(
+        &malformed,
+        "the address given isn't an email address, so no account holds it: nothing changed",
+        "not an address",
     );
     assert_eq!(
         reads(&api, "SELECT id::text FROM audit_entries ORDER BY id").await,
@@ -424,7 +560,7 @@ async fn auth_072_an_unknown_address_or_an_account_without_an_app_changes_nothin
 }
 
 #[tokio::test]
-async fn auth_072_with_email_off_the_removal_tells_no_one() {
+async fn auth_068_with_email_off_the_operator_s_removal_enqueues_no_email_and_says_so() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     add_app(&api, &ada).await;
@@ -439,7 +575,12 @@ async fn auth_072_with_email_off_the_removal_tells_no_one() {
         )
         .await;
 
-    assert_eq!(removed.status.code(), Some(0), "{:?}", printed(&removed));
+    let written = printed(&removed);
+    assert_eq!(removed.status.code(), Some(0), "{written}");
+    assert!(
+        written.contains("email is off, so its address isn't told"),
+        "{written}"
+    );
     assert!(
         reads(&api, "SELECT id::text FROM totp_factors")
             .await

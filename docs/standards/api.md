@@ -110,7 +110,7 @@ A resource a client can edit returns an `ETag` built from its `version`. An upda
 ### API-14 Every route declares its access level in its type
 Every route except the health probes (OPS-05) and the API reference that development serves (PLATFORM-052) is registered through one of these builders:
 - `public`: no authentication.
-- `user`: requires a `Principal`, whose account has proved its email address while email is on (AUTH-025).
+- `user`: requires a `Principal`, whose account has proved its email address while email is on (AUTH-025), and has a second factor while the deployment requires one (AUTH-070).
 - `verifying`: as `user`, for a route that proving the caller's email address, or correcting it, needs, which a caller whose account must still prove it may call (AUTH-025).
 - `enrolling`: as `user`, for a route that setting up a second factor needs, which a caller whose account has none may call while the deployment requires one (AUTH-070).
 - `workspace::<P>`: requires `Authorized<P>` for the workspace in the path, where `P` is a permission.

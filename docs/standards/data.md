@@ -121,6 +121,7 @@ Tenancy is enforced by the application, and every query on user or workspace dat
   - when asking to change one's address, by the address asked for, which no account may hold (AUTH-048)
   - when inviting, by the invitee's email <!-- part: invitations -->
   - in the setup subcommand, by its owner's email
+  - in the operator's removal of a second factor, by the address it is given (AUTH-072)
   - for a signed URL, of its session by the ID that its signature proves the API gave (PLATFORM-080) <!-- part: files -->
 - Rows addressed to a user by an email address are filtered by the caller's email.
 
@@ -162,8 +163,8 @@ Nor does it wait on object storage: uploads write the object before the transact
 Audit entries (`audit::record`), events (`uow.publish_to_user` and `uow.publish_to_workspace`) and jobs (`uow.enqueue`) are written in the same unit of work as the change that causes them.
 
 What is audited:
-- Every change that a request or an enqueued job makes to data a module owns.
-- Each security failure: those D6 lists, a failed sign-in, a wrong current password, a reused refresh token and a refused authorization, a wrong verification code, a guess at what proves an account's address (AUTH-032), resets its password (AUTH-038) or changes its address (AUTH-052), and a wrong code of a second factor (AUTH-056, AUTH-060, AUTH-065). A failed sign-in commits its audit entry and then answers 401 (ARCH-11, PLATFORM-008). Refusals are reported to the `SecurityEventSink` (PLATFORM-010).
+- Every change that a request, an enqueued job or an operator's subcommand makes to data a module owns.
+- Each security failure: those D6 lists, a failed sign-in, a wrong current password, a reused refresh token and a refused authorization, a wrong verification code, a guess at what proves an account's address (AUTH-032), resets its password (AUTH-038) or changes its address (AUTH-052), and a wrong code of a second factor (AUTH-037, AUTH-056, AUTH-060, AUTH-065). A failed sign-in commits its audit entry and then answers 401 (ARCH-11, PLATFORM-008). Refusals are reported to the `SecurityEventSink` (PLATFORM-010).
 - Reads that a module spec names as audited, such as the download of an export (D31).
 
 Platform bookkeeping (rate-limit buckets, idempotency records, job state) and scheduled maintenance (retention, sweeps) aren't audited. Metrics count them instead. Deleting an account records only the entries that the logs of the workspaces the user shared keep, since their own log goes with the account (ACCOUNTS-014, D31).

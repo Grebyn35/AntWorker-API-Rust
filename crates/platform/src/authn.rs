@@ -140,7 +140,7 @@ pub struct AuditScope {
 
 impl AuditScope {
     /// The log of the account that an unauthenticated request acted on, such as with a failed
-    /// sign-in, with no actor.
+    /// sign-in, or that an operator's subcommand acted on, with no actor.
     pub fn attempt(user_id: UserId) -> Self {
         Self {
             log: Log::User(user_id),

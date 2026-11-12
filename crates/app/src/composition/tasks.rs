@@ -14,33 +14,38 @@ use platform::{
 use super::Resources;
 use crate::modules::{auth, system};
 
-/// What the subcommand `remove-second-factor` found (AUTH-072).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SecondFactorRemoval {
-    /// The account's authenticator app is removed, its sessions ended, and its address told.
-    Removed,
-    /// No account holds the address, so nothing changed.
+/// Why the subcommand `remove-second-factor` changed nothing, which its message says without the
+/// address, since the logs hold no personal data (AUTH-072, OBS-04).
+#[derive(Debug, thiserror::Error)]
+pub enum RemovalRefused {
+    /// What the operator gave isn't an email address.
+    #[error("the address given isn't an email address, so no account holds it: nothing changed")]
+    NotAnAddress,
+    /// No account holds the address.
+    #[error("no account holds the address: nothing changed")]
     NoAccount,
-    /// The account that holds the address has no authenticator app, so nothing changed.
+    /// The account that holds the address has no authenticator app.
+    #[error("the account that holds the address has no authenticator app: nothing changed")]
     NoApp,
+    /// The removal couldn't run.
+    #[error(transparent)]
+    Internal(#[from] Internal),
 }
 
 /// Removes the authenticator app and the recovery codes of the account that holds `email`, on
-/// `database`, ends every session of its user, and tells the address through `mail`, for the
-/// subcommand `remove-second-factor`, which the operator runs once they have checked that the
-/// person who asks owns the account (AUTH-072, D135).
+/// `database`, ends every session of its user, and tells the address through `mail` while email
+/// is on, for the subcommand `remove-second-factor`, which the operator runs once they have
+/// checked that the person who asks owns the account (AUTH-072, D135).
 pub async fn remove_second_factor(
     database: &Database,
     mail: &Mail,
     email: &platform::types::EmailAddress,
-) -> Result<SecondFactorRemoval, Internal> {
-    Ok(
-        match auth::remove_second_factor(database, mail, email).await? {
-            auth::Removal::Removed => SecondFactorRemoval::Removed,
-            auth::Removal::NoAccount => SecondFactorRemoval::NoAccount,
-            auth::Removal::NoApp => SecondFactorRemoval::NoApp,
-        },
-    )
+) -> Result<(), RemovalRefused> {
+    match auth::remove_second_factor(database, mail, email).await? {
+        auth::Removal::Removed => Ok(()),
+        auth::Removal::NoAccount => Err(RemovalRefused::NoAccount),
+        auth::Removal::NoApp => Err(RemovalRefused::NoApp),
+    }
 }
 
 /// What `seed` created: each account's email address and name, which all share `password`, and
