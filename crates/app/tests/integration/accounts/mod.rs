@@ -348,9 +348,15 @@ async fn accounts_019_a_read_that_finds_the_account_gone_answers_401() {
         .await;
 
     let read = api.spawn(http::Method::GET, "/v1/users/me", &ada.access, None);
-    queries_wait_on_locks(db, 1).await;
-    let waiting = queries_waiting_on_locks(db).await;
-    assert!(waiting[0].contains("FROM users WHERE id"), "{waiting:?}");
+    // The read of the record waits on the lock: the state the outcome depends on, rather than any
+    // wait, which another statement may end before the list is read (TEST-06).
+    while !queries_waiting_on_locks(db)
+        .await
+        .iter()
+        .any(|query| query.contains("FROM users WHERE id"))
+    {
+        tokio::task::yield_now().await;
+    }
     execute_on(
         &mut deletion,
         &format!("DELETE FROM users WHERE id = '{}'", ada.user_id),

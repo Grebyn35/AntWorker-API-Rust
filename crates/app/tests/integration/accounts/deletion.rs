@@ -651,9 +651,15 @@ async fn accounts_019_a_deletion_that_finds_the_account_gone_as_it_reads_its_ema
                 .status
         }
     });
-    queries_wait_on_locks(db, 1).await;
-    let waiting = queries_waiting_on_locks(db).await;
-    assert!(waiting[0].contains("FROM users WHERE id"), "{waiting:?}");
+    // The read of the user waits on the lock: the state the outcome depends on, rather than any
+    // wait, which another statement may end before the list is read (TEST-06).
+    while !queries_waiting_on_locks(db)
+        .await
+        .iter()
+        .any(|query| query.contains("FROM users WHERE id"))
+    {
+        tokio::task::yield_now().await;
+    }
     execute_on(
         &mut other,
         &format!("DELETE FROM users WHERE id = '{}'", ada.user_id),
