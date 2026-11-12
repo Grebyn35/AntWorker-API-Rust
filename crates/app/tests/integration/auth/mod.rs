@@ -10,6 +10,9 @@ mod github;
 mod google;
 // end part: google
 mod listed;
+// part: openid_connect
+mod openid_connect;
+// end part: openid_connect
 mod password;
 mod providers;
 mod reauthentication;

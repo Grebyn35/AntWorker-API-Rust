@@ -73,6 +73,16 @@ x-api: &api
     GOOGLE_DESKTOP_CLIENT_SECRET_FILE: /run/secrets/google_desktop_client_secret
     GOOGLE_DESKTOP_REDIRECT_URIS: ${GOOGLE_DESKTOP_REDIRECT_URIS:-}
     # end part: google
+    # part: openid_connect
+    OPENID_CONNECT_CLIENT_ID: ${OPENID_CONNECT_CLIENT_ID:-}
+    OPENID_CONNECT_CLIENT_SECRET_FILE: /run/secrets/openid_connect_client_secret
+    OPENID_CONNECT_REDIRECT_URIS: ${OPENID_CONNECT_REDIRECT_URIS:-}
+    OPENID_CONNECT_NAME: ${OPENID_CONNECT_NAME:-}
+    OPENID_CONNECT_ISSUER: ${OPENID_CONNECT_ISSUER:-}
+    OPENID_CONNECT_AUTHORIZATION_ENDPOINT: ${OPENID_CONNECT_AUTHORIZATION_ENDPOINT:-}
+    OPENID_CONNECT_TOKEN_ENDPOINT: ${OPENID_CONNECT_TOKEN_ENDPOINT:-}
+    OPENID_CONNECT_USERINFO_ENDPOINT: ${OPENID_CONNECT_USERINFO_ENDPOINT:-}
+    # end part: openid_connect
     EMAIL: ${EMAIL:?whether the API sends email, smtp or off, in settings.env}
     SMTP_HOST: ${SMTP_HOST:-}
     SMTP_SECURITY: ${SMTP_SECURITY:-}
@@ -117,6 +127,9 @@ x-api: &api
     - google_client_secret
     - google_desktop_client_secret
     # end part: google
+    # part: openid_connect
+    - openid_connect_client_secret
+    # end part: openid_connect
     # part: files
     - files_s3_key
     - files_s3_key_secret
@@ -544,6 +557,10 @@ secrets:
   google_desktop_client_secret:
     file: ./secrets/google_desktop_client_secret
   # end part: google
+  # part: openid_connect
+  openid_connect_client_secret:
+    file: ./secrets/openid_connect_client_secret
+  # end part: openid_connect
   database_owner_url:
     file: ./secrets/database_owner_url
   database_admin_url:

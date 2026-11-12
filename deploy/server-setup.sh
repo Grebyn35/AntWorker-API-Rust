@@ -198,6 +198,9 @@ write() {
                     # part: google
                     google_client_secret | google_desktop_client_secret) ;;
                     # end part: google
+                    # part: openid_connect
+                    openid_connect_client_secret) ;;
+                    # end part: openid_connect
                     # A credential of an alert integration, which alertmanager.yaml names (D49).
                     alertmanager/*/* | alertmanager/.*) fail "no secret is named $first" ;;
                     alertmanager/?*)

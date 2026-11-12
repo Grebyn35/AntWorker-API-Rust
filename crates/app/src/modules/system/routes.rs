@@ -26,11 +26,11 @@ pub(crate) struct SignInProvider {
     /// Its key, which a sign-in's `provider` names.
     pub(crate) provider: &'static str,
     /// Its name, as a client shows it.
-    pub(crate) name: &'static str,
+    pub(crate) name: String,
     /// The URL of its authorization endpoint.
-    pub(crate) authorization_endpoint: &'static str,
+    pub(crate) authorization_endpoint: String,
     /// The scopes that the authorization request asks for.
-    pub(crate) scopes: Vec<&'static str>,
+    pub(crate) scopes: Vec<String>,
     /// The deployment's clients, each with the redirect URIs it lists.
     pub(crate) clients: Vec<SignInClient>,
 }

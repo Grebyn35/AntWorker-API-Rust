@@ -481,6 +481,16 @@ mod tests {
         "",
         "",
         // end part: google
+        // part: openid_connect
+        // No OpenID Connect provider that the settings name.
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        // end part: openid_connect
         // Enter generates the key ring.
         "",
         // part: files

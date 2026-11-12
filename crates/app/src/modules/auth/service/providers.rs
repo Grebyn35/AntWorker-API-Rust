@@ -18,7 +18,7 @@ use crate::modules::{
         error::AuthError,
         metrics,
         model::{FactorProof, Required, Session},
-        providers::{self, Exchange, Found, Identity, Provider, ProviderError},
+        providers::{self, Exchange, Found, Identity, On, ProviderError},
         repo,
     },
 };
@@ -69,7 +69,7 @@ impl Auth {
             .await?;
         let mut uow = self.database.begin(client).await?;
         if let Some(user_id) =
-            repo::user_of_subject(&mut uow, provider.key(), &identity.subject).await?
+            repo::user_of_subject(&mut uow, provider.key, &identity.subject).await?
             // The user's turn, as a deletion of the account takes it first: a sign-in that waited
             // for one finds no user, and registers (the auth spec's "Taking turns").
             && let Some(address) = accounts::address_for_update(&mut uow, user_id).await?
@@ -90,7 +90,7 @@ impl Auth {
         &self,
         limits: &RateLimits,
         client: &Client,
-        provider: &dyn Provider,
+        provider: &On,
         identity: &Identity,
     ) -> Result<(), AuthError> {
         let Some(email) = given_address(identity).filter(|_| self.mail.is_on() && !identity.proved)
@@ -98,7 +98,7 @@ impl Auth {
             return Ok(());
         };
         let mut read = self.database.begin(client).await?;
-        let linked = repo::user_of_subject(&mut read, provider.key(), &identity.subject).await?;
+        let linked = repo::user_of_subject(&mut read, provider.key, &identity.subject).await?;
         drop(read);
         if linked.is_none() {
             limits
@@ -172,7 +172,7 @@ impl Auth {
     async fn register_through(
         &self,
         mut uow: UnitOfWork,
-        provider: &dyn Provider,
+        provider: &On,
         identity: Identity,
         input: ProviderSignIn,
     ) -> Result<SignedIn, AuthError> {
@@ -186,8 +186,7 @@ impl Auth {
             Creation::Created(id) => id,
             Creation::EmailInUse => return Err(AuthError::EmailInUse),
         };
-        repo::insert_provider_identity(&mut uow, user_id, provider.key(), &identity.subject)
-            .await?;
+        repo::insert_provider_identity(&mut uow, user_id, provider.key, &identity.subject).await?;
         if identity.proved {
             accounts::verify_email(&mut uow, user_id).await?;
         }
@@ -198,7 +197,7 @@ impl Auth {
             principal.audit_scope(),
             through(
                 Entry::new(audit::USER_REGISTERED, audit::USER, user_id.uuid()),
-                provider.key(),
+                provider.key,
             ),
         )
         .await?;
@@ -245,14 +244,14 @@ impl Auth {
         };
         let mut uow = self.database.begin(client).await?;
         take_turn(&mut uow, principal).await?;
-        let subject = repo::provider_subject(&mut uow, user_id, provider.key()).await?;
+        let subject = repo::provider_subject(&mut uow, user_id, provider.key).await?;
         if subject.as_deref() != Some(identity.subject.as_str()) {
             audit_log::record(
                 &mut uow,
                 principal.audit_scope(),
                 through(
                     Entry::new(audit::IDENTITY_CHECK_FAILED, audit::USER, user_id.uuid()),
-                    provider.key(),
+                    provider.key,
                 ),
             )
             .await?;
@@ -275,7 +274,7 @@ impl Auth {
                     audit::SESSION,
                     session.id.uuid(),
                 ),
-                provider.key(),
+                provider.key,
             ),
         )
         .await?;
@@ -287,17 +286,13 @@ impl Auth {
     /// The provider that `id` names, and the identity that `grant`'s code gives there, which its
     /// exchange reads before any unit of work opens, and counts in `auth.provider_exchanges`
     /// (AUTH-077 to AUTH-079).
-    async fn identify(
-        &self,
-        id: &str,
-        grant: &Grant,
-    ) -> Result<(&dyn Provider, Identity), AuthError> {
+    async fn identify(&self, id: &str, grant: &Grant) -> Result<(&On, Identity), AuthError> {
         let provider = match self.providers.find(id) {
             Found::On(provider) => provider,
             Found::Off => return Err(RequestError::FeatureDisabled.into()),
             Found::Unknown => return Err(AuthError::ProviderNotFound),
         };
-        let client = providers::client_for(provider, &grant.redirect_uri).ok_or_else(|| {
+        let client = provider.client_for(&grant.redirect_uri).ok_or_else(|| {
             RequestError::InvalidFields(vec![FieldError::new(
                 "/redirect_uri",
                 "invalid_redirect_uri",
@@ -314,7 +309,7 @@ impl Auth {
         // ends the exchange, the deadline included (AUTH-079).
         let mut token = None;
         let exchanged = async {
-            let got = providers::token(provider, &self.outbound, &exchange).await?;
+            let got = provider.token(&self.outbound, &exchange).await?;
             let token = token.insert(got);
             provider.identify(&self.outbound, client, token).await
         };
@@ -333,12 +328,12 @@ impl Auth {
             Err(ProviderError::Rejected) => metrics::Exchange::Rejected,
             Err(ProviderError::Unavailable(_)) => metrics::Exchange::Unavailable,
         };
-        metrics::exchange(provider.key(), outcome);
+        metrics::exchange(provider.key, outcome);
         match identified {
             Ok(identity) => Ok((provider, identity)),
             Err(ProviderError::Rejected) => Err(AuthError::ProviderCodeRejected),
             Err(ProviderError::Unavailable(cause)) => Err(AuthError::ProviderUnavailable(
-                Internal::new(format!("{}: {cause}", provider.key())),
+                Internal::new(format!("{}: {cause}", provider.key)),
             )),
         }
     }
@@ -348,12 +343,7 @@ impl Auth {
     /// Lets `provider` go of `token`, within its own deadline, after the exchange's: a deletion
     /// that fails, or that doesn't end in time, refuses nothing, and is logged and counted
     /// (AUTH-079, ERR-11).
-    async fn discard(
-        &self,
-        provider: &dyn Provider,
-        client: &providers::Client,
-        token: &Secret<String>,
-    ) {
+    async fn discard(&self, provider: &On, client: &providers::Client, token: &Secret<String>) {
         let discarded = tokio::select! {
             discarded = provider.discard(&self.outbound, client, token) => discarded,
             () = self.clock.sleep(DISCARD_DEADLINE) => Err(format!(

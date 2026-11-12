@@ -60,6 +60,12 @@ fn google_desktop_client(settings: &[(String, String)]) -> bool {
 }
 // end part: google
 
+// part: openid_connect
+fn openid_connect_client(settings: &[(String, String)]) -> bool {
+    !get(settings, "OPENID_CONNECT_CLIENT_ID").is_empty()
+}
+// end part: openid_connect
+
 /// The secrets that the operator holds, as docs/operations/deploy.md lists them; the server
 /// generates those it can, for the operator to keep, unless the operator gives a lost server's.
 pub(super) const SECRETS: &[File] = &[
@@ -178,6 +184,15 @@ pub(super) const SECRETS: &[File] = &[
         needed: google_desktop_client,
     },
     // end part: google
+    // part: openid_connect
+    File {
+        name: "openid_connect_client_secret",
+        what: "The client secret of the client, at the OpenID Connect provider that the \
+               settings name, whose ID is OPENID_CONNECT_CLIENT_ID.",
+        generated: false,
+        needed: openid_connect_client,
+    },
+    // end part: openid_connect
 ];
 
 /// The certificates of private authorities that a deployment may trust.

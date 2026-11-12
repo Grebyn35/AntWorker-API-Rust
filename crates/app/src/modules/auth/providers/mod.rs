@@ -1,8 +1,10 @@
 //! The OAuth providers that a user signs in through (the auth spec's "Signing in through a
 //! provider"): one file for each, which an optional part owns, and its lines in this registry
 //! (ARCH-07). What every provider shares is here, so it holds whichever providers a fork keeps:
-//! reading each client's settings (AUTH-081), and the exchange of a code for an access token that
-//! RFC 6749 defines (§4.1.3, §5.2), whose refusal of the code is `invalid_grant`.
+//! reading the settings (AUTH-081), the exchange of a code for an access token that RFC 6749
+//! defines (§4.1.3, §5.2), whose refusal of the code is `invalid_grant`, and the read of the
+//! user's identity that OpenID Connect defines (Core, §5.3). A provider's file declares where the
+//! provider is, and replaces only what the provider does differently.
 
 use futures_util::future::BoxFuture;
 use platform::{
@@ -12,16 +14,23 @@ use platform::{
 };
 use serde::Deserialize;
 
+mod clients;
 // part: github
 mod github;
 // end part: github
 // part: google
 mod google;
 // end part: google
+// part: openid_connect
+mod openid_connect;
+// end part: openid_connect
 #[cfg(feature = "test-support")]
 mod stand_in;
 
-/// Each provider of the API: its key, its clients' settings, and how it is built.
+pub(super) use clients::Client;
+use clients::{client, matches, overlap};
+
+/// Each provider of the API: its key, the settings it reads, and how it is built.
 const REGISTRY: &[Entry] = &[
     // part: github
     github::ENTRY,
@@ -29,6 +38,9 @@ const REGISTRY: &[Entry] = &[
     // part: google
     google::ENTRY,
     // end part: google
+    // part: openid_connect
+    openid_connect::ENTRY,
+    // end part: openid_connect
 ];
 
 /// The tests' stand-in provider, in the tests' build alone.
@@ -44,30 +56,38 @@ struct Entry {
     /// The prefix of each of its clients' settings, such as `STAND_IN_` for `STAND_IN_CLIENT_ID`,
     /// `STAND_IN_CLIENT_SECRET` and `STAND_IN_REDIRECT_URIS` (AUTH-081).
     clients: &'static [&'static str],
-    /// The provider, with the clients that the deployment configures, at least one.
-    build: fn(Vec<Client>) -> Box<dyn Provider>,
+    /// The settings it reads beside its clients', such as the addresses of a provider that the
+    /// deployment names: each is set while a client of its is, and only then (AUTH-081).
+    settings: &'static [&'static str],
+    /// The provider, from the values of `settings`, in their order.
+    build: fn(&[String]) -> Built,
 }
 
-/// An OAuth provider: its endpoints, the scopes it asks for, its clients, and how it reads a
-/// user's identity (ARCH-13: one implementation per provider).
-pub(super) trait Provider: Send + Sync {
-    /// Its key, which a sign-in's `provider` names.
-    fn key(&self) -> &'static str;
+/// The provider that an entry builds, or the setting whose value it refuses.
+type Built = Result<Box<dyn Provider>, ConfigError>;
 
+/// What a provider declares: its name, its addresses, and the scopes it asks for.
+struct Declared<'a> {
     /// Its name, as a client shows it.
-    fn name(&self) -> &'static str;
-
+    name: &'a str,
     /// The URL of its authorization endpoint, which a client opens.
-    fn authorization_endpoint(&self) -> &'static str;
-
-    /// The scopes it asks for, the least it needs (the auth spec's "The identity").
-    fn scopes(&self) -> &'static [&'static str];
-
-    /// The clients that the deployment registered with it.
-    fn clients(&self) -> &[Client];
-
+    authorization_endpoint: &'a str,
     /// The URL of its token endpoint, which exchanges a code for an access token.
-    fn token_endpoint(&self) -> &'static str;
+    token_endpoint: &'a str,
+    /// The URL that gives the identity of a token's user: the userinfo endpoint of a provider
+    /// that follows OpenID Connect.
+    identity_endpoint: &'a str,
+    /// The scopes it asks for, the least it needs (the auth spec's "The identity").
+    scopes: &'a [&'a str],
+}
+
+/// An OAuth provider, as its file states it (ARCH-13: one implementation for each provider):
+/// what it declares, and what it does differently from the standards, which the provided methods
+/// follow. A provider that follows OpenID Connect states only what it declares, and which
+/// addresses it proves, if any.
+trait Provider: Send + Sync {
+    /// What it declares.
+    fn declared(&self) -> Declared<'_>;
 
     /// The access token of the token endpoint's answer, whose status is a success: its
     /// `access_token`, as RFC 6749 gives it (§5.1), or why it holds none, as for a provider that
@@ -85,13 +105,54 @@ pub(super) trait Provider: Send + Sync {
             })
     }
 
-    /// Reads the identity of the user whose access token `token` is.
+    /// Reads the identity of the user whose access token `token` is, which `client`'s exchange
+    /// got: as OpenID Connect's userinfo endpoint gives it, the `sub`, the `email` and the `name`
+    /// of its answer (Core, §5.3), unless the provider reads it another way.
     fn identify<'a>(
         &'a self,
         outbound: &'a Configured,
-        client: &'a Client,
+        _client: &'a Client,
         token: &'a Secret<String>,
-    ) -> BoxFuture<'a, Result<Identity, ProviderError>>;
+    ) -> BoxFuture<'a, Result<Identity, ProviderError>> {
+        Box::pin(async move {
+            let endpoint = self.declared().identity_endpoint;
+            let answer = outbound
+                .send(Request::get(endpoint).bearer(Secret::new(token.expose().clone())))
+                .await
+                .map_err(|error| ProviderError::Unavailable(error.to_string()))?;
+            let unreadable = || {
+                ProviderError::Unavailable(format!(
+                    "the userinfo endpoint answered {}",
+                    answer.status
+                ))
+            };
+            let claims: serde_json::Value = answer
+                .is_success()
+                .then(|| answer.json())
+                .flatten()
+                .ok_or_else(unreadable)?;
+            let info = UserInfo::deserialize(&claims).map_err(|_| unreadable())?;
+            Ok(Identity {
+                subject: self.subject(info.sub),
+                email: info.email,
+                proved: self.proves(&claims),
+                name: info.name,
+            })
+        })
+    }
+
+    /// Whether the provider is the authority of the address in `claims`, its userinfo endpoint's
+    /// answer, so its sign-in proves the address: of none, unless its file says of which
+    /// (AUTH-075, D140).
+    fn proves(&self, _claims: &serde_json::Value) -> bool {
+        false
+    }
+
+    /// The provider's ID for the user whose `sub` its userinfo endpoint answers: the `sub`,
+    /// which a provider gives one user alone, unless more than the `sub` names its user.
+    fn subject(&self, sub: String) -> String {
+        sub
+    }
 
     /// Lets go of `token`, which `client`'s exchange got, once the identity is read or its
     /// reading failed: a provider whose tokens lapse does nothing, and one whose tokens don't
@@ -106,34 +167,85 @@ pub(super) trait Provider: Send + Sync {
     }
 }
 
-/// Exchanges `exchange`'s code at `provider` for an access token, as RFC 6749 asks (§4.1.3)
-/// (AUTH-073, AUTH-077). A refusal of the code, its verifier or its redirect URI is the token
-/// endpoint's `invalid_grant` (§5.2); any other refusal is of the API's own client or request,
-/// which no user can fix, so it is an unavailable provider.
-pub(super) async fn token(
-    provider: &dyn Provider,
-    outbound: &Configured,
-    exchange: &Exchange<'_>,
-) -> Result<Secret<String>, ProviderError> {
-    let answer = outbound
-        .send(
-            Request::post(provider.token_endpoint())
-                .header("accept", "application/json")
-                .form(&[
-                    ("grant_type", "authorization_code"),
-                    ("client_id", &exchange.client.id),
-                    ("client_secret", exchange.client.secret.expose()),
-                    ("code", exchange.code.expose()),
-                    ("code_verifier", exchange.verifier.expose()),
-                    ("redirect_uri", exchange.redirect_uri),
-                ]),
-        )
-        .await
-        .map_err(|error| ProviderError::Unavailable(error.to_string()))?;
-    if !answer.is_success() {
-        return Err(refusal(&answer));
+/// The claims of a userinfo endpoint's answer that the registry reads (OpenID Connect Core,
+/// §5.3.2).
+#[derive(Deserialize)]
+struct UserInfo {
+    sub: String,
+    email: Option<String>,
+    name: Option<String>,
+}
+
+/// A provider that the deployment configures: its key, its clients, and what its file states.
+pub(super) struct On {
+    /// Its key, which a sign-in's `provider` names.
+    pub(super) key: &'static str,
+    clients: Vec<Client>,
+    provider: Box<dyn Provider>,
+}
+
+impl On {
+    /// The client of its that lists `redirect_uri` (AUTH-078).
+    pub(super) fn client_for(&self, redirect_uri: &str) -> Option<&Client> {
+        self.clients.iter().find(|client| {
+            client
+                .redirect_uris
+                .iter()
+                .any(|listed| matches(listed, redirect_uri))
+        })
     }
-    provider.token(&answer)
+
+    /// Exchanges `exchange`'s code for an access token, as RFC 6749 asks (§4.1.3) (AUTH-073,
+    /// AUTH-077). A refusal of the code, its verifier or its redirect URI is the token endpoint's
+    /// `invalid_grant` (§5.2); any other refusal is of the API's own client or request, which no
+    /// user can fix, so it is an unavailable provider.
+    pub(super) async fn token(
+        &self,
+        outbound: &Configured,
+        exchange: &Exchange<'_>,
+    ) -> Result<Secret<String>, ProviderError> {
+        let answer = outbound
+            .send(
+                Request::post(self.provider.declared().token_endpoint)
+                    .header("accept", "application/json")
+                    .form(&[
+                        ("grant_type", "authorization_code"),
+                        ("client_id", &exchange.client.id),
+                        ("client_secret", exchange.client.secret.expose()),
+                        ("code", exchange.code.expose()),
+                        ("code_verifier", exchange.verifier.expose()),
+                        ("redirect_uri", exchange.redirect_uri),
+                    ]),
+            )
+            .await
+            .map_err(|error| ProviderError::Unavailable(error.to_string()))?;
+        if !answer.is_success() {
+            return Err(refusal(&answer));
+        }
+        self.provider.token(&answer)
+    }
+
+    /// Reads the identity of the user whose access token `token` is, which `client`'s exchange
+    /// got.
+    pub(super) fn identify<'a>(
+        &'a self,
+        outbound: &'a Configured,
+        client: &'a Client,
+        token: &'a Secret<String>,
+    ) -> BoxFuture<'a, Result<Identity, ProviderError>> {
+        self.provider.identify(outbound, client, token)
+    }
+
+    /// Lets go of `token`, which `client`'s exchange got, as the provider asks, or says why it
+    /// couldn't (AUTH-079).
+    pub(super) fn discard<'a>(
+        &'a self,
+        outbound: &'a Configured,
+        client: &'a Client,
+        token: &'a Secret<String>,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        self.provider.discard(outbound, client, token)
+    }
 }
 
 /// Why the token endpoint refused the exchange, from its answer `answer` (RFC 6749, §5.2).
@@ -171,16 +283,6 @@ fn error_code(error: &str) -> &'static str {
         .into_iter()
         .find(|code| *code == error)
         .unwrap_or("another code")
-}
-
-/// A client that the deployment registered with a provider: its ID, its secret, and the
-/// redirect URIs it lists (AUTH-081).
-pub(super) struct Client {
-    /// The setting that lists its redirect URIs, such as `STAND_IN_REDIRECT_URIS`.
-    setting: String,
-    pub(super) id: String,
-    pub(super) secret: Secret<String>,
-    pub(super) redirect_uris: Vec<String>,
 }
 
 /// What a request exchanges at a provider: its code, its verifier, and its redirect URI, with
@@ -222,11 +324,11 @@ pub(crate) struct Listed {
     /// Its key, which a sign-in's `provider` names.
     pub(crate) provider: &'static str,
     /// Its name, as a client shows it.
-    pub(crate) name: &'static str,
+    pub(crate) name: String,
     /// The URL of its authorization endpoint.
-    pub(crate) authorization_endpoint: &'static str,
+    pub(crate) authorization_endpoint: String,
     /// The scopes that the authorization request asks for.
-    pub(crate) scopes: &'static [&'static str],
+    pub(crate) scopes: Vec<String>,
     /// The deployment's clients: each one's ID, with the redirect URIs it lists.
     pub(crate) clients: Vec<(String, Vec<String>)>,
 }
@@ -234,7 +336,7 @@ pub(crate) struct Listed {
 /// What a provider's key finds (AUTH-077).
 pub(super) enum Found<'a> {
     /// A provider that the deployment configures.
-    On(&'a dyn Provider),
+    On(&'a On),
     /// A provider of the API that the deployment doesn't configure.
     Off,
     /// No provider of the API.
@@ -244,7 +346,7 @@ pub(super) enum Found<'a> {
 /// The providers of the API, those the deployment configures among them (AUTH-081).
 pub(crate) struct Providers {
     known: Vec<&'static str>,
-    on: Vec<Box<dyn Provider>>,
+    on: Vec<On>,
 }
 
 impl Providers {
@@ -255,17 +357,21 @@ impl Providers {
         E: Fn(&str) -> Option<std::ffi::OsString>,
         F: Fn(&std::path::Path) -> std::io::Result<String>,
     {
-        let mut on: Vec<Box<dyn Provider>> = Vec::new();
+        let mut on: Vec<On> = Vec::new();
         for entry in REGISTRY.iter().chain(STAND_IN) {
             let mut clients = Vec::new();
             for prefix in entry.clients {
                 clients.extend(client(settings, prefix)?);
             }
-            if !clients.is_empty() {
-                on.push((entry.build)(clients));
+            if let Some(values) = values(settings, entry, !clients.is_empty())? {
+                on.push(On {
+                    key: entry.key,
+                    clients,
+                    provider: (entry.build)(&values)?,
+                });
             }
         }
-        let clients: Vec<&Client> = on.iter().flat_map(|provider| provider.clients()).collect();
+        let clients: Vec<&Client> = on.iter().flat_map(|provider| &provider.clients).collect();
         for (index, client) in clients.iter().enumerate() {
             let before = clients[..index]
                 .iter()
@@ -295,15 +401,15 @@ impl Providers {
     /// doesn't configure lists any, since the service answers it (AUTH-077, AUTH-078).
     pub(crate) fn lists(&self, provider: &str, redirect_uri: &str) -> bool {
         match self.find(provider) {
-            Found::On(provider) => client_for(provider, redirect_uri).is_some(),
+            Found::On(provider) => provider.client_for(redirect_uri).is_some(),
             Found::Off | Found::Unknown => true,
         }
     }
 
     /// The provider that `key` names (AUTH-077).
     pub(super) fn find(&self, key: &str) -> Found<'_> {
-        if let Some(provider) = self.on.iter().find(|provider| provider.key() == key) {
-            return Found::On(provider.as_ref());
+        if let Some(provider) = self.on.iter().find(|provider| provider.key == key) {
+            return Found::On(provider);
         }
         if self.known.contains(&key) {
             Found::Off
@@ -318,16 +424,23 @@ impl Providers {
         let mut listed: Vec<Listed> = self
             .on
             .iter()
-            .map(|provider| Listed {
-                provider: provider.key(),
-                name: provider.name(),
-                authorization_endpoint: provider.authorization_endpoint(),
-                scopes: provider.scopes(),
-                clients: provider
-                    .clients()
-                    .iter()
-                    .map(|client| (client.id.clone(), client.redirect_uris.clone()))
-                    .collect(),
+            .map(|provider| {
+                let declared = provider.provider.declared();
+                Listed {
+                    provider: provider.key,
+                    name: declared.name.to_owned(),
+                    authorization_endpoint: declared.authorization_endpoint.to_owned(),
+                    scopes: declared
+                        .scopes
+                        .iter()
+                        .map(|scope| (*scope).to_owned())
+                        .collect(),
+                    clients: provider
+                        .clients
+                        .iter()
+                        .map(|client| (client.id.clone(), client.redirect_uris.clone()))
+                        .collect(),
+                }
             })
             .collect();
         listed.sort_by_key(|listed| listed.provider);
@@ -335,192 +448,34 @@ impl Providers {
     }
 }
 
-/// The client of `provider` that lists `redirect_uri` (AUTH-078).
-pub(super) fn client_for<'a>(provider: &'a dyn Provider, redirect_uri: &str) -> Option<&'a Client> {
-    provider.clients().iter().find(|client| {
-        client
-            .redirect_uris
-            .iter()
-            .any(|listed| matches(listed, redirect_uri))
-    })
-}
-
-/// Whether `uri` is the redirect URI `listed`, compared as a string, but for a listed loopback
-/// one without a port, `http://127.0.0.1/<path>` or `http://[::1]/<path>`, which matches the
-/// same URI with any port, as RFC 8252 asks (AUTH-078).
-fn matches(listed: &str, uri: &str) -> bool {
-    if listed == uri {
-        return true;
-    }
-    let (Ok(parsed), Ok(mut uri)) = (url::Url::parse(listed), url::Url::parse(uri)) else {
-        return false;
-    };
-    let any_port = parsed.scheme() == "http" && is_loopback_ip(parsed.host()) && !has_port(listed);
-    if !any_port || uri.port_or_known_default().is_none() || uri.set_port(None).is_err() {
-        return false;
-    }
-    parsed == uri
-}
-
-/// Whether two listed redirect URIs name one URI that a request may give: they are the same, or
-/// one matches the other as [`matches`] matches a request's (AUTH-081).
-fn overlap(first: &str, second: &str) -> bool {
-    matches(first, second) || matches(second, first)
-}
-
-/// Whether `host` is `127.0.0.1` or `[::1]`, the loopback addresses that RFC 8252 names.
-fn is_loopback_ip(host: Option<url::Host<&str>>) -> bool {
-    matches!(host, Some(url::Host::Ipv4(address)) if address == std::net::Ipv4Addr::LOCALHOST)
-        || matches!(host, Some(url::Host::Ipv6(address)) if address == std::net::Ipv6Addr::LOCALHOST)
-}
-
-/// Whether the URI `uri`, as written, names a port, which parsing drops when it is the scheme's
-/// default, such as `:80` for `http`.
-fn has_port(uri: &str) -> bool {
-    let authority = uri
-        .split_once("://")
-        .map_or("", |(_, rest)| rest.split(['/', '?']).next().unwrap_or(""));
-    authority
-        .rsplit_once(':')
-        .is_some_and(|(host, port)| !host.ends_with(':') && !port.is_empty() && !port.contains(']'))
-}
-
-/// A client of a provider from the settings `<prefix>CLIENT_ID`, `<prefix>CLIENT_SECRET` and
-/// `<prefix>REDIRECT_URIS`, such as `STAND_IN_CLIENT_ID`, or `None` when none of them is set; the
-/// deployment sets all three or none (AUTH-081).
-fn client<E, F>(settings: &Settings<E, F>, prefix: &str) -> Result<Option<Client>, ConfigError>
+/// The values of the settings that `entry` reads beside its clients', in their order, when a
+/// client of its is set, which `configured` says, and `None` without one: the deployment sets
+/// them with a client, and only then (AUTH-081).
+fn values<E, F>(
+    settings: &Settings<E, F>,
+    entry: &Entry,
+    configured: bool,
+) -> Result<Option<Vec<String>>, ConfigError>
 where
     E: Fn(&str) -> Option<std::ffi::OsString>,
     F: Fn(&std::path::Path) -> std::io::Result<String>,
 {
-    let id_name = format!("{prefix}CLIENT_ID");
-    let secret_name = format!("{prefix}CLIENT_SECRET");
-    let uris_name = format!("{prefix}REDIRECT_URIS");
-    let id = settings.text_setting(&id_name)?;
-    let secret = settings.secret_setting(&secret_name)?;
-    let uris = settings.text_setting(&uris_name)?;
-    let (id, secret, uris) = match (id, secret, uris) {
-        (None, None, None) => return Ok(None),
-        (Some(id), Some(secret), Some(uris)) => (id, secret, uris),
-        (id, secret, _) => {
-            let missing = if id.is_none() {
-                id_name
-            } else if secret.is_none() {
-                secret_name
-            } else {
-                uris_name
-            };
-            return Err(ConfigError::missing(&missing));
+    let mut values = Vec::with_capacity(entry.settings.len());
+    for name in entry.settings {
+        match settings.text_setting(name)? {
+            Some(value) => values.push(value),
+            None if configured => return Err(ConfigError::missing(name)),
+            None => {}
         }
-    };
-    let redirect_uris = uris
-        .split(',')
-        .map(str::trim)
-        .map(|uri| redirect_uri(uri).ok_or_else(|| ConfigError::invalid(&uris_name, URIS_EXPECTED)))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(Some(Client {
-        setting: uris_name,
-        id,
-        secret,
-        redirect_uris,
-    }))
-}
-
-const URIS_EXPECTED: &str = "redirect URIs separated by commas, each https, or http to \
-     127.0.0.1, [::1] or localhost, with no fragment (AUTH-081)";
-
-/// `uri`, as a redirect URI that a client may list: `https`, or `http` to a loopback host, with
-/// no fragment (AUTH-081).
-fn redirect_uri(uri: &str) -> Option<String> {
-    let parsed = url::Url::parse(uri).ok()?;
-    let loopback = matches!(parsed.host(), Some(url::Host::Domain("localhost")))
-        || is_loopback_ip(parsed.host());
-    let allowed = match parsed.scheme() {
-        "https" => parsed.host().is_some(),
-        "http" => loopback,
-        _ => false,
-    };
-    (allowed && parsed.fragment().is_none() && !uri.contains('#')).then(|| uri.to_owned())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn auth_078_a_loopback_redirect_uri_without_a_port_matches_any_port() {
-        assert!(matches(
-            "http://127.0.0.1/callback",
-            "http://127.0.0.1:51234/callback"
-        ));
-        assert!(matches(
-            "http://[::1]/callback",
-            "http://[::1]:8000/callback"
-        ));
-        assert!(!matches(
-            "http://127.0.0.1/callback",
-            "http://127.0.0.1:51234/other"
-        ));
-        assert!(!matches(
-            "http://127.0.0.1:4000/callback",
-            "http://127.0.0.1:4001/callback"
-        ));
-        assert!(!matches(
-            "http://localhost/callback",
-            "http://localhost:4001/callback"
-        ));
-        assert!(!matches(
-            "https://app.example.com/callback",
-            "https://app.example.com:8443/callback"
-        ));
-        assert!(matches(
-            "https://app.example.com/callback",
-            "https://app.example.com/callback"
-        ));
     }
-
-    #[test]
-    fn auth_078_only_127_0_0_1_and_ipv6_s_loopback_match_any_port() {
-        assert!(!matches(
-            "http://127.0.0.2/callback",
-            "http://127.0.0.2:4000/callback"
-        ));
-        assert!(matches(
-            "http://127.0.0.1/callback",
-            "http://127.0.0.1:80/callback"
-        ));
-        assert!(!matches(
-            "http://127.0.0.1:80/callback",
-            "http://127.0.0.1:81/callback"
-        ));
+    if configured {
+        return Ok(Some(values));
     }
-
-    #[test]
-    fn auth_081_two_listed_redirect_uris_overlap_when_one_matches_the_other() {
-        assert!(overlap(
-            "http://127.0.0.1/callback",
-            "http://127.0.0.1:5000/callback"
-        ));
-        assert!(overlap(
-            "https://app.example.com/a",
-            "https://app.example.com/a"
-        ));
-        assert!(!overlap(
-            "http://127.0.0.1:4000/callback",
-            "http://127.0.0.1:5000/callback"
-        ));
-        assert!(!overlap("http://127.0.0.1/a", "http://127.0.0.1/b"));
-    }
-
-    #[test]
-    fn auth_081_a_redirect_uri_is_https_or_http_to_a_loopback_host_without_a_fragment() {
-        assert!(redirect_uri("https://app.example.com/callback").is_some());
-        assert!(redirect_uri("http://127.0.0.1/callback").is_some());
-        assert!(redirect_uri("http://[::1]/callback").is_some());
-        assert!(redirect_uri("http://localhost:5173/callback").is_some());
-        assert!(redirect_uri("http://app.example.com/callback").is_none());
-        assert!(redirect_uri("https://app.example.com/callback#top").is_none());
-        assert!(redirect_uri("app://callback").is_none());
-        assert!(redirect_uri("http://127.0.0.2/callback").is_none());
+    // A setting of a provider without a client asks for the client.
+    match entry.clients.first() {
+        Some(prefix) if !values.is_empty() => {
+            Err(ConfigError::missing(&format!("{prefix}CLIENT_ID")))
+        }
+        _ => Ok(None),
     }
 }

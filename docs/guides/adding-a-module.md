@@ -1,6 +1,6 @@
 # Adding a module
 
-How to add a module that holds a product's data, and how to add a route to a module, new or old. It names where each piece goes and which rules it follows; the rules themselves are in [the standards](../standards/README.md), and how the parts fit together in [architecture.md](../architecture.md).
+How to add a module that holds a product's data, how to add a route to a module, new or old, and how to add a provider that users sign in through. It names where each piece goes and which rules it follows; the rules themselves are in [the standards](../standards/README.md), and how the parts fit together in [architecture.md](../architecture.md).
 
 ## Module or route
 
@@ -80,6 +80,41 @@ To a module that `just new-module` wrote, or to any other:
 4. Write the domain types, the query, the service's function and the handler, as the table above places them, and add the handler to the module's `routes()` with the codes it can answer.
 5. Add the route's fixture to the end of `FIXTURES` in TEST-08's test, whose `row` names the test support's builder of the row the route addresses, if it addresses one by ID, then the tests that prove its behavior.
 6. Run `just prepare`, `just openapi` and `just checks`.
+
+## Adding a sign-in provider
+
+A user signs in through each OAuth provider that `crates/app/src/modules/auth/providers/` holds a file for ([auth spec](../spec/auth.md#signing-in-through-a-provider)). The registry, that directory's `mod.rs`, does what every provider shares, as the standards say: it reads the settings, exchanges the code for a token (RFC 6749), and reads the user's identity at the provider's userinfo endpoint (OpenID Connect). So a provider's file says where the provider is, and replaces only what the provider does differently. Which of two kinds it is decides how much that is:
+
+- **A provider that follows OpenID Connect** is a declaration. It serves a discovery document at `<issuer>/.well-known/openid-configuration`, whose `authorization_endpoint`, `token_endpoint` and `userinfo_endpoint` are the three addresses that the file declares, beside the provider's name and the scopes `openid`, `email` and `profile`.
+  Copy `providers/google.rs`, which also says which addresses Google proves. <!-- part: google -->
+- **A provider of OAuth 2.0 alone** serves no such document, and gives a user's identity its own way. Its file replaces `identify`, the read of the identity, and `token` or `discard` where its token endpoint's answers or its tokens differ from what RFC 6749 says.
+  Copy `providers/github.rs`, which replaces all three. <!-- part: github -->
+
+A provider whose addresses differ between deployments, such as an organization's own, reads them from settings, which its entry names in `settings`.
+The template has one, which a deployment names with no code, and a product that signs in through a second copies `providers/openid_connect.rs` under a key of its own. <!-- part: openid_connect -->
+
+A provider is an optional part (ARCH-07), so each line that exists only for it carries its marker, and `just remove <key>` deletes them all. Its key is in `snake_case`, such as `gitlab`, and its settings start with the key in capitals, such as `GITLAB_`. These are its pieces:
+
+| Piece | File |
+|---|---|
+| What the provider guarantees: its key, its name, its clients' settings, its scopes, its subject, the addresses it proves, and what becomes of its token | A behavior of its own in [the auth spec](../spec/auth.md#behaviors), with the next ID, and its sentences in the spec's section on providers, written first |
+| The provider: its `ENTRY`, with its key and the prefix of each client's settings, and its `Provider`, which declares its name, its addresses and its scopes | `providers/<key>.rs` |
+| Its place in the registry | `providers/mod.rs`: `mod <key>;`, and `<key>::ENTRY` in `REGISTRY` |
+| Its tests, each named by its behavior, against the test support's `Upstream`, which stands in for its endpoints | `crates/app/tests/integration/auth/<key>.rs`, and `mod <key>;` in that directory's `mod.rs` |
+| Each client's three settings, `<KEY>_CLIENT_ID`, `<KEY>_CLIENT_SECRET` and `<KEY>_REDIRECT_URIS`, with their types | `.env.example` |
+| The same settings in the reference deployment: the ID and the redirect uniform resource identifiers (URIs) as settings, and the secret as a file | `deploy/settings.env.example`; `deploy/compose.yaml`, in the API's environment, in its `secrets`, and in the file's `secrets`; `deploy/tasks/apply.sh`, which writes the secret's file empty; and `deploy/server-setup.sh`, which takes the secret's name |
+| The setup's question for the secret, once the client's ID is set | `SECRETS` in `crates/xtask/src/server/questions/files.rs`, and an empty answer for each new setting of `deploy/settings.env.example` in the answers of the test in `questions/mod.rs` |
+| What an operator does at the provider | Its item under [Signing in through a provider](../operations/deploy.md#signing-in-through-a-provider) of deploy.md, and its secret's line in that document's list of what the setup asks for |
+| The part: its two files, the words that no other line may hold, its run, and its line in the run `minimal` | `crates/xtask/parts.yaml`, and its run in the `removable` job of `.github/workflows/ci.yml` |
+
+What the registry asks of a provider's file:
+
+- **`declared`** gives the provider's name, as a client shows it, and its addresses: the authorization endpoint, the token endpoint, and the one that gives a user's identity.
+- **`proves`** says whether the provider is the authority of the address it gives, so a sign-in proves the address. It says no unless the file replaces it, which it does only for the addresses that the provider's documentation calls it the authority for (D140): an address that a provider verified once may have changed owner since.
+- **`subject`** gives the provider's ID for the user, its userinfo endpoint's `sub`. A file replaces it only when the `sub` alone doesn't name one user for good.
+- **`discard`** deletes the provider's token once the identity is read. It does nothing unless the file replaces it, which it does for a provider whose tokens don't lapse on their own (D139).
+
+The tests of the behaviors that every provider shares run through a stand-in provider, so a provider's own tests prove only its own behavior: what it sends, what it reads, and what it proves. Run `just checks`, then `just check-removable <key> minimal`, which proves that the template passes its checks without the provider.
 
 ## What the checks keep about the product
 

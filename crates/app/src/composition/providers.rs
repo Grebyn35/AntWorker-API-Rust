@@ -13,7 +13,7 @@ pub(super) fn sign_in_providers(providers: &auth::Providers) -> Vec<system::Sign
             provider: listed.provider,
             name: listed.name,
             authorization_endpoint: listed.authorization_endpoint,
-            scopes: listed.scopes.to_vec(),
+            scopes: listed.scopes,
             clients: listed
                 .clients
                 .into_iter()

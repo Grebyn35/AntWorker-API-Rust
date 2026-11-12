@@ -149,7 +149,7 @@ async fn auth_074_without_a_name_the_address_s_part_before_its_at_names_the_acco
     let (upstream, api) = standing().await;
     gives(
         &upstream,
-        json!({ "subject": "s", "email": "grace@example.com", "proved": true, "name": "  " }),
+        json!({ "sub": "s", "email": "grace@example.com", "proved": true, "name": "  " }),
     );
 
     let response = sign_in(&api, &grant()).await;
@@ -239,14 +239,14 @@ async fn auth_076_an_address_that_an_account_holds_answers_409_and_writes_nothin
 #[tokio::test]
 async fn auth_076_a_provider_that_gives_no_address_answers_422() {
     let (upstream, api) = standing().await;
-    gives(&upstream, json!({ "subject": "s", "proved": false }));
+    gives(&upstream, json!({ "sub": "s", "proved": false }));
     let response = sign_in(&api, &grant()).await;
     assert_eq!(response.status, 422);
     assert_eq!(response.json()["code"], "auth.provider_address_missing");
 
     gives(
         &upstream,
-        json!({ "subject": "s", "email": "no-at-sign", "proved": false }),
+        json!({ "sub": "s", "email": "no-at-sign", "proved": false }),
     );
     let response = sign_in(&api, &grant()).await;
     assert_eq!(response.status, 422);
@@ -520,9 +520,26 @@ async fn auth_081_startup_refuses_a_client_with_part_of_its_settings_or_a_wrong_
 }
 
 #[tokio::test]
+async fn auth_081_startup_refuses_a_provider_s_setting_without_a_client_and_a_client_without_it() {
+    let alone = Options::default().set("STAND_IN_NAME", "Stand-in");
+    assert_eq!(api::refusal(&alone), "STAND_IN_CLIENT_ID is required");
+
+    let client = Options::default()
+        .set("STAND_IN_CLIENT_ID", "client")
+        .set("STAND_IN_CLIENT_SECRET", "secret")
+        .set("STAND_IN_REDIRECT_URIS", "https://app.example.com/callback");
+    assert_eq!(api::refusal(&client), "STAND_IN_NAME is required");
+
+    // With both, the provider is on, and with neither, it is off.
+    api::configuration(&client.set("STAND_IN_NAME", "Stand-in"));
+    api::configuration(&Options::default());
+}
+
+#[tokio::test]
 async fn auth_081_startup_refuses_a_redirect_uri_that_two_clients_list_or_match() {
     let clients = |first: &str, second: &str| {
         Options::default()
+            .set("STAND_IN_NAME", "Stand-in")
             .set("STAND_IN_CLIENT_ID", "first")
             .set("STAND_IN_CLIENT_SECRET", "secret")
             .set("STAND_IN_REDIRECT_URIS", first)

@@ -102,6 +102,14 @@ parts:
       - providers/google
       - mod google
   # end part: google
+  # part: openid_connect
+  - name: openid_connect
+    paths:
+      - crates/app/src/modules/auth/providers/openid_connect.rs
+      - crates/app/tests/integration/auth/openid_connect.rs
+    words:
+      - openid_connect
+  # end part: openid_connect
 
 # Each run removes its parts from a copy of the repository of its own, then runs `just checks` on
 # the copy: one for each workspace shape (architecture §5), for each OAuth provider, for
@@ -131,6 +139,12 @@ runs:
     parts:
       - google
   # end part: google
+  # part: openid_connect
+  # A product without a sign-in through a provider that the deployment names.
+  - name: openid_connect
+    parts:
+      - openid_connect
+  # end part: openid_connect
   # The fewest parts a fork keeps: every part that one fork can remove, so the lines that several
   # parts mark are removed together too. It keeps users creating workspaces, since every shape
   # keeps a part that creates them.
@@ -146,3 +160,6 @@ runs:
       # part: google
       - google
       # end part: google
+      # part: openid_connect
+      - openid_connect
+      # end part: openid_connect

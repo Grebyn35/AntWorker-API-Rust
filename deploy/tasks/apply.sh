@@ -57,6 +57,11 @@ write_secrets() {
         fi
     done
     # end part: google
+    # part: openid_connect
+    if [ ! -f "$secrets/openid_connect_client_secret" ]; then
+        : > "$secrets/openid_connect_client_secret"
+    fi
+    # end part: openid_connect
     # A file that exists empty stands in for a secret the services didn't use before, so it counts
     # as missing.
     if [ "$telemetry" = self-hosted ] && [ ! -s "$secrets/grafana_admin_password" ]; then

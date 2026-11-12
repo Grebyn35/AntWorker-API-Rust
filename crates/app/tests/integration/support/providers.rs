@@ -16,16 +16,18 @@ pub const VERIFIER: &str = "a-verifier-of-at-least-43-characters.0123456789";
 /// The stand-in's browser redirect URI, and its loopback one.
 pub const REDIRECT_URIS: &str = "https://app.example.com/callback,http://127.0.0.1/callback";
 
-/// The options of an API whose stand-in provider has one client, which answers at `upstream`.
+/// The options of an API whose stand-in provider has one client, and its name, which answers at
+/// `upstream`.
 pub fn stand_in(upstream: &Upstream) -> Options {
     upstream
         .options()
+        .set("STAND_IN_NAME", "Stand-in")
         .set("STAND_IN_CLIENT_ID", "stand-in-client")
         .set("STAND_IN_CLIENT_SECRET", "stand-in-secret")
         .set("STAND_IN_REDIRECT_URIS", REDIRECT_URIS)
 }
 
-/// Makes the stand-in give a token for any code, and `identity` for it.
+/// Makes the stand-in give a token for any code, and the claims `identity` for it.
 pub fn gives(upstream: &Upstream, identity: Value) {
     upstream.set(
         "POST",
@@ -36,9 +38,10 @@ pub fn gives(upstream: &Upstream, identity: Value) {
     upstream.set("GET", "/identity", 200, identity);
 }
 
-/// The identity of `subject`, with `email`, which the provider proves when `proved` says so.
+/// The claims of the user whose `sub` is `subject`, with `email`, which the provider proves when
+/// `proved` says so.
 pub fn identity(subject: &str, email: &str, proved: bool) -> Value {
-    json!({ "subject": subject, "email": email, "proved": proved, "name": "Ada Lovelace" })
+    json!({ "sub": subject, "email": email, "proved": proved, "name": "Ada Lovelace" })
 }
 
 /// The body of a sign-in through the stand-in, with its browser redirect URI.

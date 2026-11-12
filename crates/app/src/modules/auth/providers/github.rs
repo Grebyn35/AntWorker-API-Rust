@@ -7,7 +7,7 @@ use platform::{
 };
 use serde::Deserialize;
 
-use super::{Client, Entry, Identity, Provider, ProviderError};
+use super::{Client, Declared, Entry, Identity, Provider, ProviderError};
 use crate::modules::PRODUCT;
 
 /// GitHub in the registry, with one client, an OAuth app, whose callback URLs list a loopback
@@ -15,20 +15,21 @@ use crate::modules::PRODUCT;
 pub(super) const ENTRY: Entry = Entry {
     key: "github",
     clients: &["GITHUB_"],
-    build: |clients| Box::new(GitHub { clients }),
+    settings: &[],
+    build: |_| Ok(Box::new(GitHub)),
 };
 
-const AUTHORIZATION_ENDPOINT: &str = "https://github.com/login/oauth/authorize";
-const TOKEN_ENDPOINT: &str = "https://github.com/login/oauth/access_token";
 const API: &str = "https://api.github.com";
+
+/// `GET /user` of GitHub's REST API, which gives the user of a token.
+const USER: &str = "https://api.github.com/user";
 
 /// The version of GitHub's REST API that the requests name.
 const API_VERSION: &str = "2022-11-28";
 
-/// GitHub, with the deployment's client.
-struct GitHub {
-    clients: Vec<Client>,
-}
+/// GitHub, which follows OAuth 2.0 and not OpenID Connect, so it reads the identity its own
+/// way, and differs in its token endpoint's refusals and in its tokens, which never lapse.
+struct GitHub;
 
 /// The token endpoint's answer: a token, or, with a success status too, a refusal.
 #[derive(Deserialize)]
@@ -53,28 +54,14 @@ struct Email {
 }
 
 impl Provider for GitHub {
-    fn key(&self) -> &'static str {
-        ENTRY.key
-    }
-
-    fn name(&self) -> &'static str {
-        "GitHub"
-    }
-
-    fn authorization_endpoint(&self) -> &'static str {
-        AUTHORIZATION_ENDPOINT
-    }
-
-    fn scopes(&self) -> &'static [&'static str] {
-        &["user:email"]
-    }
-
-    fn clients(&self) -> &[Client] {
-        &self.clients
-    }
-
-    fn token_endpoint(&self) -> &'static str {
-        TOKEN_ENDPOINT
+    fn declared(&self) -> Declared<'_> {
+        Declared {
+            name: "GitHub",
+            authorization_endpoint: "https://github.com/login/oauth/authorize",
+            token_endpoint: "https://github.com/login/oauth/access_token",
+            identity_endpoint: USER,
+            scopes: &["user:email"],
+        }
     }
 
     /// GitHub answers a refusal with a success status: one of the API's own client is no user's
@@ -134,7 +121,7 @@ async fn read(outbound: &Configured, token: &Secret<String>) -> Result<Identity,
     let unavailable =
         |error: platform::outbound::OutboundError| ProviderError::Unavailable(error.to_string());
     let user = outbound
-        .send(api(Request::get(format!("{API}/user")), token))
+        .send(api(Request::get(USER), token))
         .await
         .map_err(unavailable)?;
     let user: User = readable(&user, "GET /user")?;
