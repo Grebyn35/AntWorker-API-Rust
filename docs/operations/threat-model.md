@@ -29,7 +29,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | Postgres to the bucket | The write-ahead log and the base backups | Encrypted before they leave the server (OPS-17); a key pair that reaches only the bucket ([the bucket](backups.md#the-bucket)) |
 | The collector to an observability backend | Logs, traces and metrics | No personal data or secret in telemetry (OBS-04); TLS (OPS-17) |
 | CI to the registry to the server | The images, and the deploy's tools | Everything pinned (OPS-11); one build whose digest is tested, signed and promoted (OPS-12); advisories block the build (SEC-15); a minimal, unprivileged image (OPS-13) |
-| The operator to the server | Deploys, backups, restores and settings | Secure Shell (SSH) from the developer's machine (OPS-19); secrets in files, one per secret ([the files on the server](deploy.md#the-files-on-the-server)), held so that nothing prints them (SEC-01) |
+| The operator to the server | Deploys, backups, restores, settings, and the removal of a user's lost second factor (AUTH-072, D135) | Secure Shell (SSH) from the developer's machine (OPS-19); secrets in files, one per secret ([the files on the server](deploy.md#the-files-on-the-server)), held so that nothing prints them (SEC-01) |
 
 ## Threats
 

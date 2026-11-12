@@ -1192,6 +1192,26 @@ async fn auth_037_a_recovery_code_resets_in_place_of_the_app_s_code_and_is_told(
 }
 
 #[tokio::test]
+async fn auth_062_a_recovery_code_that_a_reset_used_works_no_more() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let app = second_factors::add_app(&api, &ada).await;
+    ask(&api, &address).await;
+    let first = code_sent(&api, &address).await;
+    let recovery = json!({ "recovery_code": app.recovery_codes[0] });
+    let reset = confirm_with(&api, &address, &first, recovery.clone()).await;
+    assert_eq!(reset.status, 204, "{}", reset.json());
+    ask(&api, &address).await;
+    let second = code_sent(&api, &address).await;
+
+    let again = confirm_with(&api, &address, &second, recovery).await;
+
+    assert_eq!(again.status, 401);
+    assert_eq!(again.json()["code"], "auth.invalid_second_factor");
+}
+
+#[tokio::test]
 async fn auth_061_a_reset_counts_its_second_factor_in_the_bucket_of_the_user_s_completions_once_its_code_matched()
  {
     let api = Api::new().await;

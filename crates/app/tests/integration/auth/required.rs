@@ -326,7 +326,22 @@ async fn auth_071_with_the_setting_on_removing_the_app_answers_422_and_changes_n
             .await
     };
 
+    let before_buckets = users::buckets(&api).await;
     let refused = remove_app().await;
+    // It counted in the bucket that asking for new recovery codes shares (AUTH-064), which that
+    // request then adds nothing to.
+    let counted = users::buckets(&api).await;
+    assert_eq!(counted.len(), before_buckets.len() + 1, "{counted:?}");
+    let codes = api
+        .request(
+            http::Method::POST,
+            "/v1/users/me/second-factors/recovery-codes",
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(codes.status, 200, "{}", codes.json());
+    assert_eq!(users::buckets(&api).await, counted);
     // Before the proof is read, so a session that proved nothing lately is told the same.
     users::authenticated_ago(&api, &ada, 10).await;
     let stale = remove_app().await;
@@ -375,7 +390,7 @@ async fn entries(api: &Api, action: &str) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn auth_072_the_subcommand_removes_the_app_and_ends_the_sessions_and_tells_the_address() {
+async fn auth_072_the_subcommand_removes_the_app_and_the_codes_and_ends_every_session() {
     let api = Api::new().await;
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
@@ -426,6 +441,14 @@ async fn auth_072_the_subcommand_removes_the_app_and_ends_the_sessions_and_tells
         .collect();
     expected.sort();
     assert_eq!(ended, expected);
+    // Each ended session's event goes to the user's streams (AUTH-046).
+    assert_eq!(
+        users::session_events(&api, "session.ended").await,
+        sessions
+            .iter()
+            .map(|session| format!("{ada_id} {session}"))
+            .collect::<Vec<_>>()
+    );
     let mut closed: Vec<String> = signals
         .received()
         .await
@@ -445,18 +468,46 @@ async fn auth_072_the_subcommand_removes_the_app_and_ends_the_sessions_and_tells
         ["0"],
         "an operator's subcommand records no client"
     );
+}
+
+#[tokio::test]
+async fn auth_072_the_removal_tells_the_address_and_the_account_signs_in_with_its_password_alone() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    add_app(&api, &ada).await;
+
+    let removed = remove(&api, &address).await;
+
+    assert_eq!(removed.status.code(), Some(0), "{}", printed(&removed));
     api.run_jobs().await;
     let emails = mailbox::to(&address).await;
     let told = emails
         .iter()
-        .find(|email| {
-            email.subject == "The authenticator app of your AntWorker account was removed"
-        })
+        .find(|email| email.subject == REMOVED)
         .expect("the email that tells the address");
     assert!(told.text.contains("operator removed"), "{}", told.text);
-    // The account signs in with its password alone.
     let signed_in = users::sign_in(&api, &address, PASSWORD).await;
     assert_eq!(signed_in.status, 201, "{}", signed_in.json());
+}
+
+#[tokio::test]
+async fn auth_046_the_operator_s_removal_publishes_session_ended_for_each_session_it_ends() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let other = users::new_session(&api, &address).await;
+    add_app(&api, &ada).await;
+
+    let removed = remove(&api, &address).await;
+
+    assert_eq!(removed.status.code(), Some(0), "{}", printed(&removed));
+    let mut ended = vec![
+        format!("{} {}", ada.user_id, ada.session_id),
+        format!("{} {}", ada.user_id, other.session_id),
+    ];
+    ended.sort();
+    assert_eq!(users::session_events(&api, "session.ended").await, ended);
 }
 
 /// The user of each email job whose payload names `subject`, `-` for no one.

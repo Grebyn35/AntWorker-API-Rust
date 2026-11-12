@@ -92,7 +92,7 @@ fn main() -> ExitCode {
         Command::Seed => {
             let config = settings
                 .server()
-                .and_then(|server| Ok((server, app::Config::read(&settings)?)));
+                .and_then(|server| Ok((server, app::Config::read(&settings)?.for_seed())));
             start(settings.telemetry(), config, seed)
         }
         Command::Health => health(settings.health()),

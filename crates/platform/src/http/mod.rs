@@ -68,7 +68,8 @@ enum Access {
     /// Anyone, without authentication.
     Public,
     /// A caller whom a `Principal` proves, whose account has proved its email address while the
-    /// deployment sends email (AUTH-025).
+    /// deployment sends email (AUTH-025), and has a second factor while the deployment requires
+    /// one (AUTH-070).
     User,
     /// A caller whom a `Principal` proves, whose account may still have to prove its email
     /// address: a route that proving it needs (AUTH-025).

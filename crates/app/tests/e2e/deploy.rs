@@ -975,12 +975,16 @@ async fn ops_19_status_shows_what_serves_and_the_backups_and_logs_show_the_servi
         "{}",
         lossy(&refused)
     );
-    assert_eq!(removal.status.code(), Some(1), "{}", lossy(&removal));
+    // Its refusal is the one failure that ends a subcommand (OPS-03), whose message, which the
+    // test takes from the code's own error, names no address (OBS-04).
+    let written = lossy(&removal);
+    assert_eq!(removal.status.code(), Some(1), "{written}");
+    assert!(written.contains("startup failed"), "{written}");
     assert!(
-        lossy(&removal).contains("No account holds nobody@example.com: nothing changed."),
-        "{}",
-        lossy(&removal)
+        written.contains(&app::RemovalRefused::NoAccount.to_string()),
+        "{written}"
     );
+    assert!(!written.contains("nobody@example.com"), "{written}");
 }
 
 #[tokio::test]

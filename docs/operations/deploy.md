@@ -167,7 +167,7 @@ A user who lost their authenticator app and their recovery codes can't sign in o
 just remove-second-factor production ada@example.com
 ```
 
-removes the account's app and its recovery codes, ends every session of the account, records the removal in the account's own log, and tells the address ([auth spec](../spec/auth.md#second-factors), D135). The account then signs in with its password alone, and its user sets up an app again, at once when `SECOND_FACTOR_REQUIRED` is true. It runs the API's subcommand `remove-second-factor` with the image of the color that serves, in a service of `compose.yaml` of its own, one for each color, which passes it only the database's and the email's settings (OPS-02), so it needs a replica running, and it exits 1, changing nothing, when no account holds the address or the account has no app.
+removes the account's app and its recovery codes, ends every session of the account, records the removal in the account's own log, and tells the address ([auth spec](../spec/auth.md#second-factors), D135). The account then signs in with its password alone, and its user sets up an app again, at once when `SECOND_FACTOR_REQUIRED` is true. It runs the API's subcommand `remove-second-factor` with the image of the color that serves, in a service of `compose.yaml` of its own, one for each color, which passes it only the telemetry's, the database's and the email's settings (OPS-02), so it needs a replica running, and it exits 1, changing nothing, when no account holds the address or the account has no app.
 
 ## Scaling
 

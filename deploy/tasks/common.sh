@@ -280,8 +280,9 @@ read_settings() {
     esac
 }
 
-# Fails unless the connections of both colors' replicas and of migrate fit within what Postgres
-# allows the roles that aren't superusers, as docs/operations/deploy.md's Scaling says (OPS-18).
+# Fails unless the connections of both colors' replicas, of migrate and of an operator's subcommand
+# fit within what Postgres allows the roles that aren't superusers, as docs/operations/deploy.md's
+# Scaling says (OPS-18).
 check_connections() {
     needed=$((2 * replicas * (pool + 1) + 2))
     allowed=$((connections - 3))

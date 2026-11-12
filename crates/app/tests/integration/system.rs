@@ -386,3 +386,42 @@ async fn system_005_seed_has_olivia_invite_adam_and_mia_who_accept_and_ian_whose
     );
 }
 // end part: invitations
+
+#[tokio::test]
+async fn system_007_seed_builds_its_data_while_the_deployment_requires_a_second_factor() {
+    let database = TestDatabase::migrated().await;
+
+    let output = database
+        .run_api(
+            &["seed"],
+            &[
+                ("ENVIRONMENT", "development"),
+                ("SECOND_FACTOR_REQUIRED", "true"),
+            ],
+        )
+        .await;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert_eq!(output.status.code(), Some(0), "{stdout}");
+    let password = stdout
+        .lines()
+        .find_map(|line| line.split_once("with the password "))
+        .map(|(_, password)| password.trim_end_matches(':').to_owned())
+        .unwrap();
+    assert_eq!(
+        database
+            .owner_reads("SELECT name FROM workspaces ORDER BY name")
+            .await,
+        ["Acme", "Side Project"]
+    );
+    // Each account sets an app up at its first sign-in, as one that registered before the
+    // deployment turned the requirement on does (AUTH-070).
+    let api = Api::on(
+        database,
+        Options::default().set("SECOND_FACTOR_REQUIRED", true),
+    )
+    .await;
+    let signed_in = users::sign_in(&api, "owner@example.com", &password).await;
+    assert_eq!(signed_in.status, 201, "{}", signed_in.json());
+    assert_eq!(signed_in.json()["second_factor_setup_required"], true);
+}

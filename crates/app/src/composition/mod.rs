@@ -78,6 +78,15 @@ const INVITATION_BUCKET: &str = "invitation";
 // end part: invitations
 
 impl Config {
+    /// The settings that `seed` builds the API with: these, but with `SECOND_FACTOR_REQUIRED`
+    /// off, whatever the deployment's, so its accounts, which have no authenticator app, create
+    /// their workspaces through the routes (SYSTEM-007, D138).
+    #[must_use]
+    pub fn for_seed(mut self) -> Self {
+        self.auth.second_factor_required = false;
+        self
+    }
+
     /// The modules' settings from `settings`.
     pub fn read<E, F>(settings: &Settings<E, F>) -> Result<Self, ConfigError>
     where
