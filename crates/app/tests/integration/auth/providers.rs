@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     api::{self, Options, Response},
-    second_factors,
+    execute_on, queries_wait_on_locks, second_factors,
     upstream::Upstream,
     users::{self, SignedIn},
 };
@@ -332,6 +332,24 @@ async fn auth_077_invalid_grant_answers_401_and_any_other_refusal_or_failure_503
 }
 
 #[tokio::test]
+async fn auth_077_a_provider_that_doesn_t_answer_answers_503_at_the_exchange_s_deadline() {
+    let (upstream, api) = standing().await;
+    upstream.hang("POST", "/token");
+    let clock = api.clock();
+    let call = {
+        let api = api.clone();
+        tokio::spawn(async move { sign_in(&api, &grant()).await })
+    };
+
+    clock.sleeping(std::time::Duration::from_secs(8)).await;
+    clock.advance(std::time::Duration::from_secs(8));
+
+    let response = call.await.unwrap();
+    assert_eq!(response.status, 503);
+    assert_eq!(response.json()["code"], "auth.provider_unavailable");
+}
+
+#[tokio::test]
 async fn auth_077_an_unknown_provider_answers_404_and_an_unconfigured_one_503() {
     let api = Api::new().await;
 
@@ -353,7 +371,7 @@ async fn auth_077_a_malformed_code_verifier_or_redirect_uri_answers_400_before_t
         "provider": "stand_in",
         "code": "a code with spaces",
         "code_verifier": "too-short",
-        "redirect_uri": "https://app.example.com/callback",
+        "redirect_uri": "https://evil.example/callback",
     });
     let response = api
         .post_raw("/v1/sessions/provider", &malformed)
@@ -367,7 +385,19 @@ async fn auth_077_a_malformed_code_verifier_or_redirect_uri_answers_400_before_t
         .iter()
         .map(|error| error["field"].as_str().unwrap())
         .collect();
-    assert_eq!(fields, ["/code", "/code_verifier"]);
+    assert_eq!(
+        fields,
+        ["/code", "/code_verifier", "/redirect_uri"],
+        "API-10"
+    );
+
+    for code in [String::new(), "c".repeat(2_049)] {
+        let mut body = grant();
+        body["code"] = json!(code);
+        let response = api.post_raw("/v1/sessions/provider", &body).send().await;
+        assert_eq!(response.status, 400);
+        assert_eq!(response.json()["errors"][0]["field"], "/code");
+    }
 
     let unlisted = json!({
         "provider": "stand_in",
@@ -528,7 +558,7 @@ async fn auth_081_startup_refuses_a_client_with_part_of_its_settings_or_a_wrong_
         "http://app.example.com/callback",
         "https://app.example.com/callback#fragment",
         "app://callback",
-        "https://app.example.com/callback,https://app.example.com/callback",
+        "http://127.0.0.2/callback",
     ] {
         let refusal = api::refusal(&configured(wrong));
         assert!(
@@ -536,6 +566,39 @@ async fn auth_081_startup_refuses_a_client_with_part_of_its_settings_or_a_wrong_
             "{wrong}: {refusal}"
         );
     }
+}
+
+#[tokio::test]
+async fn auth_081_startup_refuses_a_redirect_uri_that_two_clients_list_or_match() {
+    let clients = |first: &str, second: &str| {
+        Options::default()
+            .set("STAND_IN_CLIENT_ID", "first")
+            .set("STAND_IN_CLIENT_SECRET", "secret")
+            .set("STAND_IN_REDIRECT_URIS", first)
+            .set("STAND_IN_SECOND_CLIENT_ID", "second")
+            .set("STAND_IN_SECOND_CLIENT_SECRET", "secret")
+            .set("STAND_IN_SECOND_REDIRECT_URIS", second)
+    };
+    for (first, second) in [
+        (
+            "https://app.example.com/callback",
+            "https://app.example.com/callback",
+        ),
+        (
+            "http://127.0.0.1/callback",
+            "http://127.0.0.1:5000/callback",
+        ),
+    ] {
+        let refusal = api::refusal(&clients(first, second));
+        assert!(
+            refusal.starts_with("STAND_IN_SECOND_REDIRECT_URIS must be"),
+            "{first} and {second}: {refusal}"
+        );
+    }
+    api::configuration(&clients(
+        "http://127.0.0.1:4000/callback",
+        "http://127.0.0.1:5000/callback",
+    ));
 }
 
 #[tokio::test]
@@ -587,4 +650,150 @@ async fn auth_025_an_account_that_must_verify_re_authenticates_through_its_provi
 
     assert_eq!(response.status, 200, "{}", response.json());
     assert_eq!(response.json()["email_verification_required"], true);
+}
+
+#[tokio::test]
+async fn auth_029_a_registration_through_a_provider_that_sends_a_code_counts_in_its_bucket() {
+    let (upstream, api) = standing().await;
+    // A registration with a password counts once in the address's bucket of 3.
+    users::register_unverified(&api, "ada@example.com").await;
+    gives(&upstream, identity("subject-1", "ada@example.com", false));
+
+    for _ in 0..2 {
+        assert_eq!(sign_in(&api, &grant()).await.status, 409);
+    }
+    let limited = sign_in(&api, &grant()).await;
+
+    assert_eq!(limited.status, 429);
+    assert_eq!(limited.json()["code"], "request.rate_limited");
+}
+
+#[tokio::test]
+async fn auth_029_a_linked_account_s_sign_ins_count_in_no_registration_bucket() {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", false));
+
+    for _ in 0..5 {
+        assert_eq!(sign_in(&api, &grant()).await.status, 201);
+    }
+}
+
+#[tokio::test]
+async fn auth_046_a_provider_s_registration_and_sign_in_publish_session_created() {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let first = signed_in(&api).await;
+    let second = signed_in(&api).await;
+
+    let mut expected = vec![
+        format!("{} {}", first.user_id, first.session_id),
+        format!("{} {}", second.user_id, second.session_id),
+    ];
+    expected.sort();
+    assert_eq!(
+        users::session_events(&api, "session.created").await,
+        expected
+    );
+}
+
+#[tokio::test]
+async fn auth_080_a_code_the_provider_refuses_answers_403_since_the_session_still_signs_in() {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let ada = signed_in(&api).await;
+    upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));
+
+    let response = reauthenticate(&api, &ada, json!({})).await;
+
+    assert_eq!(response.status, 403);
+    assert_eq!(response.json()["code"], "auth.provider_proof_rejected");
+}
+
+#[tokio::test]
+async fn auth_080_an_account_without_an_identity_of_the_provider_answers_403() {
+    let (upstream, api) = standing().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+
+    let response = reauthenticate(&api, &ada, json!({})).await;
+
+    assert_eq!(response.status, 403);
+    assert_eq!(response.json()["code"], "auth.wrong_identity");
+}
+
+#[tokio::test]
+async fn auth_080_re_authenticating_counts_in_the_bucket_of_the_user_s_checks() {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let ada = signed_in(&api).await;
+    gives(&upstream, identity("subject-2", "ada@example.com", true));
+
+    for _ in 0..5 {
+        assert_eq!(reauthenticate(&api, &ada, json!({})).await.status, 403);
+    }
+    let limited = reauthenticate(&api, &ada, json!({})).await;
+
+    assert_eq!(limited.status, 429, "AUTH-022's 5 checks in 15 minutes");
+}
+
+#[tokio::test]
+async fn auth_080_a_session_that_another_request_ended_meanwhile_answers_401() {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let ada = signed_in(&api).await;
+    let db = api.database();
+    api.get("/v1/users/me").bearer(&ada.access).send().await;
+    let checks = users::added_bucket(&api, reauthenticate(&api, &ada, json!({}))).await;
+    // The re-authentication waits at its bucket while another request ends its session.
+    let mut ender = db
+        .holding(&format!(
+            "SELECT 1 FROM rate_limit_buckets WHERE id = '{checks}' FOR UPDATE"
+        ))
+        .await;
+
+    let again = tokio::spawn({
+        let api = api.clone();
+        let ada = SignedIn {
+            user_id: ada.user_id.clone(),
+            session_id: ada.session_id.clone(),
+            access: ada.access.clone(),
+            refresh: ada.refresh.clone(),
+        };
+        async move {
+            let response = reauthenticate(&api, &ada, json!({})).await;
+            (response.status, response.json())
+        }
+    });
+    queries_wait_on_locks(db, 1).await;
+    execute_on(
+        &mut ender,
+        &format!("DELETE FROM sessions WHERE id = '{}'", ada.session_id),
+    )
+    .await;
+    execute_on(&mut ender, "COMMIT").await;
+    let (status, body) = again.await.unwrap();
+
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+}
+
+#[tokio::test]
+async fn accounts_013_a_deletion_erases_the_user_s_provider_identities() {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let ada = signed_in(&api).await;
+
+    let deleted = api
+        .request(http::Method::DELETE, "/v1/users/me")
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(deleted.status, 204, "{}", deleted.json());
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT count(*)::text FROM provider_identities")
+            .await,
+        ["0"]
+    );
 }

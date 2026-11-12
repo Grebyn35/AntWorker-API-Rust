@@ -10,10 +10,11 @@ use serde::de::DeserializeOwned;
 use crate::{config::Environment, types::Secret};
 
 /// How long the configured client waits for a connection (the auth spec's "The requests").
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// How long the configured client waits for a whole answer, the connection's time included.
-const TIMEOUT: Duration = Duration::from_secs(30);
+/// How long the configured client waits for a whole answer, the connection's time included,
+/// within the 10 seconds of a route's timeout (PLATFORM-042).
+const TIMEOUT: Duration = Duration::from_secs(8);
 
 /// The most bytes of an answer's body that the configured client reads.
 const MAX_BODY_BYTES: usize = 1 << 20;
@@ -35,8 +36,9 @@ pub struct Configured {
     test_origin: Option<url::Url>,
 }
 
-/// A request that the configured client sends.
-#[derive(Debug)]
+/// A request that the configured client sends. Its `Debug` shows its method and its URL's host
+/// alone: its body may hold a client's secret or a code, and its credentials are secrets
+/// (SEC-01).
 pub struct Request {
     method: reqwest::Method,
     url: String,
@@ -115,13 +117,35 @@ impl Request {
     }
 }
 
-/// An answer that the configured client read whole.
-#[derive(Debug)]
+impl std::fmt::Debug for Request {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let host = url::Url::parse(&self.url)
+            .ok()
+            .and_then(|url| url.host_str().map(str::to_owned))
+            .unwrap_or_default();
+        f.debug_struct("Request")
+            .field("method", &self.method)
+            .field("host", &host)
+            .finish_non_exhaustive()
+    }
+}
+
+/// An answer that the configured client read whole. Its `Debug` shows its status and its body's
+/// length alone, since the body may hold a token (SEC-01).
 pub struct Response {
     /// Its status code.
     pub status: u16,
     /// Its body, of at most a mebibyte.
     pub body: Vec<u8>,
+}
+
+impl std::fmt::Debug for Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Response")
+            .field("status", &self.status)
+            .field("body_bytes", &self.body.len())
+            .finish()
+    }
 }
 
 impl Response {

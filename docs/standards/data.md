@@ -122,6 +122,7 @@ Tenancy is enforced by the application, and every query on user or workspace dat
   - when inviting, by the invitee's email <!-- part: invitations -->
   - in the setup subcommand, by its owner's email
   - in the operator's removal of a second factor, by the address it is given (AUTH-072)
+  - in a sign-in through a provider, of the user whose provider identity holds the provider's subject, by the provider and the subject (AUTH-073)
   - for a signed URL, of its session by the ID that its signature proves the API gave (PLATFORM-080) <!-- part: files -->
 - Rows addressed to a user by an email address are filtered by the caller's email.
 
@@ -154,7 +155,7 @@ Transactions use `READ COMMITTED`, but for the job that builds an export's archi
 - Check: `review`.
 
 ### DATA-21 No external calls inside a transaction
-A transaction never waits on HTTP or the Simple Mail Transfer Protocol (SMTP): external effects are jobs (D1).
+A transaction never waits on HTTP or the Simple Mail Transfer Protocol (SMTP): external effects that follow a change are jobs (D1). A request that must call another system to learn what it changes calls it before its unit of work opens, as a sign-in through a provider exchanges its code, and deletes a token that doesn't lapse, before it reads an account (AUTH-077, AUTH-079).
 Nor does it wait on object storage: uploads write the object before the transaction. <!-- part: files -->
 - Why: a slow dependency can't hold database locks.
 - Check: `review`.
@@ -164,7 +165,7 @@ Audit entries (`audit::record`), events (`uow.publish_to_user` and `uow.publish_
 
 What is audited:
 - Every change that a request, an enqueued job or an operator's subcommand makes to data a module owns.
-- Each security failure: those D6 lists, a failed sign-in, a wrong current password, a reused refresh token and a refused authorization, a wrong verification code, a guess at what proves an account's address (AUTH-032), resets its password (AUTH-038) or changes its address (AUTH-052), and a wrong code of a second factor (AUTH-037, AUTH-056, AUTH-060, AUTH-065). A failed sign-in commits its audit entry and then answers 401 (ARCH-11, PLATFORM-008). Refusals are reported to the `SecurityEventSink` (PLATFORM-010).
+- Each security failure: those D6 lists, a failed sign-in, a wrong current password, a reused refresh token and a refused authorization, a wrong verification code, a guess at what proves an account's address (AUTH-032), resets its password (AUTH-038) or changes its address (AUTH-052), a wrong code of a second factor (AUTH-037, AUTH-056, AUTH-060, AUTH-065), and a re-authentication through a provider whose account isn't the caller's (AUTH-080). A failed sign-in commits its audit entry and then answers 401 (ARCH-11, PLATFORM-008). Refusals are reported to the `SecurityEventSink` (PLATFORM-010).
 - Reads that a module spec names as audited, such as the download of an export (D31).
 
 Platform bookkeeping (rate-limit buckets, idempotency records, job state) and scheduled maintenance (retention, sweeps) aren't audited. Metrics count them instead. Deleting an account records only the entries that the logs of the workspaces the user shared keep, since their own log goes with the account (ACCOUNTS-014, D31).

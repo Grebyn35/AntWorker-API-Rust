@@ -39,7 +39,7 @@ const STAND_IN: &[Entry] = &[];
 
 /// A provider of the registry.
 struct Entry {
-    /// Its key, which a sign-in's `provider` names, such as `google`.
+    /// Its key, which a sign-in's `provider` names.
     id: &'static str,
     /// The prefix of each of its clients' settings, such as `STAND_IN_` for `STAND_IN_CLIENT_ID`,
     /// `STAND_IN_CLIENT_SECRET` and `STAND_IN_REDIRECT_URIS` (AUTH-081).
@@ -48,36 +48,13 @@ struct Entry {
     build: fn(Vec<Client>) -> Box<dyn Provider>,
 }
 
-/// What the registry reads the providers' settings through.
-pub(super) trait Read {
-    /// The setting `name`, or `None` when it is unset.
-    fn text(&self, name: &str) -> Result<Option<String>, ConfigError>;
-
-    /// The secret setting `name`, or `None` when it is unset (SEC-01).
-    fn secret(&self, name: &str) -> Result<Option<Secret<String>>, ConfigError>;
-}
-
-impl<E, F> Read for Settings<E, F>
-where
-    E: Fn(&str) -> Option<std::ffi::OsString>,
-    F: Fn(&std::path::Path) -> std::io::Result<String>,
-{
-    fn text(&self, name: &str) -> Result<Option<String>, ConfigError> {
-        self.text_setting(name)
-    }
-
-    fn secret(&self, name: &str) -> Result<Option<Secret<String>>, ConfigError> {
-        self.secret_setting(name)
-    }
-}
-
 /// An OAuth provider: its endpoints, the scopes it asks for, its clients, and how it reads a
 /// user's identity (ARCH-13: one implementation per provider).
 pub(super) trait Provider: Send + Sync {
-    /// Its ID, such as `google`.
+    /// Its key, which a sign-in's `provider` names.
     fn id(&self) -> &'static str;
 
-    /// Its name, as a client shows it, such as `Google`.
+    /// Its name, as a client shows it.
     fn name(&self) -> &'static str;
 
     /// The URL of its authorization endpoint, which a client opens.
@@ -158,13 +135,32 @@ fn refusal(answer: &Response) -> ProviderError {
     match answer.json::<Refusal>() {
         Some(refusal) if refusal.error == "invalid_grant" => ProviderError::Rejected,
         Some(refusal) => ProviderError::Unavailable(format!(
-            "the token endpoint refused the API's request: {}",
-            refusal.error
+            "the token endpoint refused the API's request with {}, and status {}",
+            error_code(&refusal.error),
+            answer.status
         )),
         None => {
             ProviderError::Unavailable(format!("the token endpoint answered {}", answer.status))
         }
     }
+}
+
+/// The code of a token endpoint's refusal when it is one that RFC 6749 defines (§5.2), or
+/// `another code`, so the logs name a refusal, such as `invalid_client` for a client's secret set
+/// wrong, but nothing else that the provider sent (AUTH-077).
+fn error_code(error: &str) -> &'static str {
+    const CODES: [&str; 6] = [
+        "invalid_request",
+        "invalid_client",
+        "invalid_grant",
+        "unauthorized_client",
+        "unsupported_grant_type",
+        "invalid_scope",
+    ];
+    CODES
+        .into_iter()
+        .find(|code| *code == error)
+        .unwrap_or("another code")
 }
 
 /// A client that the deployment registered with a provider: its ID, its secret, and the
@@ -186,8 +182,8 @@ pub(super) struct Exchange<'a> {
     pub(super) redirect_uri: &'a str,
 }
 
-/// A user's identity at a provider (the auth spec's "The identity").
-#[derive(Debug)]
+/// A user's identity at a provider (the auth spec's "The identity"), personal data that no
+/// `Debug` shows (OBS-04).
 pub(crate) struct Identity {
     /// The provider's ID for the user, which it never gives another user.
     pub(crate) subject: String,
@@ -213,9 +209,9 @@ pub(super) enum ProviderError {
 /// A provider that the deployment configures, as the capabilities endpoint's
 /// `sign_in_providers` lists it (AUTH-081).
 pub(crate) struct Listed {
-    /// Its key, which a sign-in's `provider` names, such as `google`.
+    /// Its key, which a sign-in's `provider` names.
     pub(crate) provider: &'static str,
-    /// Its name, such as `Google`.
+    /// Its name, as a client shows it.
     pub(crate) name: &'static str,
     /// The URL of its authorization endpoint.
     pub(crate) authorization_endpoint: &'static str,
@@ -242,18 +238,13 @@ pub(crate) struct Providers {
 }
 
 impl Providers {
-    /// The providers that the deployment's `settings` configure (AUTH-081).
+    /// The providers that the deployment's `settings` configure, once no redirect URI that a
+    /// request may name is matched by two clients' lists (AUTH-078, AUTH-081).
     pub(crate) fn from_settings<E, F>(settings: &Settings<E, F>) -> Result<Self, ConfigError>
     where
         E: Fn(&str) -> Option<std::ffi::OsString>,
         F: Fn(&std::path::Path) -> std::io::Result<String>,
     {
-        Self::configure(settings)
-    }
-
-    /// The providers that `settings` configure, once each redirect URI is found in one client
-    /// alone (AUTH-081).
-    fn configure(settings: &dyn Read) -> Result<Self, ConfigError> {
         let mut on: Vec<Box<dyn Provider>> = Vec::new();
         for entry in REGISTRY.iter().chain(STAND_IN) {
             let mut clients = Vec::new();
@@ -264,14 +255,17 @@ impl Providers {
                 on.push((entry.build)(clients));
             }
         }
-        let mut seen = std::collections::HashSet::new();
-        for provider in &on {
-            for client in provider.clients() {
-                if client.redirect_uris.iter().any(|uri| !seen.insert(uri)) {
+        let clients: Vec<&Client> = on.iter().flat_map(|provider| provider.clients()).collect();
+        for (index, client) in clients.iter().enumerate() {
+            let before = clients[..index]
+                .iter()
+                .flat_map(|earlier| &earlier.redirect_uris);
+            for earlier in before {
+                if client.redirect_uris.iter().any(|uri| overlap(uri, earlier)) {
                     return Err(ConfigError::invalid(
                         &client.setting,
-                        "redirect URIs that no other client lists, so each names one provider \
-                         (AUTH-081)",
+                        "redirect URIs that no other client lists, nor matches as AUTH-078 \
+                         matches them, so each names one provider (AUTH-081)",
                     ));
                 }
             }
@@ -338,30 +332,53 @@ fn matches(listed: &str, uri: &str) -> bool {
     if listed == uri {
         return true;
     }
-    let (Ok(listed), Ok(mut uri)) = (url::Url::parse(listed), url::Url::parse(uri)) else {
+    let (Ok(parsed), Ok(mut uri)) = (url::Url::parse(listed), url::Url::parse(uri)) else {
         return false;
     };
-    let loopback = matches!(listed.host(), Some(url::Host::Ipv4(address)) if address.is_loopback())
-        || matches!(listed.host(), Some(url::Host::Ipv6(address)) if address.is_loopback());
-    if listed.scheme() != "http" || !loopback || listed.port().is_some() || uri.port().is_none() {
+    let any_port = parsed.scheme() == "http" && is_loopback_ip(parsed.host()) && !has_port(listed);
+    if !any_port || uri.port_or_known_default().is_none() || uri.set_port(None).is_err() {
         return false;
     }
-    if uri.set_port(None).is_err() {
-        return false;
-    }
-    listed == uri
+    parsed == uri
+}
+
+/// Whether two listed redirect URIs name one URI that a request may give: they are the same, or
+/// one matches the other as [`matches`] matches a request's (AUTH-081).
+fn overlap(first: &str, second: &str) -> bool {
+    matches(first, second) || matches(second, first)
+}
+
+/// Whether `host` is `127.0.0.1` or `[::1]`, the loopback addresses that RFC 8252 names.
+fn is_loopback_ip(host: Option<url::Host<&str>>) -> bool {
+    matches!(host, Some(url::Host::Ipv4(address)) if address == std::net::Ipv4Addr::LOCALHOST)
+        || matches!(host, Some(url::Host::Ipv6(address)) if address == std::net::Ipv6Addr::LOCALHOST)
+}
+
+/// Whether the URI `uri`, as written, names a port, which parsing drops when it is the scheme's
+/// default, such as `:80` for `http`.
+fn has_port(uri: &str) -> bool {
+    let authority = uri
+        .split_once("://")
+        .map_or("", |(_, rest)| rest.split(['/', '?']).next().unwrap_or(""));
+    authority
+        .rsplit_once(':')
+        .is_some_and(|(host, port)| !host.ends_with(':') && !port.is_empty() && !port.contains(']'))
 }
 
 /// A client of a provider from the settings `<prefix>CLIENT_ID`, `<prefix>CLIENT_SECRET` and
 /// `<prefix>REDIRECT_URIS`, such as `STAND_IN_CLIENT_ID`, or `None` when none of them is set; the
 /// deployment sets all three or none (AUTH-081).
-fn client(settings: &dyn Read, prefix: &str) -> Result<Option<Client>, ConfigError> {
+fn client<E, F>(settings: &Settings<E, F>, prefix: &str) -> Result<Option<Client>, ConfigError>
+where
+    E: Fn(&str) -> Option<std::ffi::OsString>,
+    F: Fn(&std::path::Path) -> std::io::Result<String>,
+{
     let id_name = format!("{prefix}CLIENT_ID");
     let secret_name = format!("{prefix}CLIENT_SECRET");
     let uris_name = format!("{prefix}REDIRECT_URIS");
-    let id = settings.text(&id_name)?;
-    let secret = settings.secret(&secret_name)?;
-    let uris = settings.text(&uris_name)?;
+    let id = settings.text_setting(&id_name)?;
+    let secret = settings.secret_setting(&secret_name)?;
+    let uris = settings.text_setting(&uris_name)?;
     let (id, secret, uris) = match (id, secret, uris) {
         (None, None, None) => return Ok(None),
         (Some(id), Some(secret), Some(uris)) => (id, secret, uris),
@@ -396,12 +413,8 @@ const URIS_EXPECTED: &str = "redirect URIs separated by commas, each https, or h
 /// no fragment (AUTH-081).
 fn redirect_uri(uri: &str) -> Option<String> {
     let parsed = url::Url::parse(uri).ok()?;
-    let loopback = match parsed.host() {
-        Some(url::Host::Domain(name)) => name == "localhost",
-        Some(url::Host::Ipv4(address)) => address.is_loopback(),
-        Some(url::Host::Ipv6(address)) => address.is_loopback(),
-        None => false,
-    };
+    let loopback = matches!(parsed.host(), Some(url::Host::Domain("localhost")))
+        || is_loopback_ip(parsed.host());
     let allowed = match parsed.scheme() {
         "https" => parsed.host().is_some(),
         "http" => loopback,
@@ -447,6 +460,39 @@ mod tests {
     }
 
     #[test]
+    fn auth_078_only_127_0_0_1_and_ipv6_s_loopback_match_any_port() {
+        assert!(!matches(
+            "http://127.0.0.2/callback",
+            "http://127.0.0.2:4000/callback"
+        ));
+        assert!(matches(
+            "http://127.0.0.1/callback",
+            "http://127.0.0.1:80/callback"
+        ));
+        assert!(!matches(
+            "http://127.0.0.1:80/callback",
+            "http://127.0.0.1:81/callback"
+        ));
+    }
+
+    #[test]
+    fn auth_081_two_listed_redirect_uris_overlap_when_one_matches_the_other() {
+        assert!(overlap(
+            "http://127.0.0.1/callback",
+            "http://127.0.0.1:5000/callback"
+        ));
+        assert!(overlap(
+            "https://app.example.com/a",
+            "https://app.example.com/a"
+        ));
+        assert!(!overlap(
+            "http://127.0.0.1:4000/callback",
+            "http://127.0.0.1:5000/callback"
+        ));
+        assert!(!overlap("http://127.0.0.1/a", "http://127.0.0.1/b"));
+    }
+
+    #[test]
     fn auth_081_a_redirect_uri_is_https_or_http_to_a_loopback_host_without_a_fragment() {
         assert!(redirect_uri("https://app.example.com/callback").is_some());
         assert!(redirect_uri("http://127.0.0.1/callback").is_some());
@@ -455,5 +501,6 @@ mod tests {
         assert!(redirect_uri("http://app.example.com/callback").is_none());
         assert!(redirect_uri("https://app.example.com/callback#top").is_none());
         assert!(redirect_uri("app://callback").is_none());
+        assert!(redirect_uri("http://127.0.0.2/callback").is_none());
     }
 }

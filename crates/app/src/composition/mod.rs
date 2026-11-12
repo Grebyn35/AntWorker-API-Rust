@@ -226,6 +226,7 @@ pub async fn compose(
                 mail: mail.clone(),
                 providers: providers.clone(),
                 outbound,
+                clock: resources.clock.clone(),
             },
         )
         .await?,

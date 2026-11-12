@@ -334,7 +334,7 @@ pub(crate) struct Session {
     pub(crate) device_id: Option<DeviceId>,
     /// The name the client gave its device, if any (AUTH-042).
     pub(crate) device_name: Option<DeviceName>,
-    /// The provider whose sign-in started the session, such as `google`, or null for a password
+    /// The provider whose sign-in started the session, by its key, or null for a password
     /// (AUTH-073).
     pub(crate) provider: Option<String>,
     /// When the session began.

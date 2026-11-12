@@ -175,9 +175,9 @@ tests:
   # A provider answers the first exchanges, then none from the fifth minute on.
   - interval: 1m
     input_series:
-      - series: 'auth_provider_exchanges_total{job="api", instance="a", auth_provider="google", auth_outcome="succeeded"}'
+      - series: 'auth_provider_exchanges_total{job="api", instance="a", auth_provider="first", auth_outcome="succeeded"}'
         values: "1 2 3 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4"
-      - series: 'auth_provider_exchanges_total{job="api", instance="a", auth_provider="google", auth_outcome="unavailable"}'
+      - series: 'auth_provider_exchanges_total{job="api", instance="a", auth_provider="first", auth_outcome="unavailable"}'
         values: "0 0 0 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26"
     alert_rule_test:
       - eval_time: 10m
@@ -188,7 +188,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: page
-              auth_provider: google
+              auth_provider: first
             exp_annotations:
               summary: An OAuth provider gave no identity for 15 minutes, while some sign-ins through it went unanswered.
               runbook: docs/operations/runbooks.md#signinproviderunavailable
@@ -196,9 +196,9 @@ tests:
   # A provider that refuses some codes still answers.
   - interval: 1m
     input_series:
-      - series: 'auth_provider_exchanges_total{job="api", instance="a", auth_provider="github", auth_outcome="rejected"}'
+      - series: 'auth_provider_exchanges_total{job="api", instance="a", auth_provider="second", auth_outcome="rejected"}'
         values: "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25"
-      - series: 'auth_provider_exchanges_total{job="api", instance="a", auth_provider="github", auth_outcome="unavailable"}'
+      - series: 'auth_provider_exchanges_total{job="api", instance="a", auth_provider="second", auth_outcome="unavailable"}'
         values: "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25"
     alert_rule_test:
       - eval_time: 25m

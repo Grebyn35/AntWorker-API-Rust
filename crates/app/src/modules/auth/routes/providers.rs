@@ -32,20 +32,22 @@ const VERIFIER_CHARS: std::ops::RangeInclusive<usize> = 43..=128;
 /// caller whose account must still prove its address, to change the address (AUTH-025,
 /// AUTH-080).
 pub(super) fn routes() -> Routes<Arc<Auth>> {
-    let exchange: [&dyn platform::errors::ErrorCode; 4] = [
+    let exchange: [&dyn platform::errors::ErrorCode; 3] = [
         &AuthError::ProviderNotFound,
-        &AuthError::ProviderCodeRejected,
         &AuthError::ProviderUnavailable(platform::errors::Internal::new("the provider")),
         &RequestError::FeatureDisabled,
     ];
     let mut sign_in = exchange.to_vec();
     sign_in.extend([
-        &AuthError::EmailInUse as &dyn platform::errors::ErrorCode,
+        &AuthError::ProviderCodeRejected as &dyn platform::errors::ErrorCode,
+        &AuthError::EmailInUse,
         &AuthError::ProviderAddressMissing,
+        &LimitError::RateLimited,
     ]);
     let mut reauthentication = exchange.to_vec();
     reauthentication.extend([
-        &AuthError::WrongIdentity as &dyn platform::errors::ErrorCode,
+        &AuthError::ProviderProofRejected as &dyn platform::errors::ErrorCode,
+        &AuthError::WrongIdentity,
         &AuthError::SecondFactorRequired,
         &AuthError::WrongSecondFactor,
         &LimitError::RateLimited,
@@ -59,7 +61,7 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ProviderSignInRequest {
-    /// The provider, such as `google`, as `sign_in_providers` lists it.
+    /// The provider's key, as `sign_in_providers` lists it.
     #[schema(min_length = 1, max_length = 64, pattern = "^[a-z][a-z0-9_]*$")]
     provider: String,
     /// The code that the provider's authorization gave the redirect URI.
@@ -92,7 +94,7 @@ pub(crate) struct ProviderSignInRequest {
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ProviderReauthenticationRequest {
-    /// The provider, such as `google`, as `sign_in_providers` lists it.
+    /// The provider's key, as `sign_in_providers` lists it.
     #[schema(min_length = 1, max_length = 64, pattern = "^[a-z][a-z0-9_]*$")]
     provider: String,
     /// The code that the provider's authorization gave the redirect URI.
@@ -115,13 +117,14 @@ pub(crate) struct ProviderReauthenticationRequest {
     recovery_code: Option<String>,
 }
 
-/// The grant of `code`, `verifier` and `redirect_uri`, or `None` when the code or the verifier
-/// is malformed, which `errors` then holds (AUTH-077).
+/// The grant of `code`, `verifier` and `redirect_uri` at `provider`, or `None` when the code or
+/// the verifier is malformed, or the provider's clients don't list the redirect URI, which
+/// `errors` then holds, so one 400 names every field (AUTH-077, AUTH-078, API-10).
 fn grant(
     errors: &mut FieldErrors,
-    code: String,
-    verifier: String,
-    redirect_uri: String,
+    auth: &Auth,
+    provider: &str,
+    (code, verifier, redirect_uri): (String, String, String),
 ) -> Option<Grant> {
     let code_valid = !code.is_empty()
         && code.chars().count() <= CODE_MAX_CHARS
@@ -149,11 +152,24 @@ fn grant(
             )
         }),
     );
-    code.zip(verifier).map(|(code, verifier)| Grant {
-        code: Secret::new(code),
-        verifier: Secret::new(verifier),
-        redirect_uri,
-    })
+    let listed = errors.check(
+        "/redirect_uri",
+        auth.lists(provider, &redirect_uri)
+            .then_some(())
+            .ok_or_else(|| {
+                Invalid::new(
+                    "invalid_redirect_uri",
+                    "The redirect URI is none that the provider's clients list.",
+                )
+            }),
+    );
+    code.zip(verifier)
+        .zip(listed)
+        .map(|((code, verifier), ())| Grant {
+            code: Secret::new(code),
+            verifier: Secret::new(verifier),
+            redirect_uri,
+        })
 }
 
 /// Signs in through a provider, or registers through it when no account is linked to the user's
@@ -171,6 +187,7 @@ fn grant(
 )]
 async fn sign_in_through(
     State(auth): State<Arc<Auth>>,
+    limits: RateLimits,
     client: Client,
     cookies: Cookies,
     headers: HeaderMap,
@@ -179,9 +196,9 @@ async fn sign_in_through(
     let mut errors = FieldErrors::new();
     let grant = grant(
         &mut errors,
-        request.code,
-        request.code_verifier,
-        request.redirect_uri,
+        &auth,
+        &request.provider,
+        (request.code, request.code_verifier, request.redirect_uri),
     );
     let device = device(
         &mut errors,
@@ -202,7 +219,7 @@ async fn sign_in_through(
             .map(|(name, token)| (name.to_owned(), Secret::new(token.to_owned())))
             .collect(),
     };
-    match auth.sign_in_through(&client, input).await? {
+    match auth.sign_in_through(&limits, &client, input).await? {
         SignedIn::Session(started) => {
             let (session, tokens, device) = *started;
             Ok(created(session, &tokens, &device, delivery(&headers))?)
@@ -235,9 +252,9 @@ async fn reauthenticate_through(
     let mut errors = FieldErrors::new();
     let grant = grant(
         &mut errors,
-        request.code,
-        request.code_verifier,
-        request.redirect_uri,
+        &auth,
+        &request.provider,
+        (request.code, request.code_verifier, request.redirect_uri),
     );
     let proof = second_factors::factor_proof(
         &mut errors,

@@ -14,6 +14,7 @@ use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use platform::{
     authn::{AuditScope, Principal},
     blocking::Workers,
+    clock::SharedClock,
     db::{Database, UnitOfWork},
     encryption::Keyring,
     errors::{Internal, RequestError},
@@ -143,6 +144,8 @@ pub(crate) struct Auth {
     providers: Arc<Providers>,
     /// The client of the providers' endpoints (SEC-10).
     outbound: Configured,
+    /// The clock that the exchange's deadline waits on (CODE-06).
+    clock: SharedClock,
 }
 
 /// What `auth` reaches beyond the database: the deployment's email, and its OAuth providers,
@@ -154,6 +157,8 @@ pub(crate) struct Outside {
     pub(crate) providers: Arc<Providers>,
     /// The client of the providers' endpoints.
     pub(crate) outbound: Configured,
+    /// The clock that an exchange's deadline waits on (CODE-06).
+    pub(crate) clock: SharedClock,
 }
 
 impl Auth {
@@ -172,6 +177,7 @@ impl Auth {
             mail,
             providers,
             outbound,
+            clock,
         } = outside;
         let Keys {
             hmac: key,
@@ -195,6 +201,7 @@ impl Auth {
             keyring,
             providers,
             outbound,
+            clock,
         })
     }
 

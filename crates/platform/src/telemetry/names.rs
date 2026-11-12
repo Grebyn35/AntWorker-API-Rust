@@ -87,7 +87,7 @@ pub const RATE_LIMIT_BUCKET: &str = "rate_limit.bucket";
 /// How a sign-in ended, such as `succeeded` or `invalid_credentials` (AUTH-004, AUTH-005), or
 /// an exchange of an OAuth provider's code, such as `rejected` (AUTH-077).
 pub const AUTH_OUTCOME: &str = "auth.outcome";
-/// The OAuth provider of an exchange, such as `google` (AUTH-077).
+/// The OAuth provider of an exchange, by its key (AUTH-077).
 pub const AUTH_PROVIDER: &str = "auth.provider";
 // part: files
 /// How an upload that reached the check of its bytes ended, such as `stored` or

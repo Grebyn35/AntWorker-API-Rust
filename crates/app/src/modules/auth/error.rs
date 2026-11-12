@@ -94,6 +94,10 @@ pub(crate) enum AuthError {
     /// The provider gave no address for a subject that no account is linked to (AUTH-076).
     #[error("the provider gave no address")]
     ProviderAddressMissing,
+    /// The provider refused the code of a signed-in caller's re-authentication, whose session
+    /// still authenticates them (AUTH-080).
+    #[error("the provider refused the re-authentication's code")]
+    ProviderProofRejected,
     /// The subject of the provider's sign-in isn't the caller's (AUTH-080).
     #[error("the provider's account isn't the caller's")]
     WrongIdentity,
@@ -156,6 +160,7 @@ impl ErrorCode for AuthError {
             Self::ProviderCodeRejected => "auth.provider_code_rejected",
             Self::ProviderUnavailable(_) => "auth.provider_unavailable",
             Self::ProviderAddressMissing => "auth.provider_address_missing",
+            Self::ProviderProofRejected => "auth.provider_proof_rejected",
             Self::WrongIdentity => "auth.wrong_identity",
             Self::Limit(error) => error.code(),
             Self::Request(error) => error.code(),
@@ -190,6 +195,7 @@ impl ErrorCode for AuthError {
             Self::ProviderCodeRejected => "Provider's code rejected",
             Self::ProviderUnavailable(_) => "Provider unavailable",
             Self::ProviderAddressMissing => "Provider's address missing",
+            Self::ProviderProofRejected => "Provider's proof rejected",
             Self::WrongIdentity => "Wrong identity",
             Self::Limit(error) => error.title(),
             Self::Request(error) => error.title(),
@@ -212,7 +218,8 @@ impl ErrorCode for AuthError {
             | Self::ReauthenticationRequired
             | Self::SecondFactorRequired
             | Self::WrongSecondFactor
-            | Self::WrongIdentity => Category::Forbidden,
+            | Self::WrongIdentity
+            | Self::ProviderProofRejected => Category::Forbidden,
             Self::OwnsSharedWorkspace
             | Self::AccountChanged
             | Self::EmailAlreadyVerified
@@ -283,6 +290,11 @@ impl ErrorCode for AuthError {
             Self::ProviderAddressMissing => Some(
                 "The provider gave no email address for the account: give it one there, or \
                  register with a password."
+                    .to_owned(),
+            ),
+            Self::ProviderProofRejected => Some(
+                "The provider refused the code: re-authenticate through it again, since a code \
+                 works once, for a few minutes."
                     .to_owned(),
             ),
             Self::WrongIdentity => Some(

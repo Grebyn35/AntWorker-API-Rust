@@ -2,6 +2,8 @@
 
 use serde_json::{Value, json};
 
+use platform::telemetry::testing;
+
 use crate::support::{Api, api::Response, upstream::Upstream};
 
 /// A verifier of a PKCE challenge, of the 43 characters that RFC 7636 asks at least.
@@ -130,6 +132,19 @@ async fn auth_083_a_deletion_that_fails_refuses_nothing() {
     let response = sign_in(&api).await;
 
     assert_eq!(response.status, 201, "{}", response.json());
+    let logged = testing::all_logged()
+        .into_iter()
+        .filter(|line| line["error.type"] == "provider_token_not_deleted")
+        .count();
+    assert!(logged >= 1, "ERR-11's line");
+    let counted: f64 = testing::recorded("platform.errors_ignored")
+        .into_iter()
+        .filter(|point| {
+            point.labels.get("error.type").map(String::as_str) == Some("provider_token_not_deleted")
+        })
+        .map(|point| point.value)
+        .sum();
+    assert!(counted >= 1.0, "ERR-11's count");
 }
 
 #[tokio::test]

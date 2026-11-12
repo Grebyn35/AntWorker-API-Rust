@@ -42,18 +42,27 @@ pub(crate) struct ProviderSignIn {
     pub(crate) device_cookies: Vec<(String, Secret<String>)>,
 }
 
+/// How long an exchange at a provider may take, every request to it included, so that a
+/// provider that hangs answers 503 `auth.provider_unavailable`, and is counted, within its
+/// route's 10 seconds (AUTH-077, PLATFORM-042).
+const EXCHANGE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(8);
+
 /// The longest a name of a new account is, cut from its address (AUTH-074).
 const NAME_MAX_CHARS: usize = 100;
 
 impl Auth {
     /// Signs in through a provider, registering when no account is linked to the provider's
-    /// subject and none holds its address (AUTH-073 to AUTH-076).
+    /// subject and none holds its address, once a registration that sends the address a code has
+    /// counted in the address's bucket (AUTH-073 to AUTH-076, AUTH-029).
     pub(crate) async fn sign_in_through(
         &self,
+        limits: &RateLimits,
         client: &Client,
         input: ProviderSignIn,
     ) -> Result<SignedIn, AuthError> {
         let (provider, identity) = self.identify(&input.provider, &input.grant).await?;
+        self.count_registration(limits, client, provider, &identity)
+            .await?;
         let mut uow = self.database.begin(client).await?;
         if let Some(user_id) =
             repo::user_of_subject(&mut uow, provider.id(), &identity.subject).await?
@@ -66,6 +75,34 @@ impl Auth {
                 .await;
         }
         self.register_through(uow, provider, identity, input).await
+    }
+
+    /// Counts a sign-in that registers, and sends a code to the address that the provider doesn't
+    /// prove, in that address's bucket of registrations, as a registration with a password counts
+    /// (AUTH-029). Whether it registers is read first, in a short transaction that writes nothing,
+    /// since it decides whether the bucket counts the request, so a linked account's sign-ins
+    /// never fill it (ARCH-11).
+    async fn count_registration(
+        &self,
+        limits: &RateLimits,
+        client: &Client,
+        provider: &dyn Provider,
+        identity: &Identity,
+    ) -> Result<(), AuthError> {
+        let Some(email) =
+            proved_address(identity).filter(|_| self.mail.is_on() && !identity.proved)
+        else {
+            return Ok(());
+        };
+        let mut read = self.database.begin(client).await?;
+        let linked = repo::user_of_subject(&mut read, provider.id(), &identity.subject).await?;
+        drop(read);
+        if linked.is_none() {
+            limits
+                .check(buckets::REGISTRATION_EMAIL, email.as_str().as_bytes())
+                .await?;
+        }
+        Ok(())
     }
 
     /// Signs in to `user`'s account, whose provider identity holds the subject, as a sign-in with
@@ -196,7 +233,12 @@ impl Auth {
         limits
             .check(buckets::PASSWORD_CHECK, user_id.uuid().as_bytes())
             .await?;
-        let (provider, identity) = self.identify(provider, &grant).await?;
+        // A refused code proves nothing, and the session still authenticates its requests, so it
+        // answers 403 rather than 401, as a wrong password does (Re-authentication).
+        let (provider, identity) = match self.identify(provider, &grant).await {
+            Err(AuthError::ProviderCodeRejected) => return Err(AuthError::ProviderProofRejected),
+            identified => identified?,
+        };
         let mut uow = self.database.begin(client).await?;
         take_turn(&mut uow, principal).await?;
         let subject = repo::provider_subject(&mut uow, user_id, provider.id()).await?;
@@ -238,6 +280,16 @@ impl Auth {
         Ok(session)
     }
 
+    /// Whether the clients of the provider that `provider` names list `redirect_uri`, as a
+    /// request's conversion asks, so its 400 names every field; a provider that the deployment
+    /// doesn't configure lists any, since its refusal is the service's (AUTH-077, AUTH-078).
+    pub(crate) fn lists(&self, provider: &str, redirect_uri: &str) -> bool {
+        match self.providers.find(provider) {
+            Found::On(provider) => providers::client_for(provider, redirect_uri).is_some(),
+            Found::Off | Found::Unknown => true,
+        }
+    }
+
     /// The provider that `id` names, and the identity that `grant`'s code gives there, which its
     /// exchange reads before any unit of work opens, and counts in `auth.provider_exchanges`
     /// (AUTH-077 to AUTH-079).
@@ -264,7 +316,15 @@ impl Auth {
             verifier: &grant.verifier,
             redirect_uri: &grant.redirect_uri,
         };
-        let identified = providers::identify(provider, &self.outbound, exchange).await;
+        let exchanged = providers::identify(provider, &self.outbound, exchange);
+        let deadline = self.clock.sleep(EXCHANGE_DEADLINE);
+        let identified = tokio::select! {
+            identified = exchanged => identified,
+            () = deadline => Err(ProviderError::Unavailable(format!(
+                "no identity within {} seconds",
+                EXCHANGE_DEADLINE.as_secs()
+            ))),
+        };
         let outcome = match &identified {
             Ok(_) => metrics::Exchange::Succeeded,
             Err(ProviderError::Rejected) => metrics::Exchange::Rejected,

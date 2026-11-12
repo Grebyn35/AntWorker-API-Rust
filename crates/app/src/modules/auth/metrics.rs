@@ -17,7 +17,8 @@ static PROVIDER_EXCHANGES: Counter<2> = Counter::new(
     "{exchange}",
     "Exchanges of an OAuth provider's code for the user's identity, by provider and by how each \
      ended: succeeded, rejected, when the provider refused the code, or unavailable, when it \
-     failed, answered what the API can't read, or didn't answer in time (AUTH-077).",
+     refused the API's own client, failed, answered what the API can't read, or didn't answer in \
+     time (AUTH-077).",
     [names::AUTH_PROVIDER, names::AUTH_OUTCOME],
 );
 

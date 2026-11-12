@@ -13,10 +13,11 @@ use serde::Deserialize;
 
 use super::{Client, Entry, Identity, Provider, ProviderError};
 
-/// The stand-in in the registry, whose settings start with `STAND_IN_`.
+/// The stand-in in the registry, with two clients, whose settings start with `STAND_IN_` and
+/// `STAND_IN_SECOND_`.
 pub(super) const ENTRY: Entry = Entry {
     id: "stand_in",
-    clients: &["STAND_IN_"],
+    clients: &["STAND_IN_", "STAND_IN_SECOND_"],
     build: |clients| Box::new(StandIn { clients }),
 };
 

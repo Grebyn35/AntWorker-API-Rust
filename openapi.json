@@ -1249,7 +1249,7 @@
                   "description": "The session's ID."
                 },
                 "provider": {
-                  "description": "The provider whose sign-in started it, such as `google`, or null for a password\n(AUTH-016).",
+                  "description": "The provider whose sign-in started it, by its key, or null for a password\n(AUTH-016).",
                   "type": [
                     "string",
                     "null"
@@ -1933,7 +1933,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "The provider, such as `google`, as `sign_in_providers` lists it.",
+            "description": "The provider's key, as `sign_in_providers` lists it.",
             "maxLength": 64,
             "minLength": 1,
             "pattern": "^[a-z][a-z0-9_]*$",
@@ -2025,7 +2025,7 @@
             ]
           },
           "provider": {
-            "description": "The provider, such as `google`, as `sign_in_providers` lists it.",
+            "description": "The provider's key, as `sign_in_providers` lists it.",
             "maxLength": 64,
             "minLength": 1,
             "pattern": "^[a-z][a-z0-9_]*$",
@@ -2382,7 +2382,7 @@
             "description": "The session's ID."
           },
           "provider": {
-            "description": "The provider whose sign-in started the session, such as `google`, or null for a password\n(AUTH-073).",
+            "description": "The provider whose sign-in started the session, by its key, or null for a password\n(AUTH-073).",
             "type": [
               "string",
               "null"
@@ -2575,7 +2575,7 @@
             "description": "The session's ID."
           },
           "provider": {
-            "description": "The provider whose sign-in started it, such as `google`, or null for a password\n(AUTH-016).",
+            "description": "The provider whose sign-in started it, by its key, or null for a password\n(AUTH-016).",
             "type": [
               "string",
               "null"
@@ -2655,7 +2655,7 @@
             "description": "The session's ID."
           },
           "provider": {
-            "description": "The provider whose sign-in started the session, such as `google`, or null for a password\n(AUTH-073).",
+            "description": "The provider whose sign-in started the session, by its key, or null for a password\n(AUTH-073).",
             "type": [
               "string",
               "null"
@@ -2764,11 +2764,11 @@
             "type": "array"
           },
           "name": {
-            "description": "Its name, such as `Google`.",
+            "description": "Its name, as a client shows it.",
             "type": "string"
           },
           "provider": {
-            "description": "Its key, which a sign-in's `provider` names, such as `google`.",
+            "description": "Its key, which a sign-in's `provider` names.",
             "type": "string"
           },
           "scopes": {
@@ -6423,6 +6423,7 @@
                       "properties": {
                         "code": {
                           "enum": [
+                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -6434,7 +6435,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -18675,8 +18676,7 @@
                         "code": {
                           "enum": [
                             "request.unauthenticated",
-                            "request.access_token_expired",
-                            "auth.provider_code_rejected"
+                            "request.access_token_expired"
                           ],
                           "type": "string"
                         }
@@ -18687,7 +18687,7 @@
                 }
               }
             },
-            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired. `auth.provider_code_rejected`: Provider's code rejected.",
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
@@ -18716,6 +18716,7 @@
                         "code": {
                           "enum": [
                             "request.origin_not_allowed",
+                            "auth.provider_proof_rejected",
                             "auth.wrong_identity",
                             "auth.second_factor_required",
                             "auth.wrong_second_factor"
@@ -18729,7 +18730,7 @@
                 }
               }
             },
-            "description": "`request.origin_not_allowed`: Origin not allowed. `auth.wrong_identity`: Wrong identity. `auth.second_factor_required`: Second factor required. `auth.wrong_second_factor`: Wrong second factor.",
+            "description": "`request.origin_not_allowed`: Origin not allowed. `auth.provider_proof_rejected`: Provider's proof rejected. `auth.wrong_identity`: Wrong identity. `auth.second_factor_required`: Second factor required. `auth.wrong_second_factor`: Wrong second factor.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",

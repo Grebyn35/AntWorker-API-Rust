@@ -23,9 +23,9 @@ pub(crate) struct Capabilities {
 /// client builds the authorization request from (AUTH-081).
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct SignInProvider {
-    /// Its key, which a sign-in's `provider` names, such as `google`.
+    /// Its key, which a sign-in's `provider` names.
     pub(crate) provider: &'static str,
-    /// Its name, such as `Google`.
+    /// Its name, as a client shows it.
     pub(crate) name: &'static str,
     /// The URL of its authorization endpoint.
     pub(crate) authorization_endpoint: &'static str,

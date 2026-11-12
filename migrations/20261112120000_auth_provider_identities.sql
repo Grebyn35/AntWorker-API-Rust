@@ -1,6 +1,5 @@
--- A user's accounts at OAuth providers, through which they sign in (AUTH-073): the provider's ID,
--- such as google, and the subject, the provider's ID for the user, which it never gives another
--- user. A provider's account signs in to one user, and a user has one account at each provider. A
+-- A user's accounts at OAuth providers, through which they sign in (AUTH-073): the provider's key,
+-- and the subject, the provider's ID for the user, which it never gives another user. A provider's account signs in to one user, and a user has one account at each provider. A
 -- row is never edited: linking inserts one, and unlinking deletes it, so app may not update one
 -- (DATA-19).
 CREATE TABLE provider_identities (

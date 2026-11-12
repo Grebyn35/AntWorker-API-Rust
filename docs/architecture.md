@@ -18,7 +18,7 @@ flowchart LR
   api --> clamd[ClamAV's daemon<br/>malware scanning]
   %% end part: files
   api --> smtp[SMTP]
-  api --> oauth[OAuth providers<br/>Google, GitHub]
+  api --> oauth[OAuth providers]
   api --> otel[OpenTelemetry<br/>Collector]
   otel --> prom[Prometheus] & loki[Loki] & tempo[Tempo]
   prom & loki & tempo --> grafana[Grafana]
@@ -88,7 +88,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `signed_urls` | The signed URLs of downloads: a path, the session it acts for and when it stops working, signed with a hash-based message authentication code (HMAC) under `HMAC_KEY`, which a client that can't send a credential with a request, such as an `<img>`, sends in its place. | D61, D113 <!-- part: files --> |
 | `scanner` | The client of ClamAV's daemon, which scans an upload's bytes for malware. | D26, D63, D107 <!-- part: files --> |
 | `mail` | Sending email: `Mail` enqueues a module's rendered email in a unit of work, and the job `platform.send_email` sends it through the SMTP transport, which the email settings configure, with a client span for each send. An email that holds a secret, such as a verification code, is sent at once by the module's own job that makes the secret, so no row keeps it. Each module's emails, and their templates, live in the module (§5). | D1, D9, D128 |
-| `outbound` | The only HTTP clients: one for URLs from configuration, and one for URLs supplied by third parties, with protection against server-side request forgery (SSRF) (SEC-10). | D26 |
+| `outbound` | The only HTTP clients: one for URLs from configuration or from the code, such as an OAuth provider's endpoints, and one for URLs supplied by third parties, with protection against server-side request forgery (SSRF) (SEC-10). | D26 |
 | `types` | Shared domain types: `Secret`, `EmailAddress`, `Timestamp`, a row's `Version`, the ID types, and `one_line`, the normalization of one line of text a user writes, which a module's domain types of such text, such as a name, build on. | D7, D25 |
 | `clock`, `random` | The injectable clock and the operating system's secure random source (CODE-06). | D23, D26 |
 | `encryption` | The key ring of `ENCRYPTION_KEYS`, which encrypts with AES-256-GCM each secret that the database holds and the API reads back, such as an authenticator app's, bound to its row (SEC-02). | D14, D26 |
@@ -372,6 +372,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | Telemetry names | `opentelemetry-semantic-conventions` | The conventions' names, checked at compile time (OBS-05) |
 | Email | `lettre` over SMTP, with `rustls` on `ring`, and `askama` templates; Mailpit catches development email (D28) | Async SMTP with pooled connections and the system's certificates (SEC-16, D38); templates checked against their values at compile time, with HTML escaped ([platform spec](spec/platform.md#sending-email)) |
 | Telemetry export | `opentelemetry-otlp` over HTTP with protobuf bodies, through a blocking `reqwest` client on `rustls` with its ring provider, and `opentelemetry-appender-tracing` for log records | The protocol's default transport; the client runs on a thread of its own, so an export never needs the async runtime (D10, D19) |
+| Outbound HTTP | The configured client of `platform::outbound`: an async `reqwest` client on `rustls` with its ring provider, trusting the operating system's certificates | The client that the telemetry exporters' and the bucket's already bring, so no other HTTP stack joins the build (SEC-10, SEC-16) |
 | Observability stack | the OpenTelemetry Collector's contrib distribution, Prometheus, Loki, Tempo, Grafana and Alertmanager | D19's stack, configured once under `deploy/observability/` for development and production |
 | Auto-reload | watchexec | `just dev` restarts the API when its code changes, on Windows, macOS and Linux (D28) |
 | Encryption of secrets | `aes-gcm`, for the AES-256-GCM that SEC-02 requires | The RustCrypto implementation, in pure Rust, which SEC-16 names |
@@ -401,7 +402,6 @@ A part's tools and libraries are chosen when it is built, as "Docs for unbuilt p
 
 | Concern | Starting point | Chosen in |
 |---|---|---|
-| Outbound HTTP | `reqwest` with `rustls` | the first outbound caller (5) |
 
 The decided parts of the stack are decisions with recorded reasons: OpenTelemetry and the Grafana stack (D10, D19), GitHub Actions and `just` (D21), and Postgres as the only shared state (D20).
 
