@@ -228,7 +228,9 @@ impl TestDatabase {
 
     /// Starts `serve` from the API binary, as an operator would, on a free port of 127.0.0.1,
     /// with its database settings pointing at this database and `env` added to its
-    /// environment.
+    /// environment. It returns once the server listens, which it does before it builds its
+    /// services, which read the database, so a test that cuts the database off waits for the
+    /// readiness probe first (TEST-06).
     pub async fn serve(&self, env: &[(&str, &str)]) -> Server {
         let mut command = self.api_command(&["serve"], env);
         command.env("LISTEN_ADDR", "127.0.0.1:0");
