@@ -235,6 +235,46 @@
         "x": 0,
         "y": 32
       }
+    },
+    {
+      "type": "timeseries",
+      "title": "How do exchanges of providers' codes end?",
+      "description": "Exchanges of an OAuth provider's code for the user's identity in the last 5 minutes, by provider and by how each ended: succeeded, rejected, when the provider refused the code, its verifier or its redirect URI, or unavailable, when it failed, refused the API's own client, answered what the API can't read, or didn't answer in time (AUTH-077). A run of unavailable alone is the provider's outage, or a client secret that the deployment set wrong, which SignInProviderUnavailable reports.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (auth_provider, auth_outcome) (increase(auth_provider_exchanges_total[5m]))",
+          "legendFormat": "{{auth_provider}} {{auth_outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 6,
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      }
     }
   ]
 }

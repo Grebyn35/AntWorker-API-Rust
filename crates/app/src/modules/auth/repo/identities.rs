@@ -1,5 +1,6 @@
-//! The SQL of `identities` (ARCH-10): a user's ways of signing in, of which a password identity
-//! holds its password's hash (AUTH-014).
+//! The SQL of `identities` and `provider_identities` (ARCH-10): a user's ways of signing in, of
+//! which a password identity holds its password's hash (AUTH-014), and a provider identity the
+//! provider's ID for the user (AUTH-073).
 
 use platform::{db::UnitOfWork, errors::Internal, types::UserId};
 
@@ -96,7 +97,8 @@ pub(in crate::modules::auth) async fn set_password(
     .await?)
 }
 
-/// Deletes every identity of `user_id`, whose account the unit of work deletes (ACCOUNTS-013).
+/// Deletes every identity of `user_id`, their password's, then their providers', whose account
+/// the unit of work deletes (ACCOUNTS-013).
 pub(in crate::modules::auth) async fn delete_identities(
     uow: &mut UnitOfWork,
     user_id: UserId,
@@ -104,5 +106,63 @@ pub(in crate::modules::auth) async fn delete_identities(
     sqlx::query!("DELETE FROM identities WHERE user_id = $1", user_id.uuid())
         .execute(uow.executor())
         .await?;
+    sqlx::query!(
+        "DELETE FROM provider_identities WHERE user_id = $1",
+        user_id.uuid()
+    )
+    .execute(uow.executor())
+    .await?;
     Ok(())
+}
+
+/// The user whose provider identity at `provider` holds `subject`, found through its unique
+/// index, before the request knows any user, as a sign-in with a password finds its account by its
+/// address (AUTH-073).
+pub(in crate::modules::auth) async fn user_of_subject(
+    uow: &mut UnitOfWork,
+    provider: &str,
+    subject: &str,
+) -> Result<Option<UserId>, Internal> {
+    Ok(sqlx::query_scalar!(
+        "SELECT user_id FROM provider_identities WHERE provider = $1 AND subject = $2",
+        provider,
+        subject,
+    )
+    .fetch_optional(uow.executor())
+    .await?
+    .map(UserId::from_uuid))
+}
+
+/// Inserts `user_id`'s provider identity at `provider`, which holds `subject`, for a registration
+/// through the provider (AUTH-074).
+pub(in crate::modules::auth) async fn insert_provider_identity(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+    provider: &str,
+    subject: &str,
+) -> Result<(), Internal> {
+    sqlx::query!(
+        "INSERT INTO provider_identities (user_id, provider, subject) VALUES ($1, $2, $3)",
+        user_id.uuid(),
+        provider,
+        subject,
+    )
+    .execute(uow.executor())
+    .await?;
+    Ok(())
+}
+
+/// The subject of `user_id`'s provider identity at `provider`, if they have one (AUTH-080).
+pub(in crate::modules::auth) async fn provider_subject(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+    provider: &str,
+) -> Result<Option<String>, Internal> {
+    Ok(sqlx::query_scalar!(
+        "SELECT subject FROM provider_identities WHERE user_id = $1 AND provider = $2",
+        user_id.uuid(),
+        provider,
+    )
+    .fetch_optional(uow.executor())
+    .await?)
 }

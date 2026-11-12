@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE sessions SET\n            access_token_hash = $4,\n            refresh_token_hash = $5,\n            previous_refresh_token_hash = $3,\n            access_token_expires_at = least(now() + make_interval(secs => $6::float8), expires_at),\n            refresh_token_expires_at = least(now() + make_interval(secs => $7::float8), expires_at)\n        WHERE id = $2 AND user_id = $1 AND refresh_token_hash = $3\n        RETURNING id, user_id, device_id, device_name, created_at, access_token_expires_at,\n            refresh_token_expires_at, expires_at, authenticated_at",
+  "query": "UPDATE sessions SET\n            access_token_hash = $4,\n            refresh_token_hash = $5,\n            previous_refresh_token_hash = $3,\n            access_token_expires_at = least(now() + make_interval(secs => $6::float8), expires_at),\n            refresh_token_expires_at = least(now() + make_interval(secs => $7::float8), expires_at)\n        WHERE id = $2 AND user_id = $1 AND refresh_token_hash = $3\n        RETURNING id, user_id, device_id, device_name, created_at, access_token_expires_at,\n            refresh_token_expires_at, expires_at, authenticated_at, provider",
   "describe": {
     "columns": [
       {
@@ -101,6 +101,17 @@
             "name": "authenticated_at"
           }
         }
+      },
+      {
+        "ordinal": 9,
+        "name": "provider",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "provider"
+          }
+        }
       }
     ],
     "parameters": {
@@ -123,8 +134,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "b348caf08ad6415eed7d97295bbe8c07080f9f6a9ee1d666214e8848558651ba"
+  "hash": "b7cd88e4e4b88188b236eb6d5bdf02c8ee3bdad040fed176d1f913742a4a844a"
 }

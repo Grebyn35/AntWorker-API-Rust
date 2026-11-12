@@ -59,6 +59,20 @@ x-api: &api
     SIGN_IN_WINDOW_SECONDS: ${SIGN_IN_WINDOW_SECONDS:-900}
     DEVICE_TOKEN_SECONDS: ${DEVICE_TOKEN_SECONDS:-31536000}
     SECOND_FACTOR_REQUIRED: ${SECOND_FACTOR_REQUIRED:-false}
+    # A client of a provider, unset as each is empty, counts as off (AUTH-081).
+    # part: github
+    GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+    GITHUB_CLIENT_SECRET_FILE: /run/secrets/github_client_secret
+    GITHUB_REDIRECT_URIS: ${GITHUB_REDIRECT_URIS:-}
+    # end part: github
+    # part: google
+    GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    GOOGLE_CLIENT_SECRET_FILE: /run/secrets/google_client_secret
+    GOOGLE_REDIRECT_URIS: ${GOOGLE_REDIRECT_URIS:-}
+    GOOGLE_DESKTOP_CLIENT_ID: ${GOOGLE_DESKTOP_CLIENT_ID:-}
+    GOOGLE_DESKTOP_CLIENT_SECRET_FILE: /run/secrets/google_desktop_client_secret
+    GOOGLE_DESKTOP_REDIRECT_URIS: ${GOOGLE_DESKTOP_REDIRECT_URIS:-}
+    # end part: google
     EMAIL: ${EMAIL:?whether the API sends email, smtp or off, in settings.env}
     SMTP_HOST: ${SMTP_HOST:-}
     SMTP_SECURITY: ${SMTP_SECURITY:-}
@@ -96,6 +110,13 @@ x-api: &api
     - hmac_key
     - encryption_keys
     - smtp_password
+    # part: github
+    - github_client_secret
+    # end part: github
+    # part: google
+    - google_client_secret
+    - google_desktop_client_secret
+    # end part: google
     # part: files
     - files_s3_key
     - files_s3_key_secret
@@ -501,8 +522,9 @@ volumes:
   grafana:
 
 # The secret files, in secrets/ of the deployment's directory. deploy.sh writes the URLs of the
-# bundled Postgres, the API's HMAC key and Grafana's password, and an empty SMTP password when the
-# mail server takes none; `just server-setup` writes the others (docs/operations/deploy.md).
+# bundled Postgres, the API's HMAC key and Grafana's password, and an empty file for each secret
+# that the settings leave unused, such as the SMTP password when the mail server takes none;
+# `just server-setup` writes the others (docs/operations/deploy.md).
 secrets:
   database_url:
     file: ./secrets/database_url
@@ -512,6 +534,16 @@ secrets:
     file: ./secrets/encryption_keys
   smtp_password:
     file: ./secrets/smtp_password
+  # part: github
+  github_client_secret:
+    file: ./secrets/github_client_secret
+  # end part: github
+  # part: google
+  google_client_secret:
+    file: ./secrets/google_client_secret
+  google_desktop_client_secret:
+    file: ./secrets/google_desktop_client_secret
+  # end part: google
   database_owner_url:
     file: ./secrets/database_owner_url
   database_admin_url:

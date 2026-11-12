@@ -21,6 +21,7 @@ use platform::{
     jobs::Jobs,
     lifecycle::Readiness,
     mail::Mail,
+    outbound::Configured,
     personal_data::{self, PersonalData},
     rate_limit::{Bucket, RateLimiter},
     telemetry::Service,
@@ -54,6 +55,8 @@ pub static MIGRATIONS: Migrator = sqlx::migrate!("../../migrations");
 /// The settings of the modules, which `serve` reads before its async runtime starts (OPS-01).
 pub struct Config {
     auth: auth::Settings,
+    /// The OAuth providers that the deployment configures (AUTH-081).
+    providers: auth::Providers,
     // part: files
     files: files::Settings,
     // end part: files
@@ -98,6 +101,7 @@ impl Config {
         let sign_in_window = settings.duration("SIGN_IN_WINDOW_SECONDS", 900, 1..=day)?;
         let refresh = settings.duration("REFRESH_TOKEN_SECONDS", 30 * day, 3_600..=365 * day)?;
         Ok(Self {
+            providers: auth::Providers::from_settings(settings)?,
             auth: auth::Settings {
                 lifetimes: auth::Lifetimes {
                     // No access token outlives its refresh token (AUTH-007).
@@ -209,6 +213,8 @@ pub async fn compose(
     let mut jobs = Jobs::new(database, server.job_dead_letter_retention);
     mail.register(&mut jobs).map_err(Internal::new)?;
     let contracts = contracts(mail);
+    let providers = Arc::new(config.providers);
+    let outbound = Configured::new(server.environment, &server.outbound).map_err(Internal::new)?;
     let auth = Arc::new(
         auth::Auth::new(
             database.clone(),
@@ -216,7 +222,11 @@ pub async fn compose(
             auth::Keys::of(server),
             workers.clone(),
             accounts::Deletion::new(contracts.clone()),
-            mail.clone(),
+            auth::Outside {
+                mail: mail.clone(),
+                providers: providers.clone(),
+                outbound,
+            },
         )
         .await?,
     );
@@ -257,7 +267,10 @@ pub async fn compose(
         &verifier,
     );
     let states = States {
-        features: system::Features::new(mail.is_on()),
+        capabilities: system::Capabilities::new(
+            system::Features::new(mail.is_on()),
+            sign_in_providers(&providers),
+        ),
         auth,
         exports,
         realtime,
@@ -280,9 +293,32 @@ pub async fn compose(
     })
 }
 
+/// The providers that `providers` configures, as the capabilities endpoint lists them
+/// (AUTH-081).
+fn sign_in_providers(providers: &auth::Providers) -> Vec<system::SignInProvider> {
+    providers
+        .listed()
+        .into_iter()
+        .map(|listed| system::SignInProvider {
+            provider: listed.provider,
+            name: listed.name,
+            authorization_endpoint: listed.authorization_endpoint,
+            scopes: listed.scopes.to_vec(),
+            clients: listed
+                .clients
+                .into_iter()
+                .map(|(client_id, redirect_uris)| system::SignInClient {
+                    client_id,
+                    redirect_uris,
+                })
+                .collect(),
+        })
+        .collect()
+}
+
 /// The states of the modules' routes that `compose` builds, which [`routes`] mounts.
 struct States {
-    features: system::Features,
+    capabilities: system::Capabilities,
     auth: Arc<auth::Auth>,
     exports: accounts::Exports,
     realtime: Realtime,
@@ -299,7 +335,7 @@ struct States {
 fn routes(resources: &Resources, states: States) -> Routes {
     let database = &resources.database;
     system::routes()
-        .with_state(states.features)
+        .with_state(states.capabilities)
         .merge(accounts::routes().with_state(database.clone()))
         .merge(accounts::export_routes().with_state(states.exports.clone()))
         .merge(auth::routes().with_state(states.auth.clone()))

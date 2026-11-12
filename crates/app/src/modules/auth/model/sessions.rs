@@ -75,6 +75,9 @@ pub(crate) struct SessionItem {
     pub(crate) device_id: Option<DeviceId>,
     /// The name its client gave its device, if any.
     pub(crate) device_name: Option<DeviceName>,
+    /// The provider whose sign-in started it, such as `google`, or null for a password
+    /// (AUTH-016).
+    pub(crate) provider: Option<String>,
     /// When the session began.
     pub(crate) created_at: Timestamp,
     /// When its access token expires.
@@ -99,6 +102,7 @@ impl StoredSession {
             id: self.id,
             device_id: self.device_id,
             device_name: self.device_name,
+            provider: self.provider,
             created_at: self.created_at,
             access_token_expires_at: self.access_token_expires_at,
             refresh_token_expires_at: self.refresh_token_expires_at,

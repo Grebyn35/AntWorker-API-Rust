@@ -10,8 +10,9 @@ use serde_json::{Map, Value};
 use super::{METHODS, Problem, is_snake_case, operations::parameters, quoted};
 
 /// The IDs that API-11 excepts from being UUIDs: a trace ID, the 32 lowercase hexadecimal digits
-/// of W3C Trace Context, and a device ID, which its client chooses.
-const NOT_UUIDS: [&str; 2] = ["trace_id", "device_id"];
+/// of W3C Trace Context, a device ID, which its client chooses, and an OAuth provider's client
+/// ID, which the provider issues.
+const NOT_UUIDS: [&str; 3] = ["trace_id", "device_id", "client_id"];
 
 /// The most references a schema follows before the check gives up on a cycle.
 const DEPTH: usize = 16;

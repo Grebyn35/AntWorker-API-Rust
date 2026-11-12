@@ -81,6 +81,22 @@ pub(crate) enum AuthError {
     /// The signed-in user's second factor's code is wrong (AUTH-065).
     #[error("the second factor's code is wrong")]
     WrongSecondFactor,
+    /// The request's `provider` names no provider of the API (AUTH-077).
+    #[error("no provider of the API has the ID")]
+    ProviderNotFound,
+    /// The provider refused the exchange of the code (AUTH-077).
+    #[error("the provider refused the code")]
+    ProviderCodeRejected,
+    /// The provider failed, or answered what the API can't read, or didn't answer in time
+    /// (AUTH-077).
+    #[error("the provider is unavailable")]
+    ProviderUnavailable(#[source] Internal),
+    /// The provider gave no address for a subject that no account is linked to (AUTH-076).
+    #[error("the provider gave no address")]
+    ProviderAddressMissing,
+    /// The subject of the provider's sign-in isn't the caller's (AUTH-080).
+    #[error("the provider's account isn't the caller's")]
+    WrongIdentity,
     /// A rate limit refused the request, or couldn't count it (AUTH-006).
     #[error(transparent)]
     Limit(#[from] LimitError),
@@ -136,6 +152,11 @@ impl ErrorCode for AuthError {
             Self::SecondFactorMissing => "auth.second_factor_missing",
             Self::SecondFactorMandatory => "auth.second_factor_mandatory",
             Self::WrongSecondFactor => "auth.wrong_second_factor",
+            Self::ProviderNotFound => "auth.provider_not_found",
+            Self::ProviderCodeRejected => "auth.provider_code_rejected",
+            Self::ProviderUnavailable(_) => "auth.provider_unavailable",
+            Self::ProviderAddressMissing => "auth.provider_address_missing",
+            Self::WrongIdentity => "auth.wrong_identity",
             Self::Limit(error) => error.code(),
             Self::Request(error) => error.code(),
             Self::Internal(error) => error.code(),
@@ -165,6 +186,11 @@ impl ErrorCode for AuthError {
             Self::SecondFactorMissing => "Second factor missing",
             Self::SecondFactorMandatory => "Second factor mandatory",
             Self::WrongSecondFactor => "Wrong second factor",
+            Self::ProviderNotFound => "Provider not found",
+            Self::ProviderCodeRejected => "Provider's code rejected",
+            Self::ProviderUnavailable(_) => "Provider unavailable",
+            Self::ProviderAddressMissing => "Provider's address missing",
+            Self::WrongIdentity => "Wrong identity",
             Self::Limit(error) => error.title(),
             Self::Request(error) => error.title(),
             Self::Internal(error) => error.title(),
@@ -180,11 +206,13 @@ impl ErrorCode for AuthError {
             | Self::InvalidResetCode
             | Self::InvalidChallenge
             | Self::InvalidSecondFactor
-            | Self::SecondFactorMissing => Category::Unauthenticated,
+            | Self::SecondFactorMissing
+            | Self::ProviderCodeRejected => Category::Unauthenticated,
             Self::WrongPassword
             | Self::ReauthenticationRequired
             | Self::SecondFactorRequired
-            | Self::WrongSecondFactor => Category::Forbidden,
+            | Self::WrongSecondFactor
+            | Self::WrongIdentity => Category::Forbidden,
             Self::OwnsSharedWorkspace
             | Self::AccountChanged
             | Self::EmailAlreadyVerified
@@ -192,8 +220,10 @@ impl ErrorCode for AuthError {
             Self::WrongCode
             | Self::CodeExpired
             | Self::SetupExpired
-            | Self::SecondFactorMandatory => Category::BusinessRule,
-            Self::SessionNotFound => Category::NotFound,
+            | Self::SecondFactorMandatory
+            | Self::ProviderAddressMissing => Category::BusinessRule,
+            Self::SessionNotFound | Self::ProviderNotFound => Category::NotFound,
+            Self::ProviderUnavailable(_) => Category::Unavailable,
             Self::Limit(error) => error.category(),
             Self::Request(error) => error.category(),
             Self::Internal(error) => error.category(),
@@ -245,6 +275,21 @@ impl ErrorCode for AuthError {
                  one."
                     .to_owned(),
             ),
+            Self::ProviderCodeRejected => Some(
+                "The provider refused the code: sign in through it again, since a code works \
+                 once, for a few minutes."
+                    .to_owned(),
+            ),
+            Self::ProviderAddressMissing => Some(
+                "The provider gave no email address for the account: give it one there, or \
+                 register with a password."
+                    .to_owned(),
+            ),
+            Self::WrongIdentity => Some(
+                "The provider's account isn't linked to yours: sign in to it through the one you \
+                 linked."
+                    .to_owned(),
+            ),
             Self::Request(error) => error.detail(),
             _ => None,
         }
@@ -263,6 +308,8 @@ impl ErrorCode for AuthError {
             Self::Limit(error) => error.retry_after_seconds(),
             Self::Request(error) => error.retry_after_seconds(),
             Self::Internal(error) => error.retry_after_seconds(),
+            // A provider that fails seldom recovers within the second.
+            Self::ProviderUnavailable(_) => 30,
             _ => 1,
         }
     }

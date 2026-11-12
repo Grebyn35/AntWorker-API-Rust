@@ -686,7 +686,7 @@ mod tests {
             fn f() { let client = reqwest::Client::builder(); }
         "#;
         assert_eq!(
-            findings("crates/app/src/modules/auth/providers/google.rs", code),
+            findings("crates/app/src/modules/auth/providers/example.rs", code),
             [
                 "`std::net::TcpStream` can make HTTP requests outside the places that SEC-10 allows, such as `platform::outbound` (SEC-10)",
                 "`reqwest::Client::builder` can make HTTP requests outside the places that SEC-10 allows, such as `platform::outbound` (SEC-10)",

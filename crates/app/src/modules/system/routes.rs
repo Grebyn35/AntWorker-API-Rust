@@ -7,12 +7,52 @@ use utoipa::ToSchema;
 use utoipa_axum::routes;
 
 /// The features this deployment offers.
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct Capabilities {
     /// One member per feature a deployment can turn off, `true` while the feature is on, and one
     /// per optional part that changes what a client offers, `true` while the fork keeps it. A
     /// feature or a part this API doesn't have is absent.
     features: Features,
+    /// The OAuth providers that a user signs in through, each of which the deployment
+    /// configures, by their IDs, with what a client builds the authorization request from
+    /// (AUTH-081).
+    sign_in_providers: Vec<SignInProvider>,
+}
+
+/// An OAuth provider that a user signs in through, as the capabilities list it, with what a
+/// client builds the authorization request from (AUTH-081).
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct SignInProvider {
+    /// Its key, which a sign-in's `provider` names, such as `google`.
+    pub(crate) provider: &'static str,
+    /// Its name, such as `Google`.
+    pub(crate) name: &'static str,
+    /// The URL of its authorization endpoint.
+    pub(crate) authorization_endpoint: &'static str,
+    /// The scopes that the authorization request asks for.
+    pub(crate) scopes: Vec<&'static str>,
+    /// The deployment's clients, each with the redirect URIs it lists.
+    pub(crate) clients: Vec<SignInClient>,
+}
+
+/// A client of a provider, as the capabilities list it (AUTH-081).
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct SignInClient {
+    /// The client's ID, which the provider issued, and the authorization request names.
+    pub(crate) client_id: String,
+    /// The redirect URIs it lists, of which the authorization request names one.
+    pub(crate) redirect_uris: Vec<String>,
+}
+
+impl Capabilities {
+    /// The capabilities of a deployment with `features`, whose users sign in through
+    /// `sign_in_providers`.
+    pub(crate) fn new(features: Features, sign_in_providers: Vec<SignInProvider>) -> Self {
+        Self {
+            features,
+            sign_in_providers,
+        }
+    }
 }
 
 /// Each feature a deployment can turn off, and whether it is on, and each optional part that the
@@ -48,8 +88,8 @@ impl Features {
     }
 }
 
-/// The module's routes, which take the deployment's features.
-pub(crate) fn routes() -> Routes<Features> {
+/// The module's routes, which take the deployment's capabilities.
+pub(crate) fn routes() -> Routes<Capabilities> {
     Routes::new().public(routes!(capabilities), &[])
 }
 
@@ -62,6 +102,6 @@ pub(crate) fn routes() -> Routes<Features> {
         (status = 200, description = "The deployment's features.", body = Capabilities),
     )
 )]
-async fn capabilities(State(features): State<Features>) -> Json<Capabilities> {
-    Json(Capabilities { features })
+async fn capabilities(State(capabilities): State<Capabilities>) -> Json<Capabilities> {
+    Json(capabilities)
 }

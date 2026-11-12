@@ -65,6 +65,9 @@ The argument is the server as SSH names it, signed in as `root`, or as a user th
   - With a managed backend: `managed_otlp_token`, the token the collector signs in with, and with `MANAGED_GRAFANA_URL`, `managed_grafana_token`, the token of a service account of that Grafana with the Admin role, which imports the dashboards and the alert rules ([observability.md](observability.md#a-managed-backend)).
   - With the self-hosted stack: each credential of an alert integration that the release's `alertmanager.yaml` names, in `secrets/alertmanager/` ([observability.md](observability.md#alerts)).
   - With `EMAIL=smtp` and an `SMTP_USERNAME`: `smtp_password`, the mail server's password ([Email](#email)). Without one, the deploy writes the file empty, which the API reads as no password.
+  - With a provider's client ID: that client's secret ([Signing in through a provider](#signing-in-through-a-provider)). Without one, the deploy writes the file empty, which turns the client off.
+    `github_client_secret`, with `GITHUB_CLIENT_ID`. <!-- part: github -->
+    `google_client_secret`, with `GOOGLE_CLIENT_ID`, and `google_desktop_client_secret`, with `GOOGLE_DESKTOP_CLIENT_ID`. <!-- part: google -->
 - For the certificate of a private authority, as a file on your machine, when one signed the certificate of a bucket of your own or of a managed backend.
 - For a token that can read the repository's packages, through which the server pulls the release's images; a public repository's images need none.
 
@@ -234,6 +237,12 @@ Any provider with an SMTP relay works. From it, take:
 3. **A sender on a domain of yours.** The provider asks you to add DNS records to the domain, usually for the Sender Policy Framework (SPF) and DomainKeys Identified Mail (DKIM), and recommends one for Domain-based Message Authentication, Reporting and Conformance (DMARC); until they verify, the provider refuses or holds the email, and receiving servers file what does arrive as spam. Set the sender, with a name, in `EMAIL_FROM`, such as `AntWorker <noreply@example.com>`.
 
 A provider's refusal, such as of a sender it hasn't verified, dead-letters the email at once, and `JobsDeadLettered` fires, whose runbook finds the reply's code ([runbooks.md](runbooks.md#jobsdeadlettered)). A provider that doesn't answer delays the emails while they retry, for as long as the [platform spec](../spec/platform.md#sending-email) says, before they dead-letter.
+
+## Signing in through a provider
+
+Users may sign in through an OAuth provider, once the deployment registers a client with it and sets the client's ID, its redirect uniform resource identifiers (URIs) and its secret; a client left empty is off ([auth spec](../spec/auth.md#signing-in-through-a-provider)). A redirect URI is where the provider sends the user back with a code: a page of the web client, such as `https://app.example.com/callback/google`, or, for the desktop client, a loopback one without a port, such as `http://127.0.0.1/callback/google`, which matches the port the desktop client picks. Register the same URIs at the provider and in the settings, and give each provider URIs of its own, which startup checks, so a code reaches the provider it came from (AUTH-081). The capabilities endpoint lists each provider that is on, with what a client needs to start a sign-in.
+- **Google:** in the Google Cloud console, create an OAuth client of the type "Web application" for browsers, whose ID and redirect URIs go in `GOOGLE_CLIENT_ID` and `GOOGLE_REDIRECT_URIS`, and one of the type "Desktop app" for the desktop client, in `GOOGLE_DESKTOP_CLIENT_ID` and `GOOGLE_DESKTOP_REDIRECT_URIS`; `just server-setup` asks for each client's secret. Its consent screen asks for the scopes `openid`, `email` and `profile`. <!-- part: google -->
+- **GitHub:** in GitHub's developer settings, create an OAuth app, list its callback URLs, with matching that isn't by wildcard, and put its client ID and the same URLs in `GITHUB_CLIENT_ID` and `GITHUB_REDIRECT_URIS`; `just server-setup` asks for its client secret. <!-- part: github -->
 
 ## TLS and proxies
 

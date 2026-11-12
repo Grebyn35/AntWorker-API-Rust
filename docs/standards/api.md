@@ -82,7 +82,7 @@ A module's routes convert each request's input into the domain types its service
 ### API-11 Scalar formats
 Timestamps are RFC 3339 in UTC with a `Z` suffix, at microsecond precision.
 A signed URL's `expires` is the exception, the Unix time in seconds, which its signature covers, while the file that gives the URL gives the same time as RFC 3339 (PLATFORM-080, FILES-021). <!-- part: files -->
-IDs are UUID strings, which the database generates (DATA-08), with two exceptions: a trace ID is the 32 lowercase hexadecimal digits of W3C Trace Context (API-07, API-16), and a device ID is the string its client chooses for its installation, which the auth spec bounds (AUTH-017). Closed sets are `snake_case` strings. Two kinds of string that a schema lists aren't closed sets of this rule: a problem's codes, which ERR-02 shapes, and the type of a frame of the stream, which API-19 shapes.
+IDs are UUID strings, which the database generates (DATA-08), with three exceptions: a trace ID is the 32 lowercase hexadecimal digits of W3C Trace Context (API-07, API-16), a device ID is the string its client chooses for its installation, which the auth spec bounds (AUTH-017), and a client ID is the one that an OAuth provider issued for a deployment's client (AUTH-081). Closed sets are `snake_case` strings. Two kinds of string that a schema lists aren't closed sets of this rule: a problem's codes, which ERR-02 shapes, and the type of a frame of the stream, which API-19 shapes.
 - Why: one representation per kind of value.
 - Check: `ci: check-openapi` (formats in the committed schema), plus `review` (the shared serializers in `platform::types` are used).
 

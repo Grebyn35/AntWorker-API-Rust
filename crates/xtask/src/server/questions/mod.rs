@@ -469,6 +469,18 @@ mod tests {
         "",
         "",
         "",
+        // part: github
+        // No client of GitHub's.
+        "",
+        "",
+        // end part: github
+        // part: google
+        // No client of Google's.
+        "",
+        "",
+        "",
+        "",
+        // end part: google
         // Enter generates the key ring.
         "",
         // part: files

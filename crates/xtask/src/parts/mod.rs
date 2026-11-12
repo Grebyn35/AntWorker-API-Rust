@@ -635,6 +635,39 @@ mod tests {
         assert_eq!(places, [("crates/app/tests/integration/offers.rs", 2)]);
     }
 
+    #[test]
+    fn arch_07_a_test_in_a_file_of_a_part_without_a_module_is_checked_as_well() {
+        let tests = "#[tokio::test]\nasync fn auth_001_a_user_registers() {}\n\
+                     #[tokio::test]\nasync fn auth_002_a_coupon_signs_in() {}\n";
+        let spec = format!(
+            "| AUTH-001 | A user registers. | | `auth_001_` |\n\
+             | AUTH-002 | A coupon signs in. | | `auth_002_` <!-- {} coupons --> |\n",
+            "part:"
+        );
+        let repo = Repo::of(&[
+            (LIST, "parts:\n"),
+            ("crates/app/tests/integration/auth/coupons.rs", tests),
+            ("docs/spec/auth.md", spec.as_str()),
+        ]);
+        let coupons = Part {
+            name: "coupons".to_owned(),
+            module: None,
+            paths: vec!["crates/app/tests/integration/auth/coupons.rs".to_owned()],
+            words: vec!["coupon".to_owned()],
+        };
+
+        let findings = validate(&repo, &[coupons]);
+
+        let places: Vec<(&str, usize)> = findings
+            .iter()
+            .map(|finding| (finding.path.as_str(), finding.line))
+            .collect();
+        assert_eq!(
+            places,
+            [("crates/app/tests/integration/auth/coupons.rs", 2)]
+        );
+    }
+
     /// The part `offers`, which owns no file, with its word.
     fn offer_words() -> Part {
         Part {

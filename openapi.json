@@ -110,10 +110,18 @@
           "features": {
             "$ref": "#/components/schemas/Features",
             "description": "One member per feature a deployment can turn off, `true` while the feature is on, and one\nper optional part that changes what a client offers, `true` while the fork keeps it. A\nfeature or a part this API doesn't have is absent."
+          },
+          "sign_in_providers": {
+            "description": "The OAuth providers that a user signs in through, each of which the deployment\nconfigures, by their IDs, with what a client builds the authorization request from\n(AUTH-081).",
+            "items": {
+              "$ref": "#/components/schemas/SignInProvider"
+            },
+            "type": "array"
           }
         },
         "required": [
-          "features"
+          "features",
+          "sign_in_providers"
         ],
         "type": "object"
       },
@@ -1240,6 +1248,13 @@
                   "$ref": "#/components/schemas/SessionId",
                   "description": "The session's ID."
                 },
+                "provider": {
+                  "description": "The provider whose sign-in started it, such as `google`, or null for a password\n(AUTH-016).",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "refresh_token_expires_at": {
                   "$ref": "#/components/schemas/Timestamp",
                   "description": "When its refresh token expires, unless a refresh slides it."
@@ -1900,6 +1915,137 @@
         ],
         "type": "object"
       },
+      "ProviderReauthenticationRequest": {
+        "additionalProperties": false,
+        "description": "What re-authenticating through a provider takes (AUTH-080).",
+        "properties": {
+          "code": {
+            "description": "The code that the provider's authorization gave the redirect URI.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "code_verifier": {
+            "description": "The verifier of the authorization request's PKCE challenge (RFC 7636).",
+            "maxLength": 128,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "provider": {
+            "description": "The provider, such as `google`, as `sign_in_providers` lists it.",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "recovery_code": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RecoveryCode",
+                "description": "One of the account's recovery codes, in place of `second_factor_code`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "redirect_uri": {
+            "description": "The redirect URI that received the code, one that the provider's clients list (AUTH-078).",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "second_factor_code": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AppCode",
+                "description": "The code that the account's authenticator app shows, which an account with an app sends,\nor else `recovery_code`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "provider",
+          "code",
+          "code_verifier",
+          "redirect_uri"
+        ],
+        "type": "object"
+      },
+      "ProviderSignInRequest": {
+        "additionalProperties": false,
+        "description": "What signing in through a provider takes (AUTH-073).",
+        "properties": {
+          "code": {
+            "description": "The code that the provider's authorization gave the redirect URI.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "code_verifier": {
+            "description": "The verifier of the authorization request's PKCE challenge (RFC 7636).",
+            "maxLength": 128,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "device_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeviceId",
+                "description": "An ID the client keeps for its installation (AUTH-008, AUTH-017)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "device_name": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeviceName",
+                "description": "A name for the device, such as `Ada's laptop`, which the list of the user's sessions shows\n(AUTH-042)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "device_token": {
+            "description": "The device token that the account's last sign-in on this device returned (AUTH-019). A\nbrowser leaves it out, and its cookie carries it. One that isn't valid for the account's\nemail counts as none.",
+            "maxLength": 64,
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "description": "The provider, such as `google`, as `sign_in_providers` lists it.",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "redirect_uri": {
+            "description": "The redirect URI that received the code, one that the provider's clients list (AUTH-078).",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "code",
+          "code_verifier",
+          "redirect_uri"
+        ],
+        "type": "object"
+      },
       "ReauthenticationRequest": {
         "additionalProperties": false,
         "description": "What re-authenticating takes (AUTH-021, AUTH-065).",
@@ -2235,6 +2381,13 @@
             "$ref": "#/components/schemas/SessionId",
             "description": "The session's ID."
           },
+          "provider": {
+            "description": "The provider whose sign-in started the session, such as `google`, or null for a password\n(AUTH-073).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "refresh_token_expires_at": {
             "$ref": "#/components/schemas/Timestamp",
             "description": "When its refresh token expires, unless a refresh slides it."
@@ -2421,6 +2574,13 @@
             "$ref": "#/components/schemas/SessionId",
             "description": "The session's ID."
           },
+          "provider": {
+            "description": "The provider whose sign-in started it, such as `google`, or null for a password\n(AUTH-016).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "refresh_token_expires_at": {
             "$ref": "#/components/schemas/Timestamp",
             "description": "When its refresh token expires, unless a refresh slides it."
@@ -2494,6 +2654,13 @@
             "$ref": "#/components/schemas/SessionId",
             "description": "The session's ID."
           },
+          "provider": {
+            "description": "The provider whose sign-in started the session, such as `google`, or null for a password\n(AUTH-073).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "refresh_token": {
             "description": "The refresh token, unless the tokens went in cookies.",
             "type": "string"
@@ -2558,6 +2725,66 @@
           "secret",
           "uri",
           "expires_at"
+        ],
+        "type": "object"
+      },
+      "SignInClient": {
+        "description": "A client of a provider, as the capabilities list it (AUTH-081).",
+        "properties": {
+          "client_id": {
+            "description": "The client's ID, which the provider issued, and the authorization request names.",
+            "type": "string"
+          },
+          "redirect_uris": {
+            "description": "The redirect URIs it lists, of which the authorization request names one.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "client_id",
+          "redirect_uris"
+        ],
+        "type": "object"
+      },
+      "SignInProvider": {
+        "description": "An OAuth provider that a user signs in through, as the capabilities list it, with what a\nclient builds the authorization request from (AUTH-081).",
+        "properties": {
+          "authorization_endpoint": {
+            "description": "The URL of its authorization endpoint.",
+            "type": "string"
+          },
+          "clients": {
+            "description": "The deployment's clients, each with the redirect URIs it lists.",
+            "items": {
+              "$ref": "#/components/schemas/SignInClient"
+            },
+            "type": "array"
+          },
+          "name": {
+            "description": "Its name, such as `Google`.",
+            "type": "string"
+          },
+          "provider": {
+            "description": "Its key, which a sign-in's `provider` names, such as `google`.",
+            "type": "string"
+          },
+          "scopes": {
+            "description": "The scopes that the authorization request asks for.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "provider",
+          "name",
+          "authorization_endpoint",
+          "scopes",
+          "clients"
         ],
         "type": "object"
       },
@@ -5835,6 +6062,464 @@
           }
         },
         "summary": "Signs in with an email and a password.",
+        "tags": [
+          "auth"
+        ],
+        "x-access": "public"
+      }
+    },
+    "/v1/sessions/provider": {
+      "post": {
+        "operationId": "sign_in_through",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderSignInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChallengeResponse"
+                }
+              }
+            },
+            "description": "The challenge that the account's second factor completes, at `/v1/sessions/second-factor`.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "The new session, of the account that the provider's account signs in to, or of the account it registered.",
+            "headers": {
+              "location": {
+                "description": "The new session: `/v1/users/me/sessions/current`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query",
+                            "request.invalid_body",
+                            "request.invalid_fields"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query. `request.invalid_body`: Invalid body. `request.invalid_fields`: Invalid fields.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "auth.provider_code_rejected"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`auth.provider_code_rejected`: Provider's code rejected.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.origin_not_allowed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.origin_not_allowed`: Origin not allowed.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "auth.provider_not_found"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`auth.provider_not_found`: Provider not found.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "auth.email_in_use"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`auth.email_in_use`: Email in use.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "auth.provider_address_missing"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`auth.provider_address_missing`: Provider's address missing.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable",
+                            "auth.provider_unavailable",
+                            "request.feature_disabled"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer. `auth.provider_unavailable`: Provider unavailable. `request.feature_disabled`: Feature turned off.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Signs in through a provider, or registers through it when no account is linked to the user's\naccount there and none holds its address.",
         "tags": [
           "auth"
         ],
@@ -17892,6 +18577,362 @@
           }
         },
         "summary": "Re-authenticates: proves the caller's password again in the session that authenticated the\nrequest, for an action that needs it, such as deleting the account.",
+        "tags": [
+          "auth"
+        ],
+        "x-access": "user"
+      }
+    },
+    "/v1/users/me/sessions/current/reauthenticate/provider": {
+      "post": {
+        "operationId": "reauthenticate_through",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderReauthenticationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            },
+            "description": "The session, without its tokens.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query",
+                            "request.invalid_body",
+                            "request.invalid_fields"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query. `request.invalid_body`: Invalid body. `request.invalid_fields`: Invalid fields.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.unauthenticated",
+                            "request.access_token_expired",
+                            "auth.provider_code_rejected"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired. `auth.provider_code_rejected`: Provider's code rejected.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.origin_not_allowed",
+                            "auth.wrong_identity",
+                            "auth.second_factor_required",
+                            "auth.wrong_second_factor"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.origin_not_allowed`: Origin not allowed. `auth.wrong_identity`: Wrong identity. `auth.second_factor_required`: Second factor required. `auth.wrong_second_factor`: Wrong second factor.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "auth.provider_not_found"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`auth.provider_not_found`: Provider not found.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited",
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable",
+                            "auth.provider_unavailable",
+                            "request.feature_disabled"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer. `auth.provider_unavailable`: Provider unavailable. `request.feature_disabled`: Feature turned off.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Re-authenticates through a provider: proves again, in the session that authenticated the\nrequest, that the caller holds their account at the provider, for an action that needs it,\nsuch as deleting the account.",
         "tags": [
           "auth"
         ],

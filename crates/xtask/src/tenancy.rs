@@ -30,6 +30,7 @@ const CODE: [&str; 2] = ["crates/platform/src/", "crates/app/src/"];
 const ACCOUNT_DATA: &[&str] = &[
     "users",
     "identities",
+    "provider_identities",
     "sessions",
     "device_tokens",
     "verification_codes",
@@ -490,6 +491,7 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
     fn findings(code: &str) -> Vec<String> {
         let migrations = format!(
             "{MIGRATION}CREATE TABLE users (id uuid);\nCREATE TABLE identities (id uuid);\n\
+             CREATE TABLE provider_identities (id uuid, user_id uuid);\n\
              CREATE TABLE sessions (id uuid);\nCREATE TABLE device_tokens (id uuid);\n\
              CREATE TABLE verification_codes (id uuid, user_id uuid);\n\
              CREATE TABLE totp_factors (id uuid, user_id uuid);\n\

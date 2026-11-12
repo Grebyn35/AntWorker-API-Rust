@@ -20,6 +20,7 @@ pub mod jobs;
 pub mod lifecycle;
 pub mod lists;
 pub mod mail;
+pub mod outbound;
 pub mod personal_data;
 pub mod random;
 pub mod ranges;

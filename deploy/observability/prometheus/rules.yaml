@@ -155,6 +155,17 @@ groups:
           runbook: docs/operations/runbooks.md#scannerunreachable
       # end part: files
 
+      - alert: SignInProviderUnavailable
+        expr: |
+          sum by (auth_provider) (increase(auth_provider_exchanges_total{auth_outcome="unavailable"}[15m])) > 0
+            unless sum by (auth_provider) (increase(auth_provider_exchanges_total{auth_outcome=~"succeeded|rejected"}[15m])) > 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: An OAuth provider gave no identity for 15 minutes, while some sign-ins through it went unanswered.
+          runbook: docs/operations/runbooks.md#signinproviderunavailable
+
       - alert: ApiTelemetryMissing
         expr: absent_over_time(platform_database_reachable[2m])
         for: 3m

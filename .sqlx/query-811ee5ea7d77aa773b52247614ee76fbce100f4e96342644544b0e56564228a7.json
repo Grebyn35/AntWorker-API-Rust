@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, device_id, device_name, created_at, expires_at FROM sign_in_challenges\n        WHERE user_id = $1\n        ORDER BY id",
+  "query": "SELECT id, user_id, device_id, device_name, device_token_hash, provider,\n            expires_at <= now() AS \"expired!\"\n        FROM sign_in_challenges WHERE token_hash = $1",
   "describe": {
     "columns": [
       {
@@ -16,6 +16,17 @@
       },
       {
         "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sign_in_challenges",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
         "name": "device_id",
         "type_info": "Text",
         "origin": {
@@ -26,7 +37,7 @@
         }
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "device_name",
         "type_info": "Text",
         "origin": {
@@ -37,40 +48,48 @@
         }
       },
       {
-        "ordinal": 3,
-        "name": "created_at",
-        "type_info": "Timestamptz",
+        "ordinal": 4,
+        "name": "device_token_hash",
+        "type_info": "Bytea",
         "origin": {
           "Table": {
             "table": "sign_in_challenges",
-            "name": "created_at"
+            "name": "device_token_hash"
           }
         }
       },
       {
-        "ordinal": 4,
-        "name": "expires_at",
-        "type_info": "Timestamptz",
+        "ordinal": 5,
+        "name": "provider",
+        "type_info": "Text",
         "origin": {
           "Table": {
             "table": "sign_in_challenges",
-            "name": "expires_at"
+            "name": "provider"
           }
         }
+      },
+      {
+        "ordinal": 6,
+        "name": "expired!",
+        "type_info": "Bool",
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Bytea"
       ]
     },
     "nullable": [
       false,
-      true,
-      true,
       false,
-      false
+      true,
+      true,
+      true,
+      true,
+      null
     ]
   },
-  "hash": "087be32ab80a176c10e51df6ebe45677965fc4317d6adf9a2295c59a64361ead"
+  "hash": "811ee5ea7d77aa773b52247614ee76fbce100f4e96342644544b0e56564228a7"
 }

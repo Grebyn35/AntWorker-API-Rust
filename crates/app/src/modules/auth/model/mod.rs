@@ -294,6 +294,7 @@ pub(crate) struct StoredSession {
     pub(crate) user_id: UserId,
     pub(crate) device_id: Option<DeviceId>,
     pub(crate) device_name: Option<DeviceName>,
+    pub(crate) provider: Option<String>,
     pub(crate) created_at: Timestamp,
     pub(crate) access_token_expires_at: Timestamp,
     pub(crate) refresh_token_expires_at: Timestamp,
@@ -310,6 +311,7 @@ impl StoredSession {
             user_id: self.user_id,
             device_id: self.device_id,
             device_name: self.device_name,
+            provider: self.provider,
             created_at: self.created_at,
             access_token_expires_at: self.access_token_expires_at,
             refresh_token_expires_at: self.refresh_token_expires_at,
@@ -332,6 +334,9 @@ pub(crate) struct Session {
     pub(crate) device_id: Option<DeviceId>,
     /// The name the client gave its device, if any (AUTH-042).
     pub(crate) device_name: Option<DeviceName>,
+    /// The provider whose sign-in started the session, such as `google`, or null for a password
+    /// (AUTH-073).
+    pub(crate) provider: Option<String>,
     /// When the session began.
     pub(crate) created_at: Timestamp,
     /// When its access token expires.
@@ -381,12 +386,22 @@ pub(super) struct ExportedIdentity {
     pub(super) updated_at: Timestamp,
 }
 
+/// An account of the user's at an OAuth provider, as their export holds it (AUTH-073).
+#[derive(Debug, Serialize)]
+pub(super) struct ExportedProviderIdentity {
+    pub(super) id: uuid::Uuid,
+    pub(super) provider: String,
+    pub(super) subject: String,
+    pub(super) created_at: Timestamp,
+}
+
 /// A session, as its user's export holds it, without its tokens' hashes.
 #[derive(Debug, Serialize)]
 pub(super) struct ExportedSession {
     pub(super) id: uuid::Uuid,
     pub(super) device_id: Option<String>,
     pub(super) device_name: Option<String>,
+    pub(super) provider: Option<String>,
     pub(super) created_at: Timestamp,
     pub(super) updated_at: Timestamp,
     pub(super) authenticated_at: Timestamp,
@@ -435,6 +450,7 @@ pub(super) struct ExportedChallenge {
     pub(super) id: uuid::Uuid,
     pub(super) device_id: Option<DeviceId>,
     pub(super) device_name: Option<DeviceName>,
+    pub(super) provider: Option<String>,
     pub(super) created_at: Timestamp,
     pub(super) expires_at: Timestamp,
 }

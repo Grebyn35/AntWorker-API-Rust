@@ -461,7 +461,7 @@ mod tests {
             ("crates/app/src/modules/things/mod.rs", ""),
             ("crates/app/src/modules/things/service/mod.rs", ""),
             ("crates/app/src/modules/things/helpers.rs", ""),
-            ("crates/app/src/modules/auth/providers/github.rs", ""),
+            ("crates/app/src/modules/auth/providers/example.rs", ""),
             ("crates/app/src/modules/auth/error.rs", ""),
             ("crates/app/src/modules/things/permissions.rs", ""),
             ("crates/app/templates/things/email.html", ""),

@@ -9,6 +9,7 @@
 mod email_change;
 mod exports;
 mod password;
+mod providers;
 mod reauthentication;
 mod second_factors;
 mod sessions;
@@ -58,6 +59,7 @@ pub(crate) fn routes() -> Routes<Arc<Auth>> {
         .merge(sessions::routes())
         .merge(second_factors::routes())
         .merge(reauthentication::routes())
+        .merge(providers::routes())
         .events(&[&SESSION_CREATED, &SESSION_ENDED])
         .public(
             routes!(register),
@@ -198,7 +200,11 @@ fn device(errors: &mut FieldErrors, id: Option<&str>, name: Option<&str>) -> Opt
             .check("/device_name", DeviceName::parse(value))
             .map(Some),
     };
-    id.zip(name).map(|(id, name)| Device { id, name })
+    id.zip(name).map(|(id, name)| Device {
+        id,
+        name,
+        provider: None,
+    })
 }
 
 /// What refreshing takes: the refresh token, unless a browser's cookie holds it (AUTH-010).
@@ -222,6 +228,9 @@ pub(crate) struct SessionResponse {
     device_id: Option<DeviceId>,
     /// The name the client gave its device, if any (AUTH-042).
     device_name: Option<DeviceName>,
+    /// The provider whose sign-in started the session, such as `google`, or null for a password
+    /// (AUTH-073).
+    provider: Option<String>,
     /// When the session began.
     created_at: Timestamp,
     /// When its access token expires.
@@ -265,6 +274,7 @@ impl SessionResponse {
             user_id: session.user_id,
             device_id: session.device_id,
             device_name: session.device_name,
+            provider: session.provider,
             created_at: session.created_at,
             access_token_expires_at: session.access_token_expires_at,
             refresh_token_expires_at: session.refresh_token_expires_at,

@@ -67,6 +67,9 @@ pub(super) const RECOVERY_CODE_USED: Action = Action::new("recovery_code.used");
 /// New recovery codes replaced the account's (AUTH-063).
 pub(super) const RECOVERY_CODES_ISSUED: Action = Action::new("recovery_codes.issued");
 /// A user's account.
+/// A signed-in user's re-authentication through a provider named another of its accounts than
+/// theirs (AUTH-080).
+pub(super) const IDENTITY_CHECK_FAILED: Action = Action::new("identity.check_failed");
 pub(super) const USER: Resource = Resource::new("user");
 /// A user's way of signing in, such as their password.
 pub(super) const IDENTITY: Resource = Resource::new("identity");

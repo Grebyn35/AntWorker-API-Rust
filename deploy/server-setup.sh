@@ -192,6 +192,12 @@ write() {
                     # part: files
                     files_s3_key | files_s3_key_secret) ;;
                     # end part: files
+                    # part: github
+                    github_client_secret) ;;
+                    # end part: github
+                    # part: google
+                    google_client_secret | google_desktop_client_secret) ;;
+                    # end part: google
                     # A credential of an alert integration, which alertmanager.yaml names (D49).
                     alertmanager/*/* | alertmanager/.*) fail "no secret is named $first" ;;
                     alertmanager/?*)

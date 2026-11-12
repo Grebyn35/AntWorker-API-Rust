@@ -73,6 +73,14 @@ If a deploy started the failures, roll it back first, then investigate.
 **What to do.** A server that can't reach `database.clamav.net` needs its firewall or its DNS fixed. A server that ClamAV's mirrors refuse waits out the time they gave, and checks again on its own; one whose address a provider shares with many others may stay refused, and a fork then runs a private mirror, as [ClamAV's documentation](https://docs.clamav.net/manual/Usage/Configuration.html) describes, and names it in deploy/scanner/freshclam.conf. Uploads go on being scanned with the signatures the scanner has meanwhile.
 
 <!-- end part: files -->
+## SignInProviderUnavailable
+
+**What it means.** For 15 minutes, an OAuth provider, which the alert's `auth_provider` names, gave no identity for any sign-in through it, while some went unanswered: it failed, answered what the API can't read, didn't answer in time, or refused the API's own client, such as a secret that the deployment set wrong (AUTH-077). Sign-ins and re-authentications through it answer 503 `auth.provider_unavailable` meanwhile, while those with a password, and through any other provider, go on.
+
+**Look first.** The Sign-in dashboard: "How do exchanges of providers' codes end?" shows when the provider stopped answering. The `ERROR` lines of the 503s name the provider and the failure, such as a connection's, a status, or the refusal of the client.
+
+**What to do.** A refusal of the client is the deployment's to fix: compare the client's ID and secret with the provider's console, and set them again with `just server-setup` ([deploy.md](deploy.md#signing-in-through-a-provider)). For any other failure, check the provider's status page, and that the server reaches the provider's endpoints; a provider's outage clears with it, and its users sign in again once it does.
+
 ## ApiTelemetryMissing
 
 **What it means.** No instance of the API exported metrics for five minutes. Either no instance runs, or their telemetry doesn't reach Prometheus.

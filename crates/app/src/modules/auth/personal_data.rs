@@ -1,4 +1,4 @@
-//! The personal data contract of `identities`, `sessions`, `device_tokens`, `verification_codes`,
+//! The personal data contract of `identities`, `provider_identities`, `sessions`, `device_tokens`, `verification_codes`,
 //! `totp_factors`, `totp_setups`, `recovery_codes` and `sign_in_challenges` (D31): it exports
 //! them without their hashes and secrets (the accounts spec's "What an export holds"), and it
 //! deletes the user's identities, sessions, device tokens, codes and second factors before
@@ -22,6 +22,8 @@ impl PersonalData for Contract {
     fn columns(&self) -> &'static [Column] {
         const COLUMNS: &[Column] = &[
             Column::new("identities", "user_id"),
+            Column::new("provider_identities", "user_id"),
+            Column::new("provider_identities", "subject"),
             Column::new("sessions", "user_id"),
             Column::new("sessions", "device_name"),
             Column::new("device_tokens", "user_id"),
@@ -45,6 +47,10 @@ impl PersonalData for Contract {
             let identities = exported::identities(uow, user).await?;
             export
                 .whole(uow, "auth/identities.json", &identities)
+                .await?;
+            let providers = exported::provider_identities(uow, user).await?;
+            export
+                .whole(uow, "auth/provider_identities.json", &providers)
                 .await?;
             let mut document = export.document("auth/sessions.json");
             let mut after = None;

@@ -39,6 +39,7 @@ pub mod scanner;
 // end part: files
 pub mod second_factors;
 pub mod streams;
+pub mod upstream;
 pub mod users;
 pub mod workspaces;
 

@@ -36,6 +36,8 @@ pub(in crate::modules::auth) struct StoredChallenge {
     pub(in crate::modules::auth) user_id: UserId,
     pub(in crate::modules::auth) device_id: Option<DeviceId>,
     pub(in crate::modules::auth) device_name: Option<DeviceName>,
+    /// The provider of the sign-in, or `None` for a password (AUTH-073).
+    pub(in crate::modules::auth) provider: Option<String>,
     /// The hash of the device token that the sign-in brought, when it was valid for the email.
     pub(in crate::modules::auth) device_token_hash: Option<[u8; 32]>,
     /// Whether its 5 minutes have passed, by the database's clock.
@@ -326,14 +328,14 @@ pub(in crate::modules::auth) async fn insert_challenge(
     uow: &mut UnitOfWork,
     user_id: UserId,
     token: &[u8],
-    device: (Option<&DeviceId>, Option<&DeviceName>),
+    device: (Option<&DeviceId>, Option<&DeviceName>, Option<&str>),
     device_token: Option<&[u8; 32]>,
     minutes: i32,
 ) -> Result<Timestamp, Internal> {
     let expires_at = sqlx::query_scalar!(
         "INSERT INTO sign_in_challenges (
-            user_id, token_hash, device_id, device_name, device_token_hash, expires_at
-        ) VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6))
+            user_id, token_hash, device_id, device_name, device_token_hash, expires_at, provider
+        ) VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6), $7)
         RETURNING expires_at",
         user_id.uuid(),
         token,
@@ -341,6 +343,7 @@ pub(in crate::modules::auth) async fn insert_challenge(
         device.1.map(DeviceName::as_str),
         device_token.map(<[u8; 32]>::as_slice),
         minutes,
+        device.2,
     )
     .fetch_one(uow.executor())
     .await?;
@@ -353,7 +356,7 @@ pub(in crate::modules::auth) async fn challenge(
     token: &[u8],
 ) -> Result<Option<StoredChallenge>, Internal> {
     let row = sqlx::query!(
-        r#"SELECT id, user_id, device_id, device_name, device_token_hash,
+        r#"SELECT id, user_id, device_id, device_name, device_token_hash, provider,
             expires_at <= now() AS "expired!"
         FROM sign_in_challenges WHERE token_hash = $1"#,
         token,
@@ -373,6 +376,7 @@ pub(in crate::modules::auth) async fn challenge(
             user_id: UserId::from_uuid(row.user_id),
             device_id: row.device_id.map(DeviceId::from_stored),
             device_name: row.device_name.map(DeviceName::from_stored),
+            provider: row.provider,
             device_token_hash,
             expired: row.expired,
         })

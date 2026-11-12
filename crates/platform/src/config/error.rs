@@ -37,4 +37,18 @@ impl ConfigError {
             problem,
         }
     }
+
+    /// The refusal of the setting `setting`, which a module reads itself, that is required, such
+    /// as by another setting that is set.
+    #[must_use]
+    pub fn missing(setting: &str) -> Self {
+        Self::new(setting, Problem::Missing)
+    }
+
+    /// The refusal of the setting `setting`, which a module reads itself, that must be what
+    /// `expected` says, such as `a comma-separated list of redirect URIs`.
+    #[must_use]
+    pub fn invalid(setting: &str, expected: &'static str) -> Self {
+        Self::new(setting, Problem::Invalid(expected))
+    }
 }

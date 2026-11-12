@@ -8,6 +8,8 @@
 //! tokens and sessions. Each operation opens its own unit of work, after any per-action limit it
 //! counts first.
 
+use std::sync::Arc;
+
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use platform::{
     authn::{AuditScope, Principal},
@@ -17,6 +19,7 @@ use platform::{
     errors::{Internal, RequestError},
     hashing::{HmacKey, sha256},
     mail::Mail,
+    outbound::Configured,
     random,
     rate_limit::{Bucket, RateLimits},
     types::{Client, EmailAddress, Secret, UserId},
@@ -28,6 +31,7 @@ mod devices;
 mod email_change;
 mod exports;
 mod password;
+mod providers;
 mod reauthentication;
 mod second_factors;
 mod sessions;
@@ -38,6 +42,7 @@ mod verifier;
 pub(super) use deletion::erase;
 pub(crate) use email_change::ChangeConfirmation;
 pub(crate) use password::{PasswordChange, ResetConfirmation};
+pub(crate) use providers::{Grant, ProviderSignIn};
 pub(crate) use second_factors::{
     Challenge, Completion, Removal, SecondFactors, Setup, remove_second_factor,
 };
@@ -53,6 +58,7 @@ use super::{
         self, DeviceId, DeviceName, DeviceToken, Lifetimes, Password, Required, Session,
         StoredSession, Tokens,
     },
+    providers::Providers,
     repo,
 };
 use crate::modules::{
@@ -73,6 +79,9 @@ pub(crate) struct Registration {
 pub(crate) struct Device {
     pub(crate) id: Option<DeviceId>,
     pub(crate) name: Option<DeviceName>,
+    /// The provider whose sign-in the device makes, or `None` for a password, which the session
+    /// records (AUTH-016, AUTH-073).
+    pub(crate) provider: Option<String>,
 }
 
 /// What `auth` takes from the deployment.
@@ -130,6 +139,21 @@ pub(crate) struct Auth {
     mail: Mail,
     /// The keys that encrypt each authenticator app's secret (AUTH-066).
     keyring: Keyring,
+    /// The OAuth providers that the deployment configures (AUTH-081).
+    providers: Arc<Providers>,
+    /// The client of the providers' endpoints (SEC-10).
+    outbound: Configured,
+}
+
+/// What `auth` reaches beyond the database: the deployment's email, and its OAuth providers,
+/// through the configured client (AUTH-025, AUTH-073).
+pub(crate) struct Outside {
+    /// What sends the codes and the emails, and says whether email is on.
+    pub(crate) mail: Mail,
+    /// The OAuth providers that the deployment configures.
+    pub(crate) providers: Arc<Providers>,
+    /// The client of the providers' endpoints.
+    pub(crate) outbound: Configured,
 }
 
 impl Auth {
@@ -142,8 +166,13 @@ impl Auth {
         keys: Keys,
         workers: Workers,
         deletion: Deletion,
-        mail: Mail,
+        outside: Outside,
     ) -> Result<Self, Internal> {
+        let Outside {
+            mail,
+            providers,
+            outbound,
+        } = outside;
         let Keys {
             hmac: key,
             encryption: keyring,
@@ -164,6 +193,8 @@ impl Auth {
             deletion,
             mail,
             keyring,
+            providers,
+            outbound,
         })
     }
 
@@ -230,12 +261,12 @@ impl Auth {
         }
         let (principal, session, tokens) = self.start_session(uow, user_id, device).await?;
         sessions::end_sessions(uow, principal.audit_scope(), user_id, &ended).await?;
-        audit_log::record(
-            uow,
-            principal.audit_scope(),
-            Entry::new(audit::SESSION_CREATED, audit::SESSION, session.id.uuid()),
-        )
-        .await?;
+        let entry = Entry::new(audit::SESSION_CREATED, audit::SESSION, session.id.uuid());
+        let entry = match &device.provider {
+            Some(provider) => providers::through(entry, provider),
+            None => entry,
+        };
+        audit_log::record(uow, principal.audit_scope(), entry).await?;
         Ok((principal, session, tokens))
     }
 
@@ -347,7 +378,11 @@ impl Auth {
         let session = repo::insert_session(
             uow,
             user_id,
-            (device.id.as_ref(), device.name.as_ref()),
+            (
+                device.id.as_ref(),
+                device.name.as_ref(),
+                device.provider.as_deref(),
+            ),
             &sha256(tokens.access.expose().as_bytes()),
             &sha256(tokens.refresh.expose().as_bytes()),
             self.settings.lifetimes,

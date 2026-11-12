@@ -79,6 +79,29 @@ parts:
       - files.unsupported
       - files.upload
   # end part: files
+  # part: github
+  - name: github
+    paths:
+      - crates/app/src/modules/auth/providers/github.rs
+      - crates/app/tests/integration/auth/github.rs
+    words:
+      - github_client
+      - github_redirect
+      - providers::github
+      - providers/github
+      - mod github
+  # end part: github
+  # part: google
+  - name: google
+    paths:
+      - crates/app/src/modules/auth/providers/google.rs
+      - crates/app/tests/integration/auth/google.rs
+    words:
+      - google_
+      - providers::google
+      - providers/google
+      - mod google
+  # end part: google
 
 # Each run removes its parts from a copy of the repository of its own, then runs `just checks` on
 # the copy: one for each workspace shape (architecture §5), for each OAuth provider, for
@@ -96,6 +119,18 @@ runs:
     parts:
       - files
   # end part: files
+  # part: github
+  # A product without GitHub's sign-in.
+  - name: github
+    parts:
+      - github
+  # end part: github
+  # part: google
+  # A product without Google's sign-in.
+  - name: google
+    parts:
+      - google
+  # end part: google
   # The fewest parts a fork keeps: every part that one fork can remove, so the lines that several
   # parts mark are removed together too. It keeps users creating workspaces, since every shape
   # keeps a part that creates them.
@@ -105,3 +140,9 @@ runs:
       # part: files
       - files
       # end part: files
+      # part: github
+      - github
+      # end part: github
+      # part: google
+      - google
+      # end part: google

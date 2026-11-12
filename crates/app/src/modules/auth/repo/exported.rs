@@ -1,4 +1,5 @@
-//! The SQL of what a user's export holds of their identities, sessions, device tokens,
+//! The SQL of what a user's export holds of their identities, their providers' among them,
+//! sessions, device tokens,
 //! verification codes and second factors: never a password's, a token's or a code's hash
 //! (SEC-03), nor an app's secret (SEC-02), and filtered by the user whose export the job builds
 //! (DATA-16).
@@ -12,8 +13,8 @@ use platform::{
 
 use crate::modules::auth::model::{
     DeviceId, DeviceName, ExportedApp, ExportedChallenge, ExportedCode, ExportedDeviceToken,
-    ExportedIdentity, ExportedRecoveryCode, ExportedSession, ExportedSetup, IdentityMethod,
-    Purpose,
+    ExportedIdentity, ExportedProviderIdentity, ExportedRecoveryCode, ExportedSession,
+    ExportedSetup, IdentityMethod, Purpose,
 };
 
 /// Every identity of `user`'s: one at most for each way to sign in.
@@ -40,6 +41,30 @@ pub(in crate::modules::auth) async fn identities(
         .collect()
 }
 
+/// Every provider identity of `user`'s: one at most at each provider (AUTH-073).
+pub(in crate::modules::auth) async fn provider_identities(
+    uow: &mut UnitOfWork,
+    user: UserId,
+) -> Result<Vec<ExportedProviderIdentity>, Internal> {
+    let rows = sqlx::query!(
+        "SELECT id, provider, subject, created_at FROM provider_identities
+        WHERE user_id = $1
+        ORDER BY provider",
+        user.uuid(),
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ExportedProviderIdentity {
+            id: row.id,
+            provider: row.provider,
+            subject: row.subject,
+            created_at: Timestamp::from_database(row.created_at),
+        })
+        .collect())
+}
+
 /// A page of `user`'s sessions, the latest first, after `after`, a session's creation time and ID.
 pub(in crate::modules::auth) async fn sessions(
     uow: &mut UnitOfWork,
@@ -47,7 +72,7 @@ pub(in crate::modules::auth) async fn sessions(
     after: Option<(time::OffsetDateTime, uuid::Uuid)>,
 ) -> Result<Vec<ExportedSession>, Internal> {
     let rows = sqlx::query!(
-        "SELECT id, device_id, device_name, created_at, updated_at, authenticated_at,
+        "SELECT id, device_id, device_name, provider, created_at, updated_at, authenticated_at,
             access_token_expires_at, refresh_token_expires_at, expires_at
         FROM sessions
         WHERE user_id = $1 AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3))
@@ -66,6 +91,7 @@ pub(in crate::modules::auth) async fn sessions(
             id: row.id,
             device_id: row.device_id,
             device_name: row.device_name,
+            provider: row.provider,
             created_at: Timestamp::from_database(row.created_at),
             updated_at: Timestamp::from_database(row.updated_at),
             authenticated_at: Timestamp::from_database(row.authenticated_at),
@@ -194,7 +220,8 @@ pub(in crate::modules::auth) async fn challenges(
     user: UserId,
 ) -> Result<Vec<ExportedChallenge>, Internal> {
     let rows = sqlx::query!(
-        "SELECT id, device_id, device_name, created_at, expires_at FROM sign_in_challenges
+        "SELECT id, device_id, device_name, provider, created_at, expires_at
+        FROM sign_in_challenges
         WHERE user_id = $1
         ORDER BY id",
         user.uuid(),
@@ -207,6 +234,7 @@ pub(in crate::modules::auth) async fn challenges(
             id: row.id,
             device_id: row.device_id.map(DeviceId::from_stored),
             device_name: row.device_name.map(DeviceName::from_stored),
+            provider: row.provider,
             created_at: Timestamp::from_database(row.created_at),
             expires_at: Timestamp::from_database(row.expires_at),
         })

@@ -11,7 +11,7 @@ A signed URL's signature isn't one: it is a keyed hash, under `HMAC_KEY`, which 
 - Check: `compiler` (`Secret` has no way to print its value), plus `review`.
 
 ### SEC-02 Secrets at rest are encrypted with associated data
-Secrets stored in the database that the API must read back, such as an authenticator app's secret and an OAuth provider's tokens, are encrypted with AES-256-GCM. The key is versioned: `ENCRYPTION_KEYS` holds each version, `ENCRYPTION_KEY_VERSION` names the one that encrypts, and each ciphertext records its own (PLATFORM-086). The associated data binds each ciphertext to its table, its column, and the ID of the row that owns the secret (for a provider token, its identity), which exists before the secret is written. No other column is encrypted at the application level.
+Secrets stored in the database that the API must read back, such as an authenticator app's secret, are encrypted with AES-256-GCM. The key is versioned: `ENCRYPTION_KEYS` holds each version, `ENCRYPTION_KEY_VERSION` names the one that encrypts, and each ciphertext records its own (PLATFORM-086). The associated data binds each ciphertext to its table, its column, and the ID of the row that owns the secret, which exists before the secret is written. No other column is encrypted at the application level.
 - Why: a ciphertext can't be moved to another row, and the encryption scope stays small (D14).
 - Check: `test`.
 
@@ -63,14 +63,14 @@ A member can change or remove only members at roles below their own, and can ass
 ### SEC-10 Outbound requests go through one of two clients
 All outbound HTTP that application code makes uses one of the two clients in `platform::outbound`. The telemetry adapters use their libraries' own clients, with endpoints from configuration. The probe that the `health` subcommand sends to the instance's own address (PLATFORM-063) reaches no other service, so neither client applies to it.
 The object storage adapter uses its library's own client too, with its endpoint from configuration, and the malware scanner's adapter speaks clamd's own protocol, not HTTP, over TCP to the address that configuration names (PLATFORM-079), so neither client applies to them either. <!-- part: files -->
-- The configured client calls URLs that come from configuration, such as OAuth endpoints. It requires HTTPS, unless the environment is development or test.
+- The configured client calls URLs that come from configuration or from the code, such as an OAuth provider's endpoints. It requires HTTPS, unless the environment is development or test, follows no redirect, and caps response size and time.
 - The untrusted client calls URLs that come from a third party, such as the picture of a user that an OAuth provider names. It:
   - allows HTTPS only
   - blocks private, loopback and link-local addresses after DNS resolution
   - re-checks every redirect, and limits redirects
   - caps response size and time
 
-In the test environment only, the untrusted client accepts one configured loopback address, so tests can reach a fake provider. Startup refuses that setting in any other environment.
+In the test environment only, the configured client sends every request to one configured loopback origin, keeping its path, and the untrusted client accepts one configured loopback address, so tests can reach a fake provider. Startup refuses either setting in any other environment.
 - Why: no server-side request forgery, while every path stays testable (D26).
 - Check: `ci: check-layers` (no HTTP client library or TCP stream is named outside the places that this rule allows), plus `test` (including a test that the loopback setting is refused outside the test environment).
 

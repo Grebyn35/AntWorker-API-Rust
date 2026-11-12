@@ -43,6 +43,20 @@ write_secrets() {
     if [ ! -f "$secrets/smtp_password" ]; then
         : > "$secrets/smtp_password"
     fi
+    # The secret of each client of a provider, empty for a client the deployment doesn't use,
+    # which the API reads as unset (AUTH-081).
+    # part: github
+    if [ ! -f "$secrets/github_client_secret" ]; then
+        : > "$secrets/github_client_secret"
+    fi
+    # end part: github
+    # part: google
+    for client in google_client_secret google_desktop_client_secret; do
+        if [ ! -f "$secrets/$client" ]; then
+            : > "$secrets/$client"
+        fi
+    done
+    # end part: google
     # A file that exists empty stands in for a secret the services didn't use before, so it counts
     # as missing.
     if [ "$telemetry" = self-hosted ] && [ ! -s "$secrets/grafana_admin_password" ]; then

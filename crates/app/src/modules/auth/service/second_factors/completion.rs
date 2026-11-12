@@ -60,17 +60,21 @@ impl Auth {
             uow,
             user_id,
             &sha256(token.expose().as_bytes()),
-            (device.id.as_ref(), device.name.as_ref()),
+            (
+                device.id.as_ref(),
+                device.name.as_ref(),
+                device.provider.as_deref(),
+            ),
             device_token,
             CHALLENGE_MINUTES,
         )
         .await?;
-        audit_log::record(
-            uow,
-            AuditScope::attempt(user_id),
-            Entry::new(audit::SIGN_IN_CHALLENGED, audit::USER, user_id.uuid()),
-        )
-        .await?;
+        let entry = Entry::new(audit::SIGN_IN_CHALLENGED, audit::USER, user_id.uuid());
+        let entry = match &device.provider {
+            Some(provider) => super::super::providers::through(entry, provider),
+            None => entry,
+        };
+        audit_log::record(uow, AuditScope::attempt(user_id), entry).await?;
         Ok(Challenge { token, expires_at })
     }
 
@@ -106,12 +110,12 @@ impl Auth {
             }
         }
         let mut uow = self.database.begin(client).await?;
-        // The password identity first, as a sign-in locks it, so the completion takes turns with
-        // sign-ins, a reset and a deletion of the account (the auth spec's "Second factors").
-        if repo::password_identity_for_update(&mut uow, user_id)
-            .await?
-            .is_none()
-        {
+        // The password identity first, when the account has one, as a sign-in locks it, so the
+        // completion takes turns with sign-ins, a reset and a deletion of the account (the auth
+        // spec's "Second factors"). A sign-in with the password whose identity a deletion erased
+        // meanwhile completes nothing; one through a provider needs no password (AUTH-073).
+        let identity = repo::password_identity_for_update(&mut uow, user_id).await?;
+        if identity.is_none() && challenge.provider.is_none() {
             return Err(AuthError::InvalidChallenge);
         }
         let used = match self
@@ -159,6 +163,7 @@ impl Auth {
         let device = Device {
             id: challenge.device_id,
             name: challenge.device_name,
+            provider: challenge.provider,
         };
         let (principal, session, tokens) = self.replace_session(&mut uow, user_id, &device).await?;
         let device = self

@@ -44,6 +44,22 @@ fn smtp_credentials(settings: &[(String, String)]) -> bool {
     get(settings, "EMAIL") == "smtp" && !get(settings, "SMTP_USERNAME").is_empty()
 }
 
+// part: github
+fn github_client(settings: &[(String, String)]) -> bool {
+    !get(settings, "GITHUB_CLIENT_ID").is_empty()
+}
+// end part: github
+
+// part: google
+fn google_client(settings: &[(String, String)]) -> bool {
+    !get(settings, "GOOGLE_CLIENT_ID").is_empty()
+}
+
+fn google_desktop_client(settings: &[(String, String)]) -> bool {
+    !get(settings, "GOOGLE_DESKTOP_CLIENT_ID").is_empty()
+}
+// end part: google
+
 /// The secrets that the operator holds, as docs/operations/deploy.md lists them; the server
 /// generates those it can, for the operator to keep, unless the operator gives a lost server's.
 pub(super) const SECRETS: &[File] = &[
@@ -139,6 +155,29 @@ pub(super) const SECRETS: &[File] = &[
         generated: false,
         needed: smtp_credentials,
     },
+    // part: github
+    File {
+        name: "github_client_secret",
+        what: "The client secret of the GitHub OAuth app whose ID is GITHUB_CLIENT_ID.",
+        generated: false,
+        needed: github_client,
+    },
+    // end part: github
+    // part: google
+    File {
+        name: "google_client_secret",
+        what: "The client secret of Google's client for browsers, whose ID is GOOGLE_CLIENT_ID.",
+        generated: false,
+        needed: google_client,
+    },
+    File {
+        name: "google_desktop_client_secret",
+        what: "The client secret of Google's client for desktop apps, whose ID is \
+               GOOGLE_DESKTOP_CLIENT_ID.",
+        generated: false,
+        needed: google_desktop_client,
+    },
+    // end part: google
 ];
 
 /// The certificates of private authorities that a deployment may trust.

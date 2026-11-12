@@ -12,6 +12,7 @@ mod error;
 mod keys;
 mod mail;
 mod numbers;
+mod outbound;
 // part: files
 mod scanner;
 mod storage;
@@ -27,7 +28,7 @@ pub use web::{Origin, RateLimitConfig};
 
 use crate::{
     db::DatabaseUrl, encryption::Keyring, hashing::HmacKey, mail::MailConfig,
-    telemetry::OtlpEndpoint,
+    outbound::OutboundConfig, telemetry::OtlpEndpoint,
 };
 // part: files
 use crate::{scanner::ScannerConfig, storage::StorageConfig};
@@ -139,6 +140,8 @@ pub struct ServerConfig {
     // end part: files
     /// How often the hub re-checks each open stream's session and memberships (PLATFORM-031).
     pub stream_recheck: Duration,
+    /// The settings of the outbound clients (SEC-10).
+    pub outbound: OutboundConfig,
 }
 
 /// The settings `health` reads.
@@ -327,6 +330,7 @@ where
             scanner: self.scanner()?,
             // end part: files
             stream_recheck: self.duration("STREAM_RECHECK_SECONDS", 60, 10..=3_600)?,
+            outbound: self.outbound(environment)?,
         })
     }
 

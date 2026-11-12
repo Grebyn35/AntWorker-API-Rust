@@ -35,25 +35,61 @@ impl Auth {
         client: &Client,
         input: &SignIn,
     ) -> Result<Option<[u8; 32]>, Internal> {
-        let cookie = self.device_cookie(&input.email);
-        let from_cookie = || {
-            input
-                .device_cookies
+        let Some(token) = self.brought(&input.email, &input.device_token, &input.device_cookies)
+        else {
+            return Ok(None);
+        };
+        let mut uow = self.database.begin(client).await?;
+        let valid = self.valid(&mut uow, &input.email, token).await?;
+        drop(uow);
+        Ok(valid)
+    }
+
+    /// The hash of the device token that a sign-in through a provider brought, from its body, or
+    /// else from the cookie of the account's `email`, when it is valid for the email, read in the
+    /// sign-in's unit of work, once the account is known (AUTH-019, AUTH-073).
+    pub(super) async fn trusted_in(
+        &self,
+        uow: &mut UnitOfWork,
+        email: &EmailAddress,
+        device_token: &Option<Secret<String>>,
+        cookies: &[(String, Secret<String>)],
+    ) -> Result<Option<[u8; 32]>, Internal> {
+        match self.brought(email, device_token, cookies) {
+            Some(token) => self.valid(uow, email, token).await,
+            None => Ok(None),
+        }
+    }
+
+    /// The device token that a sign-in of `email` brought: `device_token`, or else the one of
+    /// `cookies` named for the email (AUTH-015).
+    fn brought<'a>(
+        &self,
+        email: &EmailAddress,
+        device_token: &'a Option<Secret<String>>,
+        cookies: &'a [(String, Secret<String>)],
+    ) -> Option<&'a Secret<String>> {
+        let cookie = self.device_cookie(email);
+        device_token.as_ref().or_else(|| {
+            cookies
                 .iter()
                 .find(|(name, _)| *name == cookie)
                 .map(|(_, token)| token)
-        };
-        let Some(token) = input.device_token.as_ref().or_else(from_cookie) else {
-            return Ok(None);
-        };
+        })
+    }
+
+    /// The hash of `token`, when it is a device token of `email` that hasn't expired.
+    async fn valid(
+        &self,
+        uow: &mut UnitOfWork,
+        email: &EmailAddress,
+        token: &Secret<String>,
+    ) -> Result<Option<[u8; 32]>, Internal> {
         let hash = sha256(token.expose().as_bytes());
-        let email = self
-            .key
-            .hash(DEVICE_TOKEN_EMAIL, input.email.as_str().as_bytes());
-        let mut uow = self.database.begin(client).await?;
-        let valid = repo::device_token_valid(&mut uow, &hash, &email).await?;
-        drop(uow);
-        Ok(valid.then_some(hash))
+        let email = self.key.hash(DEVICE_TOKEN_EMAIL, email.as_str().as_bytes());
+        Ok(repo::device_token_valid(uow, &hash, &email)
+            .await?
+            .then_some(hash))
     }
 
     /// Issues `user_id`'s device a device token for `email`, ending the account's expired ones,

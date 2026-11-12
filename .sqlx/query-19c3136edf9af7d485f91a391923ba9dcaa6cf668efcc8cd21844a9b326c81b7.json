@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO sign_in_challenges (\n            user_id, token_hash, device_id, device_name, device_token_hash, expires_at\n        ) VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6))\n        RETURNING expires_at",
+  "query": "INSERT INTO sign_in_challenges (\n            user_id, token_hash, device_id, device_name, device_token_hash, expires_at, provider\n        ) VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6), $7)\n        RETURNING expires_at",
   "describe": {
     "columns": [
       {
@@ -22,12 +22,13 @@
         "Text",
         "Text",
         "Bytea",
-        "Int4"
+        "Int4",
+        "Text"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "9868fe88dd66be43fb1ba666729dce26502ce590d9f3be20e4eb37537650049b"
+  "hash": "19c3136edf9af7d485f91a391923ba9dcaa6cf668efcc8cd21844a9b326c81b7"
 }

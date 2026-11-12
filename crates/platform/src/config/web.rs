@@ -71,6 +71,20 @@ fn is_loopback(host: Option<Host<&str>>) -> bool {
     }
 }
 
+/// The `http` origin on a loopback IP address in `value`, such as `http://127.0.0.1:4000`, which
+/// names nothing but the origin, or `None` (SEC-10).
+pub(super) fn loopback_origin(value: &str) -> Option<Url> {
+    let url = Url::parse(value).ok()?;
+    let loopback = matches!(url.host(), Some(Host::Ipv4(address)) if address.is_loopback())
+        || matches!(url.host(), Some(Host::Ipv6(address)) if address.is_loopback());
+    let only_origin = url.username().is_empty()
+        && url.password().is_none()
+        && matches!(url.path(), "" | "/")
+        && url.query().is_none()
+        && url.fragment().is_none();
+    (url.scheme() == "http" && loopback && only_origin).then_some(url)
+}
+
 /// The origins in `value`, separated by commas, or `None` if one isn't an origin.
 pub(super) fn origins(value: &str, environment: Environment) -> Option<Vec<Origin>> {
     value

@@ -216,6 +216,12 @@ fn subcommand_settings(subcommand: &str) -> Option<std::collections::BTreeSet<St
     })
 }
 
+/// Whether only the test environment reads the setting `name`: the configured client's origin,
+/// and the stand-in provider's settings (SEC-10).
+fn is_only_for_tests(name: &str) -> bool {
+    name == "OUTBOUND_TEST_ORIGIN" || name.starts_with("STAND_IN_")
+}
+
 /// The settings a service of `deploy/compose.yaml` passes the API, each `<NAME>_FILE` as
 /// `<NAME>`.
 fn container_settings(service: &serde_json::Value) -> std::collections::BTreeSet<String> {
@@ -246,6 +252,13 @@ fn ops_02_each_setting_the_api_reads_is_documented_and_each_container_gets_only_
         .into_keys()
         .filter(|name| name != COMPOSE_SETTING)
         .collect();
+    // The settings that only the test environment reads: the configured client's origin, and the
+    // stand-in provider's, which only the tests' build compiles (SEC-10, the auth spec's "Signing
+    // in through a provider").
+    let read: std::collections::BTreeSet<String> = read
+        .into_iter()
+        .filter(|name| !is_only_for_tests(name))
+        .collect();
     assert_eq!(
         read.difference(&documented).collect::<Vec<_>>(),
         Vec::<&String>::new(),
@@ -275,8 +288,11 @@ fn ops_02_each_setting_the_api_reads_is_documented_and_each_container_gets_only_
         }
         let subcommand = service["command"][0].as_str().expect("a command");
         let passed = container_settings(service);
-        let read = subcommand_settings(subcommand)
-            .expect("a subcommand that a service of the reference deployment runs");
+        let read: std::collections::BTreeSet<String> = subcommand_settings(subcommand)
+            .expect("a subcommand that a service of the reference deployment runs")
+            .into_iter()
+            .filter(|name| !is_only_for_tests(name))
+            .collect();
         assert_eq!(
             passed.difference(&read).collect::<Vec<_>>(),
             Vec::<&String>::new(),

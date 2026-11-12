@@ -11,6 +11,37 @@ static SIGN_INS: Counter<1> = Counter::new(
     [names::AUTH_OUTCOME],
 );
 
+/// The exchanges of providers' codes, by provider and by how each ended.
+static PROVIDER_EXCHANGES: Counter<2> = Counter::new(
+    "auth.provider_exchanges",
+    "{exchange}",
+    "Exchanges of an OAuth provider's code for the user's identity, by provider and by how each \
+     ended: succeeded, rejected, when the provider refused the code, or unavailable, when it \
+     failed, answered what the API can't read, or didn't answer in time (AUTH-077).",
+    [names::AUTH_PROVIDER, names::AUTH_OUTCOME],
+);
+
+/// How an exchange of a provider's code ended (AUTH-077).
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Exchange {
+    /// The provider gave the user's identity.
+    Succeeded,
+    /// The provider refused the code, its verifier or its redirect URI.
+    Rejected,
+    /// The provider failed, answered what the API can't read, or didn't answer in time.
+    Unavailable,
+}
+
+/// Counts an exchange at `provider` that ended as `outcome`.
+pub(super) fn exchange(provider: &'static str, outcome: Exchange) {
+    let outcome = match outcome {
+        Exchange::Succeeded => "succeeded",
+        Exchange::Rejected => "rejected",
+        Exchange::Unavailable => "unavailable",
+    };
+    PROVIDER_EXCHANGES.add(1, [provider.into(), outcome.into()]);
+}
+
 /// How a sign-in ended.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum SignIn {

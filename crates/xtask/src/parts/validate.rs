@@ -8,7 +8,8 @@ use crate::{Finding, repo::Repo};
 /// Fails on each marker of the repository's files that names no part, each block that no end
 /// marker closes, and each test, in a file that a part owns whole, that another module's behavior
 /// names, since the removal would take it, unless that behavior's row in its spec is the part's
-/// too, and goes with it (ARCH-07).
+/// too, and goes with it (ARCH-07). For a part without a module of its own, such as an OAuth
+/// provider, every module is another.
 pub(super) fn validate(repo: &Repo, parts: &[Part]) -> Vec<Finding> {
     let known: Vec<&str> = parts.iter().map(|part| part.name.as_str()).collect();
     let mut findings: Vec<Finding> = repo
@@ -20,9 +21,7 @@ pub(super) fn validate(repo: &Repo, parts: &[Part]) -> Vec<Finding> {
         })
         .collect();
     for part in parts {
-        let Some(module) = &part.module else {
-            continue;
-        };
+        let module = part.module.as_deref();
         let owned = owned(repo, part);
         for file in repo
             .files()
@@ -36,7 +35,8 @@ pub(super) fn validate(repo: &Repo, parts: &[Part]) -> Vec<Finding> {
                 else {
                     continue;
                 };
-                let Some((other, number)) = behavior(name).filter(|(other, _)| other != module)
+                let Some((other, number)) =
+                    behavior(name).filter(|(other, _)| Some(other.as_str()) != module)
                 else {
                     continue;
                 };
