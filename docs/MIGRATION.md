@@ -280,7 +280,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 7ea9a0b..ea660e1: as above, with pass 1's fixes | 2 | 12 (9, 6, 3 shared) | 9 | 2 | `stopped: no progress`: resolved 12ec44e |
 | 7e71656..098e6b3: step 5's `auth` part the requirement and the operator's removal of second factors (AUTH-070 to AUTH-072, D133, D135), with a reset's second factor (D136) and an export's fresh proof (D137) | 1 | 14 (11, 9, 6 shared) | 7 | 6 | `next pass`: 65d057b, b9d7dcb, 812473a |
 | 7e71656..812473a: as above, with pass 1's fixes | 2 | 9 (6, 7, 4 shared) | 4 | 3 | `stopped: no progress`: resolved 9d21983 |
-| e5e146f..1255d89: step 5's `auth` part that signs in, registers and re-authenticates through a provider, Google or GitHub (AUTH-073 to AUTH-083, D139, D140), with the configured client of `platform::outbound` | 1 | 17 (15, 13, 11 shared) | 12 | 0 | `next pass` |
+| e5e146f..1255d89: step 5's `auth` part that signs in, registers and re-authenticates through a provider, Google or GitHub (AUTH-073 to AUTH-083, D139, D140), with the configured client of `platform::outbound` | 1 | 17 (15, 13, 11 shared) | 12 | 0 | `next pass`: 0246a3a, d24250e |
+| e5e146f..d24250e: as above, with pass 1's fixes | 2 | 10 (8, 8, 6 shared) | 6 | 3 | `stopped: no progress` |
 
 ## Decisions
 
