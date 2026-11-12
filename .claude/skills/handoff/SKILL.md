@@ -14,6 +14,6 @@ A session ends with every fact it learned in its home, and nothing it changed co
 3. **Remove what became untrue.** For each name, ID, setting or behavior the session changed, search the documents and comments for other statements about it, and rewrite or delete each one the change made untrue. Delete any count or status that a tool reports.
 4. **Bring the tracker's status up to date:** Foundation, Modules, CI checks, Known gaps (add a row for each rule or behavior that built code doesn't follow yet, and delete each row the session closed), Rule proposals (each with the step that decides it), Conformance reviews, and Decisions (a row for each decision the session made).
 5. **Rewrite Current work** from scratch: the next step, and the decisions that wait on the owner. Never add to the old text.
-6. **Run `just checks`,** or, after a change of documents alone, `just check-docs`, fix what fails, and commit.
+6. **Run `just checks`,** or, after a change of documents alone, `just check-docs` and `just check-parts`, fix what fails, and commit. `check-parts` fails on a line of a document that cites a decision whose row carries a part's marker, which `check-docs` passes.
 7. **Push `main`,** as CLAUDE.md allows, and watch the CI run to its end, which runs every check of `just ci`. A run that fails is fixed, committed and pushed in the same session when the fix is clear; otherwise the report says what failed.
 8. **Report to the owner:** what the session changed, what comes next, what waits on them, and how the CI run ended.
