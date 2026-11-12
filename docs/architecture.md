@@ -218,7 +218,7 @@ modules/workspaces/
   personal_data.rs   its export and erasure contract (D31)
 ```
 
-Three modules have one extra entry each: `access/permissions.rs` holds the permission matrix, `auth/providers/` holds one file per OAuth provider together with their registry, and `system/seed.rs` holds `seed`, a client of the API's routes, which names HTTP types as a service may not ([system spec](spec/system.md#seed)).
+Three modules have one extra entry each: `access/permissions.rs` holds the permission matrix, `auth/providers/` holds one file per OAuth provider together with their registry, in `mod.rs` and `clients.rs`, and `system/seed.rs` holds `seed`, a client of the API's routes, which names HTTP types as a service may not ([system spec](spec/system.md#seed)).
 
 The layers have strict jobs (ARCH-08 to ARCH-10):
 - **Handlers** contain no SQL and no business rules.
@@ -417,6 +417,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 |---|---|
 | User | A person with an account. Owns their profile, sessions and identities, and the data they keep apart from any workspace. |
 | Identity | One way a user signs in: a password, or a linked OAuth provider account. A user who registered has one or more. An account an operator creates for its owner has none until the owner sets a password ([the setup subcommand](spec/workspaces.md#the-setup-subcommand)). |
+| Issuer | The URL by which an OAuth provider that follows OpenID Connect names itself. The provider serves its discovery document, which lists the addresses of its endpoints, at `/.well-known/openid-configuration` under it. |
 | Session | One signed-in device or client, holding an access token and a refresh token. |
 | Device token | A token that a registration or a sign-in gives the device, for the account's email, so that the device's next sign-in to that account counts only in a limit of its own, which no attempt from elsewhere fills (AUTH-019). |
 | Second factor | A way of proving who one is beside the password: an authenticator app, with recovery codes (D134). |

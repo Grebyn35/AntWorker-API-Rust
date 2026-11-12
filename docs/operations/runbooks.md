@@ -80,7 +80,7 @@ If a deploy started the failures, roll it back first, then investigate.
 **Look first.** The Sign-in dashboard: "How do exchanges of providers' codes end?" shows when the provider stopped answering. The `ERROR` lines of the 503s name the provider and the failure, such as a connection's, a status, or the refusal of the client.
 
 **What to do.** A refusal of the client is the deployment's to fix: compare the client's ID and secret with the provider's console, and set them again with `just server-setup` ([deploy.md](deploy.md#signing-in-through-a-provider)).
-For `openid_connect`, compare the addresses in the settings with the provider's discovery document too, which a provider may change. <!-- part: openid_connect -->
+For `openid_connect`, compare the addresses in the settings with the provider's discovery document too, which a provider may change; and an `ERROR` line that says its token endpoint's answer doesn't say when its token lapses clears only once the provider gives access tokens that lapse, which its own settings decide (AUTH-084). <!-- part: openid_connect -->
 For any other failure, check the provider's status page, and that the server reaches the provider's endpoints; a provider's outage clears with it, and its users sign in again once it does.
 
 ## ApiTelemetryMissing

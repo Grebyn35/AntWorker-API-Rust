@@ -259,6 +259,32 @@ async fn auth_076_a_provider_that_gives_no_address_answers_422() {
 }
 
 #[tokio::test]
+async fn auth_077_the_exchange_sends_the_client_the_code_its_verifier_and_its_redirect_uri() {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+
+    signed_in(&api).await;
+
+    let exchange = &upstream.received()[0];
+    assert_eq!(exchange.method, "POST");
+    assert_eq!(exchange.path, "/token");
+    assert_eq!(
+        exchange.authorization, None,
+        "the client's ID and secret go in the request's body"
+    );
+    for (field, value) in [
+        ("grant_type", "authorization_code"),
+        ("client_id", "stand-in-client"),
+        ("client_secret", "stand-in-secret"),
+        ("code", "a-code"),
+        ("code_verifier", VERIFIER),
+        ("redirect_uri", "https://app.example.com/callback"),
+    ] {
+        assert_eq!(exchange.field(field).as_deref(), Some(value), "{field}");
+    }
+}
+
+#[tokio::test]
 async fn auth_077_invalid_grant_answers_401_and_any_other_refusal_or_failure_503() {
     let (upstream, api) = standing().await;
     upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));

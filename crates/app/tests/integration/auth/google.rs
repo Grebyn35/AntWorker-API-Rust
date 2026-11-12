@@ -86,6 +86,13 @@ async fn auth_082_google_signs_in_through_its_userinfo_with_its_browser_client()
             .await,
         ["1098"]
     );
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT email || ' ' || name FROM users")
+            .await,
+        ["ada@gmail.com Ada"],
+        "the address and the name that the userinfo endpoint answers"
+    );
 }
 
 #[tokio::test]
