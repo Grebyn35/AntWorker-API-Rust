@@ -88,7 +88,6 @@ impl Provider for GitHub {
     fn identify<'a>(
         &'a self,
         outbound: &'a Configured,
-        _client: &'a Client,
         token: &'a Secret<String>,
     ) -> BoxFuture<'a, Result<Identity, ProviderError>> {
         Box::pin(read(outbound, token))

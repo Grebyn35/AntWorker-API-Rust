@@ -311,7 +311,7 @@ impl Auth {
         let exchanged = async {
             let got = provider.token(&self.outbound, &exchange).await?;
             let token = token.insert(got);
-            provider.identify(&self.outbound, client, token).await
+            provider.identify(&self.outbound, token).await
         };
         let identified = tokio::select! {
             identified = exchanged => identified,

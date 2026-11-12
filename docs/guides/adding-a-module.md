@@ -93,7 +93,7 @@ A user signs in through each OAuth provider that `crates/app/src/modules/auth/pr
 A provider whose addresses differ between deployments, such as an organization's own, reads them from settings, which its entry names in `settings`.
 The template has one, which a deployment names with no code, and a product that signs in through a second copies `providers/openid_connect.rs` under a key of its own. <!-- part: openid_connect -->
 
-A provider is an optional part (ARCH-07), so each line that exists only for it carries its marker, and `just remove <key>` deletes them all. A marker is a comment that reads `part: <key>`, in the file's own syntax: alone on its line it opens a block, which a line that reads `end part: <key>` closes, and at the end of a line of a document it marks that line, as the lines of the template's providers show. The provider's key is in `snake_case`, such as `acme`, and its settings start with the key in capitals, such as `ACME_`. These are its pieces:
+A provider is an optional part, so each line that exists only for it carries its marker, a comment that reads `part: <key>`, in the forms that ARCH-07 gives for each kind of file, and `just remove <key>` deletes them all. The provider's key is in `snake_case`, such as `acme`, and its settings start with the key in capitals, such as `ACME_`. These are its pieces:
 
 | Piece | File | Rules |
 |---|---|---|
@@ -112,9 +112,11 @@ What the registry asks of a provider's file:
 - **`declared`** gives the provider's name, as a client shows it, and its addresses: the authorization endpoint, the token endpoint, and the one that gives a user's identity.
 - **`proves`** says whether the provider is the authority of the address it gives, so a sign-in proves the address. It says no unless the file replaces it, which it does only for the addresses that the provider's documentation calls it the authority for (D140): an address that a provider verified once may have changed owner since.
 - **`subject`** gives the provider's ID for the user, its userinfo endpoint's `sub`. A file replaces it only when the `sub` alone doesn't name one user for good.
+- **`basic`** says whether the token endpoint takes the client's ID and secret in HTTP's Basic scheme. It says no, so they go in the request's body, unless the file replaces it, as it does for a provider whose documentation asks for the scheme.
+- **`token`** reads the access token from the token endpoint's answer, as RFC 6749 gives it. A file replaces it for a provider whose answers differ.
 - **`discard`** deletes the provider's token once the identity is read. It does nothing unless the file replaces it, which it does for a provider whose tokens don't lapse on their own (D139).
 
-The tests of the behaviors that every provider shares run through a stand-in provider, so a provider's own tests prove only its own behavior. Run `just check-parts` once the markers are in: it takes seconds, and names a marker or a word that is wrong. The tests that a provider's lines can break run in a few minutes:
+The tests of the behaviors that every provider shares run through a stand-in provider, so a provider's own tests prove only its own behavior. Run `just check-parts` once the markers are in: it takes seconds, and names a marker or a word that is wrong. The tests that a provider's lines can break run in a few minutes, once `just services` has started what they use:
 
 ```
 cargo test -p app --locked --test integration -- auth::<key> auth::providers platform::config

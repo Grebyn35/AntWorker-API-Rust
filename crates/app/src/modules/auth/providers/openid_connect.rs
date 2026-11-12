@@ -3,9 +3,14 @@
 //! addresses differ between deployments, so they are settings, where another provider's are
 //! constants of its file (OPS-02).
 
-use platform::{config::ConfigError, types::one_line};
+use platform::{
+    config::ConfigError,
+    outbound::Response,
+    types::{Secret, one_line},
+};
+use serde::Deserialize;
 
-use super::{Built, Declared, Entry, Provider};
+use super::{Built, Declared, Entry, Provider, ProviderError};
 
 const NAME: &str = "OPENID_CONNECT_NAME";
 const ISSUER: &str = "OPENID_CONNECT_ISSUER";
@@ -97,6 +102,35 @@ impl Provider for OpenIdConnect {
             token_endpoint: &self.token_endpoint,
             identity_endpoint: &self.userinfo_endpoint,
             scopes: &["openid", "email", "profile"],
+        }
+    }
+
+    /// OpenID Connect makes the Basic scheme a client's default (Core, §9), so every provider
+    /// that follows it takes it.
+    fn basic(&self) -> bool {
+        true
+    }
+
+    /// The access token of the token endpoint's answer, when the answer says that it lapses, by
+    /// an `expires_in` above zero (RFC 6749, §5.1): the API knows no way of such a provider's to
+    /// delete a token, so it takes none that may not lapse (AUTH-079, D139).
+    fn token(&self, answer: &Response) -> Result<Secret<String>, ProviderError> {
+        #[derive(Deserialize)]
+        struct Token {
+            access_token: String,
+            expires_in: Option<u64>,
+        }
+        match answer.json::<Token>() {
+            Some(Token {
+                access_token,
+                expires_in: Some(1..),
+            }) => Ok(Secret::new(access_token)),
+            Some(_) => Err(ProviderError::Unavailable(
+                "the token endpoint's answer doesn't say when its token lapses".to_owned(),
+            )),
+            None => Err(ProviderError::Unavailable(
+                "the token endpoint's answer holds no token".to_owned(),
+            )),
         }
     }
 

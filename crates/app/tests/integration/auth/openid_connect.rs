@@ -17,7 +17,7 @@ const REDIRECT_URI: &str = "https://app.example.com/callback/login";
 fn settings(options: Options, issuer: &str) -> Options {
     options
         .set("OPENID_CONNECT_CLIENT_ID", "named-client")
-        .set("OPENID_CONNECT_CLIENT_SECRET", "named-secret")
+        .set("OPENID_CONNECT_CLIENT_SECRET", "named+secret/1")
         .set("OPENID_CONNECT_REDIRECT_URIS", REDIRECT_URI)
         .set("OPENID_CONNECT_NAME", "Example login")
         .set("OPENID_CONNECT_ISSUER", issuer)
@@ -95,13 +95,14 @@ async fn auth_084_the_provider_that_the_settings_name_signs_in_through_their_add
     let received = upstream.received();
     assert_eq!(received[0].path, "/oauth2/token");
     assert_eq!(
-        received[0].field("client_id").as_deref(),
-        Some("named-client")
+        received[0].authorization.as_deref(),
+        // The Basic scheme's Base64 of `named-client:named%2Bsecret%2F1`, the ID and the secret
+        // as a form encodes them (RFC 6749, §2.3.1).
+        Some("Basic bmFtZWQtY2xpZW50Om5hbWVkJTJCc2VjcmV0JTJGMQ==")
     );
-    assert_eq!(
-        received[0].field("client_secret").as_deref(),
-        Some("named-secret")
-    );
+    assert_eq!(received[0].field("client_id"), None);
+    assert_eq!(received[0].field("client_secret"), None);
+    assert_eq!(received[0].field("code").as_deref(), Some("a-code"));
     assert_eq!(received[1].path, "/oauth2/userinfo");
     assert_eq!(
         received[1].authorization.as_deref(),
@@ -109,6 +110,48 @@ async fn auth_084_the_provider_that_the_settings_name_signs_in_through_their_add
     );
     assert_eq!(received.len(), 2, "no deletion of the token");
     assert_eq!(subjects(&api).await, ["https://login.example.com 7"]);
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT email || ' ' || name FROM users")
+            .await,
+        ["ada@example.com Ada"],
+        "the address and the name that the userinfo endpoint answers"
+    );
+}
+
+#[tokio::test]
+async fn auth_084_a_token_whose_answer_doesn_t_say_that_it_lapses_answers_503() {
+    let (upstream, api) = named().await;
+    upstream.set(
+        "GET",
+        "/oauth2/userinfo",
+        200,
+        json!({ "sub": "7", "email": "ada@example.com" }),
+    );
+    for token in [
+        json!({ "access_token": "named-token", "token_type": "Bearer" }),
+        json!({ "access_token": "named-token", "expires_in": 0, "token_type": "Bearer" }),
+    ] {
+        upstream.set("POST", "/oauth2/token", 200, token.clone());
+
+        let response = sign_in(&api).await;
+
+        assert_eq!(response.status, 503, "{token}");
+        assert_eq!(response.json()["code"], "auth.provider_unavailable");
+    }
+    assert!(
+        upstream
+            .received()
+            .iter()
+            .all(|request| request.path == "/oauth2/token"),
+        "no read of the identity with a token that may not lapse"
+    );
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT count(*)::text FROM users")
+            .await,
+        ["0"]
+    );
 }
 
 #[tokio::test]

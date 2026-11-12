@@ -56,8 +56,8 @@ struct Entry {
     /// The prefix of each of its clients' settings, such as `STAND_IN_` for `STAND_IN_CLIENT_ID`,
     /// `STAND_IN_CLIENT_SECRET` and `STAND_IN_REDIRECT_URIS` (AUTH-081).
     clients: &'static [&'static str],
-    /// The settings it reads beside its clients', such as the addresses of a provider that the
-    /// deployment names: each is set while a client of its is, and only then (AUTH-081).
+    /// The settings it reads beside its clients', such as the stand-in's `STAND_IN_NAME`: each
+    /// is set while a client of its is, and only then (AUTH-081).
     settings: &'static [&'static str],
     /// The provider, from the values of `settings`, in their order.
     build: fn(&[String]) -> Built,
@@ -83,8 +83,8 @@ struct Declared<'a> {
 
 /// An OAuth provider, as its file states it (ARCH-13: one implementation for each provider):
 /// what it declares, and what it does differently from the standards, which the provided methods
-/// follow. A provider that follows OpenID Connect states only what it declares, and which
-/// addresses it proves, if any.
+/// follow. A provider that follows OpenID Connect states what it declares, and replaces only
+/// what its own behavior adds, such as which addresses it proves.
 trait Provider: Send + Sync {
     /// What it declares.
     fn declared(&self) -> Declared<'_>;
@@ -105,13 +105,19 @@ trait Provider: Send + Sync {
             })
     }
 
-    /// Reads the identity of the user whose access token `token` is, which `client`'s exchange
-    /// got: as OpenID Connect's userinfo endpoint gives it, the `sub`, the `email` and the `name`
-    /// of its answer (Core, §5.3), unless the provider reads it another way.
+    /// Whether the token endpoint takes the client's ID and secret in HTTP's Basic scheme, which
+    /// RFC 6749 asks every provider to take (§2.3.1), rather than in the request's body, where a
+    /// provider's documentation asks for them.
+    fn basic(&self) -> bool {
+        false
+    }
+
+    /// Reads the identity of the user whose access token `token` is: as OpenID Connect's userinfo
+    /// endpoint gives it, the `sub`, the `email` and the `name` of its answer (Core, §5.3), unless
+    /// the provider reads it another way.
     fn identify<'a>(
         &'a self,
         outbound: &'a Configured,
-        _client: &'a Client,
         token: &'a Secret<String>,
     ) -> BoxFuture<'a, Result<Identity, ProviderError>> {
         Box::pin(async move {
@@ -204,19 +210,28 @@ impl On {
         outbound: &Configured,
         exchange: &Exchange<'_>,
     ) -> Result<Secret<String>, ProviderError> {
-        let answer = outbound
-            .send(
-                Request::post(self.provider.declared().token_endpoint)
-                    .header("accept", "application/json")
-                    .form(&[
-                        ("grant_type", "authorization_code"),
-                        ("client_id", &exchange.client.id),
-                        ("client_secret", exchange.client.secret.expose()),
-                        ("code", exchange.code.expose()),
-                        ("code_verifier", exchange.verifier.expose()),
-                        ("redirect_uri", exchange.redirect_uri),
-                    ]),
+        let client = exchange.client;
+        let mut fields = vec![
+            ("grant_type", "authorization_code"),
+            ("code", exchange.code.expose().as_str()),
+            ("code_verifier", exchange.verifier.expose().as_str()),
+            ("redirect_uri", exchange.redirect_uri),
+        ];
+        let request = Request::post(self.provider.declared().token_endpoint)
+            .header("accept", "application/json");
+        let request = if self.provider.basic() {
+            // Each is encoded as a form encodes it, before the scheme's own encoding (§2.3.1).
+            request.basic(
+                &form_encoded(&client.id),
+                &Secret::new(form_encoded(client.secret.expose())),
             )
+        } else {
+            fields.push(("client_id", client.id.as_str()));
+            fields.push(("client_secret", client.secret.expose().as_str()));
+            request
+        };
+        let answer = outbound
+            .send(request.form(&fields))
             .await
             .map_err(|error| ProviderError::Unavailable(error.to_string()))?;
         if !answer.is_success() {
@@ -225,15 +240,13 @@ impl On {
         self.provider.token(&answer)
     }
 
-    /// Reads the identity of the user whose access token `token` is, which `client`'s exchange
-    /// got.
+    /// Reads the identity of the user whose access token `token` is.
     pub(super) fn identify<'a>(
         &'a self,
         outbound: &'a Configured,
-        client: &'a Client,
         token: &'a Secret<String>,
     ) -> BoxFuture<'a, Result<Identity, ProviderError>> {
-        self.provider.identify(outbound, client, token)
+        self.provider.identify(outbound, token)
     }
 
     /// Lets go of `token`, which `client`'s exchange got, as the provider asks, or says why it
@@ -246,6 +259,12 @@ impl On {
     ) -> BoxFuture<'a, Result<(), String>> {
         self.provider.discard(outbound, client, token)
     }
+}
+
+/// `value` as an HTML form encodes it, as RFC 6749 encodes a client's ID and its secret for the
+/// Basic scheme (§2.3.1).
+fn form_encoded(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
 
 /// Why the token endpoint refused the exchange, from its answer `answer` (RFC 6749, §5.2).
