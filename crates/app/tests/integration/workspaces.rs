@@ -1220,7 +1220,8 @@ async fn workspaces_013_a_change_names_a_member_a_current_version_and_a_role() {
 
     let not_member =
         change_role(&api, &owner, (&workspace, &stranger.user_id), "admin", None).await;
-    let not_an_id = change_role(&api, &owner, (&workspace, "nobody"), "admin", None).await;
+    // A path whose user ID isn't a UUID names no member, whatever the role.
+    let not_an_id = change_role(&api, &owner, (&workspace, "nobody"), "owner", None).await;
     let stale = change_role(&api, &owner, target, "admin", Some("\"7\"")).await;
     // A change to the role they hold fails a stale precondition too.
     let stale_unchanged = change_role(&api, &owner, target, "member", Some("\"7\"")).await;

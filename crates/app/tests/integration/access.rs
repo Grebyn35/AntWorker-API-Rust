@@ -970,8 +970,17 @@ async fn data_20_a_deletion_waits_for_a_member_before_it_locks_the_members_below
     assert_eq!(left, ["0"]);
 }
 
-#[tokio::test]
-async fn audit_004_a_member_s_refusal_whose_workspace_went_meanwhile_is_recorded_nowhere() {
+/// What a member's request, `method` to the path that `path` gives for the workspace and the
+/// ID of its owner, answers, and what its refusal records, when a deletion of the workspace
+/// commits once the request is refused, while the refusal's entry waits at the workspace's row:
+/// the answer's status and code, and each `access.denied` entry as its scope, the log it is in,
+/// its actor, its resource and its details. Returns them with the member's ID and the
+/// workspace's.
+async fn refused_while_the_workspace_goes(
+    role: &str,
+    method: Method,
+    path: fn(&str, &str) -> String,
+) -> ((StatusCode, String), Vec<String>, (String, String)) {
     let api = Api::new().await;
     let owner = users::register(&api, "owner@example.com").await;
     let member = users::register(&api, "member@example.com").await;
@@ -979,7 +988,7 @@ async fn audit_004_a_member_s_refusal_whose_workspace_went_meanwhile_is_recorded
     let workspace = workspaces::arrange(
         db,
         "Acme",
-        &[(&owner.user_id, "owner"), (&member.user_id, "member")],
+        &[(&owner.user_id, "owner"), (&member.user_id, role)],
     )
     .await;
     // A deletion of the workspace, which holds its row.
@@ -989,10 +998,9 @@ async fn audit_004_a_member_s_refusal_whose_workspace_went_meanwhile_is_recorded
         ))
         .await;
 
-    // A member may not delete the workspace: the refusal's entry waits at the workspace's row.
     let refused = api.spawn(
-        Method::DELETE,
-        &format!("/v1/workspaces/{workspace}"),
+        method,
+        &path(&workspace, &owner.user_id),
         &member.access,
         None,
     );
@@ -1005,12 +1013,62 @@ async fn audit_004_a_member_s_refusal_whose_workspace_went_meanwhile_is_recorded
     execute_on(&mut deletion, "COMMIT").await;
     let (status, problem) = refused.await.unwrap();
 
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_eq!(problem["code"], "request.permission_denied");
+    let entries = db
+        .owner_reads(
+            "SELECT scope || ' ' || coalesce(workspace_id, user_id) || ' ' || actor_user_id \
+             || ' ' || resource_type || ' ' || resource_id || ' ' || details::text \
+             FROM audit_entries WHERE action = 'access.denied'",
+        )
+        .await;
+    let code = problem["code"].as_str().unwrap().to_owned();
+    ((status, code), entries, (member.user_id, workspace))
+}
+
+#[tokio::test]
+async fn audit_004_a_member_s_refusal_whose_workspace_went_meanwhile_is_in_their_own_log() {
+    // A member may not delete the workspace.
+    let (answer, entries, (member, workspace)) =
+        refused_while_the_workspace_goes("member", Method::DELETE, |workspace, _| {
+            format!("/v1/workspaces/{workspace}")
+        })
+        .await;
+
     assert_eq!(
-        db.owner_reads("SELECT count(*)::text FROM audit_entries WHERE action = 'access.denied'")
-            .await,
-        ["0"]
+        answer,
+        (
+            StatusCode::FORBIDDEN,
+            "request.permission_denied".to_owned()
+        )
+    );
+    assert_eq!(
+        entries,
+        [format!(
+            "user {member} {member} workspace {workspace} {{\"permission\": \"workspace.delete\"}}"
+        )]
+    );
+}
+
+#[tokio::test]
+async fn platform_010_a_rank_refusal_whose_workspace_went_meanwhile_is_in_the_caller_s_own_log() {
+    // An admin may remove members, but not the owner, who outranks them.
+    let (answer, entries, (admin, workspace)) =
+        refused_while_the_workspace_goes("admin", Method::DELETE, |workspace, owner| {
+            format!("/v1/workspaces/{workspace}/members/{owner}")
+        })
+        .await;
+
+    assert_eq!(
+        answer,
+        (
+            StatusCode::FORBIDDEN,
+            "request.permission_denied".to_owned()
+        )
+    );
+    assert_eq!(
+        entries,
+        [format!(
+            "user {admin} {admin} workspace {workspace} {{\"permission\": \"members.remove\"}}"
+        )]
     );
 }
 

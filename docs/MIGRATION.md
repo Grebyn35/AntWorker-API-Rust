@@ -184,6 +184,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 57ab047..dfd7de5 | TEST-01 and DOC-07: how two behaviors that state one clause share its test, as ACCESS-006, WORKSPACES-012 and PLATFORM-031 each say that a change of a role closes the member's streams, and ACCESS-004 and WORKSPACES-013 that a role is assigned only below one's own; or whether the second cites the first, and states no clause of its own | 6, with the review of the whole codebase |
 | Conformance review of 57ab047..dfd7de5 | ARCH-03 and CODE-08: whether a file may become a directory before the limit forces it: `workspaces/routes/`, `workspaces/service/` and `access/service/` were split at a part's seam with their files within 40 lines of the limit together, while `access/repo/` was past it | 6, with the review of the whole codebase |
 | Conformance review of 57ab047..1d5e599 | TEST-07: whether a test may act again once it has asserted, as a test that shows a refusal and then what lets the request through does, such as `auth_048_`'s and the second factors' | 6, with the review of the whole codebase |
+| Conformance review of 57ab047..a41b6c8 | API-01: whether the path parameter that names a member is `{member_id}`, after the resource, or `{user_id}`, after what it holds, as the three routes of a member name it; `check-openapi` checks only that a parameter ends in `_id` | 6, with the review of the whole codebase |
 
 ## Conformance reviews
 
@@ -304,7 +305,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | b3d235c..bc6f2fa: as above, with pass 1's fixes, and the tests' removal of the buckets that earlier runs left | 2 | 7 (4, 3, 0 shared) | 1 | 0 | `next pass`: 3ce9376 |
 | b3d235c..3ce9376: as above, with pass 2's fixes | 3 | 5 (3, 3, 1 shared) | 1 | 1 | `stopped: no progress`: resolved 76c0774 |
 | 57ab047..dfd7de5: the first part of the full `workspaces` module: reading a member, changing a role, leaving, a transfer and a deletion (WORKSPACES-011 to WORKSPACES-018, D148), with the policy's lock and the changes of memberships in `access`, the one code of a missing proof, and the refusal sink | 1 | 8 (6, 4, 2 shared) | 3 | 0 | `next pass`: 1d5e599 |
-| 57ab047..1d5e599: as above, with pass 1's fixes | 2 | 2 (2, 0, 0 shared) | 1 | 0 | `next pass` |
+| 57ab047..1d5e599: as above, with pass 1's fixes | 2 | 2 (2, 0, 0 shared) | 1 | 0 | `next pass`: a41b6c8 |
+| 57ab047..a41b6c8: as above, with pass 2's fixes | 3 | 2 (2, 0, 0 shared) | 1 | 0 | `stopped: no progress` |
 
 ## Decisions
 

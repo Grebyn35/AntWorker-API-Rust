@@ -233,6 +233,13 @@ impl Refusal {
         };
         AuditScope::proven(log, self.user_id)
     }
+
+    /// Where a member's refusal is recorded once the workspace's log is gone, because the
+    /// workspace was deleted while the refused request ran: the caller's own log, as a
+    /// non-member's is, which they then are (AUDIT-004).
+    pub fn own_scope(&self) -> AuditScope {
+        AuditScope::proven(Log::User(self.user_id), self.user_id)
+    }
 }
 
 /// Records refused requests, which `audit` implements for `platform` (ARCH-13).
@@ -453,7 +460,7 @@ pub async fn refuse<P: Permission>(uow: UnitOfWork, authorized: &Authorized<P>) 
 }
 
 /// Records `refusal` and counts it. A refusal the sink can't record fails the request, so none
-/// goes unrecorded (DATA-22).
+/// goes unrecorded while a log is left to hold it (DATA-22, AUDIT-004).
 async fn report(
     sink: &dyn SecurityEventSink,
     refusal: &Refusal,

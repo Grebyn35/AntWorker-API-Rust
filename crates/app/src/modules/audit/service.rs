@@ -3,7 +3,7 @@
 //! refusal").
 
 use platform::{
-    authn::{AuditScope, BoxFuture},
+    authn::{AuditScope, BoxFuture, Log},
     authz::{Refusal, SecurityEventSink},
     db::{Database, UnitOfWork},
     errors::Internal,
@@ -43,6 +43,22 @@ impl Sink {
     }
 
     async fn write(&self, refusal: &Refusal) -> Result<(), Internal> {
+        let scope = refusal.audit_scope();
+        if self.insert(refusal, scope).await? || matches!(scope.log(), Log::User(_)) {
+            // Recorded, or the non-member's own log went with their account while the refused
+            // request ran, so the refusal has nowhere to be recorded (AUDIT-004).
+            return Ok(());
+        }
+        // The workspace's log went with the workspace while the refused request ran. The caller
+        // is no member of it any more, so their own log holds the refusal, as a non-member's
+        // does, unless their account went too (AUDIT-004).
+        self.insert(refusal, refusal.own_scope()).await?;
+        Ok(())
+    }
+
+    /// Records `refusal` in the log that `scope` names, in a unit of work of its own, and
+    /// returns whether the log was there to hold it.
+    async fn insert(&self, refusal: &Refusal, scope: AuditScope) -> Result<bool, Internal> {
         let mut uow = self.database.begin(refusal.client()).await?;
         let mut entry = Entry::new(
             audit::ACCESS_DENIED,
@@ -50,19 +66,12 @@ impl Sink {
             refusal.workspace_id().uuid(),
         );
         entry.details = serde_json::json!({ "permission": refusal.permission() });
-        match repo::insert(
-            &mut uow,
-            refusal.audit_scope(),
-            &entry,
-            &telemetry::trace_id(),
-        )
-        .await?
-        {
-            Inserted::Recorded => uow.commit().await,
-            // The non-member's own log went with their account while the refused request ran,
-            // or the member's workspace's with the workspace, so the refusal has nowhere to be
-            // recorded (AUDIT-004).
-            Inserted::LogGone => Ok(()),
+        match repo::insert(&mut uow, scope, &entry, &telemetry::trace_id()).await? {
+            Inserted::Recorded => {
+                uow.commit().await?;
+                Ok(true)
+            }
+            Inserted::LogGone => Ok(false),
         }
     }
 }
