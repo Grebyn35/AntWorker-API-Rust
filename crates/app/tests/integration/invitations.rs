@@ -722,12 +722,17 @@ async fn sec_19_member_joined_reaches_the_members_and_no_replay_from_before_join
     owner.opened().await;
     let mut member = streams::connect(&api, &grace.access, None).await;
     member.opened().await;
-    // Dan's last event is his own, from before Carol joins and before he does.
+    // Dan's last event is his own invitation, from before Carol joins and before he does. He
+    // reads it from his stream: the ID of a stream's opening names the newest event that the
+    // hub had loaded, which the invitation's may not be yet, though it has committed.
+    let mut first = streams::connect(&api, &dan.access, None).await;
+    first.opened().await;
     let welcome = invite(&api, &ada, &workspace, "dan@example.com", "member")
         .await
         .json();
-    let mut first = streams::connect(&api, &dan.access, None).await;
-    let resume = first.opened().await.id;
+    let received = first.event().await;
+    assert_eq!(received.event.as_deref(), Some("invitation.received"));
+    let resume = received.id;
     drop(first);
 
     let accepted = accept(&api, &carol, invitation["id"].as_str().unwrap()).await;
