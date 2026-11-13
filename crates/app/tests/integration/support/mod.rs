@@ -21,6 +21,7 @@ pub mod audit;
 // part: files
 pub mod bucket;
 // end part: files
+mod cleanup;
 mod contract;
 pub mod events;
 // part: files
@@ -45,7 +46,6 @@ pub mod users;
 pub mod workspaces;
 
 use std::{
-    error::Error,
     ffi::{OsStr, OsString},
     hash::{DefaultHasher, Hash, Hasher},
     io::{self, BufRead, BufReader},
@@ -102,8 +102,8 @@ static TEMPLATE: OnceCell<String> = OnceCell::const_new();
 /// Numbers the databases and roles this process creates.
 static NEXT: AtomicU32 = AtomicU32::new(0);
 
-/// A database for one test, with the roles' grants. Dropping it drops the database and the
-/// roles the test created.
+/// A database for one test, with the roles' grants. Dropping it leaves the database and the
+/// roles the test created to the process's cleanup, which drops them (OPS-21).
 pub struct TestDatabase {
     name: String,
     settings: BootstrapConfig,
@@ -130,6 +130,7 @@ impl TestDatabase {
     }
 
     async fn create(settings: BootstrapConfig, template: Option<&str>) -> Self {
+        cleanup::check();
         let name = unique(&settings, "test");
         let mut admin = connect(&settings.admin).await;
         let template = template
@@ -178,6 +179,12 @@ impl TestDatabase {
     /// The database's name.
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Drops the databases and the roles that the test processes that run no more left, as the
+    /// first test of a process does before it creates any (OPS-21).
+    pub async fn drop_what_earlier_runs_left(&self) {
+        cleanup::drop_left_by_others(&self.settings.admin).await;
     }
 
     /// The URL the API connects with, as `app`.
@@ -427,51 +434,17 @@ impl TestDatabase {
 }
 
 impl Drop for TestDatabase {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "raw SQL arranges and reads what no unit of work may (TEST-05)"
-    )]
+    /// Leaves the database, the roles the test created and its bucket to the process's cleanup,
+    /// and never waits for it: the test's own runtime has yet to end what it holds, such as a
+    /// connection that the API's pool was opening, which the database's drop waits for.
     fn drop(&mut self) {
-        let admin = self.settings.admin.clone();
-        let name = self.name.clone();
-        let roles = std::mem::take(self.roles.get_mut().unwrap_or_else(PoisonError::into_inner));
-        // part: files
-        let bucket = self.bucket.take();
-        // end part: files
-        // Drop can't await, so the cleanup runs on a runtime of its own.
-        let dropped = std::thread::spawn(move || -> Result<(), Box<dyn Error + Send + Sync>> {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?
-                .block_on(async move {
-                    let mut conn = testing::connect(&admin).await?;
-                    // Each statement goes alone: DROP DATABASE can't run in the implicit
-                    // transaction that a batch of statements shares.
-                    let database =
-                        format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", identifier(&name));
-                    let roles = roles
-                        .iter()
-                        .map(|role| format!("DROP ROLE IF EXISTS {}", identifier(role)));
-                    for statement in std::iter::once(database).chain(roles) {
-                        sqlx::raw_sql(AssertSqlSafe(statement))
-                            .execute(&mut conn)
-                            .await?;
-                    }
-                    conn.close().await?;
-                    // part: files
-                    if let Some(bucket) = bucket {
-                        bucket::remove(&bucket).await;
-                    }
-                    // end part: files
-                    Ok(())
-                })
-        })
-        .join();
-        if !std::thread::panicking() {
-            dropped
-                .expect("the cleanup thread")
-                .expect("drop the test database and roles");
-        }
+        cleanup::leave(cleanup::Leftover {
+            database: self.name.clone(),
+            roles: std::mem::take(self.roles.get_mut().unwrap_or_else(PoisonError::into_inner)),
+            // part: files
+            bucket: self.bucket.take(),
+            // end part: files
+        });
     }
 }
 
@@ -693,6 +666,7 @@ async fn template(settings: &BootstrapConfig) -> &'static str {
                 &format!("SELECT pg_advisory_lock({SETUP_LOCK})"),
             )
             .await;
+            cleanup::start(&settings.admin).await;
             let mut roles = Admin::connect(&settings.admin)
                 .await
                 .expect("connect as the administrator");

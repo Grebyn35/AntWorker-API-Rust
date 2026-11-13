@@ -54,6 +54,11 @@ pub async fn create(bucket: &str) {
     assert!(status == 200, "create the bucket {bucket}: {status}");
 }
 
+/// Whether the storage holds the bucket `bucket`.
+pub async fn exists(bucket: &str) -> bool {
+    request("HEAD", bucket).await == 200
+}
+
 /// Deletes every object of the bucket `bucket`, then the bucket, which S3 deletes only empty.
 pub async fn remove(bucket: &str) {
     let storage = storage(bucket);

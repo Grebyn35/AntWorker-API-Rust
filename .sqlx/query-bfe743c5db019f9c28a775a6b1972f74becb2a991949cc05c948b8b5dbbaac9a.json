@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pg_try_advisory_lock($1, $2) AS \"free!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "free!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "bfe743c5db019f9c28a775a6b1972f74becb2a991949cc05c948b8b5dbbaac9a"
+}

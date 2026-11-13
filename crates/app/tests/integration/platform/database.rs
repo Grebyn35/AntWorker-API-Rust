@@ -464,3 +464,28 @@ async fn arch_11_a_unit_of_work_commits_all_its_writes_or_none() {
         ["also kept", "kept"]
     );
 }
+
+#[tokio::test]
+async fn ops_21_a_run_of_the_tests_drops_the_databases_and_roles_that_an_earlier_run_left() {
+    let db = TestDatabase::empty().await;
+    let prefix = db.name().split("_test_").next().unwrap().to_owned();
+    // What a test process that runs no more left: no process has this ID, so none holds the
+    // lock that it names.
+    let database = format!("{prefix}_test_2147483647_0");
+    let role = format!("{prefix}_role_2147483647_0");
+    db.admin_executes(&format!("CREATE ROLE \"{role}\"")).await;
+    db.admin_executes(&format!("CREATE DATABASE \"{database}\" OWNER \"{role}\""))
+        .await;
+
+    db.drop_what_earlier_runs_left().await;
+
+    let left = db
+        .admin_reads(&format!(
+            "SELECT datname::text FROM pg_database WHERE datname IN ('{database}', '{}') \
+             UNION ALL SELECT rolname::text FROM pg_roles WHERE rolname = '{role}'",
+            db.name()
+        ))
+        .await;
+    // The database of a test that runs stays.
+    assert_eq!(left, [db.name()]);
+}

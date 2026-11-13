@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT rolname AS \"name!\" FROM pg_roles WHERE rolname ~ $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name!",
+        "type_info": "Name",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolname"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "c642b3ab89f3592f1709248966c895da65a276c18b6baecb1c8abab4d169b624"
+}
