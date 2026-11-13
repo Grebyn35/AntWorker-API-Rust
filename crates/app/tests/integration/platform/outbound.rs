@@ -26,8 +26,15 @@ async fn serving(answer: impl Fn(&str) -> Option<Vec<u8>> + Send + 'static) -> (
             let path = head.split(' ').nth(1).unwrap_or_default();
             match answer(path) {
                 Some(response) => {
-                    stream.write_all(&response).await.unwrap_or_default();
-                    stream.shutdown().await.unwrap_or_default();
+                    let sent = async {
+                        stream.write_all(&response).await?;
+                        stream.shutdown().await
+                    };
+                    // The client hangs up before the answer ends when it refuses the answer,
+                    // as it does a body beyond its cap.
+                    if let Err(gone) = sent.await {
+                        platform::errors::ignore(&gone, "test_client_gone");
+                    }
                 }
                 None => std::future::pending().await,
             }

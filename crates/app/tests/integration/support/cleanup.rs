@@ -78,9 +78,11 @@ pub(super) async fn start(admin: &DatabaseUrl) {
 
 /// Hands `leftover` to the thread that drops it, without waiting for it.
 pub(super) fn leave(leftover: Leftover) {
-    if let Some(left) = LEFT.get() {
+    if let Some(left) = LEFT.get()
+        && let Err(gone) = left.send(leftover)
+    {
         // The thread is gone only once it failed, which the next test reports.
-        left.send(leftover).unwrap_or_default();
+        platform::errors::ignore(&gone, "cleanup_stopped");
     }
 }
 
@@ -120,8 +122,13 @@ async fn run(
     )
     .await;
     drop_left_by_others(url).await;
-    // The test that started the thread may have failed meanwhile.
-    ready.send(()).unwrap_or_default();
+    if ready.send(()).is_err() {
+        // The test that started the thread failed meanwhile, and waits for it no more.
+        platform::errors::ignore(
+            &std::io::Error::other("the test that started the cleanup has gone"),
+            "cleanup_starter_gone",
+        );
+    }
     while let Some(leftover) = leftovers.recv().await {
         remove(&mut admin, leftover).await;
     }

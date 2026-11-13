@@ -76,8 +76,9 @@ impl Workers {
         T: Send + 'static,
     {
         let span = tracing::info_span!("blocking", { names::OTEL_NAME } = name);
-        let mut turn = self.wait(&span).await?;
-        turn.run_in(span, work).await
+        let turn = self.wait(&span).await?;
+        let (ran, _) = turn.run_in(span, work).await?;
+        Ok(ran)
     }
 
     /// Waits for a turn, inside a span of its own, named `turn`, and gives it to its caller, who
@@ -117,13 +118,15 @@ pub struct Turn(Arc<OwnedSemaphorePermit>);
 
 impl Turn {
     /// Runs `work` on a blocking thread, in this turn, inside a span named `name`, a child of the
-    /// current span. It borrows the turn alone while the work runs, so the holder's next work
-    /// starts after it. Fails only when `work` panics.
+    /// current span, and gives the turn back with what the work returned, for the holder's next
+    /// work. It takes the turn while the work runs, so the holder's works run one after another,
+    /// and a holder that stops waiting for a work has given the turn up with it, so it starts no
+    /// other beside it. Fails only when `work` panics, and the turn goes with the failure.
     pub async fn run<T>(
-        &mut self,
+        self,
         name: &'static str,
         work: impl FnOnce() -> T + Send + 'static,
-    ) -> Result<T, Failed>
+    ) -> Result<(T, Self), Failed>
     where
         T: Send + 'static,
     {
@@ -131,12 +134,13 @@ impl Turn {
         self.run_in(span, work).await
     }
 
-    /// Runs `work` on a blocking thread, in this turn, inside `span`.
+    /// Runs `work` on a blocking thread, in this turn, inside `span`, and gives the turn back
+    /// with what the work returned.
     async fn run_in<T>(
-        &mut self,
+        self,
         span: tracing::Span,
         work: impl FnOnce() -> T + Send + 'static,
-    ) -> Result<T, Failed>
+    ) -> Result<(T, Self), Failed>
     where
         T: Send + 'static,
     {
@@ -149,7 +153,8 @@ impl Turn {
             let _turn = turn;
             span.in_scope(work)
         });
-        ran.await.map_err(|panicked| Failed(panicked.into()))
+        let ran = ran.await.map_err(|panicked| Failed(panicked.into()))?;
+        Ok((ran, self))
     }
 }
 

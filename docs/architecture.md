@@ -34,7 +34,7 @@ flowchart LR
 ## 2. Principles
 
 1. **Mechanisms live in `platform`, policy lives in modules.** `platform` knows how to run a transaction, deliver a job or render an error. It does not know what a workspace member may do.
-2. **One way to do each thing.** There is one transaction API, one error path, one authentication extractor, one authorization check and one outbound HTTP client for each kind of address, one that the configuration names and one that a third party gives (SEC-10). A second way needs an ADR.
+2. **One way to do each thing.** There is one transaction API, one error path, one authentication extractor, one authorization check and one outbound HTTP client for each of the two kinds of address that SEC-10 tells apart. A second way needs an ADR.
 3. **Enforce rules with the compiler first, then tooling, then review.** Visibility, types and crate boundaries come first. Clippy and CI scripts come second. A rule that only review can check is written so a reviewer can answer it yes or no.
 4. **A side effect commits with the change that causes it** (D1).
 5. **Every workspace request is authorized against the workspace named in its path** (D2, D3).

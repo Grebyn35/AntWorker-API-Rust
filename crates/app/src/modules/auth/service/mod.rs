@@ -439,15 +439,17 @@ fn new_tokens() -> Result<Tokens, Internal> {
 /// The Argon2id hash of `password`, in PHC format, with a new salt, through `workers`, once a
 /// turn of theirs is free (AUTH-014).
 async fn hash(workers: &Workers, password: Password) -> Result<String, Internal> {
-    let mut hashing = workers.turn().await.map_err(Internal::new)?;
-    hash_in(&mut hashing, password).await
+    let hashing = workers.turn().await.map_err(Internal::new)?;
+    let (hash, _) = hash_in(hashing, password).await?;
+    Ok(hash)
 }
 
 /// The Argon2id hash of `password`, in PHC format, with a new salt, in the turn `hashing`, which
-/// its caller took before it opened its unit of work (AUTH-014, AUTH-093).
-async fn hash_in(hashing: &mut Turn, password: Password) -> Result<String, Internal> {
+/// its caller took before it opened its unit of work, and which comes back with the hash
+/// (AUTH-014, AUTH-093).
+async fn hash_in(hashing: Turn, password: Password) -> Result<(String, Turn), Internal> {
     let salt = random::bytes::<16>()?;
-    hashing
+    let (hash, hashing) = hashing
         .run("hash_password", move || {
             Argon2::default()
                 .hash_password_with_salt(password.bytes(), &salt)
@@ -455,17 +457,18 @@ async fn hash_in(hashing: &mut Turn, password: Password) -> Result<String, Inter
                 .map_err(|error| Internal::new(error.to_string()))
         })
         .await
-        .map_err(Internal::new)?
+        .map_err(Internal::new)?;
+    Ok((hash?, hashing))
 }
 
 /// Whether `password` matches `stored`, in the turn `hashing`, which its caller took before it
-/// opened its unit of work, with the password handed back for a rehash (AUTH-005, AUTH-014,
-/// AUTH-093).
+/// opened its unit of work, with the password handed back for a rehash, and the turn for the
+/// caller's next hash (AUTH-005, AUTH-014, AUTH-093).
 async fn verify_in(
-    hashing: &mut Turn,
+    hashing: Turn,
     stored: String,
     password: Password,
-) -> Result<(bool, Password), Internal> {
+) -> Result<((bool, Password), Turn), Internal> {
     hashing
         .run("verify_password", move || {
             let matches = Argon2::default()

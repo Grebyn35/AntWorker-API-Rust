@@ -268,18 +268,19 @@ impl Auth {
             .await?;
         // The check takes the user's turn, so a change that came first has set its hash, which
         // this check reads (AUTH-022, DATA-20).
-        let (uow, address, matches, mut hashing) = self
+        let (uow, address, matches, hashing) = self
             .check_password(limits, client, principal, change.current)
             .await?;
         // The new password's hash right after a check that passed, in the turn at hashing that
         // the check took before the unit of work opened. The turn goes before anything is
         // written: a wrong password's record, a second factor's step, and the change (AUTH-093).
         let password_hash = if matches {
-            Some(hash_in(&mut hashing, change.password).await?)
+            let (hash, _) = hash_in(hashing, change.password).await?;
+            Some(hash)
         } else {
+            drop(hashing);
             None
         };
-        drop(hashing);
         let Some(password_hash) = password_hash else {
             return Err(self.wrong_password(uow, principal).await?);
         };

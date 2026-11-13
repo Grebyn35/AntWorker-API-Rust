@@ -583,6 +583,86 @@ async fn auth_073_a_sign_in_that_waited_for_the_removal_of_its_identity_reaches_
 }
 
 #[tokio::test]
+async fn auth_074_a_registration_after_a_removal_that_its_sign_in_waited_for_counts_in_its_bucket()
+{
+    let (upstream, api) = standing().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // Her account at the provider gives another address, which the provider doesn't prove.
+    gives(&upstream, identity("subject-1", "other@example.com", false));
+    assert_eq!(link(&api, &ada, &grant()).await.status, 200);
+    let db = api.database();
+    // A removal of her provider identity, which holds her turn.
+    let mut removal = db
+        .holding(&format!(
+            "SELECT 1 FROM users WHERE id = '{}' FOR NO KEY UPDATE",
+            ada.user_id
+        ))
+        .await;
+
+    let signing_in = {
+        let api = api.clone();
+        tokio::spawn(async move { sign_in(&api, &grant()).await })
+    };
+    queries_wait_on_locks(db, 1).await;
+    execute_on(
+        &mut removal,
+        &format!(
+            "DELETE FROM provider_identities WHERE user_id = '{}'",
+            ada.user_id
+        ),
+    )
+    .await;
+    execute_on(&mut removal, "COMMIT").await;
+    let registered = signing_in.await.unwrap();
+
+    // The subject is no account's by then, and no account holds its address: the sign-in
+    // registers, and the code it sends counts in the address's bucket of 3 (AUTH-029), though
+    // the sign-in read a linked account before it waited.
+    assert_eq!(registered.status, 201, "{}", registered.json());
+    assert_ne!(registered.json()["user_id"], ada.user_id.as_str());
+    gives(&upstream, identity("subject-2", "other@example.com", false));
+    for _ in 0..2 {
+        assert_eq!(sign_in(&api, &grant()).await.status, 409);
+    }
+    let limited = sign_in(&api, &grant()).await;
+    assert_eq!(limited.status, 429);
+    assert_eq!(limited.json()["code"], "request.rate_limited");
+}
+
+#[tokio::test]
+async fn auth_074_a_registration_after_a_deletion_that_its_sign_in_waited_for_counts_in_its_bucket()
+{
+    let (upstream, api) = standing().await;
+    // Her provider doesn't prove her address, so her registration counted once in the address's
+    // bucket of 3 (AUTH-029).
+    gives(&upstream, identity("subject-1", "ada@example.com", false));
+    let ada = signed_in(&api).await;
+    let db = api.database();
+    // A deletion of her account, which holds her turn.
+    let mut deletion = db
+        .holding(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
+        .await;
+
+    let signing_in = {
+        let api = api.clone();
+        tokio::spawn(async move { sign_in(&api, &grant()).await })
+    };
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let registered = signing_in.await.unwrap();
+
+    // Her account is gone by then, and its address with it: the sign-in registers, and counts a
+    // second time in the address's bucket, though it read a linked account before it waited.
+    assert_eq!(registered.status, 201, "{}", registered.json());
+    assert_ne!(registered.json()["user_id"], ada.user_id.as_str());
+    gives(&upstream, identity("subject-2", "ada@example.com", false));
+    assert_eq!(sign_in(&api, &grant()).await.status, 409);
+    let limited = sign_in(&api, &grant()).await;
+    assert_eq!(limited.status, 429);
+    assert_eq!(limited.json()["code"], "request.rate_limited");
+}
+
+#[tokio::test]
 async fn auth_088_removing_the_password_needs_a_recent_proof_then_ends_its_other_sessions() {
     let (upstream, api) = standing().await;
     let ada = users::register(&api, "ada@example.com").await;

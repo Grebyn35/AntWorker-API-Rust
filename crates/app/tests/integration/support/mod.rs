@@ -163,7 +163,8 @@ impl TestDatabase {
 
     // part: files
     /// The bucket of files' bytes of the test's API, named after the database, which the first
-    /// call creates, and the database's drop empties and deletes (OPS-21).
+    /// call creates, and the process's cleanup empties and deletes once the test has ended
+    /// (OPS-21).
     pub async fn bucket(&self) -> String {
         self.bucket
             .get_or_init(|| async {
@@ -437,9 +438,12 @@ impl TestDatabase {
 }
 
 impl Drop for TestDatabase {
-    /// Leaves the database, the roles the test created and its bucket to the process's cleanup,
-    /// and never waits for it: the test's own runtime has yet to end what it holds, such as a
-    /// connection that the API's pool was opening, which the database's drop waits for.
+    /// Leaves the database and the roles the test created to the process's cleanup, and never
+    /// waits for it: the test's own runtime has yet to end what it holds, such as a connection
+    /// that the API's pool was opening, which the database's drop waits for.
+    // part: files
+    /// The test's bucket goes to the cleanup with them.
+    // end part: files
     fn drop(&mut self) {
         cleanup::leave(cleanup::Leftover {
             database: self.name.clone(),

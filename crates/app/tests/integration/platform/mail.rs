@@ -81,7 +81,9 @@ async fn refusing_server() -> SocketAddr {
                         format!("550 5.1.1 {} no such user\r\n", &line[8..])
                     } else if upper.starts_with("QUIT") {
                         // The client may have closed the connection already.
-                        write.write_all(b"221 bye\r\n").await.unwrap_or_default();
+                        if let Err(gone) = write.write_all(b"221 bye\r\n").await {
+                            platform::errors::ignore(&gone, "test_client_gone");
+                        }
                         break;
                     } else {
                         "250 ok\r\n".to_owned()

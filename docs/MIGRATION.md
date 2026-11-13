@@ -173,6 +173,10 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 44bd29b..2a17560 | TEST-01 and ARCH-07: whether the tests' stand-in provider replaces each provided method of the registry's `Provider`, so that what the registry does with a replacement is proven in a fork that removes the provider whose tests prove it now | 6, with the review of the whole codebase |
 | Conformance review of 44bd29b..2a17560 | The spec README's Routes: whether a route's row lists the behaviors of an optional part that the route serves, such as a provider's own, which a core row can't mark | 6, with the review of the whole codebase |
 | Conformance review of b3d235c..430bad8 | TEST-01 and ARCH-07: where a clause that exists only with two parts is stated, as what GitHub's own file reads for its user's picture, of `github` and of `files`: a behavior's row takes one part's marker, so the clause is a line of the auth spec's design inside both parts' markers, and its test, in GitHub's file, takes the ID of GitHub's behavior, whose row doesn't state it, since `check-parts` refuses there a test named for a behavior that stays without `github` | 6, with the review of the whole codebase |
+| Conformance review of b3d235c..bc6f2fa | ERR-11: whether a check finds a `Result` that holds nothing dropped through `unwrap_or_default`, as the tests' stand-in servers and their cleanup dropped a failed write and a failed send, which `let_underscore_must_use` and `unused_result_ok` don't see | 6, with the review of the whole codebase |
+| Conformance review of b3d235c..bc6f2fa | API-05 and API-06: whether a resource may hold an array of sub-resources that a constraint bounds, as the `providers` of `GET /v1/users/me/identities`, one at most for each provider, rather than answer them as a list's pages | 6, with the review of the whole codebase |
+| Conformance review of b3d235c..bc6f2fa | TEST-01: whether a behavior that names the outcomes of a race, as AUTH-073's "answers as AUTH-074 or AUTH-076 says", needs a test of each outcome it names, which the review found only for one | 6, with the review of the whole codebase |
+| Conformance review of b3d235c..bc6f2fa | FILES-013: whether its statement says that a copy of a provider's picture counts in `files.uploads` as an avatar's upload does, each attempt once, as the code counts it | 6, with the review of the whole codebase <!-- part: files --> |
 
 
 ## Conformance reviews
@@ -290,7 +294,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | e5e146f..d24250e: as above, with pass 1's fixes | 2 | 10 (8, 8, 6 shared) | 6 | 3 | `stopped: no progress`: resolved 9f251f9 |
 | 44bd29b..357a004: a sign-in provider of each kind kept as an example, the registry's read of the identity that OpenID Connect defines, and the provider that the settings name (D141), with the guide's steps of adding a provider | 1 | 9 (6, 3, 0 shared) | 1 | 0 | `next pass`: 2a17560 |
 | 44bd29b..2a17560: as above, with pass 1's fixes | 2 | 4 (3, 1, 0 shared) | 1 | 0 | `stopped: no progress`: resolved bc50d71 |
-| b3d235c..430bad8: the last `auth` part: a user's identities, a provider's picture for a new account, the turn at hashing that a sign-in takes before its unit of work, and the tests' cleanup of their databases and opening of their streams | 1 | 14 (9, 9, 4 shared) | 5 | 0 | `next pass` |
+| b3d235c..430bad8: the last `auth` part: a user's identities, a provider's picture for a new account, the turn at hashing that a sign-in takes before its unit of work, and the tests' cleanup of their databases and opening of their streams | 1 | 14 (9, 9, 4 shared) | 5 | 0 | `next pass`: bc6f2fa |
+| b3d235c..bc6f2fa: as above, with pass 1's fixes, and the tests' removal of the buckets that earlier runs left | 2 | 7 (4, 3, 0 shared) | 1 | 0 | `next pass` |
 
 ## Decisions
 

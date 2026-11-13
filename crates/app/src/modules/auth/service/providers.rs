@@ -65,52 +65,64 @@ impl Auth {
         input: ProviderSignIn,
     ) -> Result<SignedIn, AuthError> {
         let (provider, identity) = self.identify(&input.provider, &input.grant).await?;
-        self.count_registration(limits, client, provider, &identity)
+        let mut counted = self
+            .count_registration(limits, client, provider, &identity)
             .await?;
-        let mut uow = self.database.begin(client).await?;
-        if let Some(user_id) =
-            repo::user_of_subject(&mut uow, provider.key, &identity.subject).await?
-            // The user's turn, as a deletion of the account takes it first: a sign-in that waited
-            // for one finds no user, and registers (the auth spec's "Taking turns").
-            && let Some(address) = accounts::address_for_update(&mut uow, user_id).await?
-            // The identity again, once the turn came, since a removal of it that the sign-in
-            // waited for leaves the subject no account's (AUTH-088).
-            && repo::provider_subject(&mut uow, user_id, provider.key)
-                .await?
-                .is_some_and(|subject| subject == identity.subject)
-        {
-            return self
-                .sign_in_linked(uow, (user_id, address), &identity, input)
-                .await;
+        loop {
+            let mut uow = self.database.begin(client).await?;
+            if let Some(user) = linked(&mut uow, provider, &identity).await? {
+                return self.sign_in_linked(uow, user, &identity, input).await;
+            }
+            if counted {
+                return self.register_through(uow, provider, identity, input).await;
+            }
+            // The account that the count read holds the subject no more: its deletion, or a
+            // removal of the identity, came first. The sign-in registers after all, so it counts
+            // as a registration does, before it writes anything, and reads again whether it
+            // registers (AUTH-074).
+            drop(uow);
+            if let Some(email) = self.counted_address(&identity) {
+                limits
+                    .check(buckets::REGISTRATION_EMAIL, email.as_str().as_bytes())
+                    .await?;
+            }
+            counted = true;
         }
-        self.register_through(uow, provider, identity, input).await
     }
 
     /// Counts a sign-in that registers, and sends a code to the address that the provider doesn't
     /// prove, in that address's bucket of registrations, as a registration with a password counts
     /// (AUTH-029). Whether it registers is read first, in a short transaction that writes nothing,
     /// since it decides whether the bucket counts the request, so a linked account's sign-ins
-    /// never fill it (ARCH-11).
+    /// never fill it (ARCH-11). Answers whether a registration that follows is counted, or needs
+    /// no count: it isn't when the read found the subject linked.
     async fn count_registration(
         &self,
         limits: &RateLimits,
         client: &Client,
         provider: &On,
         identity: &Identity,
-    ) -> Result<(), AuthError> {
-        let Some(email) = given_address(identity).filter(|_| self.mail.is_on() && !identity.proved)
-        else {
-            return Ok(());
+    ) -> Result<bool, AuthError> {
+        let Some(email) = self.counted_address(identity) else {
+            return Ok(true);
         };
         let mut read = self.database.begin(client).await?;
         let linked = repo::user_of_subject(&mut read, provider.key, &identity.subject).await?;
         drop(read);
-        if linked.is_none() {
-            limits
-                .check(buckets::REGISTRATION_EMAIL, email.as_str().as_bytes())
-                .await?;
+        if linked.is_some() {
+            return Ok(false);
         }
-        Ok(())
+        limits
+            .check(buckets::REGISTRATION_EMAIL, email.as_str().as_bytes())
+            .await?;
+        Ok(true)
+    }
+
+    /// The address whose bucket of registrations a registration of `identity` counts in: the one
+    /// that its provider gives without proving it, to which the registration sends a code while
+    /// email is on (AUTH-029).
+    fn counted_address(&self, identity: &Identity) -> Option<EmailAddress> {
+        given_address(identity).filter(|_| self.mail.is_on() && !identity.proved)
     }
 
     /// Signs in to `user`'s account, whose provider identity holds the subject, as a sign-in with
@@ -390,6 +402,29 @@ struct TokenKept(String);
 pub(super) fn through(mut entry: Entry, provider: &str) -> Entry {
     entry.details = serde_json::json!({ "provider": provider });
     entry
+}
+
+/// The account whose provider identity holds `identity`'s subject, with its address, once the
+/// unit of work holds the user's turn, or none (AUTH-073).
+async fn linked(
+    uow: &mut UnitOfWork,
+    provider: &On,
+    identity: &Identity,
+) -> Result<Option<(UserId, Address)>, AuthError> {
+    let Some(user_id) = repo::user_of_subject(uow, provider.key, &identity.subject).await? else {
+        return Ok(None);
+    };
+    // The user's turn, as a deletion of the account takes it first: a sign-in that waited for
+    // one finds no user (the auth spec's "Taking turns").
+    let Some(address) = accounts::address_for_update(uow, user_id).await? else {
+        return Ok(None);
+    };
+    // The identity again, once the turn came, since a removal of it that the sign-in waited for
+    // leaves the subject no account's (AUTH-088).
+    let holds = repo::provider_subject(uow, user_id, provider.key)
+        .await?
+        .is_some_and(|subject| subject == identity.subject);
+    Ok(holds.then_some((user_id, address)))
 }
 
 /// The address that `identity`'s provider gives, as ACCOUNTS-002 normalizes it, whether or not

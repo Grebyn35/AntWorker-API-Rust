@@ -131,13 +131,14 @@ async fn platform_060_a_turn_taken_before_its_works_runs_each_and_goes_once_it_i
         "a work waits while callers hold every turn"
     );
 
-    // A holder runs its works in its turn, one after another.
-    let first = turns[0].run("work", || 1).await.unwrap();
-    let second = turns[0].run("work", || 2).await.unwrap();
+    // A holder runs its works in its turn, one after another, each giving the turn back.
+    let turn = turns.remove(0);
+    let (first, turn) = turn.run("work", || 1).await.unwrap();
+    let (second, turn) = turn.run("work", || 2).await.unwrap();
 
     assert_eq!((first, second), (1, 2));
     assert_eq!(gate.started_yet(), None, "the other work still waits");
-    drop(turns.remove(0));
+    drop(turn);
     assert_eq!(
         gate.next_started().await,
         0,
@@ -154,7 +155,7 @@ async fn platform_060_a_work_keeps_the_turn_that_its_holder_dropped_until_it_end
     for _ in 0..workers.turns() {
         turns.push(workers.turn().await.unwrap());
     }
-    let mut turn = turns.remove(0);
+    let turn = turns.remove(0);
     let (started, mut running) = unbounded_channel();
     let (end, ended) = mpsc::channel::<()>();
     // A work in the turn, whose caller stops waiting once it runs, as a request past its
