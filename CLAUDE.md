@@ -43,7 +43,7 @@ just release         # the versions that can come next; `just release 1.4.0` rel
 just check-test-map  # which spec behaviors tests prove
 just new-module      # a new module, such as `just new-module order_items`, holding one workspace resource, with its migration, permissions, spec and tests (ARCH-03)
 just check-removable # each run's copy of the repository, such as a workspace shape's, without the parts it removes, passes the checks (ARCH-07); a change to a part's marked Rust runs it for that part's runs before its commit, since `check-parts` lints nothing
-just check-new-module # a copy of the repository with two modules that `just new-module` wrote passes the checks (ARCH-03)
+just check-new-module # a copy of the repository with two modules that `just new-module` wrote passes the checks (ARCH-03); a change that grows a file every module shares, such as `composition/mod.rs`, to within 20 lines of CODE-08's 500 runs it before its commit, since each new module adds lines there
 just test            # the tests; they start Postgres through Compose
 just run             # the API with the settings in .env, after bootstrap and migrate
 just migrate         # applies new migrations
