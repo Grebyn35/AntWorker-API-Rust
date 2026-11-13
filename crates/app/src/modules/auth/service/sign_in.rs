@@ -3,12 +3,14 @@
 
 use platform::{
     authn::AuditScope,
+    blocking::Turn,
     db::UnitOfWork,
+    errors::Internal,
     rate_limit::{self, LimitError, RateLimits},
     types::{Client, EmailAddress, Secret, UserId},
 };
 
-use super::{Auth, Challenge, Device, hash, verify};
+use super::{Auth, Challenge, Device, hash_in, verify_in};
 use crate::modules::{
     accounts,
     audit::{self as audit_log, Entry},
@@ -89,19 +91,31 @@ impl Auth {
                 limits.check(self.settings.sign_in_email, email).await?;
             }
         }
+        // The turn at hashing before the unit of work, so that a sign-in that waits for it holds
+        // no connection of the pool, which the other requests need (AUTH-093).
+        let hashing = self.workers.turn().await.map_err(Internal::new)?;
         let mut uow = self.database.begin(client).await?;
         let Some(user_id) = accounts::find_by_email(&mut uow, &input.email).await? else {
-            verify(&self.workers, self.dummy_hash.clone(), input.password).await?;
+            verify_in(&hashing, self.dummy_hash.clone(), input.password).await?;
             return Err(AuthError::InvalidCredentials);
         };
         // Locked for the rest of the unit of work, so two sign-ins of one user take turns, and
         // one on a device ends the session the other just started there (DATA-20).
         let Some(identity) = repo::password_identity_for_update(&mut uow, user_id).await? else {
-            verify(&self.workers, self.dummy_hash.clone(), input.password).await?;
+            verify_in(&hashing, self.dummy_hash.clone(), input.password).await?;
             return Err(AuthError::InvalidCredentials);
         };
         let (matches, password) =
-            verify(&self.workers, identity.hash.clone(), input.password).await?;
+            verify_in(&hashing, identity.hash.clone(), input.password).await?;
+        // A password that matched is hashed again here, if its hash needs it, since no later
+        // step holds the password, and the turn goes before the sign-in's writes, so the next
+        // sign-in hashes while this one writes (AUTH-014, AUTH-093).
+        let rehashed = if matches {
+            self.rehashed(&hashing, &identity.hash, password).await?
+        } else {
+            None
+        };
+        drop(hashing);
         if !matches {
             audit_log::record(
                 &mut uow,
@@ -113,13 +127,13 @@ impl Auth {
             return Err(AuthError::InvalidCredentials);
         }
         // An account with an app gets a challenge, which its code completes, rather than a
-        // session; its password, which matched, is rehashed now, since no later step holds it.
+        // session; its password's new hash is stored now, since no later step holds it.
         if repo::second_factors::has_app(&mut uow, user_id).await? {
-            self.rehash(
+            self.store_rehashed(
                 &mut uow,
                 AuditScope::attempt(user_id),
-                (user_id, identity.id, &identity.hash),
-                password,
+                (user_id, identity.id),
+                rehashed,
             )
             .await?;
             let challenge = self
@@ -131,11 +145,11 @@ impl Auth {
         let (principal, session, tokens) = self
             .replace_session(&mut uow, user_id, &input.device)
             .await?;
-        self.rehash(
+        self.store_rehashed(
             &mut uow,
             principal.audit_scope(),
-            (user_id, identity.id, &identity.hash),
-            password,
+            (user_id, identity.id),
+            rehashed,
         )
         .await?;
         let device = self
@@ -152,21 +166,34 @@ impl Auth {
         Ok(SignedIn::Session(Box::new((session, tokens, device))))
     }
 
-    /// Hashes `password` again, with the current parameters, when the stored hash of the user's
-    /// password identity, `identity`'s, was made with others, and records it in the log of
-    /// `scope` (AUTH-014).
-    async fn rehash(
+    /// The hash of `password` with the current parameters, made in the sign-in's turn at
+    /// hashing, when `stored`, the hash of the user's password identity, was made with others
+    /// (AUTH-014).
+    async fn rehashed(
+        &self,
+        hashing: &Turn,
+        stored: &str,
+        password: Password,
+    ) -> Result<Option<String>, AuthError> {
+        if stored.starts_with(&self.current_parameters()) {
+            return Ok(None);
+        }
+        Ok(Some(hash_in(hashing, password).await?))
+    }
+
+    /// Stores `rehashed`, if the sign-in made one, as the hash of the user's password identity,
+    /// `identity`, and records it in the log of `scope` (AUTH-014).
+    async fn store_rehashed(
         &self,
         uow: &mut UnitOfWork,
         scope: AuditScope,
-        identity: (UserId, uuid::Uuid, &str),
-        password: Password,
+        identity: (UserId, uuid::Uuid),
+        rehashed: Option<String>,
     ) -> Result<(), AuthError> {
-        let (user_id, identity_id, stored) = identity;
-        if stored.starts_with(&self.current_parameters()) {
+        let (user_id, identity_id) = identity;
+        let Some(rehashed) = rehashed else {
             return Ok(());
-        }
-        let rehashed = hash(&self.workers, password).await?;
+        };
         repo::update_password_hash(uow, user_id, identity_id, &rehashed).await?;
         audit_log::record(
             uow,

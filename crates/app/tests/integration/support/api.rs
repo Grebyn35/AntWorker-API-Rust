@@ -148,27 +148,41 @@ fn read(options: &Options) -> Result<(ServerConfig, app::Config), ConfigError> {
     Ok((settings.server()?, app::Config::read(&settings)?))
 }
 
-/// The API's application as `serve` builds it on `database`, with `options`, its document, its
-/// jobs, which a test runs through [`Jobs::run_pending`], and its hub. It installs the tests'
-/// telemetry, which watches the test that runs the API in process, should it run on for minutes
-/// (TEST-06).
+/// The API's application as `serve` builds it, with what a test reaches beside its routes.
+pub struct Application {
+    /// The routes, inside the request pipeline.
+    pub router: Router,
+    /// Its OpenAPI document.
+    pub document: Value,
+    /// Its jobs, which a test runs through [`Jobs::run_pending`].
+    pub jobs: Jobs,
+    /// Its hub, whose head a test reads.
+    pub hub: Hub,
+    /// The turns of its CPU-heavy work, which a test takes to hold its works back.
+    pub workers: Workers,
+}
+
+/// The API's application as `serve` builds it on `database`, with `options`. It installs the
+/// tests' telemetry, which watches the test that runs the API in process, should it run on for
+/// minutes (TEST-06).
 pub async fn application(
     database: &Database,
     options: Options,
     clock: Arc<TestClock>,
     readiness: Readiness,
-) -> (Router, Value, Jobs, Hub) {
+) -> Application {
     telemetry::testing::install(SERVICE).unwrap();
     let (config, modules) = configuration(&options);
     let connection = platform::events::listen(database, clock.as_ref())
         .await
         .unwrap();
     let mail = Mail::new(config.mail.clone(), clock.clone()).unwrap();
+    let workers = Workers::new();
     let resources = app::Resources {
         database: database.clone(),
         clock,
         readiness,
-        workers: Workers::new(),
+        workers: workers.clone(),
         mail,
     };
     let services = app::compose(&resources, &config, modules, connection)
@@ -184,8 +198,13 @@ pub async fn application(
         ),
         None => (app::openapi(SERVICE), services.routes),
     };
-    let router = platform::http::app(routes, pipeline);
-    (router, serde_json::to_value(document).unwrap(), jobs, hub)
+    Application {
+        router: platform::http::app(routes, pipeline),
+        document: serde_json::to_value(document).unwrap(),
+        jobs,
+        hub,
+        workers,
+    }
 }
 
 /// The routes under test inside the request pipeline, on a database of their own, with a test
@@ -200,6 +219,7 @@ pub struct Api {
     pool: Database,
     jobs: Arc<Jobs>,
     hub: Hub,
+    workers: Workers,
 }
 
 impl Api {
@@ -241,17 +261,17 @@ impl Api {
         let database = Arc::new(database);
         let clock = Arc::new(TestClock::default());
         let readiness = Readiness::new();
-        let (router, document, jobs, hub) =
-            application(&pool, options, clock.clone(), readiness.clone()).await;
+        let application = application(&pool, options, clock.clone(), readiness.clone()).await;
         Self {
-            router,
-            contract: Arc::new(Contract::new(document)),
+            router: application.router,
+            contract: Arc::new(Contract::new(application.document)),
             clock,
             readiness,
             database,
             pool,
-            jobs: Arc::new(jobs),
-            hub,
+            jobs: Arc::new(application.jobs),
+            hub: application.hub,
+            workers: application.workers,
         }
     }
 
@@ -274,23 +294,29 @@ impl Api {
         // end part: files
         let clock = Arc::new(TestClock::default());
         let readiness = Readiness::new();
-        let (router, document, jobs, hub) =
-            application(&self.pool, options, clock.clone(), readiness.clone()).await;
+        let application = application(&self.pool, options, clock.clone(), readiness.clone()).await;
         Self {
-            router,
-            contract: Arc::new(Contract::new(document)),
+            router: application.router,
+            contract: Arc::new(Contract::new(application.document)),
             clock,
             readiness,
             database: self.database.clone(),
             pool: self.pool.clone(),
-            jobs: Arc::new(jobs),
-            hub,
+            jobs: Arc::new(application.jobs),
+            hub: application.hub,
+            workers: application.workers,
         }
     }
 
     /// The pool the API's routes and its hub run on.
     pub fn pool(&self) -> &Database {
         &self.pool
+    }
+
+    /// The turns of the API's CPU-heavy work, which a test takes to hold its works back
+    /// (PLATFORM-060).
+    pub fn workers(&self) -> &Workers {
+        &self.workers
     }
 
     /// Waits until the API's hub has loaded every event that committed so far, so that a stream

@@ -235,9 +235,9 @@ pub(super) fn limits(root: &Path) -> Result<(String, String), String> {
 const IMAGE_SETTINGS: &str = "crates/app/tests/e2e/image.env";
 
 /// The replica's settings: those of `IMAGE_SETTINGS`, the database's, and the HMAC key and the encryption keys of .env,
-/// with Compose's Postgres as `postgres`, and IP and user limits that the load, from one address
-/// and one user, never reaches, so the test measures the replica rather than the limits, while
-/// every request still counts in them.
+/// with Compose's Postgres as `postgres`, and IP, user and sign-in limits that the load, from
+/// one address and a few users, never reaches, so the test measures the replica rather than the
+/// limits, while every request still counts in them.
 pub(super) fn settings(root: &Path) -> Result<Vec<String>, String> {
     let key = std::env::var("HMAC_KEY").map_err(|_| "HMAC_KEY is unset; run `just setup`")?;
     let keys = std::env::var("ENCRYPTION_KEYS")
@@ -248,6 +248,11 @@ pub(super) fn settings(root: &Path) -> Result<Vec<String>, String> {
         format!("ENCRYPTION_KEYS={keys}"),
         "RATE_LIMIT_IP_REQUESTS=1000000".to_owned(),
         "RATE_LIMIT_USER_REQUESTS=1000000".to_owned(),
+        // The sign-in limits, of an email from one address and from every address: the most
+        // that each takes, in a window of a second (AUTH-006).
+        "SIGN_IN_ATTEMPTS=1000".to_owned(),
+        "SIGN_IN_EMAIL_ATTEMPTS=100000".to_owned(),
+        "SIGN_IN_WINDOW_SECONDS=1".to_owned(),
     ]);
     for name in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
         let value =

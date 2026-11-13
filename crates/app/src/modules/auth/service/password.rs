@@ -12,7 +12,7 @@ use platform::{
 };
 
 use super::{
-    Auth, buckets, hash,
+    Auth, buckets, hash, hash_in,
     sessions::end_sessions,
     verification::{CODE_KIND, code_input},
 };
@@ -268,7 +268,7 @@ impl Auth {
             .await?;
         // The check takes the user's turn, so a change that came first has set its hash, which
         // this check reads (AUTH-022, DATA-20).
-        let (uow, address, matches) = self
+        let (uow, address, matches, hashing) = self
             .check_password(limits, client, principal, change.current)
             .await?;
         if !matches {
@@ -277,7 +277,10 @@ impl Auth {
         let mut uow = self
             .check_signed_in_factor(uow, principal, change.proof.as_ref())
             .await?;
-        let password_hash = hash(&self.workers, change.password).await?;
+        // In the turn at hashing that the check took before the unit of work opened, which goes
+        // before the change's writes (AUTH-093).
+        let password_hash = hash_in(&hashing, change.password).await?;
+        drop(hashing);
         // The identity before any session, as a sign-in locks them, so the two never deadlock
         // (the auth spec's "Taking turns").
         let identity = repo::set_password(&mut uow, user_id, &password_hash).await?;

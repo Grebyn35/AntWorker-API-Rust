@@ -7,6 +7,10 @@
 //! reads from the collector's tail sampling, as `check-telemetry-config` does. The highest rate
 //! that passed is the capacity.
 //!
+//! `sign-ins` measures the route whose work is CPU-heavy, a password's hash: beside the sign-ins,
+//! each step sends other requests at a rate of their own, which must pass too, so the capacity
+//! is the rate of sign-ins that leaves the other requests within the objective.
+//!
 //! Each step also compares the requests the replica served with the spans the collector
 //! accepted, so a span that the API's queue dropped under load shows as a difference (the
 //! platform spec's Telemetry export, under Batching).
@@ -34,6 +38,8 @@ mod streams;
 
 /// The rate the search for a replica's capacity starts at, in requests a second.
 const FIRST_RATE: u64 = 200;
+/// The rate the search starts at for sign-ins, each of which hashes a password.
+const FIRST_SIGN_INS: u64 = 20;
 /// The port `serve` binds in the replica's container.
 const PORT: u16 = 8080;
 
@@ -45,6 +51,11 @@ pub struct Step {
     pub failed: u64,
     pub dropped: u64,
     pub p99_ms: f64,
+    /// The other requests that the step sent beside its own, as a step of sign-ins does, how
+    /// many of them failed, and the 99th percentile of their durations.
+    pub others: u64,
+    pub others_failed: u64,
+    pub others_p99_ms: f64,
     pub spans: u64,
     /// The latency objective the step was measured against, in milliseconds.
     pub objective_ms: f64,
@@ -56,9 +67,35 @@ impl Step {
         (self.rate, self.passed())
     }
 
-    /// Whether the replica served the step's rate.
+    /// Whether the replica served the step's rate, and the other requests beside it.
     pub fn passed(&self) -> bool {
-        self.failed == 0 && self.dropped == 0 && self.p99_ms <= self.objective_ms
+        self.failed == 0
+            && self.dropped == 0
+            && self.p99_ms <= self.objective_ms
+            && self.others_failed == 0
+            && self.others_p99_ms <= self.objective_ms
+    }
+
+    /// What the step came to, in a line, with `used`, the replica's memory after it.
+    fn line(&self, used: &str) -> String {
+        let beside = if self.others > 0 {
+            format!(
+                ", beside {} other requests, {} failed, p99 {:.1} ms",
+                self.others, self.others_failed, self.others_p99_ms
+            )
+        } else {
+            String::new()
+        };
+        format!(
+            "{} requests a second: {} served, {} failed, {} dropped, p99 {:.1} ms{beside}, {} spans accepted, memory {used}: {}",
+            self.rate,
+            self.requests,
+            self.failed,
+            self.dropped,
+            self.p99_ms,
+            self.spans,
+            if self.passed() { "passed" } else { "failed" }
+        )
     }
 
     fn parse(line: &str, objective_ms: f64) -> Option<Self> {
@@ -70,6 +107,9 @@ impl Step {
             failed: count("failed"),
             dropped: count("dropped"),
             p99_ms: value["p99_ms"].as_f64().unwrap_or_default(),
+            others: count("others"),
+            others_failed: count("others_failed"),
+            others_p99_ms: value["others_p99_ms"].as_f64().unwrap_or_default(),
             spans: count("spans"),
             objective_ms,
         })
@@ -113,7 +153,7 @@ pub fn run(route: &str) -> ExitCode {
     let path = path.or((route == "streams").then_some(""));
     // end part: invitations
     let Some(path) = path else {
-        let names = ["capabilities", "me"];
+        let names = ["capabilities", "me", "sign-ins"];
         // part: invitations
         let names = [names.as_slice(), &["streams"]].concat();
         // end part: invitations
@@ -201,6 +241,7 @@ fn path_of(route: &str) -> Option<&'static str> {
     match route {
         "capabilities" => Some("GET /v1/capabilities"),
         "me" => Some("GET /v1/users/me"),
+        "sign-ins" => Some("POST /v1/sessions"),
         _ => None,
     }
 }
@@ -230,7 +271,12 @@ fn measure(
         Err(error) => return fail(&error),
     };
     let mut steps: Vec<Step> = Vec::new();
-    while let Some(rate) = next_rate(FIRST_RATE, &outcomes(&steps)) {
+    let first = if route == "sign-ins" {
+        FIRST_SIGN_INS
+    } else {
+        FIRST_RATE
+    };
+    while let Some(rate) = next_rate(first, &outcomes(&steps)) {
         let step = match step(root, &address, route, rate, objective_ms) {
             Ok(step) => step,
             Err(error) => return fail(&error),
@@ -257,15 +303,7 @@ fn measure(
             &["stats", "--no-stream", "--format", "{{.MemUsage}}", replica],
         )
         .unwrap_or_default();
-        report(&format!(
-            "{rate} requests a second: {} served, {} failed, {} dropped, p99 {:.1} ms, {} spans accepted, memory {used}: {}",
-            step.requests,
-            step.failed,
-            step.dropped,
-            step.p99_ms,
-            step.spans,
-            if step.passed() { "passed" } else { "failed" }
-        ));
+        report(&step.line(&used));
         steps.push(step);
     }
     let Some(capacity) = steps
@@ -275,8 +313,16 @@ fn measure(
     else {
         return fail("the replica served no rate the search tried");
     };
+    let beside = if capacity.others > 0 {
+        format!(
+            ", beside {} other requests, whose 99th percentile was {:.1} ms",
+            capacity.others, capacity.others_p99_ms
+        )
+    } else {
+        String::new()
+    };
     report(&format!(
-        "Capacity: {} requests a second to {path} on one replica with {cpus} CPU and {memory} of memory, with the 99th percentile within {} ms and none failed. The collector accepted {} spans for its {} requests.",
+        "Capacity: {} requests a second to {path} on one replica with {cpus} CPU and {memory} of memory, with the 99th percentile within {} ms and none failed{beside}. The collector accepted {} spans for its {} requests.",
         capacity.rate, capacity.objective_ms, capacity.spans, capacity.requests
     ));
     ExitCode::SUCCESS
@@ -379,6 +425,9 @@ mod tests {
             failed: u64::from(!passed),
             dropped: 0,
             p99_ms: 12.0,
+            others: 0,
+            others_failed: 0,
+            others_p99_ms: 0.0,
             spans: rate * 30,
             objective_ms: 500.0,
         }
@@ -418,29 +467,54 @@ mod tests {
             failed: 1,
             ..passing.clone()
         };
+        // The other requests that a step of sign-ins sends beside them.
+        let beside = Step {
+            others: 1_500,
+            others_p99_ms: 40.0,
+            ..passing.clone()
+        };
+        let others_slow = Step {
+            others_p99_ms: 501.0,
+            ..beside.clone()
+        };
+        let others_failed = Step {
+            others_failed: 1,
+            ..beside.clone()
+        };
 
         assert!(passing.passed());
         assert!(!slow.passed());
         assert!(!dropped.passed());
         assert!(!failed.passed());
+        assert!(beside.passed());
+        assert!(!others_slow.passed());
+        assert!(!others_failed.passed());
     }
 
     #[test]
     fn ops_16_k6_s_outcome_line_is_read() {
-        let line =
-            r#"{"rate":400,"requests":12000,"failed":0,"dropped":0,"p99_ms":8.25,"spans":12000}"#;
+        let line = r#"{"rate":40,"requests":1200,"failed":0,"dropped":0,"p99_ms":88.25,"others":1500,"others_failed":0,"others_p99_ms":9.5,"spans":2700}"#;
 
         assert_eq!(
             Step::parse(line, 500.0),
             Some(Step {
-                rate: 400,
-                requests: 12000,
+                rate: 40,
+                requests: 1200,
                 failed: 0,
                 dropped: 0,
-                p99_ms: 8.25,
-                spans: 12000,
+                p99_ms: 88.25,
+                others: 1500,
+                others_failed: 0,
+                others_p99_ms: 9.5,
+                spans: 2700,
                 objective_ms: 500.0,
             })
         );
+        // A step of another route sends no other requests, and reports none.
+        let alone =
+            r#"{"rate":400,"requests":12000,"failed":0,"dropped":0,"p99_ms":8.25,"spans":12000}"#;
+        let step = Step::parse(alone, 500.0).unwrap();
+        assert_eq!((step.others, step.others_failed), (0, 0));
+        assert!(step.passed());
     }
 }

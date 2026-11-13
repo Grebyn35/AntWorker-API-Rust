@@ -217,13 +217,14 @@ async fn platform_022_a_replica_with_email_off_drops_a_job_enqueued_while_email_
     send(&api, &ada, &to).await;
     let database = api.database().app().await;
     let clock = Arc::new(TestClock::default());
-    let (_, _, off, _) = application(
+    let off = application(
         &database,
         Options::email_off(),
         clock.clone(),
         Readiness::new(),
     )
-    .await;
+    .await
+    .jobs;
 
     let clock: SharedClock = clock;
     let runs = off.run_pending(&database, &clock).await;
@@ -268,13 +269,14 @@ async fn platform_025_every_email_comes_from_email_from_with_the_message_id_fixe
     send(&api, &ada, &to).await;
     let enqueued = jobs(&api, "payload->>'message_id'").await.remove(0);
     // A first attempt that fails, as one whose success went unrecorded would, keeps the job.
-    let (_, _, failing, _) = application(
+    let failing = application(
         &api.database().app().await,
         Options::default().set("SMTP_PORT", closed.port()),
         Arc::new(TestClock::default()),
         Readiness::new(),
     )
-    .await;
+    .await
+    .jobs;
     let clock: SharedClock = Arc::new(TestClock::default());
     failing
         .run_pending(&api.database().app().await, &clock)

@@ -1,10 +1,11 @@
-//! Registration and sign-in (AUTH-001 to AUTH-008, AUTH-014).
+//! Registration and sign-in (AUTH-001 to AUTH-008, AUTH-014), and the turn at hashing that a
+//! sign-in and a check of a signed-in user's password take first (AUTH-093).
 
 use argon2::{Algorithm, Argon2, Params, PasswordHasher, Version};
 use serde_json::json;
 
 use crate::support::{
-    Api, Options,
+    Api, Options, TestDatabase, execute_on, queries_wait_on_locks,
     users::{self, PASSWORD},
 };
 
@@ -522,4 +523,119 @@ async fn platform_008_a_failed_sign_in_commits_its_record_then_answers_401() {
         .owner_reads("SELECT user_id::text FROM audit_entries WHERE action = 'sign_in.failed'")
         .await;
     assert_eq!(recorded, [ada.user_id]);
+}
+
+/// Takes every turn of the API's CPU-heavy work, as a burst of sign-ins does.
+async fn every_turn(api: &Api) -> Vec<platform::blocking::Turn> {
+    let workers = api.workers();
+    let mut turns = Vec::new();
+    for _ in 0..workers.turns() {
+        turns.push(workers.turn().await.unwrap());
+    }
+    turns
+}
+
+#[tokio::test]
+async fn auth_093_sign_ins_that_wait_for_their_turn_at_hashing_hold_no_connection_of_the_pool() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let turns = every_turn(&api).await;
+    // More sign-ins than the pool has connections, each of which waits for a turn.
+    let waiting: Vec<_> = (0..usize::try_from(TestDatabase::POOL_SIZE).unwrap() + 2)
+        .map(|_| {
+            let api = api.clone();
+            tokio::spawn(async move { users::sign_in(&api, "ada@example.com", PASSWORD).await })
+        })
+        .collect();
+    while api.workers().waiting() < waiting.len() {
+        tokio::task::yield_now().await;
+    }
+
+    // Other requests, each of which needs a connection of the pool, are served meanwhile.
+    let capabilities = api.get("/v1/capabilities").send().await;
+    let record = api.get("/v1/users/me").bearer(&ada.access).send().await;
+
+    assert_eq!(capabilities.status, 200);
+    assert_eq!(record.status, 200);
+    drop(turns);
+    for sign_in in waiting {
+        assert_eq!(sign_in.await.unwrap().status, 201);
+    }
+}
+
+#[tokio::test]
+async fn auth_093_checks_of_a_signed_in_user_s_password_wait_for_their_turn_the_same_way() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let turns = every_turn(&api).await;
+    // More checks than the pool has connections, and as many as their bucket takes (AUTH-022).
+    let waiting: Vec<_> = (0..usize::try_from(TestDatabase::POOL_SIZE).unwrap() + 1)
+        .map(|_| {
+            api.spawn(
+                http::Method::POST,
+                "/v1/users/me/sessions/current/reauthenticate",
+                &ada.access,
+                Some(json!({ "password": PASSWORD })),
+            )
+        })
+        .collect();
+    while api.workers().waiting() < waiting.len() {
+        tokio::task::yield_now().await;
+    }
+
+    let record = api.get("/v1/users/me").bearer(&ada.access).send().await;
+
+    assert_eq!(record.status, 200);
+    drop(turns);
+    for check in waiting {
+        assert_eq!(check.await.unwrap().0, 200);
+    }
+}
+
+#[tokio::test]
+async fn auth_093_a_sign_in_gives_its_turn_up_before_its_writes() {
+    let api = Api::new().await;
+    users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    // Held against the sign-in's first write, which ends the device's session, and against
+    // none of its reads.
+    let mut held = db
+        .holding("LOCK TABLE sessions IN SHARE ROW EXCLUSIVE MODE")
+        .await;
+
+    let signing_in = {
+        let api = api.clone();
+        tokio::spawn(async move { users::sign_in(&api, "ada@example.com", PASSWORD).await })
+    };
+    queries_wait_on_locks(db, 1).await;
+
+    // The sign-in has verified the password, and waits to write: the next one may hash.
+    assert_eq!(api.workers().free(), api.workers().turns());
+    execute_on(&mut held, "COMMIT").await;
+    assert_eq!(signing_in.await.unwrap().status, 201);
+}
+
+#[tokio::test]
+async fn auth_093_a_change_of_the_password_gives_its_turn_up_before_its_writes() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    // Held against the change's first write, which sets the password's hash, and against none
+    // of its reads.
+    let mut held = db
+        .holding("LOCK TABLE identities IN SHARE ROW EXCLUSIVE MODE")
+        .await;
+
+    let changing = api.spawn(
+        http::Method::POST,
+        "/v1/users/me/password/change",
+        &ada.access,
+        Some(json!({ "current_password": PASSWORD, "password": "walnut-ferry-88-bright" })),
+    );
+    queries_wait_on_locks(db, 1).await;
+
+    // The change has verified the current password and hashed the new one, and waits to write.
+    assert_eq!(api.workers().free(), api.workers().turns());
+    execute_on(&mut held, "COMMIT").await;
+    assert_eq!(changing.await.unwrap().0, 204);
 }

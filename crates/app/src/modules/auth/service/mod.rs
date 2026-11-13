@@ -13,7 +13,7 @@ use std::sync::Arc;
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use platform::{
     authn::{AuditScope, Principal},
-    blocking::Workers,
+    blocking::{Turn, Workers},
     clock::SharedClock,
     db::{Database, UnitOfWork},
     encryption::Keyring,
@@ -436,11 +436,18 @@ fn new_tokens() -> Result<Tokens, Internal> {
     })
 }
 
-/// The Argon2id hash of `password`, in PHC format, with a new salt, through `workers`
-/// (AUTH-014).
+/// The Argon2id hash of `password`, in PHC format, with a new salt, through `workers`, once a
+/// turn of theirs is free (AUTH-014).
 async fn hash(workers: &Workers, password: Password) -> Result<String, Internal> {
+    let hashing = workers.turn().await.map_err(Internal::new)?;
+    hash_in(&hashing, password).await
+}
+
+/// The Argon2id hash of `password`, in PHC format, with a new salt, in the turn `hashing`, which
+/// its caller took before it opened its unit of work (AUTH-014, AUTH-093).
+async fn hash_in(hashing: &Turn, password: Password) -> Result<String, Internal> {
     let salt = random::bytes::<16>()?;
-    workers
+    hashing
         .run("hash_password", move || {
             Argon2::default()
                 .hash_password_with_salt(password.bytes(), &salt)
@@ -451,14 +458,15 @@ async fn hash(workers: &Workers, password: Password) -> Result<String, Internal>
         .map_err(Internal::new)?
 }
 
-/// Whether `password` matches `stored`, through `workers`, with the password handed back for a
-/// rehash (AUTH-005, AUTH-014).
-async fn verify(
-    workers: &Workers,
+/// Whether `password` matches `stored`, in the turn `hashing`, which its caller took before it
+/// opened its unit of work, with the password handed back for a rehash (AUTH-005, AUTH-014,
+/// AUTH-093).
+async fn verify_in(
+    hashing: &Turn,
     stored: String,
     password: Password,
 ) -> Result<(bool, Password), Internal> {
-    workers
+    hashing
         .run("verify_password", move || {
             let matches = Argon2::default()
                 .verify_password(password.bytes(), stored.as_str())

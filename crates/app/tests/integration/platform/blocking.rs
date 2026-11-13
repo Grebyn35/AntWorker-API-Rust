@@ -116,6 +116,78 @@ async fn platform_060_a_work_keeps_its_turn_until_it_ends_and_a_caller_that_stop
     );
 }
 
+#[tokio::test]
+async fn platform_060_a_turn_taken_before_its_works_runs_each_and_goes_once_it_is_dropped() {
+    let workers = Workers::new();
+    let mut turns = Vec::new();
+    for _ in 0..workers.turns() {
+        turns.push(workers.turn().await.unwrap());
+    }
+    let mut gate = Gate::new();
+    let waiting = gate.start(&workers);
+    assert_eq!(
+        gate.waits_or_starts(&workers, 1).await,
+        None,
+        "a work waits while callers hold every turn"
+    );
+
+    // A holder runs its works in its turn, one after another.
+    let first = turns[0].run("work", || 1).await.unwrap();
+    let second = turns[0].run("work", || 2).await.unwrap();
+
+    assert_eq!((first, second), (1, 2));
+    assert_eq!(gate.started_yet(), None, "the other work still waits");
+    drop(turns.remove(0));
+    assert_eq!(
+        gate.next_started().await,
+        0,
+        "the waiting work starts once a holder drops its turn"
+    );
+    gate.end_all();
+    waiting.await.unwrap();
+}
+
+#[tokio::test]
+async fn platform_060_a_work_keeps_the_turn_that_its_holder_dropped_until_it_ends() {
+    let workers = Workers::new();
+    let mut turns = Vec::new();
+    for _ in 0..workers.turns() {
+        turns.push(workers.turn().await.unwrap());
+    }
+    let turn = turns.remove(0);
+    let (started, mut running) = unbounded_channel();
+    let (end, ended) = mpsc::channel::<()>();
+    // A work in the turn, whose caller stops waiting once it runs, as a request past its
+    // timeout does, which drops the turn with it.
+    let caller = tokio::spawn(async move {
+        turn.run("work", move || {
+            started.send(()).unwrap();
+            ended.recv().unwrap_err();
+        })
+        .await
+        .unwrap();
+    });
+    running.recv().await.unwrap();
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled());
+    let mut gate = Gate::new();
+    let waiting = gate.start(&workers);
+
+    assert_eq!(
+        gate.waits_or_starts(&workers, 1).await,
+        None,
+        "the work keeps the turn that its holder dropped"
+    );
+    drop(end);
+    assert_eq!(
+        gate.next_started().await,
+        0,
+        "the turn goes once the work has ended"
+    );
+    gate.end_all();
+    waiting.await.unwrap();
+}
+
 /// Works, numbered in the order they are started, that report when they run and run until the
 /// test ends them.
 struct Gate {

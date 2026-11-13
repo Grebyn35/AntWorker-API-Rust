@@ -4,10 +4,15 @@
 //! the auth spec's "Re-authentication").
 
 use platform::{
-    authn::Principal, db::UnitOfWork, errors::RequestError, rate_limit::RateLimits, types::Client,
+    authn::Principal,
+    blocking::Turn,
+    db::UnitOfWork,
+    errors::{Internal, RequestError},
+    rate_limit::RateLimits,
+    types::Client,
 };
 
-use super::{Auth, buckets, verify};
+use super::{Auth, buckets, verify_in};
 use crate::modules::{
     accounts,
     audit::{self as audit_log, Entry},
@@ -66,7 +71,7 @@ impl Auth {
         let user_id = principal.user_id();
         self.count_signed_in_check(limits, principal, proof.as_ref())
             .await?;
-        let (uow, _, matches) = self
+        let (uow, _, matches, _) = self
             .check_password(limits, client, principal, password)
             .await?;
         if !matches {
@@ -115,29 +120,32 @@ impl Auth {
         Ok(AuthError::WrongPassword)
     }
 
-    /// Whether `password` is the caller's, with the operation's unit of work, open, and their
-    /// address: the one check of a signed-in user's password, which counts in their bucket before
-    /// the unit of work opens, then takes the user's turn in it, so it reads the password that the
-    /// last change of it left, then reads their password identity and verifies the password
-    /// through `workers`, against the dummy hash when they have none, so a missing password costs
-    /// what a wrong one does (AUTH-021, AUTH-022, AUTH-040, SEC-13, ARCH-11, DATA-20).
+    /// Whether `password` is the caller's, with the operation's unit of work, open, their
+    /// address, and the turn at hashing that the check took, in which its operation hashes what
+    /// it must: the one check of a signed-in user's password, which counts in their bucket, then
+    /// takes its turn at hashing, before the unit of work opens, so it waits for it holding no
+    /// connection of the pool, then takes the user's turn in the unit of work, so it reads the
+    /// password that the last change of it left, then reads their password identity and verifies
+    /// the password, against the dummy hash when they have none, so a missing password costs
+    /// what a wrong one does (AUTH-021, AUTH-022, AUTH-040, AUTH-093, SEC-13, ARCH-11, DATA-20).
     pub(super) async fn check_password(
         &self,
         limits: &RateLimits,
         client: &Client,
         principal: &Principal,
         password: Password,
-    ) -> Result<(UnitOfWork, accounts::Address, bool), AuthError> {
+    ) -> Result<(UnitOfWork, accounts::Address, bool, Turn), AuthError> {
         let user_id = principal.user_id();
         limits
             .check(buckets::PASSWORD_CHECK, user_id.uuid().as_bytes())
             .await?;
+        let hashing = self.workers.turn().await.map_err(Internal::new)?;
         let mut uow = self.database.begin(client).await?;
         let address = take_turn(&mut uow, principal).await?;
         let stored = repo::password_hash(&mut uow, user_id).await?;
         let has_password = stored.is_some();
         let hash = stored.unwrap_or_else(|| self.dummy_hash.clone());
-        let (matches, _) = verify(&self.workers, hash, password).await?;
-        Ok((uow, address, matches && has_password))
+        let (matches, _) = verify_in(&hashing, hash, password).await?;
+        Ok((uow, address, matches && has_password, hashing))
     }
 }

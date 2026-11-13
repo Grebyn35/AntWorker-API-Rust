@@ -38,13 +38,14 @@ async fn start() -> Running {
     let clock = Arc::new(TestClock::default());
     let readiness = Readiness::new();
     let database = TestDatabase::migrated().await;
-    let (app, _, _, _) = application(
+    let app = application(
         &database.app().await,
         Options::routes(fixtures::routes(gate.clone())),
         clock.clone(),
         readiness.clone(),
     )
-    .await;
+    .await
+    .router;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let signal = Arc::new(Notify::new());

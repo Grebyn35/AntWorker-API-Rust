@@ -1,13 +1,15 @@
 //! CPU-heavy work, such as hashing a password: it runs on a blocking thread, so it never stalls
 //! the async runtime (CODE-05), inside a span of its own, so it shows in traces (OBS-06), and at
 //! most as many at once as the instance has processors, so a burst of it takes no more memory
-//! than that many works do (OPS-07, PLATFORM-060).
+//! than that many works do (OPS-07, PLATFORM-060). A caller that must read what it works on
+//! first, inside a unit of work, takes its [`Turn`] before it opens the unit of work, so it waits
+//! for the turn while it holds no connection of the pool.
 
 #[cfg(feature = "test-support")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{error::Error, num::NonZeroUsize, sync::Arc, thread};
 
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::Instrument;
 
 use crate::telemetry::names;
@@ -74,9 +76,26 @@ impl Workers {
         T: Send + 'static,
     {
         let span = tracing::info_span!("blocking", { names::OTEL_NAME } = name);
+        let turn = self.wait(&span).await?;
+        turn.run_in(span, work).await
+    }
+
+    /// Waits for a turn, inside a span of its own, named `turn`, and gives it to its caller, who
+    /// runs its works in it, one after another, through [`Turn::run`]. The turn goes once its
+    /// holder has dropped it and the work it started, if any, has ended. A caller takes it this
+    /// way before it opens a unit of work whose reads the work needs, such as a sign-in's of the
+    /// password's hash, so that it waits for the turn with no pooled connection, and holds one
+    /// only while it works.
+    pub async fn turn(&self) -> Result<Turn, Failed> {
+        let span = tracing::info_span!("blocking", { names::OTEL_NAME } = "turn");
+        self.wait(&span).await
+    }
+
+    /// Waits for a turn, inside `span`.
+    async fn wait(&self, span: &tracing::Span) -> Result<Turn, Failed> {
         #[cfg(feature = "test-support")]
         let waiting = Waiting::enter(&self.waiting);
-        let turn = self
+        let permit = self
             .turns
             .clone()
             .acquire_owned()
@@ -85,6 +104,40 @@ impl Workers {
             .map_err(|closed| Failed(closed.into()))?;
         #[cfg(feature = "test-support")]
         drop(waiting);
+        Ok(Turn(Arc::new(permit)))
+    }
+}
+
+/// A turn at the instance's CPU-heavy work, which [`Workers::turn`] gives. Its holder runs works
+/// in it, and it goes once the holder has dropped it and the work it started has ended, so a work
+/// keeps its turn until it ends even when its caller stopped waiting (PLATFORM-060).
+pub struct Turn(Arc<OwnedSemaphorePermit>);
+
+impl Turn {
+    /// Runs `work` on a blocking thread, in this turn, inside a span named `name`, a child of the
+    /// current span. Fails only when `work` panics.
+    pub async fn run<T>(
+        &self,
+        name: &'static str,
+        work: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<T, Failed>
+    where
+        T: Send + 'static,
+    {
+        let span = tracing::info_span!("blocking", { names::OTEL_NAME } = name);
+        self.run_in(span, work).await
+    }
+
+    /// Runs `work` on a blocking thread, in this turn, inside `span`.
+    async fn run_in<T>(
+        &self,
+        span: tracing::Span,
+        work: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<T, Failed>
+    where
+        T: Send + 'static,
+    {
+        let turn = self.0.clone();
         #[expect(
             clippy::disallowed_methods,
             reason = "Workers is the one place that moves work to a blocking thread (CODE-05)"
