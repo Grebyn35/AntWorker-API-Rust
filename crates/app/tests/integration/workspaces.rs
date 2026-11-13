@@ -1189,6 +1189,15 @@ async fn workspaces_013_a_caller_changes_only_a_lower_rank_and_only_to_a_role_be
     }
     assert_eq!(roles(&api, &workspace).await, before);
     assert!(entries(&api, "member.role_changed").await.is_empty());
+    // Each refusal is recorded in the workspace's log (PLATFORM-010, AUDIT-004).
+    let recorded = api
+        .database()
+        .owner_reads(&format!(
+            "SELECT count(*)::text FROM audit_entries WHERE action = 'access.denied' \
+             AND workspace_id = '{workspace}' AND details ->> 'permission' = 'members.update'"
+        ))
+        .await;
+    assert_eq!(recorded, [refused.len().to_string()]);
 }
 
 #[tokio::test]
@@ -1240,6 +1249,47 @@ async fn workspaces_013_a_change_names_a_member_a_current_version_and_a_role() {
     let current = change_role(&api, &owner, target, "admin", Some("\"1\"")).await;
     assert_eq!(current.status, 200);
     assert_eq!(current.json()["role"], "admin");
+}
+
+#[tokio::test]
+async fn workspaces_012_a_changed_role_closes_the_member_s_streams_which_open_again_under_it() {
+    let routes = crate::support::announcements::routes();
+    let api = Api::with(crate::support::api::Options::routes(routes)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "member")],
+    )
+    .await;
+    // An announcement to those who may remove members, which a member may not, or to everyone.
+    let announce = |restricted: bool| {
+        let path = format!("/v1/workspaces/{workspace}/announcements");
+        let call = api.post(&path, &json!({ "count": 1, "restricted": restricted }));
+        call.bearer(&ada.access).send()
+    };
+    let mut stream = streams::opened(&api, &grace).await;
+    announce(true).await;
+    announce(false).await;
+    // As a member, Grace receives the second alone.
+    let as_member = stream.event().await;
+
+    let changed = change_role(&api, &ada, (&workspace, &grace.user_id), "admin", None).await;
+    let (_, reason) = stream.closed().await;
+    let last = stream.last_event_id.as_deref();
+    let mut reopened = streams::connect(&api, &grace.access, last).await;
+    reopened.opened().await;
+    announce(true).await;
+    let replayed = reopened.event().await;
+    let as_admin = reopened.event().await;
+
+    assert_eq!(as_member.event.as_deref(), Some("announcement.posted"));
+    assert_eq!(changed.status, 200);
+    assert_eq!(reason, "access_changed");
+    // The stream that opens again replays the change, and receives what an admin may.
+    assert_eq!(replayed.event.as_deref(), Some("member.role_changed"));
+    assert_eq!(as_admin.event.as_deref(), Some("announcement.restricted"));
 }
 
 #[tokio::test]

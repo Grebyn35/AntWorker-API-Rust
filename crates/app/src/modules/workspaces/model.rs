@@ -14,7 +14,7 @@ use crate::modules::{access::Role, accounts::DisplayName};
 /// The most characters a workspace name has (WORKSPACES-002).
 const NAME_MAX_CHARS: usize = 255;
 
-/// The characters of a user ID, as the API writes one (API-11).
+/// The characters of a user ID, in the form the API writes one in (API-11).
 const MEMBER_ID_CHARS: usize = 36;
 
 /// A workspace's name: trimmed, with each run of whitespace inside collapsed to one space, in
@@ -165,8 +165,8 @@ pub(crate) struct Transfer {
     pub(crate) to: UserId,
 }
 
-/// A member's user ID, as a request's body names one: a UUID as the API writes it, 36 characters
-/// with hyphens (API-11).
+/// A member's user ID, as a request's body names one: a UUID in its form of 36 characters, with
+/// hyphens, whose letters RFC 9562 reads in either case (API-11, WORKSPACES-016).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct MemberId(UserId);
 
@@ -227,9 +227,11 @@ mod tests {
     }
 
     #[test]
-    fn workspaces_015_a_member_s_id_is_a_uuid_as_the_api_writes_one() {
+    fn workspaces_016_a_member_s_id_is_a_uuid_in_its_form_of_36_characters() {
         let id = "018f4e2a-7b1c-7def-8a3b-5c6d7e8f9a0b";
         assert_eq!(MemberId::parse(id).unwrap().user_id().to_string(), id);
+        let capitals = MemberId::parse(&id.to_uppercase()).unwrap();
+        assert_eq!(capitals.user_id().to_string(), id);
         for refused in ["", "nobody", "018f4e2a7b1c7def8a3b5c6d7e8f9a0b"] {
             assert_eq!(MemberId::parse(refused).unwrap_err().code, "invalid");
         }

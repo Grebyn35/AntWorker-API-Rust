@@ -232,6 +232,96 @@ async fn access_004_a_member_acts_only_on_members_below_their_rank() {
 }
 
 #[tokio::test]
+async fn access_004_a_member_assigns_only_roles_below_their_own() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let admin = users::register(&api, "admin@example.com").await;
+    let member = users::register(&api, "member@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[
+            (&owner.user_id, "owner"),
+            (&admin.user_id, "admin"),
+            (&member.user_id, "member"),
+        ],
+    )
+    .await;
+    let assign = |caller: &SignedIn, role: &'static str| {
+        let path = format!("/v1/workspaces/{workspace}/members/{}", member.user_id);
+        let call = api.patch(&path, &serde_json::json!({ "role": role }));
+        call.bearer(&caller.access).send()
+    };
+
+    let equal = assign(&admin, "admin").await;
+    let higher = assign(&admin, "owner").await;
+    let owners = assign(&owner, "owner").await;
+    let below = assign(&owner, "admin").await;
+
+    for refused in [&equal, &higher, &owners] {
+        assert_eq!(refused.status, StatusCode::FORBIDDEN);
+        assert_eq!(refused.json()["code"], "request.permission_denied");
+    }
+    assert_eq!(below.status, StatusCode::OK);
+    // Each refusal went through `authz::refuse`, which recorded it (PLATFORM-010).
+    let recorded = db
+        .owner_reads(
+            "SELECT count(*)::text FROM audit_entries WHERE action = 'access.denied' \
+             AND details ->> 'permission' = 'members.update'",
+        )
+        .await;
+    assert_eq!(recorded, ["3"]);
+}
+
+#[tokio::test]
+async fn access_004_a_transfer_and_leaving_are_the_two_exceptions_to_rank() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let admin = users::register(&api, "admin@example.com").await;
+    let member = users::register(&api, "member@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[
+            (&owner.user_id, "owner"),
+            (&admin.user_id, "admin"),
+            (&member.user_id, "member"),
+        ],
+    )
+    .await;
+
+    // A transfer gives an admin the owner's role, which ranks no lower than the caller's own,
+    // and changes the caller's own role; leaving ends the caller's own membership.
+    let transferred = api
+        .post(
+            &format!("/v1/workspaces/{workspace}/transfer"),
+            &serde_json::json!({ "user_id": admin.user_id }),
+        )
+        .bearer(&owner.access)
+        .send()
+        .await;
+    let path = format!("/v1/workspaces/{workspace}/leave");
+    let left = call(&api, Method::POST, &path, &member).await;
+
+    assert_eq!(transferred.status, StatusCode::NO_CONTENT);
+    assert_eq!(left.status, StatusCode::NO_CONTENT);
+    let roles = db
+        .owner_reads(
+            "SELECT user_id || ' ' || role FROM workspace_memberships ORDER BY created_at, id",
+        )
+        .await;
+    assert_eq!(
+        roles,
+        [
+            format!("{} admin", owner.user_id),
+            format!("{} owner", admin.user_id)
+        ]
+    );
+}
+
+#[tokio::test]
 async fn platform_010_a_rank_refusal_records_itself_and_rolls_the_operation_back() {
     let api = Api::new().await;
     let owner = users::register(&api, "owner@example.com").await;
