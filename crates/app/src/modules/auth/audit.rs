@@ -69,9 +69,19 @@ pub(super) const RECOVERY_CODES_ISSUED: Action = Action::new("recovery_codes.iss
 /// A signed-in user's re-authentication through a provider named another of its accounts than
 /// theirs (AUTH-080).
 pub(super) const IDENTITY_CHECK_FAILED: Action = Action::new("identity.check_failed");
+/// The signed-in user added a password to their account, which had none (AUTH-086).
+pub(super) const PASSWORD_ADDED: Action = Action::new("password.added");
+/// The signed-in user removed their account's password (AUTH-088).
+pub(super) const PASSWORD_REMOVED: Action = Action::new("password.removed");
+/// The signed-in user linked their account at a provider, which then signs in to their account
+/// (AUTH-087).
+pub(super) const PROVIDER_LINKED: Action = Action::new("provider.linked");
+/// The signed-in user removed their account at a provider from the ways their account signs in
+/// (AUTH-088).
+pub(super) const PROVIDER_UNLINKED: Action = Action::new("provider.unlinked");
 /// A user's account.
 pub(super) const USER: Resource = Resource::new("user");
-/// A user's way of signing in, such as their password.
+/// A user's way of signing in: their password, or their account at a provider.
 pub(super) const IDENTITY: Resource = Resource::new("identity");
 /// A signed-in device or client.
 pub(super) const SESSION: Resource = Resource::new("session");

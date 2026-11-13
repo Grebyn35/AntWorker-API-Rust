@@ -339,6 +339,15 @@ impl Providers {
         }
     }
 
+    /// The name of the provider that `key` names, as a client shows it, or the key itself for a
+    /// provider that the deployment doesn't configure, as an email names it (AUTH-091).
+    pub(super) fn name(&self, key: &str) -> String {
+        match self.find(key) {
+            Found::On(provider) => provider.provider.declared().name.to_owned(),
+            Found::Off | Found::Unknown => key.to_owned(),
+        }
+    }
+
     /// The provider that `key` names (AUTH-077).
     pub(super) fn find(&self, key: &str) -> Found<'_> {
         if let Some(provider) = self.on.iter().find(|provider| provider.key == key) {

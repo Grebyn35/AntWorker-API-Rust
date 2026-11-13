@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM sign_in_challenges\n        WHERE user_id = $1 AND provider IS NOT DISTINCT FROM $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3acf1afcabcd08305195ee5aa57f9e622bc7ebdb139b294f92642e6df45dd3cd"
+}

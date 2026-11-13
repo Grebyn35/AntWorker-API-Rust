@@ -2,12 +2,17 @@
 //! (AUTH-030), the one that carries the code that resets its password (AUTH-036), the one that
 //! tells the address its password changed (AUTH-041), the one that carries the code that changes
 //! the account's address to the one it goes to (AUTH-050), and the one that tells the address
-//! before a change that it changed (AUTH-053), and the one that tells the address its second
-//! factor changed (AUTH-068), each rendered from its templates in `templates/auth/` (the platform
-//! spec's Sending email).
+//! before a change that it changed (AUTH-053), the one that tells the address its second factor
+//! changed (AUTH-068), and, in `identities.rs`, the one that tells it that the ways its account
+//! signs in changed (AUTH-091), each rendered from its templates in `templates/auth/` (the
+//! platform spec's Sending email).
+
+mod identities;
 
 use askama::Template;
 use platform::{errors::Internal, mail::Email, types::EmailAddress};
+
+pub(super) use identities::{IdentityChange, IdentityChangedEmail};
 
 use super::model::{ChangeCode, ResetCode, VerificationCode};
 use crate::modules::PRODUCT;

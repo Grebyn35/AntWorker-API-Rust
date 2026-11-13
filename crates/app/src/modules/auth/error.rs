@@ -94,13 +94,28 @@ pub(crate) enum AuthError {
     /// The provider gave no address for a subject that no account is linked to (AUTH-076).
     #[error("the provider gave no address")]
     ProviderAddressMissing,
-    /// The provider refused the code of a signed-in caller's re-authentication, whose session
-    /// still authenticates them (AUTH-080).
-    #[error("the provider refused the re-authentication's code")]
+    /// The provider refused the code of a signed-in caller, whose session still authenticates
+    /// them: a re-authentication's, or a link's (AUTH-080, AUTH-087).
+    #[error("the provider refused the signed-in caller's code")]
     ProviderProofRejected,
     /// The subject of the provider's sign-in isn't the caller's (AUTH-080).
     #[error("the provider's account isn't the caller's")]
     WrongIdentity,
+    /// The account has a password, so none is added: it changes with the current one (AUTH-086).
+    #[error("the account has a password already")]
+    PasswordAlreadySet,
+    /// The caller has a provider identity of the provider already (AUTH-087).
+    #[error("the account has an identity at the provider already")]
+    ProviderAlreadyLinked,
+    /// Another account's provider identity holds the subject (AUTH-087).
+    #[error("the provider's account signs in to another account")]
+    IdentityInUse,
+    /// None of the caller's identities has the ID (AUTH-088).
+    #[error("no identity of the caller's has the ID")]
+    IdentityNotFound,
+    /// The identity is the only way the account signs in, so it stays (AUTH-088).
+    #[error("the identity is the account's last")]
+    LastIdentity,
     /// A rate limit refused the request, or couldn't count it (AUTH-006).
     #[error(transparent)]
     Limit(#[from] LimitError),
@@ -128,6 +143,28 @@ impl From<AuditError> for AuthError {
     fn from(error: AuditError) -> Self {
         match error {
             AuditError::Internal(error) => Self::Internal(error),
+        }
+    }
+}
+
+impl AuthError {
+    /// The detail of a refusal to change the caller's identities, if this is one (AUTH-086 to
+    /// AUTH-088).
+    fn identity_detail(&self) -> Option<&'static str> {
+        match self {
+            Self::PasswordAlreadySet => {
+                Some("The account has a password: change it with the current one.")
+            }
+            Self::ProviderAlreadyLinked => Some(
+                "An account at this provider signs in to the account already: remove it to link \
+                 another.",
+            ),
+            Self::IdentityInUse => Some("The provider's account signs in to another account."),
+            Self::LastIdentity => Some(
+                "It is the only way the account signs in: add a password, or link a provider, \
+                 before removing it.",
+            ),
+            _ => None,
         }
     }
 }
@@ -162,6 +199,11 @@ impl ErrorCode for AuthError {
             Self::ProviderAddressMissing => "auth.provider_address_missing",
             Self::ProviderProofRejected => "auth.provider_proof_rejected",
             Self::WrongIdentity => "auth.wrong_identity",
+            Self::PasswordAlreadySet => "auth.password_already_set",
+            Self::ProviderAlreadyLinked => "auth.provider_already_linked",
+            Self::IdentityInUse => "auth.identity_in_use",
+            Self::IdentityNotFound => "auth.identity_not_found",
+            Self::LastIdentity => "auth.last_identity",
             Self::Limit(error) => error.code(),
             Self::Request(error) => error.code(),
             Self::Internal(error) => error.code(),
@@ -197,6 +239,11 @@ impl ErrorCode for AuthError {
             Self::ProviderAddressMissing => "Provider's address missing",
             Self::ProviderProofRejected => "Provider's proof rejected",
             Self::WrongIdentity => "Wrong identity",
+            Self::PasswordAlreadySet => "Password already set",
+            Self::ProviderAlreadyLinked => "Provider already linked",
+            Self::IdentityInUse => "Identity in use",
+            Self::IdentityNotFound => "Identity not found",
+            Self::LastIdentity => "Last identity",
             Self::Limit(error) => error.title(),
             Self::Request(error) => error.title(),
             Self::Internal(error) => error.title(),
@@ -223,13 +270,19 @@ impl ErrorCode for AuthError {
             Self::OwnsSharedWorkspace
             | Self::AccountChanged
             | Self::EmailAlreadyVerified
-            | Self::NoSecondFactor => Category::Conflict,
+            | Self::NoSecondFactor
+            | Self::PasswordAlreadySet
+            | Self::ProviderAlreadyLinked
+            | Self::IdentityInUse => Category::Conflict,
             Self::WrongCode
             | Self::CodeExpired
             | Self::SetupExpired
             | Self::SecondFactorMandatory
-            | Self::ProviderAddressMissing => Category::BusinessRule,
-            Self::SessionNotFound | Self::ProviderNotFound => Category::NotFound,
+            | Self::ProviderAddressMissing
+            | Self::LastIdentity => Category::BusinessRule,
+            Self::SessionNotFound | Self::ProviderNotFound | Self::IdentityNotFound => {
+                Category::NotFound
+            }
             Self::ProviderUnavailable(_) => Category::Unavailable,
             Self::Limit(error) => error.category(),
             Self::Request(error) => error.category(),
@@ -293,7 +346,7 @@ impl ErrorCode for AuthError {
                     .to_owned(),
             ),
             Self::ProviderProofRejected => Some(
-                "The provider refused the code: re-authenticate through it again, since a code \
+                "The provider refused the code: go through its authorization again, since a code \
                  works once, for a few minutes."
                     .to_owned(),
             ),
@@ -303,7 +356,7 @@ impl ErrorCode for AuthError {
                     .to_owned(),
             ),
             Self::Request(error) => error.detail(),
-            _ => None,
+            other => other.identity_detail().map(str::to_owned),
         }
     }
 

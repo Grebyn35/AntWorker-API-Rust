@@ -1,5 +1,5 @@
-//! Signing in, registering and re-authenticating through an OAuth provider (the auth spec's
-//! Routes, AUTH-073 to AUTH-080).
+//! Signing in, registering and re-authenticating through an OAuth provider, and linking one to
+//! the caller's account (the auth spec's Routes, AUTH-073 to AUTH-080, AUTH-087).
 
 use std::sync::Arc;
 
@@ -18,7 +18,7 @@ use utoipa_axum::routes;
 use super::{created, delivery, device, second_factors};
 use crate::modules::auth::{
     error::AuthError,
-    model::{DEVICE_COOKIE, DeviceId, DeviceName, FactorProof, Session},
+    model::{DEVICE_COOKIE, DeviceId, DeviceName, FactorProof, Identities, Session},
     providers::Providers,
     service::{Auth, Grant, ProviderSignIn, SignedIn},
 };
@@ -29,9 +29,9 @@ const CODE_MAX_CHARS: usize = 2_048;
 /// The shortest and longest verifier of a PKCE challenge, as RFC 7636 allows them (AUTH-077).
 const VERIFIER_CHARS: std::ops::RangeInclusive<usize> = 43..=128;
 
-/// The state of the routes that sign in and re-authenticate through a provider: the service, and
-/// the providers that the deployment configures, whose clients' redirect URIs a request's
-/// conversion reads (AUTH-078, API-10).
+/// The state of the routes that sign in, re-authenticate and link through a provider: the
+/// service, and the providers that the deployment configures, whose clients' redirect URIs a
+/// request's conversion reads (AUTH-078, API-10).
 #[derive(Clone)]
 pub(crate) struct ProviderRoutes {
     auth: Arc<Auth>,
@@ -45,8 +45,8 @@ impl ProviderRoutes {
     }
 }
 
-/// The routes that sign in and re-authenticate through a provider; re-authenticating serves a
-/// caller whose account must still prove its address, to change the address (AUTH-025,
+/// The routes that sign in, re-authenticate and link through a provider; re-authenticating
+/// serves a caller whose account must still prove its address, to change the address (AUTH-025,
 /// AUTH-080).
 pub(crate) fn provider_routes() -> Routes<ProviderRoutes> {
     let exchange: [&dyn platform::errors::ErrorCode; 3] = [
@@ -58,6 +58,7 @@ pub(crate) fn provider_routes() -> Routes<ProviderRoutes> {
     sign_in.extend([
         &AuthError::ProviderCodeRejected as &dyn platform::errors::ErrorCode,
         &AuthError::EmailInUse,
+        &AuthError::IdentityInUse,
         &AuthError::ProviderAddressMissing,
         &LimitError::RateLimited,
     ]);
@@ -69,9 +70,18 @@ pub(crate) fn provider_routes() -> Routes<ProviderRoutes> {
         &AuthError::WrongSecondFactor,
         &LimitError::RateLimited,
     ]);
+    let mut link = exchange.to_vec();
+    link.extend([
+        &AuthError::ProviderProofRejected as &dyn platform::errors::ErrorCode,
+        &AuthError::ReauthenticationRequired,
+        &AuthError::ProviderAlreadyLinked,
+        &AuthError::IdentityInUse,
+        &LimitError::RateLimited,
+    ]);
     Routes::new()
         .public(routes!(sign_in_through), &sign_in)
         .verifying(routes!(reauthenticate_through), &reauthentication)
+        .user(routes!(link_provider), &link)
 }
 
 /// What signing in through a provider takes (AUTH-073).
@@ -132,6 +142,24 @@ pub(crate) struct ProviderReauthenticationRequest {
     #[serde(default)]
     #[schema(value_type = Option<crate::modules::auth::model::RecoveryCode>)]
     recovery_code: Option<String>,
+}
+
+/// What linking a provider takes (AUTH-087).
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProviderLinkRequest {
+    /// The provider's key, as `sign_in_providers` lists it.
+    #[schema(min_length = 1, max_length = 64, pattern = "^[a-z][a-z0-9_]*$")]
+    provider: String,
+    /// The code that the provider's authorization gave the redirect URI.
+    #[schema(min_length = 1, max_length = 2048)]
+    code: String,
+    /// The verifier of the authorization request's PKCE challenge (RFC 7636).
+    #[schema(min_length = 43, max_length = 128, pattern = "^[A-Za-z0-9._~-]+$")]
+    code_verifier: String,
+    /// The redirect URI that received the code, one that the provider's clients list (AUTH-078).
+    #[schema(min_length = 1, max_length = 2048)]
+    redirect_uri: String,
 }
 
 /// The grant of `code`, `verifier` and `redirect_uri` at `provider`, or `None` when the code or
@@ -287,4 +315,36 @@ async fn reauthenticate_through(
         .reauthenticate_through(&limits, &client, &principal, (&provider, grant), proof)
         .await?;
     Ok(axum::Json(session))
+}
+
+/// Links the caller's account at a provider, which the code names, to their account, so it signs
+/// in to it, once the session has proved who its user is within the last 5 minutes.
+#[utoipa::path(
+    post,
+    path = "/v1/users/me/identities/provider",
+    tag = "auth",
+    request_body = ProviderLinkRequest,
+    responses(
+        (status = 200, description = "The caller's identities, the provider's account among them.", body = Identities),
+    )
+)]
+async fn link_provider(
+    State(ProviderRoutes { auth, providers }): State<ProviderRoutes>,
+    limits: RateLimits,
+    client: Client,
+    principal: Principal,
+    Json(request): Json<ProviderLinkRequest>,
+) -> Result<axum::Json<Identities>, Problem<AuthError>> {
+    let mut errors = FieldErrors::new();
+    let grant = grant(
+        &mut errors,
+        &providers,
+        &request.provider,
+        (request.code, request.code_verifier, request.redirect_uri),
+    );
+    let grant = errors.finish(grant).map_err(AuthError::from)?;
+    let identities = auth
+        .link_provider(&limits, &client, &principal, (&request.provider, grant))
+        .await?;
+    Ok(axum::Json(identities))
 }

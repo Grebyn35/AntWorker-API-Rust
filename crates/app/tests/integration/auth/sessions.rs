@@ -92,8 +92,11 @@ async fn auth_010_a_refresh_slides_the_refresh_expiry() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
-    db.owner_executes("UPDATE sessions SET refresh_token_expires_at = now() + interval '1 minute'")
-        .await;
+    db.owner_executes(
+        "UPDATE sessions SET access_token_expires_at = now() + interval '1 minute', \
+         refresh_token_expires_at = now() + interval '1 minute'",
+    )
+    .await;
 
     let response = api
         .post(
@@ -142,7 +145,10 @@ async fn auth_010_a_refresh_never_slides_the_expiry_past_the_absolute_lifetime()
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     api.database()
-        .owner_executes("UPDATE sessions SET expires_at = now() + interval '1 hour'")
+        .owner_executes(
+            "UPDATE sessions SET refresh_token_expires_at = now() + interval '1 hour', \
+             expires_at = now() + interval '1 hour'",
+        )
         .await;
 
     let response = api
@@ -159,14 +165,17 @@ async fn auth_010_a_refresh_never_slides_the_expiry_past_the_absolute_lifetime()
 
 #[tokio::test]
 async fn auth_011_an_expired_refresh_token_or_session_answers_401_and_rotates_nothing() {
-    for expired in ["refresh_token_expires_at", "expires_at"] {
+    // A refresh token that expired, with the access token it outlives, and an absolute lifetime
+    // that passed, with both tokens' expiries, which never pass it (AUTH-007).
+    let tokens = "access_token_expires_at = now() - interval '1 second', \
+                  refresh_token_expires_at = now() - interval '1 second'";
+    let lifetime = format!("{tokens}, expires_at = now() - interval '1 second'");
+    for expired in [tokens, lifetime.as_str()] {
         let api = Api::new().await;
         let ada = users::register(&api, "ada@example.com").await;
         let db = api.database();
-        db.owner_executes(&format!(
-            "UPDATE sessions SET {expired} = now() - interval '1 second'"
-        ))
-        .await;
+        db.owner_executes(&format!("UPDATE sessions SET {expired}"))
+            .await;
         let before = db
             .owner_reads("SELECT encode(refresh_token_hash, 'hex') FROM sessions")
             .await;

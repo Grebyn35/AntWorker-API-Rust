@@ -1,7 +1,8 @@
 //! The domain types of sign-in (D25): passwords, device IDs and how a client takes its tokens;
 //! in `codes.rs`, the verification, reset and change codes sent to an address, and recovery codes;
-//! in `second_factors.rs`, an authenticator app's secret and codes; and in `sessions.rs`, a
-//! device's name and a session as a user's list of them shows it.
+//! in `second_factors.rs`, an authenticator app's secret and codes; in `sessions.rs`, a device's
+//! name and a session as a user's list of them shows it; and in `identities.rs`, a user's
+//! identities as they read them.
 
 use std::{borrow::Cow, collections::HashSet, sync::LazyLock, time::Duration};
 
@@ -16,11 +17,13 @@ use utoipa::{
 };
 
 mod codes;
+mod identities;
 mod second_factors;
 mod sessions;
 
 pub(crate) use codes::{ChangeCode, RecoveryCode, ResetCode, VerificationCode};
 pub(super) use codes::{Code, Purpose};
+pub(crate) use identities::{Identities, PasswordIdentity, ProviderIdentity};
 pub(crate) use second_factors::{AppCode, AppSecret, FactorProof, STEP_SECONDS};
 pub(crate) use sessions::{DeviceName, SessionItem};
 

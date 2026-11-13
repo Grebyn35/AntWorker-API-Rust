@@ -19,9 +19,10 @@ use platform::{
 use super::model::{DeviceId, DeviceName, Lifetimes, StoredSession};
 
 pub(super) use identities::{
-    delete_identities, insert_password_identity, insert_provider_identity, password_hash,
-    password_identity_for_update, provider_subject, set_password, update_password_hash,
-    user_of_subject,
+    add_password, delete_identities, delete_password_identity, delete_provider_identity,
+    insert_password_identity, insert_provider_identity, password_hash, password_identity,
+    password_identity_for_update, provider_identities, provider_subject, set_password,
+    update_password_hash, user_of_subject,
 };
 
 /// A session found by one of its token hashes.
@@ -431,6 +432,28 @@ pub(super) async fn delete_other_sessions(
         "DELETE FROM sessions WHERE user_id = $1 AND id <> $2 RETURNING id",
         user_id.uuid(),
         kept.uuid(),
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(ids.into_iter().map(SessionId::from_uuid).collect())
+}
+
+/// Deletes every session of `user_id` but `kept` that signed in through `provider`, or with the
+/// password for `None`, as its `provider` records, and returns their IDs: the sessions that an
+/// identity started, whose removal `kept`'s request makes (AUTH-088).
+pub(super) async fn delete_other_sessions_through(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+    kept: SessionId,
+    provider: Option<&str>,
+) -> Result<Vec<SessionId>, Internal> {
+    let ids = sqlx::query_scalar!(
+        "DELETE FROM sessions
+        WHERE user_id = $1 AND id <> $2 AND provider IS NOT DISTINCT FROM $3
+        RETURNING id",
+        user_id.uuid(),
+        kept.uuid(),
+        provider,
     )
     .fetch_all(uow.executor())
     .await?;

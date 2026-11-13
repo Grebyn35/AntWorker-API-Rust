@@ -22,7 +22,14 @@ CREATE TABLE sessions (
     CONSTRAINT sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
     CONSTRAINT sessions_access_token_hash_key UNIQUE (access_token_hash),
     CONSTRAINT sessions_refresh_token_hash_key UNIQUE (refresh_token_hash),
-    CONSTRAINT sessions_previous_refresh_token_hash_key UNIQUE (previous_refresh_token_hash)
+    CONSTRAINT sessions_previous_refresh_token_hash_key UNIQUE (previous_refresh_token_hash),
+    -- No access token outlives its refresh token, and no refresh token its session's absolute
+    -- lifetime (AUTH-007), so a session stops lasting when its refresh token expires, which the
+    -- hourly deletion selects by (AUTH-047).
+    CONSTRAINT sessions_expires_at_check CHECK (
+        access_token_expires_at <= refresh_token_expires_at
+        AND refresh_token_expires_at <= expires_at
+    )
 );
 
 -- A user's sessions, the latest first, which their list (AUTH-043) and an export (ACCOUNTS-024) read

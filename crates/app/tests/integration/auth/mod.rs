@@ -9,6 +9,7 @@ mod github;
 // part: google
 mod google;
 // end part: google
+mod identities;
 mod listed;
 // part: openid_connect
 mod openid_connect;

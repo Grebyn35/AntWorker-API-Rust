@@ -312,7 +312,7 @@ async fn auth_020_a_signed_url_s_session_proves_its_user_while_it_lasts() {
     .await;
     let unrefreshable = api.get(url).send().await;
     db.owner_executes(&format!(
-        "UPDATE sessions SET refresh_token_expires_at = now() + interval '1 day', \
+        "UPDATE sessions SET refresh_token_expires_at = now() - interval '1 second', \
          expires_at = now() - interval '1 second' WHERE id = '{}'",
         ada.session_id
     ))

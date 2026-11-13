@@ -2,10 +2,16 @@
 //! which a password identity holds its password's hash (AUTH-014), and a provider identity the
 //! provider's ID for the user (AUTH-073).
 
-use platform::{db::UnitOfWork, errors::Internal, types::UserId};
+use platform::{
+    db::UnitOfWork,
+    errors::Internal,
+    types::{Timestamp, UserId},
+};
 
-/// A user's password identity.
-pub(in crate::modules::auth) struct PasswordIdentity {
+use crate::modules::auth::model::{PasswordIdentity, ProviderIdentity};
+
+/// A user's password identity, with its password's hash, for a sign-in.
+pub(in crate::modules::auth) struct StoredPassword {
     pub(in crate::modules::auth) id: uuid::Uuid,
     pub(in crate::modules::auth) hash: String,
 }
@@ -30,7 +36,7 @@ pub(in crate::modules::auth) async fn insert_password_identity(
 pub(in crate::modules::auth) async fn password_identity_for_update(
     uow: &mut UnitOfWork,
     user_id: UserId,
-) -> Result<Option<PasswordIdentity>, Internal> {
+) -> Result<Option<StoredPassword>, Internal> {
     let row = sqlx::query!(
         "SELECT id, password_hash FROM identities WHERE user_id = $1 AND method = 'password'
         FOR UPDATE",
@@ -40,7 +46,7 @@ pub(in crate::modules::auth) async fn password_identity_for_update(
     .await?;
     Ok(row.and_then(|row| {
         row.password_hash
-            .map(|hash| PasswordIdentity { id: row.id, hash })
+            .map(|hash| StoredPassword { id: row.id, hash })
     }))
 }
 
@@ -134,22 +140,26 @@ pub(in crate::modules::auth) async fn user_of_subject(
 }
 
 /// Inserts `user_id`'s provider identity at `provider`, which holds `subject`, for a registration
-/// through the provider (AUTH-074).
+/// through the provider or a link, and returns its ID, or `None` when a provider identity holds
+/// the subject already: the unique constraint `provider_identities_provider_subject_key` decides
+/// it, so of two requests that give one subject at once, one inserts it (AUTH-074, AUTH-087,
+/// ERR-05).
 pub(in crate::modules::auth) async fn insert_provider_identity(
     uow: &mut UnitOfWork,
     user_id: UserId,
     provider: &str,
     subject: &str,
-) -> Result<(), Internal> {
-    sqlx::query!(
-        "INSERT INTO provider_identities (user_id, provider, subject) VALUES ($1, $2, $3)",
+) -> Result<Option<uuid::Uuid>, Internal> {
+    Ok(sqlx::query_scalar!(
+        "INSERT INTO provider_identities (user_id, provider, subject) VALUES ($1, $2, $3)
+        ON CONFLICT ON CONSTRAINT provider_identities_provider_subject_key DO NOTHING
+        RETURNING id",
         user_id.uuid(),
         provider,
         subject,
     )
-    .execute(uow.executor())
-    .await?;
-    Ok(())
+    .fetch_optional(uow.executor())
+    .await?)
 }
 
 /// The subject of `user_id`'s provider identity at `provider`, if they have one (AUTH-080).
@@ -165,4 +175,96 @@ pub(in crate::modules::auth) async fn provider_subject(
     )
     .fetch_optional(uow.executor())
     .await?)
+}
+
+/// `user_id`'s password identity, as they read it, if they have one (AUTH-085).
+pub(in crate::modules::auth) async fn password_identity(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+) -> Result<Option<PasswordIdentity>, Internal> {
+    let row = sqlx::query!(
+        "SELECT id, created_at FROM identities WHERE user_id = $1 AND method = 'password'",
+        user_id.uuid(),
+    )
+    .fetch_optional(uow.executor())
+    .await?;
+    Ok(row.map(|row| PasswordIdentity {
+        id: row.id,
+        created_at: Timestamp::from_database(row.created_at),
+    }))
+}
+
+/// `user_id`'s provider identities, as they read them, the earliest linked first (AUTH-085).
+pub(in crate::modules::auth) async fn provider_identities(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+) -> Result<Vec<ProviderIdentity>, Internal> {
+    let rows = sqlx::query!(
+        "SELECT id, provider, created_at FROM provider_identities WHERE user_id = $1
+        ORDER BY created_at, id",
+        user_id.uuid(),
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ProviderIdentity {
+            id: row.id,
+            provider: row.provider,
+            created_at: Timestamp::from_database(row.created_at),
+        })
+        .collect())
+}
+
+/// Inserts a password identity of `user_id` with `hash`, and returns its ID, or `None` when they
+/// have one already, as the unique constraint `identities_user_id_method_key` decides (AUTH-086,
+/// ERR-05).
+pub(in crate::modules::auth) async fn add_password(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+    hash: &str,
+) -> Result<Option<uuid::Uuid>, Internal> {
+    Ok(sqlx::query_scalar!(
+        "INSERT INTO identities (user_id, method, password_hash) VALUES ($1, 'password', $2)
+        ON CONFLICT ON CONSTRAINT identities_user_id_method_key DO NOTHING
+        RETURNING id",
+        user_id.uuid(),
+        hash,
+    )
+    .fetch_optional(uow.executor())
+    .await?)
+}
+
+/// Deletes `user_id`'s password identity `id`. The delete waits for the lock of a sign-in that
+/// holds the identity, so that sign-in's session exists before the caller ends the sessions that
+/// signed in with the password (AUTH-088, DATA-20).
+pub(in crate::modules::auth) async fn delete_password_identity(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+    id: uuid::Uuid,
+) -> Result<(), Internal> {
+    sqlx::query!(
+        "DELETE FROM identities WHERE user_id = $1 AND id = $2 AND method = 'password'",
+        user_id.uuid(),
+        id,
+    )
+    .execute(uow.executor())
+    .await?;
+    Ok(())
+}
+
+/// Deletes `user_id`'s provider identity `id` (AUTH-088).
+pub(in crate::modules::auth) async fn delete_provider_identity(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+    id: uuid::Uuid,
+) -> Result<(), Internal> {
+    sqlx::query!(
+        "DELETE FROM provider_identities WHERE user_id = $1 AND id = $2",
+        user_id.uuid(),
+        id,
+    )
+    .execute(uow.executor())
+    .await?;
+    Ok(())
 }

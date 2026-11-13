@@ -418,6 +418,25 @@ pub(in crate::modules::auth) async fn delete_challenges(
     Ok(())
 }
 
+/// Deletes every challenge of `user_id` that a sign-in through `provider` issued, or one with the
+/// password for `None`, so none that the removed identity's sign-in issued completes (AUTH-069,
+/// AUTH-088).
+pub(in crate::modules::auth) async fn delete_challenges_through(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+    provider: Option<&str>,
+) -> Result<(), Internal> {
+    sqlx::query!(
+        "DELETE FROM sign_in_challenges
+        WHERE user_id = $1 AND provider IS NOT DISTINCT FROM $2",
+        user_id.uuid(),
+        provider,
+    )
+    .execute(uow.executor())
+    .await?;
+    Ok(())
+}
+
 /// Deletes `user_id`'s setup, whose account the unit of work deletes (ACCOUNTS-013).
 pub(in crate::modules::auth) async fn delete_setup(
     uow: &mut UnitOfWork,

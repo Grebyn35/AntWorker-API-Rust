@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO provider_identities (user_id, provider, subject) VALUES ($1, $2, $3)\n        ON CONFLICT ON CONSTRAINT provider_identities_provider_subject_key DO NOTHING\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "provider_identities",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "59d18a4189674dc68ff0de7b4c971920e67ee891c3a6a2f2353038bc6753ce75"
+}

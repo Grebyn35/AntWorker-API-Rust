@@ -777,11 +777,13 @@ async fn auth_018_the_recheck_closes_a_stream_whose_session_outlived_its_lifetim
     let mut expired = streams::opened(&api, &ada).await;
     let mut deleted = streams::opened(&api, &grace).await;
 
-    // Past its absolute lifetime, though its refresh token hasn't expired; and gone, with no
-    // signal to tell the hub.
+    // Past its absolute lifetime, and its tokens' expiries with it; and gone, with no signal to
+    // tell the hub.
     api.database()
         .owner_executes(&format!(
-            "UPDATE sessions SET expires_at = now() - interval '1 second' WHERE user_id = '{}'; \
+            "UPDATE sessions SET access_token_expires_at = now() - interval '1 second', \
+             refresh_token_expires_at = now() - interval '1 second', \
+             expires_at = now() - interval '1 second' WHERE user_id = '{}'; \
              DELETE FROM sessions WHERE user_id = '{}'",
             ada.user_id, grace.user_id
         ))

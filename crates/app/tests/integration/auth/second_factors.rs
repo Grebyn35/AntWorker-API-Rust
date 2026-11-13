@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     api::Response,
-    execute_on, mailbox, queries_wait_on_locks,
+    mailbox,
     second_factors::{self, App, add_app, code, confirm, forget_steps, other_code, start_setup},
     users::{self, PASSWORD, SignedIn},
 };
@@ -621,33 +621,6 @@ async fn auth_068_with_email_off_no_change_of_the_second_factor_enqueues_an_emai
     );
 }
 
-/// What `user`'s request `method` of `path` answers when another request ends its session once
-/// the request is authenticated: it waits at the bucket `bucket`, which it counts once its session
-/// is verified, while the session ends (AUTH-016).
-async fn after_its_session_ended(
-    api: &Api,
-    user: &SignedIn,
-    bucket: &str,
-    method: http::Method,
-    path: &str,
-) -> (http::StatusCode, Value) {
-    let db = api.database();
-    let mut ender = db
-        .holding(&format!(
-            "SELECT 1 FROM rate_limit_buckets WHERE id = '{bucket}' FOR UPDATE"
-        ))
-        .await;
-    let sent = api.spawn(method, path, &user.access, None);
-    queries_wait_on_locks(db, 1).await;
-    execute_on(
-        &mut ender,
-        &format!("DELETE FROM sessions WHERE id = '{}'", user.session_id),
-    )
-    .await;
-    execute_on(&mut ender, "COMMIT").await;
-    sent.await.unwrap()
-}
-
 #[tokio::test]
 async fn auth_055_a_setup_whose_session_ended_once_it_was_authenticated_answers_401() {
     let api = Api::new().await;
@@ -656,12 +629,12 @@ async fn auth_055_a_setup_whose_session_ended_once_it_was_authenticated_answers_
     let bucket =
         users::added_bucket(&api, api.get("/v1/users/me").bearer(&ada.access).send()).await;
 
-    let (status, body) = after_its_session_ended(
+    let (status, body) = users::after_its_session_ended(
         &api,
         &ada,
         &bucket,
-        http::Method::POST,
-        "/v1/users/me/second-factors/totp/setup",
+        (http::Method::POST, "/v1/users/me/second-factors/totp/setup"),
+        None,
     )
     .await;
 
@@ -683,12 +656,15 @@ async fn auth_063_new_codes_whose_session_ended_once_they_were_authenticated_ans
     let bucket = users::added_bucket(&api, new_codes(&api, &ada)).await;
     let codes = reads(&api, "SELECT id::text FROM recovery_codes ORDER BY 1").await;
 
-    let (status, body) = after_its_session_ended(
+    let (status, body) = users::after_its_session_ended(
         &api,
         &ada,
         &bucket,
-        http::Method::POST,
-        "/v1/users/me/second-factors/recovery-codes",
+        (
+            http::Method::POST,
+            "/v1/users/me/second-factors/recovery-codes",
+        ),
+        None,
     )
     .await;
 
@@ -707,12 +683,12 @@ async fn auth_064_a_removal_whose_session_ended_once_it_was_authenticated_answer
     add_app(&api, &ada).await;
     let bucket = users::added_bucket(&api, new_codes(&api, &ada)).await;
 
-    let (status, body) = after_its_session_ended(
+    let (status, body) = users::after_its_session_ended(
         &api,
         &ada,
         &bucket,
-        http::Method::DELETE,
-        "/v1/users/me/second-factors/totp",
+        (http::Method::DELETE, "/v1/users/me/second-factors/totp"),
+        None,
     )
     .await;
 

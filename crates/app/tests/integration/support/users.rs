@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use super::{Api, Options, TestDatabase, api::Response};
+use super::{Api, Options, TestDatabase, api::Response, execute_on, queries_wait_on_locks};
 
 /// A password that AUTH-003 allows.
 pub const PASSWORD: &str = "plum-tractor-41-quiet";
@@ -232,4 +232,32 @@ pub async fn stopped_lasting(api: &Api, user: &SignedIn) {
             user.session_id
         ))
         .await;
+}
+
+/// What `user`'s request answers, a `request.0` of `request.1` with `body` when it has one, when
+/// another request ends its session once the request is authenticated: it waits at the bucket
+/// `bucket`, which it counts once its session is verified, while the session ends (AUTH-016).
+pub async fn after_its_session_ended(
+    api: &Api,
+    user: &SignedIn,
+    bucket: &str,
+    request: (http::Method, &str),
+    body: Option<Value>,
+) -> (http::StatusCode, Value) {
+    let db = api.database();
+    let mut ender = db
+        .holding(&format!(
+            "SELECT 1 FROM rate_limit_buckets WHERE id = '{bucket}' FOR UPDATE"
+        ))
+        .await;
+    let (method, path) = request;
+    let sent = api.spawn(method, path, &user.access, body);
+    queries_wait_on_locks(db, 1).await;
+    execute_on(
+        &mut ender,
+        &format!("DELETE FROM sessions WHERE id = '{}'", user.session_id),
+    )
+    .await;
+    execute_on(&mut ender, "COMMIT").await;
+    sent.await.unwrap()
 }

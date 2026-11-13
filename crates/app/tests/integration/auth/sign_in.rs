@@ -333,6 +333,40 @@ async fn auth_007_no_token_outlives_its_session_s_absolute_lifetime() {
 }
 
 #[tokio::test]
+async fn auth_007_a_check_refuses_a_session_whose_expiries_are_out_of_their_order() {
+    let api = Api::new().await;
+    users::register(&api, "ada@example.com").await;
+    let db = api.database();
+
+    let access = db
+        .try_execute(
+            &db.owner_url(),
+            "UPDATE sessions SET access_token_expires_at = \
+             refresh_token_expires_at + interval '1 second'",
+        )
+        .await;
+    let refresh = db
+        .try_execute(
+            &db.owner_url(),
+            "UPDATE sessions SET refresh_token_expires_at = expires_at + interval '1 second'",
+        )
+        .await;
+    let ordered = db
+        .try_execute(
+            &db.owner_url(),
+            "UPDATE sessions SET access_token_expires_at = expires_at, \
+             refresh_token_expires_at = expires_at",
+        )
+        .await;
+
+    for refused in [access, refresh] {
+        let message = refused.unwrap_err();
+        assert!(message.contains("sessions_expires_at_check"), "{message}");
+    }
+    assert_eq!(ordered, Ok(()));
+}
+
+#[tokio::test]
 async fn auth_008_signing_in_again_on_a_device_ends_its_old_session() {
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;

@@ -110,6 +110,15 @@ pub(super) const SECOND_FACTOR_CHANGE: Bucket = Bucket {
     window: Duration::from_secs(86_400),
 };
 
+/// The bucket of each user's changes of their identities, adding a password, linking a provider
+/// and removing an identity, each of which sends the address an email: 10 in 24 hours, fixed
+/// (AUTH-090).
+pub(super) const IDENTITY_CHANGE: Bucket = Bucket {
+    name: "identity_change",
+    limit: 10,
+    window: Duration::from_secs(86_400),
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

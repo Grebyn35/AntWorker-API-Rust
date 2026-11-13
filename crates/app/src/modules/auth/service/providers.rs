@@ -73,6 +73,11 @@ impl Auth {
             // The user's turn, as a deletion of the account takes it first: a sign-in that waited
             // for one finds no user, and registers (the auth spec's "Taking turns").
             && let Some(address) = accounts::address_for_update(&mut uow, user_id).await?
+            // The identity again, once the turn came, since a removal of it that the sign-in
+            // waited for leaves the subject no account's (AUTH-088).
+            && repo::provider_subject(&mut uow, user_id, provider.key)
+                .await?
+                .is_some_and(|subject| subject == identity.subject)
         {
             return self
                 .sign_in_linked(uow, (user_id, address), &identity, input)
@@ -186,7 +191,11 @@ impl Auth {
             Creation::Created(id) => id,
             Creation::EmailInUse => return Err(AuthError::EmailInUse),
         };
-        repo::insert_provider_identity(&mut uow, user_id, provider.key, &identity.subject).await?;
+        // A link of the subject that committed since the sign-in read that no account held it
+        // took it: the client signs in again, into that account (AUTH-074).
+        repo::insert_provider_identity(&mut uow, user_id, provider.key, &identity.subject)
+            .await?
+            .ok_or(AuthError::IdentityInUse)?;
         if identity.proved {
             accounts::verify_email(&mut uow, user_id).await?;
         }
@@ -236,12 +245,7 @@ impl Auth {
         limits
             .check(buckets::PASSWORD_CHECK, user_id.uuid().as_bytes())
             .await?;
-        // A refused code proves nothing, and the session still authenticates its requests, so it
-        // answers 403 rather than 401, as a wrong password does (Re-authentication).
-        let (provider, identity) = match self.identify(provider, &grant).await {
-            Err(AuthError::ProviderCodeRejected) => return Err(AuthError::ProviderProofRejected),
-            identified => identified?,
-        };
+        let (provider, identity) = self.identify_signed_in(provider, &grant).await?;
         let mut uow = self.database.begin(client).await?;
         take_turn(&mut uow, principal).await?;
         let subject = repo::provider_subject(&mut uow, user_id, provider.key).await?;
@@ -281,6 +285,21 @@ impl Auth {
         let session = self.answer(&mut uow, session).await?;
         uow.commit().await?;
         Ok(session)
+    }
+
+    /// The provider that `id` names, and the identity that `grant`'s code gives there, as
+    /// [`Auth::identify`] reads it, for a signed-in caller: a code that the provider refuses proves
+    /// nothing, and the session still authenticates its requests, so it answers 403 rather than
+    /// 401, as a wrong password does (AUTH-080, AUTH-087, the auth spec's "Re-authentication").
+    pub(super) async fn identify_signed_in(
+        &self,
+        id: &str,
+        grant: &Grant,
+    ) -> Result<(&On, Identity), AuthError> {
+        match self.identify(id, grant).await {
+            Err(AuthError::ProviderCodeRejected) => Err(AuthError::ProviderProofRejected),
+            identified => identified,
+        }
     }
 
     /// The provider that `id` names, and the identity that `grant`'s code gives there, which its

@@ -196,8 +196,10 @@ async fn auth_043_the_caller_lists_their_sessions_that_last_and_no_other_user_s(
     let db = api.database();
     db.owner_executes(&format!(
         "UPDATE sessions SET created_at = created_at - interval '1 minute' WHERE id = '{}'; \
-         UPDATE sessions SET refresh_token_expires_at = now() WHERE id = '{}'; \
-         UPDATE sessions SET expires_at = now() WHERE id = '{}'",
+         UPDATE sessions SET access_token_expires_at = now(), \
+         refresh_token_expires_at = now() WHERE id = '{}'; \
+         UPDATE sessions SET access_token_expires_at = now(), \
+         refresh_token_expires_at = now(), expires_at = now() WHERE id = '{}'",
         ada.session_id, expired.session_id, ended.session_id
     ))
     .await;
@@ -405,7 +407,8 @@ async fn auth_044_ending_a_session_that_stopped_lasting_deletes_it() {
     let old = users::new_session(&api, "ada@example.com").await;
     api.database()
         .owner_executes(&format!(
-            "UPDATE sessions SET refresh_token_expires_at = now() WHERE id = '{}'",
+            "UPDATE sessions SET access_token_expires_at = now(), \
+             refresh_token_expires_at = now() WHERE id = '{}'",
             old.session_id
         ))
         .await;
@@ -434,7 +437,8 @@ async fn auth_045_ending_the_other_sessions_needs_a_recent_proof_and_keeps_the_c
     let grace = users::register(&api, "grace@example.com").await;
     api.database()
         .owner_executes(&format!(
-            "UPDATE sessions SET refresh_token_expires_at = now() WHERE id = '{}'",
+            "UPDATE sessions SET access_token_expires_at = now(), \
+             refresh_token_expires_at = now() WHERE id = '{}'",
             expired.session_id
         ))
         .await;
@@ -729,10 +733,11 @@ async fn auth_047_the_hourly_job_deletes_every_user_s_sessions_that_stopped_last
         idle.session_id
     ))
     .await;
-    // A session whose refresh token alone expired has stopped lasting too (AUTH-018).
+    // A session whose refresh token expired has stopped lasting too, before its absolute
+    // lifetime passed (AUTH-018).
     db.owner_executes(&format!(
-        "UPDATE sessions SET refresh_token_expires_at = now() - interval '1 second' \
-         WHERE id = '{}'",
+        "UPDATE sessions SET access_token_expires_at = now() - interval '1 second', \
+         refresh_token_expires_at = now() - interval '1 second' WHERE id = '{}'",
         gone.session_id
     ))
     .await;

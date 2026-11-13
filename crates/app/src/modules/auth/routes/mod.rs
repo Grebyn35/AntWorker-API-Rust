@@ -3,11 +3,12 @@
 //! `sessions.rs`, proving the account's email address in `verification.rs`, resetting and
 //! changing the password in `password.rs`, changing the address in `email_change.rs`,
 //! re-authenticating in `reauthentication.rs`, second factors, completing a sign-in with one
-//! among them, in `second_factors.rs`, and requesting an export of the caller's data, which this
-//! module confirms, in `exports.rs`.
+//! among them, in `second_factors.rs`, the caller's identities in `identities.rs`, and requesting
+//! an export of the caller's data, which this module confirms, in `exports.rs`.
 
 mod email_change;
 mod exports;
+mod identities;
 mod password;
 mod providers;
 mod reauthentication;
@@ -60,6 +61,7 @@ pub(crate) fn routes() -> Routes<Arc<Auth>> {
         .merge(sessions::routes())
         .merge(second_factors::routes())
         .merge(reauthentication::routes())
+        .merge(identities::routes())
         .events(&[&SESSION_CREATED, &SESSION_ENDED])
         .public(
             routes!(register),
