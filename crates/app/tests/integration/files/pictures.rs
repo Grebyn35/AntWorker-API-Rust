@@ -313,6 +313,34 @@ async fn accounts_028_a_scanner_that_doesn_t_answer_is_tried_again_until_the_fif
 }
 
 #[tokio::test]
+async fn accounts_028_a_storage_that_doesn_t_answer_is_tried_again_until_the_fifth_attempt() {
+    // Nothing listens on port 9 of the loopback address.
+    let options = Options::default().set("S3_ENDPOINT", "http://127.0.0.1:9");
+    let (upstream, api) = standing(options).await;
+    let ada = registered(&upstream, &api, PNG).await;
+
+    api.run_jobs().await;
+
+    let retried = reads(
+        &api,
+        "SELECT state::text || ' ' || attempts FROM jobs \
+         WHERE kind = 'accounts.copy_picture'",
+    )
+    .await;
+    // Its fifth attempt, the last.
+    api.database()
+        .owner_executes("UPDATE jobs SET attempts = 4, run_at = now()")
+        .await;
+    let ignored = not_copied();
+    api.run_jobs().await;
+
+    assert_eq!(retried, ["waiting 1"]);
+    assert!(copies(&api).await.is_empty(), "no dead letter");
+    assert!(not_copied() >= ignored + 1.0, "ERR-11's count");
+    assert_eq!(avatar_url(&api, &ada).await, Value::Null);
+}
+
+#[tokio::test]
 async fn accounts_028_an_address_of_more_than_2048_characters_enqueues_nothing() {
     let (upstream, api) = standing(Options::default()).await;
     let long = format!("{}/{}", upstream.url("/pictures"), "a".repeat(2_048));

@@ -76,7 +76,7 @@ impl Workers {
         T: Send + 'static,
     {
         let span = tracing::info_span!("blocking", { names::OTEL_NAME } = name);
-        let turn = self.wait(&span).await?;
+        let mut turn = self.wait(&span).await?;
         turn.run_in(span, work).await
     }
 
@@ -85,7 +85,8 @@ impl Workers {
     /// holder has dropped it and the work it started, if any, has ended. A caller takes it this
     /// way before it opens a unit of work whose reads the work needs, such as a sign-in's of the
     /// password's hash, so that it waits for the turn with no pooled connection, and holds one
-    /// only while it works.
+    /// only while it works. A caller that stops waiting gives up its place. Its error stands for
+    /// a closed semaphore, which `Workers` never closes, so it fails in no way a caller meets.
     pub async fn turn(&self) -> Result<Turn, Failed> {
         let span = tracing::info_span!("blocking", { names::OTEL_NAME } = "turn");
         self.wait(&span).await
@@ -109,15 +110,17 @@ impl Workers {
 }
 
 /// A turn at the instance's CPU-heavy work, which [`Workers::turn`] gives. Its holder runs works
-/// in it, and it goes once the holder has dropped it and the work it started has ended, so a work
-/// keeps its turn until it ends even when its caller stopped waiting (PLATFORM-060).
+/// in it, one after another, and it goes once the holder has dropped it and the work it started
+/// has ended, so a work keeps its turn until it ends even when its caller stopped waiting
+/// (PLATFORM-060).
 pub struct Turn(Arc<OwnedSemaphorePermit>);
 
 impl Turn {
     /// Runs `work` on a blocking thread, in this turn, inside a span named `name`, a child of the
-    /// current span. Fails only when `work` panics.
+    /// current span. It borrows the turn alone while the work runs, so the holder's next work
+    /// starts after it. Fails only when `work` panics.
     pub async fn run<T>(
-        &self,
+        &mut self,
         name: &'static str,
         work: impl FnOnce() -> T + Send + 'static,
     ) -> Result<T, Failed>
@@ -130,7 +133,7 @@ impl Turn {
 
     /// Runs `work` on a blocking thread, in this turn, inside `span`.
     async fn run_in<T>(
-        &self,
+        &mut self,
         span: tracing::Span,
         work: impl FnOnce() -> T + Send + 'static,
     ) -> Result<T, Failed>

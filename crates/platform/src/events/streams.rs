@@ -1,6 +1,8 @@
 //! The hub's streams, kept by user and by workspace, which it delivers each event to and closes
 //! (SEC-06, SEC-19).
 
+#[cfg(feature = "test-support")]
+use std::io;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -16,6 +18,8 @@ use super::{
     hub::{Command, Registered, StreamId, SubscribeError},
     subscription::{Audience, Closed, Event},
 };
+#[cfg(feature = "test-support")]
+use crate::errors;
 use crate::{
     authn::Principal,
     authz::{Memberships, Snapshot},
@@ -164,9 +168,16 @@ impl Streams {
                 }
             }
             Command::Unregister { id } => self.remove(id),
-            // A test that stopped waiting for the head has gone.
             #[cfg(feature = "test-support")]
-            Command::Head { reply } => reply.send(self.head).unwrap_or_default(),
+            Command::Head { reply } => {
+                if reply.send(self.head).is_err() {
+                    // The test that asked for the head stopped waiting for it.
+                    errors::ignore(
+                        &io::Error::other("the head's reader has gone"),
+                        "head_reader_gone",
+                    );
+                }
+            }
         }
     }
 

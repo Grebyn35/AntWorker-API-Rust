@@ -154,7 +154,7 @@ async fn platform_060_a_work_keeps_the_turn_that_its_holder_dropped_until_it_end
     for _ in 0..workers.turns() {
         turns.push(workers.turn().await.unwrap());
     }
-    let turn = turns.remove(0);
+    let mut turn = turns.remove(0);
     let (started, mut running) = unbounded_channel();
     let (end, ended) = mpsc::channel::<()>();
     // A work in the turn, whose caller stops waiting once it runs, as a request past its

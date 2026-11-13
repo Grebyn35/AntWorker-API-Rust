@@ -679,6 +679,30 @@ async fn auth_088_removing_a_provider_identity_ends_the_other_sessions_that_sign
 }
 
 #[tokio::test]
+async fn auth_046_a_removal_of_an_identity_publishes_session_ended_for_each_session_it_ends() {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let ada = signed_in(&api).await;
+    assert_eq!(add_password(&api, &ada, PASSWORD).await.status, 200);
+    let tablet = signed_in(&api).await;
+    let phone = users::new_session(&api, "ada@example.com").await;
+    let provider = provider_id(&api, &ada).await;
+    let before = users::session_events(&api, "session.ended").await;
+
+    let unlinked = remove(&api, &ada, &provider).await;
+
+    assert_eq!(unlinked.status, 204);
+    assert!(before.is_empty());
+    // The session that signed in through the provider, and neither the request's own nor the
+    // one that signed in with the password.
+    assert_eq!(
+        users::session_events(&api, "session.ended").await,
+        [format!("{} {}", ada.user_id, tablet.session_id)]
+    );
+    assert!(works(&api, &phone).await);
+}
+
+#[tokio::test]
 async fn auth_088_an_identity_of_a_provider_that_the_deployment_dropped_is_removed() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

@@ -139,13 +139,13 @@ impl Auth {
         limits
             .check(buckets::PASSWORD_CHECK, user_id.uuid().as_bytes())
             .await?;
-        let hashing = self.workers.turn().await.map_err(Internal::new)?;
+        let mut hashing = self.workers.turn().await.map_err(Internal::new)?;
         let mut uow = self.database.begin(client).await?;
         let address = take_turn(&mut uow, principal).await?;
         let stored = repo::password_hash(&mut uow, user_id).await?;
         let has_password = stored.is_some();
         let hash = stored.unwrap_or_else(|| self.dummy_hash.clone());
-        let (matches, _) = verify_in(&hashing, hash, password).await?;
+        let (matches, _) = verify_in(&mut hashing, hash, password).await?;
         Ok((uow, address, matches && has_password, hashing))
     }
 }

@@ -439,13 +439,13 @@ fn new_tokens() -> Result<Tokens, Internal> {
 /// The Argon2id hash of `password`, in PHC format, with a new salt, through `workers`, once a
 /// turn of theirs is free (AUTH-014).
 async fn hash(workers: &Workers, password: Password) -> Result<String, Internal> {
-    let hashing = workers.turn().await.map_err(Internal::new)?;
-    hash_in(&hashing, password).await
+    let mut hashing = workers.turn().await.map_err(Internal::new)?;
+    hash_in(&mut hashing, password).await
 }
 
 /// The Argon2id hash of `password`, in PHC format, with a new salt, in the turn `hashing`, which
 /// its caller took before it opened its unit of work (AUTH-014, AUTH-093).
-async fn hash_in(hashing: &Turn, password: Password) -> Result<String, Internal> {
+async fn hash_in(hashing: &mut Turn, password: Password) -> Result<String, Internal> {
     let salt = random::bytes::<16>()?;
     hashing
         .run("hash_password", move || {
@@ -462,7 +462,7 @@ async fn hash_in(hashing: &Turn, password: Password) -> Result<String, Internal>
 /// opened its unit of work, with the password handed back for a rehash (AUTH-005, AUTH-014,
 /// AUTH-093).
 async fn verify_in(
-    hashing: &Turn,
+    hashing: &mut Turn,
     stored: String,
     password: Password,
 ) -> Result<(bool, Password), Internal> {

@@ -190,5 +190,4 @@ A file's row may go while its export lasts, as when the user deletes it, but its
 | Question | Settled by |
 |---|---|
 | Whether a workspace's picture is kept as an avatar is, in a table of its own whose row its workspace's routes set and remove, and which kinds it accepts | the spec of the full `workspaces` module |
-| How the avatar that an OAuth provider gives a new account is fetched and stored, through the untrusted client (SEC-10) | the spec of the full `auth` module, with the first OAuth provider |
 | Whether a user's own files, or a workspace's, are bounded in their count or their bytes, beside the rate limits and `FILE_MAX_BYTES`, and the bytes of the avatars a user replaces, which each stay for `FILE_DELETION_DELAY_DAYS`: a capability, so the owner's | the pass against ASVS Level 2, at step 6 |
