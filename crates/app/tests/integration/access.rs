@@ -275,50 +275,53 @@ async fn access_004_a_member_assigns_only_roles_below_their_own() {
 }
 
 #[tokio::test]
-async fn access_004_a_transfer_and_leaving_are_the_two_exceptions_to_rank() {
+async fn access_004_a_transfer_leaving_and_a_deletion_are_the_three_exceptions_to_rank() {
     let api = Api::new().await;
     let owner = users::register(&api, "owner@example.com").await;
     let admin = users::register(&api, "admin@example.com").await;
     let member = users::register(&api, "member@example.com").await;
     let db = api.database();
-    let workspace = workspaces::arrange(
-        db,
-        "Acme",
-        &[
-            (&owner.user_id, "owner"),
-            (&admin.user_id, "admin"),
-            (&member.user_id, "member"),
-        ],
-    )
-    .await;
+    let members = [
+        (owner.user_id.as_str(), "owner"),
+        (admin.user_id.as_str(), "admin"),
+        (member.user_id.as_str(), "member"),
+    ];
+    let acme = workspaces::arrange(db, "Acme", &members).await;
+    let other = workspaces::arrange(db, "Other", &members).await;
+    let of = |workspace: &str| {
+        format!(
+            "SELECT user_id || ' ' || role FROM workspace_memberships \
+             WHERE workspace_id = '{workspace}' ORDER BY created_at, id"
+        )
+    };
 
     // A transfer gives an admin the owner's role, which ranks no lower than the caller's own,
-    // and changes the caller's own role; leaving ends the caller's own membership.
+    // and changes the caller's own role; leaving ends the caller's own membership; and a
+    // deletion ends every membership, the owner's own among them.
     let transferred = api
         .post(
-            &format!("/v1/workspaces/{workspace}/transfer"),
+            &format!("/v1/workspaces/{acme}/transfer"),
             &serde_json::json!({ "user_id": admin.user_id }),
         )
         .bearer(&owner.access)
         .send()
         .await;
-    let path = format!("/v1/workspaces/{workspace}/leave");
+    let path = format!("/v1/workspaces/{acme}/leave");
     let left = call(&api, Method::POST, &path, &member).await;
+    let path = format!("/v1/workspaces/{other}");
+    let deleted = call(&api, Method::DELETE, &path, &owner).await;
 
     assert_eq!(transferred.status, StatusCode::NO_CONTENT);
     assert_eq!(left.status, StatusCode::NO_CONTENT);
-    let roles = db
-        .owner_reads(
-            "SELECT user_id || ' ' || role FROM workspace_memberships ORDER BY created_at, id",
-        )
-        .await;
+    assert_eq!(deleted.status, StatusCode::NO_CONTENT);
     assert_eq!(
-        roles,
+        db.owner_reads(&of(&acme)).await,
         [
             format!("{} admin", owner.user_id),
             format!("{} owner", admin.user_id)
         ]
     );
+    assert!(db.owner_reads(&of(&other)).await.is_empty());
 }
 
 #[tokio::test]

@@ -43,7 +43,7 @@
 | ACCESS-001 | Each membership holds exactly one role: `owner`, `admin` or `member`. Each workspace has exactly one owner. | D2 | `access_001_` |
 | ACCESS-002 | A role grants exactly the permissions the matrix gives it, and nothing else. | D2 | `access_002_` |
 | ACCESS-003 | A caller who isn't a member of the workspace in the path gets 404 `request.not_found`. A member without the route's permission gets 403 `request.permission_denied`. Both refusals are reported to the `SecurityEventSink`. A workspace ID that isn't a UUID names no workspace, and answers 404 `request.not_found` unrecorded. | API-14, SEC-08, DATA-22 | `access_003_` |
-| ACCESS-004 | A member acts only on members whose role ranks below their own, and assigns only roles below their own, but for the two exceptions that SEC-09 names: a transfer, by which the owner and an admin swap their roles, and leaving, by which a member who isn't the owner ends their own membership. A refusal goes through `authz::refuse`, and answers 403 `request.permission_denied`. | SEC-09, DATA-22, PLATFORM-010 | `access_004_` |
+| ACCESS-004 | A member acts only on members whose role ranks below their own, and assigns only roles below their own, but for the three exceptions that SEC-09 names: a transfer, by which the owner and an admin swap their roles; leaving, by which a member who isn't the owner ends their own membership; and a workspace's deletion, by which the owner ends every membership, their own among them. A refusal goes through `authz::refuse`, and answers 403 `request.permission_denied`. | SEC-09, DATA-22, PLATFORM-010 | `access_004_` |
 | ACCESS-005 | `workspace_ids` returns the ID of every workspace the caller belongs to, and nothing else. | D3, DATA-16 | `access_005_` |
 | ACCESS-006 | Adding a membership, removing one and changing one's role each send an access-change signal for its user and workspace in the same unit of work, which, once it commits, closes the streams of that user that PLATFORM-031 says a membership change closes. | SEC-06, D35, PLATFORM-031 | `access_006_` |
 | ACCESS-007 | `memberships` gives each user it is asked about every workspace they belong to, with the permissions their role holds there and the transaction that added the membership, and nothing else. | SEC-19, DATA-16 | `access_007_` |
@@ -72,7 +72,7 @@ Rank, from highest to lowest: `owner`, `admin`, `member`.
 | `files.upload` | Uploading a file, private or public | yes | yes | yes <!-- part: files --> |
 | `files.delete` | Deleting a file | yes | yes | <!-- part: files --> |
 
-The matrix lives in `access/permissions.rs` as one table, so adding a permission is one type and one row (D2). Later modules add their permissions to this table. A permission is what a role may do, so a higher rank doesn't hold every permission of a lower one: the owner alone can't leave, since a workspace keeps its owner (ACCESS-001, SEC-09).
+The matrix lives in `access/permissions.rs` as one table, so adding a permission is one type and one row (D2). Later modules add their permissions to this table. A permission whose operation changes or ends its caller's own membership is also an entry of `OWN_MEMBERSHIP` there, which the policy reads its lock from (Policy). A permission is what a role may do, so a higher rank doesn't hold every permission of a lower one: the owner alone can't leave, since a workspace keeps its owner (ACCESS-001, SEC-09).
 
 ### Removing a member
 

@@ -1151,6 +1151,7 @@ async fn workspaces_013_a_caller_changes_only_a_lower_rank_and_only_to_a_role_be
     let admin = users::register(&api, "admin@example.com").await;
     let peer = users::register(&api, "peer@example.com").await;
     let member = users::register(&api, "member@example.com").await;
+    let stranger = users::register(&api, "stranger@example.com").await;
     let workspace = workspaces::arrange(
         api.database(),
         "Acme",
@@ -1175,10 +1176,12 @@ async fn workspaces_013_a_caller_changes_only_a_lower_rank_and_only_to_a_role_be
         change(&admin, &peer.user_id, "member").await,
         change(&admin, &owner.user_id, "member").await,
         change(&owner, &owner.user_id, "admin").await,
-        // A role that doesn't rank below the caller's own: an equal one, and a higher.
+        // A role that doesn't rank below the caller's own: an equal one, and a higher, whether
+        // or not the user is a member.
         change(&admin, &member.user_id, "admin").await,
         change(&admin, &member.user_id, "owner").await,
         change(&owner, &admin.user_id, "owner").await,
+        change(&owner, &stranger.user_id, "owner").await,
         // A member holds no members.update.
         change(&member, &member.user_id, "member").await,
     ];
@@ -1244,11 +1247,26 @@ async fn workspaces_013_a_change_names_a_member_a_current_version_and_a_role() {
     assert_eq!(not_a_role.json()["code"], "request.invalid_fields");
     assert_eq!(not_a_role.json()["errors"][0]["field"], "/role");
     assert_eq!(roles(&api, &workspace).await, before);
+}
 
-    // The version the client read lets the change apply.
-    let current = change_role(&api, &owner, target, "admin", Some("\"1\"")).await;
+#[tokio::test]
+async fn workspaces_013_a_change_that_names_the_current_version_applies() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let member = users::register(&api, "member@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[(&owner.user_id, "owner"), (&member.user_id, "member")],
+    )
+    .await;
+    let target = (workspace.as_str(), member.user_id.as_str());
+
+    let current = change_role(&api, &owner, target, "admin", Some("\"7\", \"1\"")).await;
+
     assert_eq!(current.status, 200);
     assert_eq!(current.json()["role"], "admin");
+    assert_eq!(current.header("etag"), "\"2\"");
 }
 
 #[tokio::test]
@@ -1869,12 +1887,27 @@ async fn workspaces_018_a_transfer_and_a_deletion_need_a_proof_from_the_last_5_m
     assert_eq!(roles(&api, &workspace).await, before);
     assert!(entries(&api, "workspace.transferred").await.is_empty());
     assert!(entries(&api, "workspace.deleted").await.is_empty());
+}
 
-    // A proof from within the window lets each through.
+#[tokio::test]
+async fn workspaces_018_a_proof_from_within_the_5_minutes_lets_each_through() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let admin = users::register(&api, "admin@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[(&owner.user_id, "owner"), (&admin.user_id, "admin")],
+    )
+    .await;
     users::authenticated_ago(&api, &owner, 4).await;
-    let transferred = transfer(&api, &owner, &workspace, &admin.user_id).await;
     users::authenticated_ago(&api, &admin, 4).await;
+
+    let transferred = transfer(&api, &owner, &workspace, &admin.user_id).await;
+    // The admin owns the workspace, and deletes it.
+    let path = format!("/v1/workspaces/{workspace}");
     let deleted = send(&api, http::Method::DELETE, &path, &admin).await;
+
     assert_eq!(transferred.status, 204);
     assert_eq!(deleted.status, 204);
 }

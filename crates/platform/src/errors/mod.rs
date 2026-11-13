@@ -68,8 +68,8 @@ impl Category {
 
 /// An error a client can receive (ERR-02).
 pub trait ErrorCode: Error {
-    /// `<namespace>.<snake_case_name>`, such as `workspaces.last_owner`. Once released, a code
-    /// never changes.
+    /// `<namespace>.<snake_case_name>`, such as `workspaces.member_not_found`. Once released, a
+    /// code never changes.
     fn code(&self) -> &'static str;
 
     /// A short summary, the same for every occurrence of the code.

@@ -105,9 +105,9 @@ impl ErrorCode for WorkspacesError {
             Self::CannotRemoveSelf => {
                 Some("Leave the workspace instead of removing yourself.".to_owned())
             }
-            Self::TransferRequiresAdmin => Some(
-                "Make the member an admin first, then transfer the workspace to them.".to_owned(),
-            ),
+            Self::TransferRequiresAdmin => {
+                Some("A workspace goes to one of its admins: name a member who is one.".to_owned())
+            }
             Self::Platform(error) => error.detail(),
             _ => None,
         }
