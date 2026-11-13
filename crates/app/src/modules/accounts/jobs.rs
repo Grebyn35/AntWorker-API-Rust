@@ -13,8 +13,9 @@
 // part: files
 //! - `accounts.copy_picture`, enqueued by a registration through a provider for its new user,
 //!   fetches the picture that the provider gave for them, outside any transaction, and makes it
-//!   their avatar in one unit of work, touching `users`, `avatars`, `audit_entries` and `events`
-//!   (ACCOUNTS-028). A second run finds the avatar, and changes nothing.
+//!   their avatar in one unit of work, touching `users`, `avatars`, `audit_entries` and `events`,
+//!   and reading `workspace_memberships` through `access` (ACCOUNTS-028). A second run finds the
+//!   avatar, and changes nothing.
 // end part: files
 
 use std::time::Duration;

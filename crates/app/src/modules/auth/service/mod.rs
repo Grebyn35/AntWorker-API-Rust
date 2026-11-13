@@ -5,8 +5,11 @@
 //! email address, and the job that sends every code; in `password.rs`, resetting and changing the
 //! password; in `email_change.rs`, changing the account's address; in `second_factors/`, second
 //! factors and the completion of a sign-in with one; in `identities.rs`, a user's identities; and
-//! in `verifier.rs`, the verifier of access tokens and sessions. Each operation opens its own unit of work, after any per-action limit it
-//! counts first.
+//! in `verifier.rs`, the verifier of access tokens and sessions. Each operation opens its own
+//! unit of work, after any per-action limit it counts first. One operation opens a second: a
+//! sign-in through a provider whose linked account went while it waited for the user's turn
+//! ends its unit of work with nothing written, counts as the registration it has become, and
+//! reads again in a new one (ARCH-11, AUTH-074).
 
 use std::sync::Arc;
 

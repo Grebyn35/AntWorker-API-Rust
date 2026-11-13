@@ -630,6 +630,58 @@ async fn auth_074_a_registration_after_a_removal_that_its_sign_in_waited_for_cou
 }
 
 #[tokio::test]
+async fn auth_074_beyond_its_limit_a_registration_after_such_a_wait_answers_429_and_writes_nothing()
+{
+    let (upstream, api) = standing().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    gives(&upstream, identity("subject-1", "other@example.com", false));
+    assert_eq!(link(&api, &ada, &grant()).await.status, 200);
+    // The address's bucket of 3 is full: a registration of another subject's, which holds the
+    // address since, and two more that met it (AUTH-029).
+    gives(&upstream, identity("subject-2", "other@example.com", false));
+    assert_eq!(sign_in(&api, &grant()).await.status, 201);
+    gives(&upstream, identity("subject-3", "other@example.com", false));
+    for _ in 0..2 {
+        assert_eq!(sign_in(&api, &grant()).await.status, 409);
+    }
+    gives(&upstream, identity("subject-1", "other@example.com", false));
+    let db = api.database();
+    let before = reads(&api, "SELECT count(*)::text FROM users").await;
+    // A removal of her provider identity, which holds her turn.
+    let mut removal = db
+        .holding(&format!(
+            "SELECT 1 FROM users WHERE id = '{}' FOR NO KEY UPDATE",
+            ada.user_id
+        ))
+        .await;
+
+    let signing_in = {
+        let api = api.clone();
+        tokio::spawn(async move { sign_in(&api, &grant()).await })
+    };
+    queries_wait_on_locks(db, 1).await;
+    execute_on(
+        &mut removal,
+        &format!(
+            "DELETE FROM provider_identities WHERE user_id = '{}'",
+            ada.user_id
+        ),
+    )
+    .await;
+    execute_on(&mut removal, "COMMIT").await;
+    let limited = signing_in.await.unwrap();
+
+    // The sign-in has become a registration, which its address's limit refuses before its unit
+    // of work reads that an account holds the address, which would answer 409.
+    assert_eq!(limited.status, 429, "{}", limited.json());
+    assert_eq!(limited.json()["code"], "request.rate_limited");
+    assert_eq!(
+        reads(&api, "SELECT count(*)::text FROM users").await,
+        before
+    );
+}
+
+#[tokio::test]
 async fn auth_074_a_registration_after_a_deletion_that_its_sign_in_waited_for_counts_in_its_bucket()
 {
     let (upstream, api) = standing().await;

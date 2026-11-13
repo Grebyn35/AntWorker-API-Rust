@@ -56,9 +56,9 @@ services:
   # bucket is a collection, which grows one volume at its first write, as
   # WEED_MASTER_VOLUME_GROWTH_COPY_1 sets. SeaweedFS's own seven grow one after another, for most
   # of a second, and a bucket deleted meanwhile, as a short test's is, keeps those grown after
-  # it, which nothing deletes: such volumes filled the server's thousand. Its health check
-  # creates the bucket `files`, which `just dev` uses, and passes once it exists; each test that
-  # runs the API creates a bucket of its own, which the tests delete once it ends.
+  # it, which nothing deletes, so the runs of the tests would fill the server's thousand. Its
+  # health check creates the bucket `files`, which `just dev` uses, and passes once it exists;
+  # each test that runs the API creates a bucket of its own, which the tests delete once it ends.
   storage:
     image: chrislusf/seaweedfs:4.50@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
     command: ["server", "-dir=/data", "-volume.max=1000", "-s3", "-s3.port=8333"]
