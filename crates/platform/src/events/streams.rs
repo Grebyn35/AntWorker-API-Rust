@@ -164,6 +164,9 @@ impl Streams {
                 }
             }
             Command::Unregister { id } => self.remove(id),
+            // A test that stopped waiting for the head has gone.
+            #[cfg(feature = "test-support")]
+            Command::Head { reply } => reply.send(self.head).unwrap_or_default(),
         }
     }
 

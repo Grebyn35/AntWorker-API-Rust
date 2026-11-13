@@ -179,8 +179,10 @@ pub async fn open_as(api: &Api, token: &str) -> Opened {
 }
 
 /// Opens the stream of `token`'s caller, which must answer 200, with `Last-Event-ID` set to
-/// `last_event_id` when given.
+/// `last_event_id` when given, once the API's hub holds every event that committed before, so
+/// the stream starts after what the test did before it opened it.
 pub async fn connect(api: &Api, token: &str, last_event_id: Option<&str>) -> Stream {
+    api.hub_holds_what_committed().await;
     let bearer = format!("Bearer {token}");
     let mut headers = vec![("authorization", bearer.as_str())];
     if let Some(id) = last_event_id {

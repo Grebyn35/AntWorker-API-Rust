@@ -194,6 +194,10 @@ pub struct Services {
     pub authorizer: Authorizer,
     /// Every job's handler, which `serve` runs beside the server (D13).
     pub jobs: Jobs,
+    /// The replica's hub, whose head the tests read to wait until it holds what committed
+    /// (TEST-06).
+    #[cfg(feature = "test-support")]
+    pub hub: Hub,
 }
 
 /// Builds every service once, on `resources`, with `server`'s settings for `platform`'s and the
@@ -252,6 +256,8 @@ pub async fn compose(
         &policy,
         &verifier,
     );
+    #[cfg(feature = "test-support")]
+    let hub = realtime.hub.clone();
     let states = States {
         capabilities: system::Capabilities::new(
             system::Features::new(mail.is_on()),
@@ -277,6 +283,8 @@ pub async fn compose(
             sink: Arc::new(audit::Sink::new(database.clone())),
         },
         jobs,
+        #[cfg(feature = "test-support")]
+        hub,
     })
 }
 

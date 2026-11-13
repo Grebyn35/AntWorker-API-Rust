@@ -12,6 +12,7 @@ use platform::{
     clock::{SharedClock, TestClock},
     config::{ConfigError, ServerConfig, Settings},
     db::Database,
+    events::Hub,
     http::Routes,
     jobs::Jobs,
     lifecycle::Readiness,
@@ -147,15 +148,16 @@ fn read(options: &Options) -> Result<(ServerConfig, app::Config), ConfigError> {
     Ok((settings.server()?, app::Config::read(&settings)?))
 }
 
-/// The API's application as `serve` builds it on `database`, with `options`, its document, and
-/// its jobs, which a test runs through [`Jobs::run_pending`]. It installs the tests' telemetry,
-/// which watches the test that runs the API in process, should it run on for minutes (TEST-06).
+/// The API's application as `serve` builds it on `database`, with `options`, its document, its
+/// jobs, which a test runs through [`Jobs::run_pending`], and its hub. It installs the tests'
+/// telemetry, which watches the test that runs the API in process, should it run on for minutes
+/// (TEST-06).
 pub async fn application(
     database: &Database,
     options: Options,
     clock: Arc<TestClock>,
     readiness: Readiness,
-) -> (Router, Value, Jobs) {
+) -> (Router, Value, Jobs, Hub) {
     telemetry::testing::install(SERVICE).unwrap();
     let (config, modules) = configuration(&options);
     let connection = platform::events::listen(database, clock.as_ref())
@@ -174,6 +176,7 @@ pub async fn application(
         .unwrap();
     let pipeline = app::pipeline(&resources, &config, &services, SERVICE);
     let jobs = services.jobs;
+    let hub = services.hub;
     let (document, routes) = match options.routes {
         Some(extra) => (
             platform::http::document([app::openapi(SERVICE), extra.openapi(SERVICE)]),
@@ -182,7 +185,7 @@ pub async fn application(
         None => (app::openapi(SERVICE), services.routes),
     };
     let router = platform::http::app(routes, pipeline);
-    (router, serde_json::to_value(document).unwrap(), jobs)
+    (router, serde_json::to_value(document).unwrap(), jobs, hub)
 }
 
 /// The routes under test inside the request pipeline, on a database of their own, with a test
@@ -196,6 +199,7 @@ pub struct Api {
     database: Arc<TestDatabase>,
     pool: Database,
     jobs: Arc<Jobs>,
+    hub: Hub,
 }
 
 impl Api {
@@ -237,7 +241,7 @@ impl Api {
         let database = Arc::new(database);
         let clock = Arc::new(TestClock::default());
         let readiness = Readiness::new();
-        let (router, document, jobs) =
+        let (router, document, jobs, hub) =
             application(&pool, options, clock.clone(), readiness.clone()).await;
         Self {
             router,
@@ -247,6 +251,7 @@ impl Api {
             database,
             pool,
             jobs: Arc::new(jobs),
+            hub,
         }
     }
 
@@ -269,7 +274,7 @@ impl Api {
         // end part: files
         let clock = Arc::new(TestClock::default());
         let readiness = Readiness::new();
-        let (router, document, jobs) =
+        let (router, document, jobs, hub) =
             application(&self.pool, options, clock.clone(), readiness.clone()).await;
         Self {
             router,
@@ -279,12 +284,32 @@ impl Api {
             database: self.database.clone(),
             pool: self.pool.clone(),
             jobs: Arc::new(jobs),
+            hub,
         }
     }
 
     /// The pool the API's routes and its hub run on.
     pub fn pool(&self) -> &Database {
         &self.pool
+    }
+
+    /// Waits until the API's hub has loaded every event that committed so far, so that a stream
+    /// that a test then opens starts after them, rather than receive those that the hub hadn't
+    /// loaded yet: the hub loads an event once its notification reaches it, which the answer of
+    /// the request that published it doesn't wait for. What the test did leads there, so the
+    /// wait has no bound of its own (TEST-06).
+    pub async fn hub_holds_what_committed(&self) {
+        let mut uow = self.pool.begin(&super::client()).await.unwrap();
+        let newest =
+            sqlx::query_scalar!(r#"SELECT coalesce(max(position), 0) AS "newest!" FROM events"#)
+                .fetch_one(uow.executor())
+                .await
+                .unwrap();
+        drop(uow);
+        // A hub that has stopped holds nothing more.
+        while self.hub.head().await.is_some_and(|head| head < newest) {
+            tokio::task::yield_now().await;
+        }
     }
 
     /// The clock the pipeline measures with.

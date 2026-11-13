@@ -237,7 +237,7 @@ async fn platform_028_a_stream_resumes_on_another_replica_with_every_event_after
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     // A second replica: another application, with a hub of its own, on the same database.
-    let (second, _, _) = crate::support::api::application(
+    let (second, _, _, _) = crate::support::api::application(
         api.pool(),
         Options::routes(announcements::routes()),
         api.clock(),

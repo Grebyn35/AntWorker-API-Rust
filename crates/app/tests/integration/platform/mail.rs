@@ -217,7 +217,7 @@ async fn platform_022_a_replica_with_email_off_drops_a_job_enqueued_while_email_
     send(&api, &ada, &to).await;
     let database = api.database().app().await;
     let clock = Arc::new(TestClock::default());
-    let (_, _, off) = application(
+    let (_, _, off, _) = application(
         &database,
         Options::email_off(),
         clock.clone(),
@@ -268,7 +268,7 @@ async fn platform_025_every_email_comes_from_email_from_with_the_message_id_fixe
     send(&api, &ada, &to).await;
     let enqueued = jobs(&api, "payload->>'message_id'").await.remove(0);
     // A first attempt that fails, as one whose success went unrecorded would, keeps the job.
-    let (_, _, failing) = application(
+    let (_, _, failing, _) = application(
         &api.database().app().await,
         Options::default().set("SMTP_PORT", closed.port()),
         Arc::new(TestClock::default()),

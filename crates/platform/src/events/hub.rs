@@ -45,6 +45,9 @@ pub(crate) enum Command {
     },
     /// Removes a stream whose subscription was dropped.
     Unregister { id: StreamId },
+    /// Answers with the hub's head, for a test that waits until the hub holds what committed.
+    #[cfg(feature = "test-support")]
+    Head { reply: oneshot::Sender<i64> },
 }
 
 /// A registered stream, as the hub's task hands it to `subscribe`.
@@ -203,6 +206,17 @@ impl Hub {
             subscription,
         )
         .await
+    }
+
+    /// The hub's head, the position of the last event it loaded, or `None` once the hub has
+    /// stopped. A test reads it to wait until the hub holds every event that committed, so that a
+    /// stream it then opens starts after them: the hub loads an event once its notification
+    /// reaches it, which a request's answer doesn't wait for (TEST-06).
+    #[cfg(feature = "test-support")]
+    pub async fn head(&self) -> Option<i64> {
+        let (reply, head) = oneshot::channel();
+        self.commands.send(Command::Head { reply }).ok()?;
+        head.await.ok()
     }
 
     fn send(&self, command: Command) -> Result<(), SubscribeError> {
