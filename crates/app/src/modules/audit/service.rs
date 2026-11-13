@@ -60,7 +60,8 @@ impl Sink {
         {
             Inserted::Recorded => uow.commit().await,
             // The non-member's own log went with their account while the refused request ran,
-            // so the refusal has nowhere to be recorded (AUDIT-004).
+            // or the member's workspace's with the workspace, so the refusal has nowhere to be
+            // recorded (AUDIT-004).
             Inserted::LogGone => Ok(()),
         }
     }

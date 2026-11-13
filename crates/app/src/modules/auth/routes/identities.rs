@@ -34,7 +34,7 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
         .user(
             routes!(add_password),
             &[
-                &AuthError::ReauthenticationRequired,
+                &RequestError::ReauthenticationRequired,
                 &AuthError::PasswordAlreadySet,
                 &LimitError::RateLimited,
             ],
@@ -42,7 +42,7 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
         .user(
             routes!(remove_identity),
             &[
-                &AuthError::ReauthenticationRequired,
+                &RequestError::ReauthenticationRequired,
                 &AuthError::IdentityNotFound,
                 &AuthError::LastIdentity,
                 &LimitError::RateLimited,

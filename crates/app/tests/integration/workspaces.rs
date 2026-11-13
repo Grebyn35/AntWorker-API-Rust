@@ -906,3 +906,925 @@ async fn sec_19_workspace_renamed_reaches_every_member_s_every_device_and_no_rep
     assert_eq!(after_joining.event.as_deref(), Some("workspace.renamed"));
     assert_eq!(after_joining.id, second[1]);
 }
+
+/// Sends `method` to `path` as `caller`, with no body.
+async fn send(
+    api: &Api,
+    method: http::Method,
+    path: &str,
+    caller: &SignedIn,
+) -> crate::support::api::Response {
+    api.request(method, path)
+        .bearer(&caller.access)
+        .send()
+        .await
+}
+
+/// Changes the role of `user` in `workspace` to `role`, as `caller`, with `if_match` as its
+/// `If-Match` if given.
+async fn change_role(
+    api: &Api,
+    caller: &SignedIn,
+    (workspace, user): (&str, &str),
+    role: &str,
+    if_match: Option<&str>,
+) -> crate::support::api::Response {
+    let mut call = api
+        .patch(
+            &format!("/v1/workspaces/{workspace}/members/{user}"),
+            &json!({ "role": role }),
+        )
+        .bearer(&caller.access);
+    if let Some(tag) = if_match {
+        call = call.header("if-match", tag);
+    }
+    call.send().await
+}
+
+/// Transfers `workspace` to `user`, as `caller`.
+async fn transfer(
+    api: &Api,
+    caller: &SignedIn,
+    workspace: &str,
+    user: &str,
+) -> crate::support::api::Response {
+    api.post(
+        &format!("/v1/workspaces/{workspace}/transfer"),
+        &json!({ "user_id": user }),
+    )
+    .bearer(&caller.access)
+    .send()
+    .await
+}
+
+/// The members of `workspace`, each as their user ID and their role, in the order they joined.
+async fn roles(api: &Api, workspace: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT user_id || ' ' || role FROM workspace_memberships \
+             WHERE workspace_id = '{workspace}' ORDER BY created_at, id"
+        ))
+        .await
+}
+
+/// The entries of `action`, each as its scope, the log it is in, its actor, its target, its
+/// resource and its details.
+async fn entries(api: &Api, action: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT scope || ' ' || coalesce(workspace_id, user_id) || ' ' || actor_user_id || ' ' \
+             || coalesce(target_user_id::text, '-') || ' ' || resource_type || ' ' || resource_id \
+             || ' ' || details::text \
+             FROM audit_entries WHERE action = '{action}'"
+        ))
+        .await
+}
+
+/// Every event, as its name, its scope, its workspace, the permission it requires and its payload.
+async fn published(api: &Api) -> Vec<String> {
+    api.database()
+        .owner_reads(
+            "SELECT name || ' ' || scope || ' ' || workspace_id || ' ' || permission || ' ' \
+             || payload::text FROM events ORDER BY position",
+        )
+        .await
+}
+
+/// The signal of a change to `user`'s membership in `workspace`, which the transaction
+/// `transaction` made.
+fn signal(user: &str, workspace: &str, transaction: u64) -> Value {
+    json!({
+        "kind": "membership_changed",
+        "user_id": user,
+        "workspace_id": workspace,
+        "transaction": transaction
+    })
+}
+
+#[tokio::test]
+async fn workspaces_011_reading_a_member_gives_them_as_the_list_does_with_their_etag() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let stranger = users::register(&api, "stranger@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "member")],
+    )
+    .await;
+    workspaces::arrange(db, "Other", &[(&stranger.user_id, "owner")]).await;
+    let member = |user: &str| format!("/v1/workspaces/{workspace}/members/{user}");
+
+    let read = send(&api, http::Method::GET, &member(&ada.user_id), &grace).await;
+    let listed = send(
+        &api,
+        http::Method::GET,
+        &format!("/v1/workspaces/{workspace}/members"),
+        &grace,
+    )
+    .await;
+    let elsewhere = send(&api, http::Method::GET, &member(&stranger.user_id), &grace).await;
+    let not_an_id = send(&api, http::Method::GET, &member("nobody"), &grace).await;
+
+    assert_eq!(read.status, 200);
+    assert_eq!(read.header("etag"), "\"1\"");
+    let body = read.json();
+    assert_eq!(body["user_id"], ada.user_id);
+    assert_eq!(body["email"], "ada@example.com");
+    assert_eq!(body["role"], "owner");
+    let listed = listed.json();
+    let item = listed["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["user_id"] == ada.user_id)
+        .unwrap();
+    assert_eq!(&body, item);
+    for missing in [&elsewhere, &not_an_id] {
+        assert_eq!(missing.status, 404);
+        assert_eq!(missing.json()["code"], "workspaces.member_not_found");
+    }
+}
+
+#[tokio::test]
+async fn workspaces_012_changing_a_role_stores_it_records_it_publishes_it_and_signals_it() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "member")],
+    )
+    .await;
+    // The registrations' sessions published their starts (AUTH-046).
+    db.owner_executes("DELETE FROM events").await;
+    let mut signals = db.signals().await;
+
+    let changed = change_role(&api, &ada, (&workspace, &grace.user_id), "admin", None).await;
+
+    assert_eq!(changed.status, 200);
+    assert_eq!(changed.header("etag"), "\"2\"");
+    let body = changed.json();
+    assert_eq!(body["user_id"], grace.user_id);
+    assert_eq!(body["email"], "grace@example.com");
+    assert_eq!(body["role"], "admin");
+    let read = send(
+        &api,
+        http::Method::GET,
+        &format!("/v1/workspaces/{workspace}/members/{}", grace.user_id),
+        &ada,
+    )
+    .await;
+    assert_eq!(read.json(), body);
+    assert_eq!(read.header("etag"), "\"2\"");
+    assert_eq!(
+        roles(&api, &workspace).await,
+        [
+            format!("{} owner", ada.user_id),
+            format!("{} admin", grace.user_id)
+        ]
+    );
+    assert_eq!(
+        entries(&api, "member.role_changed").await,
+        [format!(
+            "workspace {workspace} {} {} workspace {workspace} \
+             {{\"to\": \"admin\", \"from\": \"member\"}}",
+            ada.user_id, grace.user_id
+        )]
+    );
+    assert_eq!(
+        published(&api).await,
+        [format!(
+            "member.role_changed workspace {workspace} members.read \
+             {{\"role\": \"admin\", \"user_id\": \"{}\", \"workspace_id\": \"{workspace}\"}}",
+            grace.user_id
+        )]
+    );
+    // The signal names its transaction, the event's.
+    let transaction: u64 = db.owner_reads("SELECT xact::text FROM events").await[0]
+        .parse()
+        .unwrap();
+    assert_eq!(
+        signals.received().await,
+        [signal(&grace.user_id, &workspace, transaction)]
+    );
+}
+
+#[tokio::test]
+async fn workspaces_012_a_role_that_the_member_holds_already_changes_nothing() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "member")],
+    )
+    .await;
+    db.owner_executes("DELETE FROM events").await;
+    let mut signals = db.signals().await;
+
+    let unchanged = change_role(&api, &ada, (&workspace, &grace.user_id), "member", None).await;
+
+    assert_eq!(unchanged.status, 200);
+    assert_eq!(unchanged.header("etag"), "\"1\"");
+    assert_eq!(unchanged.json()["role"], "member");
+    assert_eq!(unchanged.json()["user_id"], grace.user_id);
+    assert!(entries(&api, "member.role_changed").await.is_empty());
+    assert!(published(&api).await.is_empty());
+    assert!(signals.received().await.is_empty());
+    let versions = db
+        .owner_reads("SELECT version::text FROM workspace_memberships ORDER BY created_at, id")
+        .await;
+    assert_eq!(versions, ["1", "1"]);
+}
+
+#[tokio::test]
+async fn workspaces_013_a_caller_changes_only_a_lower_rank_and_only_to_a_role_below_their_own() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let admin = users::register(&api, "admin@example.com").await;
+    let peer = users::register(&api, "peer@example.com").await;
+    let member = users::register(&api, "member@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[
+            (&owner.user_id, "owner"),
+            (&admin.user_id, "admin"),
+            (&peer.user_id, "admin"),
+            (&member.user_id, "member"),
+        ],
+    )
+    .await;
+    let before = roles(&api, &workspace).await;
+    let change = |caller: &SignedIn, user: &str, role: &'static str| {
+        let target = format!("/v1/workspaces/{workspace}/members/{user}");
+        let call = api.patch(&target, &json!({ "role": role }));
+        call.bearer(&caller.access).send()
+    };
+
+    let refused = [
+        // Their own role, an equal's and the owner's.
+        change(&admin, &admin.user_id, "member").await,
+        change(&admin, &peer.user_id, "member").await,
+        change(&admin, &owner.user_id, "member").await,
+        change(&owner, &owner.user_id, "admin").await,
+        // A role that doesn't rank below the caller's own: an equal one, and a higher.
+        change(&admin, &member.user_id, "admin").await,
+        change(&admin, &member.user_id, "owner").await,
+        change(&owner, &admin.user_id, "owner").await,
+        // A member holds no members.update.
+        change(&member, &member.user_id, "member").await,
+    ];
+
+    for response in &refused {
+        assert_eq!(response.status, 403);
+        assert_eq!(response.json()["code"], "request.permission_denied");
+    }
+    assert_eq!(roles(&api, &workspace).await, before);
+    assert!(entries(&api, "member.role_changed").await.is_empty());
+}
+
+#[tokio::test]
+async fn workspaces_013_a_change_names_a_member_a_current_version_and_a_role() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let member = users::register(&api, "member@example.com").await;
+    let stranger = users::register(&api, "stranger@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[(&owner.user_id, "owner"), (&member.user_id, "member")],
+    )
+    .await;
+    let before = roles(&api, &workspace).await;
+    let target = (workspace.as_str(), member.user_id.as_str());
+
+    let not_member =
+        change_role(&api, &owner, (&workspace, &stranger.user_id), "admin", None).await;
+    let not_an_id = change_role(&api, &owner, (&workspace, "nobody"), "admin", None).await;
+    let stale = change_role(&api, &owner, target, "admin", Some("\"7\"")).await;
+    // A change to the role they hold fails a stale precondition too.
+    let stale_unchanged = change_role(&api, &owner, target, "member", Some("\"7\"")).await;
+    let not_a_role = api
+        .request(
+            http::Method::PATCH,
+            &format!("/v1/workspaces/{workspace}/members/{}", member.user_id),
+        )
+        .header("content-type", "application/merge-patch+json")
+        .body(r#"{"role": "guest"}"#)
+        .bearer(&owner.access)
+        .send()
+        .await;
+
+    for missing in [&not_member, &not_an_id] {
+        assert_eq!(missing.status, 404);
+        assert_eq!(missing.json()["code"], "workspaces.member_not_found");
+    }
+    for failed in [&stale, &stale_unchanged] {
+        assert_eq!(failed.status, 412);
+        assert_eq!(failed.json()["code"], "request.precondition_failed");
+    }
+    assert_eq!(not_a_role.status, 400);
+    assert_eq!(not_a_role.json()["code"], "request.invalid_fields");
+    assert_eq!(not_a_role.json()["errors"][0]["field"], "/role");
+    assert_eq!(roles(&api, &workspace).await, before);
+
+    // The version the client read lets the change apply.
+    let current = change_role(&api, &owner, target, "admin", Some("\"1\"")).await;
+    assert_eq!(current.status, 200);
+    assert_eq!(current.json()["role"], "admin");
+}
+
+#[tokio::test]
+async fn access_006_changing_a_role_closes_the_member_s_streams() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "member")],
+    )
+    .await;
+    let mut stream = streams::opened(&api, &grace).await;
+
+    let changed = change_role(&api, &ada, (&workspace, &grace.user_id), "admin", None).await;
+    let (_, reason) = stream.closed().await;
+
+    assert_eq!(changed.status, 200);
+    assert_eq!(reason, "access_changed");
+}
+
+#[tokio::test]
+async fn sec_19_member_role_changed_reaches_the_members_and_no_replay_from_before_joining() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let alan = users::register(&api, "alan@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[
+            (&ada.user_id, "owner"),
+            (&grace.user_id, "member"),
+            (&bob.user_id, "member"),
+        ],
+    )
+    .await;
+    // An event to Alan alone gives his stream one to resume after.
+    db.owner_executes(&events::statement(
+        &[Event::to_user(&alan.user_id, "note.made", "{}")],
+        true,
+    ))
+    .await;
+    let before = streams::opened(&api, &alan).await.last_event_id;
+    // Every role holds members.read, which member.role_changed requires: no member lacks it.
+    let mut member = streams::opened(&api, &bob).await;
+
+    let first = change_role(&api, &ada, (&workspace, &grace.user_id), "admin", None).await;
+    workspaces::join(db, &workspace, &alan.user_id, "member").await;
+    let mut joined = streams::connect(&api, &alan.access, before.as_deref()).await;
+    joined.opened().await;
+    let second = change_role(&api, &ada, (&workspace, &grace.user_id), "member", None).await;
+    let after_joining = joined.event().await;
+
+    assert_eq!(first.status, 200);
+    assert_eq!(second.status, 200);
+    for role in ["admin", "member"] {
+        let event = member.event().await;
+        assert_eq!(event.event.as_deref(), Some("member.role_changed"));
+        assert_eq!(
+            event.payload(),
+            &json!({ "workspace_id": workspace, "user_id": grace.user_id, "role": role })
+        );
+    }
+    // The change from before Alan joined isn't replayed to him: the first he receives is the one
+    // made after.
+    assert_eq!(after_joining.event.as_deref(), Some("member.role_changed"));
+    assert_eq!(after_joining.payload()["role"], "member");
+}
+
+#[tokio::test]
+async fn workspaces_014_leaving_ends_the_membership_records_it_publishes_it_and_signals_it() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "member")],
+    )
+    .await;
+    db.owner_executes("DELETE FROM events").await;
+    let mut signals = db.signals().await;
+
+    let left = send(
+        &api,
+        http::Method::POST,
+        &format!("/v1/workspaces/{workspace}/leave"),
+        &grace,
+    )
+    .await;
+
+    assert_eq!(left.status, 204);
+    assert_eq!(
+        roles(&api, &workspace).await,
+        [format!("{} owner", ada.user_id)]
+    );
+    assert_eq!(
+        entries(&api, "member.left").await,
+        [format!(
+            "workspace {workspace} {0} {0} workspace {workspace} {{}}",
+            grace.user_id
+        )]
+    );
+    assert_eq!(
+        published(&api).await,
+        [format!(
+            "member.left workspace {workspace} members.read \
+             {{\"user_id\": \"{}\", \"workspace_id\": \"{workspace}\"}}",
+            grace.user_id
+        )]
+    );
+    let transaction: u64 = db.owner_reads("SELECT xact::text FROM events").await[0]
+        .parse()
+        .unwrap();
+    assert_eq!(
+        signals.received().await,
+        [signal(&grace.user_id, &workspace, transaction)]
+    );
+}
+
+#[tokio::test]
+async fn workspaces_014_leaving_closes_the_leaver_s_streams() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "member")],
+    )
+    .await;
+    let mut stream = streams::opened(&api, &grace).await;
+
+    let left = send(
+        &api,
+        http::Method::POST,
+        &format!("/v1/workspaces/{workspace}/leave"),
+        &grace,
+    )
+    .await;
+    let (_, reason) = stream.closed().await;
+
+    assert_eq!(left.status, 204);
+    assert_eq!(reason, "access_changed");
+}
+
+#[tokio::test]
+async fn workspaces_014_the_owner_may_not_leave_and_an_admin_may() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let admin = users::register(&api, "admin@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[(&owner.user_id, "owner"), (&admin.user_id, "admin")],
+    )
+    .await;
+    let path = format!("/v1/workspaces/{workspace}/leave");
+
+    let refused = send(&api, http::Method::POST, &path, &owner).await;
+    let left = send(&api, http::Method::POST, &path, &admin).await;
+
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.json()["code"], "request.permission_denied");
+    assert_eq!(left.status, 204);
+    assert_eq!(
+        roles(&api, &workspace).await,
+        [format!("{} owner", owner.user_id)]
+    );
+}
+
+#[tokio::test]
+async fn workspaces_015_transferring_swaps_the_roles_records_it_publishes_it_and_signals_both() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[
+            (&ada.user_id, "owner"),
+            (&grace.user_id, "admin"),
+            (&bob.user_id, "member"),
+        ],
+    )
+    .await;
+    db.owner_executes("DELETE FROM events").await;
+    let mut signals = db.signals().await;
+
+    let transferred = transfer(&api, &ada, &workspace, &grace.user_id).await;
+
+    assert_eq!(transferred.status, 204);
+    assert_eq!(
+        roles(&api, &workspace).await,
+        [
+            format!("{} admin", ada.user_id),
+            format!("{} owner", grace.user_id),
+            format!("{} member", bob.user_id)
+        ]
+    );
+    assert_eq!(
+        entries(&api, "workspace.transferred").await,
+        [format!(
+            "workspace {workspace} {} {} workspace {workspace} {{}}",
+            ada.user_id, grace.user_id
+        )]
+    );
+    assert_eq!(
+        published(&api).await,
+        [format!(
+            "workspace.transferred workspace {workspace} members.read \
+             {{\"owner_id\": \"{}\", \"workspace_id\": \"{workspace}\", \
+             \"previous_owner_id\": \"{}\"}}",
+            grace.user_id, ada.user_id
+        )]
+    );
+    let transaction: u64 = db.owner_reads("SELECT xact::text FROM events").await[0]
+        .parse()
+        .unwrap();
+    assert_eq!(
+        signals.received().await,
+        [
+            signal(&ada.user_id, &workspace, transaction),
+            signal(&grace.user_id, &workspace, transaction)
+        ]
+    );
+    // The workspace's own row didn't change: its version is the one it was created with.
+    let read = send(
+        &api,
+        http::Method::GET,
+        &format!("/v1/workspaces/{workspace}"),
+        &ada,
+    )
+    .await;
+    assert_eq!(read.json()["role"], "admin");
+    assert_eq!(read.header("etag"), "\"1\"");
+}
+
+#[tokio::test]
+async fn workspaces_015_a_transfer_closes_the_streams_of_the_two_whose_roles_it_swaps() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "admin")],
+    )
+    .await;
+    let mut before = streams::opened(&api, &ada).await;
+    let mut after = streams::opened(&api, &grace).await;
+
+    let transferred = transfer(&api, &ada, &workspace, &grace.user_id).await;
+    let (_, former_owner) = before.closed().await;
+    let (_, new_owner) = after.closed().await;
+
+    assert_eq!(transferred.status, 204);
+    assert_eq!(former_owner, "access_changed");
+    assert_eq!(new_owner, "access_changed");
+}
+
+#[tokio::test]
+async fn workspaces_015_an_admin_or_a_member_may_not_transfer() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let admin = users::register(&api, "admin@example.com").await;
+    let peer = users::register(&api, "peer@example.com").await;
+    let member = users::register(&api, "member@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[
+            (&owner.user_id, "owner"),
+            (&admin.user_id, "admin"),
+            (&peer.user_id, "admin"),
+            (&member.user_id, "member"),
+        ],
+    )
+    .await;
+    let before = roles(&api, &workspace).await;
+
+    let by_admin = transfer(&api, &admin, &workspace, &peer.user_id).await;
+    let by_member = transfer(&api, &member, &workspace, &peer.user_id).await;
+
+    for refused in [&by_admin, &by_member] {
+        assert_eq!(refused.status, 403);
+        assert_eq!(refused.json()["code"], "request.permission_denied");
+    }
+    assert_eq!(roles(&api, &workspace).await, before);
+}
+
+#[tokio::test]
+async fn workspaces_016_a_transfer_goes_only_to_a_member_who_is_an_admin() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let admin = users::register(&api, "admin@example.com").await;
+    let member = users::register(&api, "member@example.com").await;
+    let stranger = users::register(&api, "stranger@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[
+            (&owner.user_id, "owner"),
+            (&admin.user_id, "admin"),
+            (&member.user_id, "member"),
+        ],
+    )
+    .await;
+    // An admin of another workspace is no member of this one.
+    workspaces::arrange(db, "Other", &[(&stranger.user_id, "owner")]).await;
+    let before = roles(&api, &workspace).await;
+
+    let to_member = transfer(&api, &owner, &workspace, &member.user_id).await;
+    let to_myself = transfer(&api, &owner, &workspace, &owner.user_id).await;
+    let to_stranger = transfer(&api, &owner, &workspace, &stranger.user_id).await;
+    let not_an_id = api
+        .post_raw(
+            &format!("/v1/workspaces/{workspace}/transfer"),
+            &json!({ "user_id": "nobody" }),
+        )
+        .bearer(&owner.access)
+        .send()
+        .await;
+
+    for refused in [&to_member, &to_myself] {
+        assert_eq!(refused.status, 422);
+        assert_eq!(refused.json()["code"], "workspaces.transfer_requires_admin");
+    }
+    assert_eq!(to_stranger.status, 404);
+    assert_eq!(to_stranger.json()["code"], "workspaces.member_not_found");
+    assert_eq!(not_an_id.status, 400);
+    assert_eq!(not_an_id.json()["code"], "request.invalid_fields");
+    assert_eq!(not_an_id.json()["errors"][0]["field"], "/user_id");
+    assert_eq!(roles(&api, &workspace).await, before);
+    assert!(entries(&api, "workspace.transferred").await.is_empty());
+}
+
+#[tokio::test]
+async fn sec_19_workspace_transferred_reaches_the_members_and_no_replay_from_before_joining() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let alan = users::register(&api, "alan@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[
+            (&ada.user_id, "owner"),
+            (&grace.user_id, "admin"),
+            (&bob.user_id, "member"),
+        ],
+    )
+    .await;
+    // An event to Alan alone gives his stream one to resume after.
+    db.owner_executes(&events::statement(
+        &[Event::to_user(&alan.user_id, "note.made", "{}")],
+        true,
+    ))
+    .await;
+    let before = streams::opened(&api, &alan).await.last_event_id;
+    // Every role holds members.read, which workspace.transferred requires: no member lacks it.
+    let mut member = streams::opened(&api, &bob).await;
+
+    let first = transfer(&api, &ada, &workspace, &grace.user_id).await;
+    workspaces::join(db, &workspace, &alan.user_id, "member").await;
+    let mut joined = streams::connect(&api, &alan.access, before.as_deref()).await;
+    joined.opened().await;
+    let second = transfer(&api, &grace, &workspace, &ada.user_id).await;
+    let after_joining = joined.event().await;
+
+    assert_eq!(first.status, 204);
+    assert_eq!(second.status, 204);
+    for (owner, previous) in [(&grace, &ada), (&ada, &grace)] {
+        let event = member.event().await;
+        assert_eq!(event.event.as_deref(), Some("workspace.transferred"));
+        assert_eq!(
+            event.payload(),
+            &json!({
+                "workspace_id": workspace,
+                "owner_id": owner.user_id,
+                "previous_owner_id": previous.user_id
+            })
+        );
+    }
+    // The transfer from before Alan joined isn't replayed to him: the first he receives is the
+    // one made after.
+    assert_eq!(
+        after_joining.event.as_deref(),
+        Some("workspace.transferred")
+    );
+    assert_eq!(after_joining.payload()["owner_id"], ada.user_id);
+}
+
+/// What `workspace` holds: its row, its memberships, the entries of its log, its events and the
+/// jobs enqueued for it, as their counts.
+async fn held_by(api: &Api, workspace: &str) -> String {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT (SELECT count(*) FROM workspaces WHERE id = '{workspace}') || ' ' \
+             || (SELECT count(*) FROM workspace_memberships WHERE workspace_id = '{workspace}') \
+             || ' ' || (SELECT count(*) FROM audit_entries WHERE workspace_id = '{workspace}') \
+             || ' ' || (SELECT count(*) FROM events WHERE workspace_id = '{workspace}') \
+             || ' ' || (SELECT count(*) FROM jobs WHERE workspace_id = '{workspace}')"
+        ))
+        .await
+        .remove(0)
+}
+
+#[tokio::test]
+async fn workspaces_017_deleting_a_workspace_deletes_everything_in_it_and_records_it() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let db = api.database();
+    let members = [
+        (ada.user_id.as_str(), "owner"),
+        (grace.user_id.as_str(), "admin"),
+        (bob.user_id.as_str(), "member"),
+    ];
+    let workspace = workspaces::arrange(db, "Acme", &members).await;
+    let other = workspaces::arrange(db, "Other", &members[..2]).await;
+    // Each workspace has an entry in its log, an event and a job enqueued for it.
+    for id in [&workspace, &other] {
+        crate::support::audit::in_workspace_log(db, id, &ada.user_id, "workspace.renamed").await;
+        db.owner_executes(&events::statement(
+            &[Event::to_workspace(id, "workspace.read", "note.made", "{}")],
+            false,
+        ))
+        .await;
+        db.owner_executes(&format!(
+            "INSERT INTO jobs (kind, payload, user_id, workspace_id) \
+             VALUES ('tests.kept', '{{}}', '{}', '{id}')",
+            bob.user_id
+        ))
+        .await;
+    }
+    let mut signals = db.signals().await;
+    let path = format!("/v1/workspaces/{workspace}");
+
+    let deleted = send(&api, http::Method::DELETE, &path, &ada).await;
+
+    assert_eq!(deleted.status, 204);
+    assert_eq!(held_by(&api, &workspace).await, "0 0 0 0 0");
+    assert_eq!(held_by(&api, &other).await, "1 2 1 1 1");
+    // The owner's own log keeps the deletion, since the workspace's went with it.
+    assert_eq!(
+        entries(&api, "workspace.deleted").await,
+        [format!(
+            "user {0} {0} - workspace {workspace} {{}}",
+            ada.user_id
+        )]
+    );
+    // Each member's signal names the deletion's transaction: the owner's first, then each rank's.
+    let received = signals.received().await;
+    let transaction = received[0]["transaction"].as_u64().unwrap();
+    let expected = members.map(|(user, _)| signal(user, &workspace, transaction));
+    assert_eq!(received, expected);
+    assert_eq!(send(&api, http::Method::GET, &path, &ada).await.status, 404);
+}
+
+#[tokio::test]
+async fn workspaces_017_every_table_that_names_a_workspace_goes_with_it() {
+    let api = Api::new().await;
+
+    // A foreign key to `workspaces` that didn't cascade would keep a workspace from being
+    // deleted, or leave its rows behind.
+    let kept = api
+        .database()
+        .owner_reads(
+            "SELECT conrelid::regclass || '.' || conname FROM pg_constraint \
+             WHERE contype = 'f' AND confrelid = 'workspaces'::regclass AND confdeltype <> 'c'",
+        )
+        .await;
+
+    assert!(kept.is_empty(), "{kept:?}");
+}
+
+#[tokio::test]
+async fn workspaces_017_deleting_a_workspace_closes_each_member_s_streams() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[
+            (&ada.user_id, "owner"),
+            (&grace.user_id, "admin"),
+            (&bob.user_id, "member"),
+        ],
+    )
+    .await;
+    let mut admin = streams::opened(&api, &grace).await;
+    let mut member = streams::opened(&api, &bob).await;
+
+    let deleted = send(
+        &api,
+        http::Method::DELETE,
+        &format!("/v1/workspaces/{workspace}"),
+        &ada,
+    )
+    .await;
+    let (_, admin_reason) = admin.closed().await;
+    let (_, member_reason) = member.closed().await;
+
+    assert_eq!(deleted.status, 204);
+    assert_eq!(admin_reason, "access_changed");
+    assert_eq!(member_reason, "access_changed");
+}
+
+#[tokio::test]
+async fn workspaces_017_an_admin_or_a_member_may_not_delete() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let admin = users::register(&api, "admin@example.com").await;
+    let member = users::register(&api, "member@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[
+            (&owner.user_id, "owner"),
+            (&admin.user_id, "admin"),
+            (&member.user_id, "member"),
+        ],
+    )
+    .await;
+    let path = format!("/v1/workspaces/{workspace}");
+
+    let by_admin = send(&api, http::Method::DELETE, &path, &admin).await;
+    let by_member = send(&api, http::Method::DELETE, &path, &member).await;
+
+    for refused in [&by_admin, &by_member] {
+        assert_eq!(refused.status, 403);
+        assert_eq!(refused.json()["code"], "request.permission_denied");
+    }
+    assert_eq!(roles(&api, &workspace).await.len(), 3);
+}
+
+#[tokio::test]
+async fn workspaces_018_a_transfer_and_a_deletion_need_a_proof_from_the_last_5_minutes() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let admin = users::register(&api, "admin@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[(&owner.user_id, "owner"), (&admin.user_id, "admin")],
+    )
+    .await;
+    let path = format!("/v1/workspaces/{workspace}");
+    let before = roles(&api, &workspace).await;
+    users::authenticated_ago(&api, &owner, 6).await;
+    users::authenticated_ago(&api, &admin, 6).await;
+
+    let transfer_refused = transfer(&api, &owner, &workspace, &admin.user_id).await;
+    let deletion_refused = send(&api, http::Method::DELETE, &path, &owner).await;
+    // A caller who may not delete learns that, whatever their session proved.
+    let not_allowed = send(&api, http::Method::DELETE, &path, &admin).await;
+
+    for refused in [&transfer_refused, &deletion_refused] {
+        assert_eq!(refused.status, 403);
+        assert_eq!(refused.json()["code"], "request.reauthentication_required");
+    }
+    assert_eq!(not_allowed.json()["code"], "request.permission_denied");
+    assert_eq!(roles(&api, &workspace).await, before);
+    assert!(entries(&api, "workspace.transferred").await.is_empty());
+    assert!(entries(&api, "workspace.deleted").await.is_empty());
+
+    // A proof from within the window lets each through.
+    users::authenticated_ago(&api, &owner, 4).await;
+    let transferred = transfer(&api, &owner, &workspace, &admin.user_id).await;
+    users::authenticated_ago(&api, &admin, 4).await;
+    let deleted = send(&api, http::Method::DELETE, &path, &admin).await;
+    assert_eq!(transferred.status, 204);
+    assert_eq!(deleted.status, 204);
+}

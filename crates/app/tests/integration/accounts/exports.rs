@@ -145,7 +145,7 @@ async fn accounts_020_a_session_that_proved_its_user_more_than_5_minutes_ago_is_
     let refused = request(&api, &ada).await;
 
     assert_eq!(refused.status, 403);
-    assert_eq!(refused.json()["code"], "auth.reauthentication_required");
+    assert_eq!(refused.json()["code"], "request.reauthentication_required");
     assert_eq!(one(&api, "SELECT count(*)::text FROM exports").await, "0");
     assert_eq!(
         one(

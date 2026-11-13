@@ -10,7 +10,7 @@ use axum::{
 };
 use platform::{
     authn::Principal,
-    errors::Problem,
+    errors::{Problem, RequestError},
     http::{FieldErrors, Query, Routes, path_id},
     lists::{Cursor, Limit, List, Page, Search},
     types::{Client, SessionId},
@@ -34,13 +34,13 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
         .user(
             routes!(end_session),
             &[
-                &AuthError::ReauthenticationRequired,
+                &RequestError::ReauthenticationRequired,
                 &AuthError::SessionNotFound,
             ],
         )
         .user(
             routes!(end_other_sessions),
-            &[&AuthError::ReauthenticationRequired],
+            &[&RequestError::ReauthenticationRequired],
         )
 }
 

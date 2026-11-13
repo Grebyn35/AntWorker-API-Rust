@@ -75,7 +75,7 @@ pub(crate) fn routes() -> Routes<Arc<Auth>> {
         .user(
             routes!(delete_account),
             &[
-                &AuthError::ReauthenticationRequired,
+                &RequestError::ReauthenticationRequired,
                 &AuthError::OwnsSharedWorkspace,
                 &AuthError::AccountChanged,
                 &LimitError::RateLimited,

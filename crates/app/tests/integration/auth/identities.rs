@@ -208,7 +208,7 @@ async fn auth_086_adding_a_password_needs_a_recent_proof_then_the_password_signs
     let added = add_password(&api, &ada, PASSWORD).await;
 
     assert_eq!(refused.status, 403);
-    assert_eq!(refused.json()["code"], "auth.reauthentication_required");
+    assert_eq!(refused.json()["code"], "request.reauthentication_required");
     assert_eq!(without, ["0"]);
     assert_eq!(added.status, 200, "{}", added.json());
     let body = added.json();
@@ -323,7 +323,7 @@ async fn auth_087_linking_needs_a_recent_proof_then_the_provider_signs_in_to_the
     let linked = link(&api, &ada, &grant()).await;
 
     assert_eq!(refused.status, 403);
-    assert_eq!(refused.json()["code"], "auth.reauthentication_required");
+    assert_eq!(refused.json()["code"], "request.reauthentication_required");
     assert_eq!(without, ["0"]);
     assert_eq!(linked.status, 200, "{}", linked.json());
     let body = linked.json();
@@ -733,7 +733,7 @@ async fn auth_088_removing_the_password_needs_a_recent_proof_then_ends_its_other
     let removed = remove(&api, &ada, &password).await;
 
     assert_eq!(refused.status, 403);
-    assert_eq!(refused.json()["code"], "auth.reauthentication_required");
+    assert_eq!(refused.json()["code"], "request.reauthentication_required");
     assert!(still);
     assert_eq!(removed.status, 204);
     assert!(removed.body.is_empty());
@@ -911,7 +911,7 @@ async fn auth_088_an_id_that_names_none_of_the_caller_s_identities_answers_404_o
     }
     // An ID that isn't a UUID answers as one that names no identity does, after the proof.
     assert_eq!(unproved.status, 403);
-    assert_eq!(unproved.json()["code"], "auth.reauthentication_required");
+    assert_eq!(unproved.json()["code"], "request.reauthentication_required");
     assert_eq!(
         reads(&api, "SELECT count(*)::text FROM identities").await,
         ["2"]

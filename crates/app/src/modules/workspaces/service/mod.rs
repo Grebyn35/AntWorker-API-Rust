@@ -1,39 +1,36 @@
-//! Creating workspaces, listing the caller's, reading and renaming one, and the members endpoints
-//! (the workspaces spec).
+//! Creating workspaces, listing the caller's, reading, renaming, transferring and deleting one
+//! (the workspaces spec). The members' operations are in `members.rs`.
+
+mod members;
 
 use std::collections::HashMap;
 
 use platform::{
     authn::Principal,
-    authz::{self, Authorized},
+    authz::Authorized,
     db::{Database, UnitOfWork},
-    errors::RequestError,
+    errors::{Internal, RequestError},
     idempotency::{Claimed, IdempotencyKey},
+    jobs,
     lists::{List, Page, Search},
-    types::{
-        Client,
-        UserId,
-        Version,
-        // part: invitations
-        WorkspaceId,
-        // end part: invitations
-    },
+    types::{Client, Version, WorkspaceId},
 };
 
+pub(super) use self::members::left;
+pub(crate) use self::members::{change_role, leave, member, members, remove_member};
 use super::{
     audit,
     error::WorkspacesError,
     events as published,
-    model::{Current, Member, NewWorkspace, Rename, Workspace, WorkspaceItem, WorkspaceName},
+    model::{Current, NewWorkspace, Rename, Transfer, Workspace, WorkspaceItem, WorkspaceName},
     repo,
 };
 use crate::modules::{
     access::{
-        self, MemberFilter, MembersRead, MembersRemove, Membership, Removal, Role, WorkspaceRead,
-        WorkspaceUpdate,
+        self, Membership, Role, WorkspaceDelete, WorkspaceRead, WorkspaceTransfer, WorkspaceUpdate,
     },
-    accounts::{self, PublicProfile},
     audit::{self as log, Entry},
+    auth,
 };
 
 /// Creates a workspace that the caller owns, in a unit of work of its own, which claims `key`
@@ -207,77 +204,62 @@ pub(crate) async fn matching(
 }
 // end part: invitations
 
-/// A page of the caller's workspace's members, the latest joined first, of `role` only, and kept
-/// to those whose name or email contains `search` (WORKSPACES-004).
-pub(crate) async fn members(
-    uow: &mut UnitOfWork,
-    authorized: &Authorized<MembersRead>,
-    role: Option<Role>,
-    search: Option<&Search>,
-    page: &Page,
-) -> Result<List<Member>, WorkspacesError> {
-    let users = match search {
-        None => None,
-        Some(search) => {
-            let all = access::member_ids(uow, authorized).await?;
-            Some(accounts::matching(uow, &all, search).await?)
-        }
-    };
-    let filter = MemberFilter { role, users };
-    let memberships: List<Membership> = access::members(uow, authorized, &filter, page).await?;
-    let ids: Vec<_> = memberships.items.iter().map(|item| item.user_id).collect();
-    let mut profiles: HashMap<UserId, PublicProfile> = accounts::profiles(uow, &ids)
-        .await?
-        .into_iter()
-        .map(|profile| (profile.id, profile))
-        .collect();
-    let items = memberships
-        .items
-        .into_iter()
-        .filter_map(|membership| {
-            profiles.remove(&membership.user_id).map(|profile| Member {
-                user_id: membership.user_id,
-                name: profile.name,
-                email: profile.email,
-                role: membership.role,
-                joined_at: membership.joined_at,
-                // part: files
-                avatar_url: profile.avatar_url,
-                // end part: files
-            })
-        })
-        .collect();
-    Ok(List {
-        items,
-        next_cursor: memberships.next_cursor,
-    })
-}
-
-/// Removes `user` from the caller's workspace, in the unit of work it was authorized in: the
-/// membership, its audit entry, the members' event and the access-change signal commit together
-/// (WORKSPACES-005, WORKSPACES-006).
-pub(crate) async fn remove_member(
+/// Makes the member that `transfer` names, an admin, the owner of the caller's workspace, and the
+/// caller an admin, in the unit of work it was authorized in, once the caller's session has
+/// proved who its user is: the two roles, the audit entry, the members' event and the two
+/// access-change signals commit together (WORKSPACES-015, WORKSPACES-016, WORKSPACES-018).
+pub(crate) async fn transfer(
     mut uow: UnitOfWork,
-    authorized: &Authorized<MembersRemove>,
-    user: UserId,
+    authorized: &Authorized<WorkspaceTransfer>,
+    transfer: Transfer,
 ) -> Result<(), WorkspacesError> {
-    if user == authorized.principal().user_id() {
-        return Err(WorkspacesError::CannotRemoveSelf);
-    }
-    match access::remove(&mut uow, authorized, user).await? {
-        Removal::NotMember => return Err(WorkspacesError::MemberNotFound),
-        Removal::Outranked => return Err(authz::refuse(uow, authorized).await.into()),
-        Removal::Removed => {}
+    auth::require_recent_proof(&mut uow, authorized.principal()).await?;
+    match access::transfer(&mut uow, authorized, transfer.to).await? {
+        access::Transfer::NotMember => return Err(WorkspacesError::MemberNotFound),
+        access::Transfer::NotAdmin => return Err(WorkspacesError::TransferRequiresAdmin),
+        access::Transfer::Transferred => {}
     }
     let workspace = authorized.workspace_id();
-    let mut entry = Entry::new(audit::MEMBER_REMOVED, audit::WORKSPACE, workspace.uuid());
-    entry.target = Some(user);
+    let mut entry = Entry::new(
+        audit::WORKSPACE_TRANSFERRED,
+        audit::WORKSPACE,
+        workspace.uuid(),
+    );
+    entry.target = Some(transfer.to);
     log::record(&mut uow, authorized.audit_scope(), entry).await?;
-    let payload = published::MemberRemoved {
+    let payload = published::WorkspaceTransferred {
         workspace_id: workspace,
-        user_id: user,
+        owner_id: transfer.to,
+        previous_owner_id: authorized.principal().user_id(),
     };
-    uow.publish_to_workspace(&published::MEMBER_REMOVED, workspace, &payload)
+    uow.publish_to_workspace(&published::WORKSPACE_TRANSFERRED, workspace, &payload)
         .await?;
     Ok(uow.commit().await?)
+}
+
+/// Deletes the caller's workspace, with everything in it, in the unit of work it was authorized
+/// in, once the caller's session has proved who its user is: the entry in the caller's own log,
+/// the end of every membership, each with its access-change signal, the workspace and the jobs
+/// enqueued for it commit together (WORKSPACES-017, WORKSPACES-018).
+pub(crate) async fn delete(
+    mut uow: UnitOfWork,
+    authorized: &Authorized<WorkspaceDelete>,
+) -> Result<(), WorkspacesError> {
+    auth::require_recent_proof(&mut uow, authorized.principal()).await?;
+    let workspace = authorized.workspace_id();
+    // The entry's foreign keys read the caller's row, so it is written before the workspace's
+    // row is locked (the workspaces spec's "Deleting a workspace").
+    let entry = Entry::new(audit::WORKSPACE_DELETED, audit::WORKSPACE, workspace.uuid());
+    log::record(&mut uow, authorized.principal().audit_scope(), entry).await?;
+    access::dissolve(&mut uow, authorized).await?;
+    erase(&mut uow, workspace).await?;
+    Ok(uow.commit().await?)
+}
+
+/// Deletes the workspace `id`, whose memberships the unit of work has ended, with everything in
+/// it: the rows that name it, through their foreign keys, and then the jobs enqueued for it,
+/// which no foreign key reaches (DATA-23).
+pub(super) async fn erase(uow: &mut UnitOfWork, id: WorkspaceId) -> Result<(), Internal> {
+    repo::delete(uow, id).await?;
+    jobs::forget_workspace(uow, id).await
 }

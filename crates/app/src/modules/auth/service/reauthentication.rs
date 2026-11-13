@@ -24,18 +24,20 @@ use crate::modules::{
     },
 };
 
-/// Refuses, unless the session that authenticated the caller proved who they are within the
-/// last 5 minutes, by the database's clock, as its `authenticated_at` records, read in `uow`
-/// without a lock (AUTH-023, AUTH-044, AUTH-045, AUTH-048). A session that is gone since it authenticated
-/// the request, because another request ended it or the hourly job deleted it, answers 401, as a
-/// request that came after does (AUTH-009).
-pub(super) async fn require_recent_proof(
+/// Refuses, with 403 `request.reauthentication_required`, unless the session that authenticated
+/// the caller proved who they are within the last 5 minutes, by the database's clock, as its
+/// `authenticated_at` records, read in `uow` without a lock (AUTH-023, AUTH-044, AUTH-045,
+/// AUTH-048), for a sensitive action of this module or of another, such as a transfer of a
+/// workspace (WORKSPACES-018). A session that is gone since it authenticated the request, because
+/// another request ended it or the hourly job deleted it, answers 401, as a request that came
+/// after does (AUTH-009).
+pub(crate) async fn require_recent_proof(
     uow: &mut UnitOfWork,
     principal: &Principal,
 ) -> Result<(), AuthError> {
     match repo::recently_authenticated(uow, principal.user_id(), principal.session_id()).await? {
         Some(true) => Ok(()),
-        Some(false) => Err(AuthError::ReauthenticationRequired),
+        Some(false) => Err(RequestError::ReauthenticationRequired.into()),
         None => Err(RequestError::Unauthenticated.into()),
     }
 }

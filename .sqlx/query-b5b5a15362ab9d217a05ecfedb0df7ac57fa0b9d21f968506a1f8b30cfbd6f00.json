@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT role::text AS \"role!\" FROM workspace_memberships\n            WHERE workspace_id = $1 AND user_id = $2\n            FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "role!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b5b5a15362ab9d217a05ecfedb0df7ac57fa0b9d21f968506a1f8b30cfbd6f00"
+}

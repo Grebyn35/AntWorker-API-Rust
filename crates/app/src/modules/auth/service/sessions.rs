@@ -162,15 +162,15 @@ pub(super) async fn close(
     user_id: UserId,
     ended: &[SessionId],
 ) -> Result<(), Internal> {
+    let changes: Vec<AccessChange> = ended
+        .iter()
+        .map(|&session_id| AccessChange::SessionEnded {
+            user_id,
+            session_id,
+        })
+        .collect();
+    events::signal(uow, &changes).await?;
     for &session_id in ended {
-        events::signal(
-            uow,
-            AccessChange::SessionEnded {
-                user_id,
-                session_id,
-            },
-        )
-        .await?;
         uow.publish_to_user(&SESSION_ENDED, user_id, &SessionChanged { session_id })
             .await?;
     }

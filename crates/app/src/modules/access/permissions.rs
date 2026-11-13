@@ -19,11 +19,39 @@ impl Permission for WorkspaceUpdate {
     const NAME: &'static str = "workspace.update";
 }
 
+/// Leaving the workspace, which every role may but the owner's (SEC-09).
+pub(crate) struct WorkspaceLeave;
+
+impl Permission for WorkspaceLeave {
+    const NAME: &'static str = "workspace.leave";
+}
+
+/// Transferring the workspace to an admin.
+pub(crate) struct WorkspaceTransfer;
+
+impl Permission for WorkspaceTransfer {
+    const NAME: &'static str = "workspace.transfer";
+}
+
+/// Deleting the workspace, with everything in it.
+pub(crate) struct WorkspaceDelete;
+
+impl Permission for WorkspaceDelete {
+    const NAME: &'static str = "workspace.delete";
+}
+
 /// Listing members, with their names, emails and roles.
 pub(crate) struct MembersRead;
 
 impl Permission for MembersRead {
     const NAME: &'static str = "members.read";
+}
+
+/// Changing the role of a member of lower rank, to a role below one's own.
+pub(crate) struct MembersUpdate;
+
+impl Permission for MembersUpdate {
+    const NAME: &'static str = "members.update";
 }
 
 /// Removing a member of lower rank.
@@ -69,7 +97,11 @@ impl Permission for FilesDelete {
 const MATRIX: &[(&str, &[Role])] = &[
     ("workspace.read", &[Role::Owner, Role::Admin, Role::Member]),
     ("workspace.update", &[Role::Owner, Role::Admin]),
+    ("workspace.leave", &[Role::Admin, Role::Member]),
+    ("workspace.transfer", &[Role::Owner]),
+    ("workspace.delete", &[Role::Owner]),
     ("members.read", &[Role::Owner, Role::Admin, Role::Member]),
+    ("members.update", &[Role::Owner, Role::Admin]),
     ("members.remove", &[Role::Owner, Role::Admin]),
     // part: invitations
     ("invitations.create", &[Role::Owner, Role::Admin]),
@@ -80,6 +112,20 @@ const MATRIX: &[(&str, &[Role])] = &[
     ("files.delete", &[Role::Owner, Role::Admin]),
     // end part: files
 ];
+
+/// The permissions of the operations that change or end their caller's own membership: leaving,
+/// a transfer and a workspace's deletion (ACCESS-009).
+const OWN_MEMBERSHIP: &[&str] = &[
+    WorkspaceLeave::NAME,
+    WorkspaceTransfer::NAME,
+    WorkspaceDelete::NAME,
+];
+
+/// Whether the operation that `permission` allows changes or ends its caller's own membership,
+/// which the policy then holds `FOR UPDATE` from the moment it authorizes the caller (ACCESS-009).
+pub(super) fn changes_own_membership(permission: &str) -> bool {
+    OWN_MEMBERSHIP.contains(&permission)
+}
 
 /// Whether `role` holds the permission named `permission`: exactly when the matrix says so
 /// (ACCESS-002).

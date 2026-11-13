@@ -12,7 +12,7 @@ use platform::{
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::modules::access::{MembersRead, WorkspaceRead};
+use crate::modules::access::{MembersRead, Role, WorkspaceRead};
 
 /// The user joined a workspace, sent to their streams by each operation that adds a member, such
 /// as creating the workspace (WORKSPACES-001).
@@ -22,10 +22,19 @@ pub(crate) const MEMBERSHIP_CREATED: UserEvent<MembershipCreated> =
 pub(super) const MEMBER_REMOVED: WorkspaceEvent<MembersRead, MemberRemoved> =
     WorkspaceEvent::new("member.removed");
 
-/// A member left the workspace, as their account was deleted, sent to the members who may list
-/// members (ACCOUNTS-014).
+/// A member left the workspace, themselves or as their account was deleted, sent to the members
+/// who may list members (WORKSPACES-014, ACCOUNTS-014).
 pub(super) const MEMBER_LEFT: WorkspaceEvent<MembersRead, MemberLeft> =
     WorkspaceEvent::new("member.left");
+
+/// A member's role changed, sent to the members who may list members (WORKSPACES-012).
+pub(super) const MEMBER_ROLE_CHANGED: WorkspaceEvent<MembersRead, MemberRoleChanged> =
+    WorkspaceEvent::new("member.role_changed");
+
+/// The workspace has another owner, sent to the members who may list members, since it tells two
+/// members' roles (WORKSPACES-015).
+pub(super) const WORKSPACE_TRANSFERRED: WorkspaceEvent<MembersRead, WorkspaceTransferred> =
+    WorkspaceEvent::new("workspace.transferred");
 
 /// The workspace was renamed, sent to every member, all of whom may read it (WORKSPACES-008).
 pub(super) const WORKSPACE_RENAMED: WorkspaceEvent<WorkspaceRead, WorkspaceRenamed> =
@@ -56,6 +65,29 @@ pub(super) struct MemberLeft {
     pub(super) workspace_id: WorkspaceId,
     /// The member who left.
     pub(super) user_id: UserId,
+}
+
+/// The payload of `member.role_changed`: a member holds another role.
+#[derive(Debug, Serialize, ToSchema)]
+pub(super) struct MemberRoleChanged {
+    /// The workspace.
+    pub(super) workspace_id: WorkspaceId,
+    /// The member.
+    pub(super) user_id: UserId,
+    /// The role they hold.
+    pub(super) role: Role,
+}
+
+/// The payload of `workspace.transferred`: the workspace has another owner, and the owner before
+/// is an admin.
+#[derive(Debug, Serialize, ToSchema)]
+pub(super) struct WorkspaceTransferred {
+    /// The workspace.
+    pub(super) workspace_id: WorkspaceId,
+    /// The member who owns it.
+    pub(super) owner_id: UserId,
+    /// The member who owned it before, an admin.
+    pub(super) previous_owner_id: UserId,
 }
 
 /// The payload of `workspace.renamed`: the workspace has a new name, which a client reads through

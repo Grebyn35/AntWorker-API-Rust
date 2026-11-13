@@ -63,16 +63,15 @@ pub(in crate::modules::auth) async fn erase(
     repo::second_factors::delete_setup(uow, user_id).await?;
     repo::second_factors::delete_recovery_codes(uow, user_id).await?;
     repo::second_factors::delete_challenges(uow, user_id).await?;
-    for session_id in repo::delete_sessions(uow, user_id).await? {
-        events::signal(
-            uow,
-            AccessChange::SessionEnded {
-                user_id,
-                session_id,
-            },
-        )
-        .await?;
-    }
+    let ended: Vec<AccessChange> = repo::delete_sessions(uow, user_id)
+        .await?
+        .into_iter()
+        .map(|session_id| AccessChange::SessionEnded {
+            user_id,
+            session_id,
+        })
+        .collect();
+    events::signal(uow, &ended).await?;
     repo::delete_device_tokens(uow, user_id).await?;
     repo::codes::delete_all(uow, user_id).await
 }

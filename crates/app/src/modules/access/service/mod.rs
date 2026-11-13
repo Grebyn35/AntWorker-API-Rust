@@ -1,5 +1,8 @@
 //! What other modules ask of `access`, inside their unit of work, and the `AccessPolicy` that
 //! `platform::authz` asks on every workspace request (ACCESS-003, the access spec's "Policy").
+//! The operations that change a membership's role, or end memberships, are in `changes.rs`.
+
+mod changes;
 
 use std::collections::HashMap;
 
@@ -10,13 +13,16 @@ use platform::{
     errors::Internal,
     events::{self, AccessChange},
     lists::{List, Page, key},
-    types::{Timestamp, UserId, WorkspaceId},
+    types::{Timestamp, UserId, Version, WorkspaceId},
 };
 
+pub(crate) use self::changes::{
+    Removal, RoleChange, Transfer, change_role, dissolve, leave, remove, transfer,
+};
 use super::{
     error::AccessError,
     model::{MemberFilter, Membership, Role},
-    permissions::{self, MembersRead, MembersRemove},
+    permissions::{self, MembersRead},
     repo,
 };
 
@@ -32,13 +38,18 @@ impl AccessPolicy for Policy {
         permission: &'static str,
     ) -> BoxFuture<'a, Result<Decision, Internal>> {
         Box::pin(async move {
-            Ok(match repo::role_held(uow, workspace, user).await? {
-                None => Decision::NotMember,
-                Some(role) if permissions::grants(role, permission) => {
-                    Decision::Allowed(role.name())
-                }
-                Some(_) => Decision::Denied,
-            })
+            // An operation that changes or ends the caller's own membership holds it against
+            // every other from here on (ACCESS-009).
+            let exclusive = permissions::changes_own_membership(permission);
+            Ok(
+                match repo::role_held(uow, workspace, user, exclusive).await? {
+                    None => Decision::NotMember,
+                    Some(role) if permissions::grants(role, permission) => {
+                        Decision::Allowed(role.name())
+                    }
+                    Some(_) => Decision::Denied,
+                },
+            )
         })
     }
 
@@ -67,34 +78,38 @@ fn ordered(uow: &mut UnitOfWork) {
     uow.order_with_events();
 }
 
-/// Signals that `user`'s membership in `workspace` started or ended, so that, once the unit of
-/// work commits, the hub closes the streams of theirs that PLATFORM-031 says a membership change
-/// closes (ACCESS-006, D35).
+/// Signals that `user`'s membership in `workspace` started, ended or changed its role, so that,
+/// once the unit of work commits, the hub closes the streams of theirs that PLATFORM-031 says a
+/// membership change closes (ACCESS-006, D35).
 async fn changed(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
     user: UserId,
 ) -> Result<(), Internal> {
-    events::signal(
-        uow,
-        AccessChange::MembershipChanged {
-            user_id: user,
-            workspace_id: workspace,
-        },
-    )
-    .await
+    changed_all(uow, workspace, &[user]).await
 }
 
-/// What removing a member came to (ACCESS-004).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Removal {
-    /// The membership is gone.
-    Removed,
-    /// The user isn't a member of the workspace.
-    NotMember,
-    /// The member ranks the same as the caller, or higher, so nothing changed: the caller refuses
-    /// the operation through `authz::refuse` (PLATFORM-010).
-    Outranked,
+/// Signals, as [`changed`] does for one, that the membership in `workspace` of each of `users`
+/// started, ended or changed its role (ACCESS-006).
+async fn changed_all(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+    users: &[UserId],
+) -> Result<(), Internal> {
+    let changes: Vec<AccessChange> = users
+        .iter()
+        .map(|&user_id| AccessChange::MembershipChanged {
+            user_id,
+            workspace_id: workspace,
+        })
+        .collect();
+    events::signal(uow, &changes).await
+}
+
+/// Deletes the membership of `user` in `workspace`, and signals its end (ACCESS-006).
+async fn end(uow: &mut UnitOfWork, workspace: WorkspaceId, user: UserId) -> Result<(), Internal> {
+    repo::changes::delete(uow, workspace, user).await?;
+    changed(uow, workspace, user).await
 }
 
 /// Makes `user` the owner of the new `workspace`, and returns when they joined (ACCESS-001).
@@ -112,15 +127,25 @@ pub(crate) async fn add_owner(
 
 // part: invitations
 /// Locks the membership of `workspace`'s owner `FOR KEY SHARE`, and answers whether the workspace
-/// is still there: every workspace has an owner (ACCESS-001), so one without went with its
-/// owner's account while the lock waited for that deletion (ACCESS-008). Accepting an invitation
-/// calls it first, before it locks the invitation, as a deletion of the owner's account locks the
-/// owner's membership before the invitations its workspace's cascade deletes (DATA-20).
+/// is still there: every workspace has an owner (ACCESS-001), so one without went, with its
+/// owner's account or by its owner's deletion of it, while the lock waited for that deletion
+/// (ACCESS-008, ACCESS-010). Accepting an invitation calls it first, before it locks the
+/// invitation, as each of those deletions locks the owner's membership before the invitations
+/// that the workspace's cascade deletes (DATA-20).
 pub(crate) async fn hold_owner(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
 ) -> Result<bool, AccessError> {
-    Ok(repo::hold_owner(uow, workspace).await?)
+    loop {
+        if repo::hold_owner(uow, workspace).await? {
+            return Ok(true);
+        }
+        // No owner's row was locked: the workspace is gone, or a transfer that the lock waited
+        // for made the member it waited at an admin, and the next read locks the new owner's.
+        if !repo::has_owner(uow, workspace).await? {
+            return Ok(false);
+        }
+    }
 }
 
 /// Makes `user` a member of `workspace` at `role`, and returns when they joined, or `None` when
@@ -189,47 +214,21 @@ pub(crate) async fn held(
 /// Ends the caller's membership in `workspace`, with its signal (ACCESS-006), as their account is
 /// deleted: the personal data contract of `workspaces` calls it for each workspace they belong
 /// to, once [`erasable`] has locked their memberships.
-pub(crate) async fn leave(
+pub(crate) async fn end_membership(
     uow: &mut UnitOfWork,
     principal: &Principal,
     workspace: WorkspaceId,
 ) -> Result<(), AccessError> {
-    let user = principal.user_id();
-    repo::delete(uow, workspace, user).await?;
-    Ok(changed(uow, workspace, user).await?)
+    Ok(end(uow, workspace, principal.user_id()).await?)
 }
 
 /// Deletes every membership of `user` that remains, signalling each (ACCESS-006): none, once the
 /// contract of `workspaces` has had them leave each workspace they belonged to.
 pub(super) async fn leave_all(uow: &mut UnitOfWork, user: UserId) -> Result<(), Internal> {
-    for workspace in repo::delete_all(uow, user).await? {
+    for workspace in repo::changes::delete_all(uow, user).await? {
         changed(uow, workspace, user).await?;
     }
     Ok(())
-}
-
-/// Removes `user` from the caller's workspace, if the caller outranks them (ACCESS-004). The
-/// delete itself checks the rank, so it locks the member's row only when it may remove them, and
-/// no two removals wait on each other's rows: no two members each outrank the other (DATA-20).
-pub(crate) async fn remove(
-    uow: &mut UnitOfWork,
-    authorized: &Authorized<MembersRemove>,
-    user: UserId,
-) -> Result<Removal, AccessError> {
-    let caller = Role::from_name(authorized.role())?;
-    let workspace = authorized.workspace_id();
-    let below: Vec<Role> = Role::ALL
-        .into_iter()
-        .filter(|role| caller.outranks(*role))
-        .collect();
-    if repo::delete_at(uow, workspace, user, &below).await? {
-        changed(uow, workspace, user).await?;
-        return Ok(Removal::Removed);
-    }
-    Ok(match repo::role(uow, workspace, user).await? {
-        None => Removal::NotMember,
-        Some(_) => Removal::Outranked,
-    })
 }
 
 /// A page of the caller's workspace's members, the latest joined first, kept to `filter`.
@@ -248,6 +247,16 @@ pub(crate) async fn members(
     )
     .await?;
     Ok(page.list(rows, |member| key(member.joined_at, member.id)))
+}
+
+/// The membership of `user` in the caller's workspace, if they are a member, with its version,
+/// which the member's `ETag` names (WORKSPACES-011).
+pub(crate) async fn member(
+    uow: &mut UnitOfWork,
+    authorized: &Authorized<MembersRead>,
+    user: UserId,
+) -> Result<Option<(Membership, Version)>, AccessError> {
+    Ok(repo::member(uow, authorized.workspace_id(), user).await?)
 }
 
 /// The user IDs of every member of the caller's workspace, which a search of the members hands

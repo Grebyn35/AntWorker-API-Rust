@@ -33,7 +33,7 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
         .verifying(
             routes!(request_change),
             &[
-                &AuthError::ReauthenticationRequired,
+                &RequestError::ReauthenticationRequired,
                 &AuthError::EmailInUse,
                 &LimitError::RateLimited,
                 &RequestError::FeatureDisabled,

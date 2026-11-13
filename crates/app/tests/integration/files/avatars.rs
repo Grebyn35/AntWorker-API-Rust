@@ -385,9 +385,16 @@ async fn workspaces_010_each_member_carries_the_link_of_their_avatar() {
         .send()
         .await;
 
+    let alone = api
+        .get(&format!("/v1/workspaces/{acme}/members/{}", grace.user_id))
+        .bearer(&ada.access)
+        .send()
+        .await;
+
     assert_eq!(members.json()["items"][0]["user_id"], grace.user_id);
     assert_eq!(members.json()["items"][0]["avatar_url"], url);
     assert_eq!(members.json()["items"][1]["avatar_url"], json!(null));
+    assert_eq!(alone.json()["avatar_url"], url);
 }
 
 #[tokio::test]

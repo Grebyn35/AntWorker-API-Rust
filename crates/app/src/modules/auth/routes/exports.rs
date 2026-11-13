@@ -7,7 +7,7 @@ use std::sync::Arc;
 use axum::extract::State;
 use platform::{
     authn::Principal,
-    errors::Problem,
+    errors::{Problem, RequestError},
     http::{ResourceResponse, Routes},
     rate_limit::{LimitError, RateLimits},
     types::Client,
@@ -39,7 +39,7 @@ pub(crate) fn export_routes() -> Routes<ExportRequests> {
     Routes::new().user(
         routes!(request_export),
         &[
-            &AuthError::ReauthenticationRequired,
+            &RequestError::ReauthenticationRequired,
             &LimitError::RateLimited,
         ],
     )

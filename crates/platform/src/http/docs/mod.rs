@@ -86,7 +86,8 @@ enum Place {
     /// Among the components' responses: the router answers it when no operation matches.
     Fallback,
     /// On the operations whose module lists it among their errors, such as a route that needs a
-    /// feature the deployment can turn off (OPS-04).
+    /// feature the deployment can turn off (OPS-04), or whose action needs its caller's session
+    /// to have just proved who its user is (AUTH-023).
     Listed,
 }
 
@@ -102,7 +103,7 @@ fn place(error: &RequestError) -> Place {
         RequestError::Unauthenticated | RequestError::AccessTokenExpired => Place::Authenticated,
         RequestError::EmailUnverified => Place::Verified,
         RequestError::SecondFactorSetupRequired => Place::Enrolled,
-        RequestError::FeatureDisabled => Place::Listed,
+        RequestError::FeatureDisabled | RequestError::ReauthenticationRequired => Place::Listed,
         // part: files
         RequestError::SignedUrlExpired => Place::Signed,
         // end part: files

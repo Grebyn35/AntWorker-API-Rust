@@ -11,7 +11,7 @@ use axum::{
 };
 use platform::{
     authn::Principal,
-    errors::Problem,
+    errors::{Problem, RequestError},
     http::{Cookies, FieldErrors, Json, Routes, expired_cookie, session_cookie},
     rate_limit::{LimitError, RateLimits},
     types::{Client, Invalid, Secret, Timestamp},
@@ -46,7 +46,7 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
         .enrolling(routes!(second_factors), &[])
         .enrolling(
             routes!(start_setup),
-            &[&AuthError::ReauthenticationRequired],
+            &[&RequestError::ReauthenticationRequired],
         )
         .enrolling(
             routes!(confirm_setup),
@@ -59,7 +59,7 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
         .user(
             routes!(remove_app),
             &[
-                &AuthError::ReauthenticationRequired,
+                &RequestError::ReauthenticationRequired,
                 &AuthError::SecondFactorMandatory,
                 &LimitError::RateLimited,
             ],
@@ -67,7 +67,7 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
         .user(
             routes!(new_recovery_codes),
             &[
-                &AuthError::ReauthenticationRequired,
+                &RequestError::ReauthenticationRequired,
                 &AuthError::NoSecondFactor,
                 &LimitError::RateLimited,
             ],

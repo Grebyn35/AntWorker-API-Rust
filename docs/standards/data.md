@@ -168,7 +168,7 @@ What is audited:
 - Each security failure: those D6 lists, a failed sign-in, a wrong current password, a reused refresh token and a refused authorization, a wrong verification code, a guess at what proves an account's address (AUTH-032), resets its password (AUTH-038) or changes its address (AUTH-052), a wrong code of a second factor (AUTH-037, AUTH-056, AUTH-060, AUTH-065), and a re-authentication through a provider whose account isn't the caller's (AUTH-080). A failed sign-in commits its audit entry and then answers 401 (ARCH-11, PLATFORM-008). Refusals are reported to the `SecurityEventSink` (PLATFORM-010).
 - Reads that a module spec names as audited, such as the download of an export (D31).
 
-Platform bookkeeping (rate-limit buckets, idempotency records, job state) and scheduled maintenance (retention, sweeps) aren't audited. Metrics count them instead. Deleting an account records only the entries that the logs of the workspaces the user shared keep, since their own log goes with the account (ACCOUNTS-014, D31).
+Platform bookkeeping (rate-limit buckets, idempotency records, job state) and scheduled maintenance (retention, sweeps) aren't audited. Metrics count them instead. Deleting an account records only the entries that the logs of the workspaces the user shared keep, since their own log goes with the account (ACCOUNTS-014, D31). Deleting a workspace records its one entry in the own log of the owner who deletes it, since the workspace's log goes with the workspace (WORKSPACES-017).
 - Why: a change and its side effects commit together or not at all (D1, D6).
 - Check: `review`, plus `test` (each mutating behavior asserts its audit entry and events).
 

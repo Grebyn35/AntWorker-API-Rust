@@ -25,10 +25,6 @@ pub(crate) enum AuthError {
     /// The signed-in user's password is wrong, or they have none (AUTH-021).
     #[error("the password is wrong")]
     WrongPassword,
-    /// The session hasn't proved who its user is within the last 5 minutes, which deleting the
-    /// account and ending another session need (AUTH-023, AUTH-044, AUTH-045).
-    #[error("the action needs its user proved again")]
-    ReauthenticationRequired,
     /// The user owns a workspace that has another member, so their account isn't deleted
     /// (ACCOUNTS-012).
     #[error("the user owns a workspace that has another member")]
@@ -177,7 +173,6 @@ impl ErrorCode for AuthError {
             Self::SessionExpired => "auth.session_expired",
             Self::InvalidRefreshToken => "auth.invalid_refresh_token",
             Self::WrongPassword => "auth.wrong_password",
-            Self::ReauthenticationRequired => "auth.reauthentication_required",
             Self::OwnsSharedWorkspace => "auth.owns_shared_workspace",
             Self::AccountChanged => "auth.account_changed",
             Self::EmailAlreadyVerified => "auth.email_already_verified",
@@ -217,7 +212,6 @@ impl ErrorCode for AuthError {
             Self::SessionExpired => "Session expired",
             Self::InvalidRefreshToken => "Invalid refresh token",
             Self::WrongPassword => "Wrong password",
-            Self::ReauthenticationRequired => "Re-authentication required",
             Self::OwnsSharedWorkspace => "Owner of a shared workspace",
             Self::AccountChanged => "Account changed",
             Self::EmailAlreadyVerified => "Email address already verified",
@@ -262,7 +256,6 @@ impl ErrorCode for AuthError {
             | Self::SecondFactorMissing
             | Self::ProviderCodeRejected => Category::Unauthenticated,
             Self::WrongPassword
-            | Self::ReauthenticationRequired
             | Self::SecondFactorRequired
             | Self::WrongSecondFactor
             | Self::WrongIdentity

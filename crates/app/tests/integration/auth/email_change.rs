@@ -106,7 +106,7 @@ async fn auth_048_asking_needs_a_recent_proof_then_enqueues_the_code_s_job_and_a
 
     let refused = ask(&api, &ada, &new).await;
     assert_eq!(refused.status, 403);
-    assert_eq!(refused.json()["code"], "auth.reauthentication_required");
+    assert_eq!(refused.json()["code"], "request.reauthentication_required");
     assert!(jobs(&api).await.is_empty());
 
     users::authenticated_ago(&api, &ada, 4).await;

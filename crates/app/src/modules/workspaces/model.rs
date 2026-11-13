@@ -6,13 +6,16 @@ use platform::types::{EmailAddress, Invalid, Timestamp, UserId, Version, Workspa
 use serde::{Deserialize, Serialize};
 use utoipa::{
     PartialSchema, ToSchema,
-    openapi::{ObjectBuilder, RefOr, Schema, Type},
+    openapi::{KnownFormat, ObjectBuilder, RefOr, Schema, SchemaFormat, Type},
 };
 
 use crate::modules::{access::Role, accounts::DisplayName};
 
 /// The most characters a workspace name has (WORKSPACES-002).
 const NAME_MAX_CHARS: usize = 255;
+
+/// The characters of a user ID, as the API writes one (API-11).
+const MEMBER_ID_CHARS: usize = 36;
 
 /// A workspace's name: trimmed, with each run of whitespace inside collapsed to one space, in
 /// Unicode Normalization Form C, of 1 to 255 characters (WORKSPACES-002). A name can hold a
@@ -138,6 +141,68 @@ pub(crate) struct Member {
     // end part: files
 }
 
+/// A member as they now stand, with the version of their membership, which their `ETag` names
+/// (WORKSPACES-011, PLATFORM-071).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CurrentMember {
+    /// The member.
+    pub(crate) member: Member,
+    /// Their membership's version.
+    pub(crate) version: Version,
+}
+
+/// What changing a member's role takes (WORKSPACES-012).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct NewRole {
+    /// The role the member is to hold.
+    pub(crate) role: Role,
+}
+
+/// What transferring a workspace takes (WORKSPACES-015).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Transfer {
+    /// The member who is to own the workspace.
+    pub(crate) to: UserId,
+}
+
+/// A member's user ID, as a request's body names one: a UUID as the API writes it, 36 characters
+/// with hyphens (API-11).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct MemberId(UserId);
+
+impl MemberId {
+    /// The ID in `value`, or why it isn't one.
+    pub(crate) fn parse(value: &str) -> Result<Self, Invalid> {
+        uuid::Uuid::try_parse(value)
+            .ok()
+            .filter(|_| value.len() == MEMBER_ID_CHARS)
+            .map(|id| Self(UserId::from_uuid(id)))
+            .ok_or_else(|| Invalid::new("invalid", "A user ID is a UUID."))
+    }
+
+    /// The user the ID names.
+    pub(crate) fn user_id(self) -> UserId {
+        self.0
+    }
+}
+
+impl PartialSchema for MemberId {
+    fn schema() -> RefOr<Schema> {
+        ObjectBuilder::new()
+            .schema_type(Type::String)
+            .format(Some(SchemaFormat::KnownFormat(KnownFormat::Uuid)))
+            .min_length(Some(MEMBER_ID_CHARS))
+            .max_length(Some(MEMBER_ID_CHARS))
+            .into()
+    }
+}
+
+impl ToSchema for MemberId {
+    fn name() -> Cow<'static, str> {
+        Cow::Borrowed("MemberId")
+    }
+}
+
 /// A workspace whose only member is the user, as their export holds it (the accounts spec's
 /// "What an export holds").
 #[derive(Debug, Serialize)]
@@ -159,6 +224,15 @@ mod tests {
         // "e" followed by a combining acute accent becomes one character in form C.
         let composed = WorkspaceName::parse("Caf\u{65}\u{301}").unwrap();
         assert_eq!(composed.as_str(), "Caf\u{e9}");
+    }
+
+    #[test]
+    fn workspaces_015_a_member_s_id_is_a_uuid_as_the_api_writes_one() {
+        let id = "018f4e2a-7b1c-7def-8a3b-5c6d7e8f9a0b";
+        assert_eq!(MemberId::parse(id).unwrap().user_id().to_string(), id);
+        for refused in ["", "nobody", "018f4e2a7b1c7def8a3b5c6d7e8f9a0b"] {
+            assert_eq!(MemberId::parse(refused).unwrap_err().code, "invalid");
+        }
     }
 
     #[test]

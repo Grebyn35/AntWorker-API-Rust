@@ -154,9 +154,9 @@ pub enum AccessChange {
         /// The session.
         session_id: SessionId,
     },
-    /// A user's membership in a workspace started or ended, so their streams whose memberships
-    /// don't hold it close, and open again with their memberships as they then stand
-    /// (PLATFORM-031).
+    /// A user's membership in a workspace started, ended or changed its role, so their streams
+    /// whose memberships don't hold the change close, and open again with their memberships as
+    /// they then stand (PLATFORM-031).
     MembershipChanged {
         /// The user.
         user_id: UserId,
@@ -186,15 +186,25 @@ struct Signal {
     transaction: Option<u64>,
 }
 
-/// Sends `change` on the channel, with the ID of `uow`'s transaction, when `uow` commits, and
-/// never if it rolls back: Postgres delivers a notification only at commit (D35).
-pub async fn signal(uow: &mut UnitOfWork, change: AccessChange) -> Result<(), Internal> {
-    let payload = serde_json::to_value(change).map_err(Internal::new)?;
+/// Sends each of `changes` on the channel, with the ID of `uow`'s transaction, when `uow`
+/// commits, and never if it rolls back: Postgres delivers a notification only at commit (D35).
+/// One statement sends them all, so an operation that changes many users' access, such as a
+/// workspace's deletion, sends as many signals in one round trip.
+pub async fn signal(uow: &mut UnitOfWork, changes: &[AccessChange]) -> Result<(), Internal> {
+    if changes.is_empty() {
+        return Ok(());
+    }
+    let payloads = changes
+        .iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Internal::new)?;
     sqlx::query!(
-        "SELECT pg_notify($1, ($2::jsonb
-            || jsonb_build_object('transaction', pg_current_xact_id()::text::numeric))::text)",
+        "SELECT pg_notify($1, (payload
+            || jsonb_build_object('transaction', pg_current_xact_id()::text::numeric))::text)
+        FROM unnest($2::jsonb[]) AS payload",
         CHANNEL,
-        payload,
+        &payloads,
     )
     .execute(uow.executor())
     .await?;

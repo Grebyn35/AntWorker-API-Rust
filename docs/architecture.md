@@ -169,7 +169,7 @@ An arrow means "uses the public API of".
 
 ```mermaid
 flowchart TD
-  workspaces --> access & accounts & audit
+  workspaces --> access & accounts & auth & audit
   %% part: files
   workspaces --> files
   %% end part: files

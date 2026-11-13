@@ -73,7 +73,7 @@ pub(crate) fn provider_routes() -> Routes<ProviderRoutes> {
     let mut link = exchange.to_vec();
     link.extend([
         &AuthError::ProviderProofRejected as &dyn platform::errors::ErrorCode,
-        &AuthError::ReauthenticationRequired,
+        &RequestError::ReauthenticationRequired,
         &AuthError::ProviderAlreadyLinked,
         &AuthError::IdentityInUse,
         &LimitError::RateLimited,

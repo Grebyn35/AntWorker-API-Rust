@@ -317,7 +317,7 @@ async fn auth_044_ending_another_session_needs_a_recent_proof_then_ends_it_and_i
     let ended = end(&api, &ada, &phone.session_id).await;
 
     assert_eq!(refused.status, 403);
-    assert_eq!(refused.json()["code"], "auth.reauthentication_required");
+    assert_eq!(refused.json()["code"], "request.reauthentication_required");
     assert!(still);
     assert_eq!(ended.status, 204);
     assert!(ended.body.is_empty());
@@ -394,7 +394,7 @@ async fn auth_044_an_id_that_names_none_of_the_caller_s_sessions_answers_404_onc
     }
     // An ID that isn't a UUID answers as one that names no session does, after the proof.
     assert_eq!(unproved.status, 403);
-    assert_eq!(unproved.json()["code"], "auth.reauthentication_required");
+    assert_eq!(unproved.json()["code"], "request.reauthentication_required");
     assert!(signed_in(&api, &grace).await);
     assert!(signed_in(&api, &ada).await);
     assert!(ended_entries(&api, &ada).await.is_empty());
@@ -457,7 +457,7 @@ async fn auth_045_ending_the_other_sessions_needs_a_recent_proof_and_keeps_the_c
     let again = end_others(&api, &ada).await;
 
     assert_eq!(refused.status, 403);
-    assert_eq!(refused.json()["code"], "auth.reauthentication_required");
+    assert_eq!(refused.json()["code"], "request.reauthentication_required");
     assert!(still);
     assert_eq!(ended.status, 204);
     assert_eq!(again.status, 204);

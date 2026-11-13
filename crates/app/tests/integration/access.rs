@@ -320,7 +320,7 @@ type Arrange = for<'a> fn(&'a TestDatabase, &'a str) -> BoxFuture<'a, String>;
 /// How the generated test calls a workspace route, which its method and path name: the path,
 /// given the workspace and the ID the route addresses, its body and that body's media type, if it
 /// takes one, and the status of a success. The ID is a target member's, below the caller's rank,
-/// unless `row` arranges the row the route addresses.
+/// unless `row` arranges the row the route addresses; a body names it as `{target}`.
 struct Fixture {
     method: &'static str,
     template: &'static str,
@@ -353,11 +353,58 @@ const FIXTURES: &[Fixture] = &[
         success: StatusCode::OK,
     },
     Fixture {
+        method: "delete",
+        template: "/v1/workspaces/{workspace_id}",
+        path: |workspace, _| format!("/v1/workspaces/{workspace}"),
+        row: None,
+        body: None,
+        headers: &[],
+        success: StatusCode::NO_CONTENT,
+    },
+    // The owner's target is an admin, the one role a transfer goes to (SEC-09).
+    Fixture {
+        method: "post",
+        template: "/v1/workspaces/{workspace_id}/transfer",
+        path: |workspace, _| format!("/v1/workspaces/{workspace}/transfer"),
+        row: None,
+        body: Some((r#"{"user_id": "{target}"}"#, "application/json")),
+        headers: &[],
+        success: StatusCode::NO_CONTENT,
+    },
+    Fixture {
+        method: "post",
+        template: "/v1/workspaces/{workspace_id}/leave",
+        path: |workspace, _| format!("/v1/workspaces/{workspace}/leave"),
+        row: None,
+        body: None,
+        headers: &[],
+        success: StatusCode::NO_CONTENT,
+    },
+    Fixture {
         method: "get",
         template: "/v1/workspaces/{workspace_id}/members",
         path: |workspace, _| format!("/v1/workspaces/{workspace}/members"),
         row: None,
         body: None,
+        headers: &[],
+        success: StatusCode::OK,
+    },
+    Fixture {
+        method: "get",
+        template: "/v1/workspaces/{workspace_id}/members/{user_id}",
+        path: |workspace, target| format!("/v1/workspaces/{workspace}/members/{target}"),
+        row: None,
+        body: None,
+        headers: &[],
+        success: StatusCode::OK,
+    },
+    // A member is the one role that every role allowed to change roles may assign (ACCESS-004).
+    Fixture {
+        method: "patch",
+        template: "/v1/workspaces/{workspace_id}/members/{user_id}",
+        path: |workspace, target| format!("/v1/workspaces/{workspace}/members/{target}"),
+        row: None,
+        body: Some((r#"{"role": "member"}"#, "application/merge-patch+json")),
         headers: &[],
         success: StatusCode::OK,
     },
@@ -442,21 +489,23 @@ fn fixture(method: &str, template: &str) -> Option<&'static Fixture> {
 }
 
 /// Sends `method` to `path` as `caller`, with the fixture's body, in its media type, when it has
-/// one, and its headers.
+/// one, which names `addressed` where it holds `{target}`, and its headers. The caller's session
+/// has just proved who its user is, as a route that needs the proof asks (AUTH-023).
 async fn send(
     api: &Api,
     method: Method,
     path: &str,
-    caller: &SignedIn,
+    (caller, addressed): (&SignedIn, &str),
     fixture: &Fixture,
 ) -> crate::support::api::Response {
+    users::authenticated_ago(api, caller, 0).await;
     match fixture.body {
         None => call(api, method, path, caller).await,
         Some((body, media_type)) => {
             let mut request = api
                 .request(method, path)
                 .header("content-type", media_type)
-                .body(body)
+                .body(body.replace("{target}", addressed))
                 .bearer(&caller.access);
             for (name, value) in fixture.headers {
                 request = request.header(name, value);
@@ -464,6 +513,41 @@ async fn send(
             request.send().await
         }
     }
+}
+
+/// Sends the route `method` `template`, as `owner`, the ID of a member, `target`, or of a row, of
+/// another workspace that `owner` belongs to, where the route addresses one by ID, in its path
+/// or its body, and expects that it names nothing here (DATA-16).
+async fn names_nothing_elsewhere(
+    api: &Api,
+    (method, template): (&Method, &str),
+    fixture: &Fixture,
+    owner: &SignedIn,
+    target: &SignedIn,
+) {
+    let in_body = fixture
+        .body
+        .is_some_and(|(body, _)| body.contains("{target}"));
+    if !template.contains("{user_id}") && fixture.row.is_none() && !in_body {
+        return;
+    }
+    let db = api.database();
+    let here = workspaces::arrange(db, "Here", &[(&owner.user_id, "owner")]).await;
+    let there = workspaces::arrange(db, "There", &[(&owner.user_id, "owner")]).await;
+    let foreign = match fixture.row {
+        Some(arrange) => arrange(db, &there).await,
+        None => {
+            workspaces::join(db, &there, &target.user_id, "member").await;
+            target.user_id.clone()
+        }
+    };
+    let path = (fixture.path)(&here, &foreign);
+    let response = send(api, method.clone(), &path, (owner, &foreign), fixture).await;
+    assert_eq!(
+        response.status,
+        StatusCode::NOT_FOUND,
+        "{method} {template}"
+    );
 }
 
 #[tokio::test]
@@ -517,7 +601,8 @@ async fn test_08_every_workspace_route_answers_every_role_as_the_matrix_says() {
                 };
                 let path = (fixture.path)(&workspace, &addressed);
 
-                let response = send(&api, method.clone(), &path, caller, fixture).await;
+                let response =
+                    send(&api, method.clone(), &path, (caller, &addressed), fixture).await;
 
                 let expected = match *role {
                     "none" => StatusCode::NOT_FOUND,
@@ -527,30 +612,11 @@ async fn test_08_every_workspace_route_answers_every_role_as_the_matrix_says() {
                 assert_eq!(response.status, expected, "{method} {template} as {role}");
                 checked += 1;
             }
-            if template.contains("{user_id}") || fixture.row.is_some() {
-                // A member or a row of another workspace the caller belongs to names nothing here
-                // (DATA-16).
-                let (_, owner) = &callers[0];
-                let here = workspaces::arrange(db, "Here", &[(&owner.user_id, "owner")]).await;
-                let there = workspaces::arrange(db, "There", &[(&owner.user_id, "owner")]).await;
-                let foreign = match fixture.row {
-                    Some(arrange) => arrange(db, &there).await,
-                    None => {
-                        workspaces::join(db, &there, &target.user_id, "member").await;
-                        target.user_id.clone()
-                    }
-                };
-                let path = (fixture.path)(&here, &foreign);
-                let response = send(&api, method.clone(), &path, owner, fixture).await;
-                assert_eq!(
-                    response.status,
-                    StatusCode::NOT_FOUND,
-                    "{method} {template}"
-                );
-            }
+            let (_, owner) = &callers[0];
+            names_nothing_elsewhere(&api, (&method, template), fixture, owner, &target).await;
         }
     }
-    assert!(checked >= 16, "only {checked} calls");
+    assert!(checked >= 36, "only {checked} calls");
 }
 
 // part: invitations
@@ -666,7 +732,294 @@ async fn access_008_erasable_refuses_while_a_workspace_the_user_owns_has_another
     assert_eq!(refused.status, StatusCode::CONFLICT);
 }
 
+/// The statement that locks `user`'s membership in `workspace` `FOR SHARE`, as a request of
+/// theirs in the workspace holds it until it ends (PLATFORM-009).
+fn membership_of(workspace: &str, user: &SignedIn) -> String {
+    format!(
+        "SELECT 1 FROM workspace_memberships \
+         WHERE workspace_id = '{workspace}' AND user_id = '{}' FOR SHARE",
+        user.user_id
+    )
+}
+
+/// What two requests of `caller`, each `method` to `path` with `body`, answer when both are sent
+/// while another request of theirs in `workspace` runs, and so wait for it: their statuses,
+/// sorted, and the code of the problem that the refused one answers.
+async fn sent_at_once(
+    api: &Api,
+    workspace: &str,
+    caller: &SignedIn,
+    (method, path): (Method, &str),
+    body: Option<serde_json::Value>,
+) -> (Vec<StatusCode>, String) {
+    let db = api.database();
+    let mut running = db.holding(&membership_of(workspace, caller)).await;
+    let first = api.spawn(method.clone(), path, &caller.access, body.clone());
+    queries_wait_on_locks(db, 1).await;
+    let second = api.spawn(method, path, &caller.access, body);
+    queries_wait_on_locks(db, 2).await;
+    execute_on(&mut running, "ROLLBACK").await;
+
+    let answers = [first.await.unwrap(), second.await.unwrap()];
+    let mut statuses: Vec<StatusCode> = answers.iter().map(|(status, _)| *status).collect();
+    statuses.sort();
+    let code = answers
+        .iter()
+        .find_map(|(_, problem)| problem["code"].as_str())
+        .unwrap_or_default()
+        .to_owned();
+    (statuses, code)
+}
+
+#[tokio::test]
+async fn access_009_two_leaves_sent_at_once_take_turns_and_the_second_finds_no_membership() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let member = users::register(&api, "member@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[(&owner.user_id, "owner"), (&member.user_id, "member")],
+    )
+    .await;
+    let path = format!("/v1/workspaces/{workspace}/leave");
+
+    let (statuses, code) =
+        sent_at_once(&api, &workspace, &member, (Method::POST, &path), None).await;
+
+    assert_eq!(statuses, [StatusCode::NO_CONTENT, StatusCode::NOT_FOUND]);
+    assert_eq!(code, "request.not_found");
+}
+
+#[tokio::test]
+async fn access_009_two_transfers_sent_at_once_take_turns_and_the_second_finds_an_admin() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let admin = users::register(&api, "admin@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[(&owner.user_id, "owner"), (&admin.user_id, "admin")],
+    )
+    .await;
+    let path = format!("/v1/workspaces/{workspace}/transfer");
+    let body = serde_json::json!({ "user_id": admin.user_id });
+
+    let (statuses, code) =
+        sent_at_once(&api, &workspace, &owner, (Method::POST, &path), Some(body)).await;
+
+    assert_eq!(statuses, [StatusCode::NO_CONTENT, StatusCode::FORBIDDEN]);
+    assert_eq!(code, "request.permission_denied");
+    let owners = api
+        .database()
+        .owner_reads("SELECT user_id::text FROM workspace_memberships WHERE role = 'owner'")
+        .await;
+    assert_eq!(owners, std::slice::from_ref(&admin.user_id));
+}
+
+#[tokio::test]
+async fn access_009_two_deletions_sent_at_once_take_turns_and_the_second_finds_no_workspace() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&owner.user_id, "owner")]).await;
+    let path = format!("/v1/workspaces/{workspace}");
+
+    let (statuses, code) =
+        sent_at_once(&api, &workspace, &owner, (Method::DELETE, &path), None).await;
+
+    assert_eq!(statuses, [StatusCode::NO_CONTENT, StatusCode::NOT_FOUND]);
+    assert_eq!(code, "request.not_found");
+}
+
+#[tokio::test]
+async fn data_20_a_deletion_waits_for_a_member_before_it_locks_the_members_below_them() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let admin = users::register(&api, "admin@example.com").await;
+    let member = users::register(&api, "member@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[
+            (&owner.user_id, "owner"),
+            (&admin.user_id, "admin"),
+            (&member.user_id, "member"),
+        ],
+    )
+    .await;
+    // A request of the admin's, which holds their membership, and goes on to remove the member.
+    let mut removal = db.holding(&membership_of(&workspace, &admin)).await;
+
+    let deletion = api.spawn(
+        Method::DELETE,
+        &format!("/v1/workspaces/{workspace}"),
+        &owner.access,
+        None,
+    );
+    queries_wait_on_locks(db, 1).await;
+    // The deletion waits at the admin's membership, and holds none below it: the removal takes
+    // the member's, which a deletion that held it would keep from it for good.
+    execute_on(
+        &mut removal,
+        &format!(
+            "DELETE FROM workspace_memberships WHERE workspace_id = '{workspace}' AND user_id = '{}'",
+            member.user_id
+        ),
+    )
+    .await;
+    execute_on(&mut removal, "COMMIT").await;
+
+    assert_eq!(deletion.await.unwrap().0, StatusCode::NO_CONTENT);
+    let left = db
+        .owner_reads("SELECT count(*)::text FROM workspace_memberships")
+        .await;
+    assert_eq!(left, ["0"]);
+}
+
+#[tokio::test]
+async fn audit_004_a_member_s_refusal_whose_workspace_went_meanwhile_is_recorded_nowhere() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let member = users::register(&api, "member@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&owner.user_id, "owner"), (&member.user_id, "member")],
+    )
+    .await;
+    // A deletion of the workspace, which holds its row.
+    let mut deletion = db
+        .holding(&format!(
+            "SELECT 1 FROM workspaces WHERE id = '{workspace}' FOR UPDATE"
+        ))
+        .await;
+
+    // A member may not delete the workspace: the refusal's entry waits at the workspace's row.
+    let refused = api.spawn(
+        Method::DELETE,
+        &format!("/v1/workspaces/{workspace}"),
+        &member.access,
+        None,
+    );
+    queries_wait_on_locks(db, 1).await;
+    execute_on(
+        &mut deletion,
+        &format!("DELETE FROM workspaces WHERE id = '{workspace}'"),
+    )
+    .await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, problem) = refused.await.unwrap();
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(problem["code"], "request.permission_denied");
+    assert_eq!(
+        db.owner_reads("SELECT count(*)::text FROM audit_entries WHERE action = 'access.denied'")
+            .await,
+        ["0"]
+    );
+}
+
 // part: invitations
+/// Bob accepts Ada's invitation to her workspace while her request, `method` to `path` with
+/// `body`, waits for a request of Grace's, an admin of the workspace, having taken the lock of
+/// Ada's own membership, so the acceptance waits for Ada's request; returns the API, Bob, the
+/// workspace, the status of Ada's request, and the acceptance's answer.
+async fn joining_while_the_owner_acts(
+    method: Method,
+    path: fn(&str) -> String,
+    body: fn(&SignedIn) -> Option<serde_json::Value>,
+) -> (
+    Api,
+    SignedIn,
+    String,
+    StatusCode,
+    (StatusCode, serde_json::Value),
+) {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "admin")],
+    )
+    .await;
+    let invited =
+        crate::support::invitations::invite(&api, &ada, &workspace, "bob@example.com", "member")
+            .await;
+    let id = invited.json()["id"].as_str().unwrap().to_owned();
+    let mut running = db.holding(&membership_of(&workspace, &grace)).await;
+
+    let acted = api.spawn(method, &path(&workspace), &ada.access, body(&grace));
+    queries_wait_on_locks(db, 1).await;
+    let accepted = api.spawn(
+        Method::POST,
+        &format!("/v1/users/me/invitations/{id}/accept"),
+        &bob.access,
+        None,
+    );
+    queries_wait_on_locks(db, 2).await;
+    execute_on(&mut running, "ROLLBACK").await;
+
+    let (acted, _) = acted.await.unwrap();
+    let accepted = accepted.await.unwrap();
+    (api, bob, workspace, acted, accepted)
+}
+
+/// Bob's membership in `workspace`, as his role, if he has one.
+async fn joined(api: &Api, bob: &SignedIn, workspace: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT role::text FROM workspace_memberships \
+             WHERE workspace_id = '{workspace}' AND user_id = '{}'",
+            bob.user_id
+        ))
+        .await
+}
+
+#[tokio::test]
+async fn access_010_a_join_that_waited_for_a_transfer_joins_under_the_new_owner() {
+    let (api, bob, workspace, transferred, (status, _)) = joining_while_the_owner_acts(
+        Method::POST,
+        |workspace| format!("/v1/workspaces/{workspace}/transfer"),
+        |grace| Some(serde_json::json!({ "user_id": grace.user_id })),
+    )
+    .await;
+
+    assert_eq!(transferred, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(joined(&api, &bob, &workspace).await, ["member"]);
+}
+
+#[tokio::test]
+async fn access_010_a_join_that_waited_for_the_workspace_s_deletion_adds_no_member() {
+    let (api, bob, workspace, deleted, _) = joining_while_the_owner_acts(
+        Method::DELETE,
+        |workspace| format!("/v1/workspaces/{workspace}"),
+        |_| None,
+    )
+    .await;
+
+    assert_eq!(deleted, StatusCode::NO_CONTENT);
+    assert!(joined(&api, &bob, &workspace).await.is_empty());
+}
+
+#[tokio::test]
+async fn invitations_006_accepting_while_the_owner_deletes_the_workspace_answers_404() {
+    let (.., (status, problem)) = joining_while_the_owner_acts(
+        Method::DELETE,
+        |workspace| format!("/v1/workspaces/{workspace}"),
+        |_| None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(problem["code"], "invitations.not_found");
+}
 /// Bob accepts Ada's invitation to her workspace, whose only member she is, while the deletion of
 /// her account holds its owner's membership; returns the acceptance's response, with the database.
 async fn joining_while_the_owner_is_deleted() -> (Api, SignedIn, crate::support::api::Response) {

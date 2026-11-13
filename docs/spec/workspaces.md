@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`workspaces` owns the workspace itself and the members endpoints. This spec covers creating a workspace, listing the caller's workspaces, reading and renaming one, listing members, removing a member, and what deleting a member's account does to their workspaces (Erasure). Transfer, leaving, deletion and the setup subcommand arrive with the full module.
+`workspaces` owns the workspace itself and the members endpoints. This spec covers creating a workspace, listing the caller's workspaces, reading, renaming, transferring and deleting one, listing members, reading one, changing a member's role, removing a member, leaving, and what deleting a member's account does to their workspaces (Erasure). The setup subcommand arrives with the full module.
 So does the workspace's picture, which `files` stores (D117). <!-- part: files -->
 
 ## Owns
@@ -26,10 +26,15 @@ So does the workspace's picture, which `files` stores (D117). <!-- part: files -
 | `GET /v1/workspaces` | user | WORKSPACES-003 |
 | `GET /v1/workspaces/{workspace_id}` | `workspace::<WorkspaceRead>` | WORKSPACES-007 |
 | `PATCH /v1/workspaces/{workspace_id}` | `workspace::<WorkspaceUpdate>` | WORKSPACES-002, WORKSPACES-008 |
+| `DELETE /v1/workspaces/{workspace_id}` | `workspace::<WorkspaceDelete>` | WORKSPACES-017, WORKSPACES-018 |
+| `POST /v1/workspaces/{workspace_id}/transfer` | `workspace::<WorkspaceTransfer>` | WORKSPACES-015, WORKSPACES-016, WORKSPACES-018 |
+| `POST /v1/workspaces/{workspace_id}/leave` | `workspace::<WorkspaceLeave>` | WORKSPACES-014 |
 | `GET /v1/workspaces/{workspace_id}/members` | `workspace::<MembersRead>` | WORKSPACES-004 |
+| `GET /v1/workspaces/{workspace_id}/members/{user_id}` | `workspace::<MembersRead>` | WORKSPACES-011 |
+| `PATCH /v1/workspaces/{workspace_id}/members/{user_id}` | `workspace::<MembersUpdate>` | WORKSPACES-012, WORKSPACES-013 |
 | `DELETE /v1/workspaces/{workspace_id}/members/{user_id}` | `workspace::<MembersRemove>` | WORKSPACES-005, WORKSPACES-006 |
 
-`POST /v1/workspaces` accepts an `Idempotency-Key` (API-12), and `PATCH /v1/workspaces/{workspace_id}` an `If-Match` (API-13, PLATFORM-071).
+`POST /v1/workspaces` accepts an `Idempotency-Key` (API-12), and each `PATCH` an `If-Match` (API-13, PLATFORM-071).
 
 ## Behaviors
 
@@ -45,7 +50,15 @@ ID 009 is retired.
 | WORKSPACES-006 | A caller can't remove themselves (422 `workspaces.cannot_remove_self`), and can't remove a member of equal or higher rank (403 `request.permission_denied`, PLATFORM-010), which also protects the owner. A user ID that isn't a member answers 404 `workspaces.member_not_found`. | SEC-09, ERR-03 | `workspaces_006_` |
 | WORKSPACES-007 | `GET /v1/workspaces/{workspace_id}` answers 200 with `{id, name, role, created_at}`, `role` being the caller's, and the workspace's `ETag` (PLATFORM-071). | API-04, API-13, D3 | `workspaces_007_` |
 | WORKSPACES-008 | Renaming a workspace, `PATCH /v1/workspaces/{workspace_id}` with the merge patch `{"name": <name>}`, stores the name, normalized as WORKSPACES-002 says, and answers 200 with the workspace as WORKSPACES-007 gives it and its new `ETag`. It records `workspace.renamed` in the workspace's log, and publishes the workspace event `workspace.renamed`, which requires `workspace.read`. Neither holds the name. The owner and admins may rename; a member gets 403 `request.permission_denied`. | API-03, API-19, SEC-18, SEC-19, DATA-22 | `workspaces_008_` |
-| WORKSPACES-010 | Each member that WORKSPACES-004 lists carries `avatar_url`, as ACCOUNTS-011 gives it. <!-- part: files --> | API-05, D120 | `workspaces_010_` |
+| WORKSPACES-010 | A member carries `avatar_url`, as ACCOUNTS-011 gives it, in the list of WORKSPACES-004 and alone, as WORKSPACES-011 reads them. <!-- part: files --> | API-05, D120 | `workspaces_010_` |
+| WORKSPACES-011 | `GET .../members/{user_id}` answers 200 with the member, as WORKSPACES-004 lists them, and their `ETag`, the version of their membership (PLATFORM-071). A user ID that isn't a member's answers 404 `workspaces.member_not_found`. | API-04, API-13, DATA-16 | `workspaces_011_` |
+| WORKSPACES-012 | Changing a member's role, `PATCH .../members/{user_id}` with the merge patch `{"role": <role>}`, stores the role, and answers 200 with the member as WORKSPACES-011 gives them and their new `ETag`. It records `member.role_changed` in the workspace's log, with the workspace as its resource, the member as its target and `{"from": <role>, "to": <role>}` as its details, and publishes the workspace event `member.role_changed`, with the member and their new role, which requires `members.read`. The change's access-change signal closes the member's streams, as a removal's does (WORKSPACES-005), so each opens again under the new role (ACCESS-006). A role that the member holds already changes nothing: it answers 200 with the member as they stand, and records, publishes and signals nothing. | API-03, SEC-06, SEC-18, SEC-19, DATA-22, D35 | `workspaces_012_` |
+| WORKSPACES-013 | A caller changes the role only of a member who ranks below them, and only to a role that ranks below their own. Any other change answers 403 `request.permission_denied` (PLATFORM-010): of their own role, of the owner's, and to `owner`, which only a transfer gives (WORKSPACES-015). A user ID that isn't a member's answers 404 `workspaces.member_not_found`, an `If-Match` that names no current version of the membership 412 `request.precondition_failed` (PLATFORM-071), and a `role` that isn't one 400 at `/role`. None of them changes anything. A member, who holds no `members.update`, gets 403 `request.permission_denied`. | SEC-09, ERR-03, API-10, API-13, DATA-18 | `workspaces_013_` |
+| WORKSPACES-014 | Leaving a workspace, `POST .../leave` with no body, deletes the caller's membership and answers 204. It records `member.left` in the workspace's log, with the workspace as its resource and the caller as its actor and its target, and publishes the workspace event `member.left`, which requires `members.read`. Its access-change signal closes the caller's streams (ACCESS-006). The owner, who holds no `workspace.leave`, gets 403 `request.permission_denied`, and stays: they transfer the workspace first (WORKSPACES-015), or delete it (WORKSPACES-017). | SEC-06, SEC-09, DATA-22, D35, API-04 | `workspaces_014_` |
+| WORKSPACES-015 | Transferring a workspace, `POST .../transfer` with `{"user_id": <ID>}`, makes that member, an admin, the owner, and the caller an admin, in one unit of work, and answers 204. It records `workspace.transferred` in the workspace's log, with the workspace as its resource and the new owner as its target, and publishes the workspace event `workspace.transferred`, with the new owner and the owner before, which requires `members.read`. An access-change signal for each of the two closes their streams (ACCESS-006). An admin or a member, who holds no `workspace.transfer`, gets 403 `request.permission_denied`. | SEC-06, SEC-09, DATA-22, D16, D35, API-03, API-04 | `workspaces_015_` |
+| WORKSPACES-016 | A transfer to a member who isn't an admin, the caller among them, answers 422 `workspaces.transfer_requires_admin`, one to a user ID that isn't a member's 404 `workspaces.member_not_found`, and one whose `user_id` isn't a UUID as the API writes one 400 at `/user_id`. None of them changes anything. | SEC-09, ERR-03, API-10, API-11 | `workspaces_016_` |
+| WORKSPACES-017 | Deleting a workspace, `DELETE /v1/workspaces/{workspace_id}`, deletes it with everything in it, in one unit of work: its memberships, its log, its events, the rows of every module's tables that name it, and the jobs enqueued for it. It answers 204. It records `workspace.deleted` in the caller's own log, with the workspace as its resource, since the workspace's log goes with it. An access-change signal for each member closes their streams (ACCESS-006). An admin or a member, who holds no `workspace.delete`, gets 403 `request.permission_denied`. | SEC-06, DATA-06, DATA-22, DATA-23, D35, API-04 | `workspaces_017_` |
+| WORKSPACES-018 | A transfer and a deletion each need the proof that AUTH-023 needs, of the session that authenticates them: without it, each answers 403 `request.reauthentication_required`, and changes nothing. | D123, D148 | `workspaces_018_` |
 
 ## Design
 
@@ -84,9 +97,41 @@ A name is text a user writes, so it is personal data (the glossary in [architect
 
 `access::members` returns a page of the memberships, filtered by the workspace ID, and narrowed by a search as the access spec says ("Searching members"). `accounts::profiles` returns their names and emails in one batch call, given exactly those user IDs (ACCOUNTS-005, ARCH-06, DATA-16).
 
+### Reading a member, and changing a role
+
+A member is a membership, which `access` owns, shown with its user's name and email, which `accounts` owns. `access::member` reads the membership of the user that the path names, in the workspace that the proof names (DATA-16), with its version, and `accounts::profiles` gives the user's profile, as it gives a page's (Listing members). The member's `ETag` is the membership's version: it names what a change of the role edits, and a change of the user's own record, which the member only shows, doesn't move it.
+
+The role's merge patch requires `role`, the one field of a member that a client edits (D88). `access::change_role` decides the change and makes it ([access spec](access.md#changing-a-role)): it refuses a role that doesn't rank below the caller's, locks the membership only where its role ranks below the caller's, checks the versions that the request's `If-Match` names against the row it holds (DATA-18), and updates the row unless it holds the role already. The same unit of work records the entry, whose details hold the two roles, publishes the event, and commits (D1). A role is no personal data, so the entry and the event hold it (SEC-18, API-19), and a client that receives `member.role_changed` changes the member it shows in place.
+
+### Leaving
+
+`access::leave` deletes the caller's membership, which the proof holds locked ([access spec](access.md#policy)), with its signal. The same unit of work records `member.left` under the proof's scope, so the leaver is its actor, with them as its target too, as the entry of a member who left with their account names them (Erasure), and publishes `member.left`. The matrix gives `workspace.leave` to every role but the owner's, so `access` decides who may leave, as it decides every permission (SEC-08), and no workspace is left without its owner (ACCESS-001).
+
+### Transferring a workspace
+
+Once the caller's proof is checked (The proof of a transfer and of a deletion), `access::transfer` swaps the two roles ([access spec](access.md#leaving-transferring-and-dissolving)), and the same unit of work records the entry, publishes the event, and commits. Each of the two members then holds another role, so each gets a signal. The workspace's row doesn't change: a workspace's owner is the member whose role is `owner` (ACCESS-001), which no column of the workspace names, so its `ETag` stays, and a rename and a transfer made at once never meet.
+
+### Deleting a workspace
+
+Once the caller's proof is checked (The proof of a transfer and of a deletion), the deletion:
+
+1. Records `workspace.deleted` in the caller's own log, under `Principal::audit_scope`. The entry's foreign keys read the caller's row, so it is written before the workspace's row is locked: a change of the caller's own record that holds their row, and publishes in the workspace, then never waits for the deletion while the deletion waits for it (DATA-20).
+2. Has `access::dissolve` delete the workspace's memberships, from the highest rank to the lowest, each with its signal ([access spec](access.md#leaving-transferring-and-dissolving)). It waits there for each member's operation in the workspace, which holds that member's membership, and no new one starts.
+3. Deletes the workspace's row, which the foreign keys delete everything in with: its log, its events, and the rows of every module's tables that name it.
+4. Deletes the jobs enqueued for the workspace, which no foreign key reaches, through `jobs::forget_workspace` (DATA-23): after the row, so that an operation that committed a job for the workspace while step 3 waited for it leaves none behind.
+
+Steps 3 and 4 are the ones that delete a workspace as its only member's account is deleted (Erasure).
+The bytes of the workspace's files stay in the bucket until FILES-011 deletes them, as every object that no row names. <!-- part: files -->
+
+No event tells the members: an event of the workspace would go with it. Each member's streams close with `access_changed`, and their client, which opens a stream again and reads the caller's workspaces, finds the workspace gone, as a removed member's does (REALTIME-005).
+
+### The proof of a transfer and of a deletion
+
+A transfer hands a workspace, with all that its members share, to another account, and a deletion destroys it, each for good. So each needs more than a session, whose tokens a thief may hold: `auth::require_recent_proof` reads, in the operation's unit of work and without a lock, whether the caller's session proved who its user is within the window of the [auth spec's Re-authentication](auth.md#re-authentication) (D148). The check follows the authorization, so a member who may not transfer or delete learns that, rather than being asked for a proof that would change nothing.
+
 ### Erasure
 
-The contract runs once `access::erasable` has locked the user's memberships, and found that no workspace they own has another member (ACCOUNTS-012). It reads those memberships through `access::held`, and ends each through `access::leave`, with its signal (ACCESS-006). It deletes each workspace the user owned, which the foreign keys delete everything in with: its log, its events, and the rows of every module's tables that name it. The jobs enqueued for it have no foreign key, so `jobs::forget_workspace` deletes them (DATA-23). In each other workspace, it records `member.left` in the workspace's log, with the scope that `Principal::leaver_scope` gives, the workspace as its resource and the user as its target, and publishes the workspace event `member.left`, which requires `members.read`, as `member.removed` does, so the members' clients read the members again (ACCOUNTS-014, API-19). The entry's actor and target become null once the user's row goes (AUDIT-006).
+The contract runs once `access::erasable` has locked the user's memberships, and found that no workspace they own has another member (ACCOUNTS-012). It reads those memberships through `access::held`, and ends each through `access::end_membership`, with its signal (ACCESS-006). It deletes each workspace the user owned, which the foreign keys delete everything in with: its log, its events, and the rows of every module's tables that name it. The jobs enqueued for it have no foreign key, so `jobs::forget_workspace` deletes them (DATA-23). In each other workspace, it records `member.left` in the workspace's log, with the scope that `Principal::leaver_scope` gives, the workspace as its resource and the user as its target, and publishes the workspace event `member.left`, which requires `members.read`, as `member.removed` does, so the members' clients read the members again (ACCOUNTS-014, API-19). The entry's actor and target become null once the user's row goes (AUDIT-006).
 
 ## Open design questions
 

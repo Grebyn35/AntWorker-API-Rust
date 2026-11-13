@@ -227,7 +227,7 @@ async fn auth_023_a_deletion_needs_the_password_proved_within_5_minutes() {
     let deleted = delete().await;
 
     assert_eq!(refused.status, 403);
-    assert_eq!(refused.json()["code"], "auth.reauthentication_required");
+    assert_eq!(refused.json()["code"], "request.reauthentication_required");
     assert_eq!(proved.status, 200);
     assert_eq!(deleted.status, 204);
     let cleared = deleted.headers("set-cookie");

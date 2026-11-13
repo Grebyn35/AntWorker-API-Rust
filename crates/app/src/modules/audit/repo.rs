@@ -15,8 +15,8 @@ use super::model::{Entry, ExportedEntry};
 pub(super) enum Inserted {
     /// The entry is in its log.
     Recorded,
-    /// Its log is a user's whose deletion committed first, so the log's foreign key refused the
-    /// entry, and the unit of work can't go on.
+    /// Its log is a user's, or a workspace's, whose deletion committed first, so the log's
+    /// foreign key refused the entry, and the unit of work can't go on.
     LogGone,
 }
 
@@ -24,12 +24,17 @@ pub(super) enum Inserted {
 /// (ERR-05).
 const USER_LOG: &str = "audit_entries_user_id_fkey";
 
-/// Whether `error` is [`USER_LOG`]'s refusal of an entry.
+/// The foreign key of an entry's log of the workspace scope, which refuses it once the workspace
+/// is gone (ERR-05).
+const WORKSPACE_LOG: &str = "audit_entries_workspace_id_fkey";
+
+/// Whether `error` is the refusal of an entry by its log's foreign key, [`USER_LOG`] or
+/// [`WORKSPACE_LOG`].
 fn log_gone(error: &sqlx::Error) -> bool {
     error
         .as_database_error()
         .and_then(|error| error.constraint())
-        .is_some_and(|constraint| constraint == USER_LOG)
+        .is_some_and(|constraint| constraint == USER_LOG || constraint == WORKSPACE_LOG)
 }
 
 /// Inserts `entry` in the log `scope` names, with the trace ID `trace_id`, and, in the same

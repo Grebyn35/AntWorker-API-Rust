@@ -104,7 +104,7 @@ async fn auth_055_a_setup_needs_a_recent_proof_and_answers_the_secret_once() {
     users::authenticated_ago(&api, &ada, 10).await;
     let refused = start_setup(&api, &ada).await;
     assert_eq!(refused.status, 403);
-    assert_eq!(refused.json()["code"], "auth.reauthentication_required");
+    assert_eq!(refused.json()["code"], "request.reauthentication_required");
     assert!(
         reads(&api, "SELECT id::text FROM totp_setups")
             .await
@@ -361,7 +361,7 @@ async fn auth_063_new_recovery_codes_need_a_recent_proof_and_an_app_and_replace_
     users::authenticated_ago(&api, &ada, 10).await;
     let refused = new_codes(&api, &ada).await;
     assert_eq!(refused.status, 403);
-    assert_eq!(refused.json()["code"], "auth.reauthentication_required");
+    assert_eq!(refused.json()["code"], "request.reauthentication_required");
 
     users::authenticated_ago(&api, &ada, 0).await;
     let response = new_codes(&api, &ada).await;
@@ -414,7 +414,7 @@ async fn auth_064_removing_the_app_deletes_it_with_its_codes_and_challenges_once
     users::authenticated_ago(&api, &ada, 10).await;
     let refused = remove(&api, &ada).await;
     assert_eq!(refused.status, 403);
-    assert_eq!(refused.json()["code"], "auth.reauthentication_required");
+    assert_eq!(refused.json()["code"], "request.reauthentication_required");
 
     users::authenticated_ago(&api, &ada, 0).await;
     let app = reads(&api, "SELECT id::text FROM totp_factors")

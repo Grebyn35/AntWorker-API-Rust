@@ -54,6 +54,10 @@ pub enum RequestError {
     /// (ACCESS-003, ACCESS-004).
     #[error("the caller's role doesn't allow the request")]
     PermissionDenied,
+    /// The caller's session hasn't proved who its user is within the last 5 minutes, which the
+    /// route's action needs (AUTH-023).
+    #[error("the caller's session hasn't just proved who its user is")]
+    ReauthenticationRequired,
     /// The `Idempotency-Key` isn't a string of structured fields of 1 to 255 characters
     /// (PLATFORM-037).
     #[error("the idempotency key isn't valid")]
@@ -120,6 +124,7 @@ impl ErrorCode for RequestError {
             Self::SecondFactorSetupRequired => "request.second_factor_setup_required",
             Self::OriginNotAllowed => "request.origin_not_allowed",
             Self::PermissionDenied => "request.permission_denied",
+            Self::ReauthenticationRequired => "request.reauthentication_required",
             Self::InvalidIdempotencyKey => "request.invalid_idempotency_key",
             Self::IdempotencyKeyReused => "request.idempotency_key_reused",
             Self::IdempotencyKeyInFlight => "request.idempotency_key_in_flight",
@@ -150,6 +155,7 @@ impl ErrorCode for RequestError {
             Self::SecondFactorSetupRequired => "Second factor required",
             Self::OriginNotAllowed => "Origin not allowed",
             Self::PermissionDenied => "Permission denied",
+            Self::ReauthenticationRequired => "Re-authentication required",
             Self::InvalidIdempotencyKey => "Invalid idempotency key",
             Self::IdempotencyKeyReused => "Idempotency key already used",
             Self::IdempotencyKeyInFlight => "A request is outstanding for this idempotency key",
@@ -179,7 +185,8 @@ impl ErrorCode for RequestError {
             Self::EmailUnverified
             | Self::SecondFactorSetupRequired
             | Self::OriginNotAllowed
-            | Self::PermissionDenied => Category::Forbidden,
+            | Self::PermissionDenied
+            | Self::ReauthenticationRequired => Category::Forbidden,
             Self::IdempotencyKeyReused => Category::BusinessRule,
             Self::IdempotencyKeyInFlight => Category::Conflict,
             Self::PreconditionFailed => Category::PreconditionFailed,
@@ -214,6 +221,9 @@ impl ErrorCode for RequestError {
                 "The deployment requires a second factor: set up an authenticator app first."
                     .to_owned(),
             ),
+            Self::ReauthenticationRequired => {
+                Some("Prove who you are again, then send the request again.".to_owned())
+            }
             Self::FeatureDisabled => {
                 Some("The deployment has turned this feature off.".to_owned())
             }
@@ -337,6 +347,7 @@ impl RequestError {
             Self::SecondFactorSetupRequired,
             Self::OriginNotAllowed,
             Self::PermissionDenied,
+            Self::ReauthenticationRequired,
             Self::InvalidIdempotencyKey,
             Self::IdempotencyKeyReused,
             Self::IdempotencyKeyInFlight,

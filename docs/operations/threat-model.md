@@ -75,7 +75,9 @@ What the API and its reference deployment protect, from whom, and which rules an
 | Threat | What stops it |
 |---|---|
 | Reading or changing another workspace's data | The workspace is in the path, and the route's permission in its type (API-02, API-14); only `access` authorizes (SEC-08); every query filters by tenant (DATA-16); the permission matrix is tested for every route and role, with IDs from another workspace (TEST-08) |
-| A member raising their own role, or acting on a higher one | Role rank limits who may change whom (SEC-09) |
+| A member raising their own role, or acting on a higher one | Role rank limits who may change whom (SEC-09): a member changes only the roles of members below them, to roles below their own (WORKSPACES-013), and the owner's role moves only by the owner's transfer, to an admin (WORKSPACES-015) |
+| A stolen session of a workspace's owner deleting the workspace, or handing it to another account | A deletion and a transfer each need the session to have proved who its user is within the last 5 minutes, as deleting the account does (WORKSPACES-018, AUTH-023, D148) |
+| A member whose role was lowered still receiving what the role held | A change of a role closes the member's streams at commit, as a removal does, and each opens again under the new role (WORKSPACES-012, SEC-06) |
 | A removed member, or an ended session, still receiving events | Access changes close the affected streams at commit, and a re-check closes what a missed signal left (SEC-06, PLATFORM-031) |
 | Events reaching a member who may not see them, or from before they joined | Each event reaches only the streams whose memberships hold its permission, and had committed when it did (SEC-19) |
 | Forging an audit entry's actor | The actor and scope come from the unit of work's proof, never the request (AUDIT-002) |

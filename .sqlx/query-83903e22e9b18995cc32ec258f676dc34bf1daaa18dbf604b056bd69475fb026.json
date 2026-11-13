@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT pg_notify($1, ($2::jsonb\n            || jsonb_build_object('transaction', pg_current_xact_id()::text::numeric))::text)",
+  "query": "SELECT pg_notify($1, (payload\n            || jsonb_build_object('transaction', pg_current_xact_id()::text::numeric))::text)\n        FROM unnest($2::jsonb[]) AS payload",
   "describe": {
     "columns": [
       {
@@ -13,12 +13,12 @@
     "parameters": {
       "Left": [
         "Text",
-        "Jsonb"
+        "JsonbArray"
       ]
     },
     "nullable": [
       null
     ]
   },
-  "hash": "d1423fd46909ecb41ebf34099a4e7e2eadeb6701487c9b708092d9ba60a12fd1"
+  "hash": "83903e22e9b18995cc32ec258f676dc34bf1daaa18dbf604b056bd69475fb026"
 }

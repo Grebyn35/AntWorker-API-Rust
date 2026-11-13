@@ -1,12 +1,15 @@
-//! The SQL of `workspace_memberships` (ARCH-10). Every query filters by the workspace or the user
-//! the operation's proof names (DATA-16).
+//! The SQL of `workspace_memberships` (ARCH-10), with the statements that change a membership's
+//! role, or end memberships, in `changes.rs`. Every query filters by the workspace or the user the
+//! operation's proof names (DATA-16).
+
+pub(super) mod changes;
 
 use platform::{
     db::UnitOfWork,
     errors::Internal,
     lists::Page,
     personal_data::PAGE,
-    types::{Timestamp, UserId, WorkspaceId},
+    types::{Timestamp, UserId, Version, WorkspaceId},
 };
 
 use super::model::{ExportedMembership, Membership, Role};
@@ -48,6 +51,21 @@ pub(super) async fn hold_owner(
     Ok(owner.is_some())
 }
 
+/// Whether `workspace` has an owner, and so is still there (ACCESS-001), read without a lock.
+pub(super) async fn has_owner(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+) -> Result<bool, Internal> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT EXISTS (
+            SELECT 1 FROM workspace_memberships WHERE workspace_id = $1 AND role = 'owner'
+        ) AS "exists!""#,
+        workspace.uuid(),
+    )
+    .fetch_one(uow.executor())
+    .await?)
+}
+
 /// Adds `user` to `workspace` at `role`, and returns when they joined, or `None` when the unique
 /// constraint on the pair finds them a member already (ERR-05).
 pub(super) async fn insert_unless_member(
@@ -71,23 +89,69 @@ pub(super) async fn insert_unless_member(
 }
 // end part: invitations
 
-/// The role of `user` in `workspace`, if they are a member, with their row locked `FOR SHARE`
-/// until the unit of work ends, so a removal or a role change waits for it (PLATFORM-009).
+/// The role of `user` in `workspace`, if they are a member, with their row locked until the unit
+/// of work ends: `FOR SHARE`, so a removal or a role change waits for it (PLATFORM-009), or, when
+/// `exclusive`, `FOR UPDATE`, for an operation that changes or ends that membership itself, so
+/// another such operation of the same member waits for it too (ACCESS-009).
 pub(super) async fn role_held(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
     user: UserId,
+    exclusive: bool,
 ) -> Result<Option<Role>, Internal> {
-    let role = sqlx::query_scalar!(
-        r#"SELECT role::text AS "role!" FROM workspace_memberships
-        WHERE workspace_id = $1 AND user_id = $2
-        FOR SHARE"#,
+    let role = if exclusive {
+        sqlx::query_scalar!(
+            r#"SELECT role::text AS "role!" FROM workspace_memberships
+            WHERE workspace_id = $1 AND user_id = $2
+            FOR UPDATE"#,
+            workspace.uuid(),
+            user.uuid(),
+        )
+        .fetch_optional(uow.executor())
+        .await?
+    } else {
+        sqlx::query_scalar!(
+            r#"SELECT role::text AS "role!" FROM workspace_memberships
+            WHERE workspace_id = $1 AND user_id = $2
+            FOR SHARE"#,
+            workspace.uuid(),
+            user.uuid(),
+        )
+        .fetch_optional(uow.executor())
+        .await?
+    };
+    role.as_deref().map(Role::from_name).transpose()
+}
+
+/// The membership of `user` in `workspace`, if they are a member, with its row's version, read
+/// without a lock.
+pub(super) async fn member(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+    user: UserId,
+) -> Result<Option<(Membership, Version)>, Internal> {
+    let row = sqlx::query!(
+        r#"SELECT id, workspace_id, user_id, role::text AS "role!", created_at, version
+        FROM workspace_memberships
+        WHERE workspace_id = $1 AND user_id = $2"#,
         workspace.uuid(),
         user.uuid(),
     )
     .fetch_optional(uow.executor())
     .await?;
-    role.as_deref().map(Role::from_name).transpose()
+    row.map(|row| {
+        Ok((
+            membership(
+                row.id,
+                row.workspace_id,
+                row.user_id,
+                &row.role,
+                row.created_at,
+            )?,
+            Version::from_database(row.version),
+        ))
+    })
+    .transpose()
 }
 
 /// The role of `user` in `workspace`, if they are a member, read without a lock.
@@ -105,28 +169,6 @@ pub(super) async fn role(
     .fetch_optional(uow.executor())
     .await?;
     role.as_deref().map(Role::from_name).transpose()
-}
-
-/// Deletes the membership of `user` in `workspace` if their role is one of `roles`, and returns
-/// whether it did. A row whose role isn't one of them is skipped without being locked, so a
-/// removal never waits on a member it may not remove (DATA-20).
-pub(super) async fn delete_at(
-    uow: &mut UnitOfWork,
-    workspace: WorkspaceId,
-    user: UserId,
-    roles: &[Role],
-) -> Result<bool, Internal> {
-    let roles: Vec<String> = roles.iter().map(|role| role.name().to_owned()).collect();
-    let deleted = sqlx::query!(
-        "DELETE FROM workspace_memberships
-        WHERE workspace_id = $1 AND user_id = $2 AND role::text = ANY($3)",
-        workspace.uuid(),
-        user.uuid(),
-        &roles,
-    )
-    .execute(uow.executor())
-    .await?;
-    Ok(deleted.rows_affected() > 0)
 }
 
 /// A page of `workspace`'s members, the latest joined first, of `role` only and among `users`
@@ -280,36 +322,6 @@ pub(super) async fn others_in(
     )
     .fetch_one(uow.executor())
     .await?)
-}
-
-/// Deletes the membership of `user` in `workspace`.
-pub(super) async fn delete(
-    uow: &mut UnitOfWork,
-    workspace: WorkspaceId,
-    user: UserId,
-) -> Result<(), Internal> {
-    sqlx::query!(
-        "DELETE FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2",
-        workspace.uuid(),
-        user.uuid(),
-    )
-    .execute(uow.executor())
-    .await?;
-    Ok(())
-}
-
-/// Deletes every membership of `user`, and returns their workspaces.
-pub(super) async fn delete_all(
-    uow: &mut UnitOfWork,
-    user: UserId,
-) -> Result<Vec<WorkspaceId>, Internal> {
-    let ids = sqlx::query_scalar!(
-        "DELETE FROM workspace_memberships WHERE user_id = $1 RETURNING workspace_id",
-        user.uuid(),
-    )
-    .fetch_all(uow.executor())
-    .await?;
-    Ok(ids.into_iter().map(WorkspaceId::from_uuid).collect())
 }
 
 /// Every membership of each of `users`, with its workspace, role and the transaction that added

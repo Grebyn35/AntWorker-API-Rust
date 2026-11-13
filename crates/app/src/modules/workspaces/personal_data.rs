@@ -9,16 +9,12 @@ use platform::{
     authn::{BoxFuture, Principal},
     db::UnitOfWork,
     errors::Internal,
-    jobs,
     personal_data::{Column, ErasureError, ExportArchive, PersonalData, pages},
     types::WorkspaceId,
 };
 
-use super::{audit, events as published, repo};
-use crate::modules::{
-    access::{self, AccessError, Role},
-    audit::{self as log, AuditError, Entry},
-};
+use super::{repo, service};
+use crate::modules::access::{self, AccessError, Role};
 
 /// The contract.
 pub(crate) struct Contract;
@@ -55,13 +51,12 @@ impl PersonalData for Contract {
         Box::pin(async move {
             let held = access::held(uow, principal).await.map_err(internal)?;
             for (workspace, role) in held {
-                access::leave(uow, principal, workspace)
+                access::end_membership(uow, principal, workspace)
                     .await
                     .map_err(internal)?;
                 if role == Role::Owner {
                     // Its only member was the user.
-                    repo::delete(uow, workspace).await?;
-                    jobs::forget_workspace(uow, workspace).await?;
+                    service::erase(uow, workspace).await?;
                 } else {
                     left(uow, principal, workspace).await?;
                 }
@@ -82,19 +77,7 @@ async fn left(
         reason = "the deletion of an account records its user leaving each workspace they shared (the workspaces spec)"
     )]
     let scope = principal.leaver_scope(workspace);
-    let mut entry = Entry::new(audit::MEMBER_LEFT, audit::WORKSPACE, workspace.uuid());
-    entry.target = Some(principal.user_id());
-    log::record(uow, scope, entry)
-        .await
-        .map_err(|error| match error {
-            AuditError::Internal(error) => error,
-        })?;
-    let payload = published::MemberLeft {
-        workspace_id: workspace,
-        user_id: principal.user_id(),
-    };
-    uow.publish_to_workspace(&published::MEMBER_LEFT, workspace, &payload)
-        .await
+    service::left(uow, scope, workspace, principal.user_id()).await
 }
 
 fn internal(error: AccessError) -> Internal {

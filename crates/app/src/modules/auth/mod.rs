@@ -13,9 +13,12 @@ mod repo;
 mod routes;
 mod service;
 
+pub(crate) use error::AuthError;
 pub(crate) use jobs::register;
 pub(crate) use model::Lifetimes;
 pub(crate) use personal_data::Contract;
 pub(crate) use providers::Providers;
 pub(crate) use routes::{ExportRequests, ProviderRoutes, export_routes, provider_routes, routes};
-pub(crate) use service::{Auth, Keys, Outside, Removal, Settings, Verifier, remove_second_factor};
+pub(crate) use service::{
+    Auth, Keys, Outside, Removal, Settings, Verifier, remove_second_factor, require_recent_proof,
+};
