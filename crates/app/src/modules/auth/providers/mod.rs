@@ -120,6 +120,9 @@ trait Provider: Send + Sync {
     /// Reads the identity of the user whose access token `token` is: as OpenID Connect's userinfo
     /// endpoint gives it, the `sub`, the `email` and the `name` of its answer (Core, §5.3), unless
     /// the provider reads it another way.
+    // part: files
+    /// It reads the answer's `picture` too, the address of the user's picture (Core, §5.1).
+    // end part: files
     fn identify<'a>(
         &'a self,
         outbound: &'a Configured,
@@ -148,6 +151,9 @@ trait Provider: Send + Sync {
                 email: info.email,
                 proved: self.proves(&claims),
                 name: info.name,
+                // part: files
+                picture: info.picture,
+                // end part: files
             })
         })
     }
@@ -185,6 +191,9 @@ struct UserInfo {
     sub: String,
     email: Option<String>,
     name: Option<String>,
+    // part: files
+    picture: Option<String>,
+    // end part: files
 }
 
 /// A provider that the deployment configures: its key, its clients, and what its file states.
@@ -239,6 +248,10 @@ pub(crate) struct Identity {
     pub(crate) proved: bool,
     /// The name it gives, as it gives it, if any.
     pub(crate) name: Option<String>,
+    // part: files
+    /// The address of the user's picture, as it gives it, if any (AUTH-092).
+    pub(crate) picture: Option<String>,
+    // end part: files
 }
 
 /// Why a provider gave no identity (AUTH-077).

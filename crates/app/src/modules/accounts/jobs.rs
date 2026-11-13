@@ -10,6 +10,12 @@
 //!   (ACCOUNTS-027). It spans every user by nature, so it selects exports by their state and
 //!   expiry alone, which `check-tenancy` lets this file do (DATA-16), and scheduled maintenance
 //!   isn't audited (DATA-22). A second run finds nothing more to change or delete.
+// part: files
+//! - `accounts.copy_picture`, enqueued by a registration through a provider for its new user,
+//!   fetches the picture that the provider gave for them, outside any transaction, and makes it
+//!   their avatar in one unit of work, touching `users`, `avatars`, `audit_entries` and `events`
+//!   (ACCOUNTS-028). A second run finds the avatar, and changes nothing.
+// end part: files
 
 use std::time::Duration;
 
@@ -21,6 +27,9 @@ use platform::{
 use serde::{Deserialize, Serialize};
 
 use super::{events as published, service::exports::Exports};
+// part: files
+use super::service::avatar::Avatars;
+// end part: files
 
 /// How often the expired exports are deleted.
 const EXPIRE_INTERVAL: Duration = Duration::from_secs(3_600);
@@ -44,6 +53,35 @@ pub(super) struct Build {
 impl Job for Build {
     const KIND: &'static str = "accounts.export";
 }
+
+// part: files
+/// The payload of `accounts.copy_picture`: the address of the picture that a provider gave for
+/// the user it runs for.
+#[derive(Serialize, Deserialize)]
+pub(super) struct CopyPicture {
+    pub(super) url: String,
+}
+
+impl Job for CopyPicture {
+    const KIND: &'static str = "accounts.copy_picture";
+    /// Fewer than a job's 10: the account does without the picture sooner (ACCOUNTS-028).
+    const MOST_ATTEMPTS: u32 = 5;
+}
+
+impl Avatars {
+    /// Registers the job that copies a provider's picture.
+    pub(crate) fn register(&self, jobs: &mut Jobs) -> Result<(), Duplicate> {
+        let avatars = self.clone();
+        jobs.queued(move |context: JobContext, job: CopyPicture| {
+            let avatars = avatars.clone();
+            async move {
+                let last = context.attempt() >= CopyPicture::MOST_ATTEMPTS;
+                avatars.copy(&context, &job.url, last).await
+            }
+        })
+    }
+}
+// end part: files
 
 impl Exports {
     /// Registers the export's job and the expiry.

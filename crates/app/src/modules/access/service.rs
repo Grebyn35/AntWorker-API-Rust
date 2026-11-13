@@ -278,3 +278,14 @@ pub(crate) async fn workspace_ids(
 ) -> Result<Vec<WorkspaceId>, AccessError> {
     Ok(repo::workspace_ids(uow, principal.user_id()).await?)
 }
+
+// part: files
+/// The ID of every workspace that `user` belongs to, the user whose job the caller runs, and
+/// nothing else, as [`workspace_ids`] gives a caller's (ACCESS-005).
+pub(crate) async fn workspace_ids_of(
+    uow: &mut UnitOfWork,
+    user: UserId,
+) -> Result<Vec<WorkspaceId>, AccessError> {
+    Ok(repo::workspace_ids(uow, user).await?)
+}
+// end part: files

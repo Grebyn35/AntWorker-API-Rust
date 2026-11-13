@@ -144,6 +144,29 @@ async fn auth_083_a_deletion_that_fails_refuses_nothing() {
     assert!(counted >= 1.0, "ERR-11's count");
 }
 
+// part: files
+#[tokio::test]
+async fn auth_083_github_gives_its_user_s_picture_for_the_new_account() {
+    let (upstream, api) = github().await;
+    let picture = "https://avatars.example.com/u/583231";
+    gives(
+        &upstream,
+        json!({ "id": 583231, "login": "octo-ada", "name": null, "avatar_url": picture }),
+        primary("ada@example.com"),
+    );
+
+    let response = sign_in(&api).await;
+
+    assert_eq!(response.status, 201, "{}", response.json());
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT payload->>'url' FROM jobs WHERE kind = 'accounts.copy_picture'")
+            .await,
+        [picture]
+    );
+}
+// end part: files
+
 #[tokio::test]
 async fn auth_083_a_token_that_may_not_read_the_addresses_gives_none() {
     let (upstream, api) = github().await;

@@ -16,7 +16,7 @@ pub(crate) use model::{Address, DisplayName, Export, PublicProfile};
 pub(crate) use routes::{export_routes, routes};
 // part: files
 pub(crate) use routes::avatar_routes;
-pub(crate) use service::avatar::Avatars;
+pub(crate) use service::avatar::{Avatars, copy_picture};
 // end part: files
 // part: invitations
 pub(crate) use service::profile;

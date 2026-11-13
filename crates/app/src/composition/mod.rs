@@ -28,7 +28,7 @@ use platform::{
     telemetry::Service,
 };
 // part: files
-use platform::{scanner::Scanner, signed_urls::SignedUrls, storage::Storage};
+use platform::{outbound::Untrusted, scanner::Scanner, signed_urls::SignedUrls, storage::Storage};
 // end part: files
 use sqlx::migrate::Migrator;
 use utoipa::openapi::OpenApi;
@@ -231,6 +231,13 @@ pub async fn compose(
         config.files,
     );
     files.register(&mut jobs).map_err(Internal::new)?;
+    let avatars = accounts::Avatars::new(
+        database.clone(),
+        files.clone(),
+        workers.clone(),
+        Untrusted::new(&server.outbound).map_err(Internal::new)?,
+    );
+    avatars.register(&mut jobs).map_err(Internal::new)?;
     // end part: files
     let exports = accounts::Exports::new(
         database.clone(),
@@ -272,6 +279,7 @@ pub async fn compose(
         // end part: invitations
         // part: files
         files,
+        avatars,
         // end part: files
     };
     Ok(Services {
@@ -329,6 +337,7 @@ struct States {
     // end part: invitations
     // part: files
     files: Files,
+    avatars: accounts::Avatars,
     // end part: files
 }
 
@@ -355,11 +364,7 @@ fn routes(resources: &Resources, states: States) -> Routes {
         .merge(invitations::routes().with_state(states.invitations))
         // end part: invitations
         // part: files
-        .merge(accounts::avatar_routes().with_state(accounts::Avatars::new(
-            database.clone(),
-            states.files.clone(),
-            resources.workers.clone(),
-        )))
+        .merge(accounts::avatar_routes().with_state(states.avatars))
         .merge(files::routes().with_state(states.files))
         // end part: files
         .merge(workspaces::routes().with_state(database.clone()))

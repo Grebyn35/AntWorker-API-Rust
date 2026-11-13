@@ -1,12 +1,17 @@
 //! The clients through which application code sends HTTP requests to other systems (SEC-10). The
 //! configured client calls URLs that come from configuration or from the code, such as an OAuth
 //! provider's endpoints: it requires HTTPS, unless the environment is development or test, follows
-//! no redirect, and caps each answer's size and time.
+//! no redirect, and caps each answer's size and time. The untrusted client, in `untrusted.rs`,
+//! calls URLs that come from a third party.
+
+mod untrusted;
 
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 use tracing::Instrument;
+
+pub use untrusted::{FetchError, Untrusted};
 
 use crate::{config::Environment, telemetry::names, types::Secret};
 
@@ -24,8 +29,9 @@ const MAX_BODY_BYTES: usize = 1 << 20;
 #[derive(Clone, Debug, Default)]
 pub struct OutboundConfig {
     /// In the test environment only, the loopback origin that the configured client sends every
-    /// request to, keeping its path, so tests reach a stand-in of another system, such as an
-    /// OAuth provider (SEC-10). Startup refuses it in any other environment.
+    /// request to, keeping its path, and that the untrusted client accepts, so tests reach a
+    /// stand-in of another system, such as an OAuth provider (SEC-10). Startup refuses it in any
+    /// other environment.
     pub test_origin: Option<url::Url>,
 }
 

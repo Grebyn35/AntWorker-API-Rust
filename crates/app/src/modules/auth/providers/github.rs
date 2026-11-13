@@ -44,6 +44,9 @@ struct User {
     id: u64,
     login: String,
     name: Option<String>,
+    // part: files
+    avatar_url: Option<String>,
+    // end part: files
 }
 
 /// An address of the user's, of `GET /user/emails`.
@@ -116,6 +119,9 @@ fn api(request: Request, token: &Secret<String>) -> Request {
 /// The identity of the user whose token `token` is: their ID, which GitHub never reassigns,
 /// their name, or their login without one, and their primary address, when the token may read
 /// their addresses. GitHub proves no address (AUTH-075, D140).
+// part: files
+/// Their picture is the `avatar_url` of `GET /user`.
+// end part: files
 async fn read(outbound: &Configured, token: &Secret<String>) -> Result<Identity, ProviderError> {
     let unavailable =
         |error: platform::outbound::OutboundError| ProviderError::Unavailable(error.to_string());
@@ -145,6 +151,9 @@ async fn read(outbound: &Configured, token: &Secret<String>) -> Result<Identity,
             .name
             .filter(|name| !name.trim().is_empty())
             .or(Some(user.login)),
+        // part: files
+        picture: user.avatar_url,
+        // end part: files
     })
 }
 

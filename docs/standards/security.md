@@ -69,8 +69,9 @@ The object storage adapter uses its library's own client too, with its endpoint 
   - blocks private, loopback and link-local addresses after DNS resolution
   - re-checks every redirect, and limits redirects
   - caps response size and time
+  - sends no credential, and goes through no proxy, which would resolve a name in its place
 
-In the test environment only, the configured client sends every request to one configured loopback origin, keeping its path, and the untrusted client accepts one configured loopback address, so tests can reach a fake provider. Startup refuses either setting in any other environment.
+In the test environment only, the configured client sends every request to one configured loopback origin, keeping its path, and the untrusted client accepts that origin, over `http`, as the one address that isn't public, so tests can reach a fake provider. Startup refuses the setting in any other environment.
 - Why: no server-side request forgery, while every path stays testable (D26).
 - Check: `ci: check-layers` (no HTTP client library or TCP stream is named outside the places that this rule allows), plus `test` (including a test that the loopback setting is refused outside the test environment).
 

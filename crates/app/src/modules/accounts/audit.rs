@@ -30,6 +30,8 @@ pub(super) const EXPORT: Resource = Resource::new("export");
 pub(super) const AVATAR_UPLOADED: Action = Action::new("avatar.uploaded");
 /// The user removed their avatar (ACCOUNTS-010).
 pub(super) const AVATAR_DELETED: Action = Action::new("avatar.deleted");
+/// A job copied the picture that a provider gave for the user as their avatar (ACCOUNTS-028).
+pub(super) const AVATAR_COPIED: Action = Action::new("avatar.copied");
 
 /// A user's avatar.
 pub(super) const AVATAR: Resource = Resource::new("avatar");

@@ -5,6 +5,7 @@ mod avatars;
 mod exports;
 mod links;
 mod own;
+mod pictures;
 mod public;
 mod ranges;
 

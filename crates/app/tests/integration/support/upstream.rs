@@ -1,6 +1,10 @@
 //! A stand-in of another system's HTTP endpoints, such as an OAuth provider's, on a loopback
 //! address, which the configured client reaches through `OUTBOUND_TEST_ORIGIN` (SEC-10). A test
 //! sets what each method and path answers, and reads the requests it received.
+// part: files
+//! The untrusted client accepts that origin too, so the stand-in also serves what a provider
+//! names by an address, such as a user's picture.
+// end part: files
 
 use std::{
     collections::HashMap,
@@ -36,9 +40,12 @@ impl Received {
     }
 }
 
-/// What a route answers: a status with a JSON body, or nothing, ever.
+/// What a route answers: a status with a JSON body, or with bytes, or nothing, ever.
 enum Answer {
     Json(u16, Value),
+    // part: files
+    Bytes(u16, Vec<u8>),
+    // end part: files
     Never,
 }
 
@@ -83,6 +90,22 @@ impl Upstream {
         );
     }
 
+    // part: files
+    /// Makes `method` of `path` answer `status`, with `body` as its bytes, such as a picture's.
+    pub fn set_bytes(&self, method: &str, path: &str, status: u16, body: &[u8]) {
+        self.lock().by_route.insert(
+            (method.to_owned(), path.to_owned()),
+            Answer::Bytes(status, body.to_vec()),
+        );
+    }
+
+    /// The URL of `path` here, as another system would give it, such as the address of a
+    /// user's picture.
+    pub fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.origin)
+    }
+    // end part: files
+
     /// Makes `method` of `path` never answer, as a system that hangs.
     pub fn hang(&self, method: &str, path: &str) {
         self.lock()
@@ -118,6 +141,14 @@ async fn answer(
             body.to_string(),
         )
             .into_response(),
+        // part: files
+        Some(Answer::Bytes(status, body)) => (
+            StatusCode::from_u16(status).unwrap(),
+            [(header::CONTENT_TYPE, "application/octet-stream")],
+            body,
+        )
+            .into_response(),
+        // end part: files
         Some(Answer::Never) => std::future::pending().await,
         None => StatusCode::NOT_FOUND.into_response(),
     }
@@ -145,6 +176,9 @@ fn record(
         .get(&(method.to_string(), uri.path().to_owned()))
     {
         Some(Answer::Json(status, body)) => Some(Answer::Json(*status, body.clone())),
+        // part: files
+        Some(Answer::Bytes(status, body)) => Some(Answer::Bytes(*status, body.clone())),
+        // end part: files
         Some(Answer::Never) => Some(Answer::Never),
         None => None,
     }

@@ -15,7 +15,7 @@ use platform::{
     db::{Database, UnitOfWork},
     errors::RequestError,
     lists::Search,
-    types::{Client, EmailAddress, UserId, Version},
+    types::{Client, EmailAddress, UserId, Version, WorkspaceId},
 };
 
 use super::{
@@ -200,11 +200,21 @@ pub(super) async fn publish_updated(
     uow: &mut UnitOfWork,
     principal: &Principal,
 ) -> Result<(), AccountsError> {
-    let user = principal.user_id();
+    let workspaces = access::workspace_ids(uow, principal).await?;
+    publish_changed(uow, principal.user_id(), workspaces).await
+}
+
+/// Publishes that the record of `user` changed: `user.updated` to their own streams, and
+/// `member.updated` in each of `workspaces`, the workspaces they belong to.
+async fn publish_changed(
+    uow: &mut UnitOfWork,
+    user: UserId,
+    workspaces: Vec<WorkspaceId>,
+) -> Result<(), AccountsError> {
     let payload = published::UserUpdated { user_id: user };
     uow.publish_to_user(&published::USER_UPDATED, user, &payload)
         .await?;
-    for workspace_id in access::workspace_ids(uow, principal).await? {
+    for workspace_id in workspaces {
         let payload = published::MemberUpdated {
             workspace_id,
             user_id: user,

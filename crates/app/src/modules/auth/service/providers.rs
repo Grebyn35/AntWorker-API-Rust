@@ -216,6 +216,11 @@ impl Auth {
         if !identity.proved {
             self.enqueue_code(&mut uow, &principal).await?;
         }
+        // part: files
+        if let Some(picture) = &identity.picture {
+            accounts::copy_picture(&mut uow, &principal, picture).await?;
+        }
+        // end part: files
         uow.commit().await?;
         let required = Required {
             email_verification: self.mail.is_on() && !identity.proved,

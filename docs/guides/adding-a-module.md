@@ -89,6 +89,7 @@ A user signs in through each OAuth provider that `crates/app/src/modules/auth/pr
   Copy `providers/google.rs`, without its `proves` and the claims that `proves` reads, unless the provider says which addresses it is the authority for, as Google does. <!-- part: google -->
 - **A provider of OAuth 2.0 alone** serves no such document, and gives a user's identity its own way. Its file replaces `identify`, the read of the identity, and `token` or `discard` where its token endpoint's answers or its tokens differ from what RFC 6749 says.
   Copy `providers/github.rs`, which replaces all three. <!-- part: github -->
+  The identity that `identify` reads also holds the address of the user's picture, when the provider gives one, which becomes a new account's avatar (AUTH-092): the registry reads the userinfo endpoint's `picture`, and a file that replaces `identify` reads its provider's own. <!-- part: files -->
 
 A provider whose addresses differ between deployments, such as an organization's own, reads them from settings, which its entry names in `settings`.
 The template has one, which a deployment names with no code, and a product that signs in through a second copies `providers/openid_connect.rs` under a key of its own. <!-- part: openid_connect -->
