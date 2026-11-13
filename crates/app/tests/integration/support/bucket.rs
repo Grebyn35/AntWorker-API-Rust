@@ -1,7 +1,8 @@
 //! The tests' buckets, in the SeaweedFS that `just services` starts, which takes no credentials:
 //! each test that runs the API has a bucket of its own, named after its database, so the jobs of
-//! one test's files never meet another's objects, and its database's drop empties and deletes it,
-//! so the tests leave nothing in the bucket (OPS-21).
+//! one test's files never meet another's objects. The process's cleanup empties and deletes it
+//! once the test has ended, and a later run deletes, by their names, the buckets that a process
+//! which runs no more left, so the tests leave nothing in the storage (OPS-21).
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -20,6 +21,12 @@ use tokio::{
 /// The address of the SeaweedFS that `just services` starts.
 const ADDRESS: SocketAddr =
     SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 8333);
+
+/// The address of its filer, which lists every bucket as an entry of `/buckets/`: its S3 API
+/// lists a caller only the buckets that are the caller's own, and the tests' requests, unsigned,
+/// are no one's.
+const FILER: SocketAddr =
+    SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 8334);
 
 /// The endpoint the tests' API reaches the bucket at.
 pub const ENDPOINT: &str = "http://127.0.0.1:8333";
@@ -54,9 +61,30 @@ pub async fn create(bucket: &str) {
     assert!(status == 200, "create the bucket {bucket}: {status}");
 }
 
-/// Whether the storage holds the bucket `bucket`.
-pub async fn exists(bucket: &str) -> bool {
-    request("HEAD", bucket).await == 200
+/// The names of the storage's buckets that start with `prefix`, from its filer's listing.
+pub async fn named(prefix: &str) -> Vec<String> {
+    let mut stream = TcpStream::connect(FILER)
+        .await
+        .expect("the filer of SeaweedFS, which `just services` starts");
+    // HTTP/1.0, so the answer ends with the connection, and more entries than any server holds.
+    let request = "GET /buckets/?limit=1000000 HTTP/1.0\r\nHost: 127.0.0.1\r\n\
+                   Accept: application/json\r\n\r\n";
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).await.unwrap();
+    let (head, body) = response
+        .split_once("\r\n\r\n")
+        .expect("the filer's answer has a body");
+    assert!(head.contains(" 200 "), "list the buckets: {head}");
+    let listing: serde_json::Value = serde_json::from_str(body).expect("the filer's listing");
+    listing["Entries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry["FullPath"].as_str()?.strip_prefix("/buckets/"))
+        .filter(|name| name.starts_with(prefix))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Deletes every object of the bucket `bucket`, then the bucket, which S3 deletes only empty.

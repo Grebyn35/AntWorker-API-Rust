@@ -14,6 +14,10 @@
 //! next process drops it first: each process holds an advisory lock that its ID names while it
 //! runs, so what a process left, a killed one too, is whatever its ID names while its lock is
 //! free.
+// part: files
+//! It finds the buckets by their own names, in the storage, not by their databases': a process
+//! built without files drops a database that an earlier one left, and knows no bucket.
+// end part: files
 
 use std::{
     collections::HashMap,
@@ -158,6 +162,9 @@ async fn remove(admin: &mut PgConnection, leftover: Leftover) {
 /// What the test processes that run no more left: a leftover for each database that the name of
 /// a process other than `process` holds, whose lock is free, and one for their roles. `prefix`
 /// starts the tests' names, such as `api` in `api_test_4120_7`.
+// part: files
+/// And one for each bucket that such a name holds, such as `api-test-4120-7`.
+// end part: files
 async fn left_by_others(admin: &mut PgConnection, prefix: &str, process: i32) -> Vec<Leftover> {
     let databases = sqlx::query_scalar!(
         r#"SELECT datname AS "name!" FROM pg_database WHERE datname ~ $1"#,
@@ -178,11 +185,11 @@ async fn left_by_others(admin: &mut PgConnection, prefix: &str, process: i32) ->
     for database in databases {
         if !runs(admin, &mut running, &database).await {
             left.push(Leftover {
-                // part: files
-                bucket: existing_bucket(&database).await,
-                // end part: files
                 database,
                 roles: Vec::new(),
+                // part: files
+                bucket: None,
+                // end part: files
             });
         }
     }
@@ -199,16 +206,22 @@ async fn left_by_others(admin: &mut PgConnection, prefix: &str, process: i32) ->
             });
         }
     }
+    // part: files
+    // Each bucket that a test's name holds, whether its database stays or has gone.
+    let tests = super::bucket::name(&format!("{prefix}_test_"));
+    for bucket in super::bucket::named(&tests).await {
+        // A bucket's name is its database's, with dashes for underscores.
+        if !runs(admin, &mut running, &bucket.replace('-', "_")).await {
+            left.push(Leftover {
+                database: format!("{prefix}_test_0_0"),
+                roles: Vec::new(),
+                bucket: Some(bucket),
+            });
+        }
+    }
+    // end part: files
     left
 }
-
-// part: files
-/// The bucket of the test whose database is `database`, if the storage still holds it.
-async fn existing_bucket(database: &str) -> Option<String> {
-    let bucket = super::bucket::name(database);
-    super::bucket::exists(&bucket).await.then_some(bucket)
-}
-// end part: files
 
 /// Whether the process that the name `name` holds, between its kind and its number, as
 /// `api_test_4120_7` holds 4120, still runs: its lock is taken. A name that holds no process ID

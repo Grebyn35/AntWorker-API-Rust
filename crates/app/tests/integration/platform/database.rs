@@ -3,6 +3,9 @@ use platform::{
     db::{BootstrapError, ConnectError, Database, DatabaseUrl, RoleProblem},
 };
 
+// part: files
+use crate::support::bucket;
+// end part: files
 use crate::support::{TestDatabase, execute_on};
 
 /// Asserts that `serve` refuses to start as the role `url` connects as, for `problem`.
@@ -476,6 +479,12 @@ async fn ops_21_a_run_of_the_tests_drops_the_databases_and_roles_that_an_earlier
     db.admin_executes(&format!("CREATE ROLE \"{role}\"")).await;
     db.admin_executes(&format!("CREATE DATABASE \"{database}\" OWNER \"{role}\""))
         .await;
+    // part: files
+    // A bucket of that process's whose database has gone, as a process built without files
+    // leaves it once it has dropped the database.
+    let orphan = bucket::name(&format!("{prefix}_test_2147483647_1"));
+    bucket::create(&orphan).await;
+    // end part: files
 
     db.drop_what_earlier_runs_left().await;
 
@@ -488,4 +497,8 @@ async fn ops_21_a_run_of_the_tests_drops_the_databases_and_roles_that_an_earlier
         .await;
     // The database of a test that runs stays.
     assert_eq!(left, [db.name()]);
+    // part: files
+    let buckets = bucket::named(&bucket::name(&format!("{prefix}_test_2147483647_"))).await;
+    assert!(buckets.is_empty(), "{buckets:?}");
+    // end part: files
 }

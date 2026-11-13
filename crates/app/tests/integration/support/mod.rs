@@ -183,6 +183,9 @@ impl TestDatabase {
 
     /// Drops the databases and the roles that the test processes that run no more left, as the
     /// first test of a process does before it creates any (OPS-21).
+    // part: files
+    /// Their buckets go with them, and those whose database has gone.
+    // end part: files
     pub async fn drop_what_earlier_runs_left(&self) {
         cleanup::drop_left_by_others(&self.settings.admin).await;
     }
