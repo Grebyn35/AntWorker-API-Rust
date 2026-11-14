@@ -1,7 +1,13 @@
 //! Creating, listing, reading, renaming, transferring, deleting and leaving workspaces (the
 //! workspaces spec's Routes). The members endpoints are in `members.rs`.
+// part: files
+//! Setting and removing a workspace's picture are in `picture.rs`.
+// end part: files
 
 mod members;
+// part: files
+mod picture;
+// end part: files
 
 use axum::{extract::State, http::StatusCode};
 use platform::{
@@ -21,8 +27,8 @@ use utoipa_axum::routes;
 use super::{
     error::WorkspacesError,
     events::{
-        MEMBER_LEFT, MEMBER_REMOVED, MEMBER_ROLE_CHANGED, MEMBERSHIP_CREATED, WORKSPACE_RENAMED,
-        WORKSPACE_TRANSFERRED,
+        MEMBER_LEFT, MEMBER_REMOVED, MEMBER_ROLE_CHANGED, MEMBERSHIP_CREATED,
+        WORKSPACE_TRANSFERRED, WORKSPACE_UPDATED,
     },
     model::{MemberId, NewWorkspace, Rename, Transfer, Workspace, WorkspaceItem, WorkspaceName},
     service,
@@ -31,12 +37,16 @@ use crate::modules::access::{
     WorkspaceDelete, WorkspaceLeave, WorkspaceRead, WorkspaceTransfer, WorkspaceUpdate,
 };
 
+// part: files
+pub(crate) use picture::picture_routes;
+// end part: files
+
 /// The module's routes, which take the database as their state, and the events they publish.
 pub(crate) fn routes() -> Routes<Database> {
     Routes::new()
         .events(&[
             &MEMBERSHIP_CREATED,
-            &WORKSPACE_RENAMED,
+            &WORKSPACE_UPDATED,
             &WORKSPACE_TRANSFERRED,
             &MEMBER_ROLE_CHANGED,
             &MEMBER_REMOVED,

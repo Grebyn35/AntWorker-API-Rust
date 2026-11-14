@@ -12,7 +12,7 @@ impl Permission for WorkspaceRead {
     const NAME: &'static str = "workspace.read";
 }
 
-/// Renaming the workspace.
+/// Changing what the workspace's members read of it, such as its name.
 pub(crate) struct WorkspaceUpdate;
 
 impl Permission for WorkspaceUpdate {

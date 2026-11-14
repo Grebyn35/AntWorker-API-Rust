@@ -1,5 +1,5 @@
-//! A workspace's files and a user's own, public files, their downloads, and users' avatars
-//! ([spec](../../../../../docs/spec/files.md)).
+//! A workspace's files and a user's own, public files, their downloads, users' avatars and
+//! workspaces' pictures ([spec](../../../../../docs/spec/files.md)).
 
 mod audit;
 mod error;
@@ -21,3 +21,6 @@ pub(crate) use service::avatar::{
     AVATAR_MAX_BYTES, NewAvatar, avatar_urls, delete_avatar, record_avatar, upload_avatar,
 };
 pub(crate) use service::exported::{exported, exported_bytes};
+pub(crate) use service::picture::{
+    NewPicture, PICTURE_MAX_BYTES, delete_picture, picture_urls, record_picture, upload_picture,
+};

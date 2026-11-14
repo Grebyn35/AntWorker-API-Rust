@@ -36,9 +36,10 @@ pub(super) const MEMBER_ROLE_CHANGED: WorkspaceEvent<MembersRead, MemberRoleChan
 pub(super) const WORKSPACE_TRANSFERRED: WorkspaceEvent<MembersRead, WorkspaceTransferred> =
     WorkspaceEvent::new("workspace.transferred");
 
-/// The workspace was renamed, sent to every member, all of whom may read it (WORKSPACES-008).
-pub(super) const WORKSPACE_RENAMED: WorkspaceEvent<WorkspaceRead, WorkspaceRenamed> =
-    WorkspaceEvent::new("workspace.renamed");
+/// What the workspace's members read of it changed, such as its name, sent to every member, all
+/// of whom may read it (WORKSPACES-008).
+pub(super) const WORKSPACE_UPDATED: WorkspaceEvent<WorkspaceRead, WorkspaceUpdated> =
+    WorkspaceEvent::new("workspace.updated");
 
 /// The payload of `membership.created`: the user joined a workspace.
 #[derive(Debug, Serialize, ToSchema)]
@@ -90,10 +91,10 @@ pub(super) struct WorkspaceTransferred {
     pub(super) previous_owner_id: UserId,
 }
 
-/// The payload of `workspace.renamed`: the workspace has a new name, which a client reads through
-/// `GET /v1/workspaces/{workspace_id}`, since a name is personal data (API-19).
+/// The payload of `workspace.updated`: the workspace changed, such as its name, which a client
+/// reads through `GET /v1/workspaces/{workspace_id}`, since a name is personal data (API-19).
 #[derive(Debug, Serialize, ToSchema)]
-pub(super) struct WorkspaceRenamed {
+pub(super) struct WorkspaceUpdated {
     /// The workspace.
     pub(super) workspace_id: WorkspaceId,
 }

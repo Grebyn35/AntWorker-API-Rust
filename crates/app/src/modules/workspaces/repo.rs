@@ -57,33 +57,54 @@ pub(super) async fn read(
 }
 
 /// Renames the workspace `id`, the one a proof names, to `name`, if its version is one of
-/// `versions`, or whatever its version when `versions` is `None` (DATA-18). Returns its creation
-/// time and its new version, or `None` when its version isn't one of `versions`.
+/// `versions`, or whatever its version when `versions` is `None`, and returns whether it did
+/// (DATA-18).
 pub(super) async fn rename(
     uow: &mut UnitOfWork,
     id: WorkspaceId,
     name: &WorkspaceName,
     versions: Option<&[Version]>,
-) -> Result<Option<(Timestamp, Version)>, Internal> {
-    let versions: Option<Vec<i64>> =
-        versions.map(|versions| versions.iter().map(|version| version.value()).collect());
-    let row = sqlx::query!(
+) -> Result<bool, Internal> {
+    let versions = values(versions);
+    let renamed = sqlx::query!(
         "UPDATE workspaces SET name = $2 \
-         WHERE id = $1 AND ($3::bigint[] IS NULL OR version = ANY($3)) \
-         RETURNING created_at, version",
+         WHERE id = $1 AND ($3::bigint[] IS NULL OR version = ANY($3))",
         id.uuid(),
         name.as_str(),
         versions.as_deref(),
     )
-    .fetch_optional(uow.executor())
+    .execute(uow.executor())
     .await?;
-    Ok(row.map(|row| {
-        (
-            Timestamp::from_database(row.created_at),
-            Version::from_database(row.version),
-        )
-    }))
+    Ok(renamed.rows_affected() > 0)
 }
+
+/// The values of `versions`, as a query compares them with a row's.
+fn values(versions: Option<&[Version]>) -> Option<Vec<i64>> {
+    versions.map(|versions| versions.iter().map(|version| version.value()).collect())
+}
+
+// part: files
+/// Moves the version of the workspace `id`, the one a proof names, for a change of its picture,
+/// when it is one of `versions`, or whatever it is when there are none, and returns whether it
+/// did (API-13, DATA-18, the workspaces spec's "The picture").
+pub(super) async fn touch(
+    uow: &mut UnitOfWork,
+    id: WorkspaceId,
+    versions: Option<&[Version]>,
+) -> Result<bool, Internal> {
+    // The row's trigger moves its version and its update time (DATA-02).
+    let versions = values(versions);
+    let touched = sqlx::query!(
+        "UPDATE workspaces SET version = version
+        WHERE id = $1 AND ($2::bigint[] IS NULL OR version = ANY($2))",
+        id.uuid(),
+        versions.as_deref(),
+    )
+    .execute(uow.executor())
+    .await?;
+    Ok(touched.rows_affected() > 0)
+}
+// end part: files
 
 /// The names of the workspaces `ids` names, which came from a query filtered by tenant.
 pub(super) async fn names(

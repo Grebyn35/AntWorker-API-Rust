@@ -1,12 +1,13 @@
 //! The periodic jobs of `files` (OPS-09, FILES-011), owned by `files`, which delete the objects
-//! that no row of a file, an avatar or a file that an export holds names, once no restore of the
-//! database can bring such a row back (the files spec's "Deleting bytes").
+//! that no row of a file, an avatar, a workspace's picture or a file that an export holds names,
+//! once no restore of the database can bring such a row back (the files spec's "Deleting bytes").
 //! `files.find_unreferenced_objects`, run every day, lists the bucket's objects under
-//! `workspaces/`, `users/` and `avatars/`, and records each that no row of `workspace_files`,
-//! `user_files`, `avatars` or `exported_files` names, and that the bucket wrote an hour ago or
-//! more, in `object_deletions`, with when its bytes may go. `files.delete_unreferenced_objects`,
-//! run every hour, deletes from the bucket those of `object_deletions` whose time has passed and
-//! that still no row names, then removes them from `object_deletions`. Both touch those five tables alone, and the bucket.
+//! `workspaces/`, `users/`, `avatars/` and `pictures/`, and records each that no row of
+//! `workspace_files`, `user_files`, `avatars`, `workspace_pictures` or `exported_files` names, and
+//! that the bucket wrote an hour ago or more, in `object_deletions`, with when its bytes may go.
+//! `files.delete_unreferenced_objects`, run every hour, deletes from the bucket those of
+//! `object_deletions` whose time has passed and that still no row names, then removes them from
+//! `object_deletions`. Both touch those six tables alone, and the bucket.
 //! Both span every workspace and user by nature, so they select objects by key alone, which
 //! `check-tenancy` lets this file and the public reads alone do (DATA-16). Scheduled maintenance
 //! isn't audited (DATA-22). A second run of either finds nothing more to do, and a deletion of an
@@ -21,7 +22,9 @@ use platform::{
     storage::ObjectKey,
 };
 
-use super::service::{Files, USER_PREFIX, WORKSPACE_PREFIX, avatar::AVATAR_PREFIX};
+use super::service::{
+    Files, USER_PREFIX, WORKSPACE_PREFIX, avatar::AVATAR_PREFIX, picture::PICTURE_PREFIX,
+};
 
 /// How often the bucket is compared with the rows.
 const FIND_INTERVAL: Duration = Duration::from_secs(86_400);
@@ -72,9 +75,10 @@ impl Files {
 }
 
 /// Records each object of the bucket, under the prefix of workspaces' files, then of users', then
-/// of avatars, that no row names, and that the bucket wrote at least `SETTLED` ago.
+/// of avatars, then of workspaces' pictures, that no row names, and that the bucket wrote at least
+/// `SETTLED` ago.
 async fn find(files: &Files, context: &JobContext) -> Result<(), Internal> {
-    for prefix in [WORKSPACE_PREFIX, USER_PREFIX, AVATAR_PREFIX] {
+    for prefix in [WORKSPACE_PREFIX, USER_PREFIX, AVATAR_PREFIX, PICTURE_PREFIX] {
         find_under(files, context, prefix).await?;
     }
     Ok(())
@@ -103,6 +107,7 @@ async fn find_under(files: &Files, context: &JobContext, prefix: &str) -> Result
                 AND NOT EXISTS (SELECT 1 FROM workspace_files WHERE object_key = key)
                 AND NOT EXISTS (SELECT 1 FROM user_files WHERE object_key = key)
                 AND NOT EXISTS (SELECT 1 FROM avatars WHERE object_key = key)
+                AND NOT EXISTS (SELECT 1 FROM workspace_pictures WHERE object_key = key)
                 AND NOT EXISTS (SELECT 1 FROM exported_files WHERE object_key = key)
             ON CONFLICT (object_key) DO NOTHING",
             &keys,
@@ -136,6 +141,9 @@ async fn delete(files: &Files, context: &JobContext) -> Result<(), Internal> {
                 ) OR EXISTS (
                     SELECT 1 FROM avatars
                     WHERE avatars.object_key = object_deletions.object_key
+                ) OR EXISTS (
+                    SELECT 1 FROM workspace_pictures
+                    WHERE workspace_pictures.object_key = object_deletions.object_key
                 ) OR EXISTS (
                     SELECT 1 FROM exported_files
                     WHERE exported_files.object_key = object_deletions.object_key

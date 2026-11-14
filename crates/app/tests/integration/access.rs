@@ -571,6 +571,25 @@ const FIXTURES: &[Fixture] = &[
         headers: &[],
         success: StatusCode::NO_CONTENT,
     },
+    // A GIF's bytes, which are text too, as a fixture's body is.
+    Fixture {
+        method: "put",
+        template: "/v1/workspaces/{workspace_id}/picture",
+        path: |workspace, _| format!("/v1/workspaces/{workspace}/picture"),
+        row: None,
+        body: Some(("GIF89a\u{1}\0\u{1}\0\0\0\0;", "application/octet-stream")),
+        headers: &[],
+        success: StatusCode::OK,
+    },
+    Fixture {
+        method: "delete",
+        template: "/v1/workspaces/{workspace_id}/picture",
+        path: |workspace, _| format!("/v1/workspaces/{workspace}/picture"),
+        row: None,
+        body: None,
+        headers: &[],
+        success: StatusCode::NO_CONTENT,
+    },
     // end part: files
 ];
 

@@ -59,8 +59,8 @@ Rank, from highest to lowest: `owner`, `admin`, `member`.
 
 | Permission | Allows | `owner` | `admin` | `member` |
 |---|---|:-:|:-:|:-:|
-| `workspace.read` | Reading the workspace, and receiving its events about itself, such as `workspace.renamed` | yes | yes | yes |
-| `workspace.update` | Renaming the workspace | yes | yes | |
+| `workspace.read` | Reading the workspace, and receiving its events about itself, such as `workspace.updated` | yes | yes | yes |
+| `workspace.update` | Changing what the workspace's members read of it, such as its name | yes | yes | |
 | `workspace.leave` | Leaving the workspace | | yes | yes |
 | `workspace.transfer` | Transferring the workspace to an admin | yes | | |
 | `workspace.delete` | Deleting the workspace, with everything in it | yes | | |

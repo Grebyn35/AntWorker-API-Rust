@@ -655,14 +655,14 @@ async fn realtime_008_the_catalog_lists_each_frame_type_with_its_scope_permissio
         payload(removed)["required"],
         json!(["workspace_id", "user_id"])
     );
-    let renamed = entry(&api, "workspace.renamed");
+    let updated = entry(&api, "workspace.updated");
     assert!(
-        renamed["description"]
+        updated["description"]
             .as_str()
             .unwrap()
             .contains("a workspace event: it reaches the streams of the workspace's members who hold `workspace.read`")
     );
-    assert_eq!(payload(renamed)["required"], json!(["workspace_id"]));
+    assert_eq!(payload(updated)["required"], json!(["workspace_id"]));
     // part: invitations
     let joined = entry(&api, "member.joined");
     assert_eq!(

@@ -127,6 +127,7 @@ pub async fn compose(
         Untrusted::new(&server.outbound).map_err(Internal::new)?,
     );
     avatars.register(&mut jobs).map_err(Internal::new)?;
+    let pictures = workspaces::Pictures::new(files.clone(), workers.clone());
     // end part: files
     let exports = accounts::Exports::new(
         database.clone(),
@@ -169,6 +170,7 @@ pub async fn compose(
         // part: files
         files,
         avatars,
+        pictures,
         // end part: files
     };
     Ok(Services {
@@ -227,6 +229,7 @@ struct States {
     // part: files
     files: Files,
     avatars: accounts::Avatars,
+    pictures: workspaces::Pictures,
     // end part: files
 }
 
@@ -255,6 +258,7 @@ fn routes(resources: &Resources, states: States) -> Routes {
         // part: files
         .merge(accounts::avatar_routes().with_state(states.avatars))
         .merge(files::routes().with_state(states.files))
+        .merge(workspaces::picture_routes().with_state(states.pictures))
         // end part: files
         .merge(workspaces::routes().with_state(database.clone()))
         .merge(realtime::routes().with_state(states.realtime))
@@ -342,6 +346,7 @@ pub fn openapi(service: Service) -> OpenApi {
         // part: files
         accounts::avatar_routes().openapi(service),
         files::routes().openapi(service),
+        workspaces::picture_routes().openapi(service),
         // end part: files
     ])
 }

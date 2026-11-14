@@ -5,6 +5,7 @@
 
 pub(super) mod avatar;
 pub(super) mod exported;
+pub(super) mod picture;
 pub(super) mod public;
 pub(super) mod user;
 

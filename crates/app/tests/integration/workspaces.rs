@@ -730,7 +730,7 @@ async fn workspaces_008_renaming_stores_the_name_records_it_and_publishes_it() {
     assert_eq!(
         events,
         [format!(
-            "workspace.renamed workspace {workspace} workspace.read {{\"workspace_id\": \"{workspace}\"}}"
+            "workspace.updated workspace {workspace} workspace.read {{\"workspace_id\": \"{workspace}\"}}"
         )]
     );
 }
@@ -830,7 +830,7 @@ async fn platform_071_a_rename_with_a_stale_etag_answers_412_and_changes_nothing
     let recorded = db
         .owner_reads(
             "SELECT (SELECT count(*) FROM audit_entries WHERE action = 'workspace.renamed') \
-             || ' ' || (SELECT count(*) FROM events WHERE name = 'workspace.renamed')",
+             || ' ' || (SELECT count(*) FROM events WHERE name = 'workspace.updated')",
         )
         .await;
     assert_eq!(recorded, ["1 1"]);
@@ -857,7 +857,7 @@ async fn platform_071_a_current_etag_a_star_or_none_lets_the_rename_apply() {
 }
 
 #[tokio::test]
-async fn sec_19_workspace_renamed_reaches_every_member_s_every_device_and_no_replay_from_before_joining()
+async fn sec_19_workspace_updated_reaches_every_member_s_every_device_and_no_replay_from_before_joining()
  {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -878,7 +878,7 @@ async fn sec_19_workspace_renamed_reaches_every_member_s_every_device_and_no_rep
     ))
     .await;
     let before = streams::opened(&api, &alan).await.last_event_id;
-    // Every role holds workspace.read, which workspace.renamed requires: no member lacks it.
+    // Every role holds workspace.read, which workspace.updated requires: no member lacks it.
     let mut phone = streams::opened(&api, &ada).await;
     let mut laptop = streams::opened(&api, &ada_laptop).await;
     let mut member = streams::opened(&api, &grace).await;
@@ -896,14 +896,14 @@ async fn sec_19_workspace_renamed_reaches_every_member_s_every_device_and_no_rep
     for stream in [&mut phone, &mut laptop, &mut member] {
         for _ in 0..2 {
             let event = stream.event().await;
-            assert_eq!(event.event.as_deref(), Some("workspace.renamed"));
+            assert_eq!(event.event.as_deref(), Some("workspace.updated"));
             assert_eq!(event.payload(), &json!({ "workspace_id": workspace }));
             second.push(event.id);
         }
     }
     // The rename from before Alan joined isn't replayed to him: the first he receives is the one
     // made after.
-    assert_eq!(after_joining.event.as_deref(), Some("workspace.renamed"));
+    assert_eq!(after_joining.event.as_deref(), Some("workspace.updated"));
     assert_eq!(after_joining.id, second[1]);
 }
 

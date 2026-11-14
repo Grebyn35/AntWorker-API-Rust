@@ -1,6 +1,7 @@
 //! The personal data contract of `workspace_files`, `user_files`, `avatars` and `exported_files`
-//! (D31): it exports the user's own files, their avatar and the files of each workspace whose only
-//! member is them, holding their bytes for the export (FILES-026), and it deletes
+//! (D31): it exports the user's own files, their avatar, and the files and the picture of each
+//! workspace whose only member is them, holding their bytes for the export (FILES-026), and it
+//! deletes
 //! the user's own files and their avatar before the deletion's last step locks the user's row
 //! `FOR UPDATE`, since deleting a file locks its row before the user's (the accounts spec's
 //! "Deleting an account"); their bytes go as every unreferenced object's do (FILES-011). A file

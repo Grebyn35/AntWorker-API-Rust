@@ -1,6 +1,7 @@
 //! The routes of `files` (the files spec's Routes): a workspace's files, in `workspace.rs`, a
-//! user's own, in `user.rs`, and the public downloads, of files and avatars, in `public.rs`, with what they share: the
-//! query of an upload and of a list, and the documented responses of a download.
+//! user's own, in `user.rs`, and the public downloads, of files, avatars and workspaces'
+//! pictures, in `public.rs`, with what they share: the query of an upload and of a list, and the
+//! documented responses of a download.
 
 mod public;
 mod user;
@@ -170,16 +171,16 @@ impl utoipa::IntoResponses for DownloadResponses {
     }
 }
 
-/// The 200 of an avatar's download: its bytes, as the media type of one of the image kinds
-/// (FILES-024).
+/// The 200 of the download of an avatar, or of a workspace's picture: its bytes, as the media
+/// type of one of the image kinds (FILES-024, FILES-027).
 pub(super) struct ImageResponses;
 
 impl utoipa::IntoResponses for ImageResponses {
     fn responses() -> BTreeMap<String, RefOr<Response>> {
         ok(
             Kind::images(),
-            "The avatar's bytes, as its media type.",
-            "`inline`, with the avatar's ID and its kind's extension (FILES-024).",
+            "The image's bytes, as its media type.",
+            "`inline`, with the image's ID and its kind's extension (FILES-024, FILES-027).",
         )
     }
 }
@@ -230,25 +231,35 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn files_024_an_avatar_s_download_documents_the_media_type_of_every_image_kind() {
+    /// The media types that the download at `path` documents for `status`, in their order.
+    fn documented(path: &str, status: &str) -> Vec<String> {
         let document = routes().openapi(Service {
             name: "api",
             version: "0.0.0",
         });
         let document = serde_json::to_value(&document).unwrap();
-        let path = "/v1/public/avatars/{avatar_id}";
+        let content = &document["paths"][path]["get"]["responses"][status]["content"];
+        let mut documented: Vec<String> = content.as_object().unwrap().keys().cloned().collect();
+        documented.sort_unstable();
+        documented
+    }
+
+    #[test]
+    fn files_024_an_avatar_s_download_documents_the_media_type_of_every_image_kind() {
         for status in ["200", "206"] {
-            let content = &document["paths"][path]["get"]["responses"][status]["content"];
-            let mut documented: Vec<&str> = content
-                .as_object()
-                .unwrap()
-                .keys()
-                .map(String::as_str)
-                .collect();
-            documented.sort_unstable();
             assert_eq!(
-                documented,
+                documented("/v1/public/avatars/{avatar_id}", status),
+                ["image/gif", "image/jpeg", "image/png", "image/webp"],
+                "{status}"
+            );
+        }
+    }
+
+    #[test]
+    fn files_027_a_picture_s_download_documents_the_media_type_of_every_image_kind() {
+        for status in ["200", "206"] {
+            assert_eq!(
+                documented("/v1/public/workspace-pictures/{picture_id}", status),
                 ["image/gif", "image/jpeg", "image/png", "image/webp"],
                 "{status}"
             );

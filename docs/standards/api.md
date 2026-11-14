@@ -11,7 +11,7 @@ Every route lives under `/v1`, except the health probes `/health/live` and `/hea
 
 ### API-02 The scope of a resource is in its path
 Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller's own resources under `/v1/users/me/`.
-A public file's bytes, and an avatar's, which anyone may download without signing in, live under `/v1/public/`, which holds nothing else, and whose requests count in a bucket of the IP limit of their own (PLATFORM-082). <!-- part: files -->
+A public file's bytes, an avatar's and a workspace's picture's, which anyone may download without signing in, live under `/v1/public/`, which holds nothing else, and whose requests count in a bucket of the IP limit of their own (PLATFORM-082). <!-- part: files -->
 No header selects a workspace.
 - Why: every request names exactly what it acts on, and authorization checks that name (D3).
 - Check: `ci: check-openapi`, plus `clippy` (API-14).
@@ -114,9 +114,9 @@ Every route except the health probes (OPS-05) and the API reference that develop
 - `verifying`: as `user`, for a route that proving the caller's email address, or correcting it, needs, which a caller whose account must still prove it may call (AUTH-025).
 - `enrolling`: as `user`, for a route that setting up a second factor needs, which a caller whose account has none may call while the deployment requires one (AUTH-070).
 - `workspace::<P>`: requires `Authorized<P>` for the workspace in the path, where `P` is a permission.
-- `workspace_upload::<P>` and `user_upload`: as `workspace::<P>` and `user`, for a route whose body is a file's bytes, or an avatar's, which its handler reads through `Upload` in a group of its own: once `Authorize::check` has authorized a member, on a workspace's, and once `Principal` has authenticated the caller, on a user's (PLATFORM-073, PLATFORM-074). <!-- part: files -->
+- `workspace_upload::<P>` and `user_upload`: as `workspace::<P>` and `user`, for a route whose body is a file's bytes, an avatar's or a workspace's picture's, which its handler reads through `Upload` in a group of its own: once `Authorize::check` has authorized a member, on a workspace's, and once `Principal` has authenticated the caller, on a user's (PLATFORM-073, PLATFORM-074). <!-- part: files -->
 - `user_download`: as `user`, for a route that serves bytes that never change, such as an export's archive, or a range of them (PLATFORM-081).
-- `workspace_signed_download::<P>`, `user_signed_download` and `public_download`: as `workspace::<P>`, `user` and `public`, for a route that serves a file's bytes, or an avatar's, or a range of them (PLATFORM-081). On the first two, a signed URL may also prove the `Principal` (PLATFORM-080), and the last serves under `/v1/public/`. <!-- part: files -->
+- `workspace_signed_download::<P>`, `user_signed_download` and `public_download`: as `workspace::<P>`, `user` and `public`, for a route that serves a file's bytes, an avatar's or a workspace's picture's, or a range of them (PLATFORM-081). On the first two, a signed URL may also prove the `Principal` (PLATFORM-080), and the last serves under `/v1/public/`. <!-- part: files -->
 
 A caller who isn't a member of the workspace gets 404. A member without permission `P` gets 403. Each workspace builder gives its routes the access level `workspace`, each user builder the access level `user`, and each public builder the access level `public`.
 - Why: no route can forget authentication or authorization, and non-members learn nothing (D2, D3).

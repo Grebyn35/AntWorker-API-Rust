@@ -1,5 +1,5 @@
-//! The downloads of public files and of avatars, which anyone may make without signing in (the
-//! files spec's Routes, FILES-023, FILES-024).
+//! The downloads of public files, of avatars and of workspaces' pictures, which anyone may make
+//! without signing in (the files spec's Routes, FILES-023, FILES-024, FILES-027).
 
 use axum::extract::{RawPathParams, State};
 use platform::{
@@ -26,6 +26,7 @@ pub(super) fn routes() -> Routes<Files> {
         .public_download(routes!(download_public_workspace_file), &DOWNLOAD_ERRORS)
         .public_download(routes!(download_public_user_file), &DOWNLOAD_ERRORS)
         .public_download(routes!(download_avatar), &DOWNLOAD_ERRORS)
+        .public_download(routes!(download_picture), &DOWNLOAD_ERRORS)
 }
 
 /// Downloads a public file of a workspace, without signing in: its bytes, or a range of them,
@@ -93,5 +94,27 @@ async fn download_avatar(
 ) -> Result<Download<ObjectBytes>, Problem<FilesError>> {
     let id = path_id(&params, "avatar_id").ok_or(FilesError::NotFound)?;
     let downloaded = service::download(&files, &client, Owner::Avatar, id, &wanted).await?;
+    Ok(response(downloaded))
+}
+
+/// Downloads a workspace's picture, without signing in: its bytes, or a range of them, named by
+/// its ID and its kind's extension, which shared caches may keep for 5 minutes.
+#[utoipa::path(
+    get,
+    path = "/v1/public/workspace-pictures/{picture_id}",
+    tag = "files",
+    params(
+        ("picture_id" = uuid::Uuid, Path, description = "The picture."),
+    ),
+    responses(ImageResponses)
+)]
+async fn download_picture(
+    State(files): State<Files>,
+    client: Client,
+    params: RawPathParams,
+    wanted: Wanted,
+) -> Result<Download<ObjectBytes>, Problem<FilesError>> {
+    let id = path_id(&params, "picture_id").ok_or(FilesError::NotFound)?;
+    let downloaded = service::download(&files, &client, Owner::Picture, id, &wanted).await?;
     Ok(response(downloaded))
 }

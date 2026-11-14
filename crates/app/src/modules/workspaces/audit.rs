@@ -27,3 +27,13 @@ pub(super) const MEMBER_LEFT: Action = Action::new("member.left");
 /// A workspace, which an action on one of its members names too, with the member as its target
 /// (AUDIT-006).
 pub(super) const WORKSPACE: Resource = Resource::new("workspace");
+
+// part: files
+/// A workspace's picture was set (WORKSPACES-019).
+pub(super) const PICTURE_UPLOADED: Action = Action::new("picture.uploaded");
+/// A workspace's picture was removed (WORKSPACES-021).
+pub(super) const PICTURE_DELETED: Action = Action::new("picture.deleted");
+
+/// A workspace's picture.
+pub(super) const PICTURE: Resource = Resource::new("picture");
+// end part: files

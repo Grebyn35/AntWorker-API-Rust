@@ -2,7 +2,8 @@
 
 use platform::telemetry::{metrics::Counter, names};
 
-/// Uploads that reached the check of their bytes, by how each ended.
+/// Uploads that reached the check of their bytes, of files, avatars and workspaces' pictures, by
+/// how each ended.
 static UPLOADS: Counter<1> = Counter::new(
     "files.uploads",
     "{upload}",

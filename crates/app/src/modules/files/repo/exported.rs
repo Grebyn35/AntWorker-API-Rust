@@ -1,7 +1,7 @@
-//! The SQL of what a user's export holds of files: their own files, their avatar and the files of
-//! each workspace whose only member is them, a page at a time, and the rows of `exported_files`
-//! that hold their bytes (FILES-026). Every statement filters by the user whose export the job
-//! builds, or by a workspace that came from their own memberships (DATA-16).
+//! The SQL of what a user's export holds of files: their own files, their avatar, and the files
+//! and the picture of each workspace whose only member is them, a page at a time, and the rows of
+//! `exported_files` that hold their bytes (FILES-026). Every statement filters by the user whose
+//! export the job builds, or by a workspace that came from their own memberships (DATA-16).
 
 use platform::{
     db::UnitOfWork,
@@ -12,7 +12,7 @@ use platform::{
 
 use crate::modules::files::model::ExportedFile;
 
-/// A file's row, or an avatar's, as an export reads it.
+/// A file's row, an avatar's or a workspace's picture's, as an export reads it.
 pub(in crate::modules::files) struct Row {
     pub(in crate::modules::files) id: uuid::Uuid,
     pub(in crate::modules::files) name: String,
@@ -88,6 +88,24 @@ pub(in crate::modules::files) async fn of_workspace(
         PAGE,
     )
     .fetch_all(uow.executor())
+    .await?)
+}
+
+/// The picture of `workspace`, one whose only member is the user, which came from their own
+/// memberships, if it has one, as a row with no name, public.
+pub(in crate::modules::files) async fn picture(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+) -> Result<Option<Row>, Internal> {
+    Ok(sqlx::query_as!(
+        Row,
+        r#"SELECT id, '' AS "name!", media_type, size_bytes, crc32, 'public' AS "visibility!",
+            object_key, NULL::uuid AS uploader_id, created_at
+        FROM workspace_pictures
+        WHERE workspace_id = $1"#,
+        workspace.uuid(),
+    )
+    .fetch_optional(uow.executor())
     .await?)
 }
 

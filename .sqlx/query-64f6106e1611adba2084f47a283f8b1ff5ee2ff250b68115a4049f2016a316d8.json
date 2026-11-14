@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspaces SET name = $2 WHERE id = $1 AND ($3::bigint[] IS NULL OR version = ANY($3))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "64f6106e1611adba2084f47a283f8b1ff5ee2ff250b68115a4049f2016a316d8"
+}

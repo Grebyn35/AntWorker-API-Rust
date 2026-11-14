@@ -78,7 +78,7 @@ In the test environment only, the configured client sends every request to one c
 
 <!-- part: files -->
 ### SEC-11 Uploaded content can't run in a browser
-Stored files, and avatars, are served with:
+Stored files, avatars and workspaces' pictures are served with:
 - `X-Content-Type-Options: nosniff`
 - `Content-Security-Policy: sandbox`
 - `Content-Disposition: attachment`, unless the type is an allowlisted image type
@@ -90,7 +90,7 @@ A public file's original name reaches only those who may read the file, its work
 
 ### SEC-12 Security headers on every response
 Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`, and `Cache-Control: no-store`.
-A public file's download and an avatar's are the only responses without `no-store`: each needs no credential, and names its bytes by their ID and their kind's extension alone (SEC-11), so shared caches may keep it for 5 minutes (FILES-023, FILES-024). <!-- part: files -->
+A public file's download, an avatar's and a workspace's picture's are the only responses without `no-store`: each needs no credential, and names its bytes by their ID and their kind's extension alone (SEC-11), so shared caches may keep it for 5 minutes (FILES-023, FILES-024, FILES-027). <!-- part: files -->
 The reverse proxy in front of the API terminates TLS and sets HTTP Strict Transport Security (HSTS).
 - Why: browser-level defenses are on by default.
 - Check: `test`.

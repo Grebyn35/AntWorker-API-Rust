@@ -23,6 +23,19 @@ async fn set_avatar(api: &Api, access: &str, bytes: &[u8]) -> Response {
         .await
 }
 
+/// Sets the picture of `workspace` to `bytes`.
+async fn set_picture(api: &Api, access: &str, workspace: &str, bytes: &[u8]) -> Response {
+    api.request(
+        http::Method::PUT,
+        &format!("/v1/workspaces/{workspace}/picture"),
+    )
+    .header("content-type", "application/octet-stream")
+    .body(bytes.to_vec())
+    .bearer(access)
+    .send()
+    .await
+}
+
 /// Downloads the archive of the export `id` with `access`.
 async fn archive(api: &Api, access: &str, id: &str) -> Vec<u8> {
     let response = api
@@ -43,24 +56,30 @@ async fn files_025_every_upload_records_the_crc_32_of_its_bytes() {
     let own = upload_own(&api, &ada, "notes.txt", b"hello there", "", None).await;
     let shared = upload(&api, &ada, &acme, "plan.txt", b"the plan", None).await;
     let avatar = set_avatar(&api, &ada.access, PNG).await;
+    let gif = b"GIF89a\x01\0\x01\0\0\0\0;";
+    let picture = set_picture(&api, &ada.access, &acme, gif).await;
 
     assert_eq!(own.status, 201);
     assert_eq!(shared.status, 201);
     assert_eq!(avatar.status, 200);
+    assert_eq!(picture.status, 200);
     let db = api.database();
     let recorded = [
         db.owner_reads("SELECT crc32::text FROM user_files").await,
         db.owner_reads("SELECT crc32::text FROM workspace_files")
             .await,
         db.owner_reads("SELECT crc32::text FROM avatars").await,
+        db.owner_reads("SELECT crc32::text FROM workspace_pictures")
+            .await,
     ];
-    let expected = [b"hello there".as_slice(), b"the plan", PNG]
+    let expected = [b"hello there".as_slice(), b"the plan", PNG, gif]
         .map(|bytes| vec![platform::archive::crc32(bytes).to_string()]);
     assert_eq!(recorded, expected);
 }
 
 #[tokio::test]
-async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_workspaces_files() {
+async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_workspaces_files_and_pictures()
+ {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
@@ -78,8 +97,14 @@ async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_w
     let avatar = set_avatar(&api, &ada.access, PNG).await;
     assert_eq!(avatar.status, 200);
     let mine = files::arrange(db, &own_workspace, "notes.md").await;
-    // A file Ada uploaded to a workspace that has another member is the workspace's.
+    // A file Ada uploaded to a workspace that has another member is the workspace's, and so is
+    // that workspace's picture.
     files::arrange_uploaded(db, &shared, "shared.txt", &ada.user_id).await;
+    let gif = b"GIF89a\x01\0\x01\0\0\0\0;";
+    let picture = set_picture(&api, &ada.access, &own_workspace, gif).await;
+    assert_eq!(picture.status, 200);
+    let theirs = set_picture(&api, &grace.access, &shared, PNG).await;
+    assert_eq!(theirs.status, 200);
 
     let id = built(&api, &ada).await;
     let archive = archive(&api, &ada.access, &id).await;
@@ -97,6 +122,12 @@ async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_w
     assert_eq!(held[0]["id"], mine.as_str());
     assert_eq!(held[0]["workspace_id"], own_workspace.as_str());
     assert_eq!(held[0]["uploader_id"], json!(null));
+    let pictures = document(&archive, "files/workspace_pictures.json");
+    assert_eq!(pictures.len(), 1);
+    let picture_id = pictures[0]["id"].as_str().unwrap();
+    assert_eq!(pictures[0]["workspace_id"], own_workspace.as_str());
+    assert_eq!(pictures[0]["media_type"], "image/gif");
+    assert_eq!(pictures[0]["size_bytes"], gif.len());
     let bytes: Vec<(String, Vec<u8>)> = entries(&archive)
         .into_iter()
         .filter(|(path, _)| !path.ends_with(".json"))
@@ -112,6 +143,10 @@ async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_w
             (
                 format!("files/workspaces/{own_workspace}/{mine}/notes.md"),
                 files::BYTES.to_vec()
+            ),
+            (
+                format!("files/workspace_pictures/{own_workspace}/{picture_id}.gif"),
+                gif.to_vec()
             ),
         ]
     );

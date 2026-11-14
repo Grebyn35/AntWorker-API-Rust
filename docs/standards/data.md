@@ -93,7 +93,7 @@ The server refuses to start unless it connects as the role `app`, and that role 
 - `EXECUTE` is revoked from `PUBLIC` on every function in the application schema, including through default privileges.
 - `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no data definition statements (DDL) and no `TRUNCATE`. On `audit_entries` and `audit_entry_clients` it has only `INSERT` and `SELECT` (AUDIT-005), and on each table whose rows are never edited, and which so has no `updated_at` or `version` (DATA-02), no `UPDATE`, such as `device_tokens` (AUTH-019) and `verification_codes` (AUTH-030).
   `export_entries` and `export_chunks` are such tables too (the accounts spec's Owns).
-  So are `workspace_files`, `user_files`, `avatars`, `exported_files` and `object_deletions` (the files spec's Owns). <!-- part: files -->
+  So are `workspace_files`, `user_files`, `avatars`, `workspace_pictures`, `exported_files` and `object_deletions` (the files spec's Owns). <!-- part: files -->
   On a sequence that a mechanism of `platform` draws from, such as `events_position_seq`, it has `USAGE` alone, which takes the next value, and can't set one.
 - `app` has `statement_timeout` and `idle_in_transaction_session_timeout` set at the role level.
 - Why: a role can do only what its job needs, and a stuck transaction can't hold locks indefinitely.
@@ -133,7 +133,7 @@ A row ID alone never addresses tenant data. These reads are exempt:
 - the position of the event that a stream's `Last-Event-ID` names, read by the event's ID alone, so a client resumes after the last event it received even from a workspace it has since left; the replay after that position filters by tenant, and the lookup tells a caller only whether an event ID it holds names an event, which a UUIDv7's random bits keep anyone from guessing (REALTIME-004)
 - scheduled jobs that span tenants, which select rows by their own criteria, such as expiry
 - the startup check of the versions of the key ring under which secrets are stored, which reads the versions alone, of every user's rows (AUTH-066)
-- a public file's download, which reads its row by its ID and its visibility alone, and an avatar's, which reads its row by its ID alone, since whoever holds a public file's ID, or an avatar's, may read it ([files spec](../spec/files.md#visibility)) <!-- part: files -->
+- a public file's download, which reads its row by its ID and its visibility alone, and an avatar's and a workspace's picture's, which each read their row by its ID alone, since whoever holds a public file's ID, an avatar's or a picture's, may read it ([files spec](../spec/files.md#visibility)) <!-- part: files -->
 - Why: there is no row-level security, so the application's filters are the only guard between tenants, and they are checked by machine and by test (D4).
 - Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, unless it belongs to a listed cross-tenant job or to a listed file of the reads that this rule exempts, and every other table is listed), `test` (TEST-08 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
 

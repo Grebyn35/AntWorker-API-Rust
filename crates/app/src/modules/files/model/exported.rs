@@ -70,6 +70,18 @@ pub(in crate::modules::files) struct WorkspaceRecord {
     pub(in crate::modules::files) path: String,
 }
 
+/// The picture of a workspace whose only member is the user, as `files/workspace_pictures.json`
+/// holds it.
+#[derive(Debug, Serialize)]
+pub(in crate::modules::files) struct PictureRecord {
+    pub(in crate::modules::files) id: uuid::Uuid,
+    pub(in crate::modules::files) workspace_id: WorkspaceId,
+    pub(in crate::modules::files) media_type: String,
+    pub(in crate::modules::files) size_bytes: u64,
+    pub(in crate::modules::files) created_at: Timestamp,
+    pub(in crate::modules::files) path: String,
+}
+
 /// `name` as the last segment of a path in the archive: each character that a path or a common
 /// file system refuses in a file's name replaced with `_` (the accounts spec's "What an export
 /// holds"). An accepted name ends with its kind's extension (FILES-003), so it is never `.` or

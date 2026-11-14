@@ -89,6 +89,11 @@ pub(crate) struct Workspace {
     pub(crate) role: Role,
     /// When it was created.
     pub(crate) created_at: Timestamp,
+    // part: files
+    /// The path of the public download of its picture, or null when it has none
+    /// (WORKSPACES-022).
+    pub(crate) picture_url: Option<String>,
+    // end part: files
 }
 
 /// A workspace as it now stands, with the version its `ETag` names (PLATFORM-071), which a
@@ -119,6 +124,11 @@ pub(crate) struct WorkspaceItem {
     pub(crate) role: Role,
     /// When the caller joined it.
     pub(crate) joined_at: Timestamp,
+    // part: files
+    /// The path of the public download of its picture, or null when it has none
+    /// (WORKSPACES-022).
+    pub(crate) picture_url: Option<String>,
+    // end part: files
 }
 
 /// A member of a workspace (WORKSPACES-004).

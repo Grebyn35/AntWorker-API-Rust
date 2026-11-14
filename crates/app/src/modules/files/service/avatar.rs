@@ -5,13 +5,8 @@
 use bytes::Bytes;
 use platform::{db::UnitOfWork, types::UserId};
 
-use super::{Files, Object, store};
-use crate::modules::files::{
-    error::FilesError,
-    metrics::{self, Upload as Outcome},
-    model::Kind,
-    repo::avatar as repo,
-};
+use super::{Files, Image, upload_image};
+use crate::modules::files::{error::FilesError, repo::avatar as repo};
 
 /// The most bytes an avatar holds, fixed, beside `FILE_MAX_BYTES`, since every member list
 /// downloads each member's avatar, with which the route of `accounts` reads its body
@@ -23,10 +18,7 @@ pub(in crate::modules::files) const AVATAR_PREFIX: &str = "avatars/";
 
 /// An avatar whose bytes are checked and scanned, and whose object is written, which
 /// [`record_avatar`] makes a user's.
-pub(crate) struct NewAvatar {
-    kind: Kind,
-    object: Object,
-}
+pub(crate) struct NewAvatar(Image);
 
 /// Finds the kind of an avatar's `bytes`, which its route read, among the image kinds, from the
 /// bytes alone; has the scanner scan them; writes their object outside any transaction; then has
@@ -43,24 +35,9 @@ where
     R: Future<Output = Result<T, E>>,
     E: From<FilesError>,
 {
-    if bytes.is_empty() {
-        return Err(FilesError::Empty.into());
-    }
-    let counted = metrics::Counted::start();
-    // An image kind's check compares the bytes' first few with its signature, which is no
-    // CPU-heavy work, unlike a text's.
-    let Some(kind) = Kind::image_of(&bytes) else {
-        counted.end(Outcome::UnsupportedType);
-        return Err(FilesError::UnsupportedType.into());
-    };
-    store(
-        files,
-        counted,
-        AVATAR_PREFIX,
-        kind,
-        bytes,
-        async move |object| record(NewAvatar { kind, object }).await,
-    )
+    upload_image(files, AVATAR_PREFIX, bytes, |image| {
+        record(NewAvatar(image))
+    })
     .await
 }
 
@@ -72,14 +49,15 @@ pub(crate) async fn record_avatar(
     user: UserId,
     avatar: NewAvatar,
 ) -> Result<uuid::Uuid, FilesError> {
+    let NewAvatar(Image { kind, object }) = avatar;
     repo::delete(uow, user).await?;
     Ok(repo::insert(
         uow,
         user,
-        avatar.kind.media_type(),
-        avatar.object.size_bytes,
-        avatar.object.crc32,
-        &avatar.object.key,
+        kind.media_type(),
+        object.size_bytes,
+        object.crc32,
+        &object.key,
     )
     .await?)
 }

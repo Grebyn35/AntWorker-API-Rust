@@ -1,9 +1,11 @@
 //! Uploading, listing, reading, downloading and deleting files (the files spec): what a
 //! workspace's files and a user's own share, here, and each one's operations, in `workspace.rs`
-//! and `user.rs`, with the public downloads' reads in `public.rs`.
+//! and `user.rs`, with the public downloads' reads in `public.rs`, users' avatars in `avatar.rs`
+//! and workspaces' pictures in `picture.rs`.
 
 pub(super) mod avatar;
 pub(super) mod exported;
+pub(super) mod picture;
 pub(super) mod public;
 pub(super) mod user;
 pub(super) mod workspace;
@@ -208,10 +210,49 @@ where
     .await
 }
 
+/// An image that came with no name, an avatar or a workspace's picture, whose bytes are checked
+/// and scanned, and whose object is written (the files spec's "Avatars").
+pub(super) struct Image {
+    pub(super) kind: Kind,
+    pub(super) object: Object,
+}
+
+/// Uploads an image that came with no name, under `prefix`: finds the kind of its `bytes` among
+/// the image kinds, from the bytes alone; has the scanner scan them; writes their object outside
+/// any transaction; then has `record` record it, in a unit of work of its caller's (D121,
+/// DATA-21). An object whose row never commits is left to the deletion of unreferenced objects
+/// (FILES-011), and the upload counts once in `files.uploads`, by how it ended (FILES-013).
+pub(super) async fn upload_image<T, E, R>(
+    files: &Files,
+    prefix: &str,
+    bytes: Bytes,
+    record: impl FnOnce(Image) -> R,
+) -> Result<T, E>
+where
+    R: Future<Output = Result<T, E>>,
+    E: From<FilesError>,
+{
+    if bytes.is_empty() {
+        return Err(FilesError::Empty.into());
+    }
+    let counted = metrics::Counted::start();
+    // An image kind's check compares the bytes' first few with its signature, which is no
+    // CPU-heavy work, unlike a text's.
+    let Some(kind) = Kind::image_of(&bytes) else {
+        counted.end(Upload::UnsupportedType);
+        return Err(FilesError::UnsupportedType.into());
+    };
+    store(files, counted, prefix, kind, bytes, |object| {
+        record(Image { kind, object })
+    })
+    .await
+}
+
 /// Has the scanner scan `bytes`, of `kind`, writes them under `prefix`, outside any transaction,
 /// then has `record` record them, with their size, their CRC-32, which the workers compute, and
 /// their object's key, and counts the upload that `counted` started by how it ended: stored once
-/// `record` succeeds (FILES-005, FILES-013, FILES-025, DATA-21). An upload of an avatar shares it with a file's (the files spec's "Avatars").
+/// `record` succeeds (FILES-005, FILES-013, FILES-025, DATA-21). An image's upload shares it with
+/// a file's.
 pub(super) async fn store<T, E, R>(
     files: &Files,
     counted: metrics::Counted,

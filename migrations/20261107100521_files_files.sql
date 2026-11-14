@@ -75,6 +75,24 @@ CREATE TABLE avatars (
 
 REVOKE UPDATE ON avatars FROM app;
 
+-- Each workspace's picture, at most one (D149): an image as avatars holds a user's, with no name,
+-- and public. Setting a new one deletes the old row and inserts a new one, whose ID names its
+-- bytes, so rows are never updated. Deleting the workspace deletes its picture's row.
+CREATE TABLE workspace_pictures (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    workspace_id uuid NOT NULL,
+    media_type text NOT NULL,
+    size_bytes bigint NOT NULL,
+    crc32 bigint NOT NULL,
+    object_key text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT workspace_pictures_workspace_id_key UNIQUE (workspace_id),
+    CONSTRAINT workspace_pictures_object_key_key UNIQUE (object_key),
+    CONSTRAINT workspace_pictures_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE
+);
+
+REVOKE UPDATE ON workspace_pictures FROM app;
+
 -- The objects in the bucket that no row names, each with when its bytes may go
 -- (FILES-011). A row is inserted, read and deleted, never updated.
 CREATE TABLE object_deletions (

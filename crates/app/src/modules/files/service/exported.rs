@@ -1,7 +1,8 @@
 //! What an export holds of files (FILES-026, the accounts spec's "Exporting"): the contract's
-//! part of the archive, whose documents give each file's record and the path of its bytes, and
-//! whose rows of `exported_files` hold those bytes for as long as the export lasts; and what
-//! `accounts` reads to serve the archive: those files, and their bytes from the bucket.
+//! part of the archive, whose documents give each file's record, and each image's, and the path
+//! of its bytes, and whose rows of `exported_files` hold those bytes for as long as the export
+//! lasts; and what `accounts` reads to serve the archive: those files, and their bytes from the
+//! bucket.
 
 use std::ops::Range;
 
@@ -18,8 +19,8 @@ use crate::modules::{
     access::{self, AccessError},
     files::{
         model::{
-            AvatarRecord, ExportedFile, FileName, Kind, OwnRecord, Visibility, WorkspaceRecord,
-            path_segment,
+            AvatarRecord, ExportedFile, FileName, Kind, OwnRecord, PictureRecord, Visibility,
+            WorkspaceRecord, path_segment,
         },
         repo::exported::{self as repo, Row},
     },
@@ -59,8 +60,9 @@ pub(crate) async fn exported_bytes(
 }
 
 /// Writes the contract's part of `export`: the user's own files, then their avatar, then the
-/// files of each workspace whose only member they are, each kind a document of its records, a
-/// page at a time, with a row of `exported_files` for each file, which holds its bytes (FILES-026).
+/// files of each workspace whose only member they are, then those workspaces' pictures, each
+/// kind a document of its records, a page at a time, with a row of `exported_files` for each
+/// file, which holds its bytes (FILES-026).
 pub(in crate::modules::files) async fn export(
     uow: &mut UnitOfWork,
     export: &mut ExportArchive,
@@ -95,10 +97,7 @@ pub(in crate::modules::files) async fn export(
     export.finish(uow, document).await?;
     let mut records = Vec::new();
     if let Some(row) = repo::avatar(uow, user).await? {
-        let extension = Kind::of_media_type(&row.media_type)
-            .ok_or_else(|| Internal::new("an avatar of a kind that files doesn't know"))?
-            .extension();
-        let path = format!("files/avatar/{}.{extension}", row.id);
+        let path = format!("files/avatar/{}.{}", row.id, extension(&row)?);
         records.push(AvatarRecord {
             id: row.id,
             media_type: row.media_type.clone(),
@@ -116,10 +115,34 @@ pub(in crate::modules::files) async fn export(
             AccessError::Internal(error) => error,
         })?;
     let mut document = export.document("files/workspace_files.json");
-    for workspace in sole {
-        workspace_files(uow, export, &mut document, &mut held, workspace).await?;
+    for workspace in &sole {
+        workspace_files(uow, export, &mut document, &mut held, *workspace).await?;
     }
-    export.finish(uow, document).await
+    export.finish(uow, document).await?;
+    let mut records = Vec::new();
+    for workspace in sole {
+        if let Some(row) = repo::picture(uow, workspace).await? {
+            let path = format!(
+                "files/workspace_pictures/{}/{}.{}",
+                workspace.uuid(),
+                row.id,
+                extension(&row)?
+            );
+            records.push(PictureRecord {
+                id: row.id,
+                workspace_id: workspace,
+                media_type: row.media_type.clone(),
+                size_bytes: size(&row)?,
+                created_at: Timestamp::from_database(row.created_at),
+                path: path.clone(),
+            });
+            held.add(&row, path)?;
+        }
+    }
+    export
+        .whole(uow, "files/workspace_pictures.json", &records)
+        .await?;
+    held.store(uow, export).await
 }
 
 /// Writes into `document` every file of `workspace`, a page at a time, holding their bytes.
@@ -207,4 +230,12 @@ fn name(row: &Row) -> FileName {
 /// The size of `row`'s file.
 fn size(row: &Row) -> Result<u64, Internal> {
     u64::try_from(row.size_bytes).map_err(Internal::new)
+}
+
+/// The extension that the archive names the image of `row` with, an avatar or a workspace's
+/// picture, which has no name of its own: its kind's first.
+fn extension(row: &Row) -> Result<&'static str, Internal> {
+    Kind::of_media_type(&row.media_type)
+        .map(Kind::extension)
+        .ok_or_else(|| Internal::new("an image of a kind that files doesn't know"))
 }

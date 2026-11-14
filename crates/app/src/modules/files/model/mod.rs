@@ -20,7 +20,7 @@ const NAME_MAX_CHARS: usize = 255;
 
 pub(crate) use exported::ExportedFile;
 pub(in crate::modules::files) use exported::{
-    AvatarRecord, OwnRecord, WorkspaceRecord, path_segment,
+    AvatarRecord, OwnRecord, PictureRecord, WorkspaceRecord, path_segment,
 };
 pub(crate) use kinds::Kind;
 

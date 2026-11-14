@@ -1,5 +1,5 @@
 //! A workspace's files (the files spec), and in its modules a user's own, the links to files'
-//! bytes, public files, ranges of a download's bytes, and users' avatars.
+//! bytes, public files, ranges of a download's bytes, users' avatars, and workspaces' pictures.
 
 mod avatars;
 mod exports;
@@ -8,6 +8,7 @@ mod own;
 mod pictures;
 mod public;
 mod ranges;
+mod workspace_pictures;
 
 use std::{sync::Arc, time::Duration};
 

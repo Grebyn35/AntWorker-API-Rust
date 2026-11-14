@@ -82,7 +82,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | Events reaching a member who may not see them, or from before they joined | Each event reaches only the streams whose memberships hold its permission, and had committed when it did (SEC-19) |
 | Forging an audit entry's actor | The actor and scope come from the unit of work's proof, never the request (AUDIT-002) |
 | A private file's signed URL leaking, as into a copied link | It reaches one file, for an hour at most, and only while its session lasts and its user may still read the file, whom the download authorizes again (FILES-022, PLATFORM-080); no log or trace of the API or of Caddy holds a URL's query (OBS-04) <!-- part: files --> |
-| Learning a public file's name, or finding public files by guessing their IDs | A public download names the file by its ID and its kind's extension alone (SEC-11, FILES-023); a public file's ID, or an avatar's, holds 62 random bits, and the bucket of public downloads bounds each IP's guesses (PLATFORM-082, FILES-024) <!-- part: files --> |
+| Learning a public file's name, or finding public files by guessing their IDs | A public download names the file by its ID and its kind's extension alone (SEC-11, FILES-023); a public file's ID, an avatar's or a workspace's picture's, holds 62 random bits, and the bucket of public downloads bounds each IP's guesses (PLATFORM-082, FILES-024, FILES-027) <!-- part: files --> |
 
 ### Input and output
 
@@ -142,7 +142,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 Requirement 6.1.1 of ASVS asks how the controls defend against credential stuffing and password guessing, how they are configured, and how they keep an attacker from locking an account's owner out. A password sign-in passes the IP limit, then the sign-in limits, which count every attempt before the account is read (SEC-13, AUTH-006). `.env.example` gives each setting below its range and its default:
 
 - **The IP limit** of each client address (PLATFORM-054): `RATE_LIMIT_IP_REQUESTS` requests in each `RATE_LIMIT_WINDOW_SECONDS`.
-  Public downloads, of files and avatars, count apart (PLATFORM-082). <!-- part: files -->
+  Public downloads, of files, avatars and workspaces' pictures, count apart (PLATFORM-082). <!-- part: files -->
 - **The email from one address** (AUTH-006): `SIGN_IN_ATTEMPTS` attempts at one email from one client address in each `SIGN_IN_WINDOW_SECONDS`.
 - **The email from every address** (AUTH-006): `SIGN_IN_EMAIL_ATTEMPTS` attempts at one email in the same window, which counts only what the limit of the email from one address lets through.
 - **A device token** (AUTH-019): a sign-in that brings one valid for its email counts only in that token's own limit, `SIGN_IN_ATTEMPTS` in each window, and in neither of the two above (AUTH-006).

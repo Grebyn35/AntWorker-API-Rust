@@ -1,7 +1,13 @@
 //! Creating workspaces, listing the caller's, reading, renaming, transferring and deleting one
 //! (the workspaces spec). The members' operations are in `members.rs`.
+// part: files
+//! Setting and removing a workspace's picture are in `picture.rs`.
+// end part: files
 
 mod members;
+// part: files
+pub(super) mod picture;
+// end part: files
 
 use std::collections::HashMap;
 
@@ -85,6 +91,9 @@ async fn found(
             name: name.clone(),
             role: Role::Owner,
             created_at,
+            // part: files
+            picture_url: None,
+            // end part: files
         },
         version,
     })
@@ -111,6 +120,9 @@ pub(crate) async fn list(
         access::joined(&mut uow, principal, only.as_deref(), page).await?;
     let ids: Vec<_> = joined.items.iter().map(|item| item.workspace_id).collect();
     let mut names: HashMap<_, _> = repo::names(&mut uow, &ids).await?.into_iter().collect();
+    // part: files
+    let mut pictures = picture::urls(&mut uow, &ids).await?;
+    // end part: files
     // A workspace deleted between the two reads drops out of the page.
     let items = joined
         .items
@@ -123,6 +135,9 @@ pub(crate) async fn list(
                     name,
                     role: membership.role,
                     joined_at: membership.joined_at,
+                    // part: files
+                    picture_url: pictures.remove(&membership.workspace_id),
+                    // end part: files
                 })
         })
         .collect();
@@ -137,17 +152,41 @@ pub(crate) async fn read(
     uow: &mut UnitOfWork,
     authorized: &Authorized<WorkspaceRead>,
 ) -> Result<Current, WorkspacesError> {
-    let id = authorized.workspace_id();
+    current(uow, authorized.workspace_id(), authorized.role()).await
+}
+
+/// The workspace `id`, the one a proof names, as it now stands, for a member whose role is named
+/// `role`, with its version (WORKSPACES-007).
+pub(super) async fn current(
+    uow: &mut UnitOfWork,
+    id: WorkspaceId,
+    role: &str,
+) -> Result<Current, WorkspacesError> {
     let (name, created_at, version) = repo::read(uow, id).await?;
     Ok(Current {
         workspace: Workspace {
             id,
             name,
-            role: Role::from_name(authorized.role())?,
+            role: Role::from_name(role)?,
             created_at,
+            // part: files
+            picture_url: picture::url(uow, id).await?,
+            // end part: files
         },
         version,
     })
+}
+
+/// Publishes that what the members of the workspace `id` read of it changed, to every member,
+/// who reads it again (WORKSPACES-008).
+pub(super) async fn publish_updated(
+    uow: &mut UnitOfWork,
+    id: WorkspaceId,
+) -> Result<(), WorkspacesError> {
+    let payload = published::WorkspaceUpdated { workspace_id: id };
+    uow.publish_to_workspace(&published::WORKSPACE_UPDATED, id, &payload)
+        .await?;
+    Ok(())
 }
 
 /// Renames the caller's workspace, in the unit of work it was authorized in: whatever its
@@ -161,26 +200,15 @@ pub(crate) async fn rename(
     versions: Option<&[Version]>,
 ) -> Result<Current, WorkspacesError> {
     let id = authorized.workspace_id();
-    let Some((created_at, version)) = repo::rename(&mut uow, id, &rename.name, versions).await?
-    else {
+    if !repo::rename(&mut uow, id, &rename.name, versions).await? {
         return Err(RequestError::PreconditionFailed.into());
-    };
+    }
     let entry = Entry::new(audit::WORKSPACE_RENAMED, audit::WORKSPACE, id.uuid());
     log::record(&mut uow, authorized.audit_scope(), entry).await?;
-    let payload = published::WorkspaceRenamed { workspace_id: id };
-    uow.publish_to_workspace(&published::WORKSPACE_RENAMED, id, &payload)
-        .await?;
-    let role = Role::from_name(authorized.role())?;
+    publish_updated(&mut uow, id).await?;
+    let current = current(&mut uow, id, authorized.role()).await?;
     uow.commit().await?;
-    Ok(Current {
-        workspace: Workspace {
-            id,
-            name: rename.name,
-            role,
-            created_at,
-        },
-        version,
-    })
+    Ok(current)
 }
 
 // part: invitations

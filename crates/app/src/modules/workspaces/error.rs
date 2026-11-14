@@ -5,10 +5,26 @@ use platform::errors::{Category, ErrorCode, FieldError, Internal, PlatformError,
 use crate::modules::{
     access::AccessError, accounts::AccountsError, audit::AuditError, auth::AuthError,
 };
+// part: files
+use crate::modules::files::FilesError;
+// end part: files
 
 /// A failure of `workspaces`.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkspacesError {
+    // part: files
+    /// The picture's body is empty, or no PNG, JPEG, GIF or WebP image (WORKSPACES-020).
+    #[error("the picture isn't an image of a kind the API accepts")]
+    PictureNotImage,
+    /// The scanner found malware in the picture, or its contents pass what it scans whole
+    /// (WORKSPACES-020).
+    #[error("the scanner found malware in the picture")]
+    PictureMalwareDetected,
+    /// The scanner or the storage didn't answer (WORKSPACES-020). The documentation of a route
+    /// lists it without its cause.
+    #[error("the picture can't be stored now")]
+    PictureUnavailable(#[source] Option<Internal>),
+    // end part: files
     /// The caller tried to remove themselves (WORKSPACES-006).
     #[error("the caller can't remove themselves")]
     CannotRemoveSelf,
@@ -70,9 +86,33 @@ impl From<AuditError> for WorkspacesError {
     }
 }
 
+// part: files
+impl From<FilesError> for WorkspacesError {
+    /// A picture's upload refused as `files` refuses an upload, in this module's terms: what
+    /// isn't a supported image is no image (WORKSPACES-020).
+    fn from(error: FilesError) -> Self {
+        match error {
+            FilesError::Empty | FilesError::UnsupportedType => Self::PictureNotImage,
+            FilesError::MalwareDetected => Self::PictureMalwareDetected,
+            FilesError::ScannerUnavailable(cause) | FilesError::StorageUnavailable(cause) => {
+                Self::PictureUnavailable(cause)
+            }
+            FilesError::Platform(error) => Self::Platform(error),
+            FilesError::Internal(error) => Self::Internal(error),
+            other => Self::Internal(Internal::new(other)),
+        }
+    }
+}
+// end part: files
+
 impl ErrorCode for WorkspacesError {
     fn code(&self) -> &'static str {
         match self {
+            // part: files
+            Self::PictureNotImage => "workspaces.picture_not_image",
+            Self::PictureMalwareDetected => "workspaces.picture_malware_detected",
+            Self::PictureUnavailable(_) => "workspaces.picture_unavailable",
+            // end part: files
             Self::CannotRemoveSelf => "workspaces.cannot_remove_self",
             Self::MemberNotFound => "workspaces.member_not_found",
             Self::TransferRequiresAdmin => "workspaces.transfer_requires_admin",
@@ -83,6 +123,11 @@ impl ErrorCode for WorkspacesError {
 
     fn title(&self) -> &'static str {
         match self {
+            // part: files
+            Self::PictureNotImage => "Picture not an image",
+            Self::PictureMalwareDetected => "Malware detected",
+            Self::PictureUnavailable(_) => "Picture unavailable",
+            // end part: files
             Self::CannotRemoveSelf => "Can't remove yourself",
             Self::MemberNotFound => "Member not found",
             Self::TransferRequiresAdmin => "Only an admin can become the owner",
@@ -93,6 +138,10 @@ impl ErrorCode for WorkspacesError {
 
     fn category(&self) -> Category {
         match self {
+            // part: files
+            Self::PictureNotImage | Self::PictureMalwareDetected => Category::BusinessRule,
+            Self::PictureUnavailable(_) => Category::Unavailable,
+            // end part: files
             Self::CannotRemoveSelf | Self::TransferRequiresAdmin => Category::BusinessRule,
             Self::MemberNotFound => Category::NotFound,
             Self::Platform(error) => error.category(),
@@ -102,6 +151,15 @@ impl ErrorCode for WorkspacesError {
 
     fn detail(&self) -> Option<String> {
         match self {
+            // part: files
+            Self::PictureNotImage => Some(
+                "A workspace's picture is a PNG, JPEG, GIF or WebP image, of at most 1 MiB."
+                    .to_owned(),
+            ),
+            Self::PictureMalwareDetected => {
+                Some("The malware scanner refused the image, so it wasn't stored.".to_owned())
+            }
+            // end part: files
             Self::CannotRemoveSelf => {
                 Some("Leave the workspace instead of removing yourself.".to_owned())
             }
