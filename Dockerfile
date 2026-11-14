@@ -5,11 +5,11 @@
 # platform's image copies its own. docs/operations/release.md describes the image.
 
 # zig is the C compiler and the linker for both targets, for the C and assembly in ring.
-FROM --platform=$BUILDPLATFORM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS zig-amd64
+FROM --platform=$BUILDPLATFORM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS zig-amd64
 ADD --checksum=sha256:70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00 https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz /zig.tar.xz
 RUN mkdir /zig && tar -xJf /zig.tar.xz -C /zig --strip-components=1
 
-FROM --platform=$BUILDPLATFORM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS zig-arm64
+FROM --platform=$BUILDPLATFORM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS zig-arm64
 ADD --checksum=sha256:ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17 https://ziglang.org/download/0.16.0/zig-aarch64-linux-0.16.0.tar.xz /zig.tar.xz
 RUN mkdir /zig && tar -xJf /zig.tar.xz -C /zig --strip-components=1
 
