@@ -57,7 +57,7 @@ pub(in crate::modules::workspaces) async fn set(
         let entry = Entry::new(audit::PICTURE_UPLOADED, audit::PICTURE, id);
         log::record(&mut uow, authorized.audit_scope(), entry).await?;
         publish_updated(&mut uow, workspace).await?;
-        let current = current(&mut uow, workspace, authorized.role()).await?;
+        let current = current(&mut uow, &authorized).await?;
         uow.commit().await?;
         Ok(current)
     })

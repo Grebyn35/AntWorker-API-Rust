@@ -45,7 +45,7 @@ A new account for whose user a sign-in provider gives a picture gets that pictur
 | `GET /v1/users/me/exports/{export_id}/content` | user | ACCOUNTS-026 |
 
 `PATCH /v1/users/me` accepts an `If-Match` (API-13, PLATFORM-071). `POST /v1/users/me/exports`, which ACCOUNTS-020 and ACCOUNTS-021 describe, is served by `auth`, which confirms it, as it serves the deletion of an account ([auth spec](auth.md#requesting-an-export)).
-`PUT` and `DELETE /v1/users/me/avatar` accept one too, since each changes the record, its `version` with it. <!-- part: files -->
+`PUT` and `DELETE /v1/users/me/avatar` accept one too, since a change of the avatar changes the record, its `version` with it. <!-- part: files -->
 `PUT /v1/users/me/avatar` is an upload route, added through `Routes::user_upload`, whose body is the image's bytes, which it reads through `Upload` with the avatar's limit (ACCOUNTS-009, PLATFORM-074). <!-- part: files -->
 
 ## Behaviors

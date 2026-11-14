@@ -20,8 +20,8 @@ use crate::modules::{
     },
 };
 
-/// The picture's routes, which take `files` as their state. They publish the event that
-/// [`super::routes`] declares.
+/// The picture's routes, which take the pictures' service as their state. They publish the event
+/// that [`super::routes`] declares.
 pub(crate) fn picture_routes() -> Routes<Pictures> {
     Routes::new()
         .workspace_upload::<WorkspaceUpdate>(routes!(set_picture), &SET_ERRORS)

@@ -8,6 +8,11 @@ use super::{TestDatabase, bucket};
 /// The bytes of every file a builder arranges: a text file's.
 pub const BYTES: &[u8] = b"hello";
 
+/// The bytes of the image that the tests upload: the smallest PNG's, its signature, then its
+/// header chunk.
+pub const PNG: &[u8] =
+    b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89";
+
 /// The CRC-32 of [`BYTES`], which the row of every file a builder arranges records (FILES-025).
 pub const CRC32: u32 = 907_060_870;
 

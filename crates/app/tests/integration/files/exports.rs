@@ -9,10 +9,6 @@ use crate::{
     support::{Api, api::Response, bucket, files, users, workspaces},
 };
 
-/// The smallest PNG's bytes: its signature, then its header chunk.
-const PNG: &[u8] =
-    b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89";
-
 /// Sets `user`'s avatar to `bytes`.
 async fn set_avatar(api: &Api, access: &str, bytes: &[u8]) -> Response {
     api.request(http::Method::PUT, "/v1/users/me/avatar")
@@ -55,7 +51,7 @@ async fn files_025_every_upload_records_the_crc_32_of_its_bytes() {
 
     let own = upload_own(&api, &ada, "notes.txt", b"hello there", "", None).await;
     let shared = upload(&api, &ada, &acme, "plan.txt", b"the plan", None).await;
-    let avatar = set_avatar(&api, &ada.access, PNG).await;
+    let avatar = set_avatar(&api, &ada.access, files::PNG).await;
     let gif = b"GIF89a\x01\0\x01\0\0\0\0;";
     let picture = set_picture(&api, &ada.access, &acme, gif).await;
 
@@ -72,7 +68,7 @@ async fn files_025_every_upload_records_the_crc_32_of_its_bytes() {
         db.owner_reads("SELECT crc32::text FROM workspace_pictures")
             .await,
     ];
-    let expected = [b"hello there".as_slice(), b"the plan", PNG, gif]
+    let expected = [b"hello there".as_slice(), b"the plan", files::PNG, gif]
         .map(|bytes| vec![platform::archive::crc32(bytes).to_string()]);
     assert_eq!(recorded, expected);
 }
@@ -94,7 +90,7 @@ async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_w
     let own = upload_own(&api, &ada, "a/b: c.txt", b"my own words", "", None)
         .await
         .json();
-    let avatar = set_avatar(&api, &ada.access, PNG).await;
+    let avatar = set_avatar(&api, &ada.access, files::PNG).await;
     assert_eq!(avatar.status, 200);
     let mine = files::arrange(db, &own_workspace, "notes.md").await;
     // A file Ada uploaded to a workspace that has another member is the workspace's, and so is
@@ -103,7 +99,7 @@ async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_w
     let gif = b"GIF89a\x01\0\x01\0\0\0\0;";
     let picture = set_picture(&api, &ada.access, &own_workspace, gif).await;
     assert_eq!(picture.status, 200);
-    let theirs = set_picture(&api, &grace.access, &shared, PNG).await;
+    let theirs = set_picture(&api, &grace.access, &shared, files::PNG).await;
     assert_eq!(theirs.status, 200);
 
     let id = built(&api, &ada).await;
@@ -139,7 +135,7 @@ async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_w
                 format!("files/own/{own_id}/a_b_ c.txt"),
                 b"my own words".to_vec()
             ),
-            (format!("files/avatar/{avatar_id}.png"), PNG.to_vec()),
+            (format!("files/avatar/{avatar_id}.png"), files::PNG.to_vec()),
             (
                 format!("files/workspaces/{own_workspace}/{mine}/notes.md"),
                 files::BYTES.to_vec()

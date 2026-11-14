@@ -17,7 +17,7 @@
 
 ## Interface
 
-`Contract`, the personal data contract for `workspace_files`, `user_files`, `avatars` and `exported_files` (D31), which exports the user's own files, their avatar, and the files and the picture of each workspace whose only member is the user, holding their bytes for their export (FILES-026), and deletes a deleted user's files and avatar (ACCOUNTS-013). Their bytes go as every unreferenced object's do (FILES-011). A file they uploaded to a workspace stays the workspace's, and its foreign key sets its `uploader_id` to null as the user's row goes (ACCOUNTS-014).
+`Contract`, the personal data contract for `workspace_files`, `user_files`, `avatars`, `workspace_pictures` and `exported_files` (D31), which exports the user's own files, their avatar, and the files and the picture of each workspace whose only member is the user, holding their bytes for their export (FILES-026), and deletes a deleted user's files and avatar (ACCOUNTS-013). Their bytes go as every unreferenced object's do (FILES-011). A file they uploaded to a workspace stays the workspace's, and its foreign key sets its `uploader_id` to null as the user's row goes (ACCOUNTS-014).
 
 What `accounts` uses to serve an export's archive (Design: Exports):
 

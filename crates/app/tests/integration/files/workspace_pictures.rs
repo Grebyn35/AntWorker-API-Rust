@@ -13,15 +13,11 @@ use super::{errors_of, objects, uploads};
 use crate::support::{
     Api,
     api::{Options, Response},
-    bucket, execute_on, queries_wait_on_locks,
+    bucket, execute_on, files, queries_wait_on_locks,
     scanner::{self, Script},
     users::{self, SignedIn},
     workspaces,
 };
-
-/// The smallest PNG's bytes: its signature, then its header chunk.
-const PNG: &[u8] =
-    b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89";
 
 /// Ada, and a workspace that she owns.
 async fn owned(api: &Api) -> (SignedIn, String) {
@@ -43,9 +39,9 @@ async fn set(api: &Api, user: &SignedIn, workspace: &str, bytes: &[u8]) -> Respo
     .await
 }
 
-/// Sets [`PNG`] as the picture of `workspace`, as `user`, and gives its link.
+/// Sets [`files::PNG`] as the picture of `workspace`, as `user`, and gives its link.
 async fn link(api: &Api, user: &SignedIn, workspace: &str) -> String {
-    let response = set(api, user, workspace, PNG).await;
+    let response = set(api, user, workspace, files::PNG).await;
     assert_eq!(response.status, 200);
     response.json()["picture_url"].as_str().unwrap().to_owned()
 }
@@ -119,7 +115,7 @@ async fn workspaces_019_setting_a_picture_stores_it_records_it_and_publishes_it(
     // The registrations' sessions published their starts (AUTH-046).
     db.owner_executes("DELETE FROM events").await;
 
-    let response = set(&api, &grace, &workspace, PNG).await;
+    let response = set(&api, &grace, &workspace, files::PNG).await;
 
     assert_eq!(response.status, 200);
     assert_eq!(response.header("etag"), "\"2\"");
@@ -131,12 +127,12 @@ async fn workspaces_019_setting_a_picture_stores_it_records_it_and_publishes_it(
     let id = id_of(&url);
     assert_eq!(
         rows(&api).await,
-        [format!("{workspace} image/png {}", PNG.len())]
+        [format!("{workspace} image/png {}", files::PNG.len())]
     );
     let downloaded = download(&api, &url).await;
     assert_eq!(downloaded.status, 200);
     assert_eq!(downloaded.header("content-type"), "image/png");
-    assert_eq!(downloaded.body, PNG);
+    assert_eq!(downloaded.body, files::PNG);
     let entries = db
         .owner_reads(
             "SELECT scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
@@ -242,7 +238,7 @@ async fn workspaces_019_setting_a_picture_with_a_stale_etag_answers_412() {
         )
         .header("content-type", "application/octet-stream")
         .header("if-match", &stale)
-        .body(PNG.to_vec())
+        .body(files::PNG.to_vec())
         .bearer(&ada.access)
         .send()
         .await;
@@ -274,7 +270,7 @@ async fn data_20_a_change_of_a_picture_waits_for_another_and_replaces_what_it_se
 
     let request = tokio::spawn({
         let (api, workspace) = (api.clone(), workspace.clone());
-        async move { set(&api, &ada, &workspace, PNG).await }
+        async move { set(&api, &ada, &workspace, files::PNG).await }
     });
     queries_wait_on_locks(db, 1).await;
     execute_on(
@@ -295,7 +291,7 @@ async fn data_20_a_change_of_a_picture_waits_for_another_and_replaces_what_it_se
     assert_eq!(response.header("etag"), "\"3\"");
     assert_eq!(
         rows(&api).await,
-        [format!("{workspace} image/png {}", PNG.len())]
+        [format!("{workspace} image/png {}", files::PNG.len())]
     );
 }
 
@@ -304,7 +300,7 @@ async fn workspaces_020_a_picture_is_a_png_jpeg_gif_or_webp_image_its_kind_from_
     let api = Api::new().await;
     let (ada, workspace) = owned(&api).await;
     let images: [(&[u8], &str); 4] = [
-        (PNG, "image/png"),
+        (files::PNG, "image/png"),
         (b"\xff\xd8\xff\xe0\0\x10JFIF", "image/jpeg"),
         (b"GIF87a\x01\0\x01\0\0\0\0;", "image/gif"),
         (b"RIFF\x1a\0\0\0WEBPVP8 ", "image/webp"),
@@ -340,9 +336,9 @@ async fn workspaces_020_an_empty_body_or_one_that_is_no_such_image_answers_422()
 async fn workspaces_020_a_body_of_more_than_1_mib_answers_413() {
     let api = Api::new().await;
     let (ada, workspace) = owned(&api).await;
-    let mut large = PNG.to_vec();
+    let mut large = files::PNG.to_vec();
     large.resize(1_048_577, 0);
-    let mut largest = PNG.to_vec();
+    let mut largest = files::PNG.to_vec();
     largest.resize(1_048_576, 0);
 
     let refused = set(&api, &ada, &workspace, &large).await;
@@ -381,7 +377,7 @@ async fn workspaces_020_a_picture_in_which_the_scanner_finds_malware_answers_422
     let api = Api::with(Options::default().set("CLAMD_ADDRESS", &stand_in.address)).await;
     let (ada, workspace) = owned(&api).await;
 
-    let response = set(&api, &ada, &workspace, PNG).await;
+    let response = set(&api, &ada, &workspace, files::PNG).await;
 
     assert_eq!(response.status, 422);
     assert_eq!(
@@ -400,7 +396,7 @@ async fn workspaces_020_while_the_scanner_or_the_storage_doesn_t_answer_a_pictur
 
     for api in [&scanner_down, &storage_down] {
         let (ada, workspace) = owned(api).await;
-        let response = set(api, &ada, &workspace, PNG).await;
+        let response = set(api, &ada, &workspace, files::PNG).await;
 
         assert_eq!(response.status, 503);
         assert_eq!(response.json()["code"], "workspaces.picture_unavailable");
@@ -420,7 +416,7 @@ async fn workspaces_020_a_scanner_that_doesn_t_answer_within_its_time_answers_50
     // A scan has 30 seconds (the platform spec's Scanner).
     let wait = Duration::from_secs(30);
 
-    let (response, ()) = tokio::join!(set(&api, &ada, &workspace, PNG), async {
+    let (response, ()) = tokio::join!(set(&api, &ada, &workspace, files::PNG), async {
         stand_in.read.notified().await;
         clock.sleeping(wait).await;
         clock.advance(wait);
@@ -441,7 +437,7 @@ async fn workspaces_020_while_the_storage_doesn_t_answer_within_its_time_a_pictu
     // spec's Storage).
     let wait = Duration::from_secs(15);
 
-    let (response, ()) = tokio::join!(set(&api, &ada, &workspace, PNG), async {
+    let (response, ()) = tokio::join!(set(&api, &ada, &workspace, files::PNG), async {
         clock.sleeping(wait).await;
         clock.advance(wait);
     });
@@ -457,7 +453,7 @@ async fn workspaces_020_a_picture_that_its_route_s_timeout_ends_answers_503_time
     let api = Api::with(Options::default().set("CLAMD_ADDRESS", &stand_in.address)).await;
     let (ada, workspace) = owned(&api).await;
 
-    let (response, ()) = tokio::join!(set(&api, &ada, &workspace, PNG), async {
+    let (response, ()) = tokio::join!(set(&api, &ada, &workspace, files::PNG), async {
         stand_in.read.notified().await;
         // Paused once the scanner holds the scan, whose own wait runs on the test's clock, so
         // tokio's time runs straight to the route's timeout, the only timer left.
@@ -619,7 +615,7 @@ async fn files_027_a_picture_s_download_needs_no_credential_and_names_it_by_its_
 
     assert_eq!(response.status, 200);
     assert_eq!(response.header("content-type"), "image/png");
-    assert_eq!(response.body, PNG);
+    assert_eq!(response.body, files::PNG);
     assert_eq!(
         response.header("content-disposition"),
         format!("inline; filename=\"{id}.png\"; filename*=UTF-8''{id}.png")
@@ -649,9 +645,9 @@ async fn files_027_a_picture_s_download_serves_a_range_of_its_bytes() {
     assert_eq!(response.status, 206);
     assert_eq!(
         response.header("content-range"),
-        format!("bytes 0-7/{}", PNG.len())
+        format!("bytes 0-7/{}", files::PNG.len())
     );
-    assert_eq!(response.body, &PNG[..8]);
+    assert_eq!(response.body, &files::PNG[..8]);
 }
 
 #[tokio::test]
@@ -750,7 +746,7 @@ async fn files_013_a_picture_s_upload_is_counted_by_how_it_ended() {
     let (ada, workspace) = owned(&api).await;
     let (stored, unsupported) = (uploads("stored"), uploads("unsupported_type"));
 
-    set(&api, &ada, &workspace, PNG).await;
+    set(&api, &ada, &workspace, files::PNG).await;
     set(&api, &ada, &workspace, b"hello").await;
 
     // Tests running alongside upload too, so the counts grow by at least these.

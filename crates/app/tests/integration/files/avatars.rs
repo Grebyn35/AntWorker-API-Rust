@@ -13,15 +13,11 @@ use super::{errors_of, objects, uploads};
 use crate::support::{
     Api,
     api::{Options, Response},
-    bucket,
+    bucket, files,
     scanner::{self, Script},
     users::{self, SignedIn},
     workspaces,
 };
-
-/// The smallest PNG's bytes: its signature, then its header chunk.
-const PNG: &[u8] =
-    b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89";
 
 /// Sets `bytes` as `user`'s avatar.
 async fn set(api: &Api, user: &SignedIn, bytes: &[u8]) -> Response {
@@ -89,7 +85,7 @@ async fn accounts_008_setting_an_avatar_stores_it_records_it_and_publishes_it() 
     // The registrations' sessions published their starts (AUTH-046).
     db.owner_executes("DELETE FROM events").await;
 
-    let response = set(&api, &ada, PNG).await;
+    let response = set(&api, &ada, files::PNG).await;
 
     assert_eq!(response.status, 200);
     assert_eq!(response.header("etag"), "\"3\"");
@@ -100,12 +96,12 @@ async fn accounts_008_setting_an_avatar_stores_it_records_it_and_publishes_it() 
     let id = id_of(&url);
     assert_eq!(
         rows(&api).await,
-        [format!("{} image/png {}", ada.user_id, PNG.len())]
+        [format!("{} image/png {}", ada.user_id, files::PNG.len())]
     );
     let downloaded = download(&api, &url).await;
     assert_eq!(downloaded.status, 200);
     assert_eq!(downloaded.header("content-type"), "image/png");
-    assert_eq!(downloaded.body, PNG);
+    assert_eq!(downloaded.body, files::PNG);
     let ada_id = &ada.user_id;
     let entries = db
         .owner_reads(
@@ -137,7 +133,7 @@ async fn accounts_008_setting_an_avatar_stores_it_records_it_and_publishes_it() 
 async fn accounts_008_a_new_avatar_replaces_the_one_before_whose_bytes_stay() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let first = set(&api, &ada, PNG).await.json()["avatar_url"]
+    let first = set(&api, &ada, files::PNG).await.json()["avatar_url"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -178,7 +174,7 @@ async fn accounts_008_setting_an_avatar_without_a_credential_answers_401_with_it
 async fn accounts_009_an_avatar_is_a_png_jpeg_gif_or_webp_image_its_kind_from_its_bytes() {
     let api = Api::new().await;
     let images: [(&[u8], &str); 4] = [
-        (PNG, "image/png"),
+        (files::PNG, "image/png"),
         (b"\xff\xd8\xff\xe0\0\x10JFIF", "image/jpeg"),
         (b"GIF87a\x01\0\x01\0\0\0\0;", "image/gif"),
         (b"RIFF\x1a\0\0\0WEBPVP8 ", "image/webp"),
@@ -215,9 +211,9 @@ async fn accounts_009_an_empty_body_or_one_that_is_no_such_image_answers_422() {
 async fn accounts_009_a_body_of_more_than_1_mib_answers_413() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let mut large = PNG.to_vec();
+    let mut large = files::PNG.to_vec();
     large.resize(1_048_577, 0);
-    let mut largest = PNG.to_vec();
+    let mut largest = files::PNG.to_vec();
     largest.resize(1_048_576, 0);
 
     let refused = set(&api, &ada, &large).await;
@@ -238,7 +234,7 @@ async fn accounts_009_an_avatar_in_which_the_scanner_finds_malware_answers_422()
     let api = Api::with(Options::default().set("CLAMD_ADDRESS", &stand_in.address)).await;
     let ada = users::register(&api, "ada@example.com").await;
 
-    let response = set(&api, &ada, PNG).await;
+    let response = set(&api, &ada, files::PNG).await;
 
     assert_eq!(response.status, 422);
     assert_eq!(response.json()["code"], "accounts.avatar_malware_detected");
@@ -254,7 +250,7 @@ async fn accounts_009_while_the_scanner_or_the_storage_doesn_t_answer_an_avatar_
 
     for api in [&scanner_down, &storage_down] {
         let ada = users::register(api, "ada@example.com").await;
-        let response = set(api, &ada, PNG).await;
+        let response = set(api, &ada, files::PNG).await;
 
         assert_eq!(response.status, 503);
         assert_eq!(response.json()["code"], "accounts.avatar_unavailable");
@@ -270,7 +266,7 @@ async fn accounts_010_removing_an_avatar_deletes_it_records_it_and_publishes_it(
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let acme = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
-    let url = set(&api, &ada, PNG).await.json()["avatar_url"]
+    let url = set(&api, &ada, files::PNG).await.json()["avatar_url"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -341,7 +337,7 @@ async fn accounts_011_the_record_and_each_profile_carry_the_avatar_s_link() {
     workspaces::join(db, &acme, &grace.user_id, "member").await;
     let before = api.get("/v1/users/me").bearer(&ada.access).send().await;
 
-    let url = set(&api, &ada, PNG).await.json()["avatar_url"]
+    let url = set(&api, &ada, files::PNG).await.json()["avatar_url"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -377,7 +373,7 @@ async fn workspaces_010_each_member_carries_the_link_of_their_avatar() {
     let db = api.database();
     let acme = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
     workspaces::join(db, &acme, &grace.user_id, "member").await;
-    let url = set(&api, &grace, PNG).await.json()["avatar_url"].clone();
+    let url = set(&api, &grace, files::PNG).await.json()["avatar_url"].clone();
 
     let members = api
         .get(&format!("/v1/workspaces/{acme}/members"))
@@ -401,7 +397,7 @@ async fn workspaces_010_each_member_carries_the_link_of_their_avatar() {
 async fn files_024_an_avatar_s_download_needs_no_credential_and_names_it_by_its_id() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let url = set(&api, &ada, PNG).await.json()["avatar_url"]
+    let url = set(&api, &ada, files::PNG).await.json()["avatar_url"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -459,13 +455,13 @@ async fn files_011_a_replaced_avatar_s_object_goes_once_its_delay_has_passed() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
-    set(&api, &ada, PNG).await;
+    set(&api, &ada, files::PNG).await;
     let first = db
         .owner_reads("SELECT object_key FROM avatars")
         .await
         .remove(0);
     assert!(first.starts_with("avatars/"), "{first}");
-    set(&api, &ada, PNG).await;
+    set(&api, &ada, files::PNG).await;
     let second = db
         .owner_reads("SELECT object_key FROM avatars")
         .await
@@ -490,7 +486,7 @@ async fn files_013_an_avatar_s_upload_is_counted_by_how_it_ended() {
     let ada = users::register(&api, "ada@example.com").await;
     let (stored, unsupported) = (uploads("stored"), uploads("unsupported_type"));
 
-    set(&api, &ada, PNG).await;
+    set(&api, &ada, files::PNG).await;
     set(&api, &ada, b"hello").await;
 
     // Tests running alongside upload too, so the counts grow by at least these.
@@ -525,7 +521,7 @@ async fn accounts_009_a_scanner_that_doesn_t_answer_within_its_time_answers_503(
     // A scan has 30 seconds (the platform spec's Scanner).
     let wait = Duration::from_secs(30);
 
-    let (response, ()) = tokio::join!(set(&api, &ada, PNG), async {
+    let (response, ()) = tokio::join!(set(&api, &ada, files::PNG), async {
         stand_in.read.notified().await;
         clock.sleeping(wait).await;
         clock.advance(wait);
@@ -542,7 +538,7 @@ async fn accounts_009_an_avatar_that_its_route_s_timeout_ends_answers_503_timed_
     let api = Api::with(Options::default().set("CLAMD_ADDRESS", &stand_in.address)).await;
     let ada = users::register(&api, "ada@example.com").await;
 
-    let (response, ()) = tokio::join!(set(&api, &ada, PNG), async {
+    let (response, ()) = tokio::join!(set(&api, &ada, files::PNG), async {
         stand_in.read.notified().await;
         // Paused once the scanner holds the scan, whose own wait runs on the test's clock, so
         // tokio's time runs straight to the route's timeout, the only timer left.
@@ -559,13 +555,13 @@ async fn accounts_008_setting_an_avatar_with_a_stale_etag_answers_412() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let stale = etag(&api, &ada).await;
-    set(&api, &ada, PNG).await;
+    set(&api, &ada, files::PNG).await;
 
     let response = api
         .request(http::Method::PUT, "/v1/users/me/avatar")
         .header("content-type", "application/octet-stream")
         .header("if-match", &stale)
-        .body(PNG.to_vec())
+        .body(files::PNG.to_vec())
         .bearer(&ada.access)
         .send()
         .await;
@@ -585,7 +581,7 @@ async fn accounts_010_removing_an_avatar_with_a_stale_etag_answers_412_and_with_
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let stale = etag(&api, &ada).await;
-    set(&api, &ada, PNG).await;
+    set(&api, &ada, files::PNG).await;
     let current = etag(&api, &ada).await;
     let remove_with = |etag: &str| {
         api.request(http::Method::DELETE, "/v1/users/me/avatar")
@@ -612,7 +608,7 @@ async fn accounts_008_setting_an_avatar_reads_no_idempotency_key() {
         .request(http::Method::PUT, "/v1/users/me/avatar")
         .header("content-type", "application/octet-stream")
         .header("idempotency-key", "not a key")
-        .body(PNG.to_vec())
+        .body(files::PNG.to_vec())
         .bearer(&ada.access)
         .send()
         .await;
@@ -624,7 +620,7 @@ async fn accounts_008_setting_an_avatar_reads_no_idempotency_key() {
 async fn files_024_an_avatar_s_download_serves_a_range_of_its_bytes() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let url = set(&api, &ada, PNG).await.json()["avatar_url"]
+    let url = set(&api, &ada, files::PNG).await.json()["avatar_url"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -634,16 +630,16 @@ async fn files_024_an_avatar_s_download_serves_a_range_of_its_bytes() {
     assert_eq!(response.status, 206);
     assert_eq!(
         response.header("content-range"),
-        format!("bytes 0-7/{}", PNG.len())
+        format!("bytes 0-7/{}", files::PNG.len())
     );
-    assert_eq!(response.body, &PNG[..8]);
+    assert_eq!(response.body, &files::PNG[..8]);
 }
 
 #[tokio::test]
 async fn files_024_an_avatar_s_download_counts_in_the_bucket_of_public_downloads() {
     let api = Api::with(Options::default().set("RATE_LIMIT_PUBLIC_REQUESTS", 7)).await;
     let ada = users::register(&api, "ada@example.com").await;
-    let url = set(&api, &ada, PNG).await.json()["avatar_url"]
+    let url = set(&api, &ada, files::PNG).await.json()["avatar_url"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -658,11 +654,11 @@ async fn files_024_an_avatar_s_download_counts_in_the_bucket_of_public_downloads
 async fn files_024_a_replaced_or_removed_avatar_s_download_answers_404() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let replaced = set(&api, &ada, PNG).await.json()["avatar_url"]
+    let replaced = set(&api, &ada, files::PNG).await.json()["avatar_url"]
         .as_str()
         .unwrap()
         .to_owned();
-    let removed = set(&api, &ada, PNG).await.json()["avatar_url"]
+    let removed = set(&api, &ada, files::PNG).await.json()["avatar_url"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -686,7 +682,7 @@ async fn accounts_009_while_the_storage_doesn_t_answer_within_its_time_an_avatar
     // spec's Storage).
     let wait = Duration::from_secs(15);
 
-    let (response, ()) = tokio::join!(set(&api, &ada, PNG), async {
+    let (response, ()) = tokio::join!(set(&api, &ada, files::PNG), async {
         clock.sleeping(wait).await;
         clock.advance(wait);
     });

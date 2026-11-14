@@ -37,7 +37,7 @@ A workspace's owner and admins also set and remove its picture here, whose image
 | `DELETE /v1/workspaces/{workspace_id}/picture` | `workspace::<WorkspaceUpdate>` | WORKSPACES-021 <!-- part: files --> |
 
 `POST /v1/workspaces` accepts an `Idempotency-Key` (API-12), and each `PATCH` an `If-Match` (API-13, PLATFORM-071).
-`PUT` and `DELETE .../picture` accept an `If-Match` too, since each changes the workspace, its `version` with it. <!-- part: files -->
+`PUT` and `DELETE .../picture` accept an `If-Match` too, since a change of the picture changes the workspace, its `version` with it. <!-- part: files -->
 `PUT .../picture` is an upload route, added through `Routes::workspace_upload`, whose body is the image's bytes, which it reads through `Upload` with the picture's limit (WORKSPACES-020, PLATFORM-074). <!-- part: files -->
 
 ## Behaviors

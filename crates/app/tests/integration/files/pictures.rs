@@ -7,16 +7,13 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     api::Options,
+    files,
     providers::{self, gives, grant, sign_in, signed_in},
     scanner::{self, Script},
     upstream::Upstream,
     users::{self, SignedIn},
     workspaces,
 };
-
-/// The smallest PNG's bytes: its signature, then its header chunk.
-const PNG: &[u8] =
-    b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89";
 
 /// The path of Ada's picture at the stand-in.
 const PICTURE: &str = "/pictures/ada.png";
@@ -89,7 +86,7 @@ fn not_copied() -> f64 {
 #[tokio::test]
 async fn accounts_028_a_registration_through_a_provider_gets_its_picture_as_its_avatar() {
     let (upstream, api) = standing(Options::default()).await;
-    let ada = registered(&upstream, &api, PNG).await;
+    let ada = registered(&upstream, &api, files::PNG).await;
     workspaces::member_of_many(api.database(), &ada.user_id, 1, "owner").await;
     let before = api.get("/v1/users/me").bearer(&ada.access).send().await;
     assert_eq!(before.json()["avatar_url"], Value::Null);
@@ -103,7 +100,7 @@ async fn accounts_028_a_registration_through_a_provider_gets_its_picture_as_its_
     let picture = api.get(&url).send().await;
     assert_eq!(picture.status, 200);
     assert_eq!(picture.header("content-type"), "image/png");
-    assert_eq!(&picture.body[..], PNG);
+    assert_eq!(&picture.body[..], files::PNG);
     let id = url.rsplit('/').next().unwrap();
     assert_eq!(
         reads(
@@ -134,7 +131,7 @@ async fn accounts_028_a_registration_through_a_provider_gets_its_picture_as_its_
 #[tokio::test]
 async fn accounts_028_a_second_run_of_the_job_changes_nothing() {
     let (upstream, api) = standing(Options::default()).await;
-    let ada = registered(&upstream, &api, PNG).await;
+    let ada = registered(&upstream, &api, files::PNG).await;
     api.run_jobs().await;
     let first = avatar_url(&api, &ada).await;
     // The job again, as a second delivery runs it.
@@ -165,11 +162,11 @@ async fn accounts_028_a_second_run_of_the_job_changes_nothing() {
 #[tokio::test]
 async fn accounts_028_an_account_that_set_an_avatar_meanwhile_keeps_it() {
     let (upstream, api) = standing(Options::default()).await;
-    let ada = registered(&upstream, &api, PNG).await;
+    let ada = registered(&upstream, &api, files::PNG).await;
     let set = api
         .request(http::Method::PUT, "/v1/users/me/avatar")
         .header("content-type", "application/octet-stream")
-        .body(PNG.to_vec())
+        .body(files::PNG.to_vec())
         .bearer(&ada.access)
         .send()
         .await;
@@ -194,7 +191,7 @@ async fn accounts_028_an_account_that_set_an_avatar_meanwhile_keeps_it() {
 async fn accounts_028_a_picture_that_is_no_avatar_leaves_the_account_without_one() {
     // Bytes that are no image, more bytes than an avatar holds, and an answer that says the
     // address gives nothing.
-    let large = [PNG, &vec![0; 1_048_576]].concat();
+    let large = [files::PNG, &vec![0; 1_048_576]].concat();
     for (status, bytes) in [(200, b"hello".as_slice()), (200, &large), (404, b"")] {
         let (upstream, api) = standing(Options::default()).await;
         upstream.set_bytes("GET", PICTURE, status, bytes);
@@ -215,7 +212,7 @@ async fn accounts_028_a_picture_in_which_the_scanner_finds_malware_leaves_no_ava
     let stand_in = scanner::scripted(Script::Answer("stream: Eicar-Test-Signature FOUND")).await;
     let options = Options::default().set("CLAMD_ADDRESS", &stand_in.address);
     let (upstream, api) = standing(options).await;
-    let ada = registered(&upstream, &api, PNG).await;
+    let ada = registered(&upstream, &api, files::PNG).await;
 
     api.run_jobs().await;
 
@@ -238,7 +235,7 @@ async fn accounts_028_an_address_that_the_untrusted_client_refuses_is_never_fetc
         "http://pictures.example.com/ada.png",
     ] {
         let (upstream, api) = standing(Options::default()).await;
-        upstream.set_bytes("GET", PICTURE, 200, PNG);
+        upstream.set_bytes("GET", PICTURE, 200, files::PNG);
         pictured(&upstream, picture);
         let ada = signed_in(&api).await;
         let ignored = not_copied();
@@ -289,7 +286,7 @@ async fn accounts_028_a_scanner_that_doesn_t_answer_is_tried_again_until_the_fif
     let stand_in = scanner::scripted(Script::Close).await;
     let options = Options::default().set("CLAMD_ADDRESS", &stand_in.address);
     let (upstream, api) = standing(options).await;
-    let ada = registered(&upstream, &api, PNG).await;
+    let ada = registered(&upstream, &api, files::PNG).await;
 
     api.run_jobs().await;
 
@@ -317,7 +314,7 @@ async fn accounts_028_a_storage_that_doesn_t_answer_is_tried_again_until_the_fif
     // Nothing listens on port 9 of the loopback address.
     let options = Options::default().set("S3_ENDPOINT", "http://127.0.0.1:9");
     let (upstream, api) = standing(options).await;
-    let ada = registered(&upstream, &api, PNG).await;
+    let ada = registered(&upstream, &api, files::PNG).await;
 
     api.run_jobs().await;
 

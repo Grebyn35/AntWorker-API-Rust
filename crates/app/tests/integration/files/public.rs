@@ -19,18 +19,15 @@ async fn upload_query(
     upload_queried(api, user, workspace, query, "a.png", bytes).await
 }
 
-/// The smallest PNG's bytes: its signature, then its header chunk.
-const PNG: &[u8] =
-    b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89";
-
 #[tokio::test]
 async fn files_020_an_upload_is_private_unless_its_visibility_is_public() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
 
-    let private = upload_query(&api, &ada, &workspace, "", PNG).await;
-    let public = upload_query(&api, &ada, &workspace, "?visibility=public", PNG).await;
-    let named_private = upload_query(&api, &ada, &workspace, "?visibility=private", PNG).await;
+    let private = upload_query(&api, &ada, &workspace, "", files::PNG).await;
+    let public = upload_query(&api, &ada, &workspace, "?visibility=public", files::PNG).await;
+    let named_private =
+        upload_query(&api, &ada, &workspace, "?visibility=private", files::PNG).await;
 
     assert_eq!(private.status, 201);
     assert_eq!(private.json()["visibility"], "private");
@@ -50,7 +47,8 @@ async fn files_001_a_member_and_an_admin_may_upload_a_public_file() {
     workspaces::join(api.database(), &workspace, &alan.user_id, "admin").await;
 
     for uploader in [&grace, &alan] {
-        let response = upload_query(&api, uploader, &workspace, "?visibility=public", PNG).await;
+        let response =
+            upload_query(&api, uploader, &workspace, "?visibility=public", files::PNG).await;
 
         assert_eq!(response.status, 201);
         assert_eq!(response.json()["visibility"], "public");
@@ -77,7 +75,7 @@ async fn files_020_another_visibility_answers_400_with_the_body_unread() {
 async fn files_023_anyone_downloads_a_public_file_under_its_id_and_its_kind_s_extension() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
-    let uploaded = upload_query(&api, &ada, &workspace, "?visibility=public", PNG)
+    let uploaded = upload_query(&api, &ada, &workspace, "?visibility=public", files::PNG)
         .await
         .json();
     let id = uploaded["id"].as_str().unwrap();
@@ -119,7 +117,7 @@ async fn files_023_anyone_downloads_a_public_file_under_its_id_and_its_kind_s_ex
         .await;
 
     assert_eq!(image.status, 200);
-    assert_eq!(image.body, PNG);
+    assert_eq!(image.body, files::PNG);
     assert_eq!(image.header("content-type"), "image/png");
     // Each is named by its ID and its kind's first extension, so every browser saves it with
     // that extension, and never by its own name (D115).

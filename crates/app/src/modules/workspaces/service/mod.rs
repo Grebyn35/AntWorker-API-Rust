@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use platform::{
     authn::Principal,
-    authz::Authorized,
+    authz::{Authorized, Permission},
     db::{Database, UnitOfWork},
     errors::{Internal, RequestError},
     idempotency::{Claimed, IdempotencyKey},
@@ -152,22 +152,23 @@ pub(crate) async fn read(
     uow: &mut UnitOfWork,
     authorized: &Authorized<WorkspaceRead>,
 ) -> Result<Current, WorkspacesError> {
-    current(uow, authorized.workspace_id(), authorized.role()).await
+    current(uow, authorized).await
 }
 
-/// The workspace `id`, the one a proof names, as it now stands, for a member whose role is named
-/// `role`, with its version (WORKSPACES-007).
-pub(super) async fn current(
+/// The workspace that `authorized` names, as it now stands, with the role of the member it
+/// proves, and its version, which an operation that changed the workspace answers too
+/// (WORKSPACES-007).
+pub(super) async fn current<P: Permission>(
     uow: &mut UnitOfWork,
-    id: WorkspaceId,
-    role: &str,
+    authorized: &Authorized<P>,
 ) -> Result<Current, WorkspacesError> {
+    let id = authorized.workspace_id();
     let (name, created_at, version) = repo::read(uow, id).await?;
     Ok(Current {
         workspace: Workspace {
             id,
             name,
-            role: Role::from_name(role)?,
+            role: Role::from_name(authorized.role())?,
             created_at,
             // part: files
             picture_url: picture::url(uow, id).await?,
@@ -206,7 +207,7 @@ pub(crate) async fn rename(
     let entry = Entry::new(audit::WORKSPACE_RENAMED, audit::WORKSPACE, id.uuid());
     log::record(&mut uow, authorized.audit_scope(), entry).await?;
     publish_updated(&mut uow, id).await?;
-    let current = current(&mut uow, id, authorized.role()).await?;
+    let current = current(&mut uow, authorized).await?;
     uow.commit().await?;
     Ok(current)
 }
