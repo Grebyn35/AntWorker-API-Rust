@@ -10,7 +10,7 @@ use crate::{
     support::{
         Api, execute_on, mailbox,
         operator::{EMAIL_OFF, SENDS_EMAIL, finished, refused},
-        queries_waiting_on_locks, streams,
+        query_waits_on_a_lock, streams,
         users::{self, PASSWORD},
     },
 };
@@ -112,18 +112,6 @@ async fn count(api: &Api, table: &str) -> String {
     reads(api, &format!("SELECT count(*)::text FROM {table}"))
         .await
         .remove(0)
-}
-
-/// Waits until a query that holds `text` waits on a lock: the state a race's outcome depends on,
-/// rather than any wait (TEST-06).
-async fn waits_on_a_lock(api: &Api, text: &str) {
-    while !queries_waiting_on_locks(api.database())
-        .await
-        .iter()
-        .any(|query| query.contains(text))
-    {
-        tokio::task::yield_now().await;
-    }
 }
 
 #[tokio::test]
@@ -344,7 +332,7 @@ async fn workspaces_024_an_account_that_a_deletion_takes_while_the_run_waits_lea
         let address = address.clone();
         async move { set_up(&api, &SENDS_EMAIL, &["Acme", &address, "Ada Lovelace"]).await }
     });
-    waits_on_a_lock(&api, "FOR NO KEY UPDATE").await;
+    query_waits_on_a_lock(api.database(), "FOR NO KEY UPDATE").await;
     execute_on(&mut deletion, "COMMIT").await;
     let run = run.await.unwrap();
 
@@ -379,7 +367,7 @@ async fn workspaces_024_an_account_that_changes_its_address_while_the_run_waits_
         let address = address.clone();
         async move { set_up(&api, &SENDS_EMAIL, &["Acme", &address, "Ada Lovelace"]).await }
     });
-    waits_on_a_lock(&api, "FOR NO KEY UPDATE").await;
+    query_waits_on_a_lock(api.database(), "FOR NO KEY UPDATE").await;
     execute_on(&mut change, "COMMIT").await;
     let run = run.await.unwrap();
 
@@ -624,7 +612,7 @@ async fn workspaces_027_of_two_runs_at_once_with_one_name_one_sets_its_workspace
         let address = address.clone();
         async move { set_up(&api, &SENDS_EMAIL, &["Acme", &address, "Ada Lovelace"]).await }
     });
-    waits_on_a_lock(&api, "INSERT INTO workspace_setups").await;
+    query_waits_on_a_lock(api.database(), "INSERT INTO workspace_setups").await;
     execute_on(&mut other, "COMMIT").await;
     let run = run.await.unwrap();
 
@@ -796,7 +784,7 @@ async fn workspaces_028_an_account_that_takes_the_address_while_the_run_creates_
         let address = address.clone();
         async move { set_up(&api, &SENDS_EMAIL, &["Acme", &address, "Ada Lovelace"]).await }
     });
-    waits_on_a_lock(&api, "INSERT INTO users").await;
+    query_waits_on_a_lock(api.database(), "INSERT INTO users").await;
     execute_on(&mut registration, "COMMIT").await;
     let run = run.await.unwrap();
 

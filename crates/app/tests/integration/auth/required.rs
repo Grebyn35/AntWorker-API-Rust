@@ -10,7 +10,7 @@ use crate::support::{
     api::Response,
     execute_on, mailbox,
     operator::{self, EMAIL_OFF, SENDS_EMAIL, printed},
-    queries_waiting_on_locks,
+    query_waits_on_a_lock,
     second_factors::{self, add_app, code, confirm, start_setup},
     users::{self, PASSWORD, SignedIn},
     workspaces,
@@ -605,15 +605,8 @@ async fn auth_072_an_account_that_changes_its_address_while_the_removal_waits_ke
         let address = address.clone();
         async move { remove(&api, &address).await }
     });
-    // The removal's read of the account waits for its row: the state the outcome depends on
-    // (TEST-06).
-    while !queries_waiting_on_locks(api.database())
-        .await
-        .iter()
-        .any(|query| query.contains("FOR NO KEY UPDATE"))
-    {
-        tokio::task::yield_now().await;
-    }
+    // The removal's read of the account waits for its row.
+    query_waits_on_a_lock(api.database(), "FOR NO KEY UPDATE").await;
     execute_on(&mut change, "COMMIT").await;
     let removal = removal.await.unwrap();
 

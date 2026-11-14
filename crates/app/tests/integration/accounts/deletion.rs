@@ -13,7 +13,7 @@ use crate::support::{
     Api, TestDatabase,
     api::Response,
     events::{self, Event},
-    execute_on, mailbox, queries_wait_on_locks, queries_waiting_on_locks, streams,
+    execute_on, mailbox, queries_wait_on_locks, query_waits_on_a_lock, streams,
     users::{self, SignedIn},
     workspaces,
 };
@@ -651,15 +651,8 @@ async fn accounts_019_a_deletion_that_finds_the_account_gone_as_it_reads_its_ema
                 .status
         }
     });
-    // The read of the user waits on the lock: the state the outcome depends on, rather than any
-    // wait, which another statement may end before the list is read (TEST-06).
-    while !queries_waiting_on_locks(db)
-        .await
-        .iter()
-        .any(|query| query.contains("FROM users WHERE id"))
-    {
-        tokio::task::yield_now().await;
-    }
+    // The read of the user waits on the lock.
+    query_waits_on_a_lock(db, "FROM users WHERE id").await;
     execute_on(
         &mut other,
         &format!("DELETE FROM users WHERE id = '{}'", ada.user_id),

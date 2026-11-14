@@ -646,6 +646,19 @@ pub async fn queries_waiting_on_locks(db: &TestDatabase) -> Vec<String> {
     .await
 }
 
+/// Waits until a query of the test database whose text holds `text` waits on a lock: the state
+/// that the outcome of a race depends on, rather than any wait, which another statement may end
+/// before the list is read (TEST-06).
+pub async fn query_waits_on_a_lock(db: &TestDatabase, text: &str) {
+    while !queries_waiting_on_locks(db)
+        .await
+        .iter()
+        .any(|query| query.contains(text))
+    {
+        tokio::task::yield_now().await;
+    }
+}
+
 fn settings() -> BootstrapConfig {
     if let Err(error) = dotenvy::dotenv() {
         assert!(error.not_found(), "can't read .env: {error}");

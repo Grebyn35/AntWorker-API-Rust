@@ -14,7 +14,7 @@
 
 - The permission types used with `Authorized<P>`, one type per permission of the matrix below that a route requires.
 - `AccessPolicy`, implemented for `platform::authz`: `authorize`, and `memberships`, which gives each of a set of users their `Memberships`, for the hub's streams (ACCESS-007).
-- `add_owner(uow, workspace_id, user_id)`: makes the creator the owner of a new workspace. Called only by `workspaces`.
+- `add_owner(uow, workspace_id, user_id)`: makes a user the owner of a new workspace, and signals the change of their access. Called only by `workspaces`, in the one operation that creates a workspace.
 - `hold_owner(uow, workspace_id)`: locks the membership of the workspace's owner `FOR KEY SHARE`, whoever owns it once the lock is taken, and answers whether the workspace is still there (ACCESS-008, ACCESS-010). Called only by `invitations`, as accepting's first lock. <!-- part: invitations -->
 - `add_member(uow, workspace_id, user_id, role)`: adds a member, or reports that the user is one already, which changes nothing. Called only by `invitations`, after accepting, once `hold_owner` has locked the owner's membership. <!-- part: invitations -->
 - `is_member(uow, workspace_id, user_id)`: whether the user belongs to the workspace. <!-- part: invitations -->

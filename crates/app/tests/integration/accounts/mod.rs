@@ -9,7 +9,7 @@ use crate::support::{
     Api,
     api::Response,
     events::{self, Event},
-    execute_on, queries_wait_on_locks, queries_waiting_on_locks, streams,
+    execute_on, queries_wait_on_locks, query_waits_on_a_lock, streams,
     users::{self, PASSWORD, SignedIn},
     workspaces,
 };
@@ -348,15 +348,8 @@ async fn accounts_019_a_read_that_finds_the_account_gone_answers_401() {
         .await;
 
     let read = api.spawn(http::Method::GET, "/v1/users/me", &ada.access, None);
-    // The read of the record waits on the lock: the state the outcome depends on, rather than any
-    // wait, which another statement may end before the list is read (TEST-06).
-    while !queries_waiting_on_locks(db)
-        .await
-        .iter()
-        .any(|query| query.contains("FROM users WHERE id"))
-    {
-        tokio::task::yield_now().await;
-    }
+    // The read of the record waits on the lock.
+    query_waits_on_a_lock(db, "FROM users WHERE id").await;
     execute_on(
         &mut deletion,
         &format!("DELETE FROM users WHERE id = '{}'", ada.user_id),
