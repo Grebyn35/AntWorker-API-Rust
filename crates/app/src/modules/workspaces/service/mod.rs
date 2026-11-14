@@ -25,7 +25,7 @@ use platform::{
     idempotency::{Claimed, IdempotencyKey},
     jobs,
     lists::{List, Page, Search},
-    types::{Client, SessionId, UserId, Version, WorkspaceId},
+    types::{Client, UserId, Version, WorkspaceId},
 };
 
 pub(super) use self::members::left;
@@ -46,8 +46,8 @@ use crate::modules::{
 };
 
 /// Creates a workspace that the caller owns, in a unit of work of its own, which claims `key`
-/// first, so a retry with the same key and request answers the same workspace (WORKSPACES-001,
-/// PLATFORM-036).
+/// first, so a retry with the same key and request answers the same workspace, and tells the
+/// caller's streams, with the session that created it (WORKSPACES-001, PLATFORM-036).
 pub(crate) async fn create(
     database: &Database,
     client: &Client,
@@ -65,10 +65,19 @@ pub(crate) async fn create(
     )]
     let founder = Founder {
         owner: principal.user_id(),
-        session: Some(principal.session_id()),
         scope: |workspace| principal.founder_scope(workspace),
     };
     let created = found(&mut uow, &input.name, founder).await?;
+    let payload = published::MembershipCreated {
+        workspace_id: created.workspace.id,
+        session_id: principal.session_id(),
+    };
+    uow.publish_to_user(
+        &published::MEMBERSHIP_CREATED,
+        principal.user_id(),
+        &payload,
+    )
+    .await?;
     uow.commit_with(&created).await?;
     Ok(created)
 }
@@ -77,17 +86,14 @@ pub(crate) async fn create(
 pub(super) struct Founder<S> {
     /// The user who becomes the workspace's owner.
     pub(super) owner: UserId,
-    /// The session whose request creates the workspace, when one does, which the owner's event
-    /// names.
-    pub(super) session: Option<SessionId>,
     /// The scope of the entry that records the creation, in the log of the workspace, whose ID
     /// the database gives.
     pub(super) scope: S,
 }
 
 /// The one operation that creates a workspace, inside the unit of work of whatever asks for it:
-/// the workspace named `name`, its owner's membership, its first audit entry and the owner's
-/// event, together (the workspaces spec's "Creating a workspace", D33).
+/// the workspace named `name`, its owner's membership, whose signal closes the owner's streams,
+/// and its first audit entry, together (the workspaces spec's "Creating a workspace", D33).
 pub(super) async fn found<S>(
     uow: &mut UnitOfWork,
     name: &WorkspaceName,
@@ -109,12 +115,6 @@ where
     };
     // end part: workspace_setup
     log::record(uow, scope, entry).await?;
-    let payload = published::MembershipCreated {
-        workspace_id: id,
-        session_id: founder.session,
-    };
-    uow.publish_to_user(&published::MEMBERSHIP_CREATED, founder.owner, &payload)
-        .await?;
     Ok(Current {
         workspace: Workspace {
             id,

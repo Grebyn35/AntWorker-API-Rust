@@ -142,7 +142,7 @@ Data a module adds for its product lives in a workspace, and is reached through 
 <!-- part: invitations -->
 - **Teams.** Each user creates as many workspaces as they need, and the people a member invites join one. It keeps users creating workspaces and `invitations`.
 - **Provisioned organizations.** A superadmin creates a workspace for each organization the deployment serves, and the people a member invites join one. It keeps `superadmins` and `invitations`.
-- **One organization.** An operator runs the setup subcommand for each workspace the organization needs, such as one per subsidiary, which creates it for its owner, with their account when no account holds their address (§9), and the people a member invites join one. It keeps the setup subcommand and `invitations`. <!-- part: workspace_setup -->
+- **One organization.** An operator runs the setup subcommand for each workspace the organization needs, such as one per subsidiary, which creates it for its owner, and, with email on, their account when no account holds their address (§9), and the people a member invites join one. It keeps the setup subcommand and `invitations`. <!-- part: workspace_setup -->
 <!-- end part: invitations -->
 - **Personal.** The client creates a workspace whenever a signed-in user belongs to none, and nobody joins one. It keeps users creating workspaces.
 

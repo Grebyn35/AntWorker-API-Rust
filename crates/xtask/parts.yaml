@@ -104,6 +104,9 @@ parts:
       - workspace_setup
       - setup subcommand
       - setup of a workspace
+      - was set up for you
+      - setuprefus
+      - setupowner
   # end part: workspace_setup
   # part: github
   - name: github

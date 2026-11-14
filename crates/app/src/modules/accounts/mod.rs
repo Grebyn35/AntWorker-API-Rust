@@ -26,5 +26,5 @@ pub(crate) use service::deletion::{Deletion, Outcome as DeletionOutcome};
 pub(crate) use service::exports::Exports;
 pub(crate) use service::{
     Creation, EmailChange, address, address_for_update, change_email, create, find_by_email,
-    matching, profiles, verify_email,
+    holder_for_update, matching, profiles, verify_email,
 };

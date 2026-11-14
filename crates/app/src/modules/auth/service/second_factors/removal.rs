@@ -63,11 +63,9 @@ async fn remove(
         reason = "the operator's subcommand acts for no request and no job (ARCH-14)"
     )]
     let mut uow = database.for_operator().await?;
-    let Some(user_id) = accounts::find_by_email(&mut uow, email).await? else {
-        return Ok(Removal::NoAccount);
-    };
-    // The user's row first, as a deletion of the account and the user's own changes lock it.
-    let Some(address) = accounts::address_for_update(&mut uow, user_id).await? else {
+    // The user's row first, as a deletion of the account and the user's own changes lock it: an
+    // account that either took the address from while the lock waited holds it no more.
+    let Some((user_id, address)) = accounts::holder_for_update(&mut uow, email).await? else {
         return Ok(Removal::NoAccount);
     };
     let Some(id) = factors::delete_app(&mut uow, user_id).await? else {

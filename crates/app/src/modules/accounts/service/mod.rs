@@ -91,6 +91,24 @@ pub(crate) async fn address_for_update(
     Ok(repo::address_for_update(uow, user_id).await?)
 }
 
+/// The account that holds `email`, with its user's row locked as [`address_for_update`] locks it:
+/// found through the unique index of addresses, and read again once the lock is held, so that an
+/// account that a deletion took, or that changed its address, while the lock waited, holds the
+/// address no more (DATA-20). For an operation that acts, for no caller, on the account that an
+/// address names, such as a subcommand that an operator runs (AUTH-072, DATA-16).
+pub(crate) async fn holder_for_update(
+    uow: &mut UnitOfWork,
+    email: &EmailAddress,
+) -> Result<Option<(UserId, Address)>, AccountsError> {
+    let Some(user_id) = repo::find_by_email(uow, email).await? else {
+        return Ok(None);
+    };
+    Ok(repo::address_for_update(uow, user_id)
+        .await?
+        .filter(|address| address.email == *email)
+        .map(|address| (user_id, address)))
+}
+
 /// Makes `email` the caller's address, which they proved with the code sent to it, so their
 /// record's `email_verified` is true, and publishes that their record changed, as a rename does,
 /// unless another user has the email (AUTH-051, ACCOUNTS-004). The caller holds the user's row

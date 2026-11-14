@@ -10,7 +10,7 @@ use crate::{
     support::{
         Api, execute_on, mailbox,
         operator::{EMAIL_OFF, SENDS_EMAIL, finished, refused},
-        queries_waiting_on_locks,
+        queries_waiting_on_locks, streams,
         users::{self, PASSWORD},
     },
 };
@@ -164,31 +164,33 @@ async fn workspaces_023_a_run_creates_the_workspace_for_the_account_that_holds_t
         [format!("workspace {id} - {user} workspace {id} {{}}")]
     );
     assert!(!with_client, "an operator's subcommand records no client");
-    let events = reads(
-        &api,
-        "SELECT name || ' ' || scope || ' ' || user_id || ' ' || (payload->>'workspace_id') \
-         || ' ' || coalesce((payload->'session_id')::text, 'absent') FROM events",
-    )
-    .await;
-    assert_eq!(
-        events,
-        [format!("membership.created user {user} {id} null")]
-    );
-    let transaction: u64 = reads(&api, "SELECT xact::text FROM events").await[0]
-        .parse()
-        .unwrap();
-    assert_eq!(
-        signals.received().await,
-        [json!({
-            "kind": "membership_changed",
-            "user_id": user,
-            "workspace_id": id,
-            "transaction": transaction
-        })]
-    );
+    // No session of the owner's created the workspace, so no event tells them: the signal
+    // closes their streams.
+    assert_eq!(count(&api, "events").await, "0");
+    let signalled = signals.received().await;
+    assert_eq!(signalled.len(), 1, "{signalled:?}");
+    assert_eq!(signalled[0]["kind"], "membership_changed");
+    assert_eq!(signalled[0]["user_id"], user.as_str());
+    assert_eq!(signalled[0]["workspace_id"], id.as_str());
     // The owner reads the workspace as its owner.
     assert_eq!(listed.json()["items"][0]["id"], id.as_str());
     assert_eq!(listed.json()["items"][0]["role"], "owner");
+}
+
+#[tokio::test]
+async fn workspaces_023_the_owner_s_open_stream_closes_so_its_client_reads_the_workspaces_again() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let mut stream = streams::connect(&api, &ada.access, None).await;
+    stream.opened().await;
+
+    let run = set_up(&api, &SENDS_EMAIL, &["Acme", &address]).await;
+    let (before, reason) = stream.closed().await;
+
+    assert_eq!(run.status.code(), Some(0));
+    assert!(before.is_empty(), "{before:?}");
+    assert_eq!(reason, "access_changed");
 }
 
 #[tokio::test]
@@ -360,6 +362,81 @@ async fn workspaces_024_an_account_that_a_deletion_takes_while_the_run_waits_lea
 }
 
 #[tokio::test]
+async fn workspaces_024_an_account_that_changes_its_address_while_the_run_waits_holds_it_no_more() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let moved = users::without_password(api.database(), &address).await;
+    // A change of the account's address that hasn't committed holds its row.
+    let mut change = api
+        .database()
+        .holding(&format!(
+            "UPDATE users SET email = 'moved-{moved}@example.com' WHERE id = '{moved}'"
+        ))
+        .await;
+
+    let run = tokio::spawn({
+        let api = api.clone();
+        let address = address.clone();
+        async move { set_up(&api, &SENDS_EMAIL, &["Acme", &address, "Ada Lovelace"]).await }
+    });
+    waits_on_a_lock(&api, "FOR NO KEY UPDATE").await;
+    execute_on(&mut change, "COMMIT").await;
+    let run = run.await.unwrap();
+
+    // The run created the account that holds the address now, which owns the workspace.
+    let id = workspaces(&api).await.remove(0).0;
+    finished(
+        &run,
+        AREA,
+        &format!("set up the workspace {id}, and created its owner's account"),
+        &[&address],
+    );
+    let holder = reads(
+        &api,
+        &format!("SELECT id::text FROM users WHERE email = '{address}'"),
+    )
+    .await;
+    assert_eq!(holder.len(), 1);
+    assert_ne!(holder[0], moved);
+    assert_eq!(
+        memberships(&api).await,
+        [format!("{id} {} owner", holder[0])]
+    );
+}
+
+#[tokio::test]
+async fn workspaces_024_an_account_that_signs_in_through_a_provider_alone_has_an_identity() {
+    let api = Api::new().await;
+    let proved = mailbox::address("ada");
+    let ada = users::with_provider_alone(api.database(), &proved, true).await;
+    let unproved = mailbox::address("grace");
+    users::with_provider_alone(api.database(), &unproved, false).await;
+
+    let owns = set_up(&api, &SENDS_EMAIL, &["Acme", &proved]).await;
+    let refused_run = set_up(&api, &SENDS_EMAIL, &["Globex", &unproved]).await;
+
+    // It signs in, so its email tells it no way to set a password, and an address that it
+    // hasn't proved keeps it from owning a workspace, as any account with an identity.
+    let id = workspaces(&api).await.remove(0).0;
+    finished(
+        &owns,
+        AREA,
+        &format!(
+            "set up the workspace {id}, whose owner is the account that holds the address, which \
+             is told"
+        ),
+        &[&proved],
+    );
+    assert_eq!(memberships(&api).await, [format!("{id} {ada} owner")]);
+    refused(
+        &refused_run,
+        AREA,
+        "the account that holds the address hasn't proved it",
+        &[&unproved],
+    );
+}
+
+#[tokio::test]
 async fn workspaces_025_with_email_on_a_run_tells_the_address_which_workspace_and_how_to_sign_in() {
     let api = Api::new().await;
     let address = mailbox::address("ada");
@@ -443,6 +520,29 @@ async fn workspaces_026_with_email_off_the_account_that_holds_the_address_owns_t
     );
     assert!(email_jobs(&api).await.is_empty());
     assert_eq!(count(&api, "users").await, "1");
+}
+
+#[tokio::test]
+async fn workspaces_026_with_email_off_an_account_owns_the_workspace_once_it_proved_its_address() {
+    let api = Api::without_email().await;
+    // An account that proved its address while email was on, and one whose provider proved it,
+    // which signs in through that provider alone.
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::with_provider_alone(api.database(), "grace@example.com", true).await;
+
+    let password = set_up(&api, &EMAIL_OFF, &["Acme", "ada@example.com"]).await;
+    let provider = set_up(&api, &EMAIL_OFF, &["Globex", "grace@example.com"]).await;
+
+    assert_eq!(password.status.code(), Some(0));
+    assert_eq!(provider.status.code(), Some(0));
+    let created = workspaces(&api).await;
+    assert_eq!(
+        memberships(&api).await,
+        [
+            format!("{} {} owner", created[0].0, ada.user_id),
+            format!("{} {grace} owner", created[1].0)
+        ]
+    );
 }
 
 #[tokio::test]

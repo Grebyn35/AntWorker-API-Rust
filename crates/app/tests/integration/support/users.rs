@@ -72,8 +72,8 @@ pub async fn verified(api: &Api, user_id: &str) {
 }
 
 /// Creates an account of `email` that holds no password, as an account that a sign-in provider
-/// creates does, or one that an operator creates for its owner, through the `owner` connection,
-/// so a test without the in-process API has a user too; returns its ID.
+/// creates does, through the `owner` connection, so a test without the in-process API has a user
+/// too; returns its ID.
 pub async fn without_password(db: &TestDatabase, email: &str) -> String {
     let email = email.replace('\'', "''");
     db.owner_reads(&format!(
@@ -82,6 +82,22 @@ pub async fn without_password(db: &TestDatabase, email: &str) -> String {
     .await
     .remove(0)
 }
+
+// part: workspace_setup
+/// Creates an account of `email` whose one identity is an account at a provider, as a sign-in
+/// through a provider registers one, through the `owner` connection, with its address proved
+/// when `proved` says so; returns its ID.
+pub async fn with_provider_alone(db: &TestDatabase, email: &str, proved: bool) -> String {
+    let id = without_password(db, email).await;
+    db.owner_executes(&format!(
+        "UPDATE users SET email_verified = {proved} WHERE id = '{id}'; \
+         INSERT INTO provider_identities (user_id, provider, subject) \
+         VALUES ('{id}', 'stand_in', 'subject-of-{id}')"
+    ))
+    .await;
+    id
+}
+// end part: workspace_setup
 
 /// Signs `email` in with `password`, and returns the response.
 pub async fn sign_in(api: &Api, email: &str, password: &str) -> Response {

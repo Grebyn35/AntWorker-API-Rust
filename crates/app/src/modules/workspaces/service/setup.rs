@@ -100,7 +100,8 @@ pub(crate) struct SetupDone {
 /// it creates when, with email on, no account holds it, in one unit of work on `database`, which
 /// records what it creates with no actor, keeps the name against a later setup, and enqueues,
 /// through `mail`, the email that tells the address; or reports why it changed nothing
-/// (WORKSPACES-023 to WORKSPACES-028).
+/// (WORKSPACES-023 to WORKSPACES-028). It publishes no event: the membership's signal closes the
+/// owner's streams, and their clients read their workspaces again.
 pub(crate) async fn set_up(
     database: &Database,
     mail: &Mail,
@@ -136,7 +137,6 @@ async fn run(
     )]
     let founder = Founder {
         owner: user,
-        session: None,
         scope: AuditScope::setup,
     };
     let workspace = found(&mut uow, &setup.name, founder).await?.workspace.id;
@@ -170,18 +170,17 @@ async fn owner(
     email_on: bool,
     setup: &Setup,
 ) -> Result<Result<(UserId, SetupOwner), SetupRefusal>, WorkspacesError> {
-    if let Some(user) = accounts::find_by_email(uow, &setup.email).await? {
-        // The user's row first, as the user's own changes and a deletion of the account lock it
-        // (DATA-20). An account that a deletion took while the lock waited left the address free.
-        if let Some(address) = accounts::address_for_update(uow, user).await? {
-            let identity = auth::has_identity(uow, user).await?;
-            return Ok(match (email_on, address.verified, identity) {
-                (true, true, true) | (false, _, true) => Ok((user, SetupOwner::SignsIn)),
-                (true, _, false) => Ok((user, SetupOwner::WithoutIdentity)),
-                (true, false, true) => Err(SetupRefusal::AddressUnproved),
-                (false, _, false) => Err(SetupRefusal::NoIdentity),
-            });
-        }
+    // The user's row first, as the user's own changes and a deletion of the account lock it
+    // (DATA-20). An account that a deletion took, or that changed its address, while the lock
+    // waited holds the address no more.
+    if let Some((user, address)) = accounts::holder_for_update(uow, &setup.email).await? {
+        let identity = auth::has_identity(uow, user).await?;
+        return Ok(match (email_on, address.verified, identity) {
+            (true, true, true) | (false, _, true) => Ok((user, SetupOwner::SignsIn)),
+            (true, _, false) => Ok((user, SetupOwner::WithoutIdentity)),
+            (true, false, true) => Err(SetupRefusal::AddressUnproved),
+            (false, _, false) => Err(SetupRefusal::NoIdentity),
+        });
     }
     if !email_on {
         return Ok(Err(SetupRefusal::NoAccount));

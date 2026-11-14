@@ -8,8 +8,9 @@ use serde_json::json;
 use crate::support::{
     Api, Options, api,
     api::Response,
-    mailbox,
+    execute_on, mailbox,
     operator::{self, EMAIL_OFF, SENDS_EMAIL, printed},
+    queries_waiting_on_locks,
     second_factors::{self, add_app, code, confirm, start_setup},
     users::{self, PASSWORD, SignedIn},
     workspaces,
@@ -581,6 +582,49 @@ async fn auth_072_an_unknown_address_or_an_account_without_an_app_changes_nothin
         )
         .await
         .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn auth_072_an_account_that_changes_its_address_while_the_removal_waits_keeps_its_app() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    add_app(&api, &ada).await;
+    // A change of the account's address that hasn't committed holds its row.
+    let mut change = api
+        .database()
+        .holding(&format!(
+            "UPDATE users SET email = 'moved-{0}@example.com' WHERE id = '{0}'",
+            ada.user_id
+        ))
+        .await;
+
+    let removal = tokio::spawn({
+        let api = api.clone();
+        let address = address.clone();
+        async move { remove(&api, &address).await }
+    });
+    // The removal's read of the account waits for its row: the state the outcome depends on
+    // (TEST-06).
+    while !queries_waiting_on_locks(api.database())
+        .await
+        .iter()
+        .any(|query| query.contains("FOR NO KEY UPDATE"))
+    {
+        tokio::task::yield_now().await;
+    }
+    execute_on(&mut change, "COMMIT").await;
+    let removal = removal.await.unwrap();
+
+    refused(
+        &removal,
+        "no account holds the address: nothing changed",
+        &address,
+    );
+    assert_eq!(
+        reads(&api, "SELECT count(*)::text FROM totp_factors").await,
+        ["1"]
     );
 }
 
