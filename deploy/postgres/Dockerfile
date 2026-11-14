@@ -4,7 +4,7 @@
 # the write-ahead log and takes the base backups to a bucket off the server (OPS-15).
 # `just image` builds it for linux/amd64 and linux/arm64, beside the API's image (OPS-12), and
 # docs/operations/backups.md describes how the deployment runs it.
-FROM postgres:18.6@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
+FROM postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
 
 # pgBackRest comes from the PostgreSQL Global Development Group's repository, which the official
 # image already trusts, at an exact version. ca-certificates holds the certificate authorities
