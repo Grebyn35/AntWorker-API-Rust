@@ -50,7 +50,7 @@ pub(in crate::modules::workspaces) async fn set(
     files::upload_picture(&pictures.files, bytes, async |picture: NewPicture| {
         let (mut uow, authorized) = authorize.open().await?;
         let workspace = authorized.workspace_id();
-        if !repo::touch(&mut uow, workspace, versions).await? {
+        if !repo::picture::touch(&mut uow, workspace, versions).await? {
             return Err(RequestError::PreconditionFailed.into());
         }
         let id = files::record_picture(&mut uow, workspace, picture).await?;
@@ -75,7 +75,7 @@ pub(in crate::modules::workspaces) async fn remove(
     versions: Option<&[Version]>,
 ) -> Result<(), WorkspacesError> {
     let workspace = authorized.workspace_id();
-    if !repo::touch(&mut uow, workspace, versions).await? {
+    if !repo::picture::touch(&mut uow, workspace, versions).await? {
         return Err(RequestError::PreconditionFailed.into());
     }
     // Without a picture, the unit of work rolls back as it is dropped, the version's move with

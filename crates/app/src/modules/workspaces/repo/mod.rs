@@ -1,5 +1,12 @@
 //! The SQL of `workspaces` (ARCH-10). A workspace is read only by the ID of the workspace a proof
 //! names, or by IDs that came from a query filtered by tenant (DATA-16).
+// part: files
+//! The statement of a change of its picture is in `picture.rs`.
+// end part: files
+
+// part: files
+pub(super) mod picture;
+// end part: files
 
 use platform::{
     db::UnitOfWork,
@@ -82,29 +89,6 @@ pub(super) async fn rename(
 fn values(versions: Option<&[Version]>) -> Option<Vec<i64>> {
     versions.map(|versions| versions.iter().map(|version| version.value()).collect())
 }
-
-// part: files
-/// Moves the version of the workspace `id`, the one a proof names, for a change of its picture,
-/// when it is one of `versions`, or whatever it is when there are none, and returns whether it
-/// did (API-13, DATA-18, the workspaces spec's "The picture").
-pub(super) async fn touch(
-    uow: &mut UnitOfWork,
-    id: WorkspaceId,
-    versions: Option<&[Version]>,
-) -> Result<bool, Internal> {
-    // The row's trigger moves its version and its update time (DATA-02).
-    let versions = values(versions);
-    let touched = sqlx::query!(
-        "UPDATE workspaces SET version = version
-        WHERE id = $1 AND ($2::bigint[] IS NULL OR version = ANY($2))",
-        id.uuid(),
-        versions.as_deref(),
-    )
-    .execute(uow.executor())
-    .await?;
-    Ok(touched.rows_affected() > 0)
-}
-// end part: files
 
 /// The names of the workspaces `ids` names, which came from a query filtered by tenant.
 pub(super) async fn names(

@@ -124,7 +124,7 @@ impl Avatars {
         {
             return Ok(());
         }
-        repo::touch(&mut uow, user, None).await?;
+        repo::avatar::touch(&mut uow, user, None).await?;
         let id = files::record_avatar(&mut uow, user, avatar).await?;
         let entry = Entry::new(audit::AVATAR_COPIED, audit::AVATAR, id);
         log::record(&mut uow, scope, entry).await?;
@@ -167,7 +167,7 @@ pub(in crate::modules::accounts) async fn set(
         let mut uow = avatars.database.begin(client).await?;
         let user = principal.user_id();
         lock_caller(&mut uow, principal).await?;
-        if !repo::touch(&mut uow, user, versions).await? {
+        if !repo::avatar::touch(&mut uow, user, versions).await? {
             return Err(RequestError::PreconditionFailed.into());
         }
         let id = files::record_avatar(&mut uow, user, avatar).await?;
@@ -195,7 +195,7 @@ pub(in crate::modules::accounts) async fn remove(
     let mut uow = avatars.database.begin(client).await?;
     let user = principal.user_id();
     lock_caller(&mut uow, principal).await?;
-    if !repo::touch(&mut uow, user, versions).await? {
+    if !repo::avatar::touch(&mut uow, user, versions).await? {
         return Err(RequestError::PreconditionFailed.into());
     }
     // Without an avatar, the unit of work rolls back as it is dropped, the version's move with

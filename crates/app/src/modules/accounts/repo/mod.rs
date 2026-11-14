@@ -1,5 +1,11 @@
 //! The SQL of `users` (ARCH-10), with that of a user's exports in `exports.rs`.
+// part: files
+//! The statement of a change of their avatar is in `avatar.rs`.
+// end part: files
 
+// part: files
+pub(super) mod avatar;
+// end part: files
 pub(super) mod exports;
 
 use std::time::Duration;
@@ -250,29 +256,6 @@ pub(super) async fn rename(
     .await?;
     Ok(renamed.rows_affected() > 0)
 }
-
-// part: files
-/// Moves the version of the user `id`, for a change of their avatar, when it is one of
-/// `versions`, or whatever it is when there are none, and returns whether it did (API-13,
-/// DATA-18, the accounts spec's "Avatars").
-pub(super) async fn touch(
-    uow: &mut UnitOfWork,
-    id: UserId,
-    versions: Option<&[Version]>,
-) -> Result<bool, Internal> {
-    // The row's trigger moves its version and its update time (DATA-02).
-    let versions = values(versions);
-    let touched = sqlx::query!(
-        "UPDATE users SET version = version
-        WHERE id = $1 AND ($2::bigint[] IS NULL OR version = ANY($2))",
-        id.uuid(),
-        versions.as_deref(),
-    )
-    .execute(uow.executor())
-    .await?;
-    Ok(touched.rows_affected() > 0)
-}
-// end part: files
 
 /// The names and emails of `ids`, which came from a query filtered by tenant (DATA-16).
 pub(super) async fn profiles(

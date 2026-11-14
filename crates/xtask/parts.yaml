@@ -24,9 +24,11 @@ parts:
   - name: files
     module: files
     paths:
+      - crates/app/src/modules/accounts/repo/avatar.rs
       - crates/app/src/modules/accounts/routes/avatar.rs
       - crates/app/src/modules/accounts/service/avatar.rs
       - crates/app/src/modules/files
+      - crates/app/src/modules/workspaces/repo/picture.rs
       - crates/app/src/modules/workspaces/routes/picture.rs
       - crates/app/src/modules/workspaces/service/picture.rs
       - crates/app/tests/e2e/files.rs

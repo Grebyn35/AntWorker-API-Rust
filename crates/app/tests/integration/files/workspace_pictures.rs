@@ -232,6 +232,8 @@ async fn workspaces_019_setting_a_picture_with_a_stale_etag_answers_412() {
     let (ada, workspace) = owned(&api).await;
     let stale = read(&api, &ada, &workspace).await.header("etag").to_owned();
     let first = link(&api, &ada, &workspace).await;
+    // The registration's session and the first change published their events.
+    api.database().owner_executes("DELETE FROM events").await;
 
     let response = api
         .request(
@@ -251,12 +253,10 @@ async fn workspaces_019_setting_a_picture_with_a_stale_etag_answers_412() {
         read(&api, &ada, &workspace).await.json()["picture_url"],
         first
     );
+    // Nothing more than the first change's version and entry, and no event.
     assert_eq!(
-        recorded(&api, &workspace, "picture.uploaded").await[0]
-            .split(' ')
-            .take(2)
-            .collect::<Vec<_>>(),
-        ["2", "1"]
+        recorded(&api, &workspace, "picture.uploaded").await,
+        ["2 1 0"]
     );
 }
 
