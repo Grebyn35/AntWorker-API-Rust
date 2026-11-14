@@ -955,7 +955,7 @@
         "x-event": "identity.removed"
       },
       "Invitation": {
-        "description": "An invitation to a workspace (INVITATIONS-001). `Deserialize` only reads back a stored result\nthat an idempotency key replays (PLATFORM-036).",
+        "description": "An invitation to a workspace (INVITATIONS-001).",
         "properties": {
           "created_at": {
             "$ref": "#/components/schemas/Timestamp",

@@ -18,8 +18,8 @@ pub(crate) struct NewInvitation {
     pub(crate) role: Role,
 }
 
-/// An invitation to a workspace (INVITATIONS-001). `Deserialize` only reads back a stored result
-/// that an idempotency key replays (PLATFORM-036).
+/// An invitation to a workspace (INVITATIONS-001).
+// `Deserialize` only reads back a stored result that an idempotency key replays (PLATFORM-036).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub(crate) struct Invitation {
     /// The invitation's ID.

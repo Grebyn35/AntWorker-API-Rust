@@ -50,6 +50,7 @@ Editing a migration that no release contains (DATA-09) means recreating the deve
 | A table, its columns, constraints, indexes and comments | a migration named after the module | DATA-01 to DATA-06, DATA-08 to DATA-10, DATA-23 |
 | A route: its method, path, documentation and access level | `routes.rs`, and the module's `routes()` | API-01 to API-04, API-14, API-17, ARCH-08 |
 | A request's body, and its conversion into domain types | `routes.rs`: a request type, and its `TryFrom` through `FieldErrors` | API-08, API-10 |
+| What the API reference says of a route and of its types | the doc comment of the handler, and of each type that derives `ToSchema` and of its fields, which `openapi.json` holds as their descriptions; a note for developers alone, such as why a type derives `Deserialize`, is a `//` comment under it | API-17, DOC-02 |
 | A list's paging and search | `routes.rs`: `Page` and `Search`; `repo.rs`: the keyset query | API-05, API-06, API-09, API-20, DATA-17 |
 | A row's ID in the path | `routes.rs`: `path_id`, whose `None` answers the module's not-found once the caller is authorized | PLATFORM-072 |
 | The response, with its status, `Location` and `ETag` | `routes.rs`: `ResourceResponse`, `ok` or `created`, `tagged` for an editable resource | API-04, API-13 |
