@@ -15,7 +15,7 @@ use utoipa::ToSchema;
 use crate::modules::access::{MembersRead, Role, WorkspaceRead};
 
 /// The user joined a workspace, sent to their streams by each operation in which a request of
-/// their own session adds them, such as creating the workspace (WORKSPACES-001).
+/// their own session adds them.
 pub(crate) const MEMBERSHIP_CREATED: UserEvent<MembershipCreated> =
     UserEvent::new("membership.created");
 /// A member was removed, sent to the members who may list members (WORKSPACES-005).

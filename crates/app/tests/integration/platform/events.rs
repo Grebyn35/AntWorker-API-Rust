@@ -371,6 +371,7 @@ async fn workspaces_005_removing_a_member_closes_their_stream_before_the_next_ev
     );
 }
 
+// part: workspace_creation
 #[tokio::test]
 async fn access_006_a_membership_that_starts_closes_its_user_s_streams() {
     let api = api().await;
@@ -392,6 +393,7 @@ async fn access_006_a_membership_that_starts_closes_its_user_s_streams() {
     assert_eq!(reason, "access_changed");
     assert_eq!(still.event.as_deref(), Some("announcement.made"));
 }
+// end part: workspace_creation
 
 #[tokio::test]
 async fn access_007_a_stream_holds_each_workspace_s_permissions_of_its_role_there() {

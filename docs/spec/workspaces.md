@@ -3,6 +3,7 @@
 ## Purpose
 
 `workspaces` owns the workspace itself and the members endpoints. This spec covers creating a workspace, listing the caller's workspaces, reading, renaming, transferring and deleting one, listing members, reading one, changing a member's role, removing a member, leaving, and what deleting a member's account does to their workspaces (Erasure).
+A user creates a workspace through `POST /v1/workspaces`, and owns it. <!-- part: workspace_creation -->
 A workspace's owner and admins also set and remove its picture here, whose image `files` keeps (D117, D149). <!-- part: files -->
 The subcommand `setup-workspace`, which an operator runs, creates a workspace for its owner, and, with email on, their account when no account holds their address (D65). <!-- part: workspace_setup -->
 
@@ -26,7 +27,7 @@ The subcommand `setup-workspace`, which an operator runs, creates a workspace fo
 
 | Method and path | Access | Behaviors |
 |---|---|---|
-| `POST /v1/workspaces` | user | WORKSPACES-001, WORKSPACES-002 |
+| `POST /v1/workspaces` | user | WORKSPACES-001, WORKSPACES-002 <!-- part: workspace_creation --> |
 | `GET /v1/workspaces` | user | WORKSPACES-003 |
 | `GET /v1/workspaces/{workspace_id}` | `workspace::<WorkspaceRead>` | WORKSPACES-007 |
 | `PATCH /v1/workspaces/{workspace_id}` | `workspace::<WorkspaceUpdate>` | WORKSPACES-002, WORKSPACES-008 |
@@ -40,7 +41,8 @@ The subcommand `setup-workspace`, which an operator runs, creates a workspace fo
 | `PUT /v1/workspaces/{workspace_id}/picture` | `workspace::<WorkspaceUpdate>` | WORKSPACES-019, WORKSPACES-020 <!-- part: files --> |
 | `DELETE /v1/workspaces/{workspace_id}/picture` | `workspace::<WorkspaceUpdate>` | WORKSPACES-021 <!-- part: files --> |
 
-`POST /v1/workspaces` accepts an `Idempotency-Key` (API-12), and each `PATCH` an `If-Match` (API-13, PLATFORM-071).
+Each `PATCH` accepts an `If-Match` (API-13, PLATFORM-071).
+`POST /v1/workspaces` accepts an `Idempotency-Key` (API-12). <!-- part: workspace_creation -->
 `PUT` and `DELETE .../picture` accept an `If-Match` too, since a change of the picture changes the workspace, its `version` with it. <!-- part: files -->
 `PUT .../picture` is an upload route, added through `Routes::workspace_upload`, whose body is the image's bytes, which it reads through `Upload` with the picture's limit (WORKSPACES-020, PLATFORM-074). <!-- part: files -->
 
@@ -50,7 +52,7 @@ ID 009 is retired.
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
-| WORKSPACES-001 | Creating a workspace makes the caller its owner, in one unit of work. It answers 201 with `Location`, the workspace's `ETag` (PLATFORM-071), and the workspace as WORKSPACES-007 gives it, whose `role` is `owner`. It records `workspace.created` in the workspace's log, and publishes the user event `membership.created`, which names the session that caused it, so that device can tell it already knows. | D33, API-04, DATA-22 | `workspaces_001_` |
+| WORKSPACES-001 | Creating a workspace, `POST /v1/workspaces` with `{"name": <name>}`, makes the caller its owner, in one unit of work. It answers 201 with `Location`, the workspace's `ETag` (PLATFORM-071), and the workspace as WORKSPACES-007 gives it, whose `role` is `owner`, and whose name is the one given, normalized as WORKSPACES-002 says. It records `workspace.created` in the workspace's log, and publishes the user event `membership.created`, which names the session that caused it, so that device can tell it already knows. A name that WORKSPACES-002 refuses answers 400 at `/name`, and creates nothing. A retry with the request's `Idempotency-Key` answers the first request's workspace, and creates none (PLATFORM-036). <!-- part: workspace_creation --> | D33, API-04, API-10, API-12, DATA-22 | `workspaces_001_` |
 | WORKSPACES-002 | A workspace name is trimmed, has internal whitespace collapsed to single spaces, is normalized to Unicode Normalization Form C (NFC), and must be 1 to 255 characters and not only whitespace. | D25, API-10 | `workspaces_002_` |
 | WORKSPACES-003 | `GET /v1/workspaces` lists every workspace the caller belongs to, with `{id, name, role, joined_at}`, the latest joined first, in cursor pages. Its `search` matches the name. | D3, API-05, API-06, API-20 | `workspaces_003_` |
 | WORKSPACES-004 | `GET .../members` lists the workspace's members with `{user_id, name, email, role, joined_at}`, the latest joined first, in cursor pages. Its `search` matches the name or the email, and `role` keeps the members of one role. | API-05, API-06, API-20, DATA-16 | `workspaces_004_` |
@@ -82,13 +84,17 @@ ID 009 is retired.
 
 ### Creating a workspace
 
-One operation creates every workspace, inside the unit of work of whatever asks for it: it inserts the `workspaces` row, calls `access::add_owner`, whose signal closes the owner's open streams (ACCESS-006), and records `workspace.created` (D33). Whatever asks for it names the owner, and the scope of the entry, in the log of the workspace, whose ID the database gives: a user who creates a workspace is the entry's actor, through `Principal::founder_scope`. Each part that creates workspaces calls it. Those parts are optional (ARCH-07), and the ones a fork keeps give its product its shape ([architecture §5](../architecture.md#workspace-shapes)).
+One operation creates every workspace, inside the unit of work of whatever asks for it: it inserts the `workspaces` row, calls `access::add_owner`, whose signal closes the owner's open streams (ACCESS-006), and records `workspace.created` (D33). Whatever asks for it names the owner, and the scope of the entry, as a function of the workspace's ID, which the database gives: the scope names the log of a workspace that exists only once the operation has inserted it, and who acts in it, which each part answers its own way. Each part that creates workspaces calls it. Those parts are optional (ARCH-07), and the ones a fork keeps give its product its shape ([architecture §5](../architecture.md#workspace-shapes)).
 
 Tests arrange workspaces and memberships through the `owner` connection (TEST-05), never through one of the parts, so removing a part leaves the other modules' tests passing.
 
+<!-- part: workspace_creation -->
 ### Users creating workspaces
 
-`POST /v1/workspaces` opens the unit of work from the caller's `Principal`, calls the operation, publishes `membership.created` to the caller, with the session whose request created the workspace, and commits (WORKSPACES-001).
+`POST /v1/workspaces` opens the unit of work from the caller's `Principal`, claims the request's idempotency key, and calls the operation, with the caller as the owner, and as the actor of the entry, through `Principal::founder_scope`. It publishes `membership.created` to the caller, with the session whose request created the workspace, and commits, with the workspace as the key's result (WORKSPACES-001, PLATFORM-036).
+
+Any user may create a workspace, and as many as they need. A client offers it only while the capabilities hold `features.workspace_creation`, which a fork without the route doesn't have (SYSTEM-001).
+<!-- end part: workspace_creation -->
 
 <!-- part: workspace_setup -->
 ### The setup subcommand

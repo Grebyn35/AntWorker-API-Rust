@@ -1,5 +1,5 @@
 //! `check-docs`, for what documents and comments name besides links and IDs:
-//! - a behavior's or rule's test prefix, such as `workspaces_001`, names an ID that exists
+//! - a behavior's or rule's test prefix, such as `workspaces_005`, names an ID that exists
 //!   (DOC-12);
 //! - a path to a Rust file, such as `events/hub.rs`, names a file that exists (DOC-01);
 //! - no document or comment names a codebase this one replaces, by its name or by a phrase, and
@@ -113,7 +113,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
 }
 
 /// The test prefixes in `text`: a word of lowercase letters and underscores, then `_` and two or
-/// three digits, as `workspaces_001` or `data_19`, followed by `_` or no letter or digit; each
+/// three digits, as `workspaces_005` or `data_19`, followed by `_` or no letter or digit; each
 /// as its module or rule prefix and its number.
 fn test_prefixes(text: &str) -> Vec<(String, String)> {
     let bytes = text.as_bytes();

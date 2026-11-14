@@ -102,7 +102,7 @@ An ADR has four sections: context, decision, consequences and status. After it i
 - Check: `review`.
 
 ### DOC-12 Links and IDs resolve
-Every link in the docs, and in a Rust file's doc comments, resolves, to one heading where it names an anchor, so no two headings of a document share their text. Every rule ID or behavior ID cited in a document, comment or test exists, and so does the ID whose test prefix a document or comment cites, such as `workspaces_001_`. Two places are exempt from both: the inventory, whose IDs are its own (DOC-13), and the tests of the checks in `crates/xtask/`, whose documents and code, links among them, are made up for a check to read, and name files and modules that no repository need have. Every CI check a rule names is listed in the table of checks in `docs/operations/ci.md`, or, while the migration runs, in the tracker's CI checks.
+Every link in the docs, and in a Rust file's doc comments, resolves, to one heading where it names an anchor, so no two headings of a document share their text. Every rule ID or behavior ID cited in a document, comment or test exists, and so does the ID whose test prefix a document or comment cites, such as `workspaces_005_`. Two places are exempt from both: the inventory, whose IDs are its own (DOC-13), and the tests of the checks in `crates/xtask/`, whose documents and code, links among them, are made up for a check to read, and name files and modules that no repository need have. Every CI check a rule names is listed in the table of checks in `docs/operations/ci.md`, or, while the migration runs, in the tracker's CI checks.
 - Why: a broken reference is a silent lie.
 - Check: `ci: check-docs`.
 

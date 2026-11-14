@@ -77,16 +77,18 @@ impl Principal {
         JobScope::proven(Some(self.user_id), None)
     }
 
+    // part: workspace_creation
     /// The scope of the entry that records this caller creating `workspace`, whose ID the
     /// database just gave it: the workspace's log, with them as the actor, before any
-    /// `Authorized<P>` can name it (WORKSPACES-001). Only the operation that creates a workspace
-    /// calls it; clippy bans it elsewhere.
+    /// `Authorized<P>` can name it (WORKSPACES-001). Only a user's creation of a workspace calls
+    /// it; clippy bans it elsewhere.
     pub fn founder_scope(&self, workspace: WorkspaceId) -> AuditScope {
         AuditScope {
             log: Log::Workspace(workspace),
             actor: Some(self.user_id),
         }
     }
+    // end part: workspace_creation
 
     /// The scope of a job that the deletion of this caller's account enqueues once it has erased
     /// their data, such as the email that tells their address: no one's, since the user is gone,

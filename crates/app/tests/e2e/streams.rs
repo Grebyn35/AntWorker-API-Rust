@@ -16,7 +16,7 @@ use std::{
 use serde_json::{Value, json};
 
 use crate::{
-    deployment::{Deployment, delete_as, post, post_as, streaming_client},
+    deployment::{Deployment, delete_as, post, streaming_client},
     docker::lossy,
 };
 
@@ -219,17 +219,7 @@ async fn realtime_004_a_deploy_with_an_open_stream_loses_no_event() {
         .as_str()
         .unwrap()
         .to_owned();
-    let (created, workspace) = post_as(
-        root.clone(),
-        deployment.url("https", 443, "/v1/workspaces"),
-        Some(token.clone()),
-        json!({ "name": "Analytical" }).to_string(),
-    );
-    assert_eq!(created, 201, "{workspace}");
-    let workspace = serde_json::from_str::<Value>(&workspace).unwrap()["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let workspace = deployment.owned_workspace("Analytical", "ada@example.com");
     let members = deployment.sql(&format!(
         "WITH added AS (INSERT INTO users (email, name) \
          SELECT 'member' || n || '@example.com', 'Member ' || n \

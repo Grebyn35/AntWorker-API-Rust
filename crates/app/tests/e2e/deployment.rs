@@ -534,7 +534,8 @@ pub struct Workspace {
 }
 
 impl Deployment {
-    /// Registers an owner on the deployed API, and creates their workspace.
+    /// Registers an owner on the deployed API, and arranges their workspace, as
+    /// [`Deployment::owned_workspace`] does.
     pub fn workspace(&self) -> Workspace {
         let root = self.server.caddy_root();
         let (registered, session) = post(
@@ -548,22 +549,31 @@ impl Deployment {
             .as_str()
             .unwrap()
             .to_owned();
-        let (created, workspace) = post_as(
-            root.clone(),
-            self.url("https", 443, "/v1/workspaces"),
-            Some(token.clone()),
-            json!({ "name": "Acme" }).to_string(),
-        );
-        assert_eq!(created, 201, "{workspace}");
-        let workspace = serde_json::from_str::<Value>(&workspace).unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_owned();
+        let workspace = self.owned_workspace("Acme", "ada@example.com");
         let files = self.url("https", 443, &format!("/v1/workspaces/{workspace}/files"));
         Workspace { root, files, token }
     }
 }
 // end part: files
+
+impl Deployment {
+    /// Arranges a workspace named `name` in the deployment's database, owned by the account that
+    /// holds `email`, and returns its ID: through SQL, as the integration tests arrange theirs,
+    /// rather than through one of the parts that create workspaces, so the tests hold whichever
+    /// of them a fork keeps (TEST-09).
+    pub fn owned_workspace(&self, name: &str, email: &str) -> String {
+        let workspace = self.sql(&format!(
+            "WITH created AS (INSERT INTO workspaces (name) VALUES ('{name}') RETURNING id), \
+             joined AS (INSERT INTO workspace_memberships (workspace_id, user_id, role) \
+             SELECT created.id, users.id, 'owner' FROM created, users \
+             WHERE users.email = '{email}' RETURNING workspace_id) \
+             SELECT workspace_id FROM joined"
+        ));
+        let workspace = workspace.trim().to_owned();
+        assert_eq!(workspace.len(), 36, "no workspace for {email}: {workspace}");
+        workspace
+    }
+}
 
 /// Requests sent to the API one after another, from a thread of their own, until stopped.
 pub struct Traffic {

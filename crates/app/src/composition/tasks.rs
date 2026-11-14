@@ -203,7 +203,19 @@ pub async fn seed(
         clock: &resources.clock,
         inbox,
     };
-    let seeded = system::seed(router, mailbox).await.map_err(SeedError)?;
+    // part: workspace_setup
+    let set_up = |name: &'static str, email: &'static str| -> system::SettingUp<'_> {
+        Box::pin(set_up_for_seed(resources, name, email))
+    };
+    // end part: workspace_setup
+    let seed = system::Seed {
+        router,
+        mailbox,
+        // part: workspace_setup
+        set_up: &set_up,
+        // end part: workspace_setup
+    };
+    let seeded = system::seed(seed).await.map_err(SeedError)?;
     Ok(SeedReport {
         accounts: seeded
             .accounts
@@ -214,3 +226,25 @@ pub async fn seed(
         workspaces: seeded.workspaces,
     })
 }
+
+// part: workspace_setup
+/// Sets up the workspace named `name` for the account that holds `email`, which the seed
+/// registered, as an operator's run of `setup-workspace` does, on the seed's database and with
+/// its mail, and answers the workspace's ID (SYSTEM-009).
+async fn set_up_for_seed(
+    resources: &Resources,
+    name: &str,
+    email: &str,
+) -> Result<String, Internal> {
+    let refused = |refusal: workspaces::SetupRefusal| {
+        Internal::new(format!(
+            "the seed's setup of a workspace set nothing up: {refusal:?}"
+        ))
+    };
+    let setup = workspaces::Setup::new(name, email, None).map_err(refused)?;
+    let done = workspaces::set_up(&resources.database, &resources.mail, setup)
+        .await?
+        .map_err(refused)?;
+    Ok(done.workspace.to_string())
+}
+// end part: workspace_setup

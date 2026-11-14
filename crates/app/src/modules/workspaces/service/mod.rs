@@ -1,5 +1,9 @@
-//! Creating workspaces, listing the caller's, reading, renaming, transferring and deleting one
-//! (the workspaces spec). The members' operations are in `members.rs`.
+//! The one operation that creates a workspace, and listing the caller's workspaces, reading,
+//! renaming, transferring and deleting one (the workspaces spec). The members' operations are in
+//! `members.rs`.
+// part: workspace_creation
+//! A user's creation of a workspace is in `creation.rs`.
+// end part: workspace_creation
 // part: files
 //! Setting and removing a workspace's picture are in `picture.rs`.
 // end part: files
@@ -7,6 +11,9 @@
 //! The operator's setup of a workspace is in `setup.rs`.
 // end part: workspace_setup
 
+// part: workspace_creation
+pub(super) mod creation;
+// end part: workspace_creation
 mod members;
 // part: files
 pub(super) mod picture;
@@ -22,7 +29,6 @@ use platform::{
     authz::{Authorized, Permission},
     db::{Database, UnitOfWork},
     errors::{Internal, RequestError},
-    idempotency::{Claimed, IdempotencyKey},
     jobs,
     lists::{List, Page, Search},
     types::{Client, UserId, Version, WorkspaceId},
@@ -34,7 +40,7 @@ use super::{
     audit,
     error::WorkspacesError,
     events as published,
-    model::{Current, NewWorkspace, Rename, Transfer, Workspace, WorkspaceItem, WorkspaceName},
+    model::{Current, Rename, Transfer, Workspace, WorkspaceItem, WorkspaceName},
     repo,
 };
 use crate::modules::{
@@ -44,43 +50,6 @@ use crate::modules::{
     audit::{self as log, Entry},
     auth,
 };
-
-/// Creates a workspace that the caller owns, in a unit of work of its own, which claims `key`
-/// first, so a retry with the same key and request answers the same workspace, and tells the
-/// caller's streams, with the session that created it (WORKSPACES-001, PLATFORM-036).
-pub(crate) async fn create(
-    database: &Database,
-    client: &Client,
-    principal: &Principal,
-    key: Option<&IdempotencyKey>,
-    input: NewWorkspace,
-) -> Result<Current, WorkspacesError> {
-    let mut uow = database.begin(client).await?;
-    if let Claimed::Replay(created) = uow.claim(principal.user_id(), key).await? {
-        return Ok(created);
-    }
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "a user who creates a workspace is recorded as its founder (the workspaces spec)"
-    )]
-    let founder = Founder {
-        owner: principal.user_id(),
-        scope: |workspace| principal.founder_scope(workspace),
-    };
-    let created = found(&mut uow, &input.name, founder).await?;
-    let payload = published::MembershipCreated {
-        workspace_id: created.workspace.id,
-        session_id: principal.session_id(),
-    };
-    uow.publish_to_user(
-        &published::MEMBERSHIP_CREATED,
-        principal.user_id(),
-        &payload,
-    )
-    .await?;
-    uow.commit_with(&created).await?;
-    Ok(created)
-}
 
 /// Whom a workspace is created for, and how its creation is recorded (D33).
 pub(super) struct Founder<S> {

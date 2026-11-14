@@ -21,7 +21,9 @@ use std::{path::Path, process::ExitCode};
 
 use serde_json::{Value, json};
 
-use super::{LABEL, PORT, docker, fail, healthy, next_rate, report};
+use super::{
+    LABEL, PORT, compose_id, docker, fail, healthy, next_rate, replica::database_url, report,
+};
 use readers::{Streams, delivered, open_streams};
 
 /// What a replica of the image under test runs with: the image, the network of Compose's
@@ -309,7 +311,9 @@ fn host_address(root: &Path, id: &str) -> Result<String, String> {
 
 /// The users whose streams the hub holds, each with an access token, and the data k6 publishes
 /// with: an inviter, who owns a workspace and has invited each user once. Their addresses hold
-/// `run`.
+/// `run`. The workspace is arranged in the database, as a test arranges its state, rather than
+/// through one of the parts that create workspaces, so the test runs whichever of them a fork
+/// keeps.
 fn arrange(root: &Path, publisher: &str, run: &str) -> Result<Vec<String>, String> {
     let register = |email: &str| -> Result<String, String> {
         let body =
@@ -322,21 +326,9 @@ fn arrange(root: &Path, publisher: &str, run: &str) -> Result<Vec<String>, Strin
             (status, answer) => Err(format!("registering {email} answered {status}: {answer}")),
         }
     };
-    let inviter = register(&format!("load-{run}-inviter@example.com"))?;
-    let workspace = match client::request(
-        publisher,
-        "POST",
-        "/v1/workspaces",
-        Some(&inviter),
-        Some(&json!({ "name": "Load Test" })),
-    )? {
-        (201, answer) => answer["id"].as_str().unwrap_or_default().to_owned(),
-        (status, answer) => {
-            return Err(format!(
-                "creating the workspace answered {status}: {answer}"
-            ));
-        }
-    };
+    let owner = format!("load-{run}-inviter@example.com");
+    let inviter = register(&owner)?;
+    let workspace = owned_workspace(root, &owner)?;
     let mut emails = Vec::new();
     let mut tokens = Vec::new();
     for n in 0..USERS {
@@ -356,6 +348,38 @@ fn arrange(root: &Path, publisher: &str, run: &str) -> Result<Vec<String>, Strin
     let directory = root.join("target/load");
     write(&directory, &data).map_err(|error| format!("can't write the data k6 reads: {error}"))?;
     Ok(tokens)
+}
+
+/// Arranges a workspace in Compose's Postgres, owned by the account that holds `email`, as the
+/// role that owns the schema, and returns its ID.
+fn owned_workspace(root: &Path, email: &str) -> Result<String, String> {
+    let url = database_url("DATABASE_OWNER_URL")?;
+    let statement = format!(
+        "WITH created AS (INSERT INTO workspaces (name) VALUES ('Load Test') RETURNING id), \
+         joined AS (INSERT INTO workspace_memberships (workspace_id, user_id, role) \
+         SELECT created.id, users.id, 'owner' FROM created, users \
+         WHERE users.email = '{email}' RETURNING workspace_id) \
+         SELECT workspace_id FROM joined"
+    );
+    let workspace = docker(
+        root,
+        &[
+            "exec",
+            &compose_id(root, "postgres"),
+            "psql",
+            &url,
+            "-qAt",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--command",
+            &statement,
+        ],
+    )
+    .map_err(|error| format!("arranging the workspace failed: {error}"))?;
+    if workspace.is_empty() {
+        return Err(format!("no account holds {email}, so it owns no workspace"));
+    }
+    Ok(workspace)
 }
 
 #[expect(

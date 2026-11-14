@@ -30,6 +30,10 @@ mod realtime;
 mod support;
 #[cfg(test)]
 mod system;
+// part: workspace_creation
+#[cfg(test)]
+mod workspace_creation;
+// end part: workspace_creation
 // part: workspace_setup
 #[cfg(test)]
 mod workspace_setup;

@@ -1,9 +1,15 @@
-//! Creating, listing, reading, renaming, transferring, deleting and leaving workspaces (the
-//! workspaces spec's Routes). The members endpoints are in `members.rs`.
+//! Listing, reading, renaming, transferring, deleting and leaving workspaces (the workspaces
+//! spec's Routes). The members endpoints are in `members.rs`.
+// part: workspace_creation
+//! A user's creation of a workspace is in `creation.rs`.
+// end part: workspace_creation
 // part: files
 //! Setting and removing a workspace's picture are in `picture.rs`.
 // end part: files
 
+// part: workspace_creation
+mod creation;
+// end part: workspace_creation
 mod members;
 // part: files
 mod picture;
@@ -15,8 +21,7 @@ use platform::{
     authz::Authorize,
     db::Database,
     errors::{Problem, RequestError},
-    http::{FieldErrors, Idempotent, IfMatch, Json, MergePatch, Query, ResourceResponse, Routes},
-    idempotency::IdempotencyKey,
+    http::{FieldErrors, IfMatch, Json, MergePatch, Query, ResourceResponse, Routes},
     lists::{Cursor, Limit, List, Page, Search},
     types::{Client, WorkspaceId},
 };
@@ -30,7 +35,7 @@ use super::{
         MEMBER_LEFT, MEMBER_REMOVED, MEMBER_ROLE_CHANGED, MEMBERSHIP_CREATED,
         WORKSPACE_TRANSFERRED, WORKSPACE_UPDATED,
     },
-    model::{MemberId, NewWorkspace, Rename, Transfer, Workspace, WorkspaceItem, WorkspaceName},
+    model::{MemberId, Rename, Transfer, Workspace, WorkspaceItem, WorkspaceName},
     service,
 };
 use crate::modules::access::{
@@ -43,7 +48,11 @@ pub(crate) use picture::picture_routes;
 
 /// The module's routes, which take the database as their state, and the events they publish.
 pub(crate) fn routes() -> Routes<Database> {
-    Routes::new()
+    let routes = Routes::new();
+    // part: workspace_creation
+    let routes = routes.merge(creation::routes());
+    // end part: workspace_creation
+    routes
         .events(&[
             &MEMBERSHIP_CREATED,
             &WORKSPACE_UPDATED,
@@ -52,7 +61,7 @@ pub(crate) fn routes() -> Routes<Database> {
             &MEMBER_REMOVED,
             &MEMBER_LEFT,
         ])
-        .user(routes!(create, list), &[])
+        .user(routes!(list), &[])
         .workspace::<WorkspaceRead>(routes!(read), &[])
         .workspace::<WorkspaceUpdate>(routes!(rename), &[])
         .workspace::<WorkspaceDelete>(routes!(delete), &[&RequestError::ReauthenticationRequired])
@@ -66,56 +75,6 @@ pub(crate) fn routes() -> Routes<Database> {
         )
         .workspace::<WorkspaceLeave>(routes!(leave), &[])
         .merge(members::routes())
-}
-
-/// What creating a workspace takes (WORKSPACES-001).
-#[derive(Deserialize, ToSchema)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct CreateRequest {
-    /// The workspace's name (WORKSPACES-002).
-    #[schema(value_type = WorkspaceName)]
-    name: String,
-}
-
-impl TryFrom<CreateRequest> for NewWorkspace {
-    type Error = RequestError;
-
-    fn try_from(request: CreateRequest) -> Result<Self, Self::Error> {
-        let mut errors = FieldErrors::new();
-        let name = errors.check("/name", WorkspaceName::parse(&request.name));
-        errors.finish(name.map(|name| Self { name }))
-    }
-}
-
-/// Creates a workspace that the caller owns.
-#[utoipa::path(
-    post,
-    path = "/v1/workspaces",
-    tag = "workspaces",
-    request_body = CreateRequest,
-    params(
-        ("Idempotency-Key" = inline(Option<IdempotencyKey>), Header,
-            description = "A key of the caller's own, as a quoted string, so a retry creates nothing twice (API-12)."),
-    ),
-    responses(
-        (status = 201, description = "The new workspace, which the caller owns.", body = Workspace,
-            headers(
-                ("location" = String, description = "The new workspace: `/v1/workspaces/{id}`."),
-                ("etag" = String, description = "The workspace's version, which a rename's `If-Match` names (API-13)."),
-            )),
-    )
-)]
-async fn create(
-    State(database): State<Database>,
-    client: Client,
-    principal: Principal,
-    request: Idempotent<CreateRequest>,
-) -> Result<ResourceResponse<Workspace>, Problem<WorkspacesError>> {
-    let input = NewWorkspace::try_from(request.body).map_err(WorkspacesError::from)?;
-    let created =
-        service::create(&database, &client, &principal, request.key.as_ref(), input).await?;
-    let location = format!("/v1/workspaces/{}", created.workspace.id);
-    Ok(ResourceResponse::created(created.workspace, location).tagged(created.version))
 }
 
 /// The query of `GET /v1/workspaces` (WORKSPACES-003).

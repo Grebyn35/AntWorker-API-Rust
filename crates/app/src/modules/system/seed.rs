@@ -1,5 +1,5 @@
 //! `seed`, which fills a development database with demo accounts and workspaces (the system
-//! spec's Seed, D28). It changes the API's data only through its routes, as any client does: it
+//! spec's Seed, D28). It changes the API's data through its routes, as any client does: it
 //! sends the API's router each request in process, with a JSON body and the Bearer header of the
 //! account it acts as, so every row it creates passes a client's checks and carries the audit
 //! entries and events that the request records
@@ -7,6 +7,10 @@
 //! that its registrations enqueued, and proves each account's address with the code that their
 //! emails carry, which it reads from an inbox of its own, as a client reads the code from its
 //! mailbox.
+// part: workspace_setup
+//! It sets one workspace up as the deployment's operator does, through the operation that the
+//! composition root hands it, which no route offers (SYSTEM-009).
+// end part: workspace_setup
 
 use std::net::{Ipv4Addr, SocketAddr};
 
@@ -58,12 +62,37 @@ pub(crate) struct Mailbox<'a> {
     pub(crate) inbox: &'a Inbox,
 }
 
+// part: workspace_setup
+/// The operator's setup of a workspace, as the composition root hands it to the seed: given the
+/// workspace's name and its owner's address, it sets the workspace up, and answers its ID
+/// (SYSTEM-009).
+pub(crate) type SetUp<'a> = &'a dyn Fn(&'static str, &'static str) -> SettingUp<'a>;
+
+/// A setup that runs, which answers its workspace's ID.
+pub(crate) type SettingUp<'a> =
+    std::pin::Pin<Box<dyn Future<Output = Result<String, Internal>> + 'a>>;
+// end part: workspace_setup
+
+/// What the seed fills a database through: the API's router, which its requests go to, and what
+/// it does beside them.
+pub(crate) struct Seed<'a> {
+    /// The API's router, as `serve` builds it.
+    pub(crate) router: Router,
+    /// What it reads its accounts' codes with.
+    pub(crate) mailbox: Mailbox<'a>,
+    // part: workspace_setup
+    /// The operator's setup of a workspace.
+    pub(crate) set_up: SetUp<'a>,
+    // end part: workspace_setup
+}
+
 /// What the seed created: the accounts, each with the password [`PASSWORD`], and the workspaces.
 #[derive(Debug)]
 pub(crate) struct Seeded {
     /// The accounts, in the order it registered them.
     pub(crate) accounts: Vec<Account>,
-    /// Each workspace's name and ID, which a developer names in the paths of its routes.
+    /// Each workspace's name and ID, which a developer names in the paths of its routes, in the
+    /// order it created them.
     pub(crate) workspaces: Vec<(&'static str, String)>,
 }
 
@@ -76,11 +105,13 @@ pub(crate) fn allowed(environment: Environment) -> Result<(), SystemError> {
     }
 }
 
-/// Fills the database behind `router` with the demo data (SYSTEM-003), proving each account's
-/// address with the code that `mailbox` receives while email is on (SYSTEM-006), and stops at the
-/// first account that exists already (SYSTEM-004).
-pub(crate) async fn seed(router: Router, mailbox: Mailbox<'_>) -> Result<Seeded, SystemError> {
-    let api = Api { router };
+/// Fills the database behind the router of `seed` with the demo data (SYSTEM-003), proving each
+/// account's address with the code that its mailbox receives while email is on (SYSTEM-006), and
+/// stops at the first account that exists already (SYSTEM-004).
+pub(crate) async fn seed(seed: Seed<'_>) -> Result<Seeded, SystemError> {
+    let api = Api {
+        router: seed.router,
+    };
     let olivia = api.register("owner@example.com", "Olivia Owner").await?;
     let adam = api.register("admin@example.com", "Adam Admin").await?;
     let mia = api.register("member@example.com", "Mia Member").await?;
@@ -91,13 +122,29 @@ pub(crate) async fn seed(router: Router, mailbox: Mailbox<'_>) -> Result<Seeded,
     // part: invitations
     let registered = [registered, vec![&ian]].concat();
     // end part: invitations
-    api.verify(&mailbox, &registered).await?;
-    let acme = api.create_workspace(&olivia, "Acme").await?;
-    let side_project = api.create_workspace(&mia, "Side Project").await?;
+    api.verify(&seed.mailbox, &registered).await?;
+    // The workspaces, Olivia's first: each part that creates workspaces adds its own.
+    let mut workspaces = Vec::new();
+    // part: workspace_creation
+    // The workspaces that their owners create (SYSTEM-008).
+    for (owner, name) in [(&olivia, "Acme"), (&mia, "Side Project")] {
+        workspaces.push((name, api.create_workspace(owner, name).await?));
+    }
+    // end part: workspace_creation
+    // part: workspace_setup
+    // The workspace that the operator sets up for Olivia (SYSTEM-009).
+    let labs = (seed.set_up)("Acme Labs", olivia.email).await?;
+    workspaces.push(("Acme Labs", labs));
+    // end part: workspace_setup
     // part: invitations
-    // The members of Acme, and the invitation that waits (SYSTEM-005).
+    // The members of the first workspace, and the invitation that waits (SYSTEM-005).
+    let Some((_, shared)) = workspaces.first() else {
+        return Err(
+            Internal::new("the seed created no workspace to invite its accounts to").into(),
+        );
+    };
     for (invitee, role) in [(&adam, "admin"), (&mia, "member")] {
-        let invitation = api.invite(&olivia, &acme, invitee, role).await?;
+        let invitation = api.invite(&olivia, shared, invitee, role).await?;
         api.send(
             Method::POST,
             &format!("/v1/users/me/invitations/{invitation}/accept"),
@@ -106,7 +153,7 @@ pub(crate) async fn seed(router: Router, mailbox: Mailbox<'_>) -> Result<Seeded,
         )
         .await?;
     }
-    api.invite(&olivia, &acme, &ian, "member").await?;
+    api.invite(&olivia, shared, &ian, "member").await?;
     // end part: invitations
     let accounts = vec![olivia, adam, mia];
     // part: invitations
@@ -114,7 +161,7 @@ pub(crate) async fn seed(router: Router, mailbox: Mailbox<'_>) -> Result<Seeded,
     // end part: invitations
     Ok(Seeded {
         accounts,
-        workspaces: vec![("Acme", acme), ("Side Project", side_project)],
+        workspaces,
     })
 }
 
@@ -189,6 +236,7 @@ impl Api {
         Ok(())
     }
 
+    // part: workspace_creation
     /// Creates the workspace `name`, which `owner` owns, and returns its ID (WORKSPACES-001).
     async fn create_workspace(&self, owner: &Account, name: &str) -> Result<String, SystemError> {
         let answer = self
@@ -201,6 +249,7 @@ impl Api {
             .await?;
         text(&answer, "id")
     }
+    // end part: workspace_creation
 
     // part: invitations
     /// Has `inviter` invite `invitee` to `workspace` at `role`, and returns the invitation's ID

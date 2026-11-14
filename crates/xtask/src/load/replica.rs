@@ -255,14 +255,19 @@ pub(super) fn settings(root: &Path) -> Result<Vec<String>, String> {
         "SIGN_IN_WINDOW_SECONDS=1".to_owned(),
     ]);
     for name in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
-        let value =
-            std::env::var(name).map_err(|_| format!("{name} is unset; run `just setup`"))?;
-        let at = value.rfind('@').ok_or(format!("{name} has no host"))?;
-        let rest = &value[at + 1..];
-        let path = rest.find('/').map_or("", |slash| &rest[slash..]);
-        settings.push(format!("{name}={}@postgres:5432{path}", &value[..at]));
+        settings.push(format!("{name}={}", database_url(name)?));
     }
     Ok(settings)
+}
+
+/// The database URL that .env gives as `name`, with Compose's Postgres as `postgres`, as a
+/// container on its network reaches it.
+pub(super) fn database_url(name: &str) -> Result<String, String> {
+    let value = std::env::var(name).map_err(|_| format!("{name} is unset; run `just setup`"))?;
+    let at = value.rfind('@').ok_or(format!("{name} has no host"))?;
+    let rest = &value[at + 1..];
+    let path = rest.find('/').map_or("", |slash| &rest[slash..]);
+    Ok(format!("{}@postgres:5432{path}", &value[..at]))
 }
 
 /// The settings of `IMAGE_SETTINGS`: each line that is neither empty nor a comment.

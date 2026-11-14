@@ -68,14 +68,17 @@ async fn auth_070_an_account_without_an_app_is_refused_but_where_setting_one_up_
             "{path}"
         );
     }
-    let created = api
-        .post("/v1/workspaces", &json!({ "name": "Side" }))
+    let renamed = api
+        .patch(
+            &format!("/v1/workspaces/{acme}"),
+            &json!({ "name": "Side" }),
+        )
         .bearer(&ada.access)
         .send()
         .await;
-    assert_eq!(created.status, 403);
+    assert_eq!(renamed.status, 403);
     assert_eq!(
-        created.json()["code"],
+        renamed.json()["code"],
         "request.second_factor_setup_required"
     );
 

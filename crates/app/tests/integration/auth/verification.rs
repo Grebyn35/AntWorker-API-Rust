@@ -61,18 +61,18 @@ async fn auth_025_an_account_that_must_verify_is_refused_but_where_verifying_nee
     let address = mailbox::address("ada");
     let ada = users::register_unverified(&api, &address).await;
 
-    for path in ["/v1/users/me", "/v1/users/me/exports"] {
+    for path in ["/v1/users/me", "/v1/users/me/exports", "/v1/workspaces"] {
         let refused = api.get(path).bearer(&ada.access).send().await;
         assert_eq!(refused.status, 403, "{path}");
         assert_eq!(refused.json()["code"], "request.email_unverified");
     }
-    let workspace = api
-        .post("/v1/workspaces", &json!({ "name": "Acme" }))
+    let renamed = api
+        .patch("/v1/users/me", &json!({ "name": "Ada" }))
         .bearer(&ada.access)
         .send()
         .await;
-    assert_eq!(workspace.status, 403);
-    assert_eq!(workspace.json()["code"], "request.email_unverified");
+    assert_eq!(renamed.status, 403);
+    assert_eq!(renamed.json()["code"], "request.email_unverified");
 
     let session = api
         .get("/v1/users/me/sessions/current")

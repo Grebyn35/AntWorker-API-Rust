@@ -7,7 +7,7 @@
 
 use crate::modules::audit::{Action, Resource};
 
-/// A workspace was created (WORKSPACES-001).
+/// A workspace was created (the workspaces spec's "Creating a workspace").
 pub(super) const WORKSPACE_CREATED: Action = Action::new("workspace.created");
 /// A workspace was renamed (WORKSPACES-008).
 pub(super) const WORKSPACE_RENAMED: Action = Action::new("workspace.renamed");

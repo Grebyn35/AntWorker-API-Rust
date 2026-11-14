@@ -42,6 +42,9 @@ async fn system_001_a_feature_turned_off_is_false() {
 fn features(email: bool) -> Value {
     let mut features = serde_json::Map::new();
     features.insert("email".to_owned(), json!(email));
+    // part: workspace_creation
+    features.insert("workspace_creation".to_owned(), json!(true));
+    // end part: workspace_creation
     // part: invitations
     features.insert("invitations".to_owned(), json!(true));
     // end part: invitations
@@ -140,15 +143,19 @@ async fn seed(database: &TestDatabase) -> String {
 }
 
 #[tokio::test]
-async fn system_003_seed_creates_its_accounts_and_workspaces_through_the_routes() {
+async fn system_003_seed_registers_its_accounts_through_the_routes() {
     let database = TestDatabase::migrated().await;
 
     let password = seed(&database).await;
 
     let api = Api::on(database, Options::default()).await;
-    let olivia = sign_in(&api, "owner@example.com", &password).await;
-    let adam = sign_in(&api, "admin@example.com", &password).await;
-    let mia = sign_in(&api, "member@example.com", &password).await;
+    for email in [
+        "owner@example.com",
+        "admin@example.com",
+        "member@example.com",
+    ] {
+        sign_in(&api, email, &password).await;
+    }
     let names = api
         .database()
         .owner_reads(
@@ -157,43 +164,152 @@ async fn system_003_seed_creates_its_accounts_and_workspaces_through_the_routes(
         )
         .await;
     assert_eq!(names, ["Adam Admin", "Mia Member", "Olivia Owner"]);
+    // Each request went through the pipeline as a client's does, from 127.0.0.1, and recorded
+    // and published what a client's does: each registration its entry, and its session's start.
     assert_eq!(
-        workspaces(&api, &olivia).await,
-        [("Acme".to_owned(), "owner".to_owned())]
+        api.database()
+            .owner_reads(
+                "SELECT ((SELECT count(*) FROM users) = count(*))::text \
+                 || ' ' || host(client.client_ip) || ' ' || client.user_agent \
+                 FROM audit_entries entry \
+                 JOIN audit_entry_clients client ON client.entry_id = entry.id \
+                 WHERE entry.action = 'user.registered' \
+                 GROUP BY client.client_ip, client.user_agent"
+            )
+            .await,
+        ["true 127.0.0.1 seed"]
+    );
+    assert_eq!(
+        api.database()
+            .owner_reads(
+                "SELECT ((SELECT count(DISTINCT user_id) FROM events \
+                 WHERE name = 'session.created') = (SELECT count(*) FROM users))::text"
+            )
+            .await,
+        ["true"]
+    );
+}
+
+// part: workspace_creation
+#[tokio::test]
+async fn system_008_seed_has_olivia_and_mia_each_create_a_workspace_through_the_route() {
+    let database = TestDatabase::migrated().await;
+
+    let password = seed(&database).await;
+
+    let api = Api::on(database, Options::default()).await;
+    let olivia = sign_in(&api, "owner@example.com", &password).await;
+    let mia = sign_in(&api, "member@example.com", &password).await;
+    assert!(
+        workspaces(&api, &olivia)
+            .await
+            .contains(&("Acme".to_owned(), "owner".to_owned()))
     );
     assert!(
         workspaces(&api, &mia)
             .await
             .contains(&("Side Project".to_owned(), "owner".to_owned()))
     );
-    assert!(
-        !workspaces(&api, &adam)
-            .await
-            .iter()
-            .any(|(_, role)| role == "owner")
+    // Olivia's is the first workspace that the seed created.
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT name FROM workspaces ORDER BY created_at LIMIT 1")
+            .await,
+        ["Acme"]
     );
-    // Each request went through the pipeline as a client's does, from 127.0.0.1.
+    // Each creation went through the pipeline as a client's does: its entry names its creator
+    // and its client, and its event its creator's session.
     assert_eq!(
         api.database()
             .owner_reads(
-                "SELECT DISTINCT host(client.client_ip) || ' ' || client.user_agent \
+                "SELECT workspace.name || ' ' || actor.email || ' ' || host(client.client_ip) \
+                 || ' ' || client.user_agent \
                  FROM audit_entries entry \
+                 JOIN workspaces workspace ON workspace.id = entry.workspace_id \
+                 JOIN users actor ON actor.id = entry.actor_user_id \
                  JOIN audit_entry_clients client ON client.entry_id = entry.id \
-                 WHERE entry.action IN ('user.registered', 'workspace.created')"
+                 WHERE entry.action = 'workspace.created' ORDER BY workspace.name"
             )
             .await,
-        ["127.0.0.1 seed"]
+        [
+            "Acme owner@example.com 127.0.0.1 seed",
+            "Side Project member@example.com 127.0.0.1 seed",
+        ]
     );
     assert_eq!(
         api.database()
-            .owner_reads("SELECT count(*)::text FROM events WHERE name = 'membership.created'")
+            .owner_reads(
+                "SELECT workspace.name FROM events event \
+                 JOIN workspaces workspace \
+                 ON workspace.id::text = event.payload->>'workspace_id' \
+                 JOIN workspace_memberships membership \
+                 ON membership.workspace_id = workspace.id AND membership.role = 'owner' \
+                 WHERE event.name = 'membership.created' AND event.user_id = membership.user_id \
+                 ORDER BY workspace.name"
+            )
             .await,
-        [workspaces(&api, &olivia).await.len()
-            + workspaces(&api, &adam).await.len()
-            + workspaces(&api, &mia).await.len()]
-        .map(|count| count.to_string())
+        ["Acme", "Side Project"]
     );
 }
+// end part: workspace_creation
+
+// part: workspace_setup
+#[tokio::test]
+async fn system_009_seed_sets_a_workspace_up_for_olivia_as_an_operator_s_run_does() {
+    let database = TestDatabase::migrated().await;
+
+    let password = seed(&database).await;
+
+    let api = Api::on(database, Options::default()).await;
+    let olivia = sign_in(&api, "owner@example.com", &password).await;
+    assert!(
+        workspaces(&api, &olivia)
+            .await
+            .contains(&("Acme Labs".to_owned(), "owner".to_owned()))
+    );
+    // The setup recorded what an operator's run records: the name against a later run, and the
+    // workspace's first entry with no actor, no client, and its owner as the target.
+    assert_eq!(
+        api.database()
+            .owner_reads(
+                "SELECT setup.name || ' ' || (entry.actor_user_id IS NULL) || ' ' \
+                 || target.email || ' ' || (SELECT count(*) FROM audit_entry_clients client \
+                 WHERE client.entry_id = entry.id) \
+                 FROM workspace_setups setup \
+                 JOIN audit_entries entry ON entry.workspace_id = setup.workspace_id \
+                 JOIN users target ON target.id = entry.target_user_id \
+                 WHERE entry.action = 'workspace.created'"
+            )
+            .await,
+        ["Acme Labs true owner@example.com 0"]
+    );
+}
+
+#[tokio::test]
+async fn system_009_with_email_on_the_setup_takes_olivia_s_proved_address_and_enqueues_its_email() {
+    let database = TestDatabase::migrated().await;
+
+    let output = database
+        .run_api(
+            &["seed"],
+            &[("ENVIRONMENT", "development"), ("EMAIL", "smtp")],
+        )
+        .await;
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(
+        database
+            .owner_reads(
+                "SELECT (SELECT count(*) FROM workspace_setups)::text || ' ' \
+                 || (SELECT count(*) FROM jobs job JOIN users owner ON owner.id = job.user_id \
+                 WHERE job.kind = 'platform.send_email' AND owner.email = 'owner@example.com' \
+                 AND job.payload::text LIKE '%was set up for you%')"
+            )
+            .await,
+        ["1 1"]
+    );
+}
+// end part: workspace_setup
 
 #[tokio::test]
 async fn system_003_the_subcommand_prints_the_accounts_their_password_and_the_workspaces() {
@@ -323,28 +439,27 @@ async fn system_005_seed_has_olivia_invite_adam_and_mia_who_accept_and_ian_whose
     let adam = sign_in(&api, "admin@example.com", &password).await;
     let mia = sign_in(&api, "member@example.com", &password).await;
     let ian = sign_in(&api, "invitee@example.com", &password).await;
-    assert_eq!(
-        workspaces(&api, &adam).await,
-        [("Acme".to_owned(), "admin".to_owned())]
-    );
-    assert_eq!(
-        workspaces(&api, &mia).await,
-        [
-            ("Acme".to_owned(), "member".to_owned()),
-            ("Side Project".to_owned(), "owner".to_owned())
-        ]
-    );
-    let acme = api
+    // The first workspace the seed created: the one that Olivia joined first.
+    let listed = api
         .get("/v1/workspaces")
         .bearer(&olivia)
         .send()
         .await
-        .json()["items"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+        .json();
+    let first = listed["items"].as_array().unwrap().last().unwrap();
+    let name = first["name"].as_str().unwrap().to_owned();
+    let shared = first["id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        workspaces(&api, &adam).await,
+        [(name.clone(), "admin".to_owned())]
+    );
+    assert!(
+        workspaces(&api, &mia)
+            .await
+            .contains(&(name, "member".to_owned()))
+    );
     let members = api
-        .get(&format!("/v1/workspaces/{acme}/members"))
+        .get(&format!("/v1/workspaces/{shared}/members"))
         .bearer(&olivia)
         .send()
         .await
@@ -364,7 +479,7 @@ async fn system_005_seed_has_olivia_invite_adam_and_mia_who_accept_and_ian_whose
         .await
         .json();
     assert_eq!(pending["items"].as_array().unwrap().len(), 1);
-    assert_eq!(pending["items"][0]["workspace_id"], acme.as_str());
+    assert_eq!(pending["items"][0]["workspace_id"], shared.as_str());
     assert_eq!(pending["items"][0]["role"], "member");
     assert_eq!(pending["items"][0]["inviter_name"], "Olivia Owner");
     // Olivia invited each of them, at the role each holds.
@@ -415,11 +530,12 @@ async fn system_007_seed_builds_its_data_while_the_deployment_requires_a_second_
         .find_map(|line| line.split_once("with the password "))
         .map(|(_, password)| password.trim_end_matches(':').to_owned())
         .unwrap();
+    // Its accounts were served what it sent as them.
     assert_eq!(
         database
-            .owner_reads("SELECT name FROM workspaces ORDER BY name")
+            .owner_reads("SELECT (count(*) > 0)::text FROM workspace_memberships")
             .await,
-        ["Acme", "Side Project"]
+        ["true"]
     );
     // Each account sets an app up at its first sign-in, as one that registered before the
     // deployment turned the requirement on does (AUTH-070).

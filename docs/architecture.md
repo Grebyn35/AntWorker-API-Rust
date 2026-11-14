@@ -130,7 +130,7 @@ crates/app/
 | `invitations` | `invitations` | Invite, list, resend, cancel, accept, decline, and expiry. <!-- part: invitations --> |
 | `superadmins` | `superadmins` | The deployment's superadmins (D62): users who see every workspace's name, creation time, member count and owner, but not its content, delete any workspace, and create workspaces, which they then own ([workspace shapes](#workspace-shapes)). Its routes are authorized by the caller being a superadmin, never by a membership, and it records each action in the superadmin's own log, since deleting a workspace deletes the workspace's log. Its subcommand adds an account to the superadmins or removes it, which the API can't. |
 | `client_telemetry` | `telemetry_consents` | The telemetry proxy for clients, and each user's consent to it, which it enforces on the server (D7, D122). |
-| `system` | none | The capabilities endpoint (D9), the schema endpoints, which list the permissions and the audit actions, and `seed`, which fills a development database with demo accounts and workspaces through the API's own routes (D28). The health probes belong to `platform` (§4). |
+| `system` | none | The capabilities endpoint (D9), the schema endpoints, which list the permissions and the audit actions, and `seed`, which fills a development database with demo accounts and workspaces, as a client of the API's own routes (D28). The health probes belong to `platform` (§4). |
 | `platform` | `events`, `jobs`, `job_schedules`, `rate_limit_buckets`, `idempotency_records` | The mechanisms in §4. |
 
 Table naming follows the data standard.
@@ -140,23 +140,28 @@ Table naming follows the data standard.
 Data a module adds for its product lives in a workspace, and is reached through `Authorized<P>` (§6). Account data, such as the profile, sessions and the user's own audit log, belongs to the user. A product uses workspaces in one of the shapes below, and the optional parts a fork keeps decide which.
 
 <!-- part: invitations -->
-- **Teams.** Each user creates as many workspaces as they need, and the people a member invites join one. It keeps users creating workspaces and `invitations`.
+- **Teams.** Each user creates as many workspaces as they need, and the people a member invites join one. It keeps users creating workspaces and `invitations`. <!-- part: workspace_creation -->
 - **Provisioned organizations.** A superadmin creates a workspace for each organization the deployment serves, and the people a member invites join one. It keeps `superadmins` and `invitations`.
 - **One organization.** An operator runs the setup subcommand for each workspace the organization needs, such as one per subsidiary, which creates it for its owner, and, with email on, their account when no account holds their address (§9), and the people a member invites join one. It keeps the setup subcommand and `invitations`. <!-- part: workspace_setup -->
 <!-- end part: invitations -->
-- **Personal.** The client creates a workspace whenever a signed-in user belongs to none, and nobody joins one. It keeps users creating workspaces.
+- **Personal.** The client creates a workspace whenever a signed-in user belongs to none, and nobody joins one. It keeps users creating workspaces. <!-- part: workspace_creation -->
 
 A fork chooses its shape once, when it starts, by removing the optional parts it doesn't keep with `just remove` (ARCH-07), never through a setting, so it carries no code for a shape it doesn't use.
 A shape is enforced by the routes it removes: a route a fork keeps treats every caller the same, whatever the fork's client offers, and lets a caller do only what their role allows (§6).
+A client reads which parts its API keeps from the capabilities (D118), and offers only what they hold.
+
+<!-- part: workspace_creation -->
 In the personal shape, the API has no notion of a personal workspace, and nobody can join the workspace a user creates.
 The client works in the oldest workspace the user belongs to, so a workspace made outside the client changes nothing the user sees, and it can leave workspaces out of its interface.
 After creating one, it lists the user's workspaces again before working in any, so two devices that each found none and each created one both work in the older, and the other stays empty.
 The template keeps every part and serves the teams shape. <!-- part: invitations -->
-Registration creates no workspace, and a user who belongs to none is offered to create one (D16).
+A user who belongs to no workspace is offered to create one.
+<!-- end part: workspace_creation -->
+Registration creates no workspace (D16).
 An invited user joins only the workspace they were invited to. <!-- part: invitations -->
 A fork may keep `superadmins` in any shape, for seeing and deleting workspaces.
 In the provisioned shape, it is the one part that creates them. <!-- part: invitations -->
-A superadmin who creates a workspace becomes its owner, as a user who creates one does, and hands it over through the ordinary ownership transfer when asked.
+A superadmin who creates a workspace becomes its owner, and hands it over through the ordinary ownership transfer when asked.
 They set it up and invite its people first. <!-- part: invitations -->
 They see its content as a member, never as a superadmin.
 How each part creates a workspace is in the [workspaces spec](spec/workspaces.md#creating-a-workspace).
@@ -164,7 +169,7 @@ In every shape, the same authorization and the same tenancy checks guard the dat
 
 <!-- part: workspace_setup -->
 Only an operator runs the setup subcommand, so keeping it changes nothing for the template's users.
-In the one organization shape, as in the personal one, a user usually works in one workspace, and a client offers a choice only to a user who belongs to several, such as the owner of two subsidiaries. <!-- part: invitations -->
+In the one organization shape, a user usually works in one workspace, and a client offers a choice only to a user who belongs to several, such as the owner of two subsidiaries. <!-- part: invitations -->
 <!-- end part: workspace_setup -->
 
 ### Dependencies
@@ -336,6 +341,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   - `serve` binds one HTTP port and runs the HTTP server, the real-time hub, the job dispatcher and the scheduler.
   - `migrate` is the one-shot migration step.
   - `seed` fills a development database with demo accounts and workspaces, through the API's own routes, as a client would, and refuses in any other environment ([system spec](spec/system.md#seed)).
+    The one workspace that it sets up as an operator does, it sets up through the operation that `setup-workspace` runs. <!-- part: workspace_setup -->
   - The superadmin subcommand adds an account to the superadmins or removes it, in a fork that keeps `superadmins` (D62). `just` runs it, on a deployment's server over Secure Shell (SSH), so only someone who can reach the server can change who is a superadmin.
   - `remove-second-factor` removes the authenticator app of the account that holds an address, for a user who lost it and their recovery codes, once the operator has checked that the person owns the account (D135). `just` runs it, on a deployment's server over SSH, with the image of the color that serves, in a service of its own that passes it only the settings it reads (OPS-02) ([auth spec](spec/auth.md#second-factors)).
   - `setup-workspace`, the setup subcommand, creates a workspace for its owner, each time an operator runs it, with their account when, with email on, no account holds their address (§5, "Workspace shapes", D65). `just` runs it as it runs `remove-second-factor` ([workspaces spec](spec/workspaces.md#the-setup-subcommand)). <!-- part: workspace_setup -->

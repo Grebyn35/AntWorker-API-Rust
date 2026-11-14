@@ -257,7 +257,7 @@ mod tests {
 
     const DOCUMENT_TEXT: &str = r#"{"paths": {
         "/v1/capabilities": {"get": {"tags": ["system"], "x-access": "public"}},
-        "/v1/workspaces": {"post": {"tags": ["workspaces"], "x-access": "user"}}
+        "/v1/workspaces": {"get": {"tags": ["workspaces"], "x-access": "user"}}
     }}"#;
 
     fn findings(system: &str, workspaces: &str) -> Vec<String> {
@@ -282,14 +282,14 @@ mod tests {
         let system = routes(
             "| `GET /health/live` | public, before the stack | PLATFORM-038 |\n| `GET /v1/capabilities` | `public` | SYSTEM-001 |",
         );
-        let workspaces = routes("| `POST /v1/workspaces` | `user` | WORKSPACES-001 |");
+        let workspaces = routes("| `GET /v1/workspaces` | `user` | WORKSPACES-003 |");
         assert_eq!(findings(&system, &workspaces), Vec::<String>::new());
     }
 
     #[test]
     fn doc_08_an_unbuilt_module_s_spec_may_plan_routes_the_document_lacks() {
         let workspaces = routes(
-            "| `POST /v1/workspaces` | `user` | WORKSPACES-001 |\n| `GET /v1/workspaces` | `user` | WORKSPACES-003 |",
+            "| `GET /v1/workspaces` | `user` | WORKSPACES-003 |\n| `GET /v1/workspaces/{workspace_id}` | `workspace::<WorkspaceRead>` | WORKSPACES-007 |",
         );
         let system = routes("| `GET /v1/capabilities` | `public` | SYSTEM-001 |");
         assert_eq!(findings(&system, &workspaces), Vec::<String>::new());
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn doc_08_a_spec_lists_each_operation_of_its_module() {
-        let workspaces = routes("| `POST /v1/workspaces` | `user` | WORKSPACES-001 |");
+        let workspaces = routes("| `GET /v1/workspaces` | `user` | WORKSPACES-003 |");
         assert_eq!(
             findings("## Purpose\n", &workspaces),
             [
@@ -360,14 +360,14 @@ mod tests {
     #[test]
     fn doc_08_a_listed_route_matches_the_document() {
         let system = routes(
-            "| `GET /v1/capabilities` | `user` | SYSTEM-001 |\n| `DELETE /v1/capabilities` | `public` | SYSTEM-001 |\n| `POST /v1/workspaces` | `user` | SYSTEM-001 |",
+            "| `GET /v1/capabilities` | `user` | SYSTEM-001 |\n| `DELETE /v1/capabilities` | `public` | SYSTEM-001 |\n| `GET /v1/workspaces` | `user` | SYSTEM-001 |",
         );
         assert_eq!(
             findings(&system, "## Purpose\n"),
             [
                 "`GET /v1/capabilities` is `public` in openapi.json, not `user` (DOC-08)",
                 "`DELETE /v1/capabilities` isn't an operation of openapi.json (DOC-08)",
-                "`POST /v1/workspaces` belongs to `workspaces` in openapi.json, not to this spec (DOC-08)",
+                "`GET /v1/workspaces` belongs to `workspaces` in openapi.json, not to this spec (DOC-08)",
             ]
         );
     }

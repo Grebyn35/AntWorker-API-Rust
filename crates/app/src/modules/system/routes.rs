@@ -62,6 +62,10 @@ pub(crate) struct Features {
     /// Whether the deployment sends email (PLATFORM-022). While it is off, a client hides what
     /// needs email, such as a way to reset a password.
     email: bool,
+    // part: workspace_creation
+    /// The fork keeps users creating workspaces, so a client offers a user to create one.
+    workspace_creation: bool,
+    // end part: workspace_creation
     // part: invitations
     /// The fork keeps `invitations`, so a workspace's members invite others.
     invitations: bool,
@@ -78,6 +82,9 @@ impl Features {
     pub(crate) fn new(email: bool) -> Self {
         Self {
             email,
+            // part: workspace_creation
+            workspace_creation: true,
+            // end part: workspace_creation
             // part: invitations
             invitations: true,
             // end part: invitations

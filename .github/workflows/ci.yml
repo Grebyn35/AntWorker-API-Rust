@@ -54,10 +54,13 @@ jobs:
       fail-fast: false
       matrix:
         run:
+          # part: workspace_creation
           - personal
           # part: workspace_setup
           - teams
+          - organization
           # end part: workspace_setup
+          # end part: workspace_creation
           # part: files
           - files
           # end part: files

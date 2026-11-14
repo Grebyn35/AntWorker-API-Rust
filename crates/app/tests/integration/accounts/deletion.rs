@@ -10,10 +10,10 @@ use platform::{
 };
 
 use crate::support::{
-    Api, TestDatabase,
+    Api, Options, TestDatabase,
     api::Response,
     events::{self, Event},
-    execute_on, mailbox, queries_wait_on_locks, query_waits_on_a_lock, streams,
+    execute_on, fixtures, mailbox, queries_wait_on_locks, query_waits_on_a_lock, streams,
     users::{self, SignedIn},
     workspaces,
 };
@@ -161,22 +161,37 @@ async fn accounts_013_a_deletion_erases_the_user_s_codes_as_a_step_of_its_own() 
     assert!(naming(&api, ada_id).await.is_empty());
 }
 
+/// A workspace that only `user` belongs to, whose log holds an entry of theirs, and, of their
+/// own, an idempotency record and an event, which the tests' keyed route leaves.
+async fn owned_alone(api: &Api, user: &SignedIn) -> String {
+    let mine = workspaces::arrange(api.database(), "Mine", &[(&user.user_id, "owner")]).await;
+    let renamed = api
+        .patch(
+            &format!("/v1/workspaces/{mine}"),
+            &json!({ "name": "Mine alone" }),
+        )
+        .bearer(&user.access)
+        .send()
+        .await;
+    assert_eq!(renamed.status, 200);
+    let keyed = api
+        .post("/v1/keyed", &json!({ "value": "a" }))
+        .bearer(&user.access)
+        .header("idempotency-key", "\"k-1\"")
+        .send()
+        .await;
+    assert_eq!(keyed.status, 200);
+    mine
+}
+
 #[tokio::test]
 async fn accounts_013_a_deletion_erases_the_account_and_the_workspaces_only_it_belongs_to() {
-    let api = Api::new().await;
+    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
     let ada = users::register(&api, "ada@example.com").await;
     let other_device = users::new_session(&api, "ada@example.com").await;
     let bob = users::register(&api, "bob@example.com").await;
     let db = api.database();
-    // A workspace Ada created herself, with its idempotency record, its event and its log.
-    let created = api
-        .post("/v1/workspaces", &json!({ "name": "Mine" }))
-        .bearer(&ada.access)
-        .header("idempotency-key", "\"k-1\"")
-        .send()
-        .await;
-    assert_eq!(created.status, 201);
-    let mine = created.json()["id"].as_str().unwrap().to_owned();
+    let mine = owned_alone(&api, &ada).await;
     // A job of that workspace from a member who has since left, and one enqueued for Ada.
     db.owner_executes(&format!(
         "INSERT INTO jobs (kind, payload, user_id, workspace_id) VALUES \

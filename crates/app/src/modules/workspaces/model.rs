@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 
 use platform::types::{EmailAddress, Invalid, Timestamp, UserId, Version, WorkspaceId, one_line};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use utoipa::{
     PartialSchema, ToSchema,
     openapi::{KnownFormat, ObjectBuilder, RefOr, Schema, SchemaFormat, Type},
@@ -19,9 +19,13 @@ const MEMBER_ID_CHARS: usize = 36;
 
 /// A workspace's name: trimmed, with each run of whitespace inside collapsed to one space, in
 /// Unicode Normalization Form C, of 1 to 255 characters (WORKSPACES-002). A name can hold a
-/// person's name, so `Debug` doesn't show it (OBS-04). `Deserialize` only reads back a stored
-/// result that an idempotency key replays (PLATFORM-036), which held a parsed name.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// person's name, so `Debug` doesn't show it (OBS-04).
+// part: workspace_creation
+/// `Deserialize` only reads back a stored result that an idempotency key replays
+/// (PLATFORM-036), which held a parsed name.
+#[derive(serde::Deserialize)]
+// end part: workspace_creation
+#[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub(crate) struct WorkspaceName(String);
 
@@ -70,16 +74,22 @@ impl ToSchema for WorkspaceName {
     }
 }
 
+// part: workspace_creation
 /// A workspace that a user creates (WORKSPACES-001).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct NewWorkspace {
     /// Its name.
     pub(crate) name: WorkspaceName,
 }
+// end part: workspace_creation
 
-/// A workspace, as one of its members reads it, with their role: its creator's, `owner`, when
-/// creating it answers it (WORKSPACES-001, WORKSPACES-007).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+/// A workspace, as one of its members reads it, with their role (WORKSPACES-007).
+// part: workspace_creation
+// `Deserialize` only reads back the stored result of a user's creation of one, which an
+// idempotency key replays (WORKSPACES-001, PLATFORM-036).
+#[derive(serde::Deserialize)]
+// end part: workspace_creation
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ToSchema)]
 pub(crate) struct Workspace {
     /// The workspace's ID.
     pub(crate) id: WorkspaceId,
@@ -96,9 +106,12 @@ pub(crate) struct Workspace {
     // end part: files
 }
 
-/// A workspace as it now stands, with the version its `ETag` names (PLATFORM-071), which a
-/// create with an idempotency key stores as its result (PLATFORM-036).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A workspace as it now stands, with the version its `ETag` names (PLATFORM-071).
+// part: workspace_creation
+/// A user's creation of one with an idempotency key stores it as its result (PLATFORM-036).
+#[derive(Serialize, serde::Deserialize)]
+// end part: workspace_creation
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Current {
     /// The workspace.
     pub(crate) workspace: Workspace,

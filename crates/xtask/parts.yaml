@@ -89,6 +89,23 @@ parts:
       - files.unsupported
       - files.upload
   # end part: files
+  # part: workspace_creation
+  - name: workspace_creation
+    paths:
+      - crates/app/src/modules/workspaces/routes/creation.rs
+      - crates/app/src/modules/workspaces/service/creation.rs
+      - crates/app/tests/integration/workspace_creation.rs
+    words:
+      - workspace_creation
+      - workspace-creation
+      - users creating workspaces
+      - user who creates
+      - users create
+      - "post /v1/workspaces`"
+      - post("/v1/workspaces"
+      - founder_scope
+      - newworkspace
+  # end part: workspace_creation
   # part: workspace_setup
   - name: workspace_setup
     paths:
@@ -146,6 +163,7 @@ parts:
 # one fork can remove at once.
 # A run whose parts are all removed already is skipped.
 runs:
+  # part: workspace_creation
   # The personal shape: users create workspaces, and nobody joins them.
   - name: personal
     parts:
@@ -157,7 +175,13 @@ runs:
   - name: teams
     parts:
       - workspace_setup
+  # The one organization shape: an operator sets each workspace up, whose members invite others,
+  # and no user creates one.
+  - name: organization
+    parts:
+      - workspace_creation
   # end part: workspace_setup
+  # end part: workspace_creation
   # part: files
   # A product without uploads.
   - name: files
@@ -183,12 +207,14 @@ runs:
       - openid_connect
   # end part: openid_connect
   # The fewest parts a fork keeps: every part that one fork can remove, so the lines that several
-  # parts mark are removed together too. It keeps users creating workspaces, since every shape
-  # keeps a part that creates them.
+  # parts mark are removed together too. It keeps one part that creates workspaces, since every
+  # shape keeps one.
   - name: minimal
     parts:
       - invitations # part: invitations
+      # part: workspace_creation
       - workspace_setup # part: workspace_setup
+      # end part: workspace_creation
       # part: files
       - files
       # end part: files

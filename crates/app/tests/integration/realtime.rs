@@ -58,6 +58,17 @@ async fn post(api: &Api, user: &SignedIn, workspace: &str, count: u32) {
     );
 }
 
+/// Has `user` leave `workspace`, which changes their access.
+async fn leave(api: &Api, user: &SignedIn, workspace: &str) -> crate::support::api::Response {
+    api.request(
+        http::Method::POST,
+        &format!("/v1/workspaces/{workspace}/leave"),
+    )
+    .bearer(&user.access)
+    .send()
+    .await
+}
+
 /// The `n` of each frame's payload, with its type.
 fn numbered(frames: &[streams::Frame]) -> Vec<(String, u64)> {
     frames
@@ -290,40 +301,37 @@ async fn realtime_004_an_id_the_api_doesn_t_hold_truncates_the_replay() {
 async fn realtime_004_a_stream_that_closes_before_its_first_event_resumes_where_it_started() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
-    // The registration's session published its start (AUTH-046).
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Analytical",
+        &[(&grace.user_id, "owner"), (&ada.user_id, "member")],
+    )
+    .await;
+    // The registrations' sessions published their starts (AUTH-046).
     api.database().owner_executes("DELETE FROM events").await;
     announce(&api, &ada, 1).await;
     let mut stream = streams::connect(&api, &ada.access, None).await;
     let opened = stream.opened().await;
 
-    // Her own workspace changes her memberships, which closes the stream before any event.
-    let created = api
-        .post("/v1/workspaces", &json!({ "name": "Analytical" }))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    // Leaving a workspace changes her memberships, which closes the stream before any event.
+    let left = leave(&api, &ada, &workspace).await;
     let (before, reason) = stream.closed().await;
     announce(&api, &ada, 1).await;
     let mut again = streams::connect(&api, &ada.access, opened.id.as_deref()).await;
     again.opened().await;
-    let replayed = events(&mut again, 2).await;
+    let replayed = events(&mut again, 1).await;
 
     let announced = api
         .database()
         .owner_reads("SELECT id::text FROM events ORDER BY position LIMIT 1")
         .await;
-    assert_eq!(created.status, StatusCode::CREATED);
+    assert_eq!(left.status, StatusCode::NO_CONTENT);
     assert_eq!(opened.id.as_deref(), Some(announced[0].as_str()));
     assert!(before.is_empty(), "{before:?}");
     assert_eq!(reason, "access_changed");
     let names: Vec<Option<String>> = replayed.into_iter().map(|frame| frame.event).collect();
-    assert_eq!(
-        names,
-        [
-            Some("membership.created".to_owned()),
-            Some("announcement.made".to_owned())
-        ]
-    );
+    assert_eq!(names, [Some("announcement.made".to_owned())]);
 }
 
 #[tokio::test]
@@ -486,17 +494,20 @@ async fn realtime_003_the_heartbeat_is_a_setting_of_5_to_300_seconds() {
 async fn realtime_005_an_access_change_closes_the_stream_with_access_changed() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Analytical",
+        &[(&grace.user_id, "owner"), (&ada.user_id, "member")],
+    )
+    .await;
     let mut stream = streams::connect(&api, &ada.access, None).await;
     stream.opened().await;
 
-    let created = api
-        .post("/v1/workspaces", &json!({ "name": "Analytical" }))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let left = leave(&api, &ada, &workspace).await;
     let (_, reason) = stream.closed().await;
 
-    assert_eq!(created.status, StatusCode::CREATED);
+    assert_eq!(left.status, StatusCode::NO_CONTENT);
     assert_eq!(reason, "access_changed");
 }
 
