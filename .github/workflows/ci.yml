@@ -57,8 +57,10 @@ jobs:
           # part: workspace_creation
           - personal
           # part: workspace_setup
+          # part: invitations
           - teams
           - organization
+          # end part: invitations
           # end part: workspace_setup
           # end part: workspace_creation
           # part: files

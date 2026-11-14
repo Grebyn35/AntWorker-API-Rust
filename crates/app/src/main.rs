@@ -55,8 +55,8 @@ enum Command {
     Migrate,
     /// Runs the HTTP server.
     Serve,
-    /// Fills a development database with demo accounts and workspaces, through the API's routes,
-    /// and prints how to sign in. Refuses unless ENVIRONMENT is development.
+    /// Fills a development database with demo accounts and workspaces, as a client of the API's
+    /// routes, and prints how to sign in. Refuses unless ENVIRONMENT is development.
     Seed,
     /// Asks the instance that `LISTEN_ADDR` names whether it is ready, for a container's health
     /// check, and exits 0 only if it is.

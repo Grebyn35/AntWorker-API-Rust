@@ -170,15 +170,8 @@ mod tests {
     use super::*;
 
     fn key(value: &str) -> Option<String> {
-        IdempotencyKey::parse(
-            value.as_bytes(),
-            "POST",
-            "/v1/workspaces",
-            "",
-            b"",
-            &[0; 32],
-        )
-        .map(|key| key.key)
+        IdempotencyKey::parse(value.as_bytes(), "POST", "/v1/things", "", b"", &[0; 32])
+            .map(|key| key.key)
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! `check-parts`: what `just remove` reads and checks before it changes a file, for each run of
-//! `parts.yaml`, done in memory, so that a marker that formatting moved or a line that names a
-//! part without its marker fails `just checks` in seconds, rather than `check-removable`'s copy
-//! on `main` (ARCH-07).
+//! `parts.yaml`, and for each part alone, done in memory, so that a marker that formatting moved
+//! or a line that names a part without its marker fails `just checks` in seconds, rather than
+//! `check-removable`'s copy on `main`, or a fork's own removal (ARCH-07).
 
 use std::collections::HashSet;
 
@@ -17,7 +17,7 @@ const REWRITTEN: [&str; 4] = ["Cargo.lock", "openapi.json", metrics::CATALOG, ".
 const TRACKER: &str = "docs/MIGRATION.md";
 
 /// Checks the parts' markers and files, each Rust marker standing alone on its line, and each
-/// run's removal, done in memory (ARCH-07).
+/// run's removal, and each part's alone, done in memory (ARCH-07).
 pub fn check(repo: &Repo) -> Outcome {
     let (parts, runs) = match list(repo) {
         Ok(list) => list,
@@ -73,23 +73,49 @@ pub fn check(repo: &Repo) -> Outcome {
             }
         }
     }
-    let mut report = Vec::new();
     // A marker that `validate` refused leaves no removal to run.
-    if findings.is_empty() {
-        for run in &runs {
-            if run.parts.is_empty() {
-                report.push(format!(
-                    "{}: every part it removes is removed already",
-                    run.name
-                ));
-                continue;
-            }
-            let (summary, found) = remove(repo, &parts, run);
-            report.push(summary);
-            findings.extend(found);
-        }
-    }
+    let report = if findings.is_empty() {
+        let (report, found) = removals(repo, &parts, &runs);
+        findings.extend(found);
+        report
+    } else {
+        Vec::new()
+    };
     Outcome { report, findings }
+}
+
+/// Does each run's removal in memory, then each part's alone, unless a run removes it alone, and
+/// returns a line for each, with what they found: a fork may remove any one part and keep the
+/// rest, which no run does of a part that every run removes with another, so a line that names
+/// it inside the other's block would stay (ARCH-07).
+fn removals(repo: &Repo, parts: &[Part], runs: &[Run]) -> (Vec<String>, Vec<Finding>) {
+    let mut report = Vec::new();
+    let mut findings = Vec::new();
+    for run in runs {
+        if run.parts.is_empty() {
+            report.push(format!(
+                "{}: every part it removes is removed already",
+                run.name
+            ));
+            continue;
+        }
+        let (summary, found) = remove(repo, parts, run);
+        report.push(summary);
+        findings.extend(found);
+    }
+    for part in parts {
+        if runs.iter().any(|run| run.parts == [part.name.as_str()]) {
+            continue;
+        }
+        let alone = Run {
+            name: format!("{} alone", part.name),
+            parts: vec![part.name.clone()],
+        };
+        let (summary, found) = remove(repo, parts, &alone);
+        report.push(summary);
+        findings.extend(found);
+    }
+    (report, findings)
 }
 
 /// Removes `run`'s parts from `repo` in memory, and returns what it removed, and a finding for
@@ -125,10 +151,7 @@ fn remove(repo: &Repo, parts: &[Part], run: &Run) -> (String, Vec<Finding>) {
     let paths = repo.paths().filter(|path| !owned.contains(*path));
     findings.extend(leftovers(paths, kept.into_iter(), &removed));
     for finding in &mut findings {
-        finding.message = format!(
-            "removing the run `{}`'s parts: {}",
-            run.name, finding.message
-        );
+        finding.message = format!("removing {}: {}", removing.join(", "), finding.message);
     }
     let summary = format!(
         "{}: removing {} deletes {} files and edits {edited}",
@@ -355,6 +378,64 @@ mod tests {
         assert_eq!(
             outcome.report,
             ["shop: removing offers deletes 2 files and edits 2"]
+        );
+    }
+
+    #[test]
+    fn arch_07_a_line_that_names_a_part_inside_another_s_block_fails_though_no_run_keeps_it() {
+        // Every run that removes `offers` removes `coupons` too, whose block holds the line
+        // that names `offers`: only the removal of `offers` alone keeps it.
+        let hash = |marker: String| format!("#{}", &marker[2..]);
+        let part = |name: &str, word: &str| {
+            format!(
+                "  {}\n  - name: {name}\n    paths:\n      - src/{name}.rs\n    words:\n      - {word}\n  {}\n",
+                hash(mark(name)),
+                hash(end(name))
+            )
+        };
+        let list = format!(
+            "parts:\n{}{}runs:\n  - name: bare\n    parts:\n      - offers {}\n      - coupons {}\n  - name: plain\n    parts:\n      - coupons {}\n",
+            part("offers", "offer"),
+            part("coupons", "coupon"),
+            hash(mark("offers")),
+            hash(mark("coupons")),
+            hash(mark("coupons")),
+        );
+        let code = format!(
+            "fn a() {{}}\n{}\n// With an offer.\nfn b() {{}}\n{}\n",
+            mark("coupons"),
+            end("coupons")
+        );
+        let repo = Repo::of(&[
+            (LIST, &list),
+            ("src/a.rs", &code),
+            ("src/offers.rs", ""),
+            ("src/coupons.rs", ""),
+        ]);
+
+        let outcome = check(&repo);
+
+        let found: Vec<(&str, usize, &str)> = outcome
+            .findings
+            .iter()
+            .map(|finding| {
+                (
+                    finding.path.as_str(),
+                    finding.line,
+                    finding.message.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!((found[0].0, found[0].1), ("src/a.rs", 3));
+        assert!(found[0].2.starts_with("removing offers: "), "{found:?}");
+        assert_eq!(
+            outcome.report,
+            [
+                "bare: removing offers, coupons deletes 2 files and edits 2",
+                "plain: removing coupons deletes 1 files and edits 2",
+                "offers alone: removing offers deletes 1 files and edits 1",
+            ]
         );
     }
 

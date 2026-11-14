@@ -188,7 +188,7 @@ mod tests {
     fn api_17_two_operations_with_one_operation_id_are_reported() {
         let document = json!({ "paths": {
             "/v1/workspaces/{workspace_id}/orders": { "post": { "operationId": "create" } },
-            "/v1/workspaces": { "post": { "operationId": "create" }, "get": { "operationId": "list" } }
+            "/v1/workspaces/{workspace_id}/invoices": { "post": { "operationId": "create" }, "get": { "operationId": "list" } }
         }});
 
         let messages: Vec<String> = operation_ids(&document)
@@ -200,8 +200,8 @@ mod tests {
             messages,
             [
                 "POST /v1/workspaces/{workspace_id}/orders has the operationId `create` of POST \
-              /v1/workspaces, and OpenAPI requires each to be unique: name its handler after what \
-              it does to its resource (API-17)"
+              /v1/workspaces/{workspace_id}/invoices, and OpenAPI requires each to be unique: \
+              name its handler after what it does to its resource (API-17)"
             ]
         );
     }

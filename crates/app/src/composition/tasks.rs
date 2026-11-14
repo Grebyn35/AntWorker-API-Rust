@@ -1,6 +1,6 @@
 //! The entry points of the binary's subcommands besides `serve` that run the modules' logic:
-//! `seed`, which fills a development database through the routes, and those that an operator
-//! runs, such as `remove-second-factor` (ARCH-14).
+//! `seed`, which fills a development database, and those that an operator runs, such as
+//! `remove-second-factor` (ARCH-14).
 
 use axum::Router;
 use platform::{
@@ -189,8 +189,12 @@ pub fn seed_allowed(environment: Environment) -> Result<(), SeedError> {
 }
 
 /// Fills the database behind `router`, the API as `serve` builds it on `resources`, with demo
-/// accounts and workspaces, through its routes, proving each account's address with the code in
-/// `inbox`, which `jobs` send while email is on (the system spec's Seed).
+/// accounts and workspaces, as a client of its routes, proving each account's address with the
+/// code in `inbox`, which `jobs` send while email is on (the system spec's Seed).
+// part: workspace_setup
+/// It hands the seed the operator's setup of a workspace, on the same `resources`, for the one
+/// workspace that the seed sets up as an operator does (SYSTEM-009).
+// end part: workspace_setup
 pub async fn seed(
     router: Router,
     resources: &Resources,

@@ -170,6 +170,7 @@ runs:
       - invitations # part: invitations
       - workspace_setup # part: workspace_setup
   # part: workspace_setup
+  # part: invitations
   # The teams shape: users create workspaces, whose members invite others, and no operator sets
   # one up.
   - name: teams
@@ -180,6 +181,7 @@ runs:
   - name: organization
     parts:
       - workspace_creation
+  # end part: invitations
   # end part: workspace_setup
   # end part: workspace_creation
   # part: files

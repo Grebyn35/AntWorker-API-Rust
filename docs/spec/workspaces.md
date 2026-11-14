@@ -93,7 +93,7 @@ Tests arrange workspaces and memberships through the `owner` connection (TEST-05
 
 `POST /v1/workspaces` opens the unit of work from the caller's `Principal`, claims the request's idempotency key, and calls the operation, with the caller as the owner, and as the actor of the entry, through `Principal::founder_scope`. It publishes `membership.created` to the caller, with the session whose request created the workspace, and commits, with the workspace as the key's result (WORKSPACES-001, PLATFORM-036).
 
-Any user may create a workspace, and as many as they need. A client offers it only while the capabilities hold `features.workspace_creation`, which a fork without the route doesn't have (SYSTEM-001).
+Any user may create a workspace, and as many as they need. The capabilities tell a client whether its API has the route ([system spec](system.md#capabilities)).
 <!-- end part: workspace_creation -->
 
 <!-- part: workspace_setup -->

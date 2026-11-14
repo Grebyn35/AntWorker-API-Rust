@@ -762,6 +762,28 @@ async fn access_006_accepting_an_invitation_closes_the_new_member_s_streams() {
 }
 // end part: invitations
 
+// part: workspace_setup
+#[tokio::test]
+async fn access_006_the_operator_s_setup_of_a_workspace_closes_its_owner_s_streams() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = crate::support::streams::connect(&api, &ada.access, None).await;
+    stream.opened().await;
+
+    let run = api
+        .database()
+        .run_api(
+            &["setup-workspace", "Acme", "ada@example.com"],
+            &crate::support::operator::EMAIL_OFF,
+        )
+        .await;
+    let (_, reason) = stream.closed().await;
+
+    assert_eq!(run.status.code(), Some(0));
+    assert_eq!(reason, "access_changed");
+}
+// end part: workspace_setup
+
 /// The statement that locks the identity of `user`, as a sign-in does, so a deletion of their
 /// account that starts meanwhile waits at it, once it has locked their memberships (ACCESS-008,
 /// the accounts spec's "Deleting an account").

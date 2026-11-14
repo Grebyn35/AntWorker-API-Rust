@@ -210,12 +210,12 @@ async fn system_008_seed_has_olivia_and_mia_each_create_a_workspace_through_the_
             .await
             .contains(&("Side Project".to_owned(), "owner".to_owned()))
     );
-    // Olivia's is the first workspace that the seed created.
+    // They are the first workspaces that the seed created, Olivia's before Mia's.
     assert_eq!(
         api.database()
-            .owner_reads("SELECT name FROM workspaces ORDER BY created_at LIMIT 1")
+            .owner_reads("SELECT name FROM workspaces ORDER BY created_at LIMIT 2")
             .await,
-        ["Acme"]
+        ["Acme", "Side Project"]
     );
     // Each creation went through the pipeline as a client's does: its entry names its creator
     // and its client, and its event its creator's session.
