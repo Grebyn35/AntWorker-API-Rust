@@ -1,6 +1,6 @@
 //! Removing an optional part, `just remove` (ARCH-07); `check-parts`, which runs each run's
-//! removal in memory; and `check-removable`, which runs it on copies of the repository, one for
-//! each run that `parts.yaml` lists, then `just checks` on each.
+//! removal in memory, and each part's alone; and `check-removable`, which runs a removal on a
+//! copy of the repository for each run that `parts.yaml` lists, then `just checks` on each.
 
 mod cache;
 mod dry_run;

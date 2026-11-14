@@ -59,7 +59,7 @@ A deployment that requires a second factor refuses every request of an account w
 
 A step that needs an optional part exists only for that part, and carries its marker, so removing the part removes the step (ARCH-07). No step names what another part's step created, which a removal could take from under it.
 The invitations' emails wait in the job queue until `just dev` runs the API, whose jobs send them to the mail catcher (PLATFORM-023). <!-- part: invitations -->
-The email of the setup waits there too. <!-- part: workspace_setup -->
+The email that tells Olivia of the workspace set up for her waits in the job queue until `just dev` runs the API, whose jobs send it to the mail catcher (PLATFORM-023). <!-- part: workspace_setup -->
 
 Every account has the same password, which the seed prints with the accounts, since a developer signs in as each of them in turn. The accounts' addresses are at `example.com`, which no one can receive mail for (RFC 2606). A second run stops at the first account, which registering answers 409 (SYSTEM-004): the seed never signs in to an account it didn't create, and a database is seeded again by recreating it, as the README says.
 

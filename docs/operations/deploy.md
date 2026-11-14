@@ -176,7 +176,7 @@ removes the account's app and its recovery codes, ends every session of the acco
 <!-- part: workspace_setup -->
 ## Setting up a workspace
 
-In a deployment of the one organization shape, an operator sets each workspace up, such as one for each subsidiary of the organization:
+An operator sets a workspace up for its owner, such as one for each subsidiary of an organization:
 
 ```
 just setup-workspace production "Acme Labs" ada@example.com "Ada Lovelace"
