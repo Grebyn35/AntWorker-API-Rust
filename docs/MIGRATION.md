@@ -325,7 +325,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 9bcdfdb..e285cc0: as above, with pass 1's fixes | 2 | 1 (1, 0, 0 shared) | 1 | 0 | `next pass`: d67888a <!-- part: files --> |
 | 9bcdfdb..d67888a: as above, with pass 2's fixes | 3 | 2 (1, 1, 0 shared) | 1 | 0 | `stopped: no progress`: resolved d65e54f <!-- part: files --> |
 | 13b5891..7840cbf: the last part of the full `workspaces` module but for users creating workspaces as a part: the setup subcommand, `setup-workspace`, as the part `workspace_setup` (WORKSPACES-023 to WORKSPACES-028, D150), with the one operation that creates a workspace, the one line of what a subcommand that an operator runs did (OPS-03), the deploy's task, and how a patch takes a second member (D151) | 1 | 6 (5, 3, 2 shared) | 4 | 0 | `next pass`: e6d2a02 <!-- part: workspace_setup --> |
-| 13b5891..e6d2a02: as above, with pass 1's fixes | 2 | 3 (2, 1, 0 shared) | 0 | 0 | `clean` <!-- part: workspace_setup --> |
+| 13b5891..e6d2a02: as above, with pass 1's fixes | 2 | 3 (2, 1, 0 shared) | 0 | 0 | `clean`: 57fb423 <!-- part: workspace_setup --> |
 
 ## Decisions
 
