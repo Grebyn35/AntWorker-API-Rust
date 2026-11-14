@@ -605,6 +605,26 @@ async fn workspaces_022_a_workspace_carries_the_link_of_its_picture_or_null() {
 }
 
 #[tokio::test]
+async fn workspaces_022_a_rename_answers_the_workspace_with_the_link_of_its_picture() {
+    let api = Api::new().await;
+    let (ada, workspace) = owned(&api).await;
+    let url = link(&api, &ada, &workspace).await;
+
+    let renamed = api
+        .patch(
+            &format!("/v1/workspaces/{workspace}"),
+            &json!({ "name": "Acme Labs" }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(renamed.status, 200);
+    assert_eq!(renamed.json()["picture_url"], url);
+    assert_eq!(renamed.json(), read(&api, &ada, &workspace).await.json());
+}
+
+#[tokio::test]
 async fn files_027_a_picture_s_download_needs_no_credential_and_names_it_by_its_id() {
     let api = Api::new().await;
     let (ada, workspace) = owned(&api).await;

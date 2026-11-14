@@ -29,7 +29,7 @@ use crate::support::{
     api::{Options, Response},
     bucket,
     events::{self, Event},
-    files, fixtures,
+    files,
     lists::{field, pages},
     scanner::{self, Script},
     streams,
@@ -740,17 +740,17 @@ async fn files_006_the_upload_s_unit_of_work_authorizes_the_caller_again() {
 
 #[tokio::test]
 async fn platform_073_a_check_refuses_a_member_without_the_permission_with_403() {
-    let gate = Arc::new(fixtures::Gate::default());
-    let api = Api::with(Options::routes(fixtures::routes(gate))).await;
+    let api = Api::new().await;
     let (workspace, _, grace) = acme(&api, "member").await;
     let unread = Body::from_stream(stream::once(async {
         Err::<Bytes, _>(std::io::Error::other("the body was read"))
     }));
 
+    // The picture's upload asks for a permission that a member lacks, as a file's doesn't.
     let response = api
         .request(
-            http::Method::POST,
-            &format!("/v1/workspaces/{workspace}/checked"),
+            http::Method::PUT,
+            &format!("/v1/workspaces/{workspace}/picture"),
         )
         .header("content-type", "application/octet-stream")
         .bearer(&grace.access)

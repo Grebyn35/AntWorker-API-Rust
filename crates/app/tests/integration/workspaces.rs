@@ -705,6 +705,13 @@ async fn workspaces_008_renaming_stores_the_name_records_it_and_publishes_it() {
     assert_eq!(body["name"], "Acme Labs");
     assert_eq!(body["role"], "admin");
     assert_eq!(response.header("etag"), "\"2\"");
+    // The workspace as a read gives it to the same caller (WORKSPACES-007).
+    let read = api
+        .get(&format!("/v1/workspaces/{workspace}"))
+        .bearer(&grace.access)
+        .send()
+        .await;
+    assert_eq!(body, read.json());
     assert_eq!(stored_name(&api, &workspace).await, "Acme Labs");
     let entries = db
         .owner_reads(

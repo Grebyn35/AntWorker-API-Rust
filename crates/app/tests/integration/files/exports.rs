@@ -124,6 +124,11 @@ async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_w
     assert_eq!(pictures[0]["workspace_id"], own_workspace.as_str());
     assert_eq!(pictures[0]["media_type"], "image/gif");
     assert_eq!(pictures[0]["size_bytes"], gif.len());
+    assert!(pictures[0]["created_at"].as_str().unwrap().ends_with('Z'));
+    assert_eq!(
+        pictures[0]["path"],
+        format!("files/workspace_pictures/{own_workspace}/{picture_id}.gif")
+    );
     let bytes: Vec<(String, Vec<u8>)> = entries(&archive)
         .into_iter()
         .filter(|(path, _)| !path.ends_with(".json"))

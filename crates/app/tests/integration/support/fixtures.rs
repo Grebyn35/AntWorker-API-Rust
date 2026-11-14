@@ -2,9 +2,6 @@
 //! behaviors of the pipeline that no route of the API shows, or that only an optional part's
 //! routes show: a request that waits, one that never ends, a panic, an internal error, a keyed
 //! operation that publishes an event, and an email sent (TEST-04).
-// part: files
-//! They also serve an upload's check of a permission that some role lacks.
-// end part: files
 
 use std::sync::{
     Arc,
@@ -207,30 +204,6 @@ fn fixture_email(mailed: Mailed) -> Result<Email, PlatformError> {
     })
 }
 
-// part: files
-/// What the upload route of the fixtures requires: renaming the workspace, which a member lacks,
-/// while every role may upload a file.
-struct Updating;
-
-impl Permission for Updating {
-    const NAME: &'static str = "workspace.update";
-}
-
-/// Checks that the caller may upload, as an upload's handler does before it reads the body, and
-/// answers without reading it (PLATFORM-073).
-#[utoipa::path(
-    post,
-    path = "/v1/workspaces/{workspace_id}/checked",
-    params(("workspace_id" = WorkspaceId, Path, description = "The workspace.")),
-    request_body(content = platform::http::FileBytes, content_type = "application/octet-stream"),
-    responses((status = 204, description = "The caller may upload.")),
-)]
-async fn checked(authorize: Authorize<Updating>) -> Result<StatusCode, Problem<PlatformError>> {
-    authorize.check().await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-// end part: files
-
 /// The routes `POST /v1/mail` and `POST /v1/workspaces/{workspace_id}/mail`, which send their
 /// emails through `mail`, built from the settings of the API they are added to.
 pub fn mailing(mail: Mail) -> Routes {
@@ -246,9 +219,6 @@ pub fn routes(held: Arc<Gate>) -> Routes {
         .public(routes!(panics), &[])
         .merge(Routes::new().public(routes!(broken), &[]))
         .merge(Routes::new().public(routes!(gate), &[]).with_state(held));
-    // part: files
-    let routes = routes.merge(Routes::new().workspace_upload::<Updating>(routes!(checked), &[]));
-    // end part: files
     routes.merge(
         Routes::new()
             .events(&[&KEYED_RAN])

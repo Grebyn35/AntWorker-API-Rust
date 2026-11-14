@@ -189,6 +189,9 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 9bcdfdb..321eb1f | DATA-10: whether an event's name and payload are among the data that the next release reads, since a stream replays the events that the release before stored, so that a release renames or retires an event only after one that publishes it no more | the first final release |
 | Conformance review of 9bcdfdb..e285cc0 | API-10: whether `check-layers` refuses a `&str` or `String` parameter of a module's service function that carries a value with a domain type, such as a role's name, so the rule's last sentence holds by a check rather than by review | 6, with the review of the whole codebase |
 | Conformance review of 9bcdfdb..e285cc0 | TEST-09 and TEST-01: whether the tests of an avatar and of a workspace's picture share their helpers, such as the body that fails once read and the calls that set and download an image, through the test support; and whether each kind of image's download proves SEC-11's headers, and its held bytes FILES-026's clause, which a file's tests prove of the mechanism they share | 6, with the review of the whole codebase <!-- part: files --> |
+| Conformance review of 9bcdfdb..d67888a | TEST-04: whether a check, or a step of the review, lists each route that only the tests serve with the kind of behavior that TEST-04 allows it for, so that a route which an API route makes redundant is found, as the picture's upload made the tests' own check of an upload's permission | 6, with the review of the whole codebase |
+| Conformance review of 9bcdfdb..d67888a | TEST-06: whether a test that talks to Postgres, or to a stand-in of another system, may pause tokio's time to reach its route's timeout, as the tests of an upload's timeout do, while the rule names a test that talks to no other system | 6, with the review of the whole codebase |
+| Conformance review of 9bcdfdb..d67888a | The spec README's Interface: whether a module's Interface lists what only the composition root takes, such as the state of its routes, which the accounts spec lists for the avatars' service and the workspaces spec doesn't for the pictures' | 6, with the review of the whole codebase <!-- part: files --> |
 
 ## Conformance reviews
 
@@ -312,7 +315,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 57ab047..1d5e599: as above, with pass 1's fixes | 2 | 2 (2, 0, 0 shared) | 1 | 0 | `next pass`: a41b6c8 |
 | 57ab047..a41b6c8: as above, with pass 2's fixes | 3 | 2 (2, 0, 0 shared) | 1 | 0 | `stopped: no progress`: resolved e21e9fb |
 | 9bcdfdb..321eb1f: the second part of the full `workspaces` module: the workspace's picture, which `files` keeps as it keeps an avatar (WORKSPACES-019 to WORKSPACES-022, FILES-027, D149), with the one event of a workspace's changes, and the picture in an export | 1 | 2 (2, 0, 0 shared) | 2 | 0 | `next pass`: e285cc0 <!-- part: files --> |
-| 9bcdfdb..e285cc0: as above, with pass 1's fixes | 2 | 1 (1, 0, 0 shared) | 1 | 0 | `next pass` <!-- part: files --> |
+| 9bcdfdb..e285cc0: as above, with pass 1's fixes | 2 | 1 (1, 0, 0 shared) | 1 | 0 | `next pass`: d67888a <!-- part: files --> |
+| 9bcdfdb..d67888a: as above, with pass 2's fixes | 3 | 2 (1, 1, 0 shared) | 1 | 0 | `stopped: no progress` <!-- part: files --> |
 
 ## Decisions
 
