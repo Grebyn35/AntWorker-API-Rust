@@ -148,6 +148,18 @@ impl AuditScope {
         }
     }
 
+    // part: workspace_setup
+    /// The log of `workspace`, which the operator's setup of it just created, with no actor,
+    /// since an operator's subcommand acts for no user (WORKSPACES-023). Only that setup calls
+    /// it; clippy bans it elsewhere.
+    pub fn setup(workspace: WorkspaceId) -> Self {
+        Self {
+            log: Log::Workspace(workspace),
+            actor: None,
+        }
+    }
+    // end part: workspace_setup
+
     /// The log `log`, with no actor, for an entry that a job's run records for the user the job
     /// runs for, which only `JobContext` builds (DATA-22).
     pub(crate) fn unattributed(log: Log) -> Self {

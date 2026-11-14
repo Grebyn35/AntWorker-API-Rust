@@ -25,6 +25,10 @@ pub(super) use identities::{
     update_password_hash, user_of_subject,
 };
 
+// part: workspace_setup
+pub(super) use identities::has_identity;
+// end part: workspace_setup
+
 /// A session found by one of its token hashes.
 pub(super) struct Found {
     pub(super) id: SessionId,

@@ -1981,8 +1981,15 @@
         "description": "The payload of `membership.created`: the user joined a workspace.",
         "properties": {
           "session_id": {
-            "$ref": "#/components/schemas/SessionId",
-            "description": "The session whose request added them, so that device can tell it already knows."
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SessionId",
+                "description": "The session whose request added them, so that device can tell it already knows, or null\nwhen no session's request did."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "workspace_id": {
             "$ref": "#/components/schemas/WorkspaceId",

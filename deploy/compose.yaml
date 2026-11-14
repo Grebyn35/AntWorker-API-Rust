@@ -151,12 +151,12 @@ x-api: &api
     - telemetry
   restart: unless-stopped
 
-# The operator's removal of a lost second factor, which runs with the image of either color, so
-# it is a service of each (AUTH-072).
+# A subcommand that an operator runs against the accounts, such as the removal of a lost second
+# factor (AUTH-072), which runs with the image of either color, so it is a service of each, whose
+# command names it.
 x-operator: &operator
   logging: *logging
   profiles: [tasks]
-  command: ["remove-second-factor"]
   read_only: true
   environment:
     ENVIRONMENT: production
@@ -332,11 +332,27 @@ services:
   # only the settings the subcommand reads (OPS-02).
   remove-second-factor-blue:
     <<: *operator
+    command: ["remove-second-factor"]
     image: ${API_IMAGE_BLUE:?the image of the blue replicas, in state/deploy.env}
 
   remove-second-factor-green:
     <<: *operator
+    command: ["remove-second-factor"]
     image: ${API_IMAGE_GREEN:?the image of the green replicas, in state/deploy.env}
+
+  # part: workspace_setup
+  # The operator's setup of a workspace (WORKSPACES-023), which `just setup-workspace` runs as it
+  # runs the removal above, with the settings that the removal reads.
+  setup-workspace-blue:
+    <<: *operator
+    command: ["setup-workspace"]
+    image: ${API_IMAGE_BLUE:?the image of the blue replicas, in state/deploy.env}
+
+  setup-workspace-green:
+    <<: *operator
+    command: ["setup-workspace"]
+    image: ${API_IMAGE_GREEN:?the image of the green replicas, in state/deploy.env}
+  # end part: workspace_setup
 
   # The bundled Postgres, which archives its write-ahead log to the backup bucket (OPS-15). Only
   # the network `data` reaches it.

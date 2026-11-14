@@ -45,7 +45,7 @@ These parts are optional:
 - The `files` module, with the avatars and workspace pictures, whose images it keeps. <!-- part: files -->
 - Each part that gives a product its workspace shape ([architecture.md §5](../architecture.md#workspace-shapes)):
   - users creating workspaces through `POST /v1/workspaces`
-  - the setup subcommand
+  - the setup subcommand, `setup-workspace` <!-- part: workspace_setup -->
   - the `superadmins` module, with its subcommand
   - the `invitations` module <!-- part: invitations -->
 

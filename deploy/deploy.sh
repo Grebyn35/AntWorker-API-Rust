@@ -7,6 +7,7 @@
 # `just status`, `just logs` and `just remove-second-factor` run it over SSH from a developer's
 # machine; docs/operations/deploy.md describes the deployment. Each task's code is a file of
 # tasks/, which this script sources.
+# It also sets up a workspace (WORKSPACES-023), which `just setup-workspace` runs. # part: workspace_setup
 #
 #   deploy.sh deploy <version> [--allow-restart]
 #       Verifies the release <version>, then deploys its images. Once its replicas serve, it
@@ -47,6 +48,14 @@
 #       ends every session of the account, and tells the address, through the API's subcommand of
 #       the same name, with the image of the color that serves. Fails, changing nothing, when no
 #       account holds the address or it has no app.
+# part: workspace_setup
+#   deploy.sh setup-workspace <name> <email> [<owner's name>]
+#       Creates the workspace <name>, owned by the account that holds <email>, through the API's
+#       subcommand of the same name, with the image of the color that serves. With email on, it
+#       creates that account, named <owner's name>, when no account holds the address, and tells
+#       the address. Fails, changing nothing, when an earlier run was given the name, or the
+#       account may not own the workspace.
+# end part: workspace_setup
 #   deploy.sh check <version>
 #   deploy.sh check-images <API image> <Postgres image>
 #       Checks what a deploy of the release <version>, or of the two images, each named by
@@ -87,6 +96,12 @@ allowed() {
     esac
 }
 
+# The tasks, for the usage that an unknown one gets.
+tasks="deploy|apply|backup|restore|restore-inputs|status|logs|remove-second-factor|check|check-images"
+# part: workspace_setup
+tasks="$tasks|setup-workspace"
+# end part: workspace_setup
+
 command=${1:-}
 case $command in
     deploy)
@@ -115,6 +130,13 @@ case $command in
         if [ "$#" -ne 2 ]; then fail "usage: deploy.sh remove-second-factor <email>"; fi
         remove_second_factor "$2"
         ;;
+    # part: workspace_setup
+    setup-workspace)
+        if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then fail "usage: deploy.sh setup-workspace <name> <email> [<owner's name>]"; fi
+        shift
+        setup_workspace "$@"
+        ;;
+    # end part: workspace_setup
     check)
         if [ "$#" -ne 2 ]; then fail "usage: deploy.sh check <version>"; fi
         check "$2"
@@ -123,5 +145,5 @@ case $command in
         if [ "$#" -ne 3 ]; then fail "usage: deploy.sh check-images <API image> <Postgres image>"; fi
         check "$2" "$3"
         ;;
-    *) fail "usage: deploy.sh deploy|apply|backup|restore|restore-inputs|status|logs|remove-second-factor|check|check-images (see the comment at the top of deploy.sh)" ;;
+    *) fail "usage: deploy.sh $tasks (see the comment at the top of deploy.sh)" ;;
 esac

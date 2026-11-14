@@ -173,6 +173,25 @@ just remove-second-factor production ada@example.com
 
 removes the account's app and its recovery codes, ends every session of the account, records the removal in the account's own log, and tells the address ([auth spec](../spec/auth.md#second-factors), D135). The account then signs in with its password alone, and its user sets up an app again, at once when `SECOND_FACTOR_REQUIRED` is true. It runs the API's subcommand `remove-second-factor` with the image of the color that serves, in a service of `compose.yaml` of its own, one for each color, which passes it only the telemetry's, the database's and the email's settings (OPS-02), so it needs a replica running, and it exits 1, changing nothing, when no account holds the address or the account has no app.
 
+<!-- part: workspace_setup -->
+## Setting up a workspace
+
+In a deployment whose users create no workspaces, an operator sets each one up, such as one for each subsidiary of the organization:
+
+```
+just setup-workspace production "Acme Labs" ada@example.com "Ada Lovelace"
+```
+
+creates the workspace Acme Labs, owned by the account that holds the address ([workspaces spec](../spec/workspaces.md#the-setup-subcommand), D65). What it does about the account follows the deployment's `EMAIL`:
+
+- With email on, it creates the account, with the name given, when no account holds the address, and emails the address: the owner sets their first password by asking for a password reset where they sign in, which proves the address. An account that holds the address owns the workspace when it has proved the address, and the name may be left out. One that hasn't is refused, since someone else may have registered the owner's address: run the task again once its owner has proved it.
+- With email off, nothing proves an address, and no account can reset a password, so it creates no account: ask the owner to register first, with a password of their own, and run the task once they have. The workspace goes to whichever account holds the address, so run it only for an owner who told you that they registered.
+
+An owner who signs in through a provider signs in first, which registers their account, and then you run the task.
+
+A name is given to one run: a second run with it, by mistake or at the same time, sets nothing up, until the workspace is deleted. The task logs the new workspace's ID, and never its name or the address. It runs the API's subcommand `setup-workspace` as `remove-second-factor` runs, with the image of the color that serves, so it needs a replica running, and it exits 1, changing nothing, when it sets nothing up, with a line that says why.
+<!-- end part: workspace_setup -->
+
 ## Scaling
 
 `API_REPLICAS` sets how many replicas serve, and `API_CPUS` and `API_MEMORY` what each one may use; `just load-test` measures what one replica serves under the default limits (OPS-16). A replica hashes one password at once per whole CPU it may use, and at least one, each hash with 19 MiB of memory (AUTH-014), and a burst of sign-ins waits its turns (PLATFORM-060), so raising `API_CPUS` raises the memory such a burst takes too. `just load-test sign-ins` measures how many sign-ins a second one replica serves beside its other requests ([release.md](release.md#before-you-release)).

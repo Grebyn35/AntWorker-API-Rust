@@ -139,7 +139,7 @@ An upload's body, a binary string, states its limit in its description, with the
 - Check: `clippy` (only the builders of API-14 register routes, each at a path its documentation names), `test` (every documented path serves, of the methods OpenAPI can document, exactly those it documents, the committed document is the one the code writes, and every request an integration test sends through the test support's typed calls, every response the in-process API gives it, and every frame of a stream it reads are checked against the document of the routes that answered it; a test of malformed input sends its body raw, unchecked), plus `ci: check-openapi` (each operation's access level and response descriptions, each `operationId` its own and each schema name one type's, every reference in the document resolves, every string of a request body has a `maxLength`, and every event a module declares is in the event catalog), plus `review` (fields and parameters of domain types carry their limits).
 
 ### API-18 `/v1` only grows
-Within `/v1`, changes are additive: new routes, new optional request fields, new response fields. Removing or changing anything existing requires `/v2`.
+Within `/v1`, changes are additive: new routes, new optional request fields, new response fields, and a request that is taken where it was refused, such as one without a field that was required and is optional now (D151). Removing or changing anything else that exists requires `/v2`.
 - Why: a client built against `/v1` keeps working.
 - Check: `ci: check-openapi` (a breaking-change diff against the last final release).
 

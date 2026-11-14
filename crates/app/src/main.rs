@@ -25,7 +25,6 @@ use platform::{
     lifecycle::{self, Readiness, Shutdown, ShutdownSignals},
     mail::Mail,
     telemetry::{Service, names},
-    types::EmailAddress,
 };
 use tokio::{net::TcpListener, sync::watch};
 
@@ -70,6 +69,19 @@ enum Command {
         /// The account's email address.
         email: String,
     },
+    // part: workspace_setup
+    /// Creates a workspace, owned by the account that holds an address, and, with email on,
+    /// creates that account when no account holds the address, and tells the address. Exits 1,
+    /// changing nothing, when an earlier run was given the name, or the account may not own it.
+    SetupWorkspace {
+        /// The workspace's name.
+        name: String,
+        /// Its owner's email address.
+        email: String,
+        /// Its owner's name, for the account that the run creates when none holds the address.
+        owner_name: Option<String>,
+    },
+    // end part: workspace_setup
     /// Writes the OpenAPI document of every route to a file (API-17).
     Openapi {
         /// The file to write.
@@ -98,9 +110,31 @@ fn main() -> ExitCode {
         Command::Health => health(settings.health()),
         Command::RemoveSecondFactor { email } => {
             start(settings.telemetry(), settings.operator(), |config| {
-                remove_second_factor(config, email)
+                operate(
+                    "remove-second-factor",
+                    config,
+                    move |database, mail| async move {
+                        app::remove_second_factor(&database, &mail, &email).await
+                    },
+                )
             })
         }
+        // part: workspace_setup
+        Command::SetupWorkspace {
+            name,
+            email,
+            owner_name,
+        } => start(settings.telemetry(), settings.operator(), |config| {
+            operate(
+                "setup-workspace",
+                config,
+                move |database, mail| async move {
+                    app::setup_workspace(&database, &mail, &name, &email, owner_name.as_deref())
+                        .await
+                },
+            )
+        }),
+        // end part: workspace_setup
         Command::Openapi { path } => openapi(&path),
     }
 }
@@ -316,14 +350,20 @@ async fn seed((config, modules): (ServerConfig, app::Config)) -> ExitCode {
 /// the deploy's budget counts one for it (OPS-18).
 const OPERATOR_CONNECTIONS: u32 = 1;
 
-/// Removes the authenticator app of the account that holds `email`, and logs what it did, or,
-/// as a failure that ends the subcommand, why it changed nothing, without the address, which the
-/// logs never hold (AUTH-072, OPS-03, OBS-04).
-async fn remove_second_factor(config: OperatorConfig, email: String) -> ExitCode {
-    const AREA: &str = "remove-second-factor";
-    let Ok(email) = EmailAddress::parse(&email) else {
-        return failed(AREA, &app::RemovalRefused::NotAnAddress);
-    };
+/// Runs the subcommand `area`, which an operator runs against the accounts: connects to the
+/// database, builds the deployment's emails as `config` describes them, runs `task`, and logs
+/// what it answers it did, or, as a failure that ends the subcommand, why it changed nothing;
+/// neither holds personal data, which the logs never hold (OPS-03, OBS-04).
+async fn operate<F, S, E>(
+    area: &str,
+    config: OperatorConfig,
+    task: impl FnOnce(Database, Mail) -> F,
+) -> ExitCode
+where
+    F: Future<Output = Result<S, E>>,
+    S: std::fmt::Display,
+    E: Error + 'static,
+{
     let database =
         match Database::connect(&config.database_url, OPERATOR_CONNECTIONS, &app::MIGRATIONS).await
         {
@@ -335,24 +375,12 @@ async fn remove_second_factor(config: OperatorConfig, email: String) -> ExitCode
         Ok(mail) => mail,
         Err(error) => return failed("mail", &error),
     };
-    match app::remove_second_factor(&database, &mail, &email).await {
-        Ok(()) if mail.is_on() => {
-            tracing::info!(
-                "removed the account's authenticator app and recovery codes, and ended every \
-                 session of it; the account signs in with its password alone, and its address is \
-                 told"
-            );
+    match task(database, mail).await {
+        Ok(outcome) => {
+            lifecycle::report_outcome(area, &outcome);
             ExitCode::SUCCESS
         }
-        Ok(()) => {
-            tracing::info!(
-                "removed the account's authenticator app and recovery codes, and ended every \
-                 session of it; the account signs in with its password alone, and email is off, \
-                 so its address isn't told"
-            );
-            ExitCode::SUCCESS
-        }
-        Err(refused) => failed(AREA, &refused),
+        Err(refused) => failed(area, &refused),
     }
 }
 

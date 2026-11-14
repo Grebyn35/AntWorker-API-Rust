@@ -45,7 +45,7 @@ impl JobScope {
     /// for the account it named, as [`AuditScope::attempt`](crate::authn::AuditScope::attempt)
     /// scopes an entry: that account's user, or no one when no account holds what it named, so
     /// that the request does the same work either way (PLATFORM-013, SEC-05). Only a password reset
-    /// and the operator's removal of a second factor call it; clippy bans it elsewhere.
+    /// and an operator's subcommand call it; clippy bans it elsewhere.
     pub fn attempt(user: Option<UserId>) -> Self {
         Self {
             user,

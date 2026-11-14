@@ -89,6 +89,22 @@ parts:
       - files.unsupported
       - files.upload
   # end part: files
+  # part: workspace_setup
+  - name: workspace_setup
+    paths:
+      - crates/app/src/modules/workspaces/emails.rs
+      - crates/app/src/modules/workspaces/repo/setup.rs
+      - crates/app/src/modules/workspaces/service/setup.rs
+      - crates/app/templates/workspaces
+      - crates/app/tests/integration/workspace_setup.rs
+      - migrations/20261114120000_workspaces_workspace_setups.sql
+    words:
+      - setup-workspace
+      - setup_workspace
+      - workspace_setup
+      - setup subcommand
+      - setup of a workspace
+  # end part: workspace_setup
   # part: github
   - name: github
     paths:
@@ -131,6 +147,14 @@ runs:
   - name: personal
     parts:
       - invitations # part: invitations
+      - workspace_setup # part: workspace_setup
+  # part: workspace_setup
+  # The teams shape: users create workspaces, whose members invite others, and no operator sets
+  # one up.
+  - name: teams
+    parts:
+      - workspace_setup
+  # end part: workspace_setup
   # part: files
   # A product without uploads.
   - name: files
@@ -161,6 +185,7 @@ runs:
   - name: minimal
     parts:
       - invitations # part: invitations
+      - workspace_setup # part: workspace_setup
       # part: files
       - files
       # end part: files

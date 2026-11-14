@@ -11,6 +11,9 @@ use crate::{
     docker::lossy,
     server::DEPLOYMENT,
 };
+// part: workspace_setup
+use crate::deployment::post;
+// end part: workspace_setup
 // part: files
 use crate::deployment::streaming_client;
 // end part: files
@@ -896,6 +899,61 @@ async fn ops_14_a_deploy_that_leaves_the_bundled_database_stops_it_and_its_backu
     assert_eq!(served, 200);
 }
 
+/// Runs the subcommands that an operator runs against the accounts on `deployment`, which serves:
+/// each runs with the image and the settings of the color that serves, against the deployment's
+/// database, and ends with the one line that says what it did, or why it changed nothing, which
+/// names no address (OPS-03, OBS-04).
+fn operator_subcommands_run(deployment: &Deployment) {
+    // The removal of a second factor refuses an address that no account holds (AUTH-072), with
+    // the message of the code's own error.
+    let removal = deployment
+        .server
+        .deploy(&["remove-second-factor", "nobody@example.com"]);
+    let written = lossy(&removal);
+    assert_eq!(removal.status.code(), Some(1), "{written}");
+    assert!(written.contains("startup failed"), "{written}");
+    assert!(
+        written.contains(&app::RemovalRefused::NoAccount.to_string()),
+        "{written}"
+    );
+    assert!(!written.contains("nobody@example.com"), "{written}");
+    // part: workspace_setup
+    // The setup of a workspace (WORKSPACES-023): with email off, it makes the account that holds
+    // the address the workspace's owner, and sets nothing up for an address that no account
+    // holds (WORKSPACES-026).
+    let (registered, session) = post(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/users"),
+        serde_json::json!({
+            "email": "ada@example.com",
+            "password": "plum-tractor-41-quiet",
+            "name": "Ada"
+        })
+        .to_string(),
+    );
+    assert_eq!(registered, 201, "{session}");
+    let set_up = deployment
+        .server
+        .deploy(&["setup-workspace", "Acme Labs", "ada@example.com"]);
+    let no_owner = deployment
+        .server
+        .deploy(&["setup-workspace", "Globex", "nobody@example.com"]);
+    let written = lossy(&set_up);
+    assert_eq!(set_up.status.code(), Some(0), "{written}");
+    assert!(written.contains("subcommand finished"), "{written}");
+    assert!(written.contains("set up the workspace"), "{written}");
+    assert!(written.contains("email is off"), "{written}");
+    assert!(!written.contains("Acme"), "{written}");
+    let written = lossy(&no_owner);
+    assert_eq!(no_owner.status.code(), Some(1), "{written}");
+    assert!(
+        written.contains(&app::SetupRefused::NoAccount.to_string()),
+        "{written}"
+    );
+    assert!(!written.contains("nobody@example.com"), "{written}");
+    // end part: workspace_setup
+}
+
 #[tokio::test]
 async fn ops_19_status_shows_what_serves_and_the_backups_and_logs_show_the_services_output() {
     // With the self-hosted stack, whose images, unlike the API's and Caddy's, carry no version
@@ -911,11 +969,7 @@ async fn ops_19_status_shows_what_serves_and_the_backups_and_logs_show_the_servi
     let status = deployment.server.deploy(&["status"]);
     let logs = deployment.server.deploy(&["logs", "api", "caddy"]);
     let refused = deployment.server.deploy(&["logs", "--since=1h"]);
-    // The operator's removal of a second factor runs the API's subcommand with the image and the
-    // settings of the color that serves, against the deployment's database (AUTH-072).
-    let removal = deployment
-        .server
-        .deploy(&["remove-second-factor", "nobody@example.com"]);
+    operator_subcommands_run(&deployment);
 
     assert!(status.status.success(), "{}", lossy(&status));
     let status = lossy(&status);
@@ -975,16 +1029,6 @@ async fn ops_19_status_shows_what_serves_and_the_backups_and_logs_show_the_servi
         "{}",
         lossy(&refused)
     );
-    // Its refusal is the one failure that ends a subcommand (OPS-03), whose message, which the
-    // test takes from the code's own error, names no address (OBS-04).
-    let written = lossy(&removal);
-    assert_eq!(removal.status.code(), Some(1), "{written}");
-    assert!(written.contains("startup failed"), "{written}");
-    assert!(
-        written.contains(&app::RemovalRefused::NoAccount.to_string()),
-        "{written}"
-    );
-    assert!(!written.contains("nobody@example.com"), "{written}");
 }
 
 #[tokio::test]

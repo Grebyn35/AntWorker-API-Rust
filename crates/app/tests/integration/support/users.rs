@@ -72,8 +72,8 @@ pub async fn verified(api: &Api, user_id: &str) {
 }
 
 /// Creates an account of `email` that holds no password, as an account that a sign-in provider
-/// or the setup subcommand creates does, through the `owner` connection, so a test without the
-/// in-process API has a user too; returns its ID.
+/// creates does, or one that an operator creates for its owner, through the `owner` connection,
+/// so a test without the in-process API has a user too; returns its ID.
 pub async fn without_password(db: &TestDatabase, email: &str) -> String {
     let email = email.replace('\'', "''");
     db.owner_reads(&format!(

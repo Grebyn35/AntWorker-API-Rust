@@ -339,6 +339,17 @@ pub fn report_startup_failure(area: &str, error: &(dyn Error + 'static)) {
     );
 }
 
+/// Logs what a subcommand that an operator runs did, through the logging setup: one `INFO`
+/// event with the message `subcommand finished`, the subcommand as its area, and what it did,
+/// which holds no personal data (OPS-03, OBS-04).
+pub fn report_outcome(area: &str, outcome: &dyn std::fmt::Display) {
+    tracing::info!(
+        { names::STARTUP_AREA } = area,
+        { names::STARTUP_OUTCOME } = %outcome,
+        "subcommand finished"
+    );
+}
+
 /// A startup failure as one JSON line with the same message and fields, for a failure before
 /// logging is set up. It names the environment when the environment is known.
 pub fn startup_failure_line(

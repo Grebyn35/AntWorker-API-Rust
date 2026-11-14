@@ -108,8 +108,11 @@ pub const JOB_ATTEMPT: &str = "job.attempt";
 pub const JOB_OUTCOME: &str = "job.outcome";
 /// Why the hub closed a stream, such as `access_changed` (PLATFORM-034).
 pub const STREAM_CLOSE_REASON: &str = "stream.close_reason";
-/// The part of startup that failed, such as `database` or `listen` (OPS-03).
+/// The part of startup that failed, such as `database` or `listen`, or the subcommand that an
+/// operator ran, whose outcome a line reports (OPS-03).
 pub const STARTUP_AREA: &str = "startup.area";
+/// What a subcommand that an operator ran did, without personal data (OPS-03).
+pub const STARTUP_OUTCOME: &str = "startup.outcome";
 /// The migration versions `migrate` applied.
 pub const MIGRATION_VERSIONS: &str = "migration.versions";
 /// The most connections to the database that an instance opens (OPS-18).

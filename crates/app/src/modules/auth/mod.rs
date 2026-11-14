@@ -19,6 +19,9 @@ pub(crate) use model::Lifetimes;
 pub(crate) use personal_data::Contract;
 pub(crate) use providers::Providers;
 pub(crate) use routes::{ExportRequests, ProviderRoutes, export_routes, provider_routes, routes};
+// part: workspace_setup
+pub(crate) use service::has_identity;
+// end part: workspace_setup
 pub(crate) use service::{
     Auth, Keys, Outside, Removal, Settings, Verifier, remove_second_factor, require_recent_proof,
 };

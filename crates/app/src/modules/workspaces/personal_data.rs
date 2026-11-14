@@ -21,7 +21,12 @@ pub(crate) struct Contract;
 
 impl PersonalData for Contract {
     fn columns(&self) -> &'static [Column] {
-        const COLUMNS: &[Column] = &[Column::new("workspaces", "name")];
+        const COLUMNS: &[Column] = &[
+            Column::new("workspaces", "name"),
+            // part: workspace_setup
+            Column::new("workspace_setups", "name"),
+            // end part: workspace_setup
+        ];
         COLUMNS
     }
 
@@ -39,7 +44,16 @@ impl PersonalData for Contract {
                 let page = repo::exported(uow, ids).await?;
                 export.write(uow, &mut document, &page).await?;
             }
-            export.finish(uow, document).await
+            export.finish(uow, document).await?;
+            // part: workspace_setup
+            let mut document = export.document("workspaces/workspace_setups.json");
+            for ids in pages(&sole) {
+                let page = repo::setup::exported(uow, ids).await?;
+                export.write(uow, &mut document, &page).await?;
+            }
+            export.finish(uow, document).await?;
+            // end part: workspace_setup
+            Ok(())
         })
     }
 

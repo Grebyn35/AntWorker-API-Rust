@@ -34,6 +34,16 @@ use crate::modules::{
 /// provider's key, or `None` for the password (AUTH-088).
 type Way = Option<String>;
 
+// part: workspace_setup
+/// Whether the account of `user_id` has an identity, a way to sign in, which the operator's setup
+/// of a workspace asks of the account that holds its owner's address, once it holds the user's
+/// row, so that no change of their identities commits between its answer and the setup's commit
+/// (WORKSPACES-024, DATA-20).
+pub(crate) async fn has_identity(uow: &mut UnitOfWork, user_id: UserId) -> Result<bool, AuthError> {
+    Ok(repo::has_identity(uow, user_id).await?)
+}
+// end part: workspace_setup
+
 impl Auth {
     /// The caller's identities (AUTH-085).
     pub(crate) async fn identities(

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_setups (workspace_id, name) VALUES ($1, $2)\n        ON CONFLICT ON CONSTRAINT workspace_setups_name_key DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "13c085bb64b743d08b8c0d3cf91fcdfba11552ae042eeb22005e867ae6c5fdc9"
+}

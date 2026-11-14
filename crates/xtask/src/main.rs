@@ -470,4 +470,36 @@ mod tests {
         ));
         assert!(Cli::try_parse_from(["xtask", "remove-second-factor", "production"]).is_err());
     }
+
+    // part: workspace_setup
+    #[test]
+    fn workspaces_023_the_operator_s_setup_takes_a_server_a_name_an_address_and_maybe_a_name() {
+        let cli = |arguments: &[&str]| {
+            Cli::try_parse_from(
+                ["xtask", "setup-workspace"]
+                    .into_iter()
+                    .chain(arguments.iter().copied()),
+            )
+        };
+        let named = cli(&["production", "Acme Labs", "ada@example.com", "Ada Lovelace"]).unwrap();
+        let unnamed = cli(&["production", "Acme Labs", "ada@example.com"]).unwrap();
+
+        assert!(matches!(
+            named.command,
+            Command::Server(ServerTask::SetupWorkspace { host, name, email, owner_name })
+                if host == "production"
+                    && name == "Acme Labs"
+                    && email == "ada@example.com"
+                    && owner_name.as_deref() == Some("Ada Lovelace")
+        ));
+        assert!(matches!(
+            unnamed.command,
+            Command::Server(ServerTask::SetupWorkspace {
+                owner_name: None,
+                ..
+            })
+        ));
+        assert!(cli(&["production", "Acme Labs"]).is_err());
+    }
+    // end part: workspace_setup
 }

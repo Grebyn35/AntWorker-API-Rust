@@ -77,3 +77,17 @@ logs host *services:
 [group('server')]
 remove-second-factor host email:
     {{ xtask }} remove-second-factor {{ host }} {{ quote(email) }}
+
+# part: workspace_setup
+# Creates the workspace `name` on the reference deployment on `host`, owned by the account that
+# holds `email` (WORKSPACES-023, D65). With email on, it creates that account, named
+# `owner_name`, when no account holds the address, and tells the address how its owner signs in;
+# with email off, the owner registers first. It runs the API's subcommand `setup-workspace` with
+# the image of the color that serves, and exits 1, changing nothing, when an earlier run was given
+# the name, or the account may not own the workspace. docs/operations/deploy.md says when to run
+# it.
+[doc("Sets up a workspace for its owner on a server")]
+[group('server')]
+setup-workspace host name email owner_name="":
+    {{ xtask }} setup-workspace {{ host }} {{ quote(name) }} {{ quote(email) }} {{ if owner_name != "" { quote(owner_name) } else { "" } }}
+# end part: workspace_setup

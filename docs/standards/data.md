@@ -78,7 +78,7 @@ CI applies every migration to an empty database, and applies the new migrations 
 | Role | Used by | Attributes |
 |---|---|---|
 | `owner` | the `migrate` subcommand only | owns the tables it creates, and has `CREATE` on the schema `public`, which the database's owner keeps |
-| `app` | every request and every job, and `seed`, which sends the API's routes requests in process ([system spec](../spec/system.md#seed)) | no superuser, owns nothing, data manipulation statements (DML) only (DATA-19) |
+| `app` | every request and every job, `seed`, which sends the API's routes requests in process ([system spec](../spec/system.md#seed)), and each subcommand that an operator runs against the accounts, such as `remove-second-factor` | no superuser, owns nothing, data manipulation statements (DML) only (DATA-19) |
 
 The `bootstrap` subcommand creates both roles with these attributes, grants their privileges on the database and sets the role-level timeouts (DATA-19). The privileges on the tables come from the first migration. It runs with an administrator connection: the bundled Postgres superuser, or a managed provider's admin role. Running it again keeps the roles, their attributes and the grants, and sets each role's password again from its URL. Roles belong to the whole Postgres server, so a deployment's server holds its database alone (D75), and in production `bootstrap` refuses a server that holds another database of the roles before it changes one.
 - Why: the running API can change data but never the schema, and holds no privilege beyond that (D4).
@@ -94,6 +94,7 @@ The server refuses to start unless it connects as the role `app`, and that role 
 - `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no data definition statements (DDL) and no `TRUNCATE`. On `audit_entries` and `audit_entry_clients` it has only `INSERT` and `SELECT` (AUDIT-005), and on each table whose rows are never edited, and which so has no `updated_at` or `version` (DATA-02), no `UPDATE`, such as `device_tokens` (AUTH-019) and `verification_codes` (AUTH-030).
   `export_entries` and `export_chunks` are such tables too (the accounts spec's Owns).
   So are `workspace_files`, `user_files`, `avatars`, `workspace_pictures`, `exported_files` and `object_deletions` (the files spec's Owns). <!-- part: files -->
+  So is `workspace_setups` (the workspaces spec's Owns). <!-- part: workspace_setup -->
   On a sequence that a mechanism of `platform` draws from, such as `events_position_seq`, it has `USAGE` alone, which takes the next value, and can't set one.
 - `app` has `statement_timeout` and `idle_in_transaction_session_timeout` set at the role level.
 - Why: a role can do only what its job needs, and a stuck transaction can't hold locks indefinitely.
@@ -120,7 +121,7 @@ Tenancy is enforced by the application, and every query on user or workspace dat
   - in a password reset, by the address it names (AUTH-034, AUTH-037)
   - when asking to change one's address, by the address asked for, which no account may hold (AUTH-048)
   - when inviting, by the invitee's email <!-- part: invitations -->
-  - in the setup subcommand, by its owner's email
+  - in the setup subcommand, by its owner's email (WORKSPACES-023) <!-- part: workspace_setup -->
   - in the operator's removal of a second factor, by the address it is given (AUTH-072)
   - in a sign-in through a provider, of the user whose provider identity holds the provider's subject, by the provider and the subject (AUTH-073)
   - for a signed URL, of its session by the ID that its signature proves the API gave (PLATFORM-080) <!-- part: files -->

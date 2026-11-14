@@ -8,6 +8,9 @@
 //!
 //! Which release a version names is a pure function, so tests cover it without a server; the
 //! tasks run git and ssh as the developer's own.
+// part: workspace_setup
+//! `setup-workspace` runs deploy.sh the same way (WORKSPACES-023).
+// end part: workspace_setup
 
 use std::{
     io::{self, IsTerminal},
@@ -182,6 +185,25 @@ pub fn remove_second_factor(host: &str, email: &str) -> ExitCode {
         ),
     )
 }
+
+// part: workspace_setup
+/// Creates the workspace `name` on the deployment that SSH reaches at `host`, owned by the
+/// account that holds `email`, which the run creates, named `owner_name`, when, with email on,
+/// no account holds the address, through the API's subcommand `setup-workspace`
+/// (WORKSPACES-023).
+pub fn setup_workspace(host: &str, name: &str, email: &str, owner_name: Option<&str>) -> ExitCode {
+    let mut command = format!(
+        "DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh setup-workspace {} {}",
+        quoted(name),
+        quoted(email)
+    );
+    if let Some(owner_name) = owner_name {
+        command.push(' ');
+        command.push_str(&quoted(owner_name));
+    }
+    on_server(host, &command)
+}
+// end part: workspace_setup
 
 /// Shows the logs of the deployment's services that `arguments` name, or of all of them, and
 /// with `--follow` among them, the lines that follow.

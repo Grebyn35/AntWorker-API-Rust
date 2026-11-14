@@ -9,6 +9,7 @@ use crate::support::{
     Api, Options, api,
     api::Response,
     mailbox,
+    operator::{self, EMAIL_OFF, SENDS_EMAIL, printed},
     second_factors::{self, add_app, code, confirm, start_setup},
     users::{self, PASSWORD, SignedIn},
     workspaces,
@@ -36,39 +37,15 @@ async fn reads(api: &Api, sql: &str) -> Vec<String> {
 /// through the tests' Mailpit, as `api`'s own settings send it.
 async fn remove(api: &Api, email: &str) -> Output {
     api.database()
-        .run_api(
-            &["remove-second-factor", email],
-            &[
-                ("ENVIRONMENT", "test"),
-                ("EMAIL", "smtp"),
-                ("SMTP_HOST", "127.0.0.1"),
-                ("SMTP_PORT", "1025"),
-                ("SMTP_SECURITY", "none"),
-                ("EMAIL_FROM", "AntWorker <noreply@example.com>"),
-            ],
-        )
+        .run_api(&["remove-second-factor", email], &SENDS_EMAIL)
         .await
 }
 
-/// What `output` wrote, its logs among it, to stdout and stderr together.
-fn printed(output: &Output) -> String {
-    format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    )
-}
-
-/// Asserts that `output` exited 1 with the one failure that OPS-03 gives a subcommand, whose
+/// Asserts that `output` exited 1 with the one failure that OPS-03 gives the subcommand, whose
 /// message is `message`, and that it never wrote `address`, since the logs hold no personal data
 /// (OBS-04).
 fn refused(output: &Output, message: &str, address: &str) {
-    let written = printed(output);
-    assert_eq!(output.status.code(), Some(1), "{written}");
-    assert!(written.contains("startup failed"), "{written}");
-    assert!(written.contains("remove-second-factor"), "{written}");
-    assert!(written.contains(message), "{written}");
-    assert!(!written.contains(address), "{written}");
+    operator::refused(output, "remove-second-factor", message, &[address]);
 }
 
 #[tokio::test]
@@ -405,16 +382,13 @@ async fn auth_072_the_subcommand_removes_the_app_and_the_codes_and_ends_every_se
 
     let removed = remove(&api, &address.to_uppercase()).await;
 
-    let written = printed(&removed);
-    assert_eq!(removed.status.code(), Some(0), "{written}");
-    assert!(
-        written.contains(
-            "removed the account's authenticator app and recovery codes, and ended every session \
-             of it; the account signs in with its password alone, and its address is told"
-        ),
-        "{written}"
+    operator::finished(
+        &removed,
+        "remove-second-factor",
+        "removed the account's authenticator app and recovery codes, and ended every session of \
+         it; the account signs in with its password alone, and its address is told",
+        &[&address],
     );
-    assert!(!written.contains(&address), "{written}");
     for table in [
         "totp_factors",
         "recovery_codes",
@@ -620,17 +594,14 @@ async fn auth_068_with_email_off_the_operator_s_removal_enqueues_no_email_and_sa
 
     let removed = api
         .database()
-        .run_api(
-            &["remove-second-factor", "ada@example.com"],
-            &[("ENVIRONMENT", "test"), ("EMAIL", "off")],
-        )
+        .run_api(&["remove-second-factor", "ada@example.com"], &EMAIL_OFF)
         .await;
 
-    let written = printed(&removed);
-    assert_eq!(removed.status.code(), Some(0), "{written}");
-    assert!(
-        written.contains("email is off, so its address isn't told"),
-        "{written}"
+    operator::finished(
+        &removed,
+        "remove-second-factor",
+        "email is off, so its address isn't told",
+        &["ada@example.com"],
     );
     assert!(
         reads(&api, "SELECT id::text FROM totp_factors")

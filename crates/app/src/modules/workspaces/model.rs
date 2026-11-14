@@ -223,6 +223,17 @@ pub(super) struct ExportedWorkspace {
     pub(super) updated_at: Timestamp,
 }
 
+// part: workspace_setup
+/// The setup of a workspace whose only member is the user, as their export holds it: the name
+/// its run was given (the accounts spec's "What an export holds").
+#[derive(Debug, Serialize)]
+pub(super) struct ExportedSetup {
+    pub(super) workspace_id: WorkspaceId,
+    pub(super) name: WorkspaceName,
+    pub(super) created_at: Timestamp,
+}
+// end part: workspace_setup
+
 #[cfg(test)]
 mod tests {
     use super::*;

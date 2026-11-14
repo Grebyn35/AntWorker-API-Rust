@@ -265,7 +265,7 @@ pub(crate) async fn accept(
         .await?;
     let payload = workspaces::MembershipCreated {
         workspace_id: workspace,
-        session_id: principal.session_id(),
+        session_id: Some(principal.session_id()),
     };
     uow.publish_to_user(&workspaces::MEMBERSHIP_CREATED, user, &payload)
         .await?;

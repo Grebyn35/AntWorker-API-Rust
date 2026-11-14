@@ -3,23 +3,29 @@
 // part: files
 //! Setting and removing a workspace's picture are in `picture.rs`.
 // end part: files
+// part: workspace_setup
+//! The operator's setup of a workspace is in `setup.rs`.
+// end part: workspace_setup
 
 mod members;
 // part: files
 pub(super) mod picture;
 // end part: files
+// part: workspace_setup
+pub(super) mod setup;
+// end part: workspace_setup
 
 use std::collections::HashMap;
 
 use platform::{
-    authn::Principal,
+    authn::{AuditScope, Principal},
     authz::{Authorized, Permission},
     db::{Database, UnitOfWork},
     errors::{Internal, RequestError},
     idempotency::{Claimed, IdempotencyKey},
     jobs,
     lists::{List, Page, Search},
-    types::{Client, Version, WorkspaceId},
+    types::{Client, SessionId, UserId, Version, WorkspaceId},
 };
 
 pub(super) use self::members::left;
@@ -53,38 +59,62 @@ pub(crate) async fn create(
     if let Claimed::Replay(created) = uow.claim(principal.user_id(), key).await? {
         return Ok(created);
     }
-    let created = found(&mut uow, principal, &input.name).await?;
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a user who creates a workspace is recorded as its founder (the workspaces spec)"
+    )]
+    let founder = Founder {
+        owner: principal.user_id(),
+        session: Some(principal.session_id()),
+        scope: |workspace| principal.founder_scope(workspace),
+    };
+    let created = found(&mut uow, &input.name, founder).await?;
     uow.commit_with(&created).await?;
     Ok(created)
 }
 
+/// Whom a workspace is created for, and how its creation is recorded (D33).
+pub(super) struct Founder<S> {
+    /// The user who becomes the workspace's owner.
+    pub(super) owner: UserId,
+    /// The session whose request creates the workspace, when one does, which the owner's event
+    /// names.
+    pub(super) session: Option<SessionId>,
+    /// The scope of the entry that records the creation, in the log of the workspace, whose ID
+    /// the database gives.
+    pub(super) scope: S,
+}
+
 /// The one operation that creates a workspace, inside the unit of work of whatever asks for it:
-/// the workspace, its owner's membership, its first audit entry and the owner's event, together
-/// (the workspaces spec's "Creating a workspace", D33).
-async fn found(
+/// the workspace named `name`, its owner's membership, its first audit entry and the owner's
+/// event, together (the workspaces spec's "Creating a workspace", D33).
+pub(super) async fn found<S>(
     uow: &mut UnitOfWork,
-    principal: &Principal,
     name: &WorkspaceName,
-) -> Result<Current, WorkspacesError> {
+    founder: Founder<S>,
+) -> Result<Current, WorkspacesError>
+where
+    S: FnOnce(WorkspaceId) -> AuditScope,
+{
     let (id, created_at, version) = repo::insert(uow, name).await?;
-    access::add_owner(uow, id, principal.user_id()).await?;
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "this is the operation that creates a workspace (the workspaces spec)"
-    )]
-    let scope = principal.founder_scope(id);
+    access::add_owner(uow, id, founder.owner).await?;
+    let scope = (founder.scope)(id);
     let entry = Entry::new(audit::WORKSPACE_CREATED, audit::WORKSPACE, id.uuid());
+    // part: workspace_setup
+    // An entry whose scope names no actor names the owner as its target, so the log says whom
+    // the workspace was created for (WORKSPACES-023).
+    let entry = Entry {
+        target: scope.actor().is_none().then_some(founder.owner),
+        ..entry
+    };
+    // end part: workspace_setup
     log::record(uow, scope, entry).await?;
     let payload = published::MembershipCreated {
         workspace_id: id,
-        session_id: principal.session_id(),
+        session_id: founder.session,
     };
-    uow.publish_to_user(
-        &published::MEMBERSHIP_CREATED,
-        principal.user_id(),
-        &payload,
-    )
-    .await?;
+    uow.publish_to_user(&published::MEMBERSHIP_CREATED, founder.owner, &payload)
+        .await?;
     Ok(Current {
         workspace: Workspace {
             id,

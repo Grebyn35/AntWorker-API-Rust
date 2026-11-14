@@ -78,6 +78,22 @@ pub enum ServerTask {
         /// The account's email address.
         email: String,
     },
+    // part: workspace_setup
+    /// Creates the workspace `name` on the deployment at `host`, owned by the account that holds
+    /// `email`, through the subcommand of the image that serves, which, with email on, creates
+    /// that account, named `owner_name`, when no account holds the address (WORKSPACES-023, D65).
+    #[command(name = "setup-workspace")]
+    SetupWorkspace {
+        /// The server, as SSH names it.
+        host: String,
+        /// The workspace's name.
+        name: String,
+        /// Its owner's email address.
+        email: String,
+        /// Its owner's name, for the account that the run creates when none holds the address.
+        owner_name: Option<String>,
+    },
+    // end part: workspace_setup
     /// Shows the last lines of the logs of the deployment's services at `host` (OPS-19).
     Logs {
         /// The server, as SSH names it.
@@ -107,6 +123,14 @@ impl ServerTask {
             Self::Status { host } => deploy::status(&host),
             Self::Logs { host, arguments } => deploy::logs(&host, &arguments),
             Self::RemoveSecondFactor { host, email } => deploy::remove_second_factor(&host, &email),
+            // part: workspace_setup
+            Self::SetupWorkspace {
+                host,
+                name,
+                email,
+                owner_name,
+            } => deploy::setup_workspace(&host, &name, &email, owner_name.as_deref()),
+            // end part: workspace_setup
             Self::ServerSetup { host, version } => server::setup(&host, version.as_deref()),
             Self::ServerCheck { host, version } => server::check(&host, version.as_deref()),
         }

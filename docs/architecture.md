@@ -125,7 +125,8 @@ crates/app/
 | `files` | `workspace_files`, `user_files`, `avatars`, `workspace_pictures`, `exported_files`, `object_deletions` | Upload, list, download and delete of user and workspace files, the types each upload accepts and its scan for malware, public files, signed download URLs, and the deletion of the bytes that no row names, with the images of the avatars that `accounts` sets, and of the workspace pictures that `workspaces` sets (D117, D120, D149). <!-- part: files --> |
 | `accounts` | `users`, `exports`, `export_entries`, `export_chunks` | The profile, and account deletion and export, which it orchestrates across modules through the personal data contract (D16, D31). |
 | `auth` | `sessions`, `device_tokens`, `verification_codes`, `identities`, `totp_factors`, `totp_setups`, `recovery_codes`, `sign_in_challenges`, `provider_identities` | Registration, sign-in with a password or OAuth, second factors and the challenges they complete, refresh, sign-out, sessions, password reset and change, email verification and change, identity linking, and re-authentication for sensitive actions. Account deletion is confirmed here, then carried out by `accounts`, and so is the request of an export of the user's data, which `accounts` then builds. One file per OAuth provider in `auth/providers/`. Implements `SessionVerifier`. |
-| `workspaces` | `workspaces`, `setup_runs` | Creating workspaces in each shape (below), updating, transferring and deleting them, and the members endpoints (list, read, change role, remove, leave). |
+| `workspaces` | `workspaces` | Creating workspaces in each shape (below), updating, transferring and deleting them, and the members endpoints (list, read, change role, remove, leave). |
+| `workspaces`, for the setup subcommand | `workspace_setups` | The workspaces that an operator's runs of `setup-workspace` created, each with the name its run was given, which no later run may use (D65). <!-- part: workspace_setup --> |
 | `invitations` | `invitations` | Invite, list, resend, cancel, accept, decline, and expiry. <!-- part: invitations --> |
 | `superadmins` | `superadmins` | The deployment's superadmins (D62): users who see every workspace's name, creation time, member count and owner, but not its content, delete any workspace, and create workspaces, which they then own ([workspace shapes](#workspace-shapes)). Its routes are authorized by the caller being a superadmin, never by a membership, and it records each action in the superadmin's own log, since deleting a workspace deletes the workspace's log. Its subcommand adds an account to the superadmins or removes it, which the API can't. |
 | `client_telemetry` | `telemetry_consents` | The telemetry proxy for clients, and each user's consent to it, which it enforces on the server (D7, D122). |
@@ -138,23 +139,21 @@ Table naming follows the data standard.
 
 Data a module adds for its product lives in a workspace, and is reached through `Authorized<P>` (§6). Account data, such as the profile, sessions and the user's own audit log, belongs to the user. A product uses workspaces in one of the shapes below, and the optional parts a fork keeps decide which.
 
-| Shape | Who creates workspaces | Who joins one | The optional parts it keeps |
-|---|---|---|---|
-| Teams | each user, as many as they need | people a member invites | users creating workspaces, `invitations` <!-- part: invitations --> |
-| Provisioned organizations | a superadmin, one for each organization the deployment serves | people a member invites | `superadmins`, `invitations` <!-- part: invitations --> |
-| One organization | the setup subcommand, run by an operator for each workspace the organization needs, such as one per subsidiary, together with its owner's account (§9) | people a member invites | the setup subcommand, `invitations` <!-- part: invitations --> |
-| Personal | the client, whenever a signed-in user belongs to none | nobody | users creating workspaces |
+<!-- part: invitations -->
+- **Teams.** Each user creates as many workspaces as they need, and the people a member invites join one. It keeps users creating workspaces and `invitations`.
+- **Provisioned organizations.** A superadmin creates a workspace for each organization the deployment serves, and the people a member invites join one. It keeps `superadmins` and `invitations`.
+- **One organization.** An operator runs the setup subcommand for each workspace the organization needs, such as one per subsidiary, which creates it for its owner, with their account when no account holds their address (§9), and the people a member invites join one. It keeps the setup subcommand and `invitations`. <!-- part: workspace_setup -->
+<!-- end part: invitations -->
+- **Personal.** The client creates a workspace whenever a signed-in user belongs to none, and nobody joins one. It keeps users creating workspaces.
 
 A fork chooses its shape once, when it starts, by removing the optional parts it doesn't keep with `just remove` (ARCH-07), never through a setting, so it carries no code for a shape it doesn't use.
 A shape is enforced by the routes it removes: a route a fork keeps treats every caller the same, whatever the fork's client offers, and lets a caller do only what their role allows (§6).
 In the personal shape, the API has no notion of a personal workspace, and nobody can join the workspace a user creates.
 The client works in the oldest workspace the user belongs to, so a workspace made outside the client changes nothing the user sees, and it can leave workspaces out of its interface.
 After creating one, it lists the user's workspaces again before working in any, so two devices that each found none and each created one both work in the older, and the other stays empty.
-In the one organization shape too, a user usually works in one workspace, and a client offers a choice only to a user who belongs to several, such as the owner of two subsidiaries. <!-- part: invitations -->
 The template keeps every part and serves the teams shape. <!-- part: invitations -->
 Registration creates no workspace, and a user who belongs to none is offered to create one (D16).
 An invited user joins only the workspace they were invited to. <!-- part: invitations -->
-Only an operator runs the setup subcommand, so keeping it changes nothing for the template's users.
 A fork may keep `superadmins` in any shape, for seeing and deleting workspaces.
 In the provisioned shape, it is the one part that creates them. <!-- part: invitations -->
 A superadmin who creates a workspace becomes its owner, as a user who creates one does, and hands it over through the ordinary ownership transfer when asked.
@@ -162,6 +161,11 @@ They set it up and invite its people first. <!-- part: invitations -->
 They see its content as a member, never as a superadmin.
 How each part creates a workspace is in the [workspaces spec](spec/workspaces.md#creating-a-workspace).
 In every shape, the same authorization and the same tenancy checks guard the data (DATA-16, TEST-08).
+
+<!-- part: workspace_setup -->
+Only an operator runs the setup subcommand, so keeping it changes nothing for the template's users.
+In the one organization shape, as in the personal one, a user usually works in one workspace, and a client offers a choice only to a user who belongs to several, such as the owner of two subsidiaries. <!-- part: invitations -->
+<!-- end part: workspace_setup -->
 
 ### Dependencies
 
@@ -332,9 +336,9 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   - `serve` binds one HTTP port and runs the HTTP server, the real-time hub, the job dispatcher and the scheduler.
   - `migrate` is the one-shot migration step.
   - `seed` fills a development database with demo accounts and workspaces, through the API's own routes, as a client would, and refuses in any other environment ([system spec](spec/system.md#seed)).
-  - The setup subcommand creates a workspace and its owner's account, each time an operator runs it, in a fork that keeps it (§5, "Workspace shapes").
   - The superadmin subcommand adds an account to the superadmins or removes it, in a fork that keeps `superadmins` (D62). `just` runs it, on a deployment's server over Secure Shell (SSH), so only someone who can reach the server can change who is a superadmin.
   - `remove-second-factor` removes the authenticator app of the account that holds an address, for a user who lost it and their recovery codes, once the operator has checked that the person owns the account (D135). `just` runs it, on a deployment's server over SSH, with the image of the color that serves, in a service of its own that passes it only the settings it reads (OPS-02) ([auth spec](spec/auth.md#second-factors)).
+  - `setup-workspace`, the setup subcommand, creates a workspace for its owner, each time an operator runs it, with their account when, with email on, no account holds their address (§5, "Workspace shapes", D65). `just` runs it as it runs `remove-second-factor` ([workspaces spec](spec/workspaces.md#the-setup-subcommand)). <!-- part: workspace_setup -->
   - `openapi` writes the contract, `openapi.json`, which a test compares with the committed one (API-17).
   - `health` asks the instance whether it is ready, for the image's health check (PLATFORM-063).
 - **The single-host reference deployment** runs on one Linux server, in Docker Compose (D15, D20, D45):
@@ -385,7 +389,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | Container image | BuildKit, through `docker buildx`; zig, through cargo-zigbuild, which compiles both platforms' static binaries against musl on one machine; cargo-chef; cargo-auditable; distroless's static base (D43) | One build gives both platforms' images, the compiled dependencies stay cached, the scans and the software bill of materials (SBOM) see the binary's crates, and the base has no shell, package manager or C library (OPS-12, OPS-13) |
 | Allocator of the image's binary | `mimalloc`, for the musl targets only | Under musl's own allocator, a replica's memory grows with every request it serves, until the container's memory limit kills it; under mimalloc it stays flat (OPS-16) |
 | Reverse proxy and TLS | Caddy | It obtains and renews certificates through the ACME protocol on its own, and checks the replicas' readiness before it sends them requests (OPS-14, OPS-17) |
-| Deployment | Docker Compose on one server, set up by `deploy/server-setup.sh` and driven by `deploy/deploy.sh`, scripts for any shell of the Portable Operating System Interface (POSIX), which `just server-setup`, `just server-check`, `just deploy`, `just backup`, `just restore`, `just status`, `just logs` and `just remove-second-factor` run over Secure Shell (SSH) from a developer's machine (OPS-19) | The server needs only Docker, which the setup installs; the release's files and its signed images are all a deploy takes, with no agent and no checkout on the server (D45, D51) |
+| Deployment | Docker Compose on one server, set up by `deploy/server-setup.sh` and driven by `deploy/deploy.sh`, scripts for any shell of the Portable Operating System Interface (POSIX), which the tasks of `just`'s `server` group, such as `just deploy`, run over Secure Shell (SSH) from a developer's machine (OPS-19) | The server needs only Docker, which the setup installs; the release's files and its signed images are all a deploy takes, with no agent and no checkout on the server (D45, D51) |
 | Load testing | k6 | Constant-arrival-rate scenarios measure the rate a replica serves within the latency objective (OPS-16) |
 | Malware scanning | ClamAV's daemon, `clamd`, from ClamAV's own Debian image, which serves amd64 and arm64, beside `freshclam` for its signatures in the reference deployment; with one signature of the repository's own, for the test file of the European Institute for Computer Antivirus Research (EICAR), in development and the tests; reached through a client of `platform`'s own over TCP | The open-source scanner that the antivirus signatures ASVS 5.4.3 asks for come with, updated several times a day; its protocol is a few lines, which a client written here bounds by the clock and counts ([platform spec](spec/platform.md#scanner)) <!-- part: files --> |
 | Object storage | `object_store`, signing with `ring` and sending through a `reqwest` client on `rustls` with its ring provider; SeaweedFS in development and the tests (D28) | The Apache Arrow project's client of S3-compatible buckets, which reads an object as a stream; SeaweedFS serves S3 without credentials in one container, as the end-to-end tests' backup bucket already does ([platform spec](spec/platform.md#storage)) <!-- part: files --> |
@@ -416,7 +420,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Term | Meaning |
 |---|---|
 | User | A person with an account. Owns their profile, sessions and identities, and the data they keep apart from any workspace. |
-| Identity | One way a user signs in: a password, or a linked OAuth provider account. A user who registered has one or more. An account an operator creates for its owner has none until the owner sets a password ([the setup subcommand](spec/workspaces.md#the-setup-subcommand)). |
+| Identity | One way a user signs in: a password, or a linked OAuth provider account. A user who registered has one or more. |
 | Issuer | The URL by which an OAuth provider that follows OpenID Connect names itself. The provider serves its discovery document, which lists the addresses of its endpoints, at `/.well-known/openid-configuration` under it. |
 | Session | One signed-in device or client, holding an access token and a refresh token. |
 | Device token | A token that a registration or a sign-in gives the device, for the account's email, so that the device's next sign-in to that account counts only in a limit of its own, which no attempt from elsewhere fills (AUTH-019). |

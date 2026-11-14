@@ -20,6 +20,8 @@ A setting exists only if two deployments would set it differently, such as a URL
 
 ### OPS-03 Startup failures have one format
 A failure that ends a subcommand of the API binary, at startup or, for a one-shot subcommand such as `migrate`, in its work, is logged as one `ERROR` event, with the message `startup failed` and the fields `startup.area` and `exception.message`, through the configured logging setup (OBS-01, OBS-05). The process then exits with code 1. A failure before the logging setup exists, such as invalid configuration, or a failure of the logging setup itself, is written by `main` to stderr as one JSON line with the same message and fields. That is the one place in the API's crates where `print_stderr` is allowed (CODE-03). Nothing panics.
+
+A subcommand that an operator runs against the accounts, such as `remove-second-factor`, logs what it did as one `INFO` event, with the message `subcommand finished` and the fields `startup.area`, which names the subcommand, and `startup.outcome`, which says what it did, without personal data (OBS-04). The process then exits with code 0. What keeps it from doing anything is a failure that ends it, as above.
 - Why: operators and scripts handle one shape (D9).
 - Check: `test`.
 

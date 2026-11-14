@@ -55,6 +55,9 @@ jobs:
       matrix:
         run:
           - personal
+          # part: workspace_setup
+          - teams
+          # end part: workspace_setup
           # part: files
           - files
           # end part: files

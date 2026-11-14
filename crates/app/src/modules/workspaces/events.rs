@@ -46,8 +46,10 @@ pub(super) const WORKSPACE_UPDATED: WorkspaceEvent<WorkspaceRead, WorkspaceUpdat
 pub(crate) struct MembershipCreated {
     /// The workspace they joined.
     pub(crate) workspace_id: WorkspaceId,
-    /// The session whose request added them, so that device can tell it already knows.
-    pub(crate) session_id: SessionId,
+    /// The session whose request added them, so that device can tell it already knows, or null
+    /// when no session's request did.
+    #[schema(required = true)]
+    pub(crate) session_id: Option<SessionId>,
 }
 
 /// The payload of `member.removed`: a member was removed from the workspace.

@@ -46,6 +46,9 @@ mod verifier;
 
 pub(super) use deletion::erase;
 pub(crate) use email_change::ChangeConfirmation;
+// part: workspace_setup
+pub(crate) use identities::has_identity;
+// end part: workspace_setup
 pub(crate) use password::{PasswordChange, ResetConfirmation};
 pub(crate) use providers::{Grant, ProviderSignIn};
 pub(crate) use reauthentication::require_recent_proof;

@@ -9,6 +9,9 @@ mod tasks;
 
 pub use config::Config;
 pub use tasks::{RemovalRefused, SeedError, SeedReport, remove_second_factor, seed, seed_allowed};
+// part: workspace_setup
+pub use tasks::{SetupRefused, setup_workspace};
+// end part: workspace_setup
 
 use std::{sync::Arc, time::Duration};
 

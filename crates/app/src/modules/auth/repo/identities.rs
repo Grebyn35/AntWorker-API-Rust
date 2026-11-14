@@ -268,3 +268,20 @@ pub(in crate::modules::auth) async fn delete_provider_identity(
     .await?;
     Ok(())
 }
+
+// part: workspace_setup
+/// Whether `user_id` has an identity, a password or an account at a provider, with which their
+/// account signs in (WORKSPACES-024).
+pub(in crate::modules::auth) async fn has_identity(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+) -> Result<bool, Internal> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM identities WHERE user_id = $1)
+            OR EXISTS (SELECT 1 FROM provider_identities WHERE user_id = $1) AS "found!""#,
+        user_id.uuid(),
+    )
+    .fetch_one(uow.executor())
+    .await?)
+}
+// end part: workspace_setup

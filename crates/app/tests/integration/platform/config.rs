@@ -212,6 +212,13 @@ fn subcommand_settings(subcommand: &str) -> Option<std::collections::BTreeSet<St
             settings.operator()?;
             Ok(())
         }),
+        // part: workspace_setup
+        "setup-workspace" => settings_read(|settings| {
+            settings.telemetry()?;
+            settings.operator()?;
+            Ok(())
+        }),
+        // end part: workspace_setup
         _ => return None,
     })
 }
@@ -305,9 +312,14 @@ fn ops_02_each_setting_the_api_reads_is_documented_and_each_container_gets_only_
         );
         subcommands.insert(subcommand);
     }
+    let expected =
+        std::collections::BTreeSet::from(["bootstrap", "migrate", "remove-second-factor", "serve"]);
+    // part: workspace_setup
+    let expected: std::collections::BTreeSet<&str> =
+        expected.into_iter().chain(["setup-workspace"]).collect();
+    // end part: workspace_setup
     assert_eq!(
-        subcommands,
-        ["bootstrap", "migrate", "remove-second-factor", "serve"].into(),
+        subcommands, expected,
         "the services that run the API's image"
     );
 }

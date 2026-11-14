@@ -37,3 +37,12 @@ pub(super) const PICTURE_DELETED: Action = Action::new("picture.deleted");
 /// A workspace's picture.
 pub(super) const PICTURE: Resource = Resource::new("picture");
 // end part: files
+
+// part: workspace_setup
+/// The operator's setup of a workspace created its owner's account, recorded in that account's
+/// log (WORKSPACES-024).
+pub(super) const USER_CREATED: Action = Action::new("user.created");
+
+/// A user, whose account the operator's setup of a workspace creates.
+pub(super) const USER: Resource = Resource::new("user");
+// end part: workspace_setup
