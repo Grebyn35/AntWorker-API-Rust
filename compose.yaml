@@ -36,7 +36,7 @@ services:
   # web page and API on 8025. It keeps the latest 10,000 emails, so the tests' emails stay until
   # each test has read its own.
   mailpit:
-    image: axllent/mailpit:v1.31.6@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387
+    image: axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce
     environment:
       MP_MAX_MESSAGES: "10000"
     ports:
@@ -60,7 +60,7 @@ services:
   # health check creates the bucket `files`, which `just dev` uses, and passes once it exists;
   # each test that runs the API creates a bucket of its own, which the tests delete once it ends.
   storage:
-    image: chrislusf/seaweedfs:4.50@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
+    image: chrislusf/seaweedfs:4.53@sha256:ccad23e18639c8b98cee17e7100b95830a06077b56d8e5b006d6dcf8ec5e94a0
     command: ["server", "-dir=/data", "-volume.max=1000", "-s3", "-s3.port=8333"]
     environment:
       WEED_MASTER_VOLUME_GROWTH_COPY_1: "1"
@@ -187,7 +187,7 @@ services:
   # so a scan writes to disk only the database that a new day's first scan downloads.
   grype:
     profiles: [tools]
-    image: anchore/grype:v0.121.0@sha256:621d56d1d68106b787022c81546f7e0a36202a25d1239f0c20195fab8c16f7ea
+    image: anchore/grype:v0.121.3@sha256:13113eeceab017260370cf540e1d25442c59665fd07d1b09b66d63bb0c282887
     environment:
       GRYPE_DB_CACHE_DIR: /cache
     tmpfs:
@@ -211,7 +211,7 @@ services:
   # their server: SeaweedFS, which serves the S3 protocol (OPS-15).
   bucket:
     profiles: [tools]
-    image: chrislusf/seaweedfs:4.50@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
+    image: chrislusf/seaweedfs:4.53@sha256:ccad23e18639c8b98cee17e7100b95830a06077b56d8e5b006d6dcf8ec5e94a0
 
   # k6, which `just load-test` runs to measure one replica's capacity (OPS-16). It reaches the
   # collector, on the same network, to count the spans the collector accepted.
@@ -236,7 +236,7 @@ services:
   # The image tasks pass their names to Docker's builder.
   buildkit:
     profiles: [tools]
-    image: moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+    image: moby/buildkit:v0.35.0@sha256:aa632b921ef07411d2cb77292cd34213d4f7b384001d6fceef1e1f25bf9752bb
 
   sbom-generator:
     profiles: [tools]
