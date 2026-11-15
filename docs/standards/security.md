@@ -56,7 +56,7 @@ A superadmin's route is authorized by `Superadmin`, which the policy of `superad
 
 ### SEC-09 Role rank limits who may change whom
 A member can change or remove only members at roles below their own, and can assign only roles below their own. Each workspace has exactly one owner.
-An invitation offers its role, so a member invites, changes, sends again or cancels only an invitation at a role below their own. <!-- part: invitations -->
+An invitation offers its role, so a member invites, changes, sends again or cancels only an invitation at a role below their own (D165). <!-- part: invitations -->
 Three actions are exceptions to the rank of members, and each has its own rule:
 - **Transfer.** The owner transfers ownership to a member who holds the admin role. The two swap roles: that member becomes the owner, and the former owner becomes an admin (D2).
 - **Leave.** Any member except the owner may leave, which removes their own membership. The owner must transfer ownership before leaving.
