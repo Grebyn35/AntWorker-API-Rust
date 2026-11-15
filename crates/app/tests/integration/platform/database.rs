@@ -518,13 +518,31 @@ async fn ops_21_a_test_waits_to_create_its_database_while_too_many_wait_to_be_dr
     assert!(room.now_or_never().is_some());
 }
 
+/// One database more than leaves room among those yet to be dropped, however many the cleanup
+/// drops meanwhile, counted until this goes, as it does when its test fails too.
+struct Full(&'static Backlog);
+
+impl Full {
+    fn of(backlog: &'static Backlog) -> Self {
+        for _ in 0..=Backlog::MOST {
+            backlog.left();
+        }
+        Self(backlog)
+    }
+}
+
+impl Drop for Full {
+    fn drop(&mut self) {
+        for _ in 0..=Backlog::MOST {
+            self.0.dropped();
+        }
+    }
+}
+
 #[tokio::test]
 async fn ops_21_a_test_s_database_is_created_once_the_ones_yet_to_be_dropped_leave_room() {
     let backlog = Backlog::of_the_process();
-    // One more than leaves room, however many the cleanup drops meanwhile.
-    for _ in 0..=Backlog::MOST {
-        backlog.left();
-    }
+    let full = Full::of(backlog);
     let created = tokio::spawn(TestDatabase::empty());
 
     while backlog.waiting() == 0 {
@@ -532,8 +550,6 @@ async fn ops_21_a_test_s_database_is_created_once_the_ones_yet_to_be_dropped_lea
     }
     assert!(!created.is_finished());
 
-    for _ in 0..=Backlog::MOST {
-        backlog.dropped();
-    }
+    drop(full);
     created.await.unwrap();
 }

@@ -1,5 +1,5 @@
 //! A database that the production `bootstrap` and `migrate` built: a database of its own on the
-//! Postgres that `just services` runs, which `bootstrap` gives the roles and their grants, and
+//! development Postgres, which `bootstrap` gives the roles and their grants, and
 //! `migrate` the migrations, run from the API binary as an operator runs them. A check uses it,
 //! then it is dropped. Its name holds the database the URLs name, the check's purpose and the
 //! process's ID, so checks that run at once, as in each copy that `check-removable` makes, never

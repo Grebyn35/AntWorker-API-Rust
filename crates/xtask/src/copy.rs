@@ -23,8 +23,9 @@ pub fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// Runs `program`, Cargo or `just`, with `args` in `directory`, with `environment` added, and
-/// fails unless it succeeds. It writes to the task's own output.
+/// Runs `program` with `args` in `directory`, with `environment` added and without the variables
+/// in which Cargo described this program's package, and fails unless it succeeds. It writes to
+/// the task's own output.
 pub fn run(
     directory: &Path,
     program: &str,

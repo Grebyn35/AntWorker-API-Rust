@@ -1,7 +1,7 @@
 # The services the API needs on a developer's machine, and the images of the tools the tasks run.
-# `just services` starts Postgres, the tests' Postgres and Mailpit, and `just dev observe` the
-# observability stack too, whose services carry the `observability` profile. Every port is
-# published on 127.0.0.1 only.
+# `just services` starts the development Postgres, the tests' Postgres and Mailpit, and
+# `just dev observe` the observability stack too, whose services carry the `observability`
+# profile. Every port is published on 127.0.0.1 only.
 # `just services` also starts the bucket of files' bytes and the malware scanner. # part: files
 
 services:

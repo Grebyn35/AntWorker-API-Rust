@@ -29,9 +29,9 @@ pub(super) fn prepare(root: &Path, image: &str) -> Result<(String, Vec<String>),
     for task in ["bootstrap", "migrate"] {
         let mut args = vec!["run", "--rm", "--network", &network];
         for setting in &settings {
-            // The development Postgres holds the development database too, which shares the
-            // roles, and in production `bootstrap` refuses a server that holds another database
-            // of the roles (PLATFORM-003), so it runs as development's.
+            // In production `bootstrap` refuses a server that holds another database of the
+            // roles (PLATFORM-003), as the development Postgres does while `check-schema`,
+            // `sqlx-check` or `just new-module` has its own there, so it runs as development's.
             let setting = match (task, setting.as_str()) {
                 ("bootstrap", "ENVIRONMENT=production") => "ENVIRONMENT=development",
                 _ => setting,

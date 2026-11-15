@@ -216,8 +216,8 @@ check-layout:
 
 # Fails on a name, a standard column, a check constraint, a function, a foreign key, a soft
 # delete or a role's privilege in the migrations' schema that breaks the data rules, in the
-# catalog of a database that the API's own bootstrap and migrate build on the Postgres that
-# `services` starts.
+# catalog of a database that the API's own bootstrap and migrate build on the development
+# Postgres, which `services` starts.
 [doc("Fails on a table, constraint, index or grant of the migrations that breaks the data rules")]
 [group('check')]
 check-schema: services
