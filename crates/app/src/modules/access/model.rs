@@ -57,8 +57,9 @@ impl Role {
         }
     }
 
-    /// Whether a member at this role may act on a member at `other` (SEC-09).
-    pub(crate) fn outranks(self, other: Self) -> bool {
+    /// Whether a member at this role may act on a member at `other` (SEC-09), which `access`
+    /// alone decides (SEC-08).
+    pub(in crate::modules::access) fn outranks(self, other: Self) -> bool {
         self.rank() > other.rank()
     }
 }

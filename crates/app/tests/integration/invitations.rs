@@ -8,8 +8,9 @@ use serde_json::{Value, json};
 use crate::support::{
     Api, Options,
     api::Response,
+    execute_on,
     invitations::invite,
-    mailbox, streams,
+    mailbox, queries_wait_on_locks, streams,
     users::{self, SignedIn},
     workspaces,
 };
@@ -230,6 +231,8 @@ async fn invitations_001_a_retry_with_the_same_key_answers_the_same_invitation_a
     assert_eq!(retry.status, 201);
     assert_eq!(retry.json(), first.json());
     assert_eq!(retry.header("location"), first.header("location"));
+    assert_eq!(retry.header("etag"), "\"1\"");
+    assert_eq!(retry.header("etag"), first.header("etag"));
     let jobs = api
         .database()
         .owner_reads("SELECT count(*)::text FROM jobs")
@@ -265,7 +268,7 @@ async fn invitations_003_inviting_again_refreshes_the_invitation_in_place() {
     let ada = users::register(&api, "ada@example.com").await;
     let bob = users::register(&api, "bob@example.com").await;
     let workspace = acme(&api, &ada, &[(&bob, "admin")]).await;
-    let first = invite(&api, &ada, &workspace, "carol@example.com", "admin").await;
+    let first = invite(&api, &ada, &workspace, "carol@example.com", "member").await;
     let id = first.json()["id"].as_str().unwrap().to_owned();
     let db = api.database();
     db.owner_executes("UPDATE invitations SET expires_at = now() + interval '1 day'")
@@ -300,7 +303,7 @@ async fn invitations_003_inviting_again_refreshes_the_invitation_in_place() {
         entries,
         [
             format!(
-                "invitation.created workspace {workspace} {} invitation {id} - {{\"role\": \"admin\"}}",
+                "invitation.created workspace {workspace} {} invitation {id} - {{\"role\": \"member\"}}",
                 ada.user_id
             ),
             format!(
@@ -313,15 +316,16 @@ async fn invitations_003_inviting_again_refreshes_the_invitation_in_place() {
     assert_eq!(jobs, ["2"]);
     let events = db
         .owner_reads(
-            "SELECT name || ' ' || scope || ' ' || (payload->>'invitation_id') FROM events \
+            "SELECT name || ' ' || scope || ' ' || permission || ' ' \
+             || (payload->>'invitation_id') FROM events \
              WHERE name LIKE 'invitation.%' ORDER BY created_at, id",
         )
         .await;
     assert_eq!(
         events,
         [
-            format!("invitation.created workspace {id}"),
-            format!("invitation.updated workspace {id}"),
+            format!("invitation.created workspace invitations.read {id}"),
+            format!("invitation.updated workspace invitations.read {id}"),
         ]
     );
 }
@@ -904,5 +908,31 @@ async fn invitations_017_an_invitation_not_addressed_to_the_caller_answers_404()
         .database()
         .owner_reads("SELECT email FROM invitations")
         .await;
+    assert_eq!(left, ["carol@example.com"]);
+}
+
+#[tokio::test]
+async fn invitations_007_the_sweep_leaves_an_invitation_renewed_while_it_waited() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+    let db = api.database();
+    db.owner_executes("UPDATE invitations SET expires_at = now() - interval '1 second'")
+        .await;
+    // A renewal, as sending the invitation again makes, which commits while the sweep waits for
+    // the invitation's lock.
+    let mut renewing = db
+        .holding("UPDATE invitations SET expires_at = now() + interval '7 days'")
+        .await;
+
+    let sweep = api.run_periodic("invitations.expire");
+    let release = async {
+        queries_wait_on_locks(db, 1).await;
+        execute_on(&mut renewing, "COMMIT").await;
+    };
+    tokio::join!(sweep, release);
+
+    let left = db.owner_reads("SELECT email FROM invitations").await;
     assert_eq!(left, ["carol@example.com"]);
 }

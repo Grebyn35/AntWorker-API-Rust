@@ -1182,8 +1182,8 @@ async fn joining_while_the_owner_acts(
 /// Ada, the workspace's owner, as the actor whose request an answer waits for.
 const OWNER: Actor = |_, ada| Box::pin(async move { ada.access.clone() });
 
-/// Who sends the request that a join waits for: given the API and Ada, the workspace's owner,
-/// their access token.
+/// Who sends the request that an answer to an invitation waits for: given the API and Ada, the
+/// workspace's owner, their access token.
 type Actor = for<'a> fn(&'a Api, &'a SignedIn) -> BoxFuture<'a, String>;
 
 /// Bob answers Ada's invitation to her workspace, `answer` being `accept` or `decline`, while a
@@ -1334,18 +1334,18 @@ async fn answering_while_the_owner_is_deleted(
 
     let delete = call(&api, Method::DELETE, "/v1/users/me", &ada);
     let path = format!("/v1/users/me/invitations/{id}/{answer}");
-    let accept = async {
+    let answer = async {
         queries_wait_on_locks(db, 1).await;
-        let accept = call(&api, Method::POST, &path, &bob);
+        let answer = call(&api, Method::POST, &path, &bob);
         let release = async {
             queries_wait_on_locks(db, 2).await;
             execute_on(&mut held, "ROLLBACK").await;
         };
-        tokio::join!(accept, release).0
+        tokio::join!(answer, release).0
     };
-    let (deleted, accepted) = tokio::join!(delete, accept);
+    let (deleted, answered) = tokio::join!(delete, answer);
     assert_eq!(deleted.status, StatusCode::NO_CONTENT);
-    (api, bob, accepted)
+    (api, bob, answered)
 }
 
 #[tokio::test]

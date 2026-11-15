@@ -15,7 +15,7 @@ use utoipa::ToSchema;
 use crate::modules::access::{InvitationsRead, MembersRead};
 
 /// An invitation was created for the user's address, refreshed, or sent again, each of which
-/// sends its email, sent to their streams (INVITATIONS-008).
+/// sends its email, sent to their streams (INVITATIONS-008, INVITATIONS-015).
 pub(super) const INVITATION_RECEIVED: UserEvent<AddressedInvitation> =
     UserEvent::new("invitation.received");
 /// The role of an invitation to the user's address changed, sent to their streams

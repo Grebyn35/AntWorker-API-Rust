@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO invitations (workspace_id, email, role, inviter_id, expires_at)\n        VALUES ($1, $2, $3::text::workspace_role, $4, now() + make_interval(days => $5))\n        ON CONFLICT ON CONSTRAINT invitations_workspace_id_email_key DO UPDATE SET\n            role = EXCLUDED.role,\n            inviter_id = EXCLUDED.inviter_id,\n            expires_at = EXCLUDED.expires_at\n        RETURNING id, created_at, expires_at, version, (xmax = 0) AS \"created!\"",
+  "query": "INSERT INTO invitations (workspace_id, email, role, inviter_id, expires_at)\n        VALUES ($1, $2, $3::text::workspace_role, $4, now() + make_interval(days => $5))\n        ON CONFLICT ON CONSTRAINT invitations_workspace_id_email_key DO UPDATE SET\n            role = EXCLUDED.role,\n            inviter_id = EXCLUDED.inviter_id,\n            expires_at = EXCLUDED.expires_at\n        WHERE invitations.role::text = ANY($6)\n        RETURNING id, created_at, expires_at, version, (xmax = 0) AS \"created!\"",
   "describe": {
     "columns": [
       {
@@ -60,7 +60,8 @@
         "Text",
         "Text",
         "Uuid",
-        "Int4"
+        "Int4",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -71,5 +72,5 @@
       null
     ]
   },
-  "hash": "2c6a0357d6667fc2a769d78a75eb50a0d4418f9a39f41525458c51dd31afb12f"
+  "hash": "c5a1477776c3ea226431324d0d86839b79de7118c1058b873547b4221f591265"
 }

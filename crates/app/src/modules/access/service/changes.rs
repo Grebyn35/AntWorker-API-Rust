@@ -28,6 +28,16 @@ fn below(role: Role) -> Vec<Role> {
         .collect()
 }
 
+// part: invitations
+/// The roles that the caller may offer in an invitation, those below their own, and so the roles
+/// of the invitations they may refresh, change, send again or cancel (SEC-09, INVITATIONS-014).
+pub(crate) fn offerable<P: platform::authz::Permission>(
+    authorized: &Authorized<P>,
+) -> Result<Vec<Role>, AccessError> {
+    Ok(below(Role::from_name(authorized.role())?))
+}
+// end part: invitations
+
 /// What removing a member came to (ACCESS-004).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Removal {

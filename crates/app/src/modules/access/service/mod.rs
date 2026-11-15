@@ -22,6 +22,9 @@ use platform::{
 pub(crate) use self::changes::{
     Removal, RoleChange, Transfer, change_role, dissolve, leave, remove, transfer,
 };
+// part: invitations
+pub(crate) use self::changes::offerable;
+// end part: invitations
 // part: superadmins
 pub(crate) use self::superadmin::{Census, census, dissolve_any};
 // end part: superadmins
@@ -135,9 +138,9 @@ pub(crate) async fn add_owner(
 /// Locks the membership of `workspace`'s owner `FOR KEY SHARE`, and answers whether the workspace
 /// is still there: every workspace has an owner (ACCESS-001), so one without went, with its
 /// owner's account or by its owner's deletion of it, while the lock waited for that deletion
-/// (ACCESS-008, ACCESS-010). Accepting an invitation calls it first, before it locks the
-/// invitation, as each of those deletions locks the owner's membership before the invitations
-/// that the workspace's cascade deletes (DATA-20).
+/// (ACCESS-008, ACCESS-010). Accepting and declining an invitation each call it first, before they
+/// lock the invitation, as each of those deletions locks the owner's membership before the
+/// invitations that the workspace's cascade deletes (DATA-20).
 pub(crate) async fn hold_owner(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,

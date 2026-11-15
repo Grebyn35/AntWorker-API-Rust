@@ -77,7 +77,8 @@ pub(crate) async fn invite(
     if let Claimed::Replay(invited) = uow.claim(inviter, key).await? {
         return Ok(invited);
     }
-    if !Role::from_name(authorized.role())?.outranks(input.role) {
+    let offerable = access::offerable(authorized)?;
+    if !offerable.contains(&input.role) {
         return Err(authz::refuse(uow, authorized).await.into());
     }
     let workspace = authorized.workspace_id();
@@ -87,15 +88,19 @@ pub(crate) async fn invite(
     {
         return Err(InvitationsError::AlreadyMember);
     }
-    let (current, created) = repo::upsert(
+    let Some((current, created)) = repo::upsert(
         &mut uow,
         workspace,
-        &input.email,
-        input.role,
+        (&input.email, input.role),
         inviter,
         invitations.settings.expiry_days,
+        &offerable,
     )
-    .await?;
+    .await?
+    else {
+        // The address's invitation offers a role the caller may not offer (INVITATIONS-014).
+        return Err(authz::refuse(uow, authorized).await.into());
+    };
     let id = current.invitation.id;
     let (action, event) = if created {
         (audit::INVITATION_CREATED, &published::INVITATION_CREATED)

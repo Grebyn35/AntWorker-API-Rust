@@ -36,7 +36,7 @@
 - `dissolve_any(uow, &Superadmin, workspace_id)`: locks the membership of the workspace's owner, then ends every membership of the workspace, each with its signal, before `workspaces` deletes it for a superadmin, and answers whether the workspace was there (ACCESS-011, WORKSPACES-030). <!-- part: superadmins -->
 - `sole_workspaces(uow, UserId)`: the IDs of the workspaces whose only member is the user, read by their own memberships, whose content their export holds (D40, ACCOUNTS-024).
 - `Contract`, the personal data contract for `workspace_memberships` (D31), which exports the user's memberships ([accounts spec](accounts.md#what-an-export-holds)), and deletes them, each with its access-change signal.
-- `Role::outranks(role)`: compares two roles (SEC-09).
+- `offerable(&Authorized<P>)`: the roles that the caller may offer in an invitation, those below their own, and so the roles of the invitations they may refresh, change, send again or cancel (SEC-09). Called only by `invitations`, so `access` decides the rank of an invitation, as it decides a member's (SEC-08). <!-- part: invitations -->
 
 ## Behaviors
 

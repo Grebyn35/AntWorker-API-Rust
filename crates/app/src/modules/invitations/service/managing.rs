@@ -14,7 +14,9 @@ use serde_json::json;
 
 use super::{Invitations, announce, send_email, tell};
 use crate::modules::{
-    access::{InvitationsCancel, InvitationsCreate, InvitationsRead, InvitationsUpdate, Role},
+    access::{
+        self, InvitationsCancel, InvitationsCreate, InvitationsRead, InvitationsUpdate, Role,
+    },
     accounts,
     audit::{self as log, Entry},
     invitations::{
@@ -50,19 +52,19 @@ pub(crate) async fn invitations(
     Ok(page.list(rows, |row| key(row.created_at, row.id)))
 }
 
-/// The invitation `id` of the caller's workspace, locked until the unit of work ends, if its role
-/// ranks below `caller`'s; otherwise the refusal, through `authz::refuse`, which rolls the unit
-/// of work back (INVITATIONS-014, DATA-20).
+/// The invitation `id` of the caller's workspace, locked until the unit of work ends, if it offers
+/// one of `offerable`, the roles that `access` lets the caller offer; otherwise the refusal,
+/// through `authz::refuse`, which rolls the unit of work back (INVITATIONS-014, DATA-20).
 async fn hold<P: Permission>(
     mut uow: UnitOfWork,
     authorized: &Authorized<P>,
-    caller: Role,
+    offerable: &[Role],
     id: uuid::Uuid,
 ) -> Result<(UnitOfWork, CurrentInvitation), InvitationsError> {
     let Some(held) = repo::hold(&mut uow, authorized.workspace_id(), id).await? else {
         return Err(InvitationsError::NotFound);
     };
-    if !caller.outranks(held.invitation.role) {
+    if !offerable.contains(&held.invitation.role) {
         return Err(authz::refuse(uow, authorized).await.into());
     }
     Ok((uow, held))
@@ -98,11 +100,11 @@ pub(crate) async fn change_role(
     new: NewRole,
     versions: Option<&[Version]>,
 ) -> Result<CurrentInvitation, InvitationsError> {
-    let caller = Role::from_name(authorized.role())?;
-    if !caller.outranks(new.role) {
+    let offerable = access::offerable(authorized)?;
+    if !offerable.contains(&new.role) {
         return Err(authz::refuse(uow, authorized).await.into());
     }
-    let (mut uow, held) = hold(uow, authorized, caller, id).await?;
+    let (mut uow, held) = hold(uow, authorized, &offerable, id).await?;
     if versions.is_some_and(|versions| !versions.contains(&held.version)) {
         return Err(RequestError::PreconditionFailed.into());
     }
@@ -152,8 +154,8 @@ pub(crate) async fn resend(
     let (uow, authorized) = authorize.open().await?;
     let authorized = &authorized;
     let id = id.ok_or(InvitationsError::NotFound)?;
-    let caller = Role::from_name(authorized.role())?;
-    let (mut uow, held) = hold(uow, authorized, caller, id).await?;
+    let offerable = access::offerable(authorized)?;
+    let (mut uow, held) = hold(uow, authorized, &offerable, id).await?;
     let workspace = authorized.workspace_id();
     let days = invitations.settings.expiry_days;
     let current = repo::renew(&mut uow, workspace, id, inviter, days).await?;
@@ -191,8 +193,8 @@ pub(crate) async fn cancel(
     authorized: &Authorized<InvitationsCancel>,
     id: uuid::Uuid,
 ) -> Result<(), InvitationsError> {
-    let caller = Role::from_name(authorized.role())?;
-    let (mut uow, held) = hold(uow, authorized, caller, id).await?;
+    let offerable = access::offerable(authorized)?;
+    let (mut uow, held) = hold(uow, authorized, &offerable, id).await?;
     let workspace = authorized.workspace_id();
     repo::cancel(&mut uow, workspace, id).await?;
     let action = audit::INVITATION_CANCELLED;

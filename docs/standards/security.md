@@ -63,7 +63,7 @@ Three actions are exceptions to the rank of members, and each has its own rule:
 - **Deletion.** Of a workspace's members, the owner alone deletes it, which ends every membership with it, the owner's own among them. A deletion of an account ends its user's memberships as ACCOUNTS-013 and ACCOUNTS-014 say (D16).
   A superadmin deletes any workspace, as no member of it, which ends every membership the same way (WORKSPACES-030, D62). <!-- part: superadmins -->
 - Why: no escalation by delegation, and a workspace always has exactly one owner (D2, D16).
-- Check: `test`. Each route that changes or removes a member, or assigns a role, has tests that act on a target of equal and of higher rank, and that assign an equal and a higher role. Transfer, leave and deletion each have tests, including an owner trying to leave, and an admin trying to delete.
+- Check: `test`. Each route that changes or removes a member, or acts on an offer of a role, or assigns a role, has tests that act on a target of equal rank, and of higher rank wherever one can exist, and that assign an equal and a higher role. Transfer, leave and deletion each have tests, including an owner trying to leave, and an admin trying to delete.
 
 ## Requests and responses
 

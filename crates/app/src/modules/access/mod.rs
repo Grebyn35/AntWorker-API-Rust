@@ -30,7 +30,7 @@ pub(crate) use service::{
     workspace_ids,
 };
 // part: invitations
-pub(crate) use service::{add_member, hold_owner, is_member};
+pub(crate) use service::{add_member, hold_owner, is_member, offerable};
 // end part: invitations
 // part: superadmins
 pub(crate) use service::{Census, census, dissolve_any};

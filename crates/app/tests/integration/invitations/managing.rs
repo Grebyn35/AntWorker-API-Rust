@@ -78,11 +78,13 @@ async fn entries(api: &Api) -> Vec<String> {
 }
 
 /// Each event published since the last `DELETE FROM events`, oldest first, as its name, its
-/// user, or `-` for a workspace's, and its payload.
+/// user, or `-` for a workspace's, the permission it requires, or `-` for a user's, and its
+/// payload.
 async fn events(api: &Api) -> Vec<String> {
     api.database()
         .owner_reads(
-            "SELECT name || ' ' || coalesce(user_id::text, '-') || ' ' || payload::text \
+            "SELECT name || ' ' || coalesce(user_id::text, '-') || ' ' \
+             || coalesce(permission, '-') || ' ' || payload::text \
              FROM events ORDER BY created_at, id",
         )
         .await
@@ -179,6 +181,35 @@ async fn invitations_012_listing_gives_every_invitation_of_the_workspace_the_lat
 }
 
 #[tokio::test]
+async fn invitations_012_a_page_boundary_between_invitations_created_at_once_loses_none() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    for email in ["carol@example.com", "dave@example.com", "erin@example.com"] {
+        invited(&api, &ada, &workspace, email, "member").await;
+    }
+    api.database()
+        .owner_executes("UPDATE invitations SET created_at = '2026-11-01T12:00:00Z'")
+        .await;
+
+    let pages = lists::pages(
+        &api,
+        &ada,
+        &format!("/v1/workspaces/{workspace}/invitations?limit=1"),
+        "email",
+    )
+    .await;
+
+    assert_eq!(pages.len(), 3);
+    let mut seen: Vec<_> = pages.into_iter().flatten().collect();
+    seen.sort();
+    assert_eq!(
+        seen,
+        ["carol@example.com", "dave@example.com", "erin@example.com"]
+    );
+}
+
+#[tokio::test]
 async fn invitations_012_a_search_pages_through_its_matches() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -235,9 +266,12 @@ async fn invitations_013_changing_the_role_stores_it_records_and_publishes_witho
     assert_eq!(
         events(&api).await,
         [
-            format!("invitation.updated - {}", payload(&workspace, &id)),
             format!(
-                "invitation.revised {} {}",
+                "invitation.updated - invitations.read {}",
+                payload(&workspace, &id)
+            ),
+            format!(
+                "invitation.revised {} - {}",
                 carol.user_id,
                 payload(&workspace, &id)
             ),
@@ -281,6 +315,39 @@ async fn invitations_013_a_role_the_invitation_offers_already_changes_nothing() 
     assert_eq!(response.json()["role"], "admin");
     assert!(entries(&api).await.is_empty());
     assert!(events(&api).await.is_empty());
+}
+
+#[tokio::test]
+async fn invitations_013_a_role_that_isn_t_one_or_another_member_is_refused() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    let id = invited(&api, &ada, &workspace, "carol@example.com", "admin").await;
+    let send = |body: &'static str| {
+        api.request(Method::PATCH, &path(&workspace, &id))
+            .header("content-type", "application/merge-patch+json")
+            .body(body)
+            .bearer(&ada.access)
+            .send()
+    };
+
+    let not_a_role = send(r#"{"role": "guest"}"#).await;
+    let no_role = send("{}").await;
+    let an_expiry =
+        send(r#"{"role": "member", "expires_at": "2030-01-01T00:00:00.000000Z"}"#).await;
+
+    assert_eq!(not_a_role.status, 400);
+    assert_eq!(not_a_role.json()["code"], "request.invalid_fields");
+    assert_eq!(not_a_role.json()["errors"][0]["field"], "/role");
+    for refused in [&no_role, &an_expiry] {
+        assert_eq!(refused.status, 400);
+        assert_eq!(refused.json()["code"], "request.invalid_body");
+    }
+    let row = api
+        .database()
+        .owner_reads("SELECT role::text || ' ' || version FROM invitations")
+        .await;
+    assert_eq!(row, ["admin 1"]);
 }
 
 #[tokio::test]
@@ -352,6 +419,28 @@ async fn invitations_014_an_admin_changes_sends_again_and_cancels_no_admin_s_inv
 }
 
 #[tokio::test]
+async fn invitations_014_an_admin_refreshes_no_admin_s_invitation_by_inviting_its_address() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let workspace = acme(&api, &ada, &[(&bob, "admin")]).await;
+    invited(&api, &ada, &workspace, "carol@example.com", "admin").await;
+    let db = api.database();
+    db.owner_executes("DELETE FROM jobs").await;
+
+    let response = invite(&api, &bob, &workspace, "carol@example.com", "member").await;
+
+    assert_eq!(response.status, 403);
+    assert_eq!(response.json()["code"], "request.permission_denied");
+    let row = db
+        .owner_reads("SELECT role::text || ' ' || inviter_id || ' ' || version FROM invitations")
+        .await;
+    assert_eq!(row, [format!("admin {} 1", ada.user_id)]);
+    assert!(entries(&api).await.is_empty());
+    assert!(db.owner_reads("SELECT kind FROM jobs").await.is_empty());
+}
+
+#[tokio::test]
 async fn invitations_014_a_change_assigns_only_a_role_below_the_caller_s() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -414,9 +503,12 @@ async fn invitations_015_sending_again_renews_the_invitation_and_enqueues_its_em
     assert_eq!(
         events(&api).await,
         [
-            format!("invitation.updated - {}", payload(&workspace, &id)),
             format!(
-                "invitation.received {} {}",
+                "invitation.updated - invitations.read {}",
+                payload(&workspace, &id)
+            ),
+            format!(
+                "invitation.received {} - {}",
                 carol.user_id,
                 payload(&workspace, &id)
             ),
@@ -462,17 +554,26 @@ async fn invitations_015_the_email_sent_again_names_the_member_who_sent_it() {
 #[tokio::test]
 async fn invitations_009_sending_again_counts_in_the_member_s_bucket_of_inviting() {
     let options = Options::default()
-        .set("INVITATION_LIMIT", 2)
+        .set("INVITATION_LIMIT", 3)
         .set("INVITATION_WINDOW_SECONDS", 60);
     let api = Api::with(options).await;
     let ada = users::register(&api, "ada@example.com").await;
     let workspace = acme(&api, &ada, &[]).await;
     let id = invited(&api, &ada, &workspace, "carol@example.com", "member").await;
 
+    // A resend that names no invitation answers 404, and counts all the same.
+    let unknown = resend(
+        &api,
+        &ada,
+        &workspace,
+        "0190f3c4-0000-7000-8000-000000000000",
+    )
+    .await;
     let second = resend(&api, &ada, &workspace, &id).await;
     let third = resend(&api, &ada, &workspace, &id).await;
     let fourth = invite(&api, &ada, &workspace, "dave@example.com", "member").await;
 
+    assert_eq!(unknown.status, 404);
     assert_eq!(second.status, 200);
     for refused in [&third, &fourth] {
         assert_eq!(refused.status, 429);
@@ -512,9 +613,12 @@ async fn invitations_016_cancelling_deletes_the_invitation_records_and_publishes
     assert_eq!(
         events(&api).await,
         [
-            format!("invitation.cancelled - {}", payload(&workspace, &id)),
             format!(
-                "invitation.withdrawn {} {}",
+                "invitation.cancelled - invitations.read {}",
+                payload(&workspace, &id)
+            ),
+            format!(
+                "invitation.withdrawn {} - {}",
                 carol.user_id,
                 payload(&workspace, &id)
             ),
@@ -542,7 +646,7 @@ async fn invitations_016_cancelling_an_invitation_to_an_address_without_an_accou
     assert_eq!(
         events(&api).await,
         [format!(
-            "invitation.cancelled - {}",
+            "invitation.cancelled - invitations.read {}",
             payload(&workspace, &id)
         )]
     );

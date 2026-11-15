@@ -1,7 +1,9 @@
 //! The periodic job `invitations.expire` (OPS-09, INVITATIONS-007): owned by `invitations`, run
 //! every hour, and touching `invitations` alone. It spans every workspace by nature, so it
 //! selects invitations by expiry alone, which `check-tenancy` lets this file alone do (DATA-16).
-//! Scheduled maintenance isn't audited (DATA-22). A second run finds nothing more to delete.
+//! Scheduled maintenance isn't audited (DATA-22). A second run finds nothing more to delete, and
+//! an invitation that a resend or a refresh renewed while the sweep waited for its lock stays
+//! (DATA-20, INVITATIONS-015).
 
 use std::time::Duration;
 
@@ -37,10 +39,12 @@ impl Invitations {
 async fn expire(database: &Database, context: &JobContext) -> Result<(), Internal> {
     loop {
         let mut uow = database.for_job(context).await?;
+        // The outer test of the expiry is read again on a row that changed while the statement
+        // waited for its lock, which the subquery's rows aren't (DATA-20).
         let deleted = sqlx::query!(
             "DELETE FROM invitations WHERE id IN (
                 SELECT id FROM invitations WHERE expires_at <= now() LIMIT $1
-            )",
+            ) AND expires_at <= now()",
             BATCH,
         )
         .execute(uow.executor())

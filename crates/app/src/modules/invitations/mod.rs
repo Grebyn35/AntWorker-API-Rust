@@ -1,5 +1,6 @@
-//! Inviting someone to a workspace by email, and the invitee seeing and accepting the
-//! invitation ([spec](../../../../../docs/spec/invitations.md)).
+//! Inviting someone to a workspace by email, what the workspace's members do with its
+//! invitations, and the invitee seeing, accepting and declining an invitation
+//! ([spec](../../../../../docs/spec/invitations.md)).
 
 mod audit;
 mod emails;
