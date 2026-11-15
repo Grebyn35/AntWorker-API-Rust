@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 5's next module, the full `invitations`, specified just before it is built: reading one invitation, which the `Location` of a created one names, and what its first slice left out, with a load test of the hub that publishes an event of the core, the two [known gaps](#known-gaps) that wait for it. `superadmins` is built and reviewed in full; step 5's other modules are the full `audit` and `realtime`, `client_telemetry`, and the schema endpoints of `system`. Nothing waits on the owner. The trial server runs 0.1.0-rc.11; its Grafana Cloud alerts reach no contact point. Its next release needs a B2 files bucket with its own key pair and "Keep only the last version of the file", `--allow-restart`, and `just server-setup` first; its first deploy proves the scanner's first start and settles the platform spec's `UNSIGNED-PAYLOAD` question, and the first restore measures a restore's downtime. Dependabot's #22 to #30 are open; #22, #23, #24, #28 and #29 fail.
+**Next:** step 5's next module, the full `invitations`, specified just before it is built: reading one invitation, which the `Location` of a created one names, and what its first slice left out, with a load test of the hub that publishes an event of the core, the two [known gaps](#known-gaps) that wait for it. Step 5's other modules are the full `audit` and `realtime`, `client_telemetry`, and the schema endpoints of `system`. Nothing waits on the owner. The trial server runs 0.1.0-rc.11, and its Grafana Cloud alerts reach no contact point. Its next release needs a B2 files bucket with its own key pair and "Keep only the last version of the file", `--allow-restart`, and `just server-setup` first; its first deploy proves the scanner's first start and settles the platform spec's `UNSIGNED-PAYLOAD` question, and its first restore measures a restore's downtime. Dependabot's #22 to #30 are open; #22, #23, #24, #28 and #29 fail.
 
 ## Build order
 
@@ -336,7 +336,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 211aee4..d2b0fae: the rest of `superadmins`: a superadmin's deletion of any workspace, with the lock of the owner's membership in `access`, their creation of workspaces, the subcommand's list of the deployment's superadmins, the seed's superadmin, the runs of the provisioned shape and of a fork without `invitations`, the guide's section on an operator's subcommand, and the documents they changed | 1 | 13 (8, 7, 2 shared) | 2 | 0 | `next pass`: a4804a7 <!-- part: superadmins --> |
 | 211aee4..a4804a7: as above, with pass 1's fixes | 2 | 2 (2, 0, 0 shared) | 0 | 0 | `clean`: 6cb3771 <!-- part: superadmins --> |
 | d6aebe5..f864aa4: what the tasks leave on the machine that runs them, and write to it: the bound on the copies of `check-removable` and `check-new-module`, and their builds without incremental compilation (OPS-21, D162), Cargo started from `xtask` without the variables that `cargo run` gave it, and the tests' databases in memory, on a Postgres of the tests' own, with a test's wait while too many are yet to be dropped (TEST-05, D163) | 1 | 6 (6, 3, 3 shared) | 1 | 0 | `next pass`: c7bd808 |
-| d6aebe5..c7bd808: as above, with pass 1's fixes | 2 | 8 (6, 4, 2 shared) | 1 | 1 | `stopped: no progress` |
+| d6aebe5..c7bd808: as above, with pass 1's fixes | 2 | 8 (6, 4, 2 shared) | 1 | 1 | `stopped: no progress`: e6de2f9 |
 
 ## Decisions
 
