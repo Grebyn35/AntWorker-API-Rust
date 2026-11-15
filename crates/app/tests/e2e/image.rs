@@ -70,10 +70,10 @@ impl Image {
     }
 }
 
-/// The settings of a container of the image, which reaches `database` as `postgres` on
-/// Compose's network: those of image.env, which the load test's replica shares, with the port it
-/// binds, an HMAC key and an encryption key that only the tests use, each 32 bytes of 7, and the
-/// database's.
+/// The settings of a container of the image, which reaches `database` on the tests' Postgres, as
+/// `postgres-tests` on Compose's network: those of image.env, which the load test's replica
+/// shares, with the port it binds, an HMAC key and an encryption key that only the tests use,
+/// each 32 bytes of 7, and the database's.
 pub fn settings(database: &TestDatabase) -> Vec<String> {
     let mut settings: Vec<String> = include_str!("image.env")
         .lines()
@@ -88,7 +88,7 @@ pub fn settings(database: &TestDatabase) -> Vec<String> {
     ]);
     for setting in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
         let mut url = url::Url::parse(&std::env::var(setting).expect(setting)).expect(setting);
-        url.set_host(Some("postgres")).expect("a host");
+        url.set_host(Some("postgres-tests")).expect("a host");
         url.set_port(Some(5432)).expect("a port");
         url.set_path(database.name());
         settings.push(format!("{setting}={url}"));

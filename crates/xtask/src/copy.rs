@@ -45,8 +45,8 @@ pub fn run(
 }
 
 /// A fresh copy of the repository, which shares the repository's `.env` and its Compose project,
-/// so its tests use the same Postgres and Mailpit, whose test databases are named after their
-/// migrations.
+/// so its tests use the same tests' Postgres and Mailpit, whose test databases are named after
+/// their migrations.
 pub struct Copy {
     /// The copy's root.
     root: PathBuf,

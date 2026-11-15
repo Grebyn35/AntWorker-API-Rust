@@ -10,6 +10,11 @@
 //! A test that waited for the statement would hold it, and every other test's, until Postgres
 //! gives the starting backend up, a minute later.
 //!
+//! A test does wait before it creates its database while more than [`Backlog::MOST`] that
+//! earlier tests left are yet to be dropped: the tests' Postgres holds its data in memory, which
+//! the databases that wait would fill, the more of them the more tests a run has. That wait ends
+//! with the thread's next drop, which waits for no test.
+//!
 //! The process ends without waiting for the thread, so what its last tests left may stay. The
 //! next process drops it first: each process holds an advisory lock that its ID names while it
 //! runs, so what a process left, a killed one too, is whatever its ID names while its lock is
@@ -21,12 +26,15 @@
 
 use std::{
     collections::HashMap,
-    sync::{Mutex, PoisonError},
+    sync::{
+        Mutex, PoisonError,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
 };
 
 use platform::db::DatabaseUrl;
 use sqlx::PgConnection;
-use tokio::sync::{OnceCell, mpsc, oneshot};
+use tokio::sync::{Notify, OnceCell, mpsc, oneshot};
 
 use super::{close, connect, execute, identifier};
 
@@ -52,6 +60,61 @@ static LEFT: OnceCell<mpsc::UnboundedSender<Leftover>> = OnceCell::const_new();
 /// Why the thread that drops the leftovers stopped, if it did.
 static FAILED: Mutex<Option<String>> = Mutex::new(None);
 
+/// The databases that the tests of this process left and the thread has yet to drop.
+static BACKLOG: Backlog = Backlog::new();
+
+/// A count of the databases that tests left and the cleanup has yet to drop, which a test that
+/// is about to create its own waits on while it is over [`Backlog::MOST`] (OPS-21).
+pub struct Backlog {
+    left: AtomicUsize,
+    stopped: AtomicBool,
+    changed: Notify,
+}
+
+impl Backlog {
+    /// The most databases that wait to be dropped while a test creates another.
+    pub const MOST: usize = 32;
+
+    /// A count of none.
+    pub const fn new() -> Self {
+        Self {
+            left: AtomicUsize::new(0),
+            stopped: AtomicBool::new(false),
+            changed: Notify::const_new(),
+        }
+    }
+
+    /// Counts a database that a test left.
+    pub fn left(&self) {
+        self.left.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Counts a database that the cleanup dropped, and wakes the tests that wait for room.
+    pub fn dropped(&self) {
+        self.left.fetch_sub(1, Ordering::SeqCst);
+        self.changed.notify_waiters();
+    }
+
+    /// Ends every wait for room, now and later: the cleanup has stopped, and drops no more.
+    fn stop(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        self.changed.notify_waiters();
+    }
+
+    /// Waits while more than [`Backlog::MOST`] databases wait to be dropped.
+    pub async fn room(&self) {
+        loop {
+            // Created before the count is read, so a drop between the two still wakes it.
+            let changed = self.changed.notified();
+            if self.stopped.load(Ordering::SeqCst) || self.left.load(Ordering::SeqCst) <= Self::MOST
+            {
+                return;
+            }
+            changed.await;
+        }
+    }
+}
+
 /// Starts the thread that drops what the tests of this process leave, once it holds the lock
 /// that says the process runs, and has dropped what the processes that run no more left. The
 /// caller holds the tests' setup lock, so no other process starts, or creates a database,
@@ -76,11 +139,20 @@ pub(super) async fn start(admin: &DatabaseUrl) {
     .await;
 }
 
+/// Waits until the databases that the tests of this process left, and the thread has yet to
+/// drop, leave room for another, then fails the test that calls it if the thread has stopped.
+pub(super) async fn room() {
+    BACKLOG.room().await;
+    check();
+}
+
 /// Hands `leftover` to the thread that drops it, without waiting for it.
 pub(super) fn leave(leftover: Leftover) {
-    if let Some(left) = LEFT.get()
-        && let Err(gone) = left.send(leftover)
-    {
+    let Some(left) = LEFT.get() else {
+        return;
+    };
+    BACKLOG.left();
+    if let Err(gone) = left.send(leftover) {
         // The thread is gone only once it failed, which the next test reports.
         platform::errors::ignore(&gone, "cleanup_stopped");
     }
@@ -104,6 +176,7 @@ impl Drop for Stopped {
     fn drop(&mut self) {
         *FAILED.lock().unwrap_or_else(PoisonError::into_inner) =
             Some("its thread panicked, as the test output above shows".to_owned());
+        BACKLOG.stop();
     }
 }
 
@@ -131,6 +204,7 @@ async fn run(
     }
     while let Some(leftover) = leftovers.recv().await {
         remove(&mut admin, leftover).await;
+        BACKLOG.dropped();
     }
 }
 

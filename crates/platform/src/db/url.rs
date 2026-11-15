@@ -55,8 +55,8 @@ impl DatabaseUrl {
         (self.options.get_host().to_owned(), self.options.get_port())
     }
 
-    /// The same URL, reaching the database through `port` on the loopback address, where a
-    /// test's proxy listens.
+    /// The same URL, reaching the database through `port` on the loopback address, where the
+    /// tests' Postgres listens, or a test's proxy.
     #[cfg(feature = "test-support")]
     pub fn through(&self, port: u16) -> Self {
         Self {

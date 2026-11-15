@@ -1,3 +1,4 @@
+use futures_util::FutureExt;
 use platform::{
     blocking::Workers,
     db::{BootstrapError, ConnectError, Database, DatabaseUrl, RoleProblem},
@@ -6,7 +7,7 @@ use platform::{
 // part: files
 use crate::support::bucket;
 // end part: files
-use crate::support::{TestDatabase, execute_on};
+use crate::support::{TestDatabase, cleanup::Backlog, execute_on};
 
 /// Asserts that `serve` refuses to start as the role `url` connects as, for `problem`.
 async fn assert_refused(url: &DatabaseUrl, problem: &RoleProblem) {
@@ -501,4 +502,18 @@ async fn ops_21_a_run_of_the_tests_drops_the_databases_and_roles_that_an_earlier
     let buckets = bucket::named(&bucket::name(&format!("{prefix}_test_2147483647_"))).await;
     assert!(buckets.is_empty(), "{buckets:?}");
     // end part: files
+}
+
+#[tokio::test]
+async fn ops_21_a_test_waits_to_create_its_database_while_too_many_wait_to_be_dropped() {
+    let backlog = Backlog::new();
+    for _ in 0..=Backlog::MOST {
+        backlog.left();
+    }
+    let mut room = std::pin::pin!(backlog.room());
+
+    assert!(room.as_mut().now_or_never().is_none());
+
+    backlog.dropped();
+    assert!(room.now_or_never().is_some());
 }

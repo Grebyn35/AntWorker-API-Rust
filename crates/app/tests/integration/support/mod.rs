@@ -4,11 +4,12 @@
 //! request, against their OpenAPI document (API-17). A body set raw with `Call::body` is not
 //! checked.
 //!
-//! Every test gets a database of its own. A migrated one is cloned from a template that the
-//! production `migrate` migrated. `Admin::create_roles` and `Admin::grant_database`, the steps
-//! that `bootstrap` runs, create the roles and grants, so the API under test connects as `app`
-//! with exactly its production privileges. Settings come from the environment, or from `.env`
-//! when a test runs outside `just`.
+//! Every test gets a database of its own, on the tests' Postgres, whose data is in memory. A
+//! migrated one is cloned from a template that the production `migrate` migrated.
+//! `Admin::create_roles` and `Admin::grant_database`, the steps that `bootstrap` runs, create the
+//! roles and grants, so the API under test connects as `app` with exactly its production
+//! privileges. Settings come from the environment, or from `.env` when a test runs outside
+//! `just`, with the tests' Postgres in place of the development database's server.
 #![expect(
     clippy::disallowed_types,
     reason = "the harness creates and drops databases and roles, and arranges tests on raw \
@@ -21,7 +22,7 @@ pub mod audit;
 // part: files
 pub mod bucket;
 // end part: files
-mod cleanup;
+pub mod cleanup;
 mod contract;
 pub mod events;
 // part: files
@@ -53,7 +54,7 @@ use std::{
     ffi::{OsStr, OsString},
     hash::{DefaultHasher, Hash, Hasher},
     io::{self, BufRead, BufReader},
-    net::SocketAddr,
+    net::{Ipv4Addr, SocketAddr},
     path::Path,
     process::{Child, Command, Output, Stdio},
     sync::{
@@ -97,6 +98,11 @@ pub fn client() -> platform::types::Client {
     }
 }
 
+/// The port of the tests' Postgres, whose data is in memory, as `compose.yaml` publishes it on
+/// the loopback address: the tests' databases are on that server, with the roles and the
+/// passwords that the settings name for the development database's.
+const TESTS_POSTGRES: u16 = 5433;
+
 /// The advisory lock that serializes creating the roles and the template, across processes.
 const SETUP_LOCK: i64 = 7_300_154_123;
 
@@ -134,7 +140,7 @@ impl TestDatabase {
     }
 
     async fn create(settings: BootstrapConfig, template: Option<&str>) -> Self {
-        cleanup::check();
+        cleanup::room().await;
         let name = unique(&settings, "test");
         let mut admin = connect(&settings.admin).await;
         let template = template
@@ -266,10 +272,13 @@ impl TestDatabase {
         command.env("S3_ENDPOINT", "https://bucket.invalid");
         // end part: files
         command.envs(env.iter().map(|(name, value)| (name, value)));
+        // The test's database on the tests' Postgres, as `settings` reaches it.
         for setting in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
             let mut url =
                 url::Url::parse(&std::env::var(setting).expect(setting)).expect("a database URL");
             url.set_path(&self.name);
+            url.set_ip_host(Ipv4Addr::LOCALHOST.into()).expect("a host");
+            url.set_port(Some(TESTS_POSTGRES)).expect("a port");
             command.env(setting, url.as_str());
         }
         command
@@ -666,9 +675,15 @@ fn settings() -> BootstrapConfig {
     if let Err(error) = dotenvy::dotenv() {
         assert!(error.not_found(), "can't read .env: {error}");
     }
-    platform::config::from_process()
+    let settings = platform::config::from_process()
         .bootstrap()
-        .expect("DATABASE_ADMIN_URL, DATABASE_OWNER_URL and DATABASE_URL; run `just setup`")
+        .expect("DATABASE_ADMIN_URL, DATABASE_OWNER_URL and DATABASE_URL; run `just setup`");
+    BootstrapConfig {
+        admin: settings.admin.through(TESTS_POSTGRES),
+        owner: settings.owner.through(TESTS_POSTGRES),
+        app: settings.app.through(TESTS_POSTGRES),
+        ..settings
+    }
 }
 
 /// The name of the template database, which holds the API's migrations. The first test in a

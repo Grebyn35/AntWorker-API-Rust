@@ -1,20 +1,18 @@
 # The services the API needs on a developer's machine, and the images of the tools the tasks run.
-# `just services` starts Postgres and Mailpit, and `just dev observe` the observability stack too,
-# whose services carry the `observability` profile. Every port is published on 127.0.0.1 only.
+# `just services` starts Postgres, the tests' Postgres and Mailpit, and `just dev observe` the
+# observability stack too, whose services carry the `observability` profile. Every port is
+# published on 127.0.0.1 only.
 # `just services` also starts the bucket of files' bytes and the malware scanner. # part: files
 
 services:
   postgres:
     image: postgres:18.6@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4
-    # This database holds nothing that can't be recreated, so it skips fsync, and so does initdb
-    # when it creates the data directory, as it does for each server that the end-to-end tests
-    # start from this service. Every test database created or dropped forces a checkpoint, and on
-    # some machines one fsync stalls for minutes. A crash of the machine can corrupt the data;
-    # `docker compose down --volumes` starts it fresh. A test's database is cloned from its
-    # template page by page through the write-ahead log, nearly all that the tests make this
-    # database write to disk, so the log's pages are compressed: by about three quarters, at no
-    # cost in time that the tests show.
-    command: ["postgres", "-c", "fsync=off", "-c", "wal_compression=zstd"]
+    # The development database's server. It holds nothing that can't be recreated, so it skips
+    # fsync, and so does initdb when it creates the data directory, as it does for each server
+    # that the end-to-end tests start from this service: each database that a check creates or
+    # drops here forces a checkpoint, and on some machines one fsync stalls for minutes. A crash
+    # of the machine can corrupt the data; `docker compose down --volumes` starts it fresh.
+    command: ["postgres", "-c", "fsync=off"]
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run just setup to write .env}
       POSTGRES_DB: api
@@ -26,6 +24,31 @@ services:
     healthcheck:
       # Over TCP: while the image initializes a new database, it runs a server that listens only
       # on its socket, then stops it and starts the real one.
+      test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=postgres", "--dbname=api"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # The tests' Postgres (TEST-05), on port 5433: a server of the tests' own, of the same image,
+  # whose data is in memory. Each test clones a database of about 10 megabytes and drops it, and
+  # each drop has the server write every page that changed since the drop before, so a run of
+  # the tests wrote about 10 gigabytes to the disk of a server that kept its data there. The
+  # data is gone when the container stops, and the first test of the next run makes the roles
+  # and the template again. The data holds 2 gigabytes at most: a test waits to create its
+  # database while too many wait to be dropped (OPS-21), and a run has held 485 megabytes.
+  postgres-tests:
+    image: postgres:18.6@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run just setup to write .env}
+      POSTGRES_DB: api
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - type: tmpfs
+        target: /var/lib/postgresql
+        tmpfs:
+          size: 2147483648
+    healthcheck:
       test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=postgres", "--dbname=api"]
       interval: 2s
       timeout: 5s
