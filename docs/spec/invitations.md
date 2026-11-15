@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`invitations` lets a member invite someone by email, and lets the invitee see and accept the invitation. This spec covers inviting, with its email, the invitee's live notification, listing the caller's own invitations, accepting, and the expiry sweep. Listing a workspace's invitations, updating, resending, cancelling and declining arrive with the full module.
+`invitations` lets a member invite someone by email, and lets the invitee see and accept the invitation. This spec covers inviting, with its email, the invitee's live notification, listing the caller's own invitations, accepting, and the expiry sweep. Listing a workspace's invitations, changing an invitation's role, which is all of it that a change edits (D164), sending it again, cancelling it and declining it arrive with the full module.
 
 ## Owns
 
