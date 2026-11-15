@@ -268,13 +268,15 @@ async fn invitations_003_inviting_again_refreshes_the_invitation_in_place() {
     let ada = users::register(&api, "ada@example.com").await;
     let bob = users::register(&api, "bob@example.com").await;
     let workspace = acme(&api, &ada, &[(&bob, "admin")]).await;
-    let first = invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+    // Bob, an admin, invites at the member role, and Ada, the owner, invites the address again at
+    // the admin role, which ranks below hers alone.
+    let first = invite(&api, &bob, &workspace, "carol@example.com", "member").await;
     let id = first.json()["id"].as_str().unwrap().to_owned();
     let db = api.database();
     db.owner_executes("UPDATE invitations SET expires_at = now() + interval '1 day'")
         .await;
 
-    let response = invite(&api, &bob, &workspace, "carol@example.com", "member").await;
+    let response = invite(&api, &ada, &workspace, "carol@example.com", "admin").await;
 
     assert_eq!(response.status, 200);
     assert!(response.headers("location").is_empty());
@@ -282,15 +284,15 @@ async fn invitations_003_inviting_again_refreshes_the_invitation_in_place() {
     assert_eq!(response.header("etag"), "\"3\"");
     let body = response.json();
     assert_eq!(body["id"], id.as_str());
-    assert_eq!(body["role"], "member");
-    assert_eq!(body["inviter_id"], bob.user_id.as_str());
+    assert_eq!(body["role"], "admin");
+    assert_eq!(body["inviter_id"], ada.user_id.as_str());
     let refreshed = db
         .owner_reads(
             "SELECT (expires_at > now() + interval '6 days')::text || ' ' || role::text \
              || ' ' || inviter_id FROM invitations",
         )
         .await;
-    assert_eq!(refreshed, [format!("true member {}", bob.user_id)]);
+    assert_eq!(refreshed, [format!("true admin {}", ada.user_id)]);
     let entries = db
         .owner_reads(
             "SELECT action || ' ' || scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
@@ -304,11 +306,11 @@ async fn invitations_003_inviting_again_refreshes_the_invitation_in_place() {
         [
             format!(
                 "invitation.created workspace {workspace} {} invitation {id} - {{\"role\": \"member\"}}",
-                ada.user_id
+                bob.user_id
             ),
             format!(
-                "invitation.updated workspace {workspace} {} invitation {id} - {{\"role\": \"member\"}}",
-                bob.user_id
+                "invitation.updated workspace {workspace} {} invitation {id} - {{\"role\": \"admin\"}}",
+                ada.user_id
             ),
         ]
     );
@@ -924,6 +926,40 @@ async fn invitations_007_the_sweep_leaves_an_invitation_renewed_while_it_waited(
     // the invitation's lock.
     let mut renewing = db
         .holding("UPDATE invitations SET expires_at = now() + interval '7 days'")
+        .await;
+
+    let sweep = api.run_periodic("invitations.expire");
+    let release = async {
+        queries_wait_on_locks(db, 1).await;
+        execute_on(&mut renewing, "COMMIT").await;
+    };
+    tokio::join!(sweep, release);
+
+    let left = db.owner_reads("SELECT email FROM invitations").await;
+    assert_eq!(left, ["carol@example.com"]);
+}
+
+#[tokio::test]
+async fn invitations_007_a_batch_that_a_renewal_shortened_ends_no_run_while_expired_ones_remain() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+    let db = api.database();
+    // Carol's invitation expired first, so the first batch holds it, with 999 of the 1,001 others.
+    db.owner_executes("UPDATE invitations SET expires_at = now() - interval '2 days'")
+        .await;
+    db.owner_executes(&format!(
+        "INSERT INTO invitations (workspace_id, email, role, expires_at) \
+         SELECT '{workspace}', 'expired-' || n || '@example.com', 'member', \
+         now() - interval '1 day' FROM generate_series(1, 1001) AS n"
+    ))
+    .await;
+    let mut renewing = db
+        .holding(
+            "UPDATE invitations SET expires_at = now() + interval '7 days' \
+             WHERE email = 'carol@example.com'",
+        )
         .await;
 
     let sweep = api.run_periodic("invitations.expire");

@@ -1,8 +1,9 @@
 //! The periodic job `invitations.expire` (OPS-09, INVITATIONS-007): owned by `invitations`, run
 //! every hour, and touching `invitations` alone. It spans every workspace by nature, so it
 //! selects invitations by expiry alone, which `check-tenancy` lets this file alone do (DATA-16).
-//! Scheduled maintenance isn't audited (DATA-22). A second run finds nothing more to delete, and
-//! an invitation that a resend or a refresh renewed while the sweep waited for its lock stays
+//! Scheduled maintenance isn't audited (DATA-22). A run deletes batches, the longest expired
+//! first, until one deletes nothing, so a second run finds nothing more to delete, and an
+//! invitation that a resend or a refresh renewed while the sweep waited for its lock stays
 //! (DATA-20, INVITATIONS-015).
 
 use std::time::Duration;
@@ -35,7 +36,9 @@ impl Invitations {
     }
 }
 
-/// Deletes the expired invitations of every workspace, a batch at a time.
+/// Deletes the expired invitations of every workspace, a batch at a time, the longest expired
+/// first, until a batch deletes none: one that a renewal, or a deletion of its own, shortened
+/// while it waited ends no run while expired invitations remain.
 async fn expire(database: &Database, context: &JobContext) -> Result<(), Internal> {
     loop {
         let mut uow = database.for_job(context).await?;
@@ -43,7 +46,7 @@ async fn expire(database: &Database, context: &JobContext) -> Result<(), Interna
         // waited for its lock, which the subquery's rows aren't (DATA-20).
         let deleted = sqlx::query!(
             "DELETE FROM invitations WHERE id IN (
-                SELECT id FROM invitations WHERE expires_at <= now() LIMIT $1
+                SELECT id FROM invitations WHERE expires_at <= now() ORDER BY expires_at LIMIT $1
             ) AND expires_at <= now()",
             BATCH,
         )
@@ -51,7 +54,7 @@ async fn expire(database: &Database, context: &JobContext) -> Result<(), Interna
         .await?
         .rows_affected();
         uow.commit().await?;
-        if deleted < BATCH.unsigned_abs() {
+        if deleted == 0 {
             return Ok(());
         }
     }

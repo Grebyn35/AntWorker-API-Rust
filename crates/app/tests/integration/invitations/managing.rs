@@ -77,6 +77,16 @@ async fn entries(api: &Api) -> Vec<String> {
         .await
 }
 
+/// The permission of each refusal that the workspace's log records, oldest first (PLATFORM-010).
+async fn refusals(api: &Api) -> Vec<String> {
+    api.database()
+        .owner_reads(
+            "SELECT details->>'permission' FROM audit_entries \
+             WHERE action = 'access.denied' AND scope = 'workspace' ORDER BY created_at, id",
+        )
+        .await
+}
+
 /// Each event published since the last `DELETE FROM events`, oldest first, as its name, its
 /// user, or `-` for a workspace's, the permission it requires, or `-` for a user's, and its
 /// payload.
@@ -401,15 +411,8 @@ async fn invitations_014_an_admin_changes_sends_again_and_cancels_no_admin_s_inv
         .await;
     assert_eq!(row, ["admin 1"]);
     assert!(entries(&api).await.is_empty());
-    let refusals = api
-        .database()
-        .owner_reads(
-            "SELECT details->>'permission' FROM audit_entries \
-             WHERE action = 'access.denied' ORDER BY created_at, id",
-        )
-        .await;
     assert_eq!(
-        refusals,
+        refusals(&api).await,
         [
             "invitations.update",
             "invitations.create",
@@ -438,6 +441,7 @@ async fn invitations_014_an_admin_refreshes_no_admin_s_invitation_by_inviting_it
     assert_eq!(row, [format!("admin {} 1", ada.user_id)]);
     assert!(entries(&api).await.is_empty());
     assert!(db.owner_reads("SELECT kind FROM jobs").await.is_empty());
+    assert_eq!(refusals(&api).await, ["invitations.create"]);
 }
 
 #[tokio::test]
@@ -458,6 +462,7 @@ async fn invitations_014_a_change_assigns_only_a_role_below_the_caller_s() {
         assert_eq!(response.status, 403);
         assert_eq!(response.json()["code"], "request.permission_denied");
     }
+    assert_eq!(refusals(&api).await, ["invitations.update"; 3]);
     let role = api
         .database()
         .owner_reads("SELECT role::text FROM invitations")

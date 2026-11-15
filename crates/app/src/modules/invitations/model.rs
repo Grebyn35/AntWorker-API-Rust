@@ -118,8 +118,8 @@ pub(super) struct Found {
 pub(crate) struct Settings {
     /// Its days, from 1 to 90.
     pub(crate) expiry_days: u32,
-    /// The per-member limit on inviting, which bounds the emails a member's invitations send
-    /// (SEC-13).
+    /// The per-member limit on inviting and sending again, which bounds the emails a member's
+    /// invitations send (SEC-13).
     pub(crate) limit: Bucket,
 }
 

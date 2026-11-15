@@ -40,7 +40,7 @@ const SIGN_IN_EMAIL_BUCKET: &str = "sign_in_email";
 const SIGN_IN_DEVICE_BUCKET: &str = "sign_in_device";
 
 // part: invitations
-/// The name of the per-member limit's bucket on inviting (INVITATIONS-009).
+/// The name of the per-member limit's bucket on inviting and sending again (INVITATIONS-009).
 const INVITATION_BUCKET: &str = "invitation";
 // end part: invitations
 

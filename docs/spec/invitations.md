@@ -18,7 +18,7 @@
 
 | Method and path | Access | Behaviors |
 |---|---|---|
-| `POST /v1/workspaces/{workspace_id}/invitations` | `workspace::<InvitationsCreate>` | INVITATIONS-001 to INVITATIONS-003, INVITATIONS-008 to INVITATIONS-010 |
+| `POST /v1/workspaces/{workspace_id}/invitations` | `workspace::<InvitationsCreate>` | INVITATIONS-001 to INVITATIONS-003, INVITATIONS-008 to INVITATIONS-010, INVITATIONS-014 |
 | `GET /v1/workspaces/{workspace_id}/invitations` | `workspace::<InvitationsRead>` | INVITATIONS-012 |
 | `GET /v1/workspaces/{workspace_id}/invitations/{invitation_id}` | `workspace::<InvitationsRead>` | INVITATIONS-011 |
 | `PATCH /v1/workspaces/{workspace_id}/invitations/{invitation_id}` | `workspace::<InvitationsUpdate>` | INVITATIONS-013, INVITATIONS-014 |
@@ -121,7 +121,7 @@ The entry is the workspace's, as an acceptance's is, since the invitation is the
 
 ### Expiry sweep
 
-The periodic job `invitations.expire` runs hourly, and deletes rows whose `expires_at` has passed, in batches of at most 1,000, as the platform's sweeps do. It spans every workspace by nature, so it selects rows by expiry alone (DATA-16). Its `DELETE` tests the expiry of each row it deletes, besides the batch's subquery, so a row that a resend or a refresh renewed while the statement waited for its lock is tested as it then stands, and stays (DATA-20). Scheduled maintenance isn't audited (DATA-22), and publishes nothing. An expired invitation is already invisible to its invitee until then, since their list checks `expires_at`, and accepting refuses it, while the workspace's members see it, with its `expires_at`, and may send it again or cancel it; so the interval is a constant rather than a setting (D9).
+The periodic job `invitations.expire` runs hourly, and deletes rows whose `expires_at` has passed, in batches of at most 1,000, as the platform's sweeps do, the longest expired first, until a batch deletes none. It spans every workspace by nature, so it selects rows by expiry alone (DATA-16). Its `DELETE` tests the expiry of each row it deletes, besides the batch's subquery, so a row that a resend or a refresh renewed while the statement waited for its lock is tested as it then stands, and stays (DATA-20). Scheduled maintenance isn't audited (DATA-22), and publishes nothing. An expired invitation is already invisible to its invitee until then, since their list checks `expires_at`, and accepting refuses it, while the workspace's members see it, with its `expires_at`, and may send it again or cancel it; so the interval is a constant rather than a setting (D9).
 
 ## Open design questions
 

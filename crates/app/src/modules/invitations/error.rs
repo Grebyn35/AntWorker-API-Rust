@@ -22,8 +22,8 @@ pub(crate) enum InvitationsError {
     /// INVITATIONS-011, INVITATIONS-017).
     #[error("no invitation with the ID is the workspace's, or addressed to the caller")]
     NotFound,
-    /// The member's limit on inviting refused the request, or couldn't count it
-    /// (INVITATIONS-009).
+    /// The member's limit on inviting and sending again refused the request, or couldn't count
+    /// it (INVITATIONS-009).
     #[error(transparent)]
     Limit(#[from] LimitError),
     /// `platform` refused the request, such as by authorization, its idempotency key or its
