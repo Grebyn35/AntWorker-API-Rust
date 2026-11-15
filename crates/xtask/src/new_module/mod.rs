@@ -29,7 +29,7 @@ use edits::{Edit, Inserts};
 use names::Names;
 
 use crate::{
-    copy::{self, Copy},
+    copy::{self, Check, Copy},
     migrated,
     repo::{self, Repo},
 };
@@ -91,7 +91,7 @@ pub fn run(module: &str, resource: Option<String>) -> ExitCode {
 /// Runs `check-new-module` (ARCH-03): on a fresh copy of the repository, writes each module of
 /// [`CHECKED`] with `just new-module`, then runs `just checks` there.
 pub fn check() -> ExitCode {
-    let checked = Copy::fresh("new-module", "modules").and_then(|copy| {
+    let checked = Copy::fresh(Check::NewModule, "modules").and_then(|copy| {
         for (module, resource) in CHECKED {
             copy.just(&["new-module", module, resource])?;
         }

@@ -17,7 +17,7 @@ use serde_json::Value;
 
 use crate::{
     Finding, catalog,
-    copy::{self, Copy},
+    copy::{self, Check, Copy},
     markdown, metrics, migrations,
     repo::{self, Repo},
 };
@@ -469,7 +469,7 @@ pub fn check_removable(names: &[String]) -> ExitCode {
 /// On a fresh copy of the repository for the run `name`, removes `parts` with `just remove`, then
 /// runs `just checks`, as on a fork before its first release (ARCH-07).
 fn removed(name: &str, parts: &[String]) -> Result<(), String> {
-    let copy = Copy::fresh("removable", name)?;
+    let copy = Copy::fresh(Check::Removable, name)?;
     let mut remove = vec!["remove"];
     remove.extend(parts.iter().map(String::as_str));
     copy.just(&remove)?;
