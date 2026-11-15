@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
 };
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 #[expect(
     clippy::disallowed_types,
     reason = "the binary is the one place that uses the system clock (CODE-06)"
@@ -61,27 +61,10 @@ enum Command {
     /// Asks the instance that `LISTEN_ADDR` names whether it is ready, for a container's health
     /// check, and exits 0 only if it is.
     Health,
-    /// Removes the authenticator app and the recovery codes of the account that holds an
-    /// address, ends every session of the account, and tells the address, for a user who lost
-    /// both, once the operator has checked that the person who asks owns the account. Exits 1,
-    /// changing nothing, when no account holds the address or it has no app.
-    RemoveSecondFactor {
-        /// The account's email address.
-        email: String,
-    },
-    // part: workspace_setup
-    /// Creates a workspace, owned by the account that holds an address, and, with email on,
-    /// creates that account when no account holds the address, and tells the address. Exits 1,
-    /// changing nothing, when an earlier run was given the name, or the account may not own it.
-    SetupWorkspace {
-        /// The workspace's name.
-        name: String,
-        /// Its owner's email address.
-        email: String,
-        /// Its owner's name, for the account that the run creates when none holds the address.
-        owner_name: Option<String>,
-    },
-    // end part: workspace_setup
+    /// A subcommand that an operator runs against the accounts, each of which the composition
+    /// root declares.
+    #[command(flatten)]
+    Operator(app::Operation),
     /// Writes the OpenAPI document of every route to a file (API-17).
     Openapi {
         /// The file to write.
@@ -90,7 +73,12 @@ enum Command {
 }
 
 fn main() -> ExitCode {
-    let command = Cli::parse().command;
+    let matches = Cli::command().get_matches();
+    let subcommand = matches.subcommand_name().unwrap_or_default().to_owned();
+    let command = match Cli::from_arg_matches(&matches) {
+        Ok(cli) => cli.command,
+        Err(error) => error.exit(),
+    };
     let settings = platform::config::from_process();
     match command {
         Command::Bootstrap => start(settings.telemetry(), settings.bootstrap(), bootstrap),
@@ -108,33 +96,11 @@ fn main() -> ExitCode {
             start(settings.telemetry(), config, seed)
         }
         Command::Health => health(settings.health()),
-        Command::RemoveSecondFactor { email } => {
+        Command::Operator(operation) => {
             start(settings.telemetry(), settings.operator(), |config| {
-                operate(
-                    "remove-second-factor",
-                    config,
-                    move |database, mail| async move {
-                        app::remove_second_factor(&database, &mail, &email).await
-                    },
-                )
+                operate(subcommand, config, operation)
             })
         }
-        // part: workspace_setup
-        Command::SetupWorkspace {
-            name,
-            email,
-            owner_name,
-        } => start(settings.telemetry(), settings.operator(), |config| {
-            operate(
-                "setup-workspace",
-                config,
-                move |database, mail| async move {
-                    app::setup_workspace(&database, &mail, &name, &email, owner_name.as_deref())
-                        .await
-                },
-            )
-        }),
-        // end part: workspace_setup
         Command::Openapi { path } => openapi(&path),
     }
 }
@@ -350,20 +316,11 @@ async fn seed((config, modules): (ServerConfig, app::Config)) -> ExitCode {
 /// the deploy's budget counts one for it (OPS-18).
 const OPERATOR_CONNECTIONS: u32 = 1;
 
-/// Runs the subcommand `area`, which an operator runs against the accounts: connects to the
-/// database, builds the deployment's emails as `config` describes them, runs `task`, and logs
-/// what it answers it did, or, as a failure that ends the subcommand, why it changed nothing;
-/// neither holds personal data, which the logs never hold (OPS-03, OBS-04).
-async fn operate<F, S, E>(
-    area: &str,
-    config: OperatorConfig,
-    task: impl FnOnce(Database, Mail) -> F,
-) -> ExitCode
-where
-    F: Future<Output = Result<S, E>>,
-    S: std::fmt::Display,
-    E: Error + 'static,
-{
+/// Runs `operation`, the subcommand named `area`, which an operator runs against the accounts:
+/// connects to the database, builds the deployment's emails as `config` describes them, runs it,
+/// and logs what it answers it did, or, as a failure that ends the subcommand, why it changed
+/// nothing; neither holds personal data, which the logs never hold (OPS-03, OBS-04).
+async fn operate(area: String, config: OperatorConfig, operation: app::Operation) -> ExitCode {
     let database =
         match Database::connect(&config.database_url, OPERATOR_CONNECTIONS, &app::MIGRATIONS).await
         {
@@ -375,12 +332,12 @@ where
         Ok(mail) => mail,
         Err(error) => return failed("mail", &error),
     };
-    match task(database, mail).await {
+    match operation.run(&database, &mail).await {
         Ok(outcome) => {
-            lifecycle::report_outcome(area, &outcome);
+            lifecycle::report_outcome(&area, &outcome);
             ExitCode::SUCCESS
         }
-        Err(refused) => failed(area, &refused),
+        Err(refused) => failed(&area, &refused),
     }
 }
 

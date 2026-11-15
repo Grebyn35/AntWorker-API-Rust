@@ -1,6 +1,7 @@
-//! The entry points of the binary's subcommands besides `serve` that run the modules' logic:
-//! `seed`, which fills a development database, and those that an operator runs, such as
-//! `remove-second-factor` (ARCH-14).
+//! The binary's subcommands besides `serve` that run the modules' logic (ARCH-14): the entry
+//! points of `seed`, which fills a development database, and [`Operation`], the subcommands that
+//! an operator runs, such as `remove-second-factor`, each with what it takes and what it does,
+//! which `main.rs` takes into its own.
 
 use axum::Router;
 use platform::{
@@ -16,6 +17,68 @@ use crate::modules::{auth, system};
 // part: workspace_setup
 use crate::modules::workspaces;
 // end part: workspace_setup
+
+/// A subcommand that an operator runs against the accounts, on a deployment's server, with what
+/// the operator gives it (ARCH-14). Each is one variant here, with its arm in [`Operation::run`],
+/// and the binary takes them all into its own subcommands.
+#[derive(clap::Subcommand)]
+pub enum Operation {
+    /// Removes the authenticator app and the recovery codes of the account that holds an
+    /// address, ends every session of the account, and tells the address, for a user who lost
+    /// both, once the operator has checked that the person who asks owns the account. Exits 1,
+    /// changing nothing, when no account holds the address or it has no app.
+    RemoveSecondFactor {
+        /// The account's email address.
+        email: String,
+    },
+    // part: workspace_setup
+    /// Creates a workspace, owned by the account that holds an address, and, with email on,
+    /// creates that account when no account holds the address, and tells the address. Exits 1,
+    /// changing nothing, when an earlier run was given the name, or the account may not own it.
+    SetupWorkspace {
+        /// The workspace's name.
+        name: String,
+        /// Its owner's email address.
+        email: String,
+        /// Its owner's name, for the account that the run creates when none holds the address.
+        owner_name: Option<String>,
+    },
+    // end part: workspace_setup
+}
+
+/// Why an operator's subcommand changed nothing, which its message says without personal data,
+/// since the logs hold none (OPS-03, OBS-04).
+#[derive(Debug, thiserror::Error)]
+pub enum Refused {
+    /// Why `remove-second-factor` changed nothing.
+    #[error(transparent)]
+    RemoveSecondFactor(#[from] RemovalRefused),
+    // part: workspace_setup
+    /// Why `setup-workspace` changed nothing.
+    #[error(transparent)]
+    SetupWorkspace(#[from] SetupRefused),
+    // end part: workspace_setup
+}
+
+impl Operation {
+    /// Runs the subcommand on `database`, telling whom it tells through `mail` while email is
+    /// on, and answers what it did, for the subcommand's log, or why it changed nothing.
+    pub async fn run(self, database: &Database, mail: &Mail) -> Result<String, Refused> {
+        match self {
+            Self::RemoveSecondFactor { email } => {
+                let done = remove_second_factor(database, mail, &email).await?;
+                Ok(done.to_owned())
+            }
+            // part: workspace_setup
+            Self::SetupWorkspace {
+                name,
+                email,
+                owner_name,
+            } => Ok(setup_workspace(database, mail, &name, &email, owner_name.as_deref()).await?),
+            // end part: workspace_setup
+        }
+    }
+}
 
 /// Why the subcommand `remove-second-factor` changed nothing, which its message says without the
 /// address, since the logs hold no personal data (AUTH-072, OBS-04).
@@ -40,7 +103,7 @@ pub enum RemovalRefused {
 /// is on, for the subcommand `remove-second-factor`, which the operator runs once they have
 /// checked that the person who asks owns the account, and answers what it did, for the
 /// subcommand's log (AUTH-072, D135).
-pub async fn remove_second_factor(
+async fn remove_second_factor(
     database: &Database,
     mail: &Mail,
     email: &str,
@@ -135,7 +198,7 @@ impl From<workspaces::SetupRefusal> for SetupRefused {
 /// tells the address through `mail` while email is on, for the subcommand `setup-workspace`,
 /// which an operator runs, and answers what it did, with the workspace's ID, for the
 /// subcommand's log (WORKSPACES-023 to WORKSPACES-028, D65).
-pub async fn setup_workspace(
+async fn setup_workspace(
     database: &Database,
     mail: &Mail,
     name: &str,
