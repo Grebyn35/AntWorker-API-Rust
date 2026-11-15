@@ -152,6 +152,7 @@ A client reads which parts its API keeps from the capabilities (D118), and offer
 
 <!-- part: workspace_creation -->
 In the personal shape, the API has no notion of a personal workspace, and nobody can join the workspace a user creates.
+It sets no limit on the workspaces a user creates, in this shape as in any other, so that a user has one is the client's doing (D153).
 The client works in the oldest workspace the user belongs to, so a workspace made outside the client changes nothing the user sees, and it can leave workspaces out of its interface.
 After creating one, it lists the user's workspaces again before working in any, so two devices that each found none and each created one both work in the older, and the other stays empty.
 The template keeps every part and serves the teams shape. <!-- part: invitations -->
