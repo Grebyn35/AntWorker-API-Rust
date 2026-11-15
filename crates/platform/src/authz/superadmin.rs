@@ -99,8 +99,8 @@ impl AuthorizeSuperadmin {
 
 /// The proof that the caller is a superadmin with a second factor, built only by
 /// [`AuthorizeSuperadmin::open`] (D62). The operation runs in the unit of work it was proven in,
-/// and a function that reads across workspaces for a superadmin, or changes a workspace that
-/// the path names for one, takes it (DATA-16).
+/// and a function that exists only for a superadmin's routes takes it, such as one that reads
+/// across workspaces, or that first reaches the workspace that a path names (DATA-16).
 pub struct Superadmin {
     principal: Principal,
 }

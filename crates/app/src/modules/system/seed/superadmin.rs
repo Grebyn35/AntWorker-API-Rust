@@ -5,7 +5,7 @@
 // end part: invitations
 
 use axum::http::Method;
-use platform::errors::Internal;
+use platform::{errors::Internal, types::Timestamp};
 use serde_json::json;
 
 use super::{Account, Api, PASSWORD, text};
@@ -37,7 +37,7 @@ impl Api {
                 Some(json!({ "password": PASSWORD })),
             )
             .await?;
-        let now = unix_seconds(&text(&session, "authenticated_at")?)?;
+        let now = unix_seconds(&session["authenticated_at"])?;
         let setup = self
             .send(
                 Method::POST,
@@ -112,33 +112,16 @@ impl Api {
     // end part: invitations
 }
 
-/// The seconds since the Unix epoch of `timestamp`, a time as the API writes one: RFC 3339 in
-/// UTC, as `2026-11-15T10:30:00.123456Z` (API-11).
-fn unix_seconds(timestamp: &str) -> Result<u64, SystemError> {
+/// The seconds since the Unix epoch of `timestamp`, a time of an answer, as the API writes one
+/// (API-11).
+fn unix_seconds(timestamp: &serde_json::Value) -> Result<u64, SystemError> {
     let not_a_time = || {
         SystemError::Internal(Internal::new(format!(
             "the answer's time isn't one: {timestamp}"
         )))
     };
-    let number = |from: usize, to: usize| {
-        timestamp
-            .get(from..to)
-            .and_then(|digits| digits.parse::<u32>().ok())
-            .ok_or_else(not_a_time)
-    };
-    let narrow = |value: u32| u8::try_from(value).map_err(|_| not_a_time());
-    let year = i32::try_from(number(0, 4)?).map_err(|_| not_a_time())?;
-    let month = time::Month::try_from(narrow(number(5, 7)?)?).map_err(|_| not_a_time())?;
-    let date = time::Date::from_calendar_date(year, month, narrow(number(8, 10)?)?)
-        .map_err(|_| not_a_time())?;
-    let time = time::Time::from_hms(
-        narrow(number(11, 13)?)?,
-        narrow(number(14, 16)?)?,
-        narrow(number(17, 19)?)?,
-    )
-    .map_err(|_| not_a_time())?;
-    let at = time::PrimitiveDateTime::new(date, time).assume_utc();
-    u64::try_from(at.unix_timestamp()).map_err(|_| not_a_time())
+    let at: Timestamp = serde_json::from_value(timestamp.clone()).map_err(|_| not_a_time())?;
+    u64::try_from(at.at().unix_timestamp()).map_err(|_| not_a_time())
 }
 
 /// The code that an authenticator app with `secret`, in base32, shows at `at`, in seconds since

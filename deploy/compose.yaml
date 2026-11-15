@@ -355,8 +355,9 @@ services:
   # end part: workspace_setup
 
   # part: superadmins
-  # The operator's making of a superadmin, and ending of one (SUPERADMINS-001), which
-  # `just superadmin` runs as it runs the removal above, with the settings that the removal reads.
+  # The operator's making of a superadmin, ending of one, and list of them (SUPERADMINS-001,
+  # SUPERADMINS-008), which `just superadmin` runs as it runs the removal above, with the settings
+  # that the removal reads.
   superadmin-blue:
     <<: *operator
     command: ["superadmin"]

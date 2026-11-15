@@ -96,12 +96,14 @@ fn scope(
         ));
     }
     let named_elsewhere = path.contains("{workspace_id}") && !under(WORKSPACE);
+    let prefixes = WORKSPACE.to_owned();
     // part: superadmins
     let named_elsewhere = named_elsewhere && !under(SUPERADMIN_WORKSPACE);
+    let prefixes = format!("{prefixes} and {SUPERADMIN_WORKSPACE}");
     // end part: superadmins
     if named_elsewhere {
         messages.push(format!(
-            "{here} names {{workspace_id}} outside {WORKSPACE} (API-02)"
+            "{here} names {{workspace_id}} outside {prefixes} (API-02)"
         ));
     }
     if under(CALLER) && access == "public" {
@@ -336,11 +338,15 @@ mod tests {
     #[test]
     fn api_02_a_workspace_route_is_under_its_workspace_and_no_header_selects_one() {
         let elsewhere = json!({ "x-access": "workspace", "responses": { "200": ok(true) } });
+        let prefixes = WORKSPACE.to_owned();
+        // part: superadmins
+        let prefixes = format!("{prefixes} and {SUPERADMIN_WORKSPACE}");
+        // end part: superadmins
         assert_eq!(
             messages("/v1/members/{workspace_id}", "get", &elsewhere),
             [
-                "GET /v1/members/{workspace_id} acts on a workspace, so its path starts with /v1/workspaces/{workspace_id} (API-02)",
-                "GET /v1/members/{workspace_id} names {workspace_id} outside /v1/workspaces/{workspace_id} (API-02)",
+                "GET /v1/members/{workspace_id} acts on a workspace, so its path starts with /v1/workspaces/{workspace_id} (API-02)".to_owned(),
+                format!("GET /v1/members/{{workspace_id}} names {{workspace_id}} outside {prefixes} (API-02)"),
             ]
         );
         let header = json!({
@@ -406,7 +412,7 @@ mod tests {
                 &superadmin
             ),
             [
-                "DELETE /v1/superadmin/members/{workspace_id} names {workspace_id} outside /v1/workspaces/{workspace_id} (API-02)"
+                "DELETE /v1/superadmin/members/{workspace_id} names {workspace_id} outside /v1/workspaces/{workspace_id} and /v1/superadmin/workspaces/{workspace_id} (API-02)"
             ]
         );
     }

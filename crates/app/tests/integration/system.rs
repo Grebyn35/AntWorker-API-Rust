@@ -330,7 +330,7 @@ async fn seed_with_a_superadmin(database: &TestDatabase) -> (String, String) {
             &["seed"],
             &[
                 ("ENVIRONMENT", "development"),
-                ("ENCRYPTION_KEYS", crate::support::api::ENCRYPTION_KEYS),
+                ("ENCRYPTION_KEYS", crate::support::api::KEY_RING),
             ],
         )
         .await;

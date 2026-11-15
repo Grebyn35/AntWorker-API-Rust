@@ -15,8 +15,7 @@ pub(super) const WORKSPACE_RENAMED: Action = Action::new("workspace.renamed");
 pub(super) const MEMBER_REMOVED: Action = Action::new("member.removed");
 /// A workspace has another owner (WORKSPACES-015).
 pub(super) const WORKSPACE_TRANSFERRED: Action = Action::new("workspace.transferred");
-/// A workspace was deleted, recorded in the own log of the owner who deleted it
-/// (WORKSPACES-017).
+/// A workspace was deleted, recorded in the own log of whoever deleted it (WORKSPACES-017).
 pub(super) const WORKSPACE_DELETED: Action = Action::new("workspace.deleted");
 /// A member's role changed (WORKSPACES-012).
 pub(super) const MEMBER_ROLE_CHANGED: Action = Action::new("member.role_changed");

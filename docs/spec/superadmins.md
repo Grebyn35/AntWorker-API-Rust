@@ -64,7 +64,7 @@ Neither sends an email: the operator who runs the subcommand knows whom they nam
 
 Every superadmin must have a second factor (D63), and the proof is where that holds (D154): whatever happened to the account since the operator made it a superadmin, such as the removal of its app, by its user or by an operator (AUTH-064, AUTH-072), no route serves it as a superadmin without one. So the subcommand takes an account without an app, which sets one up before its first request as a superadmin, and no removal of an app needs to know of superadmins.
 
-A function that reads across workspaces for a superadmin, or changes a workspace that the path names for one, takes the proof, down to the function of its query, as `access::census` and `access::dissolve_any` do, so the compiler keeps any other caller from it (DATA-16).
+A function that exists only for a superadmin's routes takes the proof, down to the function of its query, as `access::census` and `access::dissolve_any` do, so the compiler keeps any other caller from what only a superadmin may do: a read across workspaces, and the first reach of the workspace that a path names, which locks its owner's membership (DATA-16). From there such an operation goes on through the functions that it shares with a member's, which take the workspace's ID, as a deletion's last steps do (WORKSPACES-030).
 
 ### Whether the caller is a superadmin
 

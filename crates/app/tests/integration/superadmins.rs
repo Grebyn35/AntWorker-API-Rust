@@ -39,12 +39,10 @@ async fn delete(api: &Api, caller: &SignedIn, workspace: &str) -> crate::support
 /// a superadmin with an authenticator app, who belongs to no workspace: the API, the four, and
 /// the workspace's ID.
 async fn acme_and_a_superadmin() -> (Api, [SignedIn; 4], String) {
-    let api = Api::new().await;
+    let (api, sam) = a_superadmin().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
     let bob = users::register(&api, "bob@example.com").await;
-    let sam = users::register(&api, "sam@example.com").await;
-    superadmins::make_with_app(&api, &sam).await;
     let workspace = workspaces::arrange(
         api.database(),
         "Acme",
@@ -874,9 +872,7 @@ async fn workspaces_030_the_deletion_closes_each_member_s_streams() {
 
 #[tokio::test]
 async fn workspaces_030_a_superadmin_who_owns_the_workspace_deletes_it_the_same_way() {
-    let api = Api::new().await;
-    let sam = users::register(&api, "sam@example.com").await;
-    superadmins::make_with_app(&api, &sam).await;
+    let (api, sam) = a_superadmin().await;
     let db = api.database();
     let workspace = workspaces::arrange(db, "Acme", &[(&sam.user_id, "owner")]).await;
 
@@ -1119,4 +1115,80 @@ async fn workspaces_031_the_created_workspace_s_location_reads_it_as_its_owner()
     assert_eq!(read.status, 200);
     assert_eq!(read.json(), created.json());
     assert_eq!(read.header("etag"), created.header("etag"));
+}
+
+#[tokio::test]
+async fn access_011_a_deletion_that_waited_for_the_deletion_of_the_owner_s_account_finds_none() {
+    let (api, sam) = a_superadmin().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    // The lock of Ada's identity, as a sign-in of hers holds it: the deletion of her account
+    // waits at it, once it has locked her memberships and ended them.
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
+            ada.user_id
+        ))
+        .await;
+
+    let account = api.spawn(Method::DELETE, "/v1/users/me", &ada.access, None);
+    queries_wait_on_locks(db, 1).await;
+    let deletion = api.spawn(
+        Method::DELETE,
+        &format!("{EVERY}/{workspace}"),
+        &sam.access,
+        None,
+    );
+    // The superadmin's deletion waits at the owner's membership, which her account's holds.
+    queries_wait_on_locks(db, 2).await;
+    execute_on(&mut held, "ROLLBACK").await;
+
+    assert_eq!(account.await.unwrap().0, 204);
+    let (status, problem) = deletion.await.unwrap();
+    assert_eq!(status, 404);
+    assert_eq!(problem["code"], "workspaces.not_found");
+    assert!(entries(&api, "workspace.deleted").await.0.is_empty());
+}
+
+#[tokio::test]
+async fn ops_03_what_a_subcommand_shows_its_operator_is_printed_outside_the_logs() {
+    let api = Api::without_email().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    superadmins::make(&api, &ada).await;
+    let settings: Vec<(&str, &str)> = EMAIL_OFF
+        .into_iter()
+        .chain([("ENVIRONMENT", "production")])
+        .collect();
+
+    let listed = run(&api, &settings, &["list"]).await;
+
+    assert_eq!(listed.status.code(), Some(0), "{}", printed(&listed));
+    // Production logs JSON lines (PLATFORM-044): what the subcommand shows is no line of them,
+    // and no log line holds what it shows.
+    let stdout = String::from_utf8_lossy(&listed.stdout).into_owned();
+    let (logged, shown): (Vec<&str>, Vec<&str>) = stdout
+        .lines()
+        .partition(|line| serde_json::from_str::<Value>(line).is_ok());
+    assert_eq!(shown.len(), 2, "{stdout}");
+    assert_eq!(
+        shown[0],
+        "The deployment's superadmins, with the ID of each one's user:"
+    );
+    assert!(shown[1].starts_with("  ada@example.com  "), "{stdout}");
+    let finished: Vec<Value> = logged
+        .iter()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|line| line["message"] == "subcommand finished")
+        .collect();
+    assert_eq!(finished.len(), 1, "{stdout}");
+    assert_eq!(finished[0]["startup.area"], AREA);
+    assert_eq!(
+        finished[0]["startup.outcome"],
+        "listed the deployment's superadmins: 1"
+    );
+    assert!(
+        logged.iter().all(|line| !line.contains("ada@example.com")),
+        "{stdout}"
+    );
 }

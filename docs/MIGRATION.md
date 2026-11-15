@@ -196,6 +196,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of cb8b700..f6ef87e | ARCH-04: whether `check-deps` fails on a type in the signature of a function that a module's `mod.rs` exports, when the `mod.rs` doesn't export the type too, as `access` exported `census` without the type it answers, whose fields `workspaces` read | 6, with the review of the whole codebase |
 | Building the superadmins | ARCH-07: whether `check-parts` compiles what each removal leaves, so that what only a copy's lint shows fails `just checks`: CI run 43667392333 failed the two runs that remove the setup subcommand alone of the two, on an import that its marker held and the superadmins' lines used | 6, with the review of the whole codebase |
 | Conformance review of cb8b700..03ea028 | DOC-07: whether `check-docs` reads the accounts spec's two tables of the contracts, what an export holds and what a deletion erases, against the contracts that the composition root registers, so a contract without a row in either fails a check | 6, with the review of the whole codebase |
+| Conformance review of 211aee4..d2b0fae | DATA-20: whether the rule names a statement that a unit of work runs again once a lock's wait changed which row it matches, as `access::dissolve_any` locks the owner's membership again after a transfer, beside "Nothing inside the API retries a transaction" | 6, with the review of the whole codebase <!-- part: superadmins --> |
 
 ## Conformance reviews
 

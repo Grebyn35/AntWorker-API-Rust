@@ -291,7 +291,7 @@ sequenceDiagram
    - The body is parsed into request types, then domain types (D25).
    - On an upload route, whose group has a timeout and no body limit of its own, the order differs: the handler refuses a declared length over its module's limit, then, on a workspace's, checks that the caller may upload, through `Authorize::check`, in a short transaction that writes nothing, and only then reads the body, through `Upload`, in one of the replica's turns, before the unit of work opens and authorizes the caller again (PLATFORM-073, PLATFORM-074). <!-- part: files -->
    - The unit of work opens last, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one. On workspace routes, opening it produces `Authorized<P>`: inside the unit of work, the caller's membership in the workspace from the path is loaded and permission `P` checked (D2, D3). A missing membership is a 404, so the response never reveals whether the workspace exists.
-     On a superadmin's route, opening it produces `Superadmin`: inside the unit of work, the caller is read to be a superadmin, with a second factor (D62, D63). <!-- part: superadmins -->
+     On a superadmin's route, opening it produces `Superadmin`: inside the unit of work, the caller is read to be a superadmin, with a second factor (D62, D63), and a keyed route claims its key as its first statement after that. <!-- part: superadmins -->
      On other routes, the service opens it, once any per-action limit it checks has counted, such as the sign-in's (AUTH-006), after a read, in a transaction of its own that writes nothing, of what decides which limit counts, such as the sign-in's device token (ARCH-11).
 4. **The handler** calls the service with domain types only.
 5. **The service** performs its writes in its unit of work, and in the same transaction records audit entries, publishes events and enqueues jobs (D1, D6). For a request with an `Idempotency-Key`, the same transaction stores the operation's result under the key (API-12). Then it commits.
@@ -355,6 +355,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   - `migrate` is the one-shot migration step.
   - `seed` fills a development database with demo accounts and workspaces, through the API's own routes, as a client would, and refuses in any other environment ([system spec](spec/system.md#seed)).
     The one workspace that it sets up as an operator does, it sets up through the operation that `setup-workspace` runs. <!-- part: workspace_setup -->
+    The one account that it makes a superadmin, as an operator does, it makes one through the operation that `superadmin add` runs. <!-- part: superadmins -->
   - `remove-second-factor` removes the authenticator app of the account that holds an address, for a user who lost it and their recovery codes, once the operator has checked that the person owns the account (D135). `just` runs it, on a deployment's server over Secure Shell (SSH), with the image of the color that serves, in a service of its own that passes it only the settings it reads (OPS-02) ([auth spec](spec/auth.md#second-factors)).
   - `superadmin` makes the account that holds an address a superadmin, which no route does, or ends its being one (D62), and lists the deployment's superadmins (D157). `just` runs it as it runs `remove-second-factor`, so only someone who reaches the server changes who is a superadmin ([superadmins spec](spec/superadmins.md#the-subcommand)). <!-- part: superadmins -->
   - `setup-workspace`, the setup subcommand, creates a workspace for its owner, each time an operator runs it, with their account when, with email on, no account holds their address (§5, "Workspace shapes", D65). `just` runs it as it runs `remove-second-factor` ([workspaces spec](spec/workspaces.md#the-setup-subcommand)). <!-- part: workspace_setup -->
@@ -452,7 +453,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Workspace shape | How a product uses workspaces: who creates them and who joins them, which the optional parts a fork keeps decide (§5). |
 | Membership | A user's place in a workspace, with exactly one role. Owned by `access`. |
 | Owner | The one role per workspace that can transfer or delete it. |
-| Superadmin | A user whom the deployment's operator made one through `just`, who sees every workspace without being a member, but not its content, and deletes any workspace (§5, D62). Not a role: roles belong to memberships. <!-- part: superadmins --> |
+| Superadmin | A user whom the deployment's operator made one through `just`, who sees every workspace without being a member, but not its content, deletes any workspace, and creates workspaces, which they then own (§5, D62). Not a role: roles belong to memberships. <!-- part: superadmins --> |
 | Role | A named set of permissions, defined in code in `access` (D2). |
 | Permission | One thing a role allows on a workspace resource, such as `members.update`. |
 | Invitation | An offer to join a workspace with a role, sent to an email address. <!-- part: invitations --> |

@@ -157,7 +157,7 @@ WORKSPACES-020's kinds and limit are an avatar's (ACCOUNTS-009): a list of the c
 <!-- part: superadmins -->
 ### A superadmin's routes
 
-A superadmin's routes on workspaces are this module's, since they read what it owns, and each is added through `Routes::superadmin`: its handler extracts `AuthorizeSuperadmin`, whose `open` gives the unit of work with the proof that the caller is a superadmin, `Superadmin`, or refuses them ([superadmins spec](superadmins.md#what-authorizes-a-superadmins-routes)). The proof names no workspace, so these routes read across workspaces, and act on a workspace that their path alone names, which no other route does: each function that does so for them takes the proof, and reads only what D62 gives a superadmin, a workspace's name, creation time, member count and owner, never a row of what its members share (DATA-16).
+A superadmin's routes on workspaces are this module's, since they read what it owns, and each is added through `Routes::superadmin`: its handler extracts `AuthorizeSuperadmin`, whose `open` gives the unit of work with the proof that the caller is a superadmin, `Superadmin`, or refuses them ([superadmins spec](superadmins.md#what-authorizes-a-superadmins-routes)). The proof names no workspace, so these routes read across workspaces, and act on a workspace that their path alone names, which no other route does: each function that exists only for them takes the proof, and reads only what D62 gives a superadmin, a workspace's name, creation time, member count and owner, never a row of what its members share (DATA-16).
 
 The list of every workspace takes three queries, since a workspace's members belong to `access`, and its owner's name and address to `accounts` (ARCH-06):
 
