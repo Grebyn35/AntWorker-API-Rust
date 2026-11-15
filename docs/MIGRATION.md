@@ -327,6 +327,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 1fb3e30..1627477: as above, with pass 1's fixes | 2 | 4 (3, 2, 1 shared) | 0 | 0 | `clean`: 2b523bd <!-- part: workspace_creation --> |
 | cb8b700..f6ef87e: the first part of `superadmins`: the operator's subcommands declared in the composition root, the table and the subcommand `superadmin`, the proof of a superadmin in `platform::authz` with `Routes::superadmin`, the route that tells a caller whether they are one, a superadmin's list of every workspace, which `workspaces` serves, the part's entry and its run, and the documents it changed | 1 | 11 (6, 7, 2 shared) | 4 | 0 | `next pass`: 03ea028 <!-- part: superadmins --> |
 | cb8b700..03ea028: as above, with pass 1's fixes, and the fixes of what CI's copies found | 2 | 9 (6, 5, 2 shared) | 1 | 1 | `stopped: no progress`: 47d1cc0 <!-- part: superadmins --> |
+| 211aee4..d2b0fae: the rest of `superadmins`: a superadmin's deletion of any workspace, with the lock of the owner's membership in `access`, their creation of workspaces, the subcommand's list of the deployment's superadmins, the seed's superadmin, the runs of the provisioned shape and of a fork without `invitations`, the guide's section on an operator's subcommand, and the documents they changed | 1 | 13 (8, 7, 2 shared) | 2 | 0 | `next pass` <!-- part: superadmins --> |
 
 ## Decisions
 
