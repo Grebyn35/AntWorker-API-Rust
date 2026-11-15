@@ -3,10 +3,16 @@
 // part: files
 //! The statement of a change of its picture is in `picture.rs`.
 // end part: files
+// part: superadmins
+//! The statements of a superadmin's routes are in `superadmin.rs`.
+// end part: superadmins
 // part: workspace_setup
 //! The statements of the operator's setup of a workspace are in `setup.rs`.
 // end part: workspace_setup
 
+// part: superadmins
+pub(super) mod superadmin;
+// end part: superadmins
 // part: files
 pub(super) mod picture;
 // end part: files

@@ -14,6 +14,9 @@ use platform::{
 
 use super::Resources;
 use crate::modules::{auth, system};
+// part: superadmins
+use crate::modules::superadmins;
+// end part: superadmins
 // part: workspace_setup
 use crate::modules::workspaces;
 // end part: workspace_setup
@@ -44,7 +47,30 @@ pub enum Operation {
         owner_name: Option<String>,
     },
     // end part: workspace_setup
+    // part: superadmins
+    /// Makes the account that holds an address a superadmin of the deployment, or ends its being
+    /// one. Exits 1, changing nothing, when no account holds the address, when, with email on,
+    /// the account hasn't proved it, or when the account is one already, or is none to end.
+    Superadmin {
+        /// What to do: `add` or `remove`.
+        #[arg(value_enum)]
+        change: SuperadminChange,
+        /// The account's email address.
+        email: String,
+    },
+    // end part: superadmins
 }
+
+// part: superadmins
+/// What the subcommand `superadmin` does with the account that holds the address.
+#[derive(Clone, Copy, clap::ValueEnum)]
+pub enum SuperadminChange {
+    /// Makes the account a superadmin.
+    Add,
+    /// Ends the account's being a superadmin.
+    Remove,
+}
+// end part: superadmins
 
 /// Why an operator's subcommand changed nothing, which its message says without personal data,
 /// since the logs hold none (OPS-03, OBS-04).
@@ -58,6 +84,11 @@ pub enum Refused {
     #[error(transparent)]
     SetupWorkspace(#[from] SetupRefused),
     // end part: workspace_setup
+    // part: superadmins
+    /// Why `superadmin` changed nothing.
+    #[error(transparent)]
+    Superadmin(#[from] SuperadminRefused),
+    // end part: superadmins
 }
 
 impl Operation {
@@ -69,6 +100,12 @@ impl Operation {
                 let done = remove_second_factor(database, mail, &email).await?;
                 Ok(done.to_owned())
             }
+            // part: superadmins
+            Self::Superadmin { change, email } => {
+                let done = superadmin(database, mail, change, &email).await?;
+                Ok(done.to_owned())
+            }
+            // end part: superadmins
             // part: workspace_setup
             Self::SetupWorkspace {
                 name,
@@ -228,6 +265,72 @@ async fn setup_workspace(
     })
 }
 // end part: workspace_setup
+
+// part: superadmins
+/// Why the subcommand `superadmin` changed nothing, which its message says without the address,
+/// since the logs hold no personal data (SUPERADMINS-002, SUPERADMINS-003, OBS-04).
+#[derive(Debug, thiserror::Error)]
+pub enum SuperadminRefused {
+    /// What the operator gave isn't an email address.
+    #[error("the address given isn't an email address, so no account holds it: nothing changed")]
+    NotAnAddress,
+    /// No account holds the address.
+    #[error("no account holds the address: nothing changed")]
+    NoAccount,
+    /// Email is on, and the account that holds the address hasn't proved it.
+    #[error(
+        "the account that holds the address hasn't proved it, so it may not be its owner's: \
+         nothing changed; run it again once the account has proved the address"
+    )]
+    AddressUnproved,
+    /// The account is a superadmin already.
+    #[error("the account that holds the address is a superadmin already: nothing changed")]
+    AlreadySuperadmin,
+    /// The account is no superadmin.
+    #[error("the account that holds the address is no superadmin: nothing changed")]
+    NotSuperadmin,
+    /// The change couldn't run.
+    #[error(transparent)]
+    Internal(#[from] Internal),
+}
+
+impl From<superadmins::Refusal> for SuperadminRefused {
+    fn from(refusal: superadmins::Refusal) -> Self {
+        match refusal {
+            superadmins::Refusal::NotAnAddress => Self::NotAnAddress,
+            superadmins::Refusal::NoAccount => Self::NoAccount,
+            superadmins::Refusal::AddressUnproved => Self::AddressUnproved,
+            superadmins::Refusal::AlreadySuperadmin => Self::AlreadySuperadmin,
+            superadmins::Refusal::NotSuperadmin => Self::NotSuperadmin,
+        }
+    }
+}
+
+/// Makes the account that holds `email` a superadmin, on `database`, or ends its being one, as
+/// `change` says, for the subcommand `superadmin`, which an operator runs, and answers what it
+/// did, for the subcommand's log. While `mail` is on, only an account that has proved the address
+/// becomes one (SUPERADMINS-001 to SUPERADMINS-003, D62).
+async fn superadmin(
+    database: &Database,
+    mail: &Mail,
+    change: SuperadminChange,
+    email: &str,
+) -> Result<&'static str, SuperadminRefused> {
+    let (change, done) = match change {
+        SuperadminChange::Add => (
+            superadmins::Change::Add,
+            "made the account that holds the address a superadmin; a superadmin's routes serve \
+             it once it has an authenticator app",
+        ),
+        SuperadminChange::Remove => (
+            superadmins::Change::Remove,
+            "the account that holds the address is no superadmin any more",
+        ),
+    };
+    superadmins::change(database, mail.is_on(), change, email).await??;
+    Ok(done)
+}
+// end part: superadmins
 
 /// What `seed` created: each account's email address and name, which all share `password`, and
 /// each workspace's name and ID (SYSTEM-003).

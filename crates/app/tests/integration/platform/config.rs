@@ -219,6 +219,13 @@ fn subcommand_settings(subcommand: &str) -> Option<std::collections::BTreeSet<St
             Ok(())
         }),
         // end part: workspace_setup
+        // part: superadmins
+        "superadmin" => settings_read(|settings| {
+            settings.telemetry()?;
+            settings.operator()?;
+            Ok(())
+        }),
+        // end part: superadmins
         _ => return None,
     })
 }
@@ -318,6 +325,10 @@ fn ops_02_each_setting_the_api_reads_is_documented_and_each_container_gets_only_
     let expected: std::collections::BTreeSet<&str> =
         expected.into_iter().chain(["setup-workspace"]).collect();
     // end part: workspace_setup
+    // part: superadmins
+    let expected: std::collections::BTreeSet<&str> =
+        expected.into_iter().chain(["superadmin"]).collect();
+    // end part: superadmins
     assert_eq!(
         subcommands, expected,
         "the services that run the API's image"

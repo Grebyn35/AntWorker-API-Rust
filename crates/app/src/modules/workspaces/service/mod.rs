@@ -10,10 +10,16 @@
 // part: workspace_setup
 //! The operator's setup of a workspace is in `setup.rs`.
 // end part: workspace_setup
+// part: superadmins
+//! What a superadmin does with the deployment's workspaces is in `superadmin.rs`.
+// end part: superadmins
 
 // part: workspace_creation
 pub(super) mod creation;
 // end part: workspace_creation
+// part: superadmins
+pub(super) mod superadmin;
+// end part: superadmins
 mod members;
 // part: files
 pub(super) mod picture;

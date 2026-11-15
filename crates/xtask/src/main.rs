@@ -502,4 +502,31 @@ mod tests {
         assert!(cli(&["production", "Acme Labs"]).is_err());
     }
     // end part: workspace_setup
+
+    // part: superadmins
+    #[test]
+    fn superadmins_001_the_operator_s_subcommand_takes_a_server_a_change_and_an_address() {
+        let cli = |arguments: &[&str]| {
+            Cli::try_parse_from(
+                ["xtask", "superadmin"]
+                    .into_iter()
+                    .chain(arguments.iter().copied()),
+            )
+        };
+        let added = cli(&["production", "add", "ada@example.com"]).unwrap();
+        let removed = cli(&["production", "remove", "ada@example.com"]).unwrap();
+
+        assert!(matches!(
+            added.command,
+            Command::Server(ServerTask::Superadmin { host, change, email })
+                if host == "production" && change == "add" && email == "ada@example.com"
+        ));
+        assert!(matches!(
+            removed.command,
+            Command::Server(ServerTask::Superadmin { change, .. }) if change == "remove"
+        ));
+        assert!(cli(&["production", "list", "ada@example.com"]).is_err());
+        assert!(cli(&["production", "add"]).is_err());
+    }
+    // end part: superadmins
 }

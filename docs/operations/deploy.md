@@ -192,6 +192,26 @@ An owner who signs in through a provider signs in first, which registers their a
 A name is given to one run: a second run with it, by mistake or at the same time, sets nothing up, until the workspace is deleted. The task logs the new workspace's ID, and never its name or the address. It runs the API's subcommand `setup-workspace` as `remove-second-factor` runs, with the image of the color that serves, so it needs a replica running, and it exits 1, changing nothing, when it sets nothing up, with a line that says why.
 <!-- end part: workspace_setup -->
 
+<!-- part: superadmins -->
+## Superadmins
+
+A superadmin sees every workspace of the deployment: its name, when it was created, how many members it has, and its owner, and nothing of its content ([superadmins spec](../spec/superadmins.md), D62). No route makes a superadmin, so only someone who reaches the server does:
+
+```
+just superadmin production add ada@example.com
+```
+
+makes the account that holds the address a superadmin, and records it in the account's own log. The account exists first: its owner registers, or signs in through a provider. With email on, it must have proved the address, since someone else may have registered it, so run the task again once its owner has proved it; with email off, nothing proves an address, so run it only for an owner who told you that they registered. A superadmin's routes serve the account once it has an authenticator app, which every superadmin must have (D63): one without is asked to set one up.
+
+```
+just superadmin production remove ada@example.com
+```
+
+ends the account's being a superadmin, from the moment the task ends.
+
+Either runs the API's subcommand `superadmin` as `remove-second-factor` runs, with the image of the color that serves, so it needs a replica running, and it exits 1, changing nothing, with a line that says why: when no account holds the address, when the account is a superadmin already, or is none to end. It logs what it did, and never the address.
+<!-- end part: superadmins -->
+
 ## Scaling
 
 `API_REPLICAS` sets how many replicas serve, and `API_CPUS` and `API_MEMORY` what each one may use; `just load-test` measures what one replica serves under the default limits (OPS-16). A replica hashes one password at once per whole CPU it may use, and at least one, each hash with 19 MiB of memory (AUTH-014), and a burst of sign-ins waits its turns (PLATFORM-060), so raising `API_CPUS` raises the memory such a burst takes too. `just load-test sign-ins` measures how many sign-ins a second one replica serves beside its other requests ([release.md](release.md#before-you-release)).

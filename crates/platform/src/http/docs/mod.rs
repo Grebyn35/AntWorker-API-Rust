@@ -121,6 +121,15 @@ fn place(error: &RequestError) -> Place {
 /// Whether the problems of `place` apply to `operation`, served with `method` at `access`.
 fn applies(place: &Place, method: &Method, access: Access, operation: &Operation) -> bool {
     match place {
+        // part: superadmins
+        // A superadmin's route refuses what a workspace's does: an account that must still prove
+        // its address or set up a second factor, and a caller who may not call it.
+        Place::Verified | Place::Enrolled | Place::Workspace
+            if matches!(access, Access::Superadmin) =>
+        {
+            true
+        }
+        // end part: superadmins
         Place::Every => true,
         Place::Unsafe => !method.is_safe(),
         Place::Authenticated => !matches!(access, Access::Public),

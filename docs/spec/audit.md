@@ -19,6 +19,7 @@
   `AuditScope::setup(workspace_id)` names the log of the workspace that the subcommand `setup-workspace` just created, with no actor, since an operator is no user, and only that subcommand's operation may call it, which clippy enforces (WORKSPACES-023). <!-- part: workspace_setup -->
   `Principal::leaver_scope(workspace_id)` names the log of a workspace that the caller leaves as their account is deleted, and only the personal data contract of `workspaces` may call it (ACCOUNTS-014).
 - `SecurityEventSink`, implemented for `platform::authz`.
+  Its `refused_superadmin` records the refusal of a caller who is no superadmin at a superadmin's route (SUPERADMINS-004). <!-- part: superadmins -->
 - `Contract`, the personal data contract for `audit_entries` and `audit_entry_clients` (D31), which exports the user's own log and the log of each workspace whose only member is the user, with the client of each entry the user acted in ([accounts spec](accounts.md#what-an-export-holds)), and whose erasure the foreign keys carry out (AUDIT-006).
 - `Action` and `Resource`, the types of an entry's action and of the kind of resource it happened to. Each module declares its actions, named `<resource>.<past-tense verb>`, such as `member.removed`, and its kinds of resource, such as `workspace`, as constants in its own `audit.rs` (ARCH-03): clippy bans their constructors everywhere else.
 
@@ -52,6 +53,8 @@ An entry names a user only in the three columns that reference `users`, or, in t
 ### Recording a refusal
 
 A refusal happens before the refused operation has written anything. The `SecurityEventSink` implementation records it in its own short transaction: a member's refusal in the workspace's log, and a non-member's in the caller's own log, so a workspace's log never reveals who probed it. A rank refusal inside an operation reaches the sink through `authz::refuse`, and the operation's own unit of work rolls back (PLATFORM-010). A member's refusal whose workspace's log went with the workspace while the refused request ran (WORKSPACES-017) is refused by the foreign key of the entry's log, `audit_entries_workspace_id_fkey`, which the sink reads by its name (ERR-05): the caller is no member of the workspace any more, so the sink records the refusal in their own log, in a second transaction, as it records a non-member's, with `Refusal::own_scope`. A refusal that goes to its caller's own log, which went with their account meanwhile, such as a read that waited for its own caller's deletion, is recorded nowhere: `audit_entries_user_id_fkey` refuses it, and nothing is left to hold it. Either way the request still answers as refused (AUDIT-004).
+
+A caller who is no superadmin, refused at a superadmin's route, is recorded as `access.denied` too, in their own log, as a non-member's refusal is, with the deployment as its resource, which has no ID; a caller whose account went meanwhile has no log left to hold it (SUPERADMINS-004). <!-- part: superadmins -->
 
 ## Open design questions
 

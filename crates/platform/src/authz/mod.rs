@@ -3,11 +3,12 @@
 //! inside the request's unit of work (D2, PLATFORM-009), and the report of every refusal to the
 //! `SecurityEventSink` that `audit` implements (ACCESS-003, PLATFORM-010).
 
-use std::{
-    collections::{BTreeMap, HashMap},
-    marker::PhantomData,
-    sync::Arc,
-};
+mod memberships;
+// part: superadmins
+mod superadmin;
+// end part: superadmins
+
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
 use axum::{
     extract::{FromRequestParts, RawPathParams},
@@ -24,6 +25,12 @@ use crate::{
     telemetry::{metrics::Counter, names},
     types::{Client, UserId, WorkspaceId},
 };
+
+pub use memberships::Memberships;
+pub(crate) use memberships::{Committed, Snapshot};
+// part: superadmins
+pub use superadmin::{Admission, AuthorizeSuperadmin, Superadmin, SuperadminPolicy};
+// end part: superadmins
 
 /// The path parameter that names a route's workspace (API-02).
 const WORKSPACE_PARAMETER: &str = "workspace_id";
@@ -67,133 +74,6 @@ pub trait AccessPolicy: Send + Sync {
         uow: &'a mut UnitOfWork,
         users: &'a [UserId],
     ) -> BoxFuture<'a, Result<HashMap<UserId, Memberships>, Internal>>;
-}
-
-/// The workspaces a user belongs to, each with the names of the permissions their role holds
-/// there and the transaction that added them, which `AccessPolicy::memberships` reads for the
-/// hub, so a stream receives only the workspace events its caller may, and of those only the ones
-/// that committed after their membership did (SEC-19).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Memberships {
-    workspaces: BTreeMap<WorkspaceId, Membership>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Membership {
-    permissions: Vec<&'static str>,
-    joined: u64,
-}
-
-impl Memberships {
-    /// Records that the user belongs to `workspace`, with a role that holds `permissions`, since
-    /// the transaction `joined` committed: its ID, as `pg_current_xact_id()` gave it.
-    pub fn insert(&mut self, workspace: WorkspaceId, joined: u64, permissions: &[&'static str]) {
-        let mut permissions = permissions.to_vec();
-        permissions.sort_unstable();
-        self.workspaces.insert(
-            workspace,
-            Membership {
-                permissions,
-                joined,
-            },
-        );
-    }
-
-    /// The workspaces the user belongs to.
-    pub(crate) fn workspaces(&self) -> impl Iterator<Item = WorkspaceId> + '_ {
-        self.workspaces.keys().copied()
-    }
-
-    /// Whether an event of `workspace` that requires `permission`, and committed when `committed`
-    /// had, reaches the user: their role there holds the permission, and their membership had
-    /// committed before the event did.
-    pub(crate) fn admits(
-        &self,
-        workspace: WorkspaceId,
-        permission: &str,
-        committed: &Committed,
-    ) -> bool {
-        self.workspaces.get(&workspace).is_some_and(|membership| {
-            membership.permissions.contains(&permission) && committed.includes(membership.joined)
-        })
-    }
-
-    /// One row per workspace and permission the user holds there: its workspace, the
-    /// permission, and the transaction that added the membership, as text for `xid8`, which the
-    /// replay's query joins on.
-    pub(crate) fn rows(&self) -> (Vec<uuid::Uuid>, Vec<String>, Vec<String>) {
-        let mut rows = (Vec::new(), Vec::new(), Vec::new());
-        for (workspace, membership) in &self.workspaces {
-            for permission in &membership.permissions {
-                rows.0.push(workspace.uuid());
-                rows.1.push((*permission).to_owned());
-                rows.2.push(membership.joined.to_string());
-            }
-        }
-        rows
-    }
-}
-
-/// The transactions a `pg_snapshot` holds as completed: those below `xmin`, and those below `xmax`
-/// that weren't running, as Postgres's `pg_visible_in_snapshot` reads it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Snapshot {
-    xmin: u64,
-    xmax: u64,
-    running: Vec<u64>,
-}
-
-impl Snapshot {
-    /// The snapshot whose text form, `xmin:xmax:xip,...`, is `text`, or `None` for text that
-    /// isn't one.
-    pub(crate) fn parse(text: &str) -> Option<Self> {
-        let mut parts = text.split(':');
-        let (Some(xmin), Some(xmax), Some(running), None) =
-            (parts.next(), parts.next(), parts.next(), parts.next())
-        else {
-            return None;
-        };
-        let running = running
-            .split(',')
-            .filter(|id| !id.is_empty())
-            .map(str::parse)
-            .collect::<Result<Vec<u64>, _>>()
-            .ok()?;
-        Some(Self {
-            xmin: xmin.parse().ok()?,
-            xmax: xmax.parse().ok()?,
-            running,
-        })
-    }
-
-    /// Whether the transaction `id` had completed when the snapshot was taken.
-    pub(crate) fn includes(&self, id: u64) -> bool {
-        id < self.xmin || (id < self.xmax && !self.running.contains(&id))
-    }
-}
-
-/// The transactions that had committed when an event did: those of the snapshot its commit took,
-/// and the event's own, which a snapshot leaves out, but which commits with it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Committed {
-    own: u64,
-    snapshot: Snapshot,
-}
-
-impl Committed {
-    /// The transactions of the event whose own transaction is `own`, and whose commit took
-    /// `snapshot`, a `pg_snapshot` in its text form, or `None` for text that isn't one.
-    pub(crate) fn parse(own: &str, snapshot: &str) -> Option<Self> {
-        Some(Self {
-            own: own.parse().ok()?,
-            snapshot: Snapshot::parse(snapshot)?,
-        })
-    }
-
-    /// Whether the transaction `id` had committed, or is the event's own.
-    fn includes(&self, id: u64) -> bool {
-        id == self.own || self.snapshot.includes(id)
-    }
 }
 
 /// A refused request, as the `SecurityEventSink` records it (DATA-22).
@@ -246,6 +126,17 @@ impl Refusal {
 pub trait SecurityEventSink: Send + Sync {
     /// Records `refusal`, in a transaction of its own.
     fn refused<'a>(&'a self, refusal: &'a Refusal) -> BoxFuture<'a, Result<(), Internal>>;
+
+    // part: superadmins
+    /// Records that a caller who is no superadmin was refused a superadmin's route, which
+    /// `client` asked for, in the log that `scope` names, the caller's own, with them as the
+    /// actor, in a transaction of its own (SUPERADMINS-004).
+    fn refused_superadmin<'a>(
+        &'a self,
+        scope: AuditScope,
+        client: &'a Client,
+    ) -> BoxFuture<'a, Result<(), Internal>>;
+    // end part: superadmins
 }
 
 /// What authorizing a workspace request takes: the database the unit of work opens on, the
@@ -258,6 +149,10 @@ pub struct Authorizer {
     pub policy: Arc<dyn AccessPolicy>,
     /// The sink that `audit` implements.
     pub sink: Arc<dyn SecurityEventSink>,
+    // part: superadmins
+    /// The policy of a superadmin's routes, which `superadmins` implements.
+    pub superadmins: Arc<dyn SuperadminPolicy>,
+    // end part: superadmins
 }
 
 /// Why a request was refused, as `platform.authorization_refusals` counts it.
@@ -266,6 +161,17 @@ enum Reason {
     NotMember,
     Permission,
     Rank,
+}
+
+impl Reason {
+    /// The reason, as the metric's attribute holds it.
+    fn label(self) -> &'static str {
+        match self {
+            Self::NotMember => "not_member",
+            Self::Permission => "permission",
+            Self::Rank => "rank",
+        }
+    }
 }
 
 static REFUSALS: Counter<1> = Counter::new(
@@ -466,11 +372,6 @@ async fn report(
     refusal: &Refusal,
     reason: Reason,
 ) -> Result<(), Internal> {
-    let label = match reason {
-        Reason::NotMember => "not_member",
-        Reason::Permission => "permission",
-        Reason::Rank => "rank",
-    };
-    REFUSALS.add(1, [label.into()]);
+    REFUSALS.add(1, [reason.label().into()]);
     sink.refused(refusal).await
 }

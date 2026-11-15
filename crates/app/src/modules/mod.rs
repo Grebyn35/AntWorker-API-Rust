@@ -11,6 +11,9 @@ pub(crate) mod files;
 pub(crate) mod invitations;
 // end part: invitations
 pub(crate) mod realtime;
+// part: superadmins
+pub(crate) mod superadmins;
+// end part: superadmins
 pub(crate) mod system;
 pub(crate) mod workspaces;
 

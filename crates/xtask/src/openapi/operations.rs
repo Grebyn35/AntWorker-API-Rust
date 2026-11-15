@@ -22,6 +22,11 @@ const CALLER: &str = "/v1/users/me";
 const PUBLIC: &str = "/v1/public";
 // end part: files
 
+// part: superadmins
+/// The prefix of a superadmin's routes (API-02).
+const SUPERADMIN: &str = "/v1/superadmin";
+// end part: superadmins
+
 /// Every way the document's operations break API-02 to API-04.
 pub fn check(document: &Value) -> Vec<Problem> {
     let empty = Map::new();
@@ -63,6 +68,9 @@ fn problems(
 
 /// API-02: a workspace's resources are under `/v1/workspaces/{workspace_id}/`, the caller's own
 /// under `/v1/users/me/`, and no header selects a workspace.
+// part: superadmins
+/// A superadmin's routes are under `/v1/superadmin/`, and every operation there is one.
+// end part: superadmins
 // part: files
 /// A public file's bytes are under `/v1/public/`: a public file's download is a public operation
 /// that serves a range, a 206, which `Routes::public_download` documents (API-14), so each such
@@ -93,6 +101,18 @@ fn scope(
             "{here} acts on the caller's own resources, so it isn't public (API-02)"
         ));
     }
+    // part: superadmins
+    if access == "superadmin" && !under(SUPERADMIN) {
+        messages.push(format!(
+            "{here} is a superadmin's route, so its path starts with {SUPERADMIN} (API-02)"
+        ));
+    }
+    if under(SUPERADMIN) && access != "superadmin" {
+        messages.push(format!(
+            "{here} is under {SUPERADMIN}, which holds a superadmin's routes alone (API-02)"
+        ));
+    }
+    // end part: superadmins
     // part: files
     let download = access == "public" && operation["responses"].get("206").is_some();
     if download && !under(PUBLIC) {
@@ -332,6 +352,34 @@ mod tests {
             Vec::<String>::new()
         );
     }
+
+    // part: superadmins
+    #[test]
+    fn api_02_a_superadmin_s_routes_are_under_v1_superadmin_and_nothing_else_is() {
+        let superadmin = json!({ "x-access": "superadmin", "responses": { "200": ok(true) } });
+        assert_eq!(
+            messages("/v1/workspaces", "get", &superadmin),
+            [
+                "GET /v1/workspaces is a superadmin's route, so its path starts with /v1/superadmin (API-02)"
+            ]
+        );
+        assert_eq!(
+            messages("/v1/superadmin/workspaces", "get", &superadmin),
+            Vec::<String>::new()
+        );
+        let user = json!({ "x-access": "user", "responses": { "200": ok(true) } });
+        assert_eq!(
+            messages("/v1/superadmin/workspaces", "get", &user),
+            [
+                "GET /v1/superadmin/workspaces is under /v1/superadmin, which holds a superadmin's routes alone (API-02)"
+            ]
+        );
+        assert_eq!(
+            messages("/v1/users/me/superadmin", "get", &user),
+            Vec::<String>::new()
+        );
+    }
+    // end part: superadmins
 
     // part: files
     #[test]

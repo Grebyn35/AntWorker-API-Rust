@@ -48,6 +48,9 @@ fn features(email: bool) -> Value {
     // part: invitations
     features.insert("invitations".to_owned(), json!(true));
     // end part: invitations
+    // part: superadmins
+    features.insert("superadmins".to_owned(), json!(true));
+    // end part: superadmins
     // part: files
     features.insert("files".to_owned(), json!(true));
     // end part: files

@@ -26,6 +26,10 @@ mod openapi;
 mod platform;
 #[cfg(test)]
 mod realtime;
+// part: superadmins
+#[cfg(test)]
+mod superadmins;
+// end part: superadmins
 #[cfg(test)]
 mod support;
 #[cfg(test)]

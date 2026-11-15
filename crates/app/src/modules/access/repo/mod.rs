@@ -2,6 +2,9 @@
 //! role, or end memberships, in `changes.rs`. Every query filters by the workspace or the user the
 //! operation's proof names (DATA-16).
 
+// part: superadmins
+pub(super) mod census;
+// end part: superadmins
 pub(super) mod changes;
 
 use platform::{

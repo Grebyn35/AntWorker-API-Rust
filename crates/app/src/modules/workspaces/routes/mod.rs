@@ -6,6 +6,9 @@
 // part: files
 //! Setting and removing a workspace's picture are in `picture.rs`.
 // end part: files
+// part: superadmins
+//! A superadmin's routes on the deployment's workspaces are in `superadmin.rs`.
+// end part: superadmins
 
 // part: workspace_creation
 mod creation;
@@ -14,6 +17,9 @@ mod members;
 // part: files
 mod picture;
 // end part: files
+// part: superadmins
+mod superadmin;
+// end part: superadmins
 
 use axum::{extract::State, http::StatusCode};
 use platform::{
@@ -52,6 +58,9 @@ pub(crate) fn routes() -> Routes<Database> {
     // part: workspace_creation
     let routes = routes.merge(creation::routes());
     // end part: workspace_creation
+    // part: superadmins
+    let routes = routes.merge(superadmin::routes());
+    // end part: superadmins
     routes
         .events(&[
             &MEMBERSHIP_CREATED,

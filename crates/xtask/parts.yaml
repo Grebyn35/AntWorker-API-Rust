@@ -22,7 +22,7 @@ parts:
       - invit
       - teams shape # part: workspace_creation
       - one organization shape # part: workspace_setup
-      - provisioned shape
+      - provisioned shape # part: superadmins
   # end part: invitations
   # part: files
   - name: files
@@ -132,6 +132,30 @@ parts:
       - setupowner
       - one organization shape # part: invitations
   # end part: workspace_setup
+  # part: superadmins
+  - name: superadmins
+    module: superadmins
+    paths:
+      - crates/app/src/modules/access/repo/census.rs
+      - crates/app/src/modules/access/service/census.rs
+      - crates/app/src/modules/auth/service/second_factors/presence.rs
+      - crates/app/src/modules/superadmins
+      - crates/app/src/modules/workspaces/repo/superadmin.rs
+      - crates/app/src/modules/workspaces/routes/superadmin.rs
+      - crates/app/src/modules/workspaces/service/superadmin.rs
+      - crates/app/tests/integration/superadmins.rs
+      - crates/app/tests/integration/support/superadmins.rs
+      - crates/platform/src/authz/superadmin.rs
+      - docs/spec/superadmins.md
+      - migrations/20261115120100_workspaces_created_at_index.sql
+    words:
+      - superadmin
+      - census
+      - has_authenticator_app
+      - workspaceoverview
+      - workspaceowner
+      - provisioned shape # part: invitations
+  # end part: superadmins
   # part: github
   - name: github
     paths:
@@ -197,6 +221,12 @@ runs:
     parts:
       - files
   # end part: files
+  # part: superadmins
+  # A product without superadmins.
+  - name: superadmins
+    parts:
+      - superadmins
+  # end part: superadmins
   # part: github
   # A product without GitHub's sign-in.
   - name: github
@@ -227,6 +257,9 @@ runs:
       # part: files
       - files
       # end part: files
+      # part: superadmins
+      - superadmins
+      # end part: superadmins
       # part: github
       - github
       # end part: github

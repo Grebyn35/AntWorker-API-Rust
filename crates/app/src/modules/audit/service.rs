@@ -10,6 +10,10 @@ use platform::{
     telemetry,
 };
 
+// part: superadmins
+use platform::types::Client;
+// end part: superadmins
+
 use super::{
     audit,
     error::AuditError,
@@ -80,4 +84,30 @@ impl SecurityEventSink for Sink {
     fn refused<'a>(&'a self, refusal: &'a Refusal) -> BoxFuture<'a, Result<(), Internal>> {
         Box::pin(self.write(refusal))
     }
+
+    // part: superadmins
+    /// Records the refusal in the caller's own log, with the deployment as its resource. A
+    /// caller whose account went while the refused request ran has no log left to hold it, as
+    /// a non-member's refusal has none (SUPERADMINS-004, AUDIT-004).
+    fn refused_superadmin<'a>(
+        &'a self,
+        scope: AuditScope,
+        client: &'a Client,
+    ) -> BoxFuture<'a, Result<(), Internal>> {
+        Box::pin(async move {
+            let mut uow = self.database.begin(client).await?;
+            let entry = Entry {
+                action: audit::ACCESS_DENIED,
+                resource_type: audit::DEPLOYMENT,
+                resource_id: None,
+                target: None,
+                details: serde_json::json!({ "access": "superadmin" }),
+            };
+            match repo::insert(&mut uow, scope, &entry, &telemetry::trace_id()).await? {
+                Inserted::Recorded => uow.commit().await,
+                Inserted::LogGone => Ok(()),
+            }
+        })
+    }
+    // end part: superadmins
 }

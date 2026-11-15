@@ -46,7 +46,7 @@ These parts are optional:
 - Each part that gives a product its workspace shape ([architecture.md §5](../architecture.md#workspace-shapes)):
   - users creating workspaces through `POST /v1/workspaces` <!-- part: workspace_creation -->
   - the setup subcommand, `setup-workspace` <!-- part: workspace_setup -->
-  - the `superadmins` module, with its subcommand
+  - the `superadmins` module, with its subcommand, and a superadmin's routes <!-- part: superadmins -->
   - the `invitations` module <!-- part: invitations -->
 
 An optional part consists of everything that exists only for it: its code and its registration; the items of other modules that only it uses, such as a permission or a function; the dependencies that only it uses; its emails, with their templates; its tables, each created and changed only by migrations of its own; its tests; its section of the module spec, or for a module its whole spec and its row in the spec index; its settings in `.env.example` and in the reference deployment's files; the metrics it declares, with the dashboard panels and alerts that use them, its panels in a dashboard of its own, since a dashboard's JSON holds no comment for a marker (D119); its routes in `openapi.json`; and every sentence, list item or table row of a document that exists only for it. What several parts use is the core's, in the shape that serves each of them, as the one operation that creates a workspace is, which every part that creates workspaces calls, and as the event that tells a user they joined one. `just remove <part>` deletes all of these, together with every link and ID that points into them, and leaves a codebase that passes `just ci`:
@@ -64,7 +64,9 @@ So a line that names an optional part either exists only for it, and carries its
 ## Layers
 
 ### ARCH-08 Handlers only extract, authorize, call and respond
-A handler in `routes.rs` extracts its inputs, receives its authorization through its extractor types, calls one service function, and shapes the response. It contains no SQL and no business rules, and opens no unit of work: the service opens it, or `Authorize` on a workspace route (architecture §6). A function of the routes that no route registers calls no service function, so the handler's one call is the only one.
+A handler in `routes.rs` extracts its inputs, receives its authorization through its extractor types, calls one service function, and shapes the response. It contains no SQL and no business rules, and opens no unit of work: the service opens it, or `Authorize` on a workspace route (architecture §6).
+On a superadmin's route, `AuthorizeSuperadmin` opens it. <!-- part: superadmins -->
+A function of the routes that no route registers calls no service function, so the handler's one call is the only one.
 - Why: business rules live in exactly one layer.
 - Check: `ci: check-layers` (no `sqlx` in a module's routes, no handler calls `check` on the `RateLimits` it extracts, which the service counts, no handler calls a second method of what its `State` extracts, or a second function of its module's `service`, no function that no `routes!` registers calls either, and the routes call no `begin`), plus `review`.
 
@@ -90,13 +92,14 @@ Three records are written outside it, each so that what happens to the operation
 ## Composition
 
 ### ARCH-12 One composition root
-The composition root, `composition/`, builds every service once at startup, hands each one its dependencies, registers the four `platform` traits that architecture §5 lists as registered there, and mounts every module's routes. Nothing else constructs services. The process's resources aren't services: `main.rs` opens them before the services are built, each that can fail as a step of startup with its own `startup.area` (OPS-03), and hands them to the composition root. They are the signal handlers, the database, the clock, readiness, the listener, the workers, the turns of CPU-heavy work, and the mail, the transport to the mail server that `Mail` holds, with `startup.area` `mail`. Global mutable state is not allowed. The only exceptions are metric handles and other read-only values that are initialized once, and the state the test support keeps for the tests of one process, such as the template database's name, or for the thread of one test, such as the watch of its lines.
+The composition root, `composition/`, builds every service once at startup, hands each one its dependencies, registers the `platform` traits that architecture §5 lists as registered there, and mounts every module's routes. Nothing else constructs services. The process's resources aren't services: `main.rs` opens them before the services are built, each that can fail as a step of startup with its own `startup.area` (OPS-03), and hands them to the composition root. They are the signal handlers, the database, the clock, readiness, the listener, the workers, the turns of CPU-heavy work, and the mail, the transport to the mail server that `Mail` holds, with `startup.area` `mail`. Global mutable state is not allowed. The only exceptions are metric handles and other read-only values that are initialized once, and the state the test support keeps for the tests of one process, such as the template database's name, or for the thread of one test, such as the watch of its lines.
 - Why: every dependency is visible in one file, and tests build the same graph.
 - Check: `review`.
 
 ### ARCH-13 Dependency traits only for inversion or multiple implementations
 A trait that abstracts a dependency exists for one of two reasons:
 - It inverts a dependency the crate or module graph forbids: `SessionVerifier`, `AccessPolicy`, `SecurityEventSink`, the personal data contract, and `ExportStore`.
+  `SuperadminPolicy` inverts one too. <!-- part: superadmins -->
   The operator's setup of a workspace that the composition root hands `seed` inverts one too, as a function, since `system` uses no other module. <!-- part: workspace_setup -->
 - It covers an external system with more than one implementation: email transport and the clock.
   Object storage is one too. <!-- part: files -->

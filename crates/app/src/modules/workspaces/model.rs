@@ -144,6 +144,35 @@ pub(crate) struct WorkspaceItem {
     // end part: files
 }
 
+// part: superadmins
+/// A workspace of the deployment, as a superadmin sees it: nothing of its content
+/// (WORKSPACES-029).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ToSchema)]
+pub(crate) struct WorkspaceOverview {
+    /// The workspace's ID.
+    pub(crate) id: WorkspaceId,
+    /// Its name.
+    pub(crate) name: WorkspaceName,
+    /// When it was created.
+    pub(crate) created_at: Timestamp,
+    /// How many members it has, its owner among them.
+    pub(crate) member_count: i64,
+    /// Its owner.
+    pub(crate) owner: WorkspaceOwner,
+}
+
+/// A workspace's owner, as a superadmin sees them (WORKSPACES-029).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ToSchema)]
+pub(crate) struct WorkspaceOwner {
+    /// The owner's user ID.
+    pub(crate) user_id: UserId,
+    /// Their name.
+    pub(crate) name: DisplayName,
+    /// Their email address.
+    pub(crate) email: EmailAddress,
+}
+// end part: superadmins
+
 /// A member of a workspace (WORKSPACES-004).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, ToSchema)]
 pub(crate) struct Member {

@@ -37,6 +37,7 @@ A behavior's ID is the module name in capitals plus a three-digit number, such a
 | `access` | [access.md](access.md) |
 | `workspaces` | [workspaces.md](workspaces.md) |
 | `invitations` | [invitations.md](invitations.md) <!-- part: invitations --> |
+| `superadmins` | [superadmins.md](superadmins.md) <!-- part: superadmins --> |
 | `audit` | [audit.md](audit.md) |
 | `realtime` | [realtime.md](realtime.md) |
 | `files` | [files.md](files.md) <!-- part: files --> |

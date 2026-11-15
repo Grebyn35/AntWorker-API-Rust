@@ -7,8 +7,13 @@
 
 use super::model::{Action, Resource};
 
-/// Authorization refused a workspace request (AUDIT-004).
+/// Authorization refused a request (AUDIT-004).
 pub(super) const ACCESS_DENIED: Action = Action::new("access.denied");
 
 /// A workspace.
 pub(super) const WORKSPACE: Resource = Resource::new("workspace");
+
+// part: superadmins
+/// The deployment, which a superadmin's routes act on, and which has no ID (SUPERADMINS-004).
+pub(super) const DEPLOYMENT: Resource = Resource::new("deployment");
+// end part: superadmins

@@ -2,6 +2,9 @@
 //! `platform::authz` asks on every workspace request (ACCESS-003, the access spec's "Policy").
 //! The operations that change a membership's role, or end memberships, are in `changes.rs`.
 
+// part: superadmins
+mod census;
+// end part: superadmins
 mod changes;
 
 use std::collections::HashMap;
@@ -16,6 +19,9 @@ use platform::{
     types::{Timestamp, UserId, Version, WorkspaceId},
 };
 
+// part: superadmins
+pub(crate) use self::census::census;
+// end part: superadmins
 pub(crate) use self::changes::{
     Removal, RoleChange, Transfer, change_role, dissolve, leave, remove, transfer,
 };

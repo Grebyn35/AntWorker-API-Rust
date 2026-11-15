@@ -141,6 +141,9 @@ fn operation_problems(path: &str, method: &str, operation: &Value) -> Vec<Proble
     let here = format!("{} {path}", method.to_ascii_uppercase());
     let needle = quoted(path);
     match operation["x-access"].as_str() {
+        // part: superadmins
+        Some("superadmin") => {}
+        // end part: superadmins
         Some(access) if ACCESS_LEVELS.contains(&access) => {}
         _ => problems.push((
             needle.clone(),

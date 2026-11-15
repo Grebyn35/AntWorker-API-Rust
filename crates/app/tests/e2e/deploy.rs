@@ -952,6 +952,42 @@ fn operator_subcommands_run(deployment: &Deployment) {
     );
     assert!(!written.contains("nobody@example.com"), "{written}");
     // end part: workspace_setup
+    // part: superadmins
+    // The making of a superadmin (SUPERADMINS-001): with email off, the account that holds the
+    // address becomes one, and an address that no account holds ends none (SUPERADMINS-003).
+    let (registered, session) = post(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/users"),
+        serde_json::json!({
+            "email": "sam@example.com",
+            "password": "plum-tractor-41-quiet",
+            "name": "Sam"
+        })
+        .to_string(),
+    );
+    assert_eq!(registered, 201, "{session}");
+    let added = deployment
+        .server
+        .deploy(&["superadmin", "add", "sam@example.com"]);
+    let nobody = deployment
+        .server
+        .deploy(&["superadmin", "remove", "nobody@example.com"]);
+    let written = lossy(&added);
+    assert_eq!(added.status.code(), Some(0), "{written}");
+    assert!(written.contains("subcommand finished"), "{written}");
+    assert!(
+        written.contains("made the account that holds the address a superadmin"),
+        "{written}"
+    );
+    assert!(!written.contains("sam@example.com"), "{written}");
+    let written = lossy(&nobody);
+    assert_eq!(nobody.status.code(), Some(1), "{written}");
+    assert!(
+        written.contains(&app::SuperadminRefused::NoAccount.to_string()),
+        "{written}"
+    );
+    assert!(!written.contains("nobody@example.com"), "{written}");
+    // end part: superadmins
 }
 
 #[tokio::test]

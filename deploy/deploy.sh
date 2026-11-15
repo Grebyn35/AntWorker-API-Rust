@@ -8,6 +8,7 @@
 # machine; docs/operations/deploy.md describes the deployment. Each task's code is a file of
 # tasks/, which this script sources.
 # It also sets up a workspace (WORKSPACES-023), which `just setup-workspace` runs. # part: workspace_setup
+# It also makes an account a superadmin, or ends one (SUPERADMINS-001), which `just superadmin` runs. # part: superadmins
 #
 #   deploy.sh deploy <version> [--allow-restart]
 #       Verifies the release <version>, then deploys its images. Once its replicas serve, it
@@ -56,6 +57,13 @@
 #       the address. Fails, changing nothing, when an earlier run was given the name, or the
 #       account may not own the workspace.
 # end part: workspace_setup
+# part: superadmins
+#   deploy.sh superadmin <add|remove> <email>
+#       Makes the account that holds <email> a superadmin of the deployment, or ends its being
+#       one, through the API's subcommand of the same name, with the image of the color that
+#       serves. Fails, changing nothing, when no account holds the address, when, with email on,
+#       the account hasn't proved it, or when the account is one already, or is none to end.
+# end part: superadmins
 #   deploy.sh check <version>
 #   deploy.sh check-images <API image> <Postgres image>
 #       Checks what a deploy of the release <version>, or of the two images, each named by
@@ -101,6 +109,9 @@ tasks="deploy|apply|backup|restore|restore-inputs|status|logs|remove-second-fact
 # part: workspace_setup
 tasks="$tasks|setup-workspace"
 # end part: workspace_setup
+# part: superadmins
+tasks="$tasks|superadmin"
+# end part: superadmins
 
 command=${1:-}
 case $command in
@@ -137,6 +148,12 @@ case $command in
         setup_workspace "$@"
         ;;
     # end part: workspace_setup
+    # part: superadmins
+    superadmin)
+        if [ "$#" -ne 3 ]; then fail "usage: deploy.sh superadmin <add|remove> <email>"; fi
+        superadmin "$2" "$3"
+        ;;
+    # end part: superadmins
     check)
         if [ "$#" -ne 2 ]; then fail "usage: deploy.sh check <version>"; fi
         check "$2"

@@ -6,6 +6,7 @@
 A user creates a workspace through `POST /v1/workspaces`, and owns it. <!-- part: workspace_creation -->
 A workspace's owner and admins also set and remove its picture here, whose image `files` keeps (D117, D149). <!-- part: files -->
 The subcommand `setup-workspace`, which an operator runs, creates a workspace for its owner, and, with email on, their account when no account holds their address (D65). <!-- part: workspace_setup -->
+A superadmin lists every workspace of the deployment here, through a route of their own, which shows nothing of a workspace's content (D62). <!-- part: superadmins -->
 
 ## Owns
 
@@ -40,6 +41,7 @@ The subcommand `setup-workspace`, which an operator runs, creates a workspace fo
 | `DELETE /v1/workspaces/{workspace_id}/members/{user_id}` | `workspace::<MembersRemove>` | WORKSPACES-005, WORKSPACES-006 |
 | `PUT /v1/workspaces/{workspace_id}/picture` | `workspace::<WorkspaceUpdate>` | WORKSPACES-019, WORKSPACES-020 <!-- part: files --> |
 | `DELETE /v1/workspaces/{workspace_id}/picture` | `workspace::<WorkspaceUpdate>` | WORKSPACES-021 <!-- part: files --> |
+| `GET /v1/superadmin/workspaces` | superadmin | WORKSPACES-029 <!-- part: superadmins --> |
 
 Each `PATCH` accepts an `If-Match` (API-13, PLATFORM-071).
 `POST /v1/workspaces` accepts an `Idempotency-Key` (API-12). <!-- part: workspace_creation -->
@@ -79,6 +81,7 @@ ID 009 is retired.
 | WORKSPACES-026 | With email off, the subcommand creates no account: the account that holds the address becomes the owner when it has an identity, whether or not it proved the address. An address that no account holds, and an account without an identity, set nothing up. <!-- part: workspace_setup --> | D67, D150 | `workspaces_026_` |
 | WORKSPACES-027 | A name is given to one run: `workspace_setups` holds the normalized name that each run was given, under a unique constraint, so a run with a name that an earlier run was given sets nothing up, and of two runs at once with one name, one does. A rename of the workspace leaves the name used, and deleting the workspace frees it. The export of a user who is the workspace's only member holds the row, in `workspaces/workspace_setups.json`, with its `workspace_id`, `name` and `created_at`. <!-- part: workspace_setup --> | D65, ERR-05, DATA-06, DATA-23 | `workspaces_027_` |
 | WORKSPACES-028 | A run sets nothing up when what it is given names no workspace or no owner: a name that WORKSPACES-002 refuses, an address that ACCOUNTS-002 refuses, or an owner's name that ACCOUNTS-003 refuses; or, with email on, when the account that holds the address has an identity and hasn't proved the address, when no account holds it and the run was given no owner's name, or when an account takes the address while the run creates one. A run that sets nothing up, for these reasons or those of WORKSPACES-026 and WORKSPACES-027, changes nothing, and ends as a failure does (OPS-03), exiting 1, with a message that says why, without the name or the address. <!-- part: workspace_setup --> | D65, OPS-03, OBS-04, ERR-05 | `workspaces_028_` |
+| WORKSPACES-029 | `GET /v1/superadmin/workspaces` lists every workspace of the deployment, to a superadmin (SUPERADMINS-004), with `{id, name, created_at, member_count, owner}`, `owner` being `{user_id, name, email}`, the latest created first, in cursor pages. Its `search` matches the workspace's name. An item holds nothing else of its workspace. <!-- part: superadmins --> | D62, D155, API-05, API-06, API-20, DATA-16, DATA-17 | `workspaces_029_` |
 
 ## Design
 
@@ -146,6 +149,22 @@ A picture is public, so a client shows it with an `<img>` that sends no credenti
 WORKSPACES-020's kinds and limit are an avatar's (ACCOUNTS-009): a list of the caller's workspaces downloads each one's picture, as a member list downloads each member's avatar, so a client shrinks an image to the size it shows before it sends it. The API reads no image's dimensions, since it never decodes one (D109).
 <!-- end part: files -->
 
+<!-- part: superadmins -->
+### A superadmin's routes
+
+A superadmin's routes on workspaces are this module's, since they read what it owns, and each is added through `Routes::superadmin`: its handler extracts `AuthorizeSuperadmin`, whose `open` gives the unit of work with the proof that the caller is a superadmin, `Superadmin`, or refuses them ([superadmins spec](superadmins.md#what-authorizes-a-superadmins-routes)). The proof names no workspace, so these routes read across workspaces, which no other route does: each function they call takes the proof, and reads only what D62 gives a superadmin, a workspace's name, creation time, member count and owner, never a row of what its members share (DATA-16).
+
+The list of every workspace takes three queries, since a workspace's members belong to `access`, and its owner's name and address to `accounts` (ARCH-06):
+
+1. A page of the workspaces, the latest created first, through the index on their creation time and ID, kept to those whose name contains the search (DATA-17).
+2. `access::census` reads, for exactly those workspaces, each one's owner and how many members it has.
+3. `accounts::profiles` reads the owners' names and addresses, by exactly those users' IDs.
+
+A workspace that a deletion takes between the first read and the second drops out of the page, as one does from the list of a caller's own workspaces.
+
+The list is ordered and searched by what this module owns alone (D155). A search by the owner's name or address would hand `accounts` the ID of every workspace's owner, as a search of a workspace's members hands it every member's ([access spec](access.md#searching-members)), which a deployment's workspaces outgrow where a workspace's members don't. The owner is the one member that an item names, since D62 gives a superadmin a workspace's owner and its member count, and no more of its members.
+<!-- end part: superadmins -->
+
 ### Listing members
 
 `access::members` returns a page of the memberships, filtered by the workspace ID, and narrowed by a search as the access spec says ("Searching members"). `accounts::profiles` returns their names and emails in one batch call, given exactly those user IDs (ACCOUNTS-005, ARCH-06, DATA-16).
@@ -188,6 +207,4 @@ The contract runs once `access::erasable` has locked the user's memberships, and
 
 ## Open design questions
 
-| Question | Settled by |
-|---|---|
-| How the read of every workspace that `superadmins` asks of this module, which no tenant filters, meets DATA-16 and `check-tenancy` (D62) | the spec of `superadmins`, in step 5 |
+None.

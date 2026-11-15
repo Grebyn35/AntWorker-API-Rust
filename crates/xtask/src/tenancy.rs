@@ -51,6 +51,10 @@ const ACCOUNT_DATA: &[&str] = &[
     "avatars",
     "exported_files",
     // end part: files
+    // part: superadmins
+    // Who is a superadmin, each row a user's own.
+    "superadmins",
+    // end part: superadmins
 ];
 
 /// Tables of `platform`'s own bookkeeping (DATA-16). A job records the workspace and the user it
@@ -516,6 +520,9 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
                CREATE TABLE exported_files (id uuid, export_id uuid, user_id uuid);\n\
                CREATE TABLE object_deletions (id uuid, object_key text);\n";
         // end part: files
+        // part: superadmins
+        let migrations = migrations + "CREATE TABLE superadmins (id uuid, user_id uuid);\n";
+        // end part: superadmins
         let repo = Repo::of(&[
             ("migrations/1_things.sql", &migrations),
             ("crates/app/src/modules/things/repo.rs", code),

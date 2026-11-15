@@ -74,6 +74,10 @@ pub(crate) struct Features {
     /// The fork keeps `files`, so users upload files, avatars and workspace pictures.
     files: bool,
     // end part: files
+    // part: superadmins
+    /// The fork keeps `superadmins`, so a client offers a superadmin the deployment's workspaces.
+    superadmins: bool,
+    // end part: superadmins
 }
 
 impl Features {
@@ -91,6 +95,9 @@ impl Features {
             // part: files
             files: true,
             // end part: files
+            // part: superadmins
+            superadmins: true,
+            // end part: superadmins
         }
     }
 }

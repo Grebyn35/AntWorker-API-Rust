@@ -81,6 +81,10 @@ enum Access {
     /// A member of the workspace in the path whom `Authorized<P>` proves, for the permission
     /// of this name.
     Workspace(&'static str),
+    // part: superadmins
+    /// A superadmin of the deployment, whom `Superadmin` proves (D62).
+    Superadmin,
+    // end part: superadmins
 }
 
 impl Access {
@@ -90,6 +94,9 @@ impl Access {
             Self::Public => "public",
             Self::User | Self::Verifying | Self::Enrolling => "user",
             Self::Workspace(_) => "workspace",
+            // part: superadmins
+            Self::Superadmin => "superadmin",
+            // end part: superadmins
         }
     }
 }
@@ -157,6 +164,15 @@ where
     ) -> Self {
         self.add(Access::Workspace(P::NAME), route, errors)
     }
+
+    // part: superadmins
+    /// Adds a route that a superadmin of the deployment calls, whose handler extracts
+    /// `AuthorizeSuperadmin`, and which can answer `errors` besides the pipeline's own (D62,
+    /// ERR-13).
+    pub fn superadmin(self, route: UtoipaMethodRouter<S>, errors: &[&dyn ErrorCode]) -> Self {
+        self.add(Access::Superadmin, route, errors)
+    }
+    // end part: superadmins
 
     /// Adds a download route that a signed-in user calls, as [`Routes::user`] does, which
     /// documents what a download serves beside its handler's 200, and can answer `errors` besides

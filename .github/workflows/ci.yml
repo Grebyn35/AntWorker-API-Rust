@@ -66,6 +66,9 @@ jobs:
           # part: files
           - files
           # end part: files
+          # part: superadmins
+          - superadmins
+          # end part: superadmins
           # part: github
           - github
           # end part: github

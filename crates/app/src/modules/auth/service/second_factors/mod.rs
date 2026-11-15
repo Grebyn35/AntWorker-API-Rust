@@ -6,6 +6,9 @@
 
 mod checks;
 mod completion;
+// part: superadmins
+mod presence;
+// end part: superadmins
 mod removal;
 
 use platform::{
@@ -19,6 +22,9 @@ use platform::{
 };
 
 pub(crate) use completion::{Challenge, Completion};
+// part: superadmins
+pub(crate) use presence::has_authenticator_app;
+// end part: superadmins
 pub(crate) use removal::{Removal, remove_second_factor};
 
 use self::checks::{count, recovery_hash};

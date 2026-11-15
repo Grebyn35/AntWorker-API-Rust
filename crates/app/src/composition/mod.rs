@@ -9,6 +9,9 @@ mod tasks;
 
 pub use config::Config;
 pub use tasks::{Operation, Refused, RemovalRefused, SeedError, SeedReport, seed, seed_allowed};
+// part: superadmins
+pub use tasks::{SuperadminChange, SuperadminRefused};
+// end part: superadmins
 // part: workspace_setup
 pub use tasks::SetupRefused;
 // end part: workspace_setup
@@ -51,6 +54,9 @@ use crate::modules::{
     invitations::{self, Invitations},
     // end part: invitations
     realtime::{self, Realtime},
+    // part: superadmins
+    superadmins,
+    // end part: superadmins
     system,
     workspaces,
 };
@@ -183,6 +189,9 @@ pub async fn compose(
             database: database.clone(),
             policy,
             sink: Arc::new(audit::Sink::new(database.clone())),
+            // part: superadmins
+            superadmins: Arc::new(superadmins::Policy),
+            // end part: superadmins
         },
         jobs,
         #[cfg(feature = "test-support")]
@@ -263,6 +272,9 @@ fn routes(resources: &Resources, states: States) -> Routes {
         .merge(files::routes().with_state(states.files))
         .merge(workspaces::picture_routes().with_state(states.pictures))
         // end part: files
+        // part: superadmins
+        .merge(superadmins::routes().with_state(database.clone()))
+        // end part: superadmins
         .merge(workspaces::routes().with_state(database.clone()))
         .merge(realtime::routes().with_state(states.realtime))
 }
@@ -346,6 +358,9 @@ pub fn openapi(service: Service) -> OpenApi {
         // part: invitations
         invitations::routes().openapi(service),
         // end part: invitations
+        // part: superadmins
+        superadmins::routes().openapi(service),
+        // end part: superadmins
         // part: files
         accounts::avatar_routes().openapi(service),
         files::routes().openapi(service),
@@ -367,6 +382,9 @@ fn contracts(mail: &Mail) -> Vec<Arc<dyn PersonalData>> {
         // part: invitations
         Arc::new(invitations::Contract),
         // end part: invitations
+        // part: superadmins
+        Arc::new(superadmins::Contract),
+        // end part: superadmins
         Arc::new(auth::Contract),
         Arc::new(audit::Contract),
         Arc::new(personal_data::Contract),

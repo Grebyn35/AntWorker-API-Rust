@@ -94,6 +94,20 @@ pub enum ServerTask {
         owner_name: Option<String>,
     },
     // end part: workspace_setup
+    // part: superadmins
+    /// Makes the account that holds `email` a superadmin of the deployment at `host`, with
+    /// `add`, or ends its being one, with `remove`, through the subcommand of the image that
+    /// serves (SUPERADMINS-001, D62).
+    Superadmin {
+        /// The server, as SSH names it.
+        host: String,
+        /// What to do: `add` or `remove`.
+        #[arg(value_parser = ["add", "remove"])]
+        change: String,
+        /// The account's email address.
+        email: String,
+    },
+    // end part: superadmins
     /// Shows the last lines of the logs of the deployment's services at `host` (OPS-19).
     Logs {
         /// The server, as SSH names it.
@@ -131,6 +145,13 @@ impl ServerTask {
                 owner_name,
             } => deploy::setup_workspace(&host, &name, &email, owner_name.as_deref()),
             // end part: workspace_setup
+            // part: superadmins
+            Self::Superadmin {
+                host,
+                change,
+                email,
+            } => deploy::superadmin(&host, &change, &email),
+            // end part: superadmins
             Self::ServerSetup { host, version } => server::setup(&host, version.as_deref()),
             Self::ServerCheck { host, version } => server::check(&host, version.as_deref()),
         }

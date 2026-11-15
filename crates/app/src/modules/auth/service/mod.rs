@@ -55,6 +55,9 @@ pub(crate) use reauthentication::require_recent_proof;
 pub(crate) use second_factors::{
     Challenge, Completion, Removal, SecondFactors, Setup, remove_second_factor,
 };
+// part: superadmins
+pub(crate) use second_factors::has_authenticator_app;
+// end part: superadmins
 pub(crate) use sessions::Ended;
 pub(crate) use sign_in::{SignIn, SignedIn};
 pub(crate) use verifier::Verifier;

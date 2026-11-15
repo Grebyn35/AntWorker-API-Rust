@@ -82,6 +82,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `idempotency` | The `Idempotency-Key` of a keyed route, read as draft-08 of the IETF's draft defines it, with the fingerprint of its request, which a unit of work claims. | D12 |
 | `lists` | A page's `limit` and cursor, a list's `search`, and the body of a page, which a route reads from its query and hands its service. | D8 |
 | `authz` | The `Authorized<P>` proof and the `Memberships` type, generic over the `Permission` trait. Producing `Authorized<P>` opens the request's unit of work and asks the `AccessPolicy` that `access` implements inside it. Refusals are reported to the `SecurityEventSink` that `audit` implements. | D2, D3, D6 |
+| `authz`, for a superadmin's routes | The `Superadmin` proof, which opening a superadmin's route produces: it opens the request's unit of work and asks, inside it, the `SuperadminPolicy` that `superadmins` implements. A refusal is reported to the same sink. | D62, D63 <!-- part: superadmins --> |
 | `errors` | Error categories, the `ErrorCode` trait, and the single conversion to an HTTP response. | D17 |
 | `telemetry` | The logging and tracing setup, the export of spans, logs and metrics over the OpenTelemetry Protocol (OTLP), the list of telemetry names, and the metric declarations. | D10, D19 |
 | `storage` | The client of the S3-compatible bucket that holds files' bytes, which reads an object, or a range of its bytes, as a stream. | D1, D14, D106, D112 <!-- part: files --> |
@@ -128,7 +129,7 @@ crates/app/
 | `workspaces` | `workspaces` | Creating workspaces in each shape (below), updating, transferring and deleting them, and the members endpoints (list, read, change role, remove, leave). |
 | `workspaces`, for the setup subcommand | `workspace_setups` | The workspaces that an operator's runs of `setup-workspace` created, each with the name its run was given, which no later run may use (D65). <!-- part: workspace_setup --> |
 | `invitations` | `invitations` | Invite, list, resend, cancel, accept, decline, and expiry. <!-- part: invitations --> |
-| `superadmins` | `superadmins` | The deployment's superadmins (D62): users who see every workspace's name, creation time, member count and owner, but not its content, delete any workspace, and create workspaces, which they then own ([workspace shapes](#workspace-shapes)). Its routes are authorized by the caller being a superadmin, never by a membership, and it records each action in the superadmin's own log, since deleting a workspace deletes the workspace's log. Its subcommand adds an account to the superadmins or removes it, which the API can't. |
+| `superadmins` | `superadmins` | The deployment's superadmins (D62): who is one, which only its subcommand changes, since no route makes a superadmin or ends one, and what authorizes a superadmin's routes: the caller being a superadmin, with a second factor (D63), never a membership. A superadmin sees every workspace's name, creation time, member count and owner, but not its content, through routes that `workspaces` serves, since it owns what they read; they delete any workspace, and create workspaces, which they then own ([workspace shapes](#workspace-shapes)), each recorded in the superadmin's own log, since deleting a workspace deletes the workspace's log. <!-- part: superadmins --> |
 | `client_telemetry` | `telemetry_consents` | The telemetry proxy for clients, and each user's consent to it, which it enforces on the server (D7, D122). |
 | `system` | none | The capabilities endpoint (D9), the schema endpoints, which list the permissions and the audit actions, and `seed`, which fills a development database with demo accounts and workspaces, as a client of the API's own routes (D28). The health probes belong to `platform` (§4). |
 | `platform` | `events`, `jobs`, `job_schedules`, `rate_limit_buckets`, `idempotency_records` | The mechanisms in §4. |
@@ -141,7 +142,7 @@ Data a module adds for its product lives in a workspace, and is reached through 
 
 <!-- part: invitations -->
 - **Teams.** Each user creates as many workspaces as they need, and the people a member invites join one. It keeps users creating workspaces and `invitations`. <!-- part: workspace_creation -->
-- **Provisioned organizations.** A superadmin creates a workspace for each organization the deployment serves, and the people a member invites join one. It keeps `superadmins` and `invitations`.
+- **Provisioned organizations.** A superadmin creates a workspace for each organization the deployment serves, and the people a member invites join one. It keeps `superadmins` and `invitations`. <!-- part: superadmins -->
 - **One organization.** An operator runs the setup subcommand for each workspace the organization needs, such as one per subsidiary, which creates it for its owner, and, with email on, their account when no account holds their address (§9), and the people a member invites join one. It keeps the setup subcommand and `invitations`. <!-- part: workspace_setup -->
 <!-- end part: invitations -->
 - **Personal.** The client creates a workspace whenever a signed-in user belongs to none, and nobody joins one. It keeps users creating workspaces. <!-- part: workspace_creation -->
@@ -160,11 +161,13 @@ A user who belongs to no workspace is offered to create one.
 <!-- end part: workspace_creation -->
 Registration creates no workspace (D16).
 An invited user joins only the workspace they were invited to. <!-- part: invitations -->
+<!-- part: superadmins -->
 A fork may keep `superadmins` in any shape, for seeing and deleting workspaces.
 In the provisioned shape, it is the one part that creates them. <!-- part: invitations -->
 A superadmin who creates a workspace becomes its owner, and hands it over through the ordinary ownership transfer when asked.
 They set it up and invite its people first. <!-- part: invitations -->
 They see its content as a member, never as a superadmin.
+<!-- end part: superadmins -->
 How each part creates a workspace is in the [workspaces spec](spec/workspaces.md#creating-a-workspace).
 In every shape, the same authorization and the same tenancy checks guard the data (DATA-16, TEST-08).
 
@@ -193,20 +196,23 @@ flowchart TD
   files --> access & audit
   %% end part: files
   audit --> access
-  superadmins --> workspaces & access & accounts & audit
+  %% part: superadmins
+  superadmins --> accounts & auth & audit
+  %% end part: superadmins
 ```
 
 `access`, `realtime`, `system` and `client_telemetry` depend on no other module.
 
 The edges above are the only ones allowed, and the graph stays acyclic (ARCH-05). A module is used only through what its `mod.rs` exports (ARCH-04), and its SQL reads and writes only the tables it owns (ARCH-06). When a module needs another module's data, it calls a batch read in that module's API, such as `accounts::profiles(ids)`. An operation that spans modules passes one `&mut UnitOfWork` through every call, so all of it commits or none of it does (ARCH-11).
 
-`platform` calls into `app` only through five traits. Four, each implemented by a module, the composition root registers (ARCH-12, ARCH-13):
+`platform` calls into `app` only through the traits below. Those that a module implements for the whole API, the composition root registers (ARCH-12, ARCH-13):
 - `SessionVerifier`, implemented by `auth`, verifies credentials for `platform::authn`.
 - `AccessPolicy`, implemented by `access`, makes authorization decisions for `platform::authz`.
 - `SecurityEventSink`, implemented by `audit`, records refused requests that `platform::authz` reports.
 - The personal data contract is implemented by every module that stores personal data. It lets `accounts` export or delete an account without depending on every module.
+- `SuperadminPolicy`, implemented by `superadmins`, decides whether a caller is a superadmin for `platform::authz`. <!-- part: superadmins -->
 
-The fifth is `ExportStore`, which `accounts` implements, and hands with each export to the `personal_data::ExportArchive` that writes its archive, rather than registering it, since what it stores is that one export's (the [accounts spec](spec/accounts.md#exporting)).
+The other is `ExportStore`, which `accounts` implements, and hands with each export to the `personal_data::ExportArchive` that writes its archive, rather than registering it, since what it stores is that one export's (the [accounts spec](spec/accounts.md#exporting)).
 
 ### Inside a module
 
@@ -239,7 +245,7 @@ A module's personal data contract, in its `personal_data.rs`, is a service of it
 
 A module splits a file into a directory with the same name, such as `service/`, when the file outgrows its limit, or when an optional part adds functions of its own to it, which the part then owns in a file of their own (ARCH-03, CODE-08, D119).
 
-A trait that abstracts a dependency either inverts a dependency the crate or module graph forbids, as the five traits above do, or covers an external system with more than one implementation, such as email transport or the clock (ARCH-13). Nothing gets a trait just so it can be mocked, because tests run against the real database (D23).
+A trait that abstracts a dependency either inverts a dependency the crate or module graph forbids, as the traits above do, or covers an external system with more than one implementation, such as email transport or the clock (ARCH-13). Nothing gets a trait just so it can be mocked, because tests run against the real database (D23).
 
 ## 6. Request lifecycle
 
@@ -283,7 +289,9 @@ sequenceDiagram
    - The per-user rate limit, in its own short transaction, then, while email is on, the refusal of a caller whose account hasn't proved its email address, but on a route that proving it needs (D67), then, while the deployment requires a second factor, the refusal of a caller whose account has none, but on a route that proving the address or setting the factor up needs (D133), then the `Idempotency-Key` of a keyed `POST`, which the unit of work claims as its first statement, after the authorization that opens a workspace route's, so the key's record commits or rolls back with the operation (D12).
    - The body is parsed into request types, then domain types (D25).
    - On an upload route, whose group has a timeout and no body limit of its own, the order differs: the handler refuses a declared length over its module's limit, then, on a workspace's, checks that the caller may upload, through `Authorize::check`, in a short transaction that writes nothing, and only then reads the body, through `Upload`, in one of the replica's turns, before the unit of work opens and authorizes the caller again (PLATFORM-073, PLATFORM-074). <!-- part: files -->
-   - The unit of work opens last, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one. On workspace routes, opening it produces `Authorized<P>`: inside the unit of work, the caller's membership in the workspace from the path is loaded and permission `P` checked (D2, D3). A missing membership is a 404, so the response never reveals whether the workspace exists. On other routes, the service opens it, once any per-action limit it checks has counted, such as the sign-in's (AUTH-006), after a read, in a transaction of its own that writes nothing, of what decides which limit counts, such as the sign-in's device token (ARCH-11).
+   - The unit of work opens last, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one. On workspace routes, opening it produces `Authorized<P>`: inside the unit of work, the caller's membership in the workspace from the path is loaded and permission `P` checked (D2, D3). A missing membership is a 404, so the response never reveals whether the workspace exists.
+     On a superadmin's route, opening it produces `Superadmin`: inside the unit of work, the caller is read to be a superadmin, with a second factor (D62, D63). <!-- part: superadmins -->
+     On other routes, the service opens it, once any per-action limit it checks has counted, such as the sign-in's (AUTH-006), after a read, in a transaction of its own that writes nothing, of what decides which limit counts, such as the sign-in's device token (ARCH-11).
 4. **The handler** calls the service with domain types only.
 5. **The service** performs its writes in its unit of work, and in the same transaction records audit entries, publishes events and enqueues jobs (D1, D6). For a request with an `Idempotency-Key`, the same transaction stores the operation's result under the key (API-12). Then it commits.
 6. **The response.** The handler maps the result to the response. A module error goes through the single conversion to an RFC 9457 problem that carries the trace ID (D17).
@@ -327,8 +335,11 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 - **Validation (D25).** Request types reject unknown fields and convert at the boundary into domain types that can only hold valid values. Code past the boundary accepts only those types.
 - **Authentication (D5, D18, D61, D63, D67).** Sessions slide on refresh but have an absolute maximum lifetime. Desktop and web clients are both supported: credentials arrive in the Bearer header from a client that sets its own headers, or in an `HttpOnly` cookie from a browser, whose requests CSRF protection guards, from the origins that the CORS allowlist names. With email on, an account proves its address, with a code sent to it, before the API serves it anything else.
   A download also takes a URL signed for a session, whose user it authorizes as any caller's (D113). <!-- part: files -->
-  Every user may add a second factor, an authenticator app with recovery codes, and every superadmin must; a deployment may require one of every user. Revoking a session closes its streams.
-- **Authorization (D2, D62).** One permission matrix, in `access/permissions.rs`, maps roles to permissions. Every workspace route declares its permission in its type. Role rank limits who may change whom. A route of `superadmins` is authorized by the caller being a superadmin instead, and reaches no workspace's content.
+  Every user may add a second factor, an authenticator app with recovery codes; a deployment may require one of every user.
+  Every superadmin must have one. <!-- part: superadmins -->
+  Revoking a session closes its streams.
+- **Authorization (D2).** One permission matrix, in `access/permissions.rs`, maps roles to permissions. Every workspace route declares its permission in its type. Role rank limits who may change whom.
+  A superadmin's route is authorized by the caller being a superadmin instead, and reaches no workspace's content (D62). <!-- part: superadmins -->
 - **Observability (D10, D19).** Every response except the health probes carries a trace ID that leads to its logs, and to its trace whenever the request ended in an error. Metrics are declared in code. The metric catalog is generated from the declarations, and CI checks the dashboards and alerts against it.
 - **Configuration (D9).** Strict and typed, with no defaults that are unsafe in production. A disabled feature answers 503 and is advertised by the capabilities endpoint.
 - **Background jobs (D13).** Declared in one registry. A queued job runs at least once, on whichever instance claims it, with retries and a dead-letter state; a periodic job runs once per interval across the fleet. Each run holds a lease that a heartbeat renews, and shutdown is bounded.
@@ -343,8 +354,8 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   - `migrate` is the one-shot migration step.
   - `seed` fills a development database with demo accounts and workspaces, through the API's own routes, as a client would, and refuses in any other environment ([system spec](spec/system.md#seed)).
     The one workspace that it sets up as an operator does, it sets up through the operation that `setup-workspace` runs. <!-- part: workspace_setup -->
-  - The superadmin subcommand adds an account to the superadmins or removes it, in a fork that keeps `superadmins` (D62). `just` runs it, on a deployment's server over Secure Shell (SSH), so only someone who can reach the server can change who is a superadmin.
-  - `remove-second-factor` removes the authenticator app of the account that holds an address, for a user who lost it and their recovery codes, once the operator has checked that the person owns the account (D135). `just` runs it, on a deployment's server over SSH, with the image of the color that serves, in a service of its own that passes it only the settings it reads (OPS-02) ([auth spec](spec/auth.md#second-factors)).
+  - `remove-second-factor` removes the authenticator app of the account that holds an address, for a user who lost it and their recovery codes, once the operator has checked that the person owns the account (D135). `just` runs it, on a deployment's server over Secure Shell (SSH), with the image of the color that serves, in a service of its own that passes it only the settings it reads (OPS-02) ([auth spec](spec/auth.md#second-factors)).
+  - `superadmin` makes the account that holds an address a superadmin, or ends its being one, which no route does (D62). `just` runs it as it runs `remove-second-factor`, so only someone who reaches the server changes who is a superadmin ([superadmins spec](spec/superadmins.md#the-subcommand)). <!-- part: superadmins -->
   - `setup-workspace`, the setup subcommand, creates a workspace for its owner, each time an operator runs it, with their account when, with email on, no account holds their address (§5, "Workspace shapes", D65). `just` runs it as it runs `remove-second-factor` ([workspaces spec](spec/workspaces.md#the-setup-subcommand)). <!-- part: workspace_setup -->
   - `openapi` writes the contract, `openapi.json`, which a test compares with the committed one (API-17).
   - `health` asks the instance whether it is ready, for the image's health check (PLATFORM-063).
@@ -439,8 +450,8 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Workspace | A space whose members share its data: a team's, an organization's, or one user's own (§5). Owns the data its members share, and its audit log. |
 | Workspace shape | How a product uses workspaces: who creates them and who joins them, which the optional parts a fork keeps decide (§5). |
 | Membership | A user's place in a workspace, with exactly one role. Owned by `access`. |
-| Owner | The one role per workspace that can transfer or delete it. A superadmin can also delete it. |
-| Superadmin | A user whom the deployment's operator made one through `just`, who sees every workspace without being a member, but not its content, and deletes any workspace (§5, D62). Not a role: roles belong to memberships. |
+| Owner | The one role per workspace that can transfer or delete it. |
+| Superadmin | A user whom the deployment's operator made one through `just`, who sees every workspace without being a member, but not its content, and deletes any workspace (§5, D62). Not a role: roles belong to memberships. <!-- part: superadmins --> |
 | Role | A named set of permissions, defined in code in `access` (D2). |
 | Permission | One thing a role allows on a workspace resource, such as `members.update`. |
 | Invitation | An offer to join a workspace with a role, sent to an email address. <!-- part: invitations --> |

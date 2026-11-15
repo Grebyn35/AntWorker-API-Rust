@@ -1,6 +1,8 @@
 # Security rules (`SEC`)
 
-The security bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) (D26), but for its requirement 6.3.3, which requires a second factor of every user to sign in: here every user may add a second factor, and every superadmin must, so a product's users can sign in without setting one up (D63), and a deployment may require one of every user, which meets the requirement in full (D133). These rules cover the mechanisms every module relies on. The threat model in `docs/operations/threat-model.md` maps each threat to the rules that mitigate it, and records the controls that stand in for requirement 6.3.3, as the requirement asks of an application that relaxes it.
+The security bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) (D26), but for its requirement 6.3.3, which requires a second factor of every user to sign in: here every user may add a second factor, so a product's users can sign in without setting one up (D63), and a deployment may require one of every user, which meets the requirement in full (D133).
+Every superadmin must have one, whatever the deployment requires of its users (SUPERADMINS-005). <!-- part: superadmins -->
+These rules cover the mechanisms every module relies on. The threat model in `docs/operations/threat-model.md` maps each threat to the rules that mitigate it, and records the controls that stand in for requirement 6.3.3, as the requirement asks of an application that relaxes it.
 
 ## Secrets
 
@@ -48,6 +50,7 @@ A browser receives its session's tokens only as cookies that are `Secure`, `Http
 
 ### SEC-08 Authorization only through `access`
 Every workspace route is authorized by `Authorized<P>` (API-14), and every permission decision is made by the `access` policy. No handler or service checks roles or permissions itself.
+A superadmin's route is authorized by `Superadmin`, which the policy of `superadmins` decides, by no role and no permission, and a generated test sends each such route as a caller who is no superadmin (SUPERADMINS-004). <!-- part: superadmins -->
 - Why: one place decides, so one place is audited (D2).
 - Check: `test` (TEST-08: every workspace route answers every role as the matrix says for the permission its builder documents, so a handler that extracts `Authorize` for another permission fails wherever the two differ), plus `review`.
 

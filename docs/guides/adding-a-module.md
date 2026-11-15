@@ -59,6 +59,7 @@ Editing a migration that no release contains (DATA-09) means recreating the deve
 | A second member that a `PATCH` edits | `routes.rs`: each member of the patch's request type becomes optional; `service.rs`: a patch that names none changes nothing, and answers the resource as it stands | API-03, API-18, D88, D151 |
 | A value's limits and normalization | `model.rs`: a domain type, such as one built on `platform::types::one_line` | API-10, DATA-04, OBS-04 |
 | Who may call a route | a permission type and a row of the matrix in `access/permissions.rs`, the route's `workspace::<P>`, and the access spec's matrix | SEC-08, SEC-09 |
+| A route that reads across workspaces for a superadmin | `routes.rs`: `Routes::superadmin`, whose handler extracts `AuthorizeSuperadmin`; each function it calls takes the proof it gives, `Superadmin`, and reads only what a superadmin may see, nothing of a workspace's content | API-14, DATA-16, D62 <!-- part: superadmins --> |
 | What the route does | `service.rs`, in the unit of work that `Authorized<P>` opened | ARCH-09, ARCH-11 |
 | Its SQL | `repo.rs`, filtered by the workspace from the proof | ARCH-06, ARCH-10, DATA-14 to DATA-16, DATA-20 |
 | Its errors, with their codes | `error.rs`, and the codes each route lists in `routes()` | ERR-01 to ERR-06, ERR-13 |

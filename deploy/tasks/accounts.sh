@@ -35,3 +35,14 @@ setup_workspace() {
     operate setup-workspace "$@"
 }
 # end part: workspace_setup
+
+# part: superadmins
+# Makes the account that holds the address $2 a superadmin of the deployment, with add as $1, or
+# ends its being one, with remove, through the API's subcommand superadmin, which exits 1,
+# changing nothing, when no account holds the address, when, with email on, the account hasn't
+# proved it, or when the account is one already, or is none to end (SUPERADMINS-001 to
+# SUPERADMINS-003, D62).
+superadmin() {
+    operate superadmin "$1" "$2"
+}
+# end part: superadmins

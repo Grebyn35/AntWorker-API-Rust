@@ -516,6 +516,10 @@
             "description": "The fork keeps `invitations`, so a workspace's members invite others.",
             "type": "boolean"
           },
+          "superadmins": {
+            "description": "The fork keeps `superadmins`, so a client offers a superadmin the deployment's workspaces.",
+            "type": "boolean"
+          },
           "workspace_creation": {
             "description": "The fork keeps users creating workspaces, so a client offers a user to create one.",
             "type": "boolean"
@@ -525,7 +529,8 @@
           "email",
           "workspace_creation",
           "invitations",
-          "files"
+          "files",
+          "superadmins"
         ],
         "type": "object"
       },
@@ -1587,6 +1592,61 @@
                 "name",
                 "role",
                 "joined_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "description": "The cursor of the next page, which `cursor` takes, or `null` on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "List_WorkspaceOverview": {
+        "description": "A page of items, and the cursor of the next page, or `null` on the last (API-05).",
+        "properties": {
+          "items": {
+            "description": "The page's items.",
+            "items": {
+              "description": "A workspace of the deployment, as a superadmin sees it: nothing of its content\n(WORKSPACES-029).",
+              "properties": {
+                "created_at": {
+                  "$ref": "#/components/schemas/Timestamp",
+                  "description": "When it was created."
+                },
+                "id": {
+                  "$ref": "#/components/schemas/WorkspaceId",
+                  "description": "The workspace's ID."
+                },
+                "member_count": {
+                  "description": "How many members it has, its owner among them.",
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "name": {
+                  "$ref": "#/components/schemas/WorkspaceName",
+                  "description": "Its name."
+                },
+                "owner": {
+                  "$ref": "#/components/schemas/WorkspaceOwner",
+                  "description": "Its owner."
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "created_at",
+                "member_count",
+                "owner"
               ],
               "type": "object"
             },
@@ -3299,6 +3359,19 @@
         "type": "object",
         "x-event": "stream.opened"
       },
+      "SuperadminStanding": {
+        "description": "Whether the caller is a superadmin (SUPERADMINS-006).",
+        "properties": {
+          "superadmin": {
+            "description": "Whether the caller is one of the deployment's superadmins.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "superadmin"
+        ],
+        "type": "object"
+      },
       "Timestamp": {
         "format": "date-time",
         "type": "string"
@@ -3658,6 +3731,63 @@
         "maxLength": 255,
         "minLength": 1,
         "type": "string"
+      },
+      "WorkspaceOverview": {
+        "description": "A workspace of the deployment, as a superadmin sees it: nothing of its content\n(WORKSPACES-029).",
+        "properties": {
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp",
+            "description": "When it was created."
+          },
+          "id": {
+            "$ref": "#/components/schemas/WorkspaceId",
+            "description": "The workspace's ID."
+          },
+          "member_count": {
+            "description": "How many members it has, its owner among them.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "$ref": "#/components/schemas/WorkspaceName",
+            "description": "Its name."
+          },
+          "owner": {
+            "$ref": "#/components/schemas/WorkspaceOwner",
+            "description": "Its owner."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "member_count",
+          "owner"
+        ],
+        "type": "object"
+      },
+      "WorkspaceOwner": {
+        "description": "A workspace's owner, as a superadmin sees them (WORKSPACES-029).",
+        "properties": {
+          "email": {
+            "$ref": "#/components/schemas/EmailAddress",
+            "description": "Their email address."
+          },
+          "name": {
+            "$ref": "#/components/schemas/DisplayName",
+            "description": "Their name."
+          },
+          "user_id": {
+            "$ref": "#/components/schemas/UserId",
+            "description": "The owner's user ID."
+          }
+        },
+        "required": [
+          "user_id",
+          "name",
+          "email"
+        ],
+        "type": "object"
       },
       "WorkspaceTransferred": {
         "description": "The payload of `workspace.transferred`: the workspace has another owner, and the owner before\nis an admin.",
@@ -8059,6 +8189,343 @@
           "auth"
         ],
         "x-access": "public"
+      }
+    },
+    "/v1/superadmin/workspaces": {
+      "get": {
+        "operationId": "every",
+        "parameters": [
+          {
+            "description": "How many workspaces a page holds.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The `next_cursor` of the page before.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 38,
+              "minLength": 38,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the workspaces whose name contains this, ignoring case (API-20).",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/List_WorkspaceOverview"
+                }
+              }
+            },
+            "description": "A page of the deployment's workspaces.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.unauthenticated",
+                            "request.access_token_expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.email_unverified",
+                            "request.second_factor_setup_required",
+                            "request.permission_denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.permission_denied`: Permission denied.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Lists every workspace of the deployment, the latest created first, each with its owner and\nhow many members it has, and nothing of its content.",
+        "tags": [
+          "workspaces"
+        ],
+        "x-access": "superadmin"
       }
     },
     "/v1/users": {
@@ -21915,6 +22382,305 @@
         "summary": "Ends one of the caller's sessions: their own, which signs them out, or, once the session that\nauthenticated the request has proved who they are within the last 5 minutes, another.",
         "tags": [
           "auth"
+        ],
+        "x-access": "user"
+      }
+    },
+    "/v1/users/me/superadmin": {
+      "get": {
+        "operationId": "standing",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuperadminStanding"
+                }
+              }
+            },
+            "description": "Whether the caller is a superadmin.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.unauthenticated",
+                            "request.access_token_expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.email_unverified",
+                            "request.second_factor_setup_required"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Tells whether the caller is one of the deployment's superadmins, so a client offers a\nsuperadmin's pages to them alone.",
+        "tags": [
+          "superadmins"
         ],
         "x-access": "user"
       }

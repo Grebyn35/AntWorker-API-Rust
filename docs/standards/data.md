@@ -123,6 +123,7 @@ Tenancy is enforced by the application, and every query on user or workspace dat
   - when inviting, by the invitee's email <!-- part: invitations -->
   - in the setup subcommand, by its owner's email (WORKSPACES-023) <!-- part: workspace_setup -->
   - in the operator's removal of a second factor, by the address it is given (AUTH-072)
+  - in the operator's making of a superadmin, or ending of one, by the address it is given (SUPERADMINS-001) <!-- part: superadmins -->
   - in a sign-in through a provider, of the user whose provider identity holds the provider's subject, by the provider and the subject (AUTH-073)
   - for a signed URL, of its session by the ID that its signature proves the API gave (PLATFORM-080) <!-- part: files -->
 - Rows addressed to a user by an email address are filtered by the caller's email.
@@ -133,6 +134,7 @@ A row ID alone never addresses tenant data. These reads are exempt:
 - the export of a user's data, which reads the workspaces whose only member is the user by the IDs of the user's own memberships, and those workspaces' content by them (ACCOUNTS-024)
 - the position of the event that a stream's `Last-Event-ID` names, read by the event's ID alone, so a client resumes after the last event it received even from a workspace it has since left; the replay after that position filters by tenant, and the lookup tells a caller only whether an event ID it holds names an event, which a UUIDv7's random bits keep anyone from guessing (REALTIME-004)
 - scheduled jobs that span tenants, which select rows by their own criteria, such as expiry
+- a superadmin's reads, under the proof `Superadmin`, which names no workspace, and which the first two take: of every workspace's name and creation time; of each one's owner and member count, by the IDs that the first read gave; and of those owners' names and addresses, by the IDs that the second gave (WORKSPACES-029, D62) <!-- part: superadmins -->
 - the startup check of the versions of the key ring under which secrets are stored, which reads the versions alone, of every user's rows (AUTH-066)
 - a public file's download, which reads its row by its ID and its visibility alone, and an avatar's and a workspace's picture's, which each read their row by its ID alone, since whoever holds a public file's ID, an avatar's or a picture's, may read it ([files spec](../spec/files.md#visibility)) <!-- part: files -->
 - Why: there is no row-level security, so the application's filters are the only guard between tenants, and they are checked by machine and by test (D4).
