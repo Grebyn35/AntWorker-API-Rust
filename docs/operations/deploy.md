@@ -195,7 +195,7 @@ A name is given to one run: a second run with it, by mistake or at the same time
 <!-- part: superadmins -->
 ## Superadmins
 
-A superadmin sees every workspace of the deployment: its name, when it was created, how many members it has, and its owner, and nothing of its content, and deletes any of them ([superadmins spec](../spec/superadmins.md), D62). No route makes a superadmin, so only someone who reaches the server does:
+A superadmin sees every workspace of the deployment: its name, when it was created, how many members it has, and its owner, and nothing of its content, deletes any of them, and creates workspaces, which they own until they hand them over ([superadmins spec](../spec/superadmins.md), D62). No route makes a superadmin, so only someone who reaches the server does:
 
 ```
 just superadmin production add ada@example.com

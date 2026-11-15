@@ -140,6 +140,7 @@ parts:
       - crates/app/src/modules/access/service/superadmin.rs
       - crates/app/src/modules/auth/service/second_factors/presence.rs
       - crates/app/src/modules/superadmins
+      - crates/app/src/modules/system/seed/superadmin.rs
       - crates/app/src/modules/workspaces/repo/superadmin.rs
       - crates/app/src/modules/workspaces/routes/superadmin.rs
       - crates/app/src/modules/workspaces/service/superadmin.rs
@@ -189,9 +190,8 @@ parts:
   # end part: openid_connect
 
 # Each run removes its parts from a copy of the repository of its own, then runs `just checks` on
-# the copy: one for each workspace shape (architecture §5), for each OAuth provider, for
-# `client_telemetry`, and for each part that no shape needs, and one that removes every part that
-# one fork can remove at once.
+# the copy: one for each workspace shape (architecture §5), one for each part that no shape's run
+# removes alone, and one that removes every part that one fork can remove at once.
 # A run whose parts are all removed already is skipped.
 runs:
   # part: workspace_creation
@@ -215,6 +215,22 @@ runs:
   # end part: invitations
   # end part: workspace_setup
   # end part: workspace_creation
+  # part: superadmins
+  # part: invitations
+  # The provisioned shape: a superadmin creates each workspace, whose members invite others, and
+  # no other part creates one.
+  - name: provisioned
+    parts:
+      - workspace_creation # part: workspace_creation
+      - workspace_setup # part: workspace_setup
+  # end part: invitations
+  # end part: superadmins
+  # part: invitations
+  # A product whose workspaces nobody joins, so nobody is invited to one.
+  - name: invitations
+    parts:
+      - invitations
+  # end part: invitations
   # part: files
   # A product without uploads.
   - name: files

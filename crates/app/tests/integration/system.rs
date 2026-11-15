@@ -7,6 +7,9 @@ use crate::support::{
     Api, Options, TestDatabase,
     users::{self, SignedIn},
 };
+// part: superadmins
+use crate::support::second_factors;
+// end part: superadmins
 
 #[tokio::test]
 async fn system_001_the_capabilities_list_each_feature_a_deployment_can_turn_off() {
@@ -213,7 +216,8 @@ async fn system_008_seed_has_olivia_and_mia_each_create_a_workspace_through_the_
             .await
             .contains(&("Side Project".to_owned(), "owner".to_owned()))
     );
-    // They are the first workspaces that the seed created, Olivia's before Mia's.
+    // They are the first workspaces that the seed created, Olivia's before Mia's, whatever the
+    // steps of other parts create after them.
     assert_eq!(
         api.database()
             .owner_reads("SELECT name FROM workspaces ORDER BY created_at LIMIT 2")
@@ -231,7 +235,8 @@ async fn system_008_seed_has_olivia_and_mia_each_create_a_workspace_through_the_
                  JOIN workspaces workspace ON workspace.id = entry.workspace_id \
                  JOIN users actor ON actor.id = entry.actor_user_id \
                  JOIN audit_entry_clients client ON client.entry_id = entry.id \
-                 WHERE entry.action = 'workspace.created' ORDER BY workspace.name"
+                 WHERE entry.action = 'workspace.created' \
+                 AND workspace.name IN ('Acme', 'Side Project') ORDER BY workspace.name"
             )
             .await,
         [
@@ -248,7 +253,7 @@ async fn system_008_seed_has_olivia_and_mia_each_create_a_workspace_through_the_
                  JOIN workspace_memberships membership \
                  ON membership.workspace_id = workspace.id AND membership.role = 'owner' \
                  WHERE event.name = 'membership.created' AND event.user_id = membership.user_id \
-                 ORDER BY workspace.name"
+                 AND workspace.name IN ('Acme', 'Side Project') ORDER BY workspace.name"
             )
             .await,
         ["Acme", "Side Project"]
@@ -313,6 +318,176 @@ async fn system_009_with_email_on_the_setup_takes_olivia_s_proved_address_and_en
     );
 }
 // end part: workspace_setup
+
+// part: superadmins
+/// Runs the binary's `seed` in development on `database`, which must succeed, and returns the
+/// password it printed, and the secret of the authenticator app of the account it made a
+/// superadmin. The seed encrypts the secret under the tests' key ring, so the API that a test
+/// then runs in process reads it (AUTH-066).
+async fn seed_with_a_superadmin(database: &TestDatabase) -> (String, String) {
+    let output = database
+        .run_api(
+            &["seed"],
+            &[
+                ("ENVIRONMENT", "development"),
+                ("ENCRYPTION_KEYS", crate::support::api::ENCRYPTION_KEYS),
+            ],
+        )
+        .await;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert_eq!(output.status.code(), Some(0), "{stdout}");
+    let after = |text: &str| {
+        let rest = stdout
+            .lines()
+            .find_map(|line| line.split_once(text))
+            .map(|(_, rest)| rest.trim_end_matches(':').to_owned());
+        assert!(rest.is_some(), "no {text:?} in {stdout}");
+        rest.unwrap()
+    };
+    let secret = after(
+        "superadmin@example.com is a superadmin, and signs in with a code of the authenticator \
+         app whose secret is ",
+    );
+    (after("with the password "), secret)
+}
+
+#[tokio::test]
+async fn system_010_seed_makes_sam_a_superadmin_who_sets_an_app_up_and_creates_a_workspace() {
+    let database = TestDatabase::migrated().await;
+
+    let (password, secret) = seed_with_a_superadmin(&database).await;
+
+    let api = Api::on(database, Options::default()).await;
+    let db = api.database();
+    // The operator's run made Sam a superadmin: its entry has no actor and no client.
+    assert_eq!(
+        db.owner_reads(
+            "SELECT account.email || ' ' || (entry.actor_user_id IS NULL) || ' ' \
+             || (SELECT count(*) FROM audit_entry_clients client \
+             WHERE client.entry_id = entry.id) \
+             FROM superadmins superadmin \
+             JOIN users account ON account.id = superadmin.user_id \
+             JOIN audit_entries entry ON entry.user_id = account.id \
+             WHERE entry.action = 'superadmin.added'"
+        )
+        .await,
+        ["superadmin@example.com true 0"]
+    );
+    assert_eq!(
+        db.owner_reads("SELECT name FROM users WHERE email = 'superadmin@example.com'")
+            .await,
+        ["Sam Superadmin"]
+    );
+    // Sam set the app up through the routes, as a client does: each step's entry names them and
+    // their client.
+    assert_eq!(
+        db.owner_reads(
+            "SELECT entry.action || ' ' || actor.email || ' ' || host(client.client_ip) || ' ' \
+             || client.user_agent \
+             FROM audit_entries entry \
+             JOIN users actor ON actor.id = entry.actor_user_id \
+             JOIN audit_entry_clients client ON client.entry_id = entry.id \
+             WHERE entry.action IN ('second_factor.setup_started', 'second_factor.enabled') \
+             ORDER BY entry.id"
+        )
+        .await,
+        [
+            "second_factor.setup_started superadmin@example.com 127.0.0.1 seed",
+            "second_factor.enabled superadmin@example.com 127.0.0.1 seed",
+        ]
+    );
+    // Sam created the workspace through the route, as a superadmin's client does: each of its
+    // two entries names them and their client.
+    assert_eq!(
+        db.owner_reads(
+            "SELECT entry.scope || ' ' || actor.email || ' ' || host(client.client_ip) || ' ' \
+             || client.user_agent || ' ' || entry.details::text \
+             FROM audit_entries entry \
+             JOIN workspaces workspace ON workspace.id = entry.resource_id \
+             JOIN users actor ON actor.id = entry.actor_user_id \
+             JOIN audit_entry_clients client ON client.entry_id = entry.id \
+             WHERE entry.action = 'workspace.created' AND workspace.name = 'Acme Holdings' \
+             ORDER BY entry.scope"
+        )
+        .await,
+        [
+            "user superadmin@example.com 127.0.0.1 seed {\"access\": \"superadmin\"}",
+            "workspace superadmin@example.com 127.0.0.1 seed {}",
+        ]
+    );
+    // The secret that the seed printed is the app's: the account signs in with the password
+    // and the app's code, and a superadmin's routes then serve it.
+    let challenged = users::sign_in(&api, "superadmin@example.com", &password).await;
+    assert_eq!(challenged.status, StatusCode::OK, "{}", challenged.json());
+    let challenge = challenged.json()["challenge"].as_str().unwrap().to_owned();
+    // The seed's confirmation used the step that this code may be of (AUTH-057).
+    let user = db
+        .owner_reads("SELECT id::text FROM users WHERE email = 'superadmin@example.com'")
+        .await
+        .remove(0);
+    second_factors::forget_steps(&api, &user).await;
+    let code = second_factors::code(&api, &secret).await;
+    let signed_in = second_factors::complete(&api, &challenge, json!({ "code": code })).await;
+    assert_eq!(
+        signed_in.status,
+        StatusCode::CREATED,
+        "{}",
+        signed_in.json()
+    );
+    let sam = SignedIn::from(&signed_in).access;
+    let listed = api
+        .get("/v1/superadmin/workspaces")
+        .bearer(&sam)
+        .send()
+        .await;
+    assert_eq!(listed.status, StatusCode::OK, "{}", listed.json());
+}
+
+// part: invitations
+#[tokio::test]
+async fn system_010_sam_hands_the_workspace_over_to_olivia_and_leaves_it() {
+    let database = TestDatabase::migrated().await;
+
+    let (password, _) = seed_with_a_superadmin(&database).await;
+
+    let api = Api::on(database, Options::default()).await;
+    let olivia = sign_in(&api, "owner@example.com", &password).await;
+    assert!(
+        workspaces(&api, &olivia)
+            .await
+            .contains(&("Acme Holdings".to_owned(), "owner".to_owned()))
+    );
+    // Sam invited Olivia as an admin, transferred the workspace to her, and left it: its log
+    // holds each step, and Sam belongs to no workspace.
+    assert_eq!(
+        api.database()
+            .owner_reads(
+                "SELECT entry.action || ' ' || actor.email FROM audit_entries entry \
+                 JOIN workspaces workspace ON workspace.id = entry.workspace_id \
+                 JOIN users actor ON actor.id = entry.actor_user_id \
+                 WHERE workspace.name = 'Acme Holdings' AND entry.action IN \
+                 ('workspace.created', 'workspace.transferred', 'member.left') ORDER BY entry.id"
+            )
+            .await,
+        [
+            "workspace.created superadmin@example.com",
+            "workspace.transferred superadmin@example.com",
+            "member.left superadmin@example.com",
+        ]
+    );
+    assert_eq!(
+        api.database()
+            .owner_reads(
+                "SELECT count(*)::text FROM workspace_memberships membership \
+                 JOIN users account ON account.id = membership.user_id \
+                 WHERE account.email = 'superadmin@example.com'"
+            )
+            .await,
+        ["0"]
+    );
+}
+// end part: invitations
+// end part: superadmins
 
 #[tokio::test]
 async fn system_003_the_subcommand_prints_the_accounts_their_password_and_the_workspaces() {
@@ -493,7 +668,8 @@ async fn system_005_seed_has_olivia_invite_adam_and_mia_who_accept_and_ian_whose
                  FROM audit_entries entry \
                  JOIN users actor ON actor.id = entry.actor_user_id \
                  JOIN users target ON target.id = entry.target_user_id \
-                 WHERE entry.action = 'invitation.created' ORDER BY target.email"
+                 WHERE entry.action = 'invitation.created' \
+                 AND actor.email = 'owner@example.com' ORDER BY target.email"
             )
             .await,
         [

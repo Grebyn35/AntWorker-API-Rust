@@ -33,8 +33,9 @@ pub(crate) const SERVICE: Service = Service {
 /// The base64 of the tests' `HMAC_KEY`: 32 bytes of 7.
 const HMAC_KEY: &str = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=";
 
-/// The tests' `ENCRYPTION_KEYS`: one key, version 1, of 32 bytes of 7.
-const ENCRYPTION_KEYS: &str = "1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=";
+/// The tests' `ENCRYPTION_KEYS`: one key, version 1, of 32 bytes of 7, which a test also gives
+/// the binary whose stored secrets the API in process then reads.
+pub const ENCRYPTION_KEYS: &str = "1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=";
 
 /// The address the tests' requests come from, unless a test names another.
 pub const PEER: &str = "198.51.100.20:50000";

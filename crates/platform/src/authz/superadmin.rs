@@ -11,10 +11,10 @@ use axum::{
 
 use super::{Authorizer, REFUSALS, Reason};
 use crate::{
-    authn::{BoxFuture, Principal},
+    authn::{AuditScope, BoxFuture, Log, Principal},
     db::UnitOfWork,
     errors::{Internal, PlatformError, Problem, RequestError},
-    types::{Client, UserId},
+    types::{Client, UserId, WorkspaceId},
 };
 
 /// What [`SuperadminPolicy::admits`] found.
@@ -111,5 +111,13 @@ impl Superadmin {
     /// (WORKSPACES-030).
     pub fn principal(&self) -> &Principal {
         &self.principal
+    }
+
+    /// The scope of the entry that records this superadmin creating `workspace`, whose ID the
+    /// database just gave it, and which they own: the workspace's log, with them as the actor,
+    /// before any `Authorized<P>` can name it (WORKSPACES-031). Only a superadmin's creation of
+    /// a workspace calls it; clippy bans it elsewhere.
+    pub fn owner_scope(&self, workspace: WorkspaceId) -> AuditScope {
+        AuditScope::proven(Log::Workspace(workspace), self.principal.user_id())
     }
 }

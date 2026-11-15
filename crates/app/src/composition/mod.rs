@@ -1,16 +1,16 @@
 //! The composition root: builds every service once and mounts every module's routes (ARCH-12).
 //! `main.rs` opens the process's resources, such as the database, and hands them here. The
 //! modules' settings are in `config.rs`, and the other subcommands that run the modules' logic
-//! in `tasks.rs`.
+//! in `tasks.rs`, those that an operator runs, and in `seed.rs`, the entry points of `seed`.
 
 mod config;
 mod providers;
+mod seed;
 mod tasks;
 
 pub use config::Config;
-pub use tasks::{
-    Done, Operation, Refused, RemovalRefused, SeedError, SeedReport, seed, seed_allowed,
-};
+pub use seed::{SeedError, SeedReport, seed, seed_allowed};
+pub use tasks::{Done, Operation, Refused, RemovalRefused};
 // part: superadmins
 pub use tasks::{SuperadminCommand, SuperadminRefused};
 // end part: superadmins

@@ -3,14 +3,23 @@
 //! sends the API's router each request in process, with a JSON body and the Bearer header of the
 //! account it acts as, so every row that a request creates passes a client's checks and carries
 //! the audit entries and events that the request records
-//! ([system spec](../../../../../docs/spec/system.md#seed)). With email on, it also runs the jobs
-//! that its registrations enqueued, and proves each account's address with the code that their
-//! emails carry, which it reads from an inbox of its own, as a client reads the code from its
-//! mailbox.
+//! ([system spec](../../../../../../docs/spec/system.md#seed)). With email on, it also runs the
+//! jobs that its registrations enqueued, and proves each account's address with the code that
+//! their emails carry, which it reads from an inbox of its own, as a client reads the code from
+//! its mailbox.
 // part: workspace_setup
 //! It sets one workspace up as the deployment's operator does, through the operation that the
 //! composition root hands it, which no route offers (SYSTEM-009).
 // end part: workspace_setup
+// part: superadmins
+//! It makes one account a superadmin as the deployment's operator does, the same way, which sets
+//! its authenticator app up and creates a workspace as a superadmin's client does, in
+//! `superadmin.rs` (SYSTEM-010).
+// end part: superadmins
+
+// part: superadmins
+mod superadmin;
+// end part: superadmins
 
 use std::net::{Ipv4Addr, SocketAddr};
 
@@ -27,7 +36,10 @@ use platform::{
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use super::error::SystemError;
+// part: superadmins
+pub(crate) use self::superadmin::MakingSuperadmin;
+// end part: superadmins
+use crate::modules::system::error::SystemError;
 
 /// The password of every account the seed registers, which it prints, since a developer signs in
 /// as each of them in turn.
@@ -84,6 +96,10 @@ pub(crate) struct Seed<'a> {
     /// The operator's setup of a workspace.
     pub(crate) set_up: SetUp<'a>,
     // end part: workspace_setup
+    // part: superadmins
+    /// The operator's making of a superadmin.
+    pub(crate) make_superadmin: superadmin::MakeSuperadmin<'a>,
+    // end part: superadmins
 }
 
 /// What the seed created: the accounts, each with the password [`PASSWORD`], and the workspaces.
@@ -94,6 +110,11 @@ pub(crate) struct Seeded {
     /// Each workspace's name and ID, which a developer names in the paths of its routes, in the
     /// order it created them.
     pub(crate) workspaces: Vec<(&'static str, String)>,
+    // part: superadmins
+    /// The address of the account that it made a superadmin, and the secret of the account's
+    /// authenticator app, in base32, whose codes a sign-in to the account takes (SYSTEM-010).
+    pub(crate) superadmin: (&'static str, String),
+    // end part: superadmins
 }
 
 /// Refuses unless `environment` is development, so no deployment holds the seed's accounts, whose
@@ -118,10 +139,18 @@ pub(crate) async fn seed(seed: Seed<'_>) -> Result<Seeded, SystemError> {
     // part: invitations
     let ian = api.register("invitee@example.com", "Ian Invitee").await?;
     // end part: invitations
+    // part: superadmins
+    let sam = api
+        .register("superadmin@example.com", "Sam Superadmin")
+        .await?;
+    // end part: superadmins
     let registered = vec![&olivia, &adam, &mia];
     // part: invitations
     let registered = [registered, vec![&ian]].concat();
     // end part: invitations
+    // part: superadmins
+    let registered = [registered, vec![&sam]].concat();
+    // end part: superadmins
     api.verify(&seed.mailbox, &registered).await?;
     // The workspaces, Olivia's first: each part that creates workspaces adds its own.
     let mut workspaces = Vec::new();
@@ -136,6 +165,18 @@ pub(crate) async fn seed(seed: Seed<'_>) -> Result<Seeded, SystemError> {
     let labs = (seed.set_up)("Acme Labs", olivia.email).await?;
     workspaces.push(("Acme Labs", labs));
     // end part: workspace_setup
+    // part: superadmins
+    // The workspace that a superadmin creates, once the operator has made Sam one, and Sam has
+    // set an authenticator app up (SYSTEM-010).
+    (seed.make_superadmin)(sam.email).await?;
+    let app_secret = api.set_up_app(&sam).await?;
+    let holdings = api.create_as_superadmin(&sam, "Acme Holdings").await?;
+    // part: invitations
+    // Sam hands it over to Olivia, and leaves it.
+    api.hand_over(&sam, &holdings, &olivia).await?;
+    // end part: invitations
+    workspaces.push(("Acme Holdings", holdings));
+    // end part: superadmins
     // part: invitations
     // The members of the first workspace, and the invitation that waits (SYSTEM-005).
     let Some((_, shared)) = workspaces.first() else {
@@ -159,9 +200,16 @@ pub(crate) async fn seed(seed: Seed<'_>) -> Result<Seeded, SystemError> {
     // part: invitations
     let accounts = [accounts, vec![ian]].concat();
     // end part: invitations
+    // part: superadmins
+    let superadmin = (sam.email, app_secret);
+    let accounts = [accounts, vec![sam]].concat();
+    // end part: superadmins
     Ok(Seeded {
         accounts,
         workspaces,
+        // part: superadmins
+        superadmin,
+        // end part: superadmins
     })
 }
 

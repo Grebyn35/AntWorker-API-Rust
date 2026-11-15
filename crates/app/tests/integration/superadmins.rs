@@ -1,7 +1,7 @@
 //! The deployment's superadmins: the operator's subcommand `superadmin`, what authorizes a
-//! superadmin's routes, the list of every workspace, and a superadmin's deletion of one (the
-//! superadmins spec, SUPERADMINS-001 to SUPERADMINS-008, the workspaces spec's "A superadmin's
-//! routes", WORKSPACES-029 and WORKSPACES-030, and ACCESS-011).
+//! superadmin's routes, the list of every workspace, and a superadmin's creation and deletion of
+//! one (the superadmins spec, SUPERADMINS-001 to SUPERADMINS-008, the workspaces spec's "A
+//! superadmin's routes", WORKSPACES-029 to WORKSPACES-031, and ACCESS-011).
 
 use std::process::Output;
 
@@ -114,6 +114,35 @@ async fn standing(api: &Api, user: &SignedIn) -> Value {
         .await;
     assert_eq!(response.status, 200, "{}", response.json());
     response.json()
+}
+
+/// A body that every route of a superadmin's that takes one parses, so a request with it is
+/// refused for its caller alone.
+const BODY: &str = r#"{"name": "Acme"}"#;
+
+/// Creates a workspace named `name` as `caller`, a superadmin, with `key` as its idempotency
+/// key if given.
+async fn create(
+    api: &Api,
+    caller: &SignedIn,
+    name: &str,
+    key: Option<&str>,
+) -> crate::support::api::Response {
+    let mut call = api
+        .post(EVERY, &json!({ "name": name }))
+        .bearer(&caller.access);
+    if let Some(key) = key {
+        call = call.header("idempotency-key", key);
+    }
+    call.send().await
+}
+
+/// A superadmin with an authenticator app, who belongs to no workspace, and the API.
+async fn a_superadmin() -> (Api, SignedIn) {
+    let api = Api::new().await;
+    let sam = users::register(&api, "sam@example.com").await;
+    superadmins::make_with_app(&api, &sam).await;
+    (api, sam)
 }
 
 /// Every route of the API's document whose access is `superadmin`, as its method and its path.
@@ -383,14 +412,14 @@ async fn superadmins_004_every_route_of_a_superadmin_s_refuses_a_caller_who_is_n
         let anonymous = api
             .request(method.clone(), path)
             .header("content-type", "application/json")
-            .body("{}")
+            .body(BODY)
             .send()
             .await;
         let user = api
             .request(method.clone(), path)
             .bearer(&ada.access)
             .header("content-type", "application/json")
-            .body("{}")
+            .body(BODY)
             .send()
             .await;
 
@@ -449,7 +478,7 @@ async fn superadmins_005_every_route_of_a_superadmin_s_asks_a_superadmin_for_an_
             .request(method.clone(), path)
             .bearer(&ada.access)
             .header("content-type", "application/json")
-            .body("{}")
+            .body(BODY)
             .send()
             .await;
 
@@ -984,4 +1013,110 @@ async fn access_011_a_deletion_that_waited_for_the_owner_s_own_finds_no_workspac
     assert_eq!(problem["code"], "workspaces.not_found");
     // The superadmin deleted nothing, so their log records nothing.
     assert!(entries(&api, "workspace.deleted").await.0.is_empty());
+}
+
+#[tokio::test]
+async fn workspaces_031_a_superadmin_creates_a_workspace_that_they_own() {
+    let (api, sam) = a_superadmin().await;
+    let db = api.database();
+    // The registration's session published its start (AUTH-046).
+    db.owner_executes("DELETE FROM events").await;
+
+    let response = api
+        .post(EVERY, &json!({ "name": "Acme" }))
+        .bearer(&sam.access)
+        .header("user-agent", "tests/1.0")
+        .send()
+        .await;
+
+    assert_eq!(response.status, 201, "{}", response.json());
+    let body = response.json();
+    let id = body["id"].as_str().unwrap();
+    assert_eq!(response.header("location"), format!("/v1/workspaces/{id}"));
+    assert_eq!(response.header("etag"), "\"1\"");
+    assert_eq!(body["name"], "Acme");
+    assert_eq!(body["role"], "owner");
+    assert!(body["created_at"].as_str().unwrap().ends_with('Z'));
+    let user = &sam.user_id;
+    let members = db
+        .owner_reads("SELECT user_id || ' ' || role FROM workspace_memberships")
+        .await;
+    assert_eq!(members, [format!("{user} owner")]);
+    // The workspace's log holds its creation, and so does the superadmin's own, which says that
+    // a superadmin made it.
+    let (recorded, with_client) = entries(&api, "workspace.created").await;
+    assert_eq!(
+        recorded,
+        [
+            format!("workspace {id} {user} - workspace {id} {{}}"),
+            format!("user {user} {user} - workspace {id} {{\"access\": \"superadmin\"}}"),
+        ]
+    );
+    assert_eq!(with_client, "2", "each entry records its request's client");
+    let events = db
+        .owner_reads(
+            "SELECT name || ' ' || scope || ' ' || user_id || ' ' || (payload->>'workspace_id') \
+             || ' ' || (payload->>'session_id') FROM events",
+        )
+        .await;
+    assert_eq!(
+        events,
+        [format!(
+            "membership.created user {user} {id} {}",
+            sam.session_id
+        )]
+    );
+}
+
+#[tokio::test]
+async fn workspaces_031_a_name_is_stored_normalized_and_must_hold_a_character() {
+    let (api, sam) = a_superadmin().await;
+
+    let created = create(&api, &sam, "  Acme \t  Labs ", None).await;
+    let refused = create(&api, &sam, " \t ", None).await;
+
+    assert_eq!(created.json()["name"], "Acme Labs");
+    assert_eq!(refused.status, 400);
+    assert_eq!(refused.json()["code"], "request.invalid_fields");
+    assert_eq!(refused.json()["errors"][0]["field"], "/name");
+    assert_eq!(refused.json()["errors"][0]["code"], "required");
+    assert_eq!(
+        reads(&api, "SELECT name FROM workspaces").await,
+        ["Acme Labs"]
+    );
+}
+
+#[tokio::test]
+async fn workspaces_031_a_retry_with_the_key_creates_one_workspace() {
+    let (api, sam) = a_superadmin().await;
+
+    let first = create(&api, &sam, "Acme", Some("\"k-1\"")).await;
+    let retry = create(&api, &sam, "Acme", Some("\"k-1\"")).await;
+
+    assert_eq!(first.status, 201);
+    assert_eq!(retry.status, 201);
+    assert_eq!(retry.json(), first.json());
+    assert_eq!(retry.header("location"), first.header("location"));
+    assert_eq!(retry.header("etag"), first.header("etag"));
+    assert_eq!(
+        reads(&api, "SELECT count(*)::text FROM workspaces").await,
+        ["1"]
+    );
+    assert_eq!(entries(&api, "workspace.created").await.0.len(), 2);
+}
+
+#[tokio::test]
+async fn workspaces_031_the_created_workspace_s_location_reads_it_as_its_owner() {
+    let (api, sam) = a_superadmin().await;
+    let created = create(&api, &sam, "Acme", None).await;
+
+    let read = api
+        .get(created.header("location"))
+        .bearer(&sam.access)
+        .send()
+        .await;
+
+    assert_eq!(read.status, 200);
+    assert_eq!(read.json(), created.json());
+    assert_eq!(read.header("etag"), created.header("etag"));
 }

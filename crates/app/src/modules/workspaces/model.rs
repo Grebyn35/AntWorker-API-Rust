@@ -19,13 +19,9 @@ const MEMBER_ID_CHARS: usize = 36;
 
 /// A workspace's name: trimmed, with each run of whitespace inside collapsed to one space, in
 /// Unicode Normalization Form C, of 1 to 255 characters (WORKSPACES-002). A name can hold a
-/// person's name, so `Debug` doesn't show it (OBS-04).
-// part: workspace_creation
-/// `Deserialize` only reads back a stored result that an idempotency key replays
-/// (PLATFORM-036), which held a parsed name.
-#[derive(serde::Deserialize)]
-// end part: workspace_creation
-#[derive(Clone, PartialEq, Eq, Serialize)]
+/// person's name, so `Debug` doesn't show it (OBS-04). `Deserialize` only reads back a stored
+/// result that an idempotency key replays (PLATFORM-036), which held a parsed name.
+#[derive(Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(transparent)]
 pub(crate) struct WorkspaceName(String);
 
@@ -84,12 +80,9 @@ pub(crate) struct NewWorkspace {
 // end part: workspace_creation
 
 /// A workspace, as one of its members reads it, with their role (WORKSPACES-007).
-// part: workspace_creation
-// `Deserialize` only reads back the stored result of a user's creation of one, which an
-// idempotency key replays (WORKSPACES-001, PLATFORM-036).
-#[derive(serde::Deserialize)]
-// end part: workspace_creation
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, ToSchema)]
+// `Deserialize` only reads back the stored result of a creation of one, which an idempotency
+// key replays (PLATFORM-036).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize, ToSchema)]
 pub(crate) struct Workspace {
     /// The workspace's ID.
     pub(crate) id: WorkspaceId,
@@ -106,12 +99,10 @@ pub(crate) struct Workspace {
     // end part: files
 }
 
-/// A workspace as it now stands, with the version its `ETag` names (PLATFORM-071).
-// part: workspace_creation
-/// A user's creation of one with an idempotency key stores it as its result (PLATFORM-036).
-#[derive(Serialize, serde::Deserialize)]
-// end part: workspace_creation
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A workspace as it now stands, with the version its `ETag` names (PLATFORM-071). A creation of
+/// one that a request with an idempotency key asks for stores it as the key's result
+/// (PLATFORM-036).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub(crate) struct Current {
     /// The workspace.
     pub(crate) workspace: Workspace,

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`superadmins` holds the deployment's superadmins (D62): the users whom its operator made one, through the binary's subcommand `superadmin`, which nothing in the API does. A superadmin sees every workspace's name, creation time, member count and owner, and deletes any workspace, through routes of their own, and never sees a workspace's content. This spec covers the subcommand, what authorizes a superadmin's routes, and the route that tells a caller whether they are one. The routes themselves are `workspaces`', which owns what they read ([workspaces spec](workspaces.md#a-superadmins-routes)).
+`superadmins` holds the deployment's superadmins (D62): the users whom its operator made one, through the binary's subcommand `superadmin`, which nothing in the API does. A superadmin sees every workspace's name, creation time, member count and owner, deletes any workspace, and creates workspaces, which they then own, through routes of their own, and never sees a workspace's content as a superadmin. This spec covers the subcommand, what authorizes a superadmin's routes, and the route that tells a caller whether they are one. The routes themselves are `workspaces`', which owns what they read ([workspaces spec](workspaces.md#a-superadmins-routes)).
 
 ## Owns
 
@@ -60,7 +60,7 @@ Neither sends an email: the operator who runs the subcommand knows whom they nam
 
 - The caller is no superadmin. `platform::authz` rolls the unit of work back, reports the refusal to the `SecurityEventSink`, which records it in a transaction of its own, and answers 403 (SUPERADMINS-004). A superadmin's routes are in the API's document, so a 404 would hide nothing.
 - The caller is a superadmin whose account has no authenticator app, which `auth::has_authenticator_app` reads. The request answers 403 `request.second_factor_setup_required`, the answer a client already handles for a deployment that requires a second factor of every user, by having the user set one up (AUTH-070).
-- The caller is a superadmin with an app. `open` returns the unit of work with the proof, `Superadmin`, which only it builds, and which holds the caller: what a superadmin changes is recorded under the scope of their `Principal`, their own log with them as its actor, and an operation that needs a proof of who the session's user is reads their session (WORKSPACES-030).
+- The caller is a superadmin with an app. `open` returns the unit of work with the proof, `Superadmin`, which only it builds, and which holds the caller: what a superadmin changes is recorded under the scope of their `Principal`, their own log with them as its actor, and an operation that needs a proof of who the session's user is reads their session (WORKSPACES-030). Its `owner_scope` names the log of a workspace that the superadmin just created, with them as its actor, which only that creation may call, as clippy enforces (WORKSPACES-031).
 
 Every superadmin must have a second factor (D63), and the proof is where that holds (D154): whatever happened to the account since the operator made it a superadmin, such as the removal of its app, by its user or by an operator (AUTH-064, AUTH-072), no route serves it as a superadmin without one. So the subcommand takes an account without an app, which sets one up before its first request as a superadmin, and no removal of an app needs to know of superadmins.
 

@@ -17,6 +17,7 @@
   `Principal::founder_scope(workspace_id)` names the log of the workspace the caller just created, with them as the actor, before any `Authorized<P>` can name it, and only a user's creation of a workspace may call it, which clippy enforces. <!-- part: workspace_creation -->
   `Principal::joiner_scope(workspace_id)` does the same for the workspace the caller joins by accepting an invitation (INVITATIONS-005), and only accepting may call it. <!-- part: invitations -->
   `AuditScope::setup(workspace_id)` names the log of the workspace that the subcommand `setup-workspace` just created, with no actor, since an operator is no user, and only that subcommand's operation may call it, which clippy enforces (WORKSPACES-023). <!-- part: workspace_setup -->
+  `Superadmin::owner_scope(workspace_id)` names the log of the workspace that a superadmin just created, with them as the actor, before any `Authorized<P>` can name it, and only a superadmin's creation of a workspace may call it, which clippy enforces (WORKSPACES-031). <!-- part: superadmins -->
   `Principal::leaver_scope(workspace_id)` names the log of a workspace that the caller leaves as their account is deleted, and only the personal data contract of `workspaces` may call it (ACCOUNTS-014).
 - `SecurityEventSink`, implemented for `platform::authz`.
   Its `refused_superadmin` records the refusal of a caller who is no superadmin at a superadmin's route (SUPERADMINS-004). <!-- part: superadmins -->

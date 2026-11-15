@@ -1,16 +1,17 @@
-//! What a superadmin does with the deployment's workspaces: listing every one, and deleting any
-//! (the workspaces spec's "A superadmin's routes").
+//! What a superadmin does with the deployment's workspaces: listing every one, creating one,
+//! and deleting any (the workspaces spec's "A superadmin's routes").
 
 use std::collections::HashMap;
 
 use platform::{
     authz::Superadmin,
     db::UnitOfWork,
+    idempotency::{Claimed, IdempotencyKey},
     lists::{List, Page, Search, key},
     types::{UserId, WorkspaceId},
 };
 
-use super::erase;
+use super::{Founder, erase, found};
 use crate::modules::{
     access::{self, Census},
     accounts::{self, PublicProfile},
@@ -19,10 +20,18 @@ use crate::modules::{
     workspaces::{
         audit,
         error::WorkspacesError,
-        model::{WorkspaceOverview, WorkspaceOwner},
+        events as published,
+        model::{Current, WorkspaceName, WorkspaceOverview, WorkspaceOwner},
         repo,
     },
 };
+
+/// What an entry that a superadmin's route records says of how the caller acted: as a
+/// superadmin, as a refusal of such a route says too (SUPERADMINS-004), and not as a member of
+/// the workspace.
+fn as_superadmin() -> serde_json::Value {
+    serde_json::json!({ "access": "superadmin" })
+}
 
 /// A page of every workspace of the deployment, each with its owner and how many members it
 /// has, the latest created first, kept to those whose name contains `search`, for a superadmin,
@@ -69,6 +78,45 @@ pub(in crate::modules::workspaces) async fn every(
     })
 }
 
+/// Creates a workspace named `name` that the caller owns, for a superadmin, in the unit of work
+/// that their proof opened, which claims `key` first, so a retry with the same key and request
+/// answers the same workspace: the workspace, the owner's membership, the entry in the
+/// workspace's log, the entry in the superadmin's own, and the event that tells the caller's
+/// streams, with the session that created it, commit together (WORKSPACES-031, PLATFORM-036).
+pub(in crate::modules::workspaces) async fn create(
+    mut uow: UnitOfWork,
+    superadmin: &Superadmin,
+    key: Option<&IdempotencyKey>,
+    name: WorkspaceName,
+) -> Result<Current, WorkspacesError> {
+    let caller = superadmin.principal();
+    if let Claimed::Replay(created) = uow.claim(caller.user_id(), key).await? {
+        return Ok(created);
+    }
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a superadmin who creates a workspace is recorded as its owner (the workspaces spec)"
+    )]
+    let founder = Founder {
+        owner: caller.user_id(),
+        scope: |workspace| superadmin.owner_scope(workspace),
+    };
+    let created = found(&mut uow, &name, founder).await?;
+    let workspace = created.workspace.id;
+    // The superadmin's own log holds the creation too, since the workspace's goes with it.
+    let mut entry = Entry::new(audit::WORKSPACE_CREATED, audit::WORKSPACE, workspace.uuid());
+    entry.details = as_superadmin();
+    log::record(&mut uow, caller.audit_scope(), entry).await?;
+    let payload = published::MembershipCreated {
+        workspace_id: workspace,
+        session_id: caller.session_id(),
+    };
+    uow.publish_to_user(&published::MEMBERSHIP_CREATED, caller.user_id(), &payload)
+        .await?;
+    uow.commit_with(&created).await?;
+    Ok(created)
+}
+
 /// Deletes `workspace`, the workspace that the path names, whoever its members are, with
 /// everything in it, for a superadmin, in the unit of work that their proof opened, once their
 /// session has proved who its user is: the entry in the superadmin's own log, the end of every
@@ -87,7 +135,7 @@ pub(in crate::modules::workspaces) async fn delete(
     // workspace is locked (the workspaces spec's "Deleting a workspace"). It says that the
     // caller deleted the workspace as a superadmin, not as its owner.
     let mut entry = Entry::new(audit::WORKSPACE_DELETED, audit::WORKSPACE, workspace.uuid());
-    entry.details = serde_json::json!({ "access": "superadmin" });
+    entry.details = as_superadmin();
     log::record(&mut uow, caller.audit_scope(), entry).await?;
     if !access::dissolve_any(&mut uow, superadmin, workspace).await? {
         // No workspace has the ID: the unit of work rolls back, and the entry with it.

@@ -108,7 +108,7 @@ crates/app/
   src/
     main.rs            the subcommands (§9)
     lib.rs             the crate root: makes public only the composition root's entry points (CODE-15)
-    composition/       the composition root: builds every service once at startup and mounts every module's routes, in mod.rs, reads the modules' settings, in config.rs, and holds the other subcommands that run the modules' logic, in tasks.rs: the entry points of `seed`, and each subcommand that an operator runs, with what it takes, which main.rs takes into its own
+    composition/       the composition root: builds every service once at startup and mounts every module's routes, in mod.rs, reads the modules' settings, in config.rs, and holds the other subcommands that run the modules' logic: in seed.rs, the entry points of `seed`, and in tasks.rs, each subcommand that an operator runs, with what it takes, which main.rs takes into its own
     modules/           one directory per module (§5)
   templates/           each module's email templates, in a directory named after the module
   tests/               integration tests over HTTP, against the real services, and end-to-end tests in tests/e2e/
@@ -164,9 +164,10 @@ An invited user joins only the workspace they were invited to. <!-- part: invita
 <!-- part: superadmins -->
 A fork may keep `superadmins` in any shape, for seeing and deleting workspaces.
 In the provisioned shape, it is the one part that creates them. <!-- part: invitations -->
-A superadmin who creates a workspace becomes its owner, and hands it over through the ordinary ownership transfer when asked.
-They set it up and invite its people first. <!-- part: invitations -->
-They see its content as a member, never as a superadmin.
+A superadmin who creates a workspace becomes its owner, and hands it over through the ordinary ownership transfer when asked, to a member who has joined it (D66, D159).
+They set it up and invite its people first, its next owner among them. <!-- part: invitations -->
+They see its content as a member, never as a superadmin, and leave it once it is handed over.
+A workspace that nobody else joins stays the superadmin's own: a transfer swaps the roles of two members, so a superadmin's creation gives someone else a workspace only where people join one.
 <!-- end part: superadmins -->
 How each part creates a workspace is in the [workspaces spec](spec/workspaces.md#creating-a-workspace).
 In every shape, the same authorization and the same tenancy checks guard the data (DATA-16, TEST-08).
@@ -234,7 +235,7 @@ modules/workspaces/
   personal_data.rs   its export and erasure contract (D31)
 ```
 
-Three modules have one extra entry each: `access/permissions.rs` holds the permission matrix, `auth/providers/` holds one file per OAuth provider together with their registry, in `mod.rs`, `clients.rs` and `exchange.rs`, and `system/seed.rs` holds `seed`, a client of the API's routes, which names HTTP types as a service may not ([system spec](spec/system.md#seed)).
+Three modules have one extra entry each: `access/permissions.rs` holds the permission matrix, `auth/providers/` holds one file per OAuth provider together with their registry, in `mod.rs`, `clients.rs` and `exchange.rs`, and `system/seed/` holds `seed`, a client of the API's routes, which names HTTP types as a service may not ([system spec](spec/system.md#seed)).
 
 The layers have strict jobs (ARCH-08 to ARCH-10):
 - **Handlers** contain no SQL and no business rules.

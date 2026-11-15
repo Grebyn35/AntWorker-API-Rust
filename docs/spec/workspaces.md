@@ -6,7 +6,7 @@
 A user creates a workspace through `POST /v1/workspaces`, and owns it. <!-- part: workspace_creation -->
 A workspace's owner and admins also set and remove its picture here, whose image `files` keeps (D117, D149). <!-- part: files -->
 The subcommand `setup-workspace`, which an operator runs, creates a workspace for its owner, and, with email on, their account when no account holds their address (D65). <!-- part: workspace_setup -->
-A superadmin lists every workspace of the deployment here, and deletes any of them, through routes of their own, which show nothing of a workspace's content (D62). <!-- part: superadmins -->
+A superadmin lists every workspace of the deployment here, deletes any of them, and creates workspaces, which they then own, through routes of their own, which show nothing of a workspace's content (D62, D66). <!-- part: superadmins -->
 
 ## Owns
 
@@ -42,10 +42,12 @@ A superadmin lists every workspace of the deployment here, and deletes any of th
 | `PUT /v1/workspaces/{workspace_id}/picture` | `workspace::<WorkspaceUpdate>` | WORKSPACES-019, WORKSPACES-020 <!-- part: files --> |
 | `DELETE /v1/workspaces/{workspace_id}/picture` | `workspace::<WorkspaceUpdate>` | WORKSPACES-021 <!-- part: files --> |
 | `GET /v1/superadmin/workspaces` | superadmin | WORKSPACES-029 <!-- part: superadmins --> |
+| `POST /v1/superadmin/workspaces` | superadmin | WORKSPACES-002, WORKSPACES-031 <!-- part: superadmins --> |
 | `DELETE /v1/superadmin/workspaces/{workspace_id}` | superadmin | WORKSPACES-030 <!-- part: superadmins --> |
 
 Each `PATCH` accepts an `If-Match` (API-13, PLATFORM-071).
 `POST /v1/workspaces` accepts an `Idempotency-Key` (API-12). <!-- part: workspace_creation -->
+`POST /v1/superadmin/workspaces` accepts an `Idempotency-Key` (API-12). <!-- part: superadmins -->
 `PUT` and `DELETE .../picture` accept an `If-Match` too, since a change of the picture changes the workspace, its `version` with it. <!-- part: files -->
 `PUT .../picture` is an upload route, added through `Routes::workspace_upload`, whose body is the image's bytes, which it reads through `Upload` with the picture's limit (WORKSPACES-020, PLATFORM-074). <!-- part: files -->
 
@@ -84,12 +86,13 @@ ID 009 is retired.
 | WORKSPACES-028 | A run sets nothing up when what it is given names no workspace or no owner: a name that WORKSPACES-002 refuses, an address that ACCOUNTS-002 refuses, or an owner's name that ACCOUNTS-003 refuses; or, with email on, when the account that holds the address has an identity and hasn't proved the address, when no account holds it and the run was given no owner's name, or when an account takes the address while the run creates one. A run that sets nothing up, for these reasons or those of WORKSPACES-026 and WORKSPACES-027, changes nothing, and ends as a failure does (OPS-03), exiting 1, with a message that says why, without the name or the address. <!-- part: workspace_setup --> | D65, OPS-03, OBS-04, ERR-05 | `workspaces_028_` |
 | WORKSPACES-029 | `GET /v1/superadmin/workspaces` lists every workspace of the deployment, to a superadmin (SUPERADMINS-004), with `{id, name, created_at, member_count, owner}`, `owner` being `{user_id, name, email}`, the latest created first, in cursor pages. Its `search` matches the workspace's name. An item holds nothing else of its workspace. <!-- part: superadmins --> | D62, D155, API-05, API-06, API-20, DATA-16, DATA-17 | `workspaces_029_` |
 | WORKSPACES-030 | A superadmin's deletion of a workspace, `DELETE /v1/superadmin/workspaces/{workspace_id}`, deletes the workspace that the path names, whoever its members are, the caller among them or not, with everything in it, as WORKSPACES-017 says, in one unit of work, and answers 204. It needs the proof that WORKSPACES-018 needs, of the session that authenticates it, and answers 403 `request.reauthentication_required` without it. It records `workspace.deleted` in the caller's own log, with the workspace as its resource and `{"access": "superadmin"}` as its details. An access-change signal for each member closes their streams (ACCESS-006). A path that names no workspace, since none has the ID or it isn't a UUID, answers 404 `workspaces.not_found`, and changes and records nothing. <!-- part: superadmins --> | D62, D148, SEC-06, DATA-06, DATA-16, DATA-22, DATA-23, API-04, ERR-03 | `workspaces_030_` |
+| WORKSPACES-031 | A superadmin's creation of a workspace, `POST /v1/superadmin/workspaces` with `{"name": <name>}`, makes the caller its owner, in one unit of work. It answers 201 with `Location`, `/v1/workspaces/{id}`, the workspace's `ETag` (PLATFORM-071), and the workspace as WORKSPACES-007 gives it, whose `role` is `owner`, and whose name is the one given, normalized as WORKSPACES-002 says. It records `workspace.created` twice, each with the caller as its actor and the workspace as its resource: in the workspace's log, and in the caller's own, with `{"access": "superadmin"}` as its details. It publishes the user event `membership.created`, which names the session that caused it, so that device can tell it already knows. A name that WORKSPACES-002 refuses answers 400 at `/name`, and creates nothing. A retry with the request's `Idempotency-Key` answers the first request's workspace, and creates none (PLATFORM-036). <!-- part: superadmins --> | D62, D66, D33, API-04, API-10, API-12, DATA-22 | `workspaces_031_` |
 
 ## Design
 
 ### Creating a workspace
 
-One operation creates every workspace, inside the unit of work of whatever asks for it: it inserts the `workspaces` row, calls `access::add_owner`, whose signal closes the owner's open streams (ACCESS-006), and records `workspace.created` (D33). Whatever asks for it names the owner, and the scope of the entry, as a function of the workspace's ID, which the database gives: the scope names the log of a workspace that exists only once the operation has inserted it, and who acts in it, which each part answers its own way. Each part that creates workspaces calls it. Those parts are optional (ARCH-07), and the ones a fork keeps give its product its shape ([architecture §5](../architecture.md#workspace-shapes)).
+One operation creates every workspace, inside the unit of work of whatever asks for it: it inserts the `workspaces` row, calls `access::add_owner`, whose signal closes the owner's open streams (ACCESS-006), and records `workspace.created` (D33). Whatever asks for it names the owner, and the scope of the entry, as a function of the workspace's ID, which the database gives: the scope names the log of a workspace that exists only once the operation has inserted it, and who acts in it, which each part answers its own way. A creation that a request with an idempotency key asks for stores the workspace as the key's result, as it then stands, so the types that hold it are read back from a stored result too (PLATFORM-036). Each part that creates workspaces calls it. Those parts are optional (ARCH-07), and the ones a fork keeps give its product its shape ([architecture §5](../architecture.md#workspace-shapes)).
 
 Tests arrange workspaces and memberships through the `owner` connection (TEST-05), never through one of the parts, so removing a part leaves the other modules' tests passing.
 
@@ -174,6 +177,11 @@ A superadmin's deletion of a workspace is the owner's deletion (Deleting a works
 4. It deletes the workspace's row, and the jobs enqueued for it, as steps 3 and 4 of an owner's deletion do.
 
 No email tells the workspace's members: each one's streams close with `access_changed`, as they do when its owner deletes it.
+
+A superadmin creates a workspace through the one operation (Creating a workspace), and owns it, as whoever creates a workspace through a request does (D66). `POST /v1/superadmin/workspaces` opens the unit of work with the caller's proof, claims the request's idempotency key, and calls the operation, with the caller as the owner, and as the actor of the entry in the workspace's log, through `Superadmin::owner_scope`. It records `workspace.created` in the caller's own log too, under the scope of the proof's `Principal`, with the details that their deletion of a workspace records: a workspace's log goes with its workspace, so what a superadmin did with the deployment's workspaces stays in their own. It publishes `membership.created` to the caller, with the session whose request created the workspace, and commits, with the workspace as the key's result (PLATFORM-036). It answers the workspace as its members read it, at the `Location` that they read it through: from then on the caller is its owner, who sees its content as a member, and never as a superadmin.
+
+A superadmin hands the workspace over as any owner does, through a transfer to an admin of it (WORKSPACES-015), and may then leave it (WORKSPACES-014). A transfer swaps the roles of two members, so they hand over only a workspace that its next owner has joined: one that nobody else joins stays its creator's.
+They invite its next owner as an admin first (INVITATIONS-001). <!-- part: invitations -->
 <!-- end part: superadmins -->
 
 ### Listing members

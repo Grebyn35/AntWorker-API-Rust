@@ -11,3 +11,6 @@ pub(crate) use seed::{Mailbox, PASSWORD, Seed, allowed as seed_allowed, seed};
 // part: workspace_setup
 pub(crate) use seed::SettingUp;
 // end part: workspace_setup
+// part: superadmins
+pub(crate) use seed::MakingSuperadmin;
+// end part: superadmins

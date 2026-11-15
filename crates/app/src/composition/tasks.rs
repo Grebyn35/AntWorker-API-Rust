@@ -1,19 +1,10 @@
-//! The binary's subcommands besides `serve` that run the modules' logic (ARCH-14): the entry
-//! points of `seed`, which fills a development database, and [`Operation`], the subcommands that
-//! an operator runs, such as `remove-second-factor`, each with what it takes and what it does,
-//! as a [`Done`], which `main.rs` takes into its own.
+//! The subcommands that an operator runs (ARCH-14): [`Operation`], such as
+//! `remove-second-factor`, each with what it takes and what it does, as a [`Done`], which
+//! `main.rs` takes into its own.
 
-use axum::Router;
-use platform::{
-    config::Environment,
-    db::Database,
-    errors::Internal,
-    jobs::Jobs,
-    mail::{Inbox, Mail},
-};
+use platform::{db::Database, errors::Internal, mail::Mail};
 
-use super::Resources;
-use crate::modules::{auth, system};
+use crate::modules::auth;
 // part: superadmins
 use crate::modules::superadmins;
 // end part: superadmins
@@ -392,90 +383,3 @@ fn listed(superadmins: Vec<superadmins::Listed>) -> Done {
     Done { outcome, shown }
 }
 // end part: superadmins
-
-/// What `seed` created: each account's email address and name, which all share `password`, and
-/// each workspace's name and ID (SYSTEM-003).
-pub struct SeedReport {
-    /// Each account's email address and name, in the order it registered them.
-    pub accounts: Vec<(&'static str, &'static str)>,
-    /// Every account's password.
-    pub password: &'static str,
-    /// Each workspace's name and ID.
-    pub workspaces: Vec<(&'static str, String)>,
-}
-
-/// Why `seed` refused, or stopped (SYSTEM-002, SYSTEM-004).
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub struct SeedError(system::SystemError);
-
-/// Refuses `seed` unless `environment` is development, before it connects to anything
-/// (SYSTEM-002).
-pub fn seed_allowed(environment: Environment) -> Result<(), SeedError> {
-    system::seed_allowed(environment).map_err(SeedError)
-}
-
-/// Fills the database behind `router`, the API as `serve` builds it on `resources`, with demo
-/// accounts and workspaces, as a client of its routes, proving each account's address with the
-/// code in `inbox`, which `jobs` send while email is on (the system spec's Seed).
-// part: workspace_setup
-/// It hands the seed the operator's setup of a workspace, on the same `resources`, for the one
-/// workspace that the seed sets up as an operator does (SYSTEM-009).
-// end part: workspace_setup
-pub async fn seed(
-    router: Router,
-    resources: &Resources,
-    jobs: &Jobs,
-    inbox: &Inbox,
-) -> Result<SeedReport, SeedError> {
-    let mailbox = system::Mailbox {
-        jobs,
-        database: &resources.database,
-        clock: &resources.clock,
-        inbox,
-    };
-    // part: workspace_setup
-    let set_up = |name: &'static str, email: &'static str| -> system::SettingUp<'_> {
-        Box::pin(set_up_for_seed(resources, name, email))
-    };
-    // end part: workspace_setup
-    let seed = system::Seed {
-        router,
-        mailbox,
-        // part: workspace_setup
-        set_up: &set_up,
-        // end part: workspace_setup
-    };
-    let seeded = system::seed(seed).await.map_err(SeedError)?;
-    Ok(SeedReport {
-        accounts: seeded
-            .accounts
-            .iter()
-            .map(|account| (account.email, account.name))
-            .collect(),
-        password: system::PASSWORD,
-        workspaces: seeded.workspaces,
-    })
-}
-
-// part: workspace_setup
-/// Sets up the workspace named `name` for the account that holds `email`, which the seed
-/// registered, as an operator's run of `setup-workspace` does, on the seed's database and with
-/// its mail, and answers the workspace's ID (SYSTEM-009).
-async fn set_up_for_seed(
-    resources: &Resources,
-    name: &str,
-    email: &str,
-) -> Result<String, Internal> {
-    let refused = |refusal: workspaces::SetupRefusal| {
-        Internal::new(format!(
-            "the seed's setup of a workspace set nothing up: {refusal:?}"
-        ))
-    };
-    let setup = workspaces::Setup::new(name, email, None).map_err(refused)?;
-    let done = workspaces::set_up(&resources.database, &resources.mail, setup)
-        .await?
-        .map_err(refused)?;
-    Ok(done.workspace.to_string())
-}
-// end part: workspace_setup

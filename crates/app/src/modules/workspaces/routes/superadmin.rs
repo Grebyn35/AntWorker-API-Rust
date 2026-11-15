@@ -1,32 +1,38 @@
-//! A superadmin's routes on the deployment's workspaces: listing every one, and deleting any
-//! (the workspaces spec's "A superadmin's routes").
+//! A superadmin's routes on the deployment's workspaces: listing every one, creating one, and
+//! deleting any (the workspaces spec's "A superadmin's routes").
 
 use axum::{extract::RawPathParams, http::StatusCode};
 use platform::{
     authz::AuthorizeSuperadmin,
     db::Database,
     errors::{Problem, RequestError},
-    http::{FieldErrors, Query, Routes, path_id},
+    http::{FieldErrors, Idempotent, Query, ResourceResponse, Routes, path_id},
+    idempotency::IdempotencyKey,
     lists::{Cursor, Limit, List, Page, Search},
     types::WorkspaceId,
 };
 use serde::Deserialize;
-use utoipa::IntoParams;
+use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::routes;
 
 use crate::modules::workspaces::{
-    error::WorkspacesError, model::WorkspaceOverview, service::superadmin as service,
+    error::WorkspacesError,
+    model::{Workspace, WorkspaceName, WorkspaceOverview},
+    service::superadmin as service,
 };
 
 /// A superadmin's routes, which take the database as their state, as the module's others do.
 pub(super) fn routes() -> Routes<Database> {
-    Routes::new().superadmin(routes!(every), &[]).superadmin(
-        routes!(delete_any),
-        &[
-            &RequestError::ReauthenticationRequired,
-            &WorkspacesError::NotFound,
-        ],
-    )
+    Routes::new()
+        .superadmin(routes!(every), &[])
+        .superadmin(routes!(create_own), &[])
+        .superadmin(
+            routes!(delete_any),
+            &[
+                &RequestError::ReauthenticationRequired,
+                &WorkspacesError::NotFound,
+            ],
+        )
 }
 
 /// The query of `GET /v1/superadmin/workspaces` (WORKSPACES-029).
@@ -75,6 +81,54 @@ async fn every(
     let (mut uow, superadmin) = authorize.open().await.map_err(WorkspacesError::from)?;
     let list = service::every(&mut uow, &superadmin, search.as_ref(), &page).await?;
     Ok(axum::Json(list))
+}
+
+/// What a superadmin's creation of a workspace takes (WORKSPACES-031).
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CreateOwnRequest {
+    /// The workspace's name (WORKSPACES-002).
+    #[schema(value_type = WorkspaceName)]
+    name: String,
+}
+
+impl TryFrom<CreateOwnRequest> for WorkspaceName {
+    type Error = RequestError;
+
+    fn try_from(request: CreateOwnRequest) -> Result<Self, Self::Error> {
+        let mut errors = FieldErrors::new();
+        let name = errors.check("/name", Self::parse(&request.name));
+        errors.finish(name)
+    }
+}
+
+/// Creates a workspace, which the caller owns, and hands over once its next owner has joined.
+#[utoipa::path(
+    post,
+    path = "/v1/superadmin/workspaces",
+    tag = "workspaces",
+    request_body = CreateOwnRequest,
+    params(
+        ("Idempotency-Key" = inline(Option<IdempotencyKey>), Header,
+            description = "A key of the caller's own, as a quoted string, so a retry creates nothing twice (API-12)."),
+    ),
+    responses(
+        (status = 201, description = "The new workspace, which the caller owns.", body = Workspace,
+            headers(
+                ("location" = String, description = "The new workspace: `/v1/workspaces/{id}`."),
+                ("etag" = String, description = "The workspace's version, which a rename's `If-Match` names (API-13)."),
+            )),
+    )
+)]
+async fn create_own(
+    authorize: AuthorizeSuperadmin,
+    request: Idempotent<CreateOwnRequest>,
+) -> Result<ResourceResponse<Workspace>, Problem<WorkspacesError>> {
+    let name = WorkspaceName::try_from(request.body).map_err(WorkspacesError::from)?;
+    let (uow, superadmin) = authorize.open().await.map_err(WorkspacesError::from)?;
+    let created = service::create(uow, &superadmin, request.key.as_ref(), name).await?;
+    let location = format!("/v1/workspaces/{}", created.workspace.id);
+    Ok(ResourceResponse::created(created.workspace, location).tagged(created.version))
 }
 
 /// Deletes a workspace of the deployment, with everything in it, whoever its members are.

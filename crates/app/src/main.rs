@@ -375,6 +375,13 @@ fn print_seeded(report: &app::SeedReport) {
     for (email, name) in &report.accounts {
         println!("  {email:<24}{name}");
     }
+    // part: superadmins
+    let (superadmin, secret) = &report.superadmin;
+    println!(
+        "{superadmin} is a superadmin, and signs in with a code of the authenticator app whose \
+         secret is {secret}"
+    );
+    // end part: superadmins
     println!("The workspaces:");
     for (name, id) in &report.workspaces {
         println!("  {name:<24}{id}");
