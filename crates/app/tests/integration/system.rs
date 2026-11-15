@@ -78,7 +78,7 @@ async fn system_002_seed_refuses_outside_development_before_it_connects() {
         .run_api(&["seed"], &[("ENVIRONMENT", "test")])
         .await;
 
-    // Production logs JSON lines, and the tests' environment readable text (PLATFORM-044).
+    // Production logs JSON lines, and the tests' environment readable text (OBS-01).
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&output.stdout);
     let failure = stdout
@@ -133,19 +133,33 @@ async fn workspaces(api: &Api, token: &str) -> Vec<(String, String)> {
     workspaces
 }
 
-/// Runs the binary's `seed` in development on `database`, which must succeed (TEST-03), and
-/// returns the password it printed.
-async fn seed(database: &TestDatabase) -> String {
-    let output = database
-        .run_api(&["seed"], &[("ENVIRONMENT", "development")])
-        .await;
+/// Runs the binary's `seed` in development on `database`, with `settings` added to its own,
+/// which must succeed (TEST-03), and returns what it printed.
+async fn seeded(database: &TestDatabase, settings: &[(&str, &str)]) -> String {
+    let settings: Vec<(&str, &str)> = [("ENVIRONMENT", "development")]
+        .into_iter()
+        .chain(settings.iter().copied())
+        .collect();
+    let output = database.run_api(&["seed"], &settings).await;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     assert_eq!(output.status.code(), Some(0), "{stdout}");
     stdout
+}
+
+/// What follows `text` on the line of `printed`, the seed's output, that holds it.
+fn printed_after(printed: &str, text: &str) -> String {
+    let rest = printed
         .lines()
-        .find_map(|line| line.split_once("with the password "))
-        .map(|(_, password)| password.trim_end_matches(':').to_owned())
-        .unwrap()
+        .find_map(|line| line.split_once(text))
+        .map(|(_, rest)| rest.trim_end_matches(':').to_owned());
+    assert!(rest.is_some(), "no {text:?} in {printed}");
+    rest.unwrap()
+}
+
+/// Runs the binary's `seed` in development on `database`, which must succeed, and returns the
+/// password it printed.
+async fn seed(database: &TestDatabase) -> String {
+    printed_after(&seeded(database, &[]).await, "with the password ")
 }
 
 #[tokio::test]
@@ -325,30 +339,14 @@ async fn system_009_with_email_on_the_setup_takes_olivia_s_proved_address_and_en
 /// superadmin. The seed encrypts the secret under the tests' key ring, so the API that a test
 /// then runs in process reads it (AUTH-066).
 async fn seed_with_a_superadmin(database: &TestDatabase) -> (String, String) {
-    let output = database
-        .run_api(
-            &["seed"],
-            &[
-                ("ENVIRONMENT", "development"),
-                ("ENCRYPTION_KEYS", crate::support::api::KEY_RING),
-            ],
-        )
-        .await;
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    assert_eq!(output.status.code(), Some(0), "{stdout}");
-    let after = |text: &str| {
-        let rest = stdout
-            .lines()
-            .find_map(|line| line.split_once(text))
-            .map(|(_, rest)| rest.trim_end_matches(':').to_owned());
-        assert!(rest.is_some(), "no {text:?} in {stdout}");
-        rest.unwrap()
-    };
-    let secret = after(
+    let key_ring = [("ENCRYPTION_KEYS", crate::support::api::KEY_RING)];
+    let printed = seeded(database, &key_ring).await;
+    let secret = printed_after(
+        &printed,
         "superadmin@example.com is a superadmin, and signs in with a code of the authenticator \
          app whose secret is ",
     );
-    (after("with the password "), secret)
+    (printed_after(&printed, "with the password "), secret)
 }
 
 #[tokio::test]

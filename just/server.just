@@ -100,9 +100,8 @@ setup-workspace host name email owner_name="":
 # owner, deletes any workspace, and creates workspaces, and no route makes one. With email on,
 # only an account that has proved the address becomes one, and a superadmin's routes serve it
 # once it has an authenticator app. It runs the API's subcommand `superadmin` with the image of
-# the color that serves, and a change exits 1, changing nothing, when no account holds the
-# address, or the account is one already, or is none to end. docs/operations/deploy.md says when
-# to run it.
+# the color that serves, and a change that changes nothing exits 1, with a line that says why,
+# such as that no account holds the address. docs/operations/deploy.md says when to run it.
 [doc("Makes an account a superadmin on a server, ends its being one, or lists them")]
 [group('server')]
 superadmin host change email="":

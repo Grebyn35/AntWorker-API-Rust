@@ -166,7 +166,7 @@ A fork may keep `superadmins` in any shape, for seeing and deleting workspaces.
 In the provisioned shape, it is the one part that creates them. <!-- part: invitations -->
 A superadmin who creates a workspace becomes its owner, and hands it over through the ordinary ownership transfer when asked, to a member who has joined it (D66, D159).
 They set it up and invite its people first, its next owner among them. <!-- part: invitations -->
-They see its content as a member, never as a superadmin, and leave it once it is handed over.
+They see its content as a member, never as a superadmin, and may leave it once it is handed over.
 A workspace that nobody else joins stays the superadmin's own: a transfer swaps the roles of two members, so a superadmin's creation gives someone else a workspace only where people join one.
 <!-- end part: superadmins -->
 How each part creates a workspace is in the [workspaces spec](spec/workspaces.md#creating-a-workspace).

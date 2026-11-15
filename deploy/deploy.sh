@@ -152,7 +152,10 @@ case $command in
     # end part: workspace_setup
     # part: superadmins
     superadmin)
-        if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then fail "usage: deploy.sh superadmin <add|remove> <email>, or deploy.sh superadmin list"; fi
+        case "${2:-}:$#" in
+            add:3 | remove:3 | list:2) ;;
+            *) fail "usage: deploy.sh superadmin <add|remove> <email>, or deploy.sh superadmin list" ;;
+        esac
         shift
         superadmin "$@"
         ;;

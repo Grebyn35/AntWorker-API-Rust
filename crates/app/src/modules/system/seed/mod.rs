@@ -113,7 +113,7 @@ pub(crate) struct Seeded {
     // part: superadmins
     /// The address of the account that it made a superadmin, and the secret of the account's
     /// authenticator app, in base32, whose codes a sign-in to the account takes (SYSTEM-010).
-    pub(crate) superadmin: (&'static str, String),
+    pub(crate) superadmin: (&'static str, platform::types::Secret<String>),
     // end part: superadmins
 }
 

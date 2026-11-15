@@ -1,7 +1,8 @@
 //! The deployment's superadmins: the operator's subcommand `superadmin`, what authorizes a
 //! superadmin's routes, the list of every workspace, and a superadmin's creation and deletion of
 //! one (the superadmins spec, SUPERADMINS-001 to SUPERADMINS-008, the workspaces spec's "A
-//! superadmin's routes", WORKSPACES-029 to WORKSPACES-031, and ACCESS-011).
+//! superadmin's routes", WORKSPACES-029 to WORKSPACES-031, and ACCESS-011), with what a
+//! subcommand shows its operator (OPS-03).
 
 use std::process::Output;
 
@@ -750,8 +751,7 @@ async fn superadmins_008_list_shows_each_superadmin_s_address_and_logs_none() {
     let listed = run(&api, &SENDS_EMAIL, &["list"]).await;
 
     assert_eq!(listed.status.code(), Some(0), "{}", printed(&listed));
-    // The standard output holds the list, the one made first first, and nothing but it and the
-    // log's lines.
+    // The standard output holds the list, the one made first first.
     let stdout = String::from_utf8_lossy(&listed.stdout).into_owned();
     let shown: Vec<&str> = stdout
         .lines()
@@ -1164,7 +1164,7 @@ async fn ops_03_what_a_subcommand_shows_its_operator_is_printed_outside_the_logs
     let listed = run(&api, &settings, &["list"]).await;
 
     assert_eq!(listed.status.code(), Some(0), "{}", printed(&listed));
-    // Production logs JSON lines (PLATFORM-044): what the subcommand shows is no line of them,
+    // Production logs JSON lines (OBS-01): what the subcommand shows is no line of them,
     // and no log line holds what it shows.
     let stdout = String::from_utf8_lossy(&listed.stdout).into_owned();
     let (logged, shown): (Vec<&str>, Vec<&str>) = stdout

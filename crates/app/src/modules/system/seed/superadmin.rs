@@ -5,7 +5,10 @@
 // end part: invitations
 
 use axum::http::Method;
-use platform::{errors::Internal, types::Timestamp};
+use platform::{
+    errors::Internal,
+    types::{Secret, Timestamp},
+};
 use serde_json::json;
 
 use super::{Account, Api, PASSWORD, text};
@@ -24,11 +27,15 @@ const APP_STEP_SECONDS: u64 = 30;
 
 impl Api {
     /// Sets up an authenticator app for `account`, as a client does, and returns its secret, in
-    /// base32, whose codes a sign-in to the account then takes (AUTH-055, AUTH-056). The account
+    /// base32, whose codes a sign-in to the account then takes (AUTH-055, AUTH-056), wrapped, so
+    /// only the seed's report shows it (SEC-01). The account
     /// re-authenticates first: the answer's `authenticated_at` is the request's time by the
     /// database's clock, by which the API checks an app's code (AUTH-021, AUTH-057), and the
     /// seed reads no clock of its own (CODE-06).
-    pub(super) async fn set_up_app(&self, account: &Account) -> Result<String, SystemError> {
+    pub(super) async fn set_up_app(
+        &self,
+        account: &Account,
+    ) -> Result<Secret<String>, SystemError> {
         let session = self
             .send(
                 Method::POST,
@@ -55,7 +62,7 @@ impl Api {
             Some(json!({ "code": code })),
         )
         .await?;
-        Ok(secret)
+        Ok(Secret::new(secret))
     }
 
     /// Creates the workspace `name` as `superadmin`, who owns it, and returns its ID

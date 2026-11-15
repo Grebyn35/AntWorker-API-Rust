@@ -8956,7 +8956,7 @@
             }
           }
         },
-        "summary": "Creates a workspace, which the caller owns, and hands over once its next owner has joined.",
+        "summary": "Creates a workspace, which the caller owns.",
         "tags": [
           "workspaces"
         ],

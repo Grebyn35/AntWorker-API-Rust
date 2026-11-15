@@ -379,7 +379,8 @@ fn print_seeded(report: &app::SeedReport) {
     let (superadmin, secret) = &report.superadmin;
     println!(
         "{superadmin} is a superadmin, and signs in with a code of the authenticator app whose \
-         secret is {secret}"
+         secret is {}",
+        secret.expose()
     );
     // end part: superadmins
     println!("The workspaces:");

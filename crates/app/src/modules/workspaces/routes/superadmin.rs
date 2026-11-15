@@ -102,7 +102,7 @@ impl TryFrom<CreateOwnRequest> for WorkspaceName {
     }
 }
 
-/// Creates a workspace, which the caller owns, and hands over once its next owner has joined.
+/// Creates a workspace, which the caller owns.
 #[utoipa::path(
     post,
     path = "/v1/superadmin/workspaces",

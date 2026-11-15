@@ -215,7 +215,7 @@ just superadmin production list
 
 shows who the deployment's superadmins are: a line for each, the one made first first, with the account's address, the user's ID, which the logs and the audit entries name them by, and when they became one (D157). The addresses reach your terminal alone: the task prints them outside the logs, which hold only how many it listed, and the container that ran it goes when it ends.
 
-Each runs the API's subcommand `superadmin` as `remove-second-factor` runs, with the image of the color that serves, so it needs a replica running. A change exits 1, changing nothing, with a line that says why: when no account holds the address, when the account is a superadmin already, or is none to end. It logs what it did, and never the address.
+Each runs the API's subcommand `superadmin` as `remove-second-factor` runs, with the image of the color that serves, so it needs a replica running. A change that changes nothing exits 1, with a line that says why, such as that no account holds the address, or that the account is a superadmin already. It logs what it did, and never the address.
 <!-- end part: superadmins -->
 
 ## Scaling
