@@ -88,6 +88,9 @@ const ADDRESSED: &[(&str, &str)] = &[
 
 /// The tenants themselves, whose rows a query reaches by IDs that came from a query filtered by
 /// tenant (DATA-16).
+// part: superadmins
+/// A superadmin's list reads every one of them, under its proof, which DATA-16 exempts.
+// end part: superadmins
 const TENANTS: &[&str] = &["workspaces"];
 
 /// The files of scheduled jobs that span tenants, which select rows by their own criteria, such

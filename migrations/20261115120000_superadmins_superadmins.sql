@@ -1,6 +1,6 @@
 -- The deployment's superadmins (the superadmins spec): one row for each user whom the operator made
--- one, through the subcommand superadmin, which alone writes the table (D62). A row is inserted
--- and deleted, never updated. Deleting the account deletes its row.
+-- one, through the subcommand superadmin, which alone inserts a row, and which deletes one (D62).
+-- A row is never updated. Deleting the account deletes its row too.
 CREATE TABLE superadmins (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     user_id uuid NOT NULL,

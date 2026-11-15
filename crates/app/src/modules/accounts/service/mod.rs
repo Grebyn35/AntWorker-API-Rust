@@ -245,6 +245,10 @@ async fn publish_changed(
 
 /// The names and emails of exactly the users `ids` names, which came from a query filtered by
 /// tenant, such as a workspace's member list (ACCOUNTS-005, DATA-16).
+// part: superadmins
+/// A superadmin's list of every workspace passes the owners that its census gave, which DATA-16
+/// exempts too (WORKSPACES-029).
+// end part: superadmins
 pub(crate) async fn profiles(
     uow: &mut UnitOfWork,
     ids: &[UserId],

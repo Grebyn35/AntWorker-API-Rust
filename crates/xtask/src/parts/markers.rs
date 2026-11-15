@@ -1,6 +1,11 @@
 //! The markers that give a line, or a block of lines, to an optional part (ARCH-07). A marker is
 //! a comment that reads `part: <part>`, or `end part: <part>`, in one of the syntaxes below.
 
+use syn::{
+    Expr, ExprMatch,
+    visit::{self, Visit},
+};
+
 /// The comment syntaxes a marker is written in, each with what ends its comment: Rust's, the one
 /// of the files whose comments start with `#`, Markdown's, and Mermaid's.
 const SYNTAXES: [(&str, &str); 4] = [("//", ""), ("#", ""), ("<!--", "-->"), ("%%", "")];
@@ -220,6 +225,72 @@ pub fn attribute_above_block(text: &str) -> Vec<usize> {
     found
 }
 
+/// The lines of Rust `text`, counted from 1, that close the block of a part's arm of a match,
+/// right above the marker that closes the part's block, when no arm of the core follows the arm.
+/// A removal of the parts whose arms follow it leaves such an arm its match's last, and rustfmt,
+/// which the removal runs, moves a comment that follows a last arm's block onto the block's
+/// closing line, where the marker stands alone no more. It leaves a comment after an arm that
+/// another follows, or that is an expression (ARCH-07). Text that doesn't parse has none: the
+/// build refuses it.
+pub fn block_arm_that_can_be_last(text: &str) -> Vec<usize> {
+    struct Arms<'a> {
+        lines: Vec<&'a str>,
+        /// Whether each line is a part's: in a part's block, or one of its markers.
+        marked: Vec<bool>,
+        found: Vec<usize>,
+    }
+
+    impl<'ast> Visit<'ast> for Arms<'_> {
+        fn visit_expr_match(&mut self, node: &'ast ExprMatch) {
+            for (index, arm) in node.arms.iter().enumerate() {
+                let Expr::Block(body) = &*arm.body else {
+                    continue;
+                };
+                let closes = body.block.brace_token.span.close().start().line;
+                // The line after the one that closes the block, counted from 0.
+                let ends_part = self.lines.get(closes).is_some_and(|next| {
+                    marker(next).is_some_and(|marker| marker.kind == Kind::Close)
+                });
+                let core_follows = node.arms[index + 1..].iter().any(|later| {
+                    let line = later.fat_arrow_token.spans[0].start().line;
+                    !self.marked.get(line - 1).copied().unwrap_or(false)
+                });
+                if ends_part && !core_follows {
+                    self.found.push(closes);
+                }
+            }
+            visit::visit_expr_match(self, node);
+        }
+    }
+
+    let Ok(file) = syn::parse_file(text) else {
+        return Vec::new();
+    };
+    let mut depth = 0_usize;
+    let marked = text
+        .lines()
+        .map(|line| match marker(line).map(|marker| marker.kind) {
+            Some(Kind::Open) => {
+                depth += 1;
+                true
+            }
+            Some(Kind::Close) => {
+                depth = depth.saturating_sub(1);
+                true
+            }
+            Some(Kind::Line) => true,
+            None => depth > 0,
+        })
+        .collect();
+    let mut arms = Arms {
+        lines: text.lines().collect(),
+        marked,
+        found: Vec::new(),
+    };
+    arms.visit_file(&file);
+    arms.found
+}
+
 /// `text` without the lines that the parts in `removed` own, or `None` if it has none of them.
 pub fn strip(
     text: &str,
@@ -370,6 +441,45 @@ mod tests {
         let lines = misplaced_in_rust(&text);
 
         assert_eq!(lines, [1, 5, 6]);
+    }
+
+    #[test]
+    fn arch_07_a_part_s_arm_with_a_block_that_no_arm_of_the_core_follows_is_found() {
+        let arms = |after: &[String]| {
+            let mut lines = vec![
+                "fn f(x: u8) -> u8 {".to_owned(),
+                "    match x {".to_owned(),
+                "        0 => 1,".to_owned(),
+                mark("//", "one", ""),
+                "        1 => {".to_owned(),
+                "            2".to_owned(),
+                "        }".to_owned(),
+                end("//", "one", ""),
+            ];
+            lines.extend_from_slice(after);
+            lines.extend(["    }".to_owned(), "}".to_owned()]);
+            lines.join("\n")
+        };
+        let last = arms(&[]);
+        let before_a_part_s = arms(&[
+            mark("//", "two", ""),
+            "        2 => 3,".to_owned(),
+            end("//", "two", ""),
+        ]);
+        let before_the_core_s = arms(&["        _ => 0,".to_owned()]);
+        let expression = last.replace(
+            "        1 => {\n            2\n        }",
+            "        1 => 2,",
+        );
+
+        // Once the part `two` is removed, the arm of `one` is its match's last too.
+        assert_eq!(block_arm_that_can_be_last(&last), [7]);
+        assert_eq!(block_arm_that_can_be_last(&before_a_part_s), [7]);
+        assert_eq!(
+            block_arm_that_can_be_last(&before_the_core_s),
+            Vec::<usize>::new()
+        );
+        assert_eq!(block_arm_that_can_be_last(&expression), Vec::<usize>::new());
     }
 
     #[test]

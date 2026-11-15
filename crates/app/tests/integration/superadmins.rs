@@ -479,6 +479,26 @@ async fn superadmins_006_a_caller_reads_whether_they_are_a_superadmin() {
 }
 
 #[tokio::test]
+async fn superadmins_006_a_deployment_that_requires_an_app_refuses_an_account_without_one() {
+    let api = Api::with(Options::default().set("SECOND_FACTOR_REQUIRED", true)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    superadmins::make(&api, &ada).await;
+
+    let response = api
+        .get("/v1/users/me/superadmin")
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    // As any route of a user's refuses the account, superadmin or not (AUTH-070).
+    assert_eq!(response.status, 403);
+    assert_eq!(
+        response.json()["code"],
+        "request.second_factor_setup_required"
+    );
+}
+
+#[tokio::test]
 async fn superadmins_007_deleting_a_superadmin_s_account_ends_their_being_one() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

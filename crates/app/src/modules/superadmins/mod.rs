@@ -1,5 +1,6 @@
-//! The deployment's superadmins: who is one, which only an operator's subcommand changes, and
-//! what authorizes a superadmin's routes ([spec](../../../../../docs/spec/superadmins.md)).
+//! The deployment's superadmins: who is one, which an operator's subcommand alone decides, and
+//! which ends with the user's account too, and what authorizes a superadmin's routes
+//! ([spec](../../../../../docs/spec/superadmins.md)).
 
 mod audit;
 mod error;

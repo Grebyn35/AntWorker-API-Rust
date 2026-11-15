@@ -51,6 +51,16 @@ pub fn check(repo: &Repo) -> Outcome {
                  move it inside the block (ARCH-07)",
             ));
         }
+        for line in markers::block_arm_that_can_be_last(&file.text) {
+            findings.push(Finding::new(
+                &file.path,
+                line,
+                "this block is the body of a part's arm of a match that no arm of the core \
+                 follows: once a removal leaves the arm its match's last, rustfmt moves the \
+                 part's end marker onto this line; write the arm as an expression, or before an \
+                 arm of the core (ARCH-07)",
+            ));
+        }
     }
     for file in repo.files() {
         for line in markers::text_after_marker(&file.text) {

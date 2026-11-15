@@ -31,7 +31,7 @@
 | SUPERADMINS-003 | The subcommand `superadmin remove`, given an email address, ends the superadmin of the account that holds it, in one unit of work: once it has committed, a route whose access is `superadmin` refuses the account as SUPERADMINS-004 says. It records `superadmin.removed` in the account's own log, as SUPERADMINS-001 records its entry, logs what it did, and exits 0. What isn't an address, an address that no account holds, and an account that is no superadmin change nothing, and end the subcommand as SUPERADMINS-002 says. | D62, ARCH-14, DATA-22, OPS-03, OBS-04 | `superadmins_003_` |
 | SUPERADMINS-004 | A route whose access is `superadmin` serves a caller only while they are a superadmin, which it reads inside the request's unit of work. Every other caller gets 403 `request.permission_denied`, whatever they own or belong to, and the refusal is recorded as `access.denied` in the caller's own log, with them as its actor, the deployment as its resource, which has no ID, and `{"access": "superadmin"}` as its details. A request without a credential answers 401 `request.unauthenticated` first. | D62, API-14, DATA-22, SEC-08 | `superadmins_004_` |
 | SUPERADMINS-005 | A superadmin whose account has no authenticator app gets 403 `request.second_factor_setup_required` from every route whose access is `superadmin`, whatever `SECOND_FACTOR_REQUIRED` says, until they have set one up (AUTH-056). Nothing records it. | D63, D154 | `superadmins_005_` |
-| SUPERADMINS-006 | `GET /v1/users/me/superadmin` answers 200 with `{"superadmin": <boolean>}`: whether the caller is a superadmin, with or without an authenticator app. | D62, API-02, DATA-16 | `superadmins_006_` |
+| SUPERADMINS-006 | `GET /v1/users/me/superadmin` answers 200 with `{"superadmin": <boolean>}`: whether the caller is a superadmin. It asks no authenticator app of a superadmin, so one with an app and one without both read `true`: it refuses an account without one only as any route of a user's does, while the deployment requires one of every user (AUTH-070). | D62, API-02, API-14, DATA-16 | `superadmins_006_` |
 | SUPERADMINS-007 | Deleting a superadmin's account ends their being one, with the account. The export of a user's data holds `superadmins/superadmins.json`: for a superadmin, one record with the `created_at` of their row, and for any other user, none. | D31, DATA-23 | `superadmins_007_` |
 
 ## Design
@@ -64,7 +64,7 @@ A function that reads across workspaces for a superadmin takes the proof, down t
 
 ### Whether the caller is a superadmin
 
-A client offers a superadmin's pages only to a superadmin, so it asks: `GET /v1/users/me/superadmin` reads the caller's own row, by their ID (DATA-16), and answers every user, so asking is no refused request, and records nothing. The capabilities tell a client whether its API has the module at all ([system spec](system.md#capabilities)).
+A client offers a superadmin's pages only to a superadmin, so it asks: `GET /v1/users/me/superadmin` is a route of a user's, which reads the caller's own row, by their ID (DATA-16), and answers every user that such a route serves, so asking is no refused request, and records nothing. The capabilities tell a client whether its API has the module at all ([system spec](system.md#capabilities)).
 
 ## Open design questions
 
