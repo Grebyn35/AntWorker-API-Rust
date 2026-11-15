@@ -60,20 +60,25 @@ impl Copy {
     /// A fresh copy for `check`, named `name`, such as a run of `check-removable`, made once the
     /// copies hold no more than [`BOUND`] together.
     pub fn fresh(check: Check, name: &str) -> Result<Self, String> {
-        let root = root();
+        Self::of(&root(), check, name, BOUND)
+    }
+
+    /// A fresh copy of the repository at `root`, under its `target/`, made once the copies there
+    /// hold no more than `bound` bytes together.
+    fn of(root: &Path, check: Check, name: &str, bound: u64) -> Result<Self, String> {
         let target = root.join("target");
         let directory = target.join(check.directory()).join(name);
-        let removed = remove_beyond(&target, &directory, BOUND)
+        let removed = remove_beyond(&target, &directory, bound)
             .map_err(|error| format!("can't bound what the copies hold: {error}"))?;
         for removed in removed {
             report(&format!(
                 "removed {}, a copy and its build: the checks' copies held more than {} GB together",
-                removed.strip_prefix(&root).unwrap_or(&removed).display(),
-                BOUND >> 30
+                removed.strip_prefix(root).unwrap_or(&removed).display(),
+                bound >> 30
             ));
         }
         let copy = directory.join("repo");
-        fresh_copy(&root, &copy).map_err(|error| format!("can't copy the repository: {error}"))?;
+        fresh_copy(root, &copy).map_err(|error| format!("can't copy the repository: {error}"))?;
         Ok(Self {
             root: copy,
             target: directory.join("target").to_string_lossy().into_owned(),
@@ -393,5 +398,23 @@ mod tests {
         assert!(!held("removable/personal/target/debug/deps/app"));
         assert!(held("debug/deps/app"));
         assert!(held("removable/removable.log"));
+    }
+
+    #[test]
+    fn ops_21_a_check_removes_the_copies_beyond_the_bound_before_it_makes_one() {
+        // A repository of its own, under target/, which the build already ignores.
+        let directory = "target/copies-of-test";
+        repo::empty_directory(directory).unwrap();
+        repo::write(&format!("{directory}/.gitignore"), "/target\n").unwrap();
+        repo::write(&format!("{directory}/justfile"), "checks:\n").unwrap();
+        let root = root().join(directory);
+        run(&root, "git", &["init", "--quiet"], &[]).unwrap();
+
+        let first = Copy::of(&root, Check::Removable, "personal", u64::MAX).unwrap();
+        assert!(repo::read(&first.root.join("justfile")).is_ok());
+
+        let second = Copy::of(&root, Check::NewModule, "modules", 0).unwrap();
+        assert!(repo::read(&first.root.join("justfile")).is_err());
+        assert!(repo::read(&second.root.join("justfile")).is_ok());
     }
 }

@@ -35,8 +35,8 @@ pub fn compose(args: &[&str]) -> String {
     docker(&[&["compose"], args].concat())
 }
 
-/// The network of the Postgres that Compose runs, on which a container reaches it as
-/// `postgres`, and the tests' Postgres as `postgres-tests`.
+/// Compose's network, on which a container reaches the development Postgres as `postgres`, and
+/// the tests' Postgres as `postgres-tests`.
 pub fn postgres_network() -> String {
     let id = compose(&["ps", "--quiet", "postgres"]);
     assert!(

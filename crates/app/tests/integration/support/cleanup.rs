@@ -13,7 +13,7 @@
 //! A test does wait before it creates its database while more than [`Backlog::MOST`] that
 //! earlier tests left are yet to be dropped: the tests' Postgres holds its data in memory, which
 //! the databases that wait would fill, the more of them the more tests a run has. That wait ends
-//! with the thread's next drop, which waits for no test.
+//! once the thread has dropped enough of them, and the thread waits for no test.
 //!
 //! The process ends without waiting for the thread, so what its last tests left may stay. The
 //! next process drops it first: each process holds an advisory lock that its ID names while it
@@ -67,6 +67,7 @@ static BACKLOG: Backlog = Backlog::new();
 /// is about to create its own waits on while it is over [`Backlog::MOST`] (OPS-21).
 pub struct Backlog {
     left: AtomicUsize,
+    waiting: AtomicUsize,
     stopped: AtomicBool,
     changed: Notify,
 }
@@ -79,9 +80,20 @@ impl Backlog {
     pub const fn new() -> Self {
         Self {
             left: AtomicUsize::new(0),
+            waiting: AtomicUsize::new(0),
             stopped: AtomicBool::new(false),
             changed: Notify::const_new(),
         }
+    }
+
+    /// The count of this process, which every test's database waits on and counts in.
+    pub fn of_the_process() -> &'static Self {
+        &BACKLOG
+    }
+
+    /// How many tests wait for room.
+    pub fn waiting(&self) -> usize {
+        self.waiting.load(Ordering::SeqCst)
     }
 
     /// Counts a database that a test left.
@@ -110,8 +122,25 @@ impl Backlog {
             {
                 return;
             }
+            let _waiting = Waiting::among(&self.waiting);
             changed.await;
         }
+    }
+}
+
+/// One test among those that wait for room, until it is dropped.
+struct Waiting<'a>(&'a AtomicUsize);
+
+impl<'a> Waiting<'a> {
+    fn among(waiting: &'a AtomicUsize) -> Self {
+        waiting.fetch_add(1, Ordering::SeqCst);
+        Self(waiting)
+    }
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
     }
 }
 

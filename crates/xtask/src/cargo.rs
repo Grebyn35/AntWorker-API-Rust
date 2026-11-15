@@ -8,12 +8,14 @@
 
 use std::{ffi::OsStr, process::Command};
 
-/// A command that runs Cargo: the one that runs this program, or the one on the path.
+/// A command that runs Cargo, the one that ran this program or the one on the path, as
+/// [`command`] runs a program.
 pub fn cargo() -> Command {
     command(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
 }
 
-/// A command that runs `program` without the variables that Cargo set for this program.
+/// A command that runs `program` without the variables in which Cargo described this program's
+/// package.
 pub fn command(program: impl AsRef<OsStr>) -> Command {
     let mut command = Command::new(program);
     for (name, _) in std::env::vars_os() {

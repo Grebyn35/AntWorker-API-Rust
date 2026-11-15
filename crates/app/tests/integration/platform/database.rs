@@ -517,3 +517,23 @@ async fn ops_21_a_test_waits_to_create_its_database_while_too_many_wait_to_be_dr
     backlog.dropped();
     assert!(room.now_or_never().is_some());
 }
+
+#[tokio::test]
+async fn ops_21_a_test_s_database_is_created_once_the_ones_yet_to_be_dropped_leave_room() {
+    let backlog = Backlog::of_the_process();
+    // One more than leaves room, however many the cleanup drops meanwhile.
+    for _ in 0..=Backlog::MOST {
+        backlog.left();
+    }
+    let created = tokio::spawn(TestDatabase::empty());
+
+    while backlog.waiting() == 0 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!created.is_finished());
+
+    for _ in 0..=Backlog::MOST {
+        backlog.dropped();
+    }
+    created.await.unwrap();
+}

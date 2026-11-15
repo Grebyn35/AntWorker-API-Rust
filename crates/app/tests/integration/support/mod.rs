@@ -9,7 +9,7 @@
 //! `Admin::create_roles` and `Admin::grant_database`, the steps that `bootstrap` runs, create the
 //! roles and grants, so the API under test connects as `app` with exactly its production
 //! privileges. Settings come from the environment, or from `.env` when a test runs outside
-//! `just`, with the tests' Postgres in place of the development database's server.
+//! `just`, with the tests' Postgres in place of the development Postgres.
 #![expect(
     clippy::disallowed_types,
     reason = "the harness creates and drops databases and roles, and arranges tests on raw \
@@ -100,7 +100,7 @@ pub fn client() -> platform::types::Client {
 
 /// The port of the tests' Postgres, whose data is in memory, as `compose.yaml` publishes it on
 /// the loopback address: the tests' databases are on that server, with the roles and the
-/// passwords that the settings name for the development database's.
+/// passwords that the settings name for the development Postgres.
 const TESTS_POSTGRES: u16 = 5433;
 
 /// The advisory lock that serializes creating the roles and the template, across processes.

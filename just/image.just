@@ -68,8 +68,8 @@ image-scan:
 
 # Runs the end-to-end tests against the images in target, on the platform E2E_PLATFORM, which is
 # this machine's unless the environment names another (TEST-03). The tests push the images to the
-# registry that Compose runs, which they empty first, and run them from there, against the Postgres
-# that `just services` starts (crates/app/tests/e2e/machine.rs). Every other image
+# registry that Compose runs, which they empty first, and run them from there, against the tests'
+# Postgres, or a deployment's own server (crates/app/tests/e2e/machine.rs). Every other image
 # the tests pull is fetched first: this machine's, and, through the mirror, their servers', which
 # run on this machine's platform, so no test reaches a registry outside (TEST-06). The arguments go
 # to the test harness: names run only the tests whose names hold one of them, such as

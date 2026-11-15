@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use super::{compose_id, docker, read, report};
 
-/// Prepares Compose's Postgres for a replica of `image`, with its `bootstrap` and `migrate`, and
+/// Prepares the development Postgres for a replica of `image`, with its `bootstrap` and `migrate`, and
 /// returns the network it is on and the replica's settings.
 pub(super) fn prepare(root: &Path, image: &str) -> Result<(String, Vec<String>), String> {
     let network = docker(
@@ -29,7 +29,7 @@ pub(super) fn prepare(root: &Path, image: &str) -> Result<(String, Vec<String>),
     for task in ["bootstrap", "migrate"] {
         let mut args = vec!["run", "--rm", "--network", &network];
         for setting in &settings {
-            // Compose's Postgres holds the development database and the tests', which share the
+            // The development Postgres holds the development database too, which shares the
             // roles, and in production `bootstrap` refuses a server that holds another database
             // of the roles (PLATFORM-003), so it runs as development's.
             let setting = match (task, setting.as_str()) {
@@ -235,7 +235,7 @@ pub(super) fn limits(root: &Path) -> Result<(String, String), String> {
 const IMAGE_SETTINGS: &str = "crates/app/tests/e2e/image.env";
 
 /// The replica's settings: those of `IMAGE_SETTINGS`, the database's, and the HMAC key and the encryption keys of .env,
-/// with Compose's Postgres as `postgres`, and IP, user and sign-in limits that the load, from
+/// with the development Postgres as `postgres`, and IP, user and sign-in limits that the load, from
 /// one address and a few users, never reaches, so the test measures the replica rather than the
 /// limits, while every request still counts in them.
 pub(super) fn settings(root: &Path) -> Result<Vec<String>, String> {
@@ -260,7 +260,7 @@ pub(super) fn settings(root: &Path) -> Result<Vec<String>, String> {
     Ok(settings)
 }
 
-/// The database URL that .env gives as `name`, with Compose's Postgres as `postgres`, as a
+/// The database URL that .env gives as `name`, with the development Postgres as `postgres`, as a
 /// container on its network reaches it.
 pub(super) fn database_url(name: &str) -> Result<String, String> {
     let value = std::env::var(name).map_err(|_| format!("{name} is unset; run `just setup`"))?;

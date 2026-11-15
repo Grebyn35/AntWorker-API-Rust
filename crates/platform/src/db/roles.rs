@@ -62,7 +62,7 @@ pub enum BootstrapError {
 /// database the URLs name (PLATFORM-002). Running it again leaves the roles, their attributes
 /// and settings, and the grants as they are, and sets each role's password to the one in its
 /// URL. In production, it first refuses a server that holds another database of the roles
-/// (PLATFORM-003); development and the tests keep all their databases on one server. It computes
+/// (PLATFORM-003); development's server and the tests' each hold several, by design. It computes
 /// the roles' password verifiers through `workers`.
 pub async fn bootstrap(config: &BootstrapConfig, workers: &Workers) -> Result<(), BootstrapError> {
     let database = config.admin.database();

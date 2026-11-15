@@ -1,6 +1,6 @@
 //! `load-test`, which `just load-test` runs: it measures one replica's capacity (OPS-16). It runs
 //! one replica of the API's image under test, with the reference deployment's limits on CPU and
-//! memory for a replica, against Compose's Postgres, with its telemetry exported to Compose's
+//! memory for a replica, against the development Postgres, with its telemetry exported to Compose's
 //! collector. Then k6 sends it requests at constant rates, raising the rate until a step fails,
 //! and narrowing the gap. A step passes when no request failed, k6 dropped none for want of a
 //! client, and the 99th percentile of their durations is within the latency objective, which it

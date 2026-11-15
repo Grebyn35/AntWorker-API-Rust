@@ -1,8 +1,8 @@
 //! End-to-end tests: guarantees of the built image, which run it as an operator would (TEST-03).
 //! The tests push the image in target/image to the registry that Compose runs (machine.rs), and
-//! run it from there by digest, on the platform `E2E_PLATFORM` names, against the Postgres that
-//! `just services` starts, or another server of it. Only the `e2e` feature compiles them, because
-//! they need a built image.
+//! run it from there by digest, on the platform `E2E_PLATFORM` names, against a database on the
+//! tests' Postgres, or on a deployment's own server. Only the `e2e` feature compiles them,
+//! because they need a built image.
 //!
 //! `cfg(test)` always holds here; it marks the helpers as test code, where clippy allows
 //! `unwrap` and `expect` (CODE-03).

@@ -463,7 +463,7 @@ pub fn streaming_client(root: &str, timeout: Duration) -> reqwest::blocking::Cli
     client_within(root, timeout)
 }
 
-/// Starts the server of a managed database: another server of Compose's Postgres, for the reason
+/// Starts the server of a managed database: another server of the development Postgres, for the reason
 /// docs/operations/ci.md gives. It runs the service's image with its command and environment, and
 /// its health check's test, interval, timeout and retries, joins its network, and keeps its data
 /// in a volume of its own, which goes with it: `in_memory`, under a limit in its deployment's

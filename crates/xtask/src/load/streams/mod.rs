@@ -350,7 +350,7 @@ fn arrange(root: &Path, publisher: &str, run: &str) -> Result<Vec<String>, Strin
     Ok(tokens)
 }
 
-/// Arranges a workspace in Compose's Postgres, owned by the account that holds `email`, as the
+/// Arranges a workspace in the development Postgres, owned by the account that holds `email`, as the
 /// role that owns the schema, and returns its ID.
 fn owned_workspace(root: &Path, email: &str) -> Result<String, String> {
     let url = database_url("DATABASE_OWNER_URL")?;
