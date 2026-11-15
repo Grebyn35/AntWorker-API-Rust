@@ -5,11 +5,9 @@
 //! dependency there or in its tests, examples and benches, and a build dependency in its build
 //! script. Cargo's metadata gives the dependencies, each under the name its code uses.
 
-use std::process::Command;
-
 use serde_json::Value;
 
-use crate::{Finding, repo::Repo};
+use crate::{Finding, cargo, repo::Repo};
 
 /// One dependency that a crate declares.
 #[derive(Debug, PartialEq, Eq)]
@@ -33,7 +31,7 @@ pub fn check(repo: &Repo) -> Vec<Finding> {
 
 /// The dependencies of the workspace's crates, from Cargo's metadata.
 fn dependencies() -> Result<Vec<Dependency>, String> {
-    let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+    let output = cargo::cargo()
         .args(["metadata", "--format-version", "1", "--no-deps", "--locked"])
         .output()
         .map_err(|error| format!("can't run cargo metadata: {error}"))?;

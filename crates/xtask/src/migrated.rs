@@ -6,10 +6,11 @@
 //! share one.
 
 use std::{
-    ffi::OsString,
     path::{Path, PathBuf},
     process::{Command, Output},
 };
+
+use crate::cargo;
 
 /// The settings the API binary's `bootstrap` and `migrate` read for the database, which `just`
 /// loads from `.env`.
@@ -85,8 +86,7 @@ pub fn with_database<T>(
 /// Runs `bootstrap` and `migrate` on `database`.
 fn build(database: &Database) -> Result<(), String> {
     for subcommand in ["bootstrap", "migrate"] {
-        let mut command =
-            Command::new(std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")));
+        let mut command = cargo::cargo();
         command
             .args([
                 "run",

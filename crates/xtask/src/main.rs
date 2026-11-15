@@ -5,6 +5,7 @@
 mod acronyms;
 mod alerts;
 mod boards;
+mod cargo;
 mod catalog;
 mod copy;
 mod crate_deps;

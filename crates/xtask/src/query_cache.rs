@@ -4,9 +4,7 @@
 //! sqlx-cli's own check against a database of its own (`migrated`), which every copy of
 //! `check-removable` builds from its own migrations.
 
-use std::{ffi::OsString, process::Command};
-
-use crate::{Finding, Outcome, migrated};
+use crate::{Finding, Outcome, cargo, migrated};
 
 /// The directory of the query cache.
 const CACHE: &str = ".sqlx/";
@@ -17,26 +15,23 @@ pub fn check() -> Outcome {
         let url = database
             .url("DATABASE_URL")
             .ok_or("DATABASE_URL isn't set: run the check through `just`, which reads .env")?;
-        let output =
-            Command::new(std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")))
-                .args([
-                    "sqlx",
-                    "prepare",
-                    "--check",
-                    "--workspace",
-                    "--",
-                    "--all-targets",
-                    "--locked",
-                ])
-                .env("DATABASE_URL", url)
-                .env_remove("SQLX_OFFLINE")
-                .current_dir(&database.root)
-                .output()
-                .map_err(|error| {
-                    format!(
-                        "can't run sqlx-cli; `just setup` names the version to install: {error}"
-                    )
-                })?;
+        let output = cargo::cargo()
+            .args([
+                "sqlx",
+                "prepare",
+                "--check",
+                "--workspace",
+                "--",
+                "--all-targets",
+                "--locked",
+            ])
+            .env("DATABASE_URL", url)
+            .env_remove("SQLX_OFFLINE")
+            .current_dir(&database.root)
+            .output()
+            .map_err(|error| {
+                format!("can't run sqlx-cli; `just setup` names the version to install: {error}")
+            })?;
         if output.status.success() {
             Ok(())
         } else {

@@ -12,6 +12,8 @@ use std::{
     time::SystemTime,
 };
 
+use crate::cargo;
+
 /// The bytes that the copies hold together, at most, when a check makes one: 60 gigabytes
 /// (OPS-21).
 const BOUND: u64 = 60 * 1024 * 1024 * 1024;
@@ -21,15 +23,15 @@ pub fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// Runs `program` with `args` in `directory`, with `environment` added, and fails unless it
-/// succeeds. It writes to the task's own output.
+/// Runs `program`, Cargo or `just`, with `args` in `directory`, with `environment` added, and
+/// fails unless it succeeds. It writes to the task's own output.
 pub fn run(
     directory: &Path,
     program: &str,
     args: &[&str],
     environment: &[(&str, &str)],
 ) -> Result<(), String> {
-    let status = Command::new(program)
+    let status = cargo::command(program)
         .args(args)
         .envs(environment.iter().copied())
         .current_dir(directory)

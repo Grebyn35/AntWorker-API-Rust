@@ -10,7 +10,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use serde_json::Value;
@@ -40,8 +39,7 @@ pub struct Packages {
 /// Reads the lock through `cargo metadata`.
 pub fn locked() -> Result<Packages, String> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let output = Command::new(cargo)
+    let output = crate::cargo::cargo()
         .args([
             "metadata",
             "--locked",
